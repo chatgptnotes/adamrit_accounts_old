@@ -1,6 +1,7 @@
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -114,6 +115,7 @@ export default function FlowInspector({ node, onChange }: FlowInspectorProps) {
             <SelectItem value="tag" className="text-xs">Tag / add note</SelectItem>
             <SelectItem value="set_status" className="text-xs">Set status</SelectItem>
             <SelectItem value="whatsapp" className="text-xs">WhatsApp (opt-in)</SelectItem>
+            <SelectItem value="email" className="text-xs">Email (opt-in)</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -133,7 +135,7 @@ export default function FlowInspector({ node, onChange }: FlowInspectorProps) {
             </SelectContent>
           </Select>
         </div>
-      ) : (
+      ) : cfg.type !== 'email' ? (
         <div className="space-y-1.5">
           <Label className="text-xs">Message / note</Label>
           <Input
@@ -143,7 +145,7 @@ export default function FlowInspector({ node, onChange }: FlowInspectorProps) {
             placeholder="Use {staff} {task} {status}"
           />
         </div>
-      )}
+      ) : null}
 
       {cfg.type === 'whatsapp' && (
         <div className="flex items-center justify-between rounded-md border p-2">
@@ -156,6 +158,53 @@ export default function FlowInspector({ node, onChange }: FlowInspectorProps) {
             onCheckedChange={c => onChange(node.id, { ...cfg, enabled: c })}
           />
         </div>
+      )}
+
+      {cfg.type === 'email' && (
+        <>
+          <div className="space-y-1.5">
+            <Label className="text-xs">To (email address)</Label>
+            <Input
+              className="h-8 text-xs"
+              type="email"
+              value={cfg.to ?? ''}
+              onChange={e => onChange(node.id, { ...cfg, to: e.target.value })}
+              placeholder="e.g. manager@hospital.com"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Subject</Label>
+            <Input
+              className="h-8 text-xs"
+              value={cfg.subject ?? ''}
+              onChange={e => onChange(node.id, { ...cfg, subject: e.target.value })}
+              placeholder="Use {staff} {task} {status}"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Message body</Label>
+            <Textarea
+              className="text-xs"
+              rows={4}
+              value={cfg.message ?? ''}
+              onChange={e => onChange(node.id, { ...cfg, message: e.target.value })}
+              placeholder="Use {staff}, {task}, {status}, {designation} as template variables"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Use {'{staff}'}, {'{task}'}, {'{status}'}, {'{designation}'} as template variables
+            </p>
+          </div>
+          <div className="flex items-center justify-between rounded-md border p-2">
+            <div>
+              <p className="text-xs font-medium">Send enabled</p>
+              <p className="text-[11px] text-muted-foreground">Off = logs intent only</p>
+            </div>
+            <Switch
+              checked={!!cfg.enabled}
+              onCheckedChange={c => onChange(node.id, { ...cfg, enabled: c })}
+            />
+          </div>
+        </>
       )}
     </div>
   );

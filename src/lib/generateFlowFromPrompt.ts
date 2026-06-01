@@ -25,10 +25,10 @@ export interface GeneratedFlow {
 
 const CONDITION_FIELDS = ['designation', 'suggestion_type', 'time_saved_mins'] as const;
 const CONDITION_OPS = ['eq', 'contains', 'gte'] as const;
-const ACTION_TYPES = ['notify', 'tag', 'set_status', 'whatsapp'] as const;
+const ACTION_TYPES = ['notify', 'tag', 'set_status', 'whatsapp', 'email'] as const;
 
 type RawCondition = { field?: string; op?: string; value?: string };
-type RawAction = { type?: string; message?: string; setStatus?: string };
+type RawAction = { type?: string; message?: string; setStatus?: string; to?: string; subject?: string };
 interface RawFlow {
   name?: string;
   explanation?: string;
@@ -81,13 +81,14 @@ Return ONLY valid JSON (no markdown, no code fences) of exactly this shape:
   "explanation": "one or two sentences describing what it does, addressed to the persona",
   "trigger": { "toStatus": "one of: suggested, in_progress, done, dismissed, any" },
   "conditions": [ { "field": "designation|suggestion_type|time_saved_mins", "op": "eq|contains|gte", "value": "string" } ],
-  "actions": [ { "type": "notify|tag|set_status|whatsapp", "message": "text (may use {staff} {task} {status})", "setStatus": "optional status for set_status" } ]
+  "actions": [ { "type": "notify|tag|set_status|whatsapp|email", "message": "text (may use {staff} {task} {status})", "setStatus": "optional status for set_status", "to": "email address (for email type only)", "subject": "email subject (for email type only, may use {staff} {task} {status})" } ]
 }
 
 Rules:
 - At least one action. Conditions may be an empty array.
 - suggestion_type values are one of: automate, reduce, delegate, keep.
-- Use whatsapp only if the user explicitly wants a message sent; keep messages concise.
+- Use whatsapp only if the user explicitly wants a WhatsApp message sent; keep messages concise.
+- Use email only if the user explicitly wants an email sent; provide a to address and subject.
 - Output a single valid JSON object.`;
 }
 
@@ -140,6 +141,11 @@ function mapToGraph(raw: RawFlow): GeneratedFlow {
     if (type === 'set_status') cfg.setStatus = coerceStatus(a.setStatus, 'in_progress');
     else cfg.message = (a.message ?? '').toString();
     if (type === 'whatsapp') cfg.enabled = false; // opt-in only
+    if (type === 'email') {
+      cfg.to = (a.to ?? '').toString();
+      cfg.subject = (a.subject ?? '').toString();
+      cfg.enabled = false; // opt-in only
+    }
     const id = `action-${i + 1}`;
     const label = type === 'set_status' ? `Set status → ${cfg.setStatus}` : type.charAt(0).toUpperCase() + type.slice(1);
     nodes.push({

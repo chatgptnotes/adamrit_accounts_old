@@ -118,6 +118,22 @@ async function runAction(
           : `WhatsApp action (disabled) — would send: ${msg || ctx.taskText}`,
       };
 
+    case 'email':
+      logActivity('task_flow_email_intent', {
+        flow: flow.name,
+        task: ctx.taskText,
+        to: cfg.to,
+        subject: cfg.subject,
+        enabled: !!cfg.enabled,
+      });
+      return {
+        flowName: flow.name,
+        kind: 'email',
+        message: cfg.enabled
+          ? `Email queued to ${cfg.to || '(no address)'}: ${cfg.subject || msg || ctx.taskText}`
+          : `Email action (disabled) — would send to ${cfg.to || '(no address)'}: ${cfg.subject || msg || ctx.taskText}`,
+      };
+
     default:
       return { flowName: flow.name, kind: cfg.type, message: 'Unknown action' };
   }
