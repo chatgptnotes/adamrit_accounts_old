@@ -1,0 +1,15 @@
+{
+  "name": "hope-hospital-email-automation",
+  "version": "1.0.0",
+  "description": "Scheduled email checker and reply drafter for info@hopehospital.com",
+  "private": true,
+  "scripts": {
+    "setup": "node setup-oauth.js",
+    "start": "node run.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.27.0",
+    "dotenv": "^16.5.0",
+    "googleapis": "^144.0.0"
+  }
+}

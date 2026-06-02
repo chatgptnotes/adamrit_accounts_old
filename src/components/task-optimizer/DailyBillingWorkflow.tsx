@@ -11,6 +11,7 @@ import {
   type Edge,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { BILLING_TASKS, type TaskStatus } from './billingTasks';
 
 const STATUS_COLORS: Record<string, string> = {
   todo: '#f1f5f9',
@@ -23,8 +24,6 @@ const STATUS_BORDER: Record<string, string> = {
   inprogress: '#fbbf24',
   done: '#86efac',
 };
-
-type TaskStatus = 'todo' | 'inprogress' | 'done';
 
 interface TaskNodeData {
   taskNo: number;
@@ -75,20 +74,7 @@ const headerStyle = (color: string) => ({
   textAlign: 'center' as const,
 });
 
-const TASKS = [
-  { id: '1',  taskNo: 1,  emoji: '🌙', title: 'Last Night Admission',        desc: 'Verify night shift admissions, room allocation & initial billing',   status: 'todo' as TaskStatus },
-  { id: '2',  taskNo: 2,  emoji: '📁', title: 'Corporate Doc Collection',    desc: 'Collect auth letters, ID proofs & insurance paperwork',              status: 'todo' as TaskStatus },
-  { id: '3a', taskNo: 3,  emoji: '👍', title: 'Dialysis Morning Verify',     desc: 'Biometric thumb auth for dialysis patients — morning session',       status: 'todo' as TaskStatus },
-  { id: '4',  taskNo: 4,  emoji: '📨', title: 'Corporate Intimation',        desc: 'Process new corporate referrals & notify departments',               status: 'todo' as TaskStatus },
-  { id: '5',  taskNo: 5,  emoji: '🧾', title: 'Discharge Billing',           desc: "Prepare & verify final bills for today's discharges",              status: 'todo' as TaskStatus },
-  { id: '6',  taskNo: 6,  emoji: '🏥', title: 'Yojana Preauth',              desc: 'Submit pre-auth requests with docs for Yojana patients',            status: 'todo' as TaskStatus },
-  { id: '7',  taskNo: 7,  emoji: '📧', title: 'Mail Check & Reply',          desc: 'Monitor official email, respond to billing & admission queries',    status: 'todo' as TaskStatus },
-  { id: '8',  taskNo: 8,  emoji: '🔄', title: 'Conservative Extension',      desc: 'Process extension requests for non-surgical conservative patients', status: 'todo' as TaskStatus },
-  { id: '9',  taskNo: 9,  emoji: '💉', title: 'Daily Dialysis Billing',      desc: 'Generate & verify daily dialysis bills with all charges',           status: 'todo' as TaskStatus },
-  { id: '10', taskNo: 10, emoji: '🏨', title: 'IPD Billing',                 desc: 'Manage complete IPD billing — verify charges before discharge',     status: 'todo' as TaskStatus },
-  { id: '11', taskNo: 11, emoji: '🔍', title: 'NMI Query Follow-up',         desc: 'Review NMI queries, collect info & coordinate for resolution',      status: 'todo' as TaskStatus },
-  { id: '3b', taskNo: 3,  emoji: '🌙👍', title: 'Dialysis Night Verify',    desc: 'Biometric thumb auth for dialysis patients — night session',        status: 'todo' as TaskStatus },
-];
+const TASKS = BILLING_TASKS;
 
 function buildNodes(statuses: Record<string, TaskStatus>, onChange: (id: string, s: TaskStatus) => void): Node[] {
   const makeTask = (t: typeof TASKS[0], x: number, y: number): Node => ({

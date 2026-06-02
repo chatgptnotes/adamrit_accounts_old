@@ -18,6 +18,8 @@ import { COMMON_TASKS } from './commonTasks';
 import FlowCanvas from './flow/FlowCanvas';
 import BillingWorkflowDiagram from './BillingWorkflowDiagram';
 import DailyBillingWorkflow from './DailyBillingWorkflow';
+import CorporateMailer from './CorporateMailer';
+import BillingDashboardModal from './BillingDashboardModal';
 
 // ── Static Email Automation Card ─────────────────────────────────────────────
 
@@ -191,7 +193,7 @@ const AutomationsPanel = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<TaskFlow | 'new' | 'email-template' | null>(null);
-  const [activeTab, setActiveTab] = useState<'daily' | 'diagram' | 'flows'>('daily');
+  const [activeTab, setActiveTab] = useState<'daily' | 'diagram' | 'flows' | 'mailer'>('daily');
 
   const { data: flows, isLoading, error } = useQuery({
     queryKey: ['task-optimizer-flows', hospitalType],
@@ -286,23 +288,35 @@ const AutomationsPanel = () => {
           >
             Automations
           </button>
+          <button
+            type="button"
+            className={`px-4 py-2 rounded-t-lg font-medium text-sm transition-colors ${activeTab === 'mailer' ? 'bg-white border border-b-white text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+            onClick={() => setActiveTab('mailer')}
+          >
+            Corporate Mailer
+          </button>
         </div>
-        {activeTab === 'flows' && (
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => setEditing('email-template')}>
-              <Mail className="mr-1.5 h-4 w-4" /> Email Template
-            </Button>
-            <Button size="sm" onClick={() => setEditing('new')}>
-              <Plus className="mr-1.5 h-4 w-4" /> New automation
-            </Button>
-          </div>
-        )}
+        <div className="flex gap-2">
+          {activeTab === 'daily' && <BillingDashboardModal />}
+          {activeTab === 'flows' && (
+            <>
+              <Button size="sm" variant="outline" onClick={() => setEditing('email-template')}>
+                <Mail className="mr-1.5 h-4 w-4" /> Email Template
+              </Button>
+              <Button size="sm" onClick={() => setEditing('new')}>
+                <Plus className="mr-1.5 h-4 w-4" /> New automation
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {activeTab === 'daily' ? (
         <DailyBillingWorkflow />
       ) : activeTab === 'diagram' ? (
         <BillingWorkflowDiagram />
+      ) : activeTab === 'mailer' ? (
+        <CorporateMailer />
       ) : (
         <>
           <div className="mb-2">
