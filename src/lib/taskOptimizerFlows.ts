@@ -21,14 +21,17 @@ export interface ConditionConfig {
   value: string;
 }
 
-export type ActionType = 'notify' | 'tag' | 'set_status' | 'whatsapp';
+export type ActionType = 'notify' | 'tag' | 'set_status' | 'whatsapp' | 'email';
 export interface ActionConfig {
   type: ActionType;
-  // notify/whatsapp: message; tag: note text; set_status: target status.
+  // notify/whatsapp/email: message; tag: note text; set_status: target status.
   message?: string;
   setStatus?: ActionStatus;
-  // whatsapp stays opt-in; live sends are never made without this + creds.
+  // whatsapp/email stay opt-in; live sends are never made without this + creds.
   enabled?: boolean;
+  // email-specific
+  to?: string;
+  subject?: string;
 }
 
 export type FlowNodeConfig = TriggerConfig | ConditionConfig | ActionConfig;
