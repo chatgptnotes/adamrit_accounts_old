@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Calendar, Loader2, ArrowLeft } from 'lucide-react';
 import { useCashBookEntries, useCashBookUsers, useCashBookVoucherTypes, useAllDailyTransactions, DailyTransaction } from '@/hooks/useCashBookQueries';
+import { usePaymentVouchers, voucherToEntry } from '@/hooks/usePaymentVouchers';
 import PatientTransactionModal from '@/components/PatientTransactionModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -79,6 +80,9 @@ const CashBook: React.FC = () => {
     from_date: fromDate,
     to_date: toDate
   });
+
+  // Payment vouchers (cash paid out) for this hospital → shown as Credit rows
+  const { data: paymentVouchers } = usePaymentVouchers(fromDate, toDate, hospitalConfig.name);
 
   // State for pharmacy credit payments (only for Hope hospital)
   const [pharmacyCreditPayments, setPharmacyCreditPayments] = useState<any[]>([]);
@@ -461,8 +465,13 @@ const CashBook: React.FC = () => {
       });
     }
 
+    // Add payment vouchers (cash paid out) as CREDIT rows, by voucher_date.
+    if (paymentVouchers && paymentVouchers.length > 0) {
+      paymentVouchers.forEach((v) => entries.push(voucherToEntry(v)));
+    }
+
     return entries;
-  }, [dailyTransactions, cashBookData, fromDate, pharmacyCreditPayments, pharmacyRefunds]);
+  }, [dailyTransactions, cashBookData, fromDate, pharmacyCreditPayments, pharmacyRefunds, paymentVouchers]);
 
   // Calculate totals for footer
   const totals = useMemo(() => {

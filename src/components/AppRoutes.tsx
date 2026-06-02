@@ -147,6 +147,7 @@ const Appointments = lazy(() => import("../pages/Appointments"));
 const TelephonyDashboard = lazy(() => import("../pages/TelephonyDashboard"));
 const PaymentQR = lazy(() => import("../pages/PaymentQR"));
 const QueueStatus = lazy(() => import("../pages/QueueStatus"));
+const CasualtyRegister = lazy(() => import("../pages/CasualtyRegister"));
 
 // Loading component
 const PageLoader = () => (
@@ -320,6 +321,7 @@ export const AppRoutes = () => {
         <Route path="/payment-qr" element={<Suspense fallback={<PageLoader />}><PaymentQR /></Suspense>} />
         <Route path="/queue-status" element={<QueueStatus />} />
         <Route path="/nephroplus" element={<Suspense fallback={<PageLoader />}><NephroPlus /></Suspense>} />
+        <Route path="/casualty-register" element={<Suspense fallback={<PageLoader />}><CasualtyRegister /></Suspense>} />
         {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
         <Route path="/master-data" element={<Suspense fallback={<PageLoader />}><MasterData /></Suspense>} />
         <Route path="*" element={<NotFound />} />

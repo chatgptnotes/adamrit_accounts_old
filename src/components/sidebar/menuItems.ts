@@ -117,6 +117,11 @@ export const menuItems: MenuItemDef[] = [
     icon: Cross,
   },
   {
+    title: "Casualty Register",
+    url: "/casualty-register",
+    icon: Cross,
+  },
+  {
     title: "CT / MRI",
     url: "/ct-mri",
     icon: Camera,

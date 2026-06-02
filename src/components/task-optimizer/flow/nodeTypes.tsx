@@ -1,66 +1,82 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Zap, Filter, Play } from 'lucide-react';
+import { Filter, CheckCircle2 } from 'lucide-react';
 import type { FlowNodeData } from '@/lib/taskOptimizerFlows';
 
-// JotForm-style step cards: a coloured header bar (icon + type) on top of a
-// white body with the step's label and a one-line summary. Handles are small
-// rounded dots, source on the right, target on the left.
-const KIND_STYLE = {
-  trigger: { header: 'bg-amber-500', body: 'border-amber-200', icon: Zap, tag: 'Trigger', handle: '!bg-amber-500' },
-  condition: { header: 'bg-violet-500', body: 'border-violet-200', icon: Filter, tag: 'Condition', handle: '!bg-violet-500' },
-  action: { header: 'bg-emerald-500', body: 'border-emerald-200', icon: Play, tag: 'Action', handle: '!bg-emerald-500' },
-} as const;
-
-function summarize(data: FlowNodeData): string {
+function getMessage(data: FlowNodeData): string {
   const c = data.config as unknown as Record<string, unknown>;
-  if (data.kind === 'trigger') return `status → ${c.toStatus ?? 'any'}`;
-  if (data.kind === 'condition') return `${c.field} ${c.op} "${c.value}"`;
+  if (data.kind === 'trigger') return `Fires when: status → ${c.toStatus ?? 'any'}`;
+  if (data.kind === 'condition') return `Only if: ${c.field} = "${c.value}"`;
   if (data.kind === 'action') {
-    if (c.type === 'set_status') return `set status → ${c.setStatus ?? 'in_progress'}`;
-    if (c.type === 'whatsapp') return `WhatsApp${c.enabled ? '' : ' (off)'}`;
-    return String(c.type ?? 'action');
+    const msg = String(c.message ?? '');
+    return msg.length > 100 ? msg.slice(0, 100) + '…' : msg;
   }
   return '';
 }
 
-const HANDLE_BASE = '!h-2.5 !w-2.5 !border-2 !border-white';
+const HANDLE_BASE = '!h-3.5 !w-3.5 !border-2 !border-white !rounded-full !shadow-sm';
 
-function BaseNode({ data, selected }: NodeProps) {
+// ── Trigger Node ────────────────────────────────────────────────────
+function TriggerNode({ data, selected }: NodeProps) {
   const d = data as FlowNodeData;
-  const style = KIND_STYLE[d.kind];
-  const Icon = style.icon;
   return (
-    <div
-      className={`w-[200px] overflow-hidden rounded-xl border bg-card shadow-md transition-shadow ${style.body} ${
-        selected ? 'ring-2 ring-primary ring-offset-2' : 'hover:shadow-lg'
-      }`}
-    >
-      {d.kind !== 'trigger' && (
-        <Handle type="target" position={Position.Left} className={`${HANDLE_BASE} ${style.handle}`} />
-      )}
-
-      {/* Header bar */}
-      <div className={`flex items-center gap-1.5 px-3 py-1.5 ${style.header}`}>
-        <Icon className="h-3.5 w-3.5 text-white" />
-        <span className="text-[10px] font-bold uppercase tracking-wide text-white">{style.tag}</span>
+    <div className={`w-[240px] rounded-2xl border-2 border-amber-300 bg-gradient-to-br from-amber-400 to-amber-500 shadow-lg transition-all ${selected ? 'ring-2 ring-amber-400 ring-offset-2' : 'hover:shadow-xl hover:-translate-y-0.5'}`}>
+      <Handle type="source" position={Position.Bottom} className={`${HANDLE_BASE} !bg-amber-500`} />
+      <div className="flex items-center gap-3 px-4 py-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/20 text-xl">
+          ⚡
+        </div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-amber-100">When</p>
+          <p className="text-sm font-bold text-white leading-snug">{d.label}</p>
+        </div>
       </div>
-
-      {/* Body */}
-      <div className="px-3 py-2">
-        <p className="text-sm font-semibold leading-tight text-foreground">{d.label}</p>
-        <p className="mt-0.5 truncate text-xs text-muted-foreground">{summarize(d)}</p>
-      </div>
-
-      {d.kind !== 'action' && (
-        <Handle type="source" position={Position.Right} className={`${HANDLE_BASE} ${style.handle}`} />
-      )}
     </div>
   );
 }
 
-// React Flow looks node components up by the node's `type` field.
+// ── Condition Node ──────────────────────────────────────────────────
+function ConditionNode({ data, selected }: NodeProps) {
+  const d = data as FlowNodeData;
+  return (
+    <div className={`w-[240px] rounded-2xl border-2 border-violet-300 bg-gradient-to-br from-violet-500 to-violet-600 shadow-lg transition-all ${selected ? 'ring-2 ring-violet-400 ring-offset-2' : 'hover:shadow-xl hover:-translate-y-0.5'}`}>
+      <Handle type="target" position={Position.Top} className={`${HANDLE_BASE} !bg-violet-500`} />
+      <Handle type="source" position={Position.Bottom} className={`${HANDLE_BASE} !bg-violet-500`} />
+      <div className="flex items-center gap-3 px-4 py-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/20">
+          <Filter className="h-5 w-5 text-white" />
+        </div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-violet-100">Only if</p>
+          <p className="text-sm font-bold text-white leading-snug">{d.label}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Action Node ─────────────────────────────────────────────────────
+function ActionNode({ data, selected }: NodeProps) {
+  const d = data as FlowNodeData;
+  const msg = getMessage(d);
+  return (
+    <div className={`w-[260px] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-md transition-all ${selected ? 'ring-2 ring-primary ring-offset-2 shadow-lg' : 'hover:shadow-lg hover:-translate-y-0.5'}`}>
+      <Handle type="target" position={Position.Top} className={`${HANDLE_BASE} !bg-emerald-400`} />
+      <Handle type="source" position={Position.Bottom} className={`${HANDLE_BASE} !bg-emerald-400`} />
+      <div className="flex items-start gap-3 px-3 py-3">
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 mt-0.5">
+          <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+        </div>
+        <div className="space-y-1 min-w-0">
+          <p className="text-sm font-semibold text-gray-800 leading-snug">{d.label}</p>
+          {msg && <p className="text-[11px] text-gray-500 leading-relaxed">{msg}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export const flowNodeTypes = {
-  trigger: BaseNode,
-  condition: BaseNode,
-  action: BaseNode,
+  trigger: TriggerNode,
+  condition: ConditionNode,
+  action: ActionNode,
 };

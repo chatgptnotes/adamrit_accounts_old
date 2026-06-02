@@ -3898,7 +3898,7 @@ const FinalBill = () => {
           mode_of_payment: finalPaymentMode,
           reason_of_discharge: finalPaymentReason || 'N/A',
           payment_remark: finalPaymentRemark || `Being cash received towards from pt. ${patientData?.name || billData?.name || 'Patient'} against R. No.:`,
-          payment_date: new Date().toISOString(), // Add payment_date as today's date
+          payment_date: finalPaymentDischargeDate, // user-picked discharge date drives cash-book date
           bank_account_id: finalPaymentSelectedBank || null,
           bank_account_name: bankAccounts.find(b => b.id === finalPaymentSelectedBank)?.account_name || null
         }, {

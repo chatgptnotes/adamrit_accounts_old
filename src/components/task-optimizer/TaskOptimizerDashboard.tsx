@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Sparkles, Loader2, ListChecks, BarChart3, Plus, CheckCircle2, Workflow } from 'lucide-react';
+import { Sparkles, Loader2, ListChecks, BarChart3, Plus, CheckCircle2, Workflow, FileText } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,7 +18,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { optimizeTasks, type TaskSuggestion } from '@/lib/optimizeTasks';
 import { SuggestionBadge } from './suggestionMeta';
-import { COMMON_TASKS } from './commonTasks';
+import { COMMON_TASKS, WORKFLOW_TEMPLATES } from './commonTasks';
 import SubmissionsList from './SubmissionsList';
 import InsightsPanel from './InsightsPanel';
 import AutomationsPanel from './AutomationsPanel';
@@ -237,6 +237,34 @@ const TaskOptimizerDashboard = () => {
         <AutomationsPanel />
       ) : (
         <>
+      {/* Templates */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <FileText className="h-4 w-4" />
+            Quick Templates
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-2">
+            {WORKFLOW_TEMPLATES.map(tpl => (
+              <button
+                key={tpl.id}
+                type="button"
+                onClick={() => {
+                  setDesignation(tpl.designation);
+                  setTasksText(tpl.tasks.join('\n'));
+                }}
+                className="flex flex-col items-start gap-0.5 rounded-lg border border-dashed px-3 py-2 text-left transition-colors hover:border-primary hover:bg-primary/5"
+              >
+                <span className="text-sm font-medium">{tpl.label}</span>
+                <span className="text-xs text-muted-foreground">{tpl.description}</span>
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Your details</CardTitle>

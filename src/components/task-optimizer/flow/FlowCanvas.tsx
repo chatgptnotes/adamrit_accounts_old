@@ -5,7 +5,7 @@ import {
   Background,
   BackgroundVariant,
   Controls,
-  MiniMap,
+
   MarkerType,
   addEdge,
   useNodesState,
@@ -256,7 +256,6 @@ function CanvasInner({
           >
             <Background variant={BackgroundVariant.Dots} gap={18} size={1.5} color="#cbd5e1" />
             <Controls showInteractive={false} />
-            <MiniMap pannable zoomable className="!hidden sm:!block" />
           </ReactFlow>
 
           {/* Floating inspector popup — only shown when a node is selected. */}

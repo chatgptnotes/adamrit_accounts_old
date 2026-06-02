@@ -13,6 +13,8 @@ import {
   deleteTaskFlow,
   makeStarterFlow,
   type TaskFlow,
+  type StoredNode,
+  type StoredEdge,
 } from '@/lib/taskOptimizerFlows';
 import { COMMON_TASKS } from './commonTasks';
 import FlowCanvas from './flow/FlowCanvas';
@@ -168,6 +170,97 @@ function makeEmailNotificationTemplate() {
 const ROLE_OPTIONS = Object.keys(COMMON_TASKS);
 const ALL_STAFF_LABEL = 'All staff';
 
+// ── Pre-built automation templates ──────────────────────────────────
+interface FlowTemplate {
+  id: string;
+  name: string;
+  role: string;
+  description: string;
+  nodes: StoredNode[];
+  edges: StoredEdge[];
+}
+
+const AUTOMATION_TEMPLATES: FlowTemplate[] = [
+  {
+    id: 'tpl-nurse-daily',
+    name: 'Nurse Daily Workflow',
+    role: 'Nursing',
+    description: '9-step OPD nurse checklist — notifies supervisor when each task is marked done',
+    nodes: [
+      { id: 'trigger-1',  type: 'trigger',   position: { x: 290, y: 0 },
+        data: { kind: 'trigger',   label: 'Shift Starts',                   config: { event: 'status_changed', toStatus: 'any' } } },
+      { id: 'condition-1',type: 'condition',  position: { x: 290, y: 130 },
+        data: { kind: 'condition', label: 'Role is Nursing',                 config: { field: 'designation', op: 'eq', value: 'Nursing' } } },
+      { id: 'action-1',   type: 'action',     position: { x: 270, y: 270 },
+        data: { kind: 'action', label: 'Check OPD Patient Files',            config: { type: 'notify', message: 'Check and verify all OPD patient files before shift starts. Ensure no file is missing or incomplete.' } } },
+      { id: 'action-2',   type: 'action',     position: { x: 270, y: 420 },
+        data: { kind: 'action', label: 'Prepare Dressing Room',              config: { type: 'notify', message: 'Clean dressing room. Change bedsheet and restock procedure tray.' } } },
+      { id: 'action-3',   type: 'action',     position: { x: 270, y: 570 },
+        data: { kind: 'action', label: 'Organize OPD Table for Doctor',      config: { type: 'notify', message: 'Clear and organize OPD table for the doctor.' } } },
+      { id: 'action-4',   type: 'action',     position: { x: 270, y: 720 },
+        data: { kind: 'action', label: 'Register Patient Details',           config: { type: 'notify', message: 'Register patient: Name, Address, Mobile Number and Panel Type (Private / Ayushman / ESIC) in OPD register.' } } },
+      { id: 'action-5',   type: 'action',     position: { x: 270, y: 870 },
+        data: { kind: 'action', label: 'Record BP & Pulse',                  config: { type: 'notify', message: 'Measure and record Blood Pressure and Pulse for every OPD patient.' } } },
+      { id: 'action-6',   type: 'action',     position: { x: 270, y: 1020 },
+        data: { kind: 'action', label: 'Inform Patient About Tests',         config: { type: 'notify', message: 'Inform patient about investigations and tests as per doctor\'s advice.' } } },
+      { id: 'action-7',   type: 'action',     position: { x: 270, y: 1170 },
+        data: { kind: 'action', label: 'Show Lab Reports to Doctor',         config: { type: 'notify', message: 'Once test reports arrive from lab, show them to the doctor immediately for review.' } } },
+      { id: 'action-8',   type: 'action',     position: { x: 270, y: 1320 },
+        data: { kind: 'action', label: 'Transfer Patient to Ward / ICU',     config: { type: 'notify', message: 'Note patient Registration Number and transfer patient to General Ward / ICU / Private Room as per doctor order.' } } },
+      { id: 'action-9',   type: 'action',     position: { x: 270, y: 1470 },
+        data: { kind: 'action', label: 'Update Casualty Register',           config: { type: 'notify', message: 'Update and maintain Casualty Register for all emergency patients throughout the shift.' } } },
+    ],
+    edges: [
+      { id: 'e1', source: 'trigger-1', target: 'condition-1' },
+      { id: 'e2', source: 'condition-1', target: 'action-1' },
+      { id: 'e3', source: 'action-1', target: 'action-2' },
+      { id: 'e4', source: 'action-2', target: 'action-3' },
+      { id: 'e5', source: 'action-3', target: 'action-4' },
+      { id: 'e6', source: 'action-4', target: 'action-5' },
+      { id: 'e7', source: 'action-5', target: 'action-6' },
+      { id: 'e8', source: 'action-6', target: 'action-7' },
+      { id: 'e9', source: 'action-7', target: 'action-8' },
+      { id: 'e10', source: 'action-8', target: 'action-9' },
+    ],
+  },
+  {
+    id: 'tpl-vitals-alert',
+    name: 'Vitals Recorded Alert',
+    role: 'Nursing',
+    description: 'When nurse records BP/Pulse — auto-notify doctor to review patient vitals',
+    nodes: [
+      { id: 'trigger-1', type: 'trigger', position: { x: 80, y: 160 },
+        data: { kind: 'trigger', label: 'When status changes', config: { event: 'status_changed', toStatus: 'any' } } },
+      { id: 'condition-1', type: 'condition', position: { x: 340, y: 160 },
+        data: { kind: 'condition', label: 'Role is Nursing', config: { field: 'designation', op: 'eq', value: 'Nursing' } } },
+      { id: 'action-1', type: 'action', position: { x: 600, y: 160 },
+        data: { kind: 'action', label: 'Notify Doctor', config: { type: 'notify', message: 'Patient vitals recorded. Please review BP and pulse in OPD.' } } },
+    ],
+    edges: [
+      { id: 'e1', source: 'trigger-1', target: 'condition-1' },
+      { id: 'e2', source: 'condition-1', target: 'action-1' },
+    ],
+  },
+  {
+    id: 'tpl-billing-discharge',
+    name: 'Billing on Discharge',
+    role: 'Billing',
+    description: 'Notify billing staff automatically when patient is ready for discharge',
+    nodes: [
+      { id: 'trigger-1', type: 'trigger', position: { x: 80, y: 160 },
+        data: { kind: 'trigger', label: 'When task marked Done', config: { event: 'status_changed', toStatus: 'done' } } },
+      { id: 'condition-1', type: 'condition', position: { x: 340, y: 160 },
+        data: { kind: 'condition', label: 'Role is Billing', config: { field: 'designation', op: 'eq', value: 'Billing' } } },
+      { id: 'action-1', type: 'action', position: { x: 600, y: 160 },
+        data: { kind: 'action', label: 'Notify Billing Team', config: { type: 'notify', message: 'Patient ready for final bill. Please process discharge billing.' } } },
+    ],
+    edges: [
+      { id: 'e1', source: 'trigger-1', target: 'condition-1' },
+      { id: 'e2', source: 'condition-1', target: 'action-1' },
+    ],
+  },
+];
+
 // Group flows by their role, "All staff" (null role) last, each group's flows
 // kept in their existing date-desc order.
 function groupByRole(flows: TaskFlow[]): Array<{ role: string; flows: TaskFlow[] }> {
@@ -192,8 +285,9 @@ const AutomationsPanel = () => {
   const { hospitalType } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [editing, setEditing] = useState<TaskFlow | 'new' | 'email-template' | null>(null);
+  const [editing, setEditing] = useState<TaskFlow | 'new' | 'email-template' | FlowTemplate | null>(null);
   const [activeTab, setActiveTab] = useState<'daily' | 'diagram' | 'flows' | 'mailer'>('daily');
+  const loadTemplate = (tpl: FlowTemplate) => setEditing(tpl);
 
   const { data: flows, isLoading, error } = useQuery({
     queryKey: ['task-optimizer-flows', hospitalType],
@@ -239,20 +333,22 @@ const AutomationsPanel = () => {
     const emailTemplate = makeEmailNotificationTemplate();
     const isNew = editing === 'new';
     const isEmailTemplate = editing === 'email-template';
-    const isExisting = !isNew && !isEmailTemplate;
+    const isTpl = !isNew && !isEmailTemplate && typeof editing === 'object' && editing !== null && !('created_at' in editing);
+    const isExisting = !isNew && !isEmailTemplate && !isTpl;
+    const flow = isExisting ? editing as TaskFlow : null;
     return (
       <FlowCanvas
-        initialName={isExisting ? (editing as TaskFlow).name : isEmailTemplate ? emailTemplate.name : 'New automation'}
-        initialEnabled={isExisting ? (editing as TaskFlow).enabled : isEmailTemplate ? emailTemplate.enabled : true}
-        initialRole={isExisting ? (editing as TaskFlow).role : null}
-        initialNodes={isExisting ? (editing as TaskFlow).nodes : isEmailTemplate ? emailTemplate.nodes : starter.nodes}
-        initialEdges={isExisting ? (editing as TaskFlow).edges : isEmailTemplate ? emailTemplate.edges : starter.edges}
+        initialName={isExisting ? flow!.name : isEmailTemplate ? emailTemplate.name : isTpl ? (editing as FlowTemplate).name : 'New automation'}
+        initialEnabled={isExisting ? flow!.enabled : isEmailTemplate ? emailTemplate.enabled : true}
+        initialRole={isExisting ? flow!.role : isTpl ? (editing as FlowTemplate).role : null}
+        initialNodes={isExisting ? flow!.nodes : isEmailTemplate ? emailTemplate.nodes : isTpl ? (editing as FlowTemplate).nodes : starter.nodes}
+        initialEdges={isExisting ? flow!.edges : isEmailTemplate ? emailTemplate.edges : isTpl ? (editing as FlowTemplate).edges : starter.edges}
         roleOptions={ROLE_OPTIONS}
         saving={saveMutation.isPending}
         onBack={() => setEditing(null)}
         onSave={data =>
           saveMutation.mutate({
-            ...(isExisting ? { id: (editing as TaskFlow).id } : {}),
+            ...(isExisting && flow ? { id: flow.id } : {}),
             hospitalType: hospitalType ?? null,
             ...data,
           })
@@ -264,6 +360,35 @@ const AutomationsPanel = () => {
   // ── List ──
   return (
     <div className="space-y-4">
+
+      {/* Templates (from main) */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <FileText className="h-4 w-4" /> Templates
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {AUTOMATION_TEMPLATES.map(tpl => (
+              <button
+                key={tpl.id}
+                type="button"
+                onClick={() => loadTemplate(tpl)}
+                className="flex flex-col items-start gap-2 rounded-lg border border-dashed p-3 text-left transition-colors hover:border-primary hover:bg-primary/5"
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-sm font-semibold">{tpl.name}</span>
+                  <Badge variant="outline" className="text-xs">{tpl.role}</Badge>
+                </div>
+                <span className="text-xs text-muted-foreground leading-relaxed">{tpl.description}</span>
+                <span className="text-xs text-primary font-medium">Use template →</span>
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Tab bar */}
       <div className="flex items-center justify-between">
         <div className="flex gap-1 border-b border-slate-200">

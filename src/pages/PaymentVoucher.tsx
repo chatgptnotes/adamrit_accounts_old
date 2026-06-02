@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -56,6 +57,8 @@ const emptyForm = () => ({
 });
 
 const PaymentVoucher = () => {
+  const { hospitalConfig } = useAuth();
+  const hospitalType = hospitalConfig.name;
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
 
@@ -72,6 +75,7 @@ const PaymentVoucher = () => {
       const { data, error } = await (supabase as any)
         .from('payment_vouchers')
         .select('*')
+        .eq('hospital_type', hospitalType)
         .gte('voucher_date', fromDate)
         .lte('voucher_date', toDate)
         .order('voucher_date', { ascending: false })
@@ -84,7 +88,7 @@ const PaymentVoucher = () => {
     } finally {
       setLoading(false);
     }
-  }, [fromDate, toDate]);
+  }, [fromDate, toDate, hospitalType]);
 
   useEffect(() => {
     loadVouchers();
@@ -132,6 +136,7 @@ const PaymentVoucher = () => {
         amount,
         purpose: form.purpose.trim() || null,
         paid_by: form.paidBy.trim() || null,
+        hospital_type: hospitalType,
       });
       if (error) throw error;
       toast.success(`Voucher ${voucher_no} saved`);
