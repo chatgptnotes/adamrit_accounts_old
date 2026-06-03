@@ -103,16 +103,24 @@ const PaymentVoucher = () => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  // Voucher number is human-readable and unique-per-day: PV-YYYYMMDD-NNN
+  // Voucher number is human-readable and unique-per-day: PV-YYYYMMDD-NNN.
+  // Derive next suffix from the MAX existing voucher_no for that date so a
+  // prior deletion can't recycle a number that still exists (voucher_no is
+  // globally UNIQUE, so count-based numbering collides after any delete).
   const nextVoucherNo = async (date: string): Promise<string> => {
     const datePart = date.replace(/-/g, '');
-    const { count, error } = await (supabase as any)
+    const prefix = `PV-${datePart}-`;
+    const { data, error } = await (supabase as any)
       .from('payment_vouchers')
-      .select('*', { count: 'exact', head: true })
-      .eq('voucher_date', date);
+      .select('voucher_no')
+      .like('voucher_no', `${prefix}%`)
+      .order('voucher_no', { ascending: false })
+      .limit(1);
     if (error) throw error;
-    const seq = String((count ?? 0) + 1).padStart(3, '0');
-    return `PV-${datePart}-${seq}`;
+    const lastNo = data?.[0]?.voucher_no as string | undefined;
+    const lastSeq = lastNo ? parseInt(lastNo.slice(prefix.length), 10) : 0;
+    const seq = String((Number.isFinite(lastSeq) ? lastSeq : 0) + 1).padStart(3, '0');
+    return `${prefix}${seq}`;
   };
 
   const handleSave = async (): Promise<void> => {

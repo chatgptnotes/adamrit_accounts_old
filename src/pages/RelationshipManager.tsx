@@ -8,8 +8,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Plus, Search, Users, EyeOff, Eye, Phone, Edit, Upload, FileDown } from 'lucide-react';
 import { AddItemDialog } from '@/components/AddItemDialog';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import ReferralRegisterTable from '@/components/relationship/ReferralRegisterTable';
 import { useToast } from '@/hooks/use-toast';
 import { usePermissions } from '@/hooks/usePermissions';
+import { useAuth } from '@/contexts/AuthContext';
 import { logActivity, getDeviceInfo } from '@/lib/activity-logger';
 
 interface RelationshipManagerType {
@@ -22,6 +25,14 @@ interface RelationshipManagerType {
   updated_at: string;
 }
 
+// Only these users (plus any superadmin) may access the Referral Register tab —
+// add rows, edit, delete and generate the PDF. Compared lowercase against the
+// logged-in user's email.
+const REFERRAL_REGISTER_EMAILS = [
+  'sanjaykhobragade46@gmail.com',
+  'ganeshsharnagat47@gmail.com',
+];
+
 const RelationshipManager = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showHidden, setShowHidden] = useState(false);
@@ -31,7 +42,14 @@ const RelationshipManager = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { canEditMasters } = usePermissions();
+  const { user } = useAuth();
   const importInputRef = useRef<HTMLInputElement>(null);
+
+  // Referral Register is restricted to a fixed allowlist of users (+ superadmin).
+  const canAccessReferralRegister =
+    user?.role === 'superadmin' ||
+    user?.role === 'super_admin' ||
+    REFERRAL_REGISTER_EMAILS.includes((user?.email || '').toLowerCase());
 
   const { data: managers = [], isLoading } = useQuery({
     queryKey: ['relationship-managers', showHidden],
@@ -405,6 +423,15 @@ const RelationshipManager = () => {
           </p>
         </div>
 
+        <Tabs defaultValue="managers" className="w-full">
+          <TabsList className="mb-6">
+            <TabsTrigger value="managers">Managers</TabsTrigger>
+            {canAccessReferralRegister && (
+              <TabsTrigger value="referral">Referral Register</TabsTrigger>
+            )}
+          </TabsList>
+
+          <TabsContent value="managers">
         <div className="mb-6 flex flex-col sm:flex-row gap-4 items-center justify-between">
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
@@ -527,6 +554,14 @@ const RelationshipManager = () => {
             </p>
           </div>
         )}
+          </TabsContent>
+
+          {canAccessReferralRegister && (
+            <TabsContent value="referral">
+              <ReferralRegisterTable />
+            </TabsContent>
+          )}
+        </Tabs>
 
         <AddItemDialog
           isOpen={isAddDialogOpen}
