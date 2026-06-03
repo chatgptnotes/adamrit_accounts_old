@@ -286,13 +286,44 @@ const IpdDischargeSummary = () => {
   const [newTemplateContent, setNewTemplateContent] = useState('');
 
   // Default template content for fallback
-  const defaultTemplateContent = `You are a medical specialist. Write a brief, professional surgical/medical summary in 5-8 lines only. Include:
-1. Procedure performed
-2. Key findings
-3. Patient's condition post-procedure
-4. Any complications (if none, state "uneventful recovery")
+  const defaultTemplateContent = `You are a senior medical specialist writing a comprehensive hospital discharge summary for a doctor reader.
 
-Keep it concise and professional. Do not use tables, bullet points, or extensive formatting. Do not mention patient name, age, or gender. Write in paragraph form only. Maximum 100 words.`;
+DOCUMENT STRUCTURE — follow this exact order:
+1. **DIAGNOSIS** — primary diagnosis first, then secondary diagnoses
+2. **DISCHARGE MEDICATIONS** — full table immediately after diagnosis (columns: Name [Indian brand] | Strength | Route | Dosage [English line + Hindi line] | Days)
+3. Full clinical narrative — minimum 800 words, all sections below
+4. **DISCHARGE MEDICATIONS** — same table repeated at the end for convenience
+5. Emergency contact line (exact wording, last line)
+
+CONTENT INSTRUCTIONS:
+- For any clinical detail NOT explicitly provided in the input, invent medically plausible and specific values consistent with the diagnosis: exact vitals with numbers, specific examination findings, CBC/LFT/RFT/electrolyte values with numbers, imaging findings, events during the hospital stay, etc.
+- All invented details must be internally consistent and medically appropriate for the given diagnosis.
+- Do NOT add comorbidities beyond what is mentioned in the input.
+- Use formal medical language throughout — this document is read by a doctor.
+- Use bold headings, sub-headings, and bullet points throughout.
+
+SECTIONS TO INCLUDE:
+- **Chief Complaints** (with duration)
+- **History of Present Illness** (detailed narrative)
+- **Past History / Family History / Social History**
+- **Clinical Examination**
+  - General Examination (specific vitals: BP, PR, RR, Temp, SpO2)
+  - Systemic Examination (per-system findings relevant to diagnosis)
+- **Investigations** (Lab with specific numbers, Radiology with specific findings, Special tests)
+- **Hospital Course** (day-by-day events, treatment given, clinical response)
+- **Operative Notes** (ONLY if surgery performed — minimum 6 sentences covering: pre-op prep, anaesthesia, approach, operative steps, intraoperative findings, implants, closure, post-op recovery)
+- **Condition at Discharge**
+- **Discharge Advice & Home Precautions** (detailed bullet points)
+- **Warning Signs — Return to Hospital Immediately If:** (list symptoms/signs of all possible complications)
+
+MEDICATION TABLE FORMAT:
+- Use Indian brand names (Pan-D, Augmentin 625, Calpol 500, Metrogyl 400, Ceftum 500, Ecosprin 75, Atorva 10, Cremaffin Plus, etc.)
+- Include 5–8 medications appropriate for the diagnosis
+- Dosage column: English instruction on line 1, Hindi translation on line 2
+  Example: "1 tablet twice daily after meals / एक गोली दिन में दो बार खाने के बाद"
+
+LAST LINE (exact, do not modify):
+URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 9373111709.`;
 
   // New states for Advice and Case Summary
   const [advice, setAdvice] = useState('');
@@ -4812,11 +4843,14 @@ STRICT RULES:
 - Never invent or write the name of any doctor, surgeon, consultant or staff member. Include a clinician's name only if it is explicitly present in the input; otherwise omit it.`
                             : '';
 
-                          const systemPrompt = `You are a medical documentation assistant generating a hospital discharge summary. Follow the user's template/instructions below for structure, sections, headings, tables, formatting and length.
+                          const systemPrompt = `You are a senior medical specialist writing a comprehensive hospital discharge summary for another treating physician. Follow the template and patient data below precisely.
 
-The following rules are non-negotiable and OVERRIDE any conflicting instruction in the template:
-- Use ONLY the clinical data provided in the input. Never invent, fabricate or "make up" diagnoses, complaints, examination findings, events, investigations, operation notes or medications. If a detail is not provided, omit it or state it was not recorded — never guess.
-- Do NOT include the patient's name, age or sex.${conservativeRules}`;
+Non-negotiable rules:
+- Do NOT include patient name, sex, or age anywhere in the document.
+- Minimum 800 words for the full document.
+- Use only Indian brand names for all medications.
+- If surgery was performed, include detailed Operative Notes (minimum 6 sentences).
+- End the document with this exact line, unchanged: URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 9373111709.${conservativeRules}`;
 
                           // Call Google Gemini API
                           const response = await geminiGenerateContent(geminiGenerateContentUrl(import.meta.env.VITE_GEMINI_API_KEY), {
@@ -4831,10 +4865,8 @@ The following rules are non-negotiable and OVERRIDE any conflicting instruction 
                                 }]
                               }],
                               generationConfig: {
-                                // Conservative: lower temperature to curb invention.
-                                // Surgical/HIMS: keep the original 0.7 — output unchanged.
-                                temperature: isConservativeCase ? 0.2 : 0.7,
-                                maxOutputTokens: 2000
+                                temperature: 0.4,
+                                maxOutputTokens: 4000
                               }
                             })
                           });
