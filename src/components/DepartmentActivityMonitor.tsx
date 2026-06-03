@@ -1,4 +1,5 @@
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useDepartmentActivity } from '@/hooks/useDepartmentActivity';
 
 /**
@@ -53,12 +54,14 @@ export const DepartmentActivityMonitor = () => {
         </h3>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {departments.map(d => (
-            <div
+            <Link
               key={d.key}
-              className={`flex items-center gap-3 rounded-2xl border p-3 ${
+              to={d.route}
+              title={`Open ${d.label}`}
+              className={`flex items-center gap-3 rounded-2xl border p-3 transition-transform hover:shadow-md active:scale-[0.98] ${
                 d.entered
-                  ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-700'
-                  : 'border-red-500/60 bg-red-500/10 text-red-700'
+                  ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20'
+                  : 'border-red-500/60 bg-red-500/10 text-red-700 hover:bg-red-500/20'
               }`}
             >
               {d.entered ? (
@@ -74,7 +77,7 @@ export const DepartmentActivityMonitor = () => {
                   {d.entered ? `${d.count} ${d.count === 1 ? 'entry' : 'entries'}` : 'No data entered today'}
                 </div>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       </div>

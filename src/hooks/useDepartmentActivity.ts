@@ -19,6 +19,7 @@ export interface DepartmentActivity {
   label: string;
   count: number;
   entered: boolean;
+  route: string;
 }
 
 // Untyped client — several of these tables are absent from the stale generated
@@ -80,13 +81,13 @@ export const useDepartmentActivity = (enabled: boolean = true) => {
       ]);
 
       const departments: DepartmentActivity[] = [
-        { key: 'lab', label: 'Lab', count: lab },
-        { key: 'radiology', label: 'Radiology', count: radiology },
-        { key: 'pharmacy', label: 'Pharmacy', count: pharmacy },
-        { key: 'ot', label: 'Operation Theatre', count: ot },
-        { key: 'nursing', label: 'Nursing', count: nursing },
-        { key: 'accounts', label: 'Accounts', count: accounts },
-        { key: 'collections', label: 'Collections', count: advance + finalPay },
+        { key: 'lab', label: 'Lab', count: lab, route: '/lab' },
+        { key: 'radiology', label: 'Radiology', count: radiology, route: '/radiology' },
+        { key: 'pharmacy', label: 'Pharmacy', count: pharmacy, route: '/pharmacy' },
+        { key: 'ot', label: 'Operation Theatre', count: ot, route: '/ot' },
+        { key: 'nursing', label: 'Nursing', count: nursing, route: '/nursing' },
+        { key: 'accounts', label: 'Accounts', count: accounts, route: '/accounting' },
+        { key: 'collections', label: 'Collections', count: advance + finalPay, route: '/daily-payment-allocation' },
       ].map(d => ({ ...d, entered: d.count > 0 }));
 
       return departments;
