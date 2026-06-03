@@ -27,6 +27,11 @@ export const menuItems: MenuItemDef[] = [
     icon: LayoutDashboard,
   },
   {
+    title: "Reports",
+    url: "/reports-center",
+    icon: FileText,
+  },
+  {
     title: "Patient Dashboard",
     url: "/patient-dashboard",
     icon: Users,
