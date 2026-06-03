@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Plus, Search, Users, EyeOff, Eye, Phone, Edit, Upload, FileDown } from 'lucide-react';
 import { AddItemDialog } from '@/components/AddItemDialog';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import ReferralRegisterTable from '@/components/relationship/ReferralRegisterTable';
 import { useToast } from '@/hooks/use-toast';
 import { usePermissions } from '@/hooks/usePermissions';
 import { logActivity, getDeviceInfo } from '@/lib/activity-logger';
@@ -405,6 +407,13 @@ const RelationshipManager = () => {
           </p>
         </div>
 
+        <Tabs defaultValue="managers" className="w-full">
+          <TabsList className="mb-6">
+            <TabsTrigger value="managers">Managers</TabsTrigger>
+            <TabsTrigger value="referral">Referral Register</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="managers">
         <div className="mb-6 flex flex-col sm:flex-row gap-4 items-center justify-between">
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
@@ -527,6 +536,12 @@ const RelationshipManager = () => {
             </p>
           </div>
         )}
+          </TabsContent>
+
+          <TabsContent value="referral">
+            <ReferralRegisterTable />
+          </TabsContent>
+        </Tabs>
 
         <AddItemDialog
           isOpen={isAddDialogOpen}
