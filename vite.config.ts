@@ -19,7 +19,11 @@ export default defineConfig(({ mode }) => ({
     // scope; this exists so Chrome/Android offers "Install" and the installed
     // app launches without a blank screen.
     VitePWA({
-      registerType: "prompt",
+      // autoUpdate (not "prompt"): the new service worker activates and the page
+      // reloads automatically when a deploy ships, so users never get stuck on a
+      // stale cached bundle (which caused 404s on newly-added routes). Pairs with
+      // skipWaiting + clientsClaim below.
+      registerType: "autoUpdate",
       injectRegister: "auto",
       manifest: false,
       includeAssets: [
@@ -35,6 +39,7 @@ export default defineConfig(({ mode }) => ({
         navigateFallbackDenylist: [/^\/api\//],
         cleanupOutdatedCaches: true,
         clientsClaim: true,
+        skipWaiting: true,
         // Allow the larger vendor chunks (pdf/ckeditor) into the precache so the
         // installed app launches fully offline-capable for its shell.
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,

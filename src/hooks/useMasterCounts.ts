@@ -34,6 +34,7 @@ export const MASTER_TABLE_BY_TITLE: Record<string, string> = {
   'Ayushman RMOs': 'ayushman_rmos',
   'Corporate Master': 'corporate_master',
   'Location Master': 'corporate_areas',
+  'Users': 'User',
   'User Management': 'User',
 };
 

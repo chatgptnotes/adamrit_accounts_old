@@ -97,11 +97,6 @@ export const menuItems: MenuItemDef[] = [
     icon: UserPlus,
   },
   {
-    title: "Users",
-    url: "/users",
-    icon: UserCog,
-  },
-  {
     title: "Operation Theatre",
     url: "/ot",
     icon: Scissors,
@@ -387,6 +382,12 @@ export const menuItems: MenuItemDef[] = [
     title: "Location Master",
     url: "/location-master",
     icon: MapPin,
+    section: 'masters',
+  },
+  {
+    title: "Users",
+    url: "/users",
+    icon: UserCog,
     section: 'masters',
   },
   {
