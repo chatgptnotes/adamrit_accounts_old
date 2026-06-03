@@ -23,29 +23,24 @@ interface ReferralRow {
   patient_name: string;
   paid_amount: number;
   consultant: string | null;
-  referral_percent: number;
   referral_name: string | null;
   referral_amount: number;
   sort_order: number;
 }
 
-// Fields a user types directly. Referral Amount + Sr.No are derived, never typed.
+// Fields a user types directly. Sr.No is derived; everything else is manual.
 type EditableField =
   | 'date_of_registration'
   | 'patient_name'
   | 'paid_amount'
   | 'consultant'
-  | 'referral_percent'
-  | 'referral_name';
+  | 'referral_name'
+  | 'referral_amount';
 
 const toNumber = (value: string | number | null | undefined): number => {
   const n = typeof value === 'number' ? value : parseFloat(String(value ?? ''));
   return Number.isFinite(n) ? n : 0;
 };
-
-// Referral Amount is auto-calculated: Paid Amount x Referral %.
-const calcReferralAmount = (paidAmount: number, referralPercent: number): number =>
-  Math.round(paidAmount * (referralPercent / 100) * 100) / 100;
 
 const formatMoney = (value: number): string =>
   value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -105,7 +100,6 @@ const ReferralRegisterTable = () => {
           patient_name: row.patient_name,
           paid_amount: row.paid_amount,
           consultant: row.consultant || null,
-          referral_percent: row.referral_percent,
           referral_name: row.referral_name || null,
           referral_amount: row.referral_amount,
         })
@@ -136,22 +130,13 @@ const ReferralRegisterTable = () => {
     },
   });
 
-  // Update one field in local state. Numeric edits also recompute Referral Amount.
+  // Update one field in local state. Money fields are parsed to numbers.
   const handleChange = (id: string, field: EditableField, value: string) => {
     setRows((prev) =>
       prev.map((row) => {
         if (row.id !== id) return row;
-        const isNumeric =
-          field === 'paid_amount' || field === 'referral_percent';
-        const updated: ReferralRow = {
-          ...row,
-          [field]: isNumeric ? toNumber(value) : value,
-        };
-        updated.referral_amount = calcReferralAmount(
-          updated.paid_amount,
-          updated.referral_percent
-        );
-        return updated;
+        const isNumeric = field === 'paid_amount' || field === 'referral_amount';
+        return { ...row, [field]: isNumeric ? toNumber(value) : value };
       })
     );
   };
@@ -196,10 +181,9 @@ const ReferralRegisterTable = () => {
       { label: 'Date of Regi.', w: 28, align: 'left' },
       { label: 'Patient Name', w: 50, align: 'left' },
       { label: 'Paid Amount', w: 32, align: 'right' },
-      { label: 'Consultant', w: 45, align: 'left' },
-      { label: 'Referral %', w: 24, align: 'right' },
-      { label: 'Referral Name', w: 50, align: 'left' },
-      { label: 'Referral Amount', w: 34, align: 'right' },
+      { label: 'Consultant', w: 50, align: 'left' },
+      { label: 'Referral Name', w: 55, align: 'left' },
+      { label: 'Referral Amount', w: 38, align: 'right' },
     ];
     const xs: number[] = [];
     cols.reduce((x, c) => {
@@ -249,9 +233,8 @@ const ReferralRegisterTable = () => {
       cellText(row.patient_name || '-', 2, y);
       cellText(formatMoney(toNumber(row.paid_amount)), 3, y);
       cellText(row.consultant || '-', 4, y);
-      cellText(`${toNumber(row.referral_percent)}%`, 5, y);
-      cellText(row.referral_name || '-', 6, y);
-      cellText(formatMoney(toNumber(row.referral_amount)), 7, y);
+      cellText(row.referral_name || '-', 5, y);
+      cellText(formatMoney(toNumber(row.referral_amount)), 6, y);
       y += 6;
     });
 
@@ -263,7 +246,7 @@ const ReferralRegisterTable = () => {
     doc.setFont('helvetica', 'bold');
     cellText('Total Amount', 2, y);
     cellText(formatMoney(totals.paid), 3, y);
-    cellText(formatMoney(totals.referral), 7, y);
+    cellText(formatMoney(totals.referral), 6, y);
 
     doc.save(`referral_register_${new Date().toISOString().split('T')[0]}.pdf`);
   };
@@ -274,7 +257,7 @@ const ReferralRegisterTable = () => {
         <div>
           <h2 className="text-xl font-semibold text-primary">Referral Register</h2>
           <p className="text-sm text-muted-foreground">
-            Add rows manually. Sr. No, Referral Amount and totals are calculated automatically.
+            Add rows manually. Sr. No and totals are calculated automatically.
           </p>
         </div>
         <div className="flex gap-2">
@@ -298,7 +281,6 @@ const ReferralRegisterTable = () => {
               <TableHead className="min-w-[160px]">Patient Name</TableHead>
               <TableHead className="min-w-[120px] text-right">Paid Amount</TableHead>
               <TableHead className="min-w-[140px]">Consultant</TableHead>
-              <TableHead className="min-w-[110px] text-right">Referral % (25% / +%)</TableHead>
               <TableHead className="min-w-[160px]">Referral Name</TableHead>
               <TableHead className="min-w-[130px] text-right">Referral Amount</TableHead>
               <TableHead className="w-12" />
@@ -307,13 +289,13 @@ const ReferralRegisterTable = () => {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                   Loading…
                 </TableCell>
               </TableRow>
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                   No entries yet. Click “Add Row” to start.
                 </TableCell>
               </TableRow>
@@ -357,24 +339,21 @@ const ReferralRegisterTable = () => {
                   </TableCell>
                   <TableCell>
                     <Input
-                      type="number"
-                      className="text-right"
-                      value={row.referral_percent || ''}
-                      placeholder="0"
-                      onChange={(e) => handleChange(row.id, 'referral_percent', e.target.value)}
-                      onBlur={() => handleBlur(row.id)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
                       value={row.referral_name ?? ''}
                       placeholder="Referral name"
                       onChange={(e) => handleChange(row.id, 'referral_name', e.target.value)}
                       onBlur={() => handleBlur(row.id)}
                     />
                   </TableCell>
-                  <TableCell className="text-right font-medium tabular-nums bg-muted/40">
-                    {formatMoney(toNumber(row.referral_amount))}
+                  <TableCell>
+                    <Input
+                      type="number"
+                      className="text-right"
+                      value={row.referral_amount || ''}
+                      placeholder="0"
+                      onChange={(e) => handleChange(row.id, 'referral_amount', e.target.value)}
+                      onBlur={() => handleBlur(row.id)}
+                    />
                   </TableCell>
                   <TableCell>
                     <Button
@@ -401,7 +380,6 @@ const ReferralRegisterTable = () => {
                   {formatMoney(totals.paid)}
                 </TableCell>
                 <TableCell colSpan={2} />
-                <TableCell />
                 <TableCell className="text-right font-semibold tabular-nums">
                   {formatMoney(totals.referral)}
                 </TableCell>
