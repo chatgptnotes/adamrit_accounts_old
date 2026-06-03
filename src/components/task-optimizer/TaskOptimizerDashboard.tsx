@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Sparkles, Loader2, ListChecks, BarChart3, Plus, CheckCircle2, Workflow, FileText } from 'lucide-react';
+import { Sparkles, Loader2, ListChecks, BarChart3, Plus, CheckCircle2, Workflow, FileText, Receipt } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,6 +22,7 @@ import { COMMON_TASKS, WORKFLOW_TEMPLATES } from './commonTasks';
 import SubmissionsList from './SubmissionsList';
 import InsightsPanel from './InsightsPanel';
 import AutomationsPanel from './AutomationsPanel';
+import BillingPanel from './BillingPanel';
 
 // Selectable department / function categories — broad terms rather than
 // specific job titles. Kept as display strings so the value stored in the DB
@@ -30,7 +31,6 @@ const DESIGNATION_OPTIONS = [
   'Administration',
   'Accounts',
   'Finance',
-  'Billing',
   'Clinical / Medical',
   'Nursing',
   'Pharmacy',
@@ -53,7 +53,6 @@ const ROLE_TO_DESIGNATION: Record<string, string> = {
   admin: 'Administration',
   super_admin: 'Administration',
   superadmin: 'Administration',
-  billing: 'Billing',
   doctor: 'Clinical / Medical',
   consultant: 'Clinical / Medical',
   physiotherapist: 'Clinical / Medical',
@@ -86,7 +85,7 @@ const TaskOptimizerDashboard = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [view, setView] = useState<'entry' | 'submissions' | 'insights' | 'automations'>('entry');
+  const [view, setView] = useState<'entry' | 'submissions' | 'automations' | 'billing' | 'insights'>('entry');
   const [name, setName] = useState('');
   const [designation, setDesignation] = useState(
     () => ROLE_TO_DESIGNATION[user?.role ?? ''] ?? '',
@@ -182,7 +181,7 @@ const TaskOptimizerDashboard = () => {
   return (
     // The Automations builder needs room for the canvas, so it breaks out of the
     // narrow reading width used by the other views.
-    <div className={`mx-auto space-y-6 ${view === 'automations' ? 'max-w-[1600px]' : 'max-w-4xl'}`}>
+    <div className={`mx-auto space-y-6 ${view === 'automations' ? 'max-w-[1600px]' : view === 'billing' ? 'max-w-5xl' : 'max-w-4xl'}`}>
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
@@ -219,6 +218,14 @@ const TaskOptimizerDashboard = () => {
             Automations
           </Button>
           <Button
+            variant={view === 'billing' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setView('billing')}
+          >
+            <Receipt className="mr-2 h-4 w-4" />
+            Billing
+          </Button>
+          <Button
             variant={view === 'insights' ? 'default' : 'outline'}
             size="sm"
             onClick={() => setView('insights')}
@@ -231,10 +238,12 @@ const TaskOptimizerDashboard = () => {
 
       {view === 'submissions' ? (
         <SubmissionsList />
-      ) : view === 'insights' ? (
-        <InsightsPanel />
       ) : view === 'automations' ? (
         <AutomationsPanel />
+      ) : view === 'billing' ? (
+        <BillingPanel />
+      ) : view === 'insights' ? (
+        <InsightsPanel />
       ) : (
         <>
       {/* Templates */}

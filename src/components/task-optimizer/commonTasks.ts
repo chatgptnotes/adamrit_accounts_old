@@ -13,12 +13,6 @@ export const COMMON_TASKS: Record<string, string[]> = {
     'Transfer patient to General Ward / ICU / Private as per doctor order',
     'Update and maintain casualty register for emergency patients',
   ],
-  Billing: [
-    'Generate final bills at discharge',
-    'Reconcile cash counter at end of day',
-    'Follow up on pending insurance claims',
-    'Issue payment receipts',
-  ],
   Pharmacy: [
     'Dispense prescriptions',
     'Check medicine expiry on shelves',
@@ -100,19 +94,6 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
       'Show test reports to doctor once received from lab',
       'Transfer patient to General Ward / ICU / Private as per doctor order',
       'Update and maintain casualty register for emergency patients',
-    ],
-  },
-  {
-    id: 'billing-daily',
-    label: 'Billing — Daily Shift Tasks',
-    designation: 'Billing',
-    description: 'Standard billing staff daily workflow',
-    tasks: [
-      'Generate final bills for patients due for discharge',
-      'Reconcile cash counter at end of day',
-      'Follow up on pending insurance claims',
-      'Issue payment receipts and update ledger',
-      'Submit pending bills for approval',
     ],
   },
   {

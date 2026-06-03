@@ -1,12 +1,14 @@
 import { useState } from 'react';
-import { LayoutDashboard, Printer } from 'lucide-react';
+import { LayoutDashboard, Printer, Mail, GitBranch } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { BILLING_TASKS, SHIFTS, type TaskStatus } from './billingTasks';
 import BillingWorkflowDiagram from './BillingWorkflowDiagram';
 import BillingChatbot from './BillingChatbot';
+import EmailWorkflowTab from './EmailWorkflowTab';
+import EmailWorkflowDiagram from './EmailWorkflowDiagram';
 
-function DashboardContent({ statuses, onChange }: {
+export function DashboardContent({ statuses, onChange }: {
   statuses: Record<string, TaskStatus>;
   onChange: (id: string, s: TaskStatus) => void;
 }) {
@@ -15,6 +17,7 @@ function DashboardContent({ statuses, onChange }: {
   const inprog = Object.values(statuses).filter(s => s === 'inprogress').length;
   const todo = total - done - inprog;
   const pct = Math.round((done / total) * 100);
+  const [view, setView] = useState<'dashboard' | 'email' | 'diagram'>('dashboard');
 
   const today = new Date().toLocaleDateString('en-IN', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
@@ -73,8 +76,47 @@ function DashboardContent({ statuses, onChange }: {
         </div>
       </div>
 
+      {/* View toggle */}
+      <div className="flex items-center gap-1 px-4 py-1.5 bg-white border-b shrink-0">
+        <button
+          type="button"
+          onClick={() => setView('dashboard')}
+          className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors ${view === 'dashboard' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}
+        >
+          <LayoutDashboard className="h-3.5 w-3.5" /> Dashboard
+        </button>
+        <button
+          type="button"
+          onClick={() => setView('email')}
+          className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors ${view === 'email' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}
+        >
+          <Mail className="h-3.5 w-3.5" /> Email Workflow
+        </button>
+        <button
+          type="button"
+          onClick={() => setView('diagram')}
+          className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors ${view === 'diagram' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}
+        >
+          <GitBranch className="h-3.5 w-3.5" /> Email Diagram
+        </button>
+      </div>
+
+      {/* Email workflow inbox */}
+      {view === 'email' && (
+        <div className="flex-1 overflow-hidden">
+          <EmailWorkflowTab />
+        </div>
+      )}
+
+      {/* Email workflow tree diagram */}
+      {view === 'diagram' && (
+        <div className="flex-1 overflow-hidden p-4">
+          <EmailWorkflowDiagram />
+        </div>
+      )}
+
       {/* 3-column body */}
-      <div className="flex flex-1 overflow-hidden bg-slate-50">
+      {view === 'dashboard' && <div className="flex flex-1 overflow-hidden bg-slate-50">
 
         {/* LEFT — Task to-do list */}
         <div className="w-60 shrink-0 border-r flex flex-col overflow-hidden bg-white">
@@ -140,23 +182,35 @@ function DashboardContent({ statuses, onChange }: {
           <BillingChatbot />
         </div>
 
-      </div>
+      </div>}
     </div>
   );
 }
 
-export default function BillingDashboardModal() {
-  const [open, setOpen] = useState(false);
+export default function BillingDashboardModal({
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
+}: {
+  open?: boolean;
+  onOpenChange?: (v: boolean) => void;
+} = {}) {
+  const [internalOpen, setInternalOpen] = useState(false);
   const [statuses, setStatuses] = useState<Record<string, TaskStatus>>({});
+
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = controlledOnOpenChange ?? setInternalOpen;
+
   const handleChange = (id: string, s: TaskStatus) =>
     setStatuses(prev => ({ ...prev, [id]: s }));
 
   return (
     <>
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-        <LayoutDashboard className="h-4 w-4 mr-1.5" />
-        Billing Dashboard
-      </Button>
+      {controlledOpen === undefined && (
+        <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+          <LayoutDashboard className="h-4 w-4 mr-1.5" />
+          Billing Dashboard
+        </Button>
+      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-[96vw] w-[96vw] h-[92vh] p-0 gap-0 flex flex-col overflow-hidden">
