@@ -5,6 +5,7 @@ import { AppSidebarProps, MenuItem } from './types';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/hooks/usePermissions';
 import { isFeatureEnabled } from '@/types/hospital';
+import { useMasterCounts } from '@/hooks/useMasterCounts';
 
 const ADMIN_ROLES = ['superadmin', 'super_admin', 'admin'];
 
@@ -36,6 +37,7 @@ const BADGE_ROLE_MAP: Record<string, string[]> = {
 export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; masterItems: MenuItem[] } => {
   const { hospitalType, user } = useAuth();
   const { canManageUsers } = usePermissions();
+  const masterCounts = useMasterCounts(!!user);
   const {
     diagnosesCount = 0,
     patientsCount = 0,
@@ -139,9 +141,14 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
                item.title === "Ayushman Anaesthetists" ? ayushmanAnaesthetistsCount :
                item.title === "Pharmacy" ? pendingPrescriptionsCount : 0;
 
-        // Only surface the count for roles relevant to this tab; others get 0
-        // (and a 0 count renders no badge — see SidebarMenuItem).
+        // Masters always show their list size (the section is admin-scoped
+        // already). Main tabs show a count only for roles relevant to that tab.
+        // A 0 count renders no badge — see SidebarMenuItem.
+        const isMaster = item.section === 'masters';
         const showBadge = (BADGE_ROLE_MAP[item.title] || []).includes(user?.role || '');
+        const count = isMaster
+          ? (masterCounts[item.title] ?? 0)
+          : (showBadge ? rawCount : 0);
 
         return {
           title: item.title,
@@ -149,7 +156,7 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
           description: `View ${item.title.toLowerCase()} data`,
           route: item.url,
           section: item.section || 'main' as const,
-          count: showBadge ? rawCount : 0,
+          count,
         };
       });
 
@@ -158,7 +165,7 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
       masterItems: filtered.filter(item => item.section === 'masters'),
     };
   }, [
-    hospitalType, user, canManageUsers, diagnosesCount, patientsCount, usersCount, complicationsCount,
+    hospitalType, user, canManageUsers, masterCounts, diagnosesCount, patientsCount, usersCount, complicationsCount,
     cghsSurgeryCount, labCount, radiologyCount, medicationCount,
     refereesCount, hopeSurgeonsCount, hopeConsultantsCount, hopeAnaesthetistsCount,
     ayushmanSurgeonsCount, ayushmanConsultantsCount, ayushmanAnaesthetistsCount,
