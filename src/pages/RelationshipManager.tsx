@@ -30,7 +30,7 @@ interface RelationshipManagerType {
 // logged-in user's email.
 const REFERRAL_REGISTER_EMAILS = [
   'sanjaykhobragade46@gmail.com',
-  'ganeshsharnagat@gmail.com',
+  'ganeshsharnagat47@gmail.com',
 ];
 
 const RelationshipManager = () => {
