@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/hooks/usePermissions';
 import { isFeatureEnabled } from '@/types/hospital';
 import { useMasterCounts } from '@/hooks/useMasterCounts';
+import { groupForTitle } from './sidebarGroups';
 
 const ADMIN_ROLES = ['superadmin', 'super_admin', 'admin'];
 
@@ -156,6 +157,7 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
           description: `View ${item.title.toLowerCase()} data`,
           route: item.url,
           section: item.section || 'main' as const,
+          group: groupForTitle(item.title),
           count,
         };
       });

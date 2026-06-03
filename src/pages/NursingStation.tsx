@@ -332,7 +332,7 @@ const NursingStation: React.FC = () => {
       <div className="space-y-6">
         {/* Quick Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card className="border-l-4 border-l-blue-500">
+          <Card onClick={() => setFilter("all")} className="border-l-4 border-l-blue-500 cursor-pointer transition-shadow hover:shadow-md">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -343,7 +343,7 @@ const NursingStation: React.FC = () => {
               </div>
             </CardContent>
           </Card>
-          <Card className="border-l-4 border-l-red-500">
+          <Card onClick={() => setFilter("critical")} className="border-l-4 border-l-red-500 cursor-pointer transition-shadow hover:shadow-md">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -354,7 +354,7 @@ const NursingStation: React.FC = () => {
               </div>
             </CardContent>
           </Card>
-          <Card className="border-l-4 border-l-green-500">
+          <Card onClick={() => setFilter("stable")} className="border-l-4 border-l-green-500 cursor-pointer transition-shadow hover:shadow-md">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
