@@ -12,6 +12,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import ReferralRegisterTable from '@/components/relationship/ReferralRegisterTable';
 import { useToast } from '@/hooks/use-toast';
 import { usePermissions } from '@/hooks/usePermissions';
+import { useAuth } from '@/contexts/AuthContext';
 import { logActivity, getDeviceInfo } from '@/lib/activity-logger';
 
 interface RelationshipManagerType {
@@ -24,6 +25,14 @@ interface RelationshipManagerType {
   updated_at: string;
 }
 
+// Only these users (plus any superadmin) may access the Referral Register tab —
+// add rows, edit, delete and generate the PDF. Compared lowercase against the
+// logged-in user's email.
+const REFERRAL_REGISTER_EMAILS = [
+  'sanjaykhobragade46@gmail.com',
+  'ganeshsharnagat@gmail.com',
+];
+
 const RelationshipManager = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showHidden, setShowHidden] = useState(false);
@@ -33,7 +42,14 @@ const RelationshipManager = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { canEditMasters } = usePermissions();
+  const { user } = useAuth();
   const importInputRef = useRef<HTMLInputElement>(null);
+
+  // Referral Register is restricted to a fixed allowlist of users (+ superadmin).
+  const canAccessReferralRegister =
+    user?.role === 'superadmin' ||
+    user?.role === 'super_admin' ||
+    REFERRAL_REGISTER_EMAILS.includes((user?.email || '').toLowerCase());
 
   const { data: managers = [], isLoading } = useQuery({
     queryKey: ['relationship-managers', showHidden],
@@ -410,7 +426,9 @@ const RelationshipManager = () => {
         <Tabs defaultValue="managers" className="w-full">
           <TabsList className="mb-6">
             <TabsTrigger value="managers">Managers</TabsTrigger>
-            <TabsTrigger value="referral">Referral Register</TabsTrigger>
+            {canAccessReferralRegister && (
+              <TabsTrigger value="referral">Referral Register</TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="managers">
@@ -538,9 +556,11 @@ const RelationshipManager = () => {
         )}
           </TabsContent>
 
-          <TabsContent value="referral">
-            <ReferralRegisterTable />
-          </TabsContent>
+          {canAccessReferralRegister && (
+            <TabsContent value="referral">
+              <ReferralRegisterTable />
+            </TabsContent>
+          )}
         </Tabs>
 
         <AddItemDialog
