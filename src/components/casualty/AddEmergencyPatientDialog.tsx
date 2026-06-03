@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { Loader2, Search, Camera, Upload, X, Circle, UserPlus, CheckCircle2, Eye } from 'lucide-react';
+import { Loader2, Search, Camera, Upload, X, Circle, UserPlus, CheckCircle2, Eye, RefreshCw } from 'lucide-react';
 import { VisitRegistrationForm } from '@/components/VisitRegistrationForm';
 import { extractTextFromImage, parsePatientData, ExtractedPatientData } from '@/lib/documentOcr';
 import { generatePatientId } from '@/utils/patientIdGenerator';
@@ -57,12 +57,16 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
   const [registering, setRegistering]       = useState(false);
   const [quickForm, setQuickForm]           = useState({ name: '', age: '', dob: '', gender: '', phone: '' });
   const [previewImage, setPreviewImage]     = useState<string | null>(null);
+  // Sequential scan: null → front → back → done
+  const [scanStep, setScanStep]             = useState<null | 'front' | 'back' | 'done'>(null);
 
   const { toast }          = useToast();
   const { hospitalConfig } = useAuth();
   const debounceRef        = useRef<ReturnType<typeof setTimeout> | null>(null);
   const desktopFileRef     = useRef<HTMLInputElement>(null);
   const mobileFileRef      = useRef<HTMLInputElement>(null);
+  const uploadFileRef      = useRef<HTMLInputElement>(null);
+  const isUploadFlow       = useRef(false);
   const videoRef           = useRef<HTMLVideoElement>(null);
   const canvasRef          = useRef<HTMLCanvasElement>(null);
   const streamRef          = useRef<MediaStream | null>(null);
@@ -101,15 +105,29 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
     }, 300);
   }, [search]);
 
-  const openCapture = (slot: 'front' | 'back') => {
-    slotRef.current = slot;
+  const startScan = () => {
+    setFrontData(null); setBackData(null);
+    setFrontFile(null); setBackFile(null);
+    if (frontPreview) URL.revokeObjectURL(frontPreview);
+    if (backPreview)  URL.revokeObjectURL(backPreview);
+    setFrontPreview(null); setBackPreview(null);
+    slotRef.current = 'front';
+    setScanStep('front');
+    isUploadFlow.current = false;
     if (isMobile) mobileFileRef.current?.click();
-    else desktopFileRef.current?.click();
+    else startDesktopCamera();
   };
 
-  const openLiveCamera = (slot: 'front' | 'back') => {
-    slotRef.current = slot;
-    startDesktopCamera();
+  const startUpload = () => {
+    setFrontData(null); setBackData(null);
+    setFrontFile(null); setBackFile(null);
+    if (frontPreview) URL.revokeObjectURL(frontPreview);
+    if (backPreview)  URL.revokeObjectURL(backPreview);
+    setFrontPreview(null); setBackPreview(null);
+    slotRef.current = 'front';
+    setScanStep('front');
+    isUploadFlow.current = true;
+    uploadFileRef.current?.click();
   };
 
   const startDesktopCamera = async () => {
@@ -163,14 +181,42 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
     setScanningSlot(slot);
     setScanProgress(0);
 
-    // Save file + preview
     const previewUrl = URL.createObjectURL(file);
     if (slot === 'front') { setFrontFile(file); setFrontPreview(previewUrl); }
     else                  { setBackFile(file);  setBackPreview(previewUrl); }
 
     try {
-      const text   = await extractTextFromImage(file, setScanProgress);
+      const { text, confidence } = await extractTextFromImage(file, setScanProgress, slot === 'back');
       const parsed = parsePatientData(text);
+
+      // Quality checks — detect blurry / unreadable photo
+      const trimmed = text.trim();
+      const isBlurry = confidence < 40 || trimmed.length < 30;
+      const noUsefulData = !parsed.name && !parsed.dob && !parsed.phone;
+
+      if (isBlurry || noUsefulData) {
+        // Clean up — don't keep bad preview
+        if (slot === 'front') {
+          setFrontFile(null);
+          if (frontPreview) URL.revokeObjectURL(frontPreview);
+          setFrontPreview(null);
+        } else {
+          setBackFile(null);
+          if (backPreview) URL.revokeObjectURL(backPreview);
+          setBackPreview(null);
+        }
+        setScanStep(null);
+        slotRef.current = 'front';
+        stopCamera();
+        toast({
+          title: isBlurry ? 'Photo blurry or unclear' : 'Could not read Aadhaar',
+          description: slot === 'front'
+            ? 'Front side mein naam/details nahi padh paye. Saaf photo dobara lo (achhi light, no blur).'
+            : 'Back side ka data nahi mila. Saaf photo dobara lo.',
+          variant: 'destructive',
+        });
+        return;
+      }
 
       if (slot === 'front') setFrontData(parsed);
       else                  setBackData(parsed);
@@ -187,17 +233,40 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
         phone:  merged.phone  || '',
       });
 
-      toast({
-        title: `${slot === 'front' ? 'Front' : 'Back'} side scanned`,
-        description: parsed.name ? `Name: ${parsed.name}` : 'No name detected',
-      });
+      // Front-specific check — name MUST be readable from front
+      if (slot === 'front' && !parsed.name) {
+        toast({
+          title: 'Naam nahi padh paya',
+          description: 'Front Aadhaar pe naam clearly nahi dikha. Photo saaf hai? Dobara try karo ya manually likho.',
+          variant: 'destructive',
+        });
+      }
+
+      if (slot === 'front') {
+        setScanStep('back');
+        slotRef.current = 'back';
+        if (isUploadFlow.current) {
+          if (uploadFileRef.current) uploadFileRef.current.value = '';
+          setTimeout(() => uploadFileRef.current?.click(), 400);
+        } else if (isMobile) {
+          if (mobileFileRef.current) mobileFileRef.current.value = '';
+          setTimeout(() => mobileFileRef.current?.click(), 400);
+        }
+        // Desktop camera: stays open, user clicks Capture again
+      } else {
+        setScanStep('done');
+        stopCamera();
+        toast({ title: 'Aadhaar scanned', description: merged.name ? `Name: ${merged.name}` : 'Scan complete' });
+      }
     } catch (err: any) {
+      setScanStep('done');
+      stopCamera();
       toast({ title: 'Scan failed', description: err.message, variant: 'destructive' });
     } finally {
       setScanningSlot(null);
       setScanProgress(0);
       if (desktopFileRef.current) desktopFileRef.current.value = '';
-      if (mobileFileRef.current)  mobileFileRef.current.value  = '';
+      if (slot === 'back' && mobileFileRef.current) mobileFileRef.current.value = '';
     }
   };
 
@@ -284,68 +353,24 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
     if (backPreview)  URL.revokeObjectURL(backPreview);
     setFrontPreview(null); setBackPreview(null);
     setShowQuickRegister(false); setScanningSlot(null);
-    setPreviewImage(null);
+    setPreviewImage(null); setScanStep(null);
   };
 
   const handleClose = () => { stopCamera(); resetAll(); onOpenChange(false); };
 
   if (selectedPatient) {
-    return <VisitRegistrationForm isOpen={true} onClose={handleClose} patient={selectedPatient} />;
+    return <VisitRegistrationForm isOpen={true} onClose={handleClose} patient={selectedPatient} defaultPatientType="Emergency" />;
   }
 
   const merged    = mergeScanned(frontData, backData);
   const hasData   = frontData || backData;
   const noResults = !searching && search.trim() && results.length === 0;
+  const isScanning = scanningSlot !== null;
 
-  const ScanSlotCard = ({ slot, label }: { slot: 'front' | 'back'; label: string }) => {
-    const preview  = slot === 'front' ? frontPreview : backPreview;
-    const scanning = scanningSlot === slot;
-    const done     = !!(slot === 'front' ? frontData : backData);
-    return (
-      <div className={`border rounded-md p-2 space-y-2 ${done ? 'border-green-400 bg-green-50/30' : 'border-dashed'}`}>
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-medium">{label}</p>
-          <div className="flex items-center gap-1">
-            {done && <CheckCircle2 className="h-3 w-3 text-green-500" />}
-            {preview && (
-              <button onClick={() => setPreviewImage(preview)} className="text-blue-500 hover:text-blue-700">
-                <Eye className="h-3 w-3" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Thumbnail */}
-        {preview && (
-          <img
-            src={preview}
-            alt={label}
-            className="w-full h-20 object-cover rounded cursor-pointer"
-            onClick={() => setPreviewImage(preview)}
-          />
-        )}
-
-        {scanning ? (
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin" /> {scanProgress}%
-          </div>
-        ) : (
-          <div className="flex gap-1">
-            <Button size="sm" variant="outline" className="flex-1 gap-1 text-xs h-7"
-              onClick={() => isMobile ? openCapture(slot) : openLiveCamera(slot)}
-              disabled={scanningSlot !== null}>
-              <Camera className="h-3 w-3" /> {preview ? 'Retake' : 'Camera'}
-            </Button>
-            <Button size="sm" variant="outline" className="flex-1 gap-1 text-xs h-7"
-              onClick={() => openCapture(slot)}
-              disabled={scanningSlot !== null}>
-              <Upload className="h-3 w-3" /> Upload
-            </Button>
-          </div>
-        )}
-      </div>
-    );
-  };
+  // Label shown inside the desktop camera view
+  const cameraPrompt = scanStep === 'back' && !isScanning
+    ? 'Now capture Back side'
+    : 'Capture Front side';
 
   return (
     <>
@@ -360,11 +385,15 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
             {cameraActive && (
               <div className="relative rounded-md overflow-hidden bg-black">
                 <video ref={videoRef} autoPlay playsInline muted className="w-full rounded-md" />
+                <p className="absolute top-2 left-0 right-0 text-center text-white text-xs font-medium drop-shadow">
+                  {isScanning ? <><Loader2 className="inline h-3 w-3 animate-spin mr-1" />{scanProgress}%</> : cameraPrompt}
+                </p>
                 <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-3">
-                  <Button size="sm" variant="destructive" onClick={stopCamera} className="gap-1">
+                  <Button size="sm" variant="destructive" onClick={() => { stopCamera(); setScanStep(null); }} className="gap-1">
                     <X className="h-4 w-4" /> Cancel
                   </Button>
-                  <Button size="sm" onClick={captureDesktop} className="gap-1 bg-white text-black hover:bg-gray-100">
+                  <Button size="sm" onClick={captureDesktop} disabled={isScanning}
+                    className="gap-1 bg-white text-black hover:bg-gray-100">
                     <Circle className="h-4 w-4 fill-current" /> Capture
                   </Button>
                 </div>
@@ -377,12 +406,66 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
               onChange={(e) => { const f = e.target.files?.[0]; if (f) runOcr(f, slotRef.current); }} />
             <input ref={mobileFileRef} type="file" accept="image/*" capture="environment" className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) runOcr(f, slotRef.current); }} />
+            <input ref={uploadFileRef} type="file" accept="image/*" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) runOcr(f, slotRef.current); }} />
 
-            {/* Front & Back cards */}
+            {/* Single Scan Aadhaar button + step indicator */}
             {!cameraActive && (
-              <div className="grid grid-cols-2 gap-3">
-                <ScanSlotCard slot="front" label="Front Side" />
-                <ScanSlotCard slot="back"  label="Back Side" />
+              <div className="space-y-2">
+                {/* Step status pills */}
+                {scanStep && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full ${frontData ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                      {frontData ? <CheckCircle2 className="h-3 w-3" /> : <Loader2 className="h-3 w-3 animate-spin" />}
+                      Front
+                    </span>
+                    <span className="text-muted-foreground">→</span>
+                    <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full ${backData ? 'bg-green-100 text-green-700' : scanStep === 'back' ? 'bg-blue-100 text-blue-700' : 'bg-muted text-muted-foreground'}`}>
+                      {backData ? <CheckCircle2 className="h-3 w-3" /> : scanStep === 'back' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Circle className="h-3 w-3" />}
+                      Back
+                    </span>
+                    {isScanning && <span className="ml-auto text-muted-foreground">{scanProgress}%</span>}
+                  </div>
+                )}
+
+                {/* Thumbnails row */}
+                {(frontPreview || backPreview) && (
+                  <div className="flex gap-2">
+                    {frontPreview && (
+                      <div className="relative flex-1 cursor-pointer" onClick={() => setPreviewImage(frontPreview)}>
+                        <img src={frontPreview} alt="Front" className="w-full h-20 object-cover rounded border" />
+                        <span className="absolute bottom-1 left-1 text-[10px] bg-black/50 text-white px-1 rounded">Front</span>
+                        <Eye className="absolute top-1 right-1 h-3 w-3 text-white drop-shadow" />
+                      </div>
+                    )}
+                    {backPreview && (
+                      <div className="relative flex-1 cursor-pointer" onClick={() => setPreviewImage(backPreview)}>
+                        <img src={backPreview} alt="Back" className="w-full h-20 object-cover rounded border" />
+                        <span className="absolute bottom-1 left-1 text-[10px] bg-black/50 text-white px-1 rounded">Back</span>
+                        <Eye className="absolute top-1 right-1 h-3 w-3 text-white drop-shadow" />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <Button
+                  variant={scanStep === 'done' ? 'outline' : 'default'}
+                  className="w-full gap-2"
+                  onClick={startScan}
+                  disabled={isScanning}>
+                  {isScanning
+                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Scanning…</>
+                    : scanStep === 'done'
+                      ? <><RefreshCw className="h-4 w-4" /> Rescan Aadhaar</>
+                      : <><Camera className="h-4 w-4" /> Scan Aadhaar</>}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full gap-2"
+                  onClick={startUpload}
+                  disabled={isScanning}>
+                  <Upload className="h-4 w-4" /> Upload from Gallery
+                </Button>
               </div>
             )}
 

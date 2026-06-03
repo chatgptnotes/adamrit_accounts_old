@@ -20,6 +20,7 @@ interface VisitRegistrationFormProps {
   };
   existingVisit?: any;  // Optional existing visit data for editing
   editMode?: boolean;   // Flag to indicate edit mode
+  defaultPatientType?: string;
 }
 
 export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
@@ -27,7 +28,8 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
   onClose,
   patient,
   existingVisit,
-  editMode = false
+  editMode = false,
+  defaultPatientType = '',
 }) => {
   const [visitDate, setVisitDate] = useState<Date>(new Date());
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -47,7 +49,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
     cardNo: '',
     thumbRegistrationNo: '',
     treatmentType: '',
-    patientType: '',
+    patientType: defaultPatientType,
     wardAllotted: '',
     roomAllotted: '',
     diagnosisId: '',
