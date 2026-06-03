@@ -4508,7 +4508,8 @@ STRICT RULES:
                         }],
                         generationConfig: {
                           temperature: 0.3,
-                          maxOutputTokens: 4000
+                          maxOutputTokens: 4000,
+                          thinkingConfig: { thinkingBudget: 0 }
                         }
                       })
                     });
@@ -4866,7 +4867,8 @@ Non-negotiable rules:
                               }],
                               generationConfig: {
                                 temperature: 0.4,
-                                maxOutputTokens: 4000
+                                maxOutputTokens: 8192,
+                                thinkingConfig: { thinkingBudget: 0 }
                               }
                             })
                           });
