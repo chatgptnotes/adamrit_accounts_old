@@ -32,11 +32,6 @@ export const menuItems: MenuItemDef[] = [
     icon: FileText,
   },
   {
-    title: "Claude Skills",
-    url: "/skills",
-    icon: Sparkles,
-  },
-  {
     title: "Patient Dashboard",
     url: "/patient-dashboard",
     icon: Users,
