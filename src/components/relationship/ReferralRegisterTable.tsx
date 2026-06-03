@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { jsPDF } from 'jspdf';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,7 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, FileDown } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 // One row of the referral register. Mirrors the public.referral_register table.
@@ -23,7 +24,6 @@ interface ReferralRow {
   paid_amount: number;
   consultant: string | null;
   referral_percent: number;
-  total_paid_amount: number;
   referral_name: string | null;
   referral_amount: number;
   sort_order: number;
@@ -36,7 +36,6 @@ type EditableField =
   | 'paid_amount'
   | 'consultant'
   | 'referral_percent'
-  | 'total_paid_amount'
   | 'referral_name';
 
 const toNumber = (value: string | number | null | undefined): number => {
@@ -107,7 +106,6 @@ const ReferralRegisterTable = () => {
           paid_amount: row.paid_amount,
           consultant: row.consultant || null,
           referral_percent: row.referral_percent,
-          total_paid_amount: row.total_paid_amount,
           referral_name: row.referral_name || null,
           referral_amount: row.referral_amount,
         })
@@ -144,9 +142,7 @@ const ReferralRegisterTable = () => {
       prev.map((row) => {
         if (row.id !== id) return row;
         const isNumeric =
-          field === 'paid_amount' ||
-          field === 'referral_percent' ||
-          field === 'total_paid_amount';
+          field === 'paid_amount' || field === 'referral_percent';
         const updated: ReferralRow = {
           ...row,
           [field]: isNumeric ? toNumber(value) : value,
@@ -173,11 +169,104 @@ const ReferralRegisterTable = () => {
   const totals = rows.reduce(
     (acc, row) => ({
       paid: acc.paid + toNumber(row.paid_amount),
-      totalPaid: acc.totalPaid + toNumber(row.total_paid_amount),
       referral: acc.referral + toNumber(row.referral_amount),
     }),
-    { paid: 0, totalPaid: 0, referral: 0 }
+    { paid: 0, referral: 0 }
   );
+
+  // Build a printable landscape PDF of the current register, including totals.
+  const handleExportPdf = () => {
+    if (rows.length === 0) {
+      toast({
+        title: 'Nothing to export',
+        description: 'Add at least one row before generating a PDF.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const marginX = 10;
+
+    // Column layout: [label, x-offset from marginX, width, alignment].
+    const cols: { label: string; w: number; align: 'left' | 'right' }[] = [
+      { label: 'Sr. No', w: 14, align: 'left' },
+      { label: 'Date of Regi.', w: 28, align: 'left' },
+      { label: 'Patient Name', w: 50, align: 'left' },
+      { label: 'Paid Amount', w: 32, align: 'right' },
+      { label: 'Consultant', w: 45, align: 'left' },
+      { label: 'Referral %', w: 24, align: 'right' },
+      { label: 'Referral Name', w: 50, align: 'left' },
+      { label: 'Referral Amount', w: 34, align: 'right' },
+    ];
+    const xs: number[] = [];
+    cols.reduce((x, c) => {
+      xs.push(x);
+      return x + c.w;
+    }, marginX);
+
+    const cellText = (text: string, colIdx: number, y: number) => {
+      const c = cols[colIdx];
+      const x = c.align === 'right' ? xs[colIdx] + c.w - 2 : xs[colIdx] + 2;
+      const clipped = doc.splitTextToSize(text, c.w - 3)[0] ?? '';
+      doc.text(clipped, x, y, { align: c.align });
+    };
+
+    let y = 16;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.text('Referral Register', pageWidth / 2, y, { align: 'center' });
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text(`Generated: ${new Date().toLocaleDateString()}`, pageWidth / 2, y, {
+      align: 'center',
+    });
+    y += 6;
+
+    const drawHeader = () => {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      cols.forEach((_, i) => cellText(cols[i].label, i, y));
+      y += 1.5;
+      doc.setLineWidth(0.3);
+      doc.line(marginX, y, marginX + cols.reduce((s, c) => s + c.w, 0), y);
+      y += 4;
+      doc.setFont('helvetica', 'normal');
+    };
+    drawHeader();
+
+    rows.forEach((row, index) => {
+      if (y > pageHeight - 18) {
+        doc.addPage();
+        y = 16;
+        drawHeader();
+      }
+      cellText(String(index + 1), 0, y);
+      cellText(row.date_of_registration || '-', 1, y);
+      cellText(row.patient_name || '-', 2, y);
+      cellText(formatMoney(toNumber(row.paid_amount)), 3, y);
+      cellText(row.consultant || '-', 4, y);
+      cellText(`${toNumber(row.referral_percent)}%`, 5, y);
+      cellText(row.referral_name || '-', 6, y);
+      cellText(formatMoney(toNumber(row.referral_amount)), 7, y);
+      y += 6;
+    });
+
+    // Totals row.
+    y += 1;
+    doc.setLineWidth(0.3);
+    doc.line(marginX, y, marginX + cols.reduce((s, c) => s + c.w, 0), y);
+    y += 4;
+    doc.setFont('helvetica', 'bold');
+    cellText('Total Amount', 2, y);
+    cellText(formatMoney(totals.paid), 3, y);
+    cellText(formatMoney(totals.referral), 7, y);
+
+    doc.save(`referral_register_${new Date().toISOString().split('T')[0]}.pdf`);
+  };
 
   return (
     <div className="space-y-4">
@@ -188,10 +277,16 @@ const ReferralRegisterTable = () => {
             Add rows manually. Sr. No, Referral Amount and totals are calculated automatically.
           </p>
         </div>
-        <Button onClick={() => addMutation.mutate()} disabled={addMutation.isPending}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Row
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleExportPdf}>
+            <FileDown className="h-4 w-4 mr-2" />
+            Generate PDF
+          </Button>
+          <Button onClick={() => addMutation.mutate()} disabled={addMutation.isPending}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Row
+          </Button>
+        </div>
       </div>
 
       <div className="rounded-md border bg-white overflow-x-auto">
@@ -204,7 +299,6 @@ const ReferralRegisterTable = () => {
               <TableHead className="min-w-[120px] text-right">Paid Amount</TableHead>
               <TableHead className="min-w-[140px]">Consultant</TableHead>
               <TableHead className="min-w-[110px] text-right">Referral % (25% / +%)</TableHead>
-              <TableHead className="min-w-[140px] text-right">Total Paid Amount (Full &amp; Final)</TableHead>
               <TableHead className="min-w-[160px]">Referral Name</TableHead>
               <TableHead className="min-w-[130px] text-right">Referral Amount</TableHead>
               <TableHead className="w-12" />
@@ -213,13 +307,13 @@ const ReferralRegisterTable = () => {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                   Loading…
                 </TableCell>
               </TableRow>
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                   No entries yet. Click “Add Row” to start.
                 </TableCell>
               </TableRow>
@@ -273,16 +367,6 @@ const ReferralRegisterTable = () => {
                   </TableCell>
                   <TableCell>
                     <Input
-                      type="number"
-                      className="text-right"
-                      value={row.total_paid_amount || ''}
-                      placeholder="0"
-                      onChange={(e) => handleChange(row.id, 'total_paid_amount', e.target.value)}
-                      onBlur={() => handleBlur(row.id)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
                       value={row.referral_name ?? ''}
                       placeholder="Referral name"
                       onChange={(e) => handleChange(row.id, 'referral_name', e.target.value)}
@@ -317,9 +401,6 @@ const ReferralRegisterTable = () => {
                   {formatMoney(totals.paid)}
                 </TableCell>
                 <TableCell colSpan={2} />
-                <TableCell className="text-right font-semibold tabular-nums">
-                  {formatMoney(totals.totalPaid)}
-                </TableCell>
                 <TableCell />
                 <TableCell className="text-right font-semibold tabular-nums">
                   {formatMoney(totals.referral)}
