@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { Loader2, Plus, Workflow, Trash2, Power, PowerOff, Users, Mail, Clock, Tag, FileText, CheckCircle2, CalendarClock, ExternalLink } from 'lucide-react';
+import { Loader2, Plus, Workflow, Trash2, Power, PowerOff, Users, Mail, Clock, Tag, FileText, CheckCircle2, CalendarClock, ExternalLink, ScanLine } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,7 @@ import BillingWorkflowDiagram from './BillingWorkflowDiagram';
 import DailyBillingWorkflow from './DailyBillingWorkflow';
 import CorporateMailer from './CorporateMailer';
 import BillingDashboardModal from './BillingDashboardModal';
+import AddEmergencyPatientDialog from '@/components/casualty/AddEmergencyPatientDialog';
 
 // ── Static Email Automation Card ─────────────────────────────────────────────
 
@@ -287,6 +288,7 @@ const AutomationsPanel = () => {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<TaskFlow | 'new' | 'email-template' | FlowTemplate | null>(null);
   const [activeTab, setActiveTab] = useState<'daily' | 'diagram' | 'flows' | 'mailer'>('daily');
+  const [aadhaarDialogOpen, setAadhaarDialogOpen] = useState(false);
   const loadTemplate = (tpl: FlowTemplate) => setEditing(tpl);
 
   const { data: flows, isLoading, error } = useQuery({
@@ -420,6 +422,14 @@ const AutomationsPanel = () => {
           >
             Corporate Mailer
           </button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-2 self-center gap-1.5"
+            onClick={() => setAadhaarDialogOpen(true)}
+          >
+            <ScanLine className="h-4 w-4" /> Aadhaar Scan
+          </Button>
         </div>
         <div className="flex gap-2">
           {activeTab === 'daily' && <BillingDashboardModal />}
@@ -520,6 +530,12 @@ const AutomationsPanel = () => {
           )}
         </>
       )}
+
+      <AddEmergencyPatientDialog
+        open={aadhaarDialogOpen}
+        onOpenChange={setAadhaarDialogOpen}
+        onSuccess={() => setAadhaarDialogOpen(false)}
+      />
     </div>
   );
 };
