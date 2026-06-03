@@ -6,6 +6,33 @@ import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/hooks/usePermissions';
 import { isFeatureEnabled } from '@/types/hospital';
 
+const ADMIN_ROLES = ['superadmin', 'super_admin', 'admin'];
+
+// Tab title -> roles allowed to SEE the count badge on that tab.
+// Tab *visibility* is already handled by the filter below; this only controls
+// whether the number shows, so non-relevant roles don't see noisy counts.
+const BADGE_ROLE_MAP: Record<string, string[]> = {
+  'Patient Dashboard': [...ADMIN_ROLES, 'doctor', 'consultant', 'nurse', 'receptionist', 'reception', 'front_office'],
+  'Patients': [...ADMIN_ROLES, 'doctor', 'consultant', 'nurse', 'receptionist', 'reception', 'front_office'],
+  'Pharmacy': [...ADMIN_ROLES, 'pharmacy', 'pharmacist'],
+  'Lab': [...ADMIN_ROLES, 'lab', 'lab_technician'],
+  'Radiology': [...ADMIN_ROLES, 'radiology', 'radiology_tech'],
+  'Lab Master': ADMIN_ROLES,
+  'Radiology Master': ADMIN_ROLES,
+  'Surgery': ADMIN_ROLES,
+  'Diagnoses': ADMIN_ROLES,
+  'Complications': ADMIN_ROLES,
+  'Medications': ADMIN_ROLES,
+  'Referees': ADMIN_ROLES,
+  'Users': ADMIN_ROLES,
+  'Hope Surgeons': ADMIN_ROLES,
+  'Hope Consultants': ADMIN_ROLES,
+  'Hope Anaesthetists': ADMIN_ROLES,
+  'Ayushman Surgeons': ADMIN_ROLES,
+  'Ayushman Consultants': ADMIN_ROLES,
+  'Ayushman Anaesthetists': ADMIN_ROLES,
+};
+
 export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; masterItems: MenuItem[] } => {
   const { hospitalType, user } = useAuth();
   const { canManageUsers } = usePermissions();
@@ -93,13 +120,8 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
             return true; // Show other items by default
         }
       })
-      .map(item => ({
-        title: item.title,
-        icon: item.icon,
-        description: `View ${item.title.toLowerCase()} data`,
-        route: item.url,
-        section: item.section || 'main' as const,
-        count: item.title === "Patient Dashboard" ? patientsCount :
+      .map(item => {
+        const rawCount = item.title === "Patient Dashboard" ? patientsCount :
                item.title === "Diagnoses" ? diagnosesCount :
                item.title === "Patients" ? patientsCount :
                item.title === "Users" ? usersCount :
@@ -115,8 +137,21 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
                item.title === "Ayushman Surgeons" ? ayushmanSurgeonsCount :
                item.title === "Ayushman Consultants" ? ayushmanConsultantsCount :
                item.title === "Ayushman Anaesthetists" ? ayushmanAnaesthetistsCount :
-               item.title === "Pharmacy" ? pendingPrescriptionsCount : 0
-      }));
+               item.title === "Pharmacy" ? pendingPrescriptionsCount : 0;
+
+        // Only surface the count for roles relevant to this tab; others get 0
+        // (and a 0 count renders no badge — see SidebarMenuItem).
+        const showBadge = (BADGE_ROLE_MAP[item.title] || []).includes(user?.role || '');
+
+        return {
+          title: item.title,
+          icon: item.icon,
+          description: `View ${item.title.toLowerCase()} data`,
+          route: item.url,
+          section: item.section || 'main' as const,
+          count: showBadge ? rawCount : 0,
+        };
+      });
 
     return {
       mainItems: filtered.filter(item => item.section !== 'masters'),
