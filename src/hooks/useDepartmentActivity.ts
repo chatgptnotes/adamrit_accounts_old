@@ -30,7 +30,7 @@ async function countSince(table: string, column: string, startISO: string, endIS
   try {
     const { count, error } = await sb
       .from(table)
-      .select('id', { count: 'exact', head: true })
+      .select('*', { count: 'exact', head: true })
       .gte(column, startISO)
       .lt(column, endISO);
     if (error) {
@@ -49,7 +49,7 @@ async function countOnDate(table: string, column: string, dateStr: string): Prom
   try {
     const { count, error } = await sb
       .from(table)
-      .select('id', { count: 'exact', head: true })
+      .select('*', { count: 'exact', head: true })
       .eq(column, dateStr);
     if (error) {
       console.error(`Error counting ${table} activity:`, error);
