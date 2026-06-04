@@ -102,9 +102,9 @@ Tracking issue: [#320](https://github.com/chatgptnotes/adamrit/issues/320).
 |---|-------------|--------|
 | 5 | **PHI-free audit logs** | ✅ Enforced in `audit.js` via a field allowlist — unknown keys (possible PHI) are dropped and flagged in `droppedFields`. Covered by `audit.test.js`. |
 | 4 | **Security-event routing** | ✅ `reject_non_loopback` is tagged `category: "security"`, `severity: "warning"`, `outcome: "deny"` so a SIEM can route it into incident review. |
-| 1 | **Immutable log shipping (6-yr retention)** | 📄 Ops config, not app code. The sidecar emits one JSON object per line to **stdout**; the platform log pipeline (e.g. Fluent Bit → WORM bucket / append-only store) must ship and retain it for 6 years per §164.316(b)(2). |
-| 2 | **Encryption at rest** | 📄 The sidecar currently persists nothing. If it begins caching/buffering PHI to disk, encrypt at rest per §164.312(a)(2)(iv). |
-| 3 | **Propagate human identity** | ✅ `docker/serve.js` proxies `/api/sidecar/*`, verifies the Supabase JWT (HS256), and forwards the **verified** `x-actor-user-id` / `x-actor-role` to the sidecar. Client-supplied identity headers are ignored (anti-spoofing); fails closed (503) in prod when `SUPABASE_JWT_SECRET` is unset. Covered by `docker/identity.test.js` + `docker/proxy-smoke.js`. ES256/JWKS verification is a follow-up. |
+| 1 | **Immutable log shipping (6-yr retention)** | ✅ Config provided: `../k8s/logging/` — Fluent Bit DaemonSet ships audit records (any line with an `action` field) to an **S3 Object Lock (WORM)** bucket with a 6-year COMPLIANCE retention default per §164.316(b)(2). The app already emits one JSON/line to stdout. Deploy step (bucket + apply) is ops — see `k8s/logging/README.md`. |
+| 2 | **Encryption at rest** | 📄 The sidecar currently persists nothing. If it begins caching/buffering PHI to disk, encrypt at rest per §164.312(a)(2)(iv). The audit WORM bucket itself uses SSE-KMS (see `k8s/logging/README.md`). |
+| 3 | **Propagate human identity** | ✅ `docker/serve.js` proxies `/api/sidecar/*`, verifies the Supabase JWT (**HS256** — confirmed this project's signing scheme), and forwards the **verified** `x-actor-user-id` / `x-actor-role` to the sidecar. Client-supplied identity headers are ignored (anti-spoofing); fails closed (503) in prod when `SUPABASE_JWT_SECRET` is unset. Covered by `docker/identity.test.js` + `docker/proxy-smoke.js`. ES256/JWKS not needed (no asymmetric keys in use). |
 
 ### Audit field reference
 

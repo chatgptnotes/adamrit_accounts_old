@@ -1,0 +1,120 @@
+# Fluent Bit DaemonSet that ships Adamrit audit logs to the WORM bucket.
+# Apply AFTER fluent-bit-configmap.yaml. Requires the `logging` namespace and
+# an S3 bucket with Object Lock — see README.md.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: logging
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fluent-bit-audit
+  namespace: logging
+  annotations:
+    # IRSA: bind to an IAM role allowed to s3:PutObject on the audit bucket ONLY.
+    # Prefer this over static AWS keys. Replace with your role ARN.
+    eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/adamrit-audit-log-writer"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fluent-bit-audit
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "namespaces"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fluent-bit-audit
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fluent-bit-audit
+subjects:
+  - kind: ServiceAccount
+    name: fluent-bit-audit
+    namespace: logging
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluent-bit-audit
+  namespace: logging
+  labels:
+    app: fluent-bit-audit
+spec:
+  selector:
+    matchLabels:
+      app: fluent-bit-audit
+  template:
+    metadata:
+      labels:
+        app: fluent-bit-audit
+    spec:
+      serviceAccountName: fluent-bit-audit
+      tolerations:
+        - operator: Exists # run on every node so no audit source is missed
+      containers:
+        - name: fluent-bit
+          image: cr.fluentbit.io/fluent/fluent-bit:3.1
+          env:
+            - name: AWS_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: fluent-bit-audit-env
+                  key: AWS_REGION
+            - name: AUDIT_LOG_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: fluent-bit-audit-env
+                  key: AUDIT_LOG_BUCKET
+          ports:
+            - containerPort: 2020
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 2020
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: config
+              mountPath: /fluent-bit/etc/
+            - name: state
+              mountPath: /var/fluent-bit
+      volumes:
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: config
+          configMap:
+            name: fluent-bit-audit
+        - name: state
+          emptyDir: {}
+---
+# Non-secret runtime config. The bucket name is not sensitive; the WRITE
+# credential is the IAM role bound via IRSA on the ServiceAccount above.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluent-bit-audit-env
+  namespace: logging
+data:
+  AWS_REGION: "ap-south-1"
+  AUDIT_LOG_BUCKET: "adamrit-audit-logs-worm"
