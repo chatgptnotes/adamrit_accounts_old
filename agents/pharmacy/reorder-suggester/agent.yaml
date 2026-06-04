@@ -1,0 +1,31 @@
+name: pharmacy-reorder-suggester
+display_name: "Pharmacy Reorder Suggester"
+department: pharmacy
+version: 1.0.0
+description: "Reads pharmacy inventory + last 90 days of sales to suggest reorder quantities, ranked by stockout risk."
+
+llm:
+  provider: groq
+  model: llama-3.1-70b-versatile
+  temperature: 0.1
+  max_tokens: 3000
+
+confidence_threshold: 0.85
+max_cycles: 1
+
+knowledge:
+  - knowledge/intake.md
+  - knowledge/outputs.md
+  - knowledge/boundaries.md
+  - knowledge/glossary.md
+
+examples:
+  - examples/example-01.md
+
+tools:
+  - db.read_pharmacy_inventory
+  - db.read_pharmacy_sales_90d
+  - db.read_pharmacy_batches
+  - db.read_supplier_lead_times
+
+human_review_required: true

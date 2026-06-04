@@ -1,0 +1,31 @@
+name: clinical-prior-visit-briefer
+display_name: "Clinician Prior-Visit Briefer"
+department: clinical
+version: 1.0.0
+description: "Builds a 1-page brief of a patient's relevant prior visits, active medications, recent labs, and 3 suggested questions. Read-only artefact for the consulting doctor."
+
+llm:
+  provider: vertex-ai
+  model: gemini-2.5-flash
+  temperature: 0.1
+  max_tokens: 2500
+
+confidence_threshold: 0.85
+max_cycles: 1
+
+knowledge:
+  - knowledge/intake.md
+  - knowledge/outputs.md
+  - knowledge/boundaries.md
+  - knowledge/glossary.md
+
+examples:
+  - examples/example-01.md
+
+tools:
+  - db.read_visits_last_5
+  - db.read_medications_active
+  - db.read_labs_recent_30d
+  - db.read_diagnoses_active
+
+human_review_required: false
