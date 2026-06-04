@@ -30,7 +30,6 @@ const DESIGNATION_OPTIONS = [
   'Administration',
   'Accounts',
   'Finance',
-  'Billing',
   'Clinical / Medical',
   'Nursing',
   'Pharmacy',
@@ -53,7 +52,6 @@ const ROLE_TO_DESIGNATION: Record<string, string> = {
   admin: 'Administration',
   super_admin: 'Administration',
   superadmin: 'Administration',
-  billing: 'Billing',
   doctor: 'Clinical / Medical',
   consultant: 'Clinical / Medical',
   physiotherapist: 'Clinical / Medical',
@@ -86,7 +84,7 @@ const TaskOptimizerDashboard = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [view, setView] = useState<'entry' | 'submissions' | 'insights' | 'automations'>('entry');
+  const [view, setView] = useState<'entry' | 'submissions' | 'automations' | 'insights'>('entry');
   const [name, setName] = useState('');
   const [designation, setDesignation] = useState(
     () => ROLE_TO_DESIGNATION[user?.role ?? ''] ?? '',
@@ -231,10 +229,10 @@ const TaskOptimizerDashboard = () => {
 
       {view === 'submissions' ? (
         <SubmissionsList />
-      ) : view === 'insights' ? (
-        <InsightsPanel />
       ) : view === 'automations' ? (
         <AutomationsPanel />
+      ) : view === 'insights' ? (
+        <InsightsPanel />
       ) : (
         <>
       {/* Templates */}
