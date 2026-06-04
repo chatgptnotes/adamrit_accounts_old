@@ -4,6 +4,9 @@ dist/
 .env
 .env.local
 .vercel
+# Vercel env pulls — contain live secrets (service_role key, tokens), never commit
+.vercel.tmp.env
+*.tmp.env
 
 # macOS system files
 .DS_Store
