@@ -70,7 +70,18 @@
       "Bash(ls -1 /Users/apple/Desktop/Hope_projects/adamrit/supabase/migrations/202603*)",
       "Bash(ls -ltr /Users/apple/Desktop/Hope_projects/adamrit/supabase/migrations/*.sql)",
       "Bash(ls -lh /Users/apple/Desktop/Hope_projects/adamrit/supabase/migrations/202503*.sql)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(vercel link *)",
+      "Bash(vercel --prod --yes)",
+      "Bash(vercel ls *)",
+      "Bash(vercel env *)",
+      "Bash(gh pr *)",
+      "Bash(gh issue *)",
+      "Bash(python -c \"import yaml; print\\('pyyaml available'\\)\")",
+      "Bash(PORT=3000 SIDECAR_URL=http://127.0.0.1:8081 SUPABASE_JWT_SECRET=local-exec-secret NODE_ENV=production node docker/serve.js)",
+      "PowerShell($c = Get-NetTCPConnection -LocalPort 8081 -State Listen -ErrorAction SilentlyContinue; if \\($c\\) { $c | ForEach-Object { $p = Get-Process -Id $_.OwningProcess; Write-Output \\(\"PID {0}  {1}  started {2}\" -f $p.Id, $p.ProcessName, $p.StartTime\\) } } else { Write-Output \"nothing listening on 8081\" })",
+      "Bash(SIDECAR_PORT=8081 node sidecar/server.js)",
+      "PowerShell(foreach \\($port in 8081,3000\\) { $c = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue; if \\($c\\) { Write-Output \"$port STILL in use \\(PID $\\($c.OwningProcess\\)\\)\" } else { Write-Output \"$port free\" } })"
     ],
     "deny": [],
     "ask": []
