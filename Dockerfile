@@ -19,10 +19,14 @@ RUN npm run build
 FROM node:20-alpine AS runtime
 WORKDIR /app
 COPY --from=build /app/dist ./dist
-COPY docker/serve.js ./docker/serve.js
+# serve.js + identity.js + a package.json pinning these to CommonJS.
+COPY docker/serve.js docker/identity.js docker/package.json ./docker/
 
 ENV PORT=3000
 ENV SIDECAR_URL="http://127.0.0.1:8081"
+# SUPABASE_JWT_SECRET must be supplied at runtime (K8s Secret / compose env).
+# When unset in production the proxy fails closed (503) rather than logging
+# unattributed access. Never bake this secret into the image.
 USER node
 EXPOSE 3000
 

@@ -15,6 +15,7 @@
 
 const http = require('http');
 const crypto = require('crypto');
+const { createAudit } = require('./audit');
 
 // ── Configuration ──────────────────────────────────────────────────────────
 const BIND_HOST = '127.0.0.1'; // NEVER 0.0.0.0 — this binding IS the security boundary
@@ -23,12 +24,9 @@ const ALLOWED_REMOTES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 // ── Audit logging (structured, PHI-free) ───────────────────────────────────
 // One JSON object per line → ships cleanly to a SIEM / immutable log store.
-// NEVER log PHI payloads here — log references (record IDs, hashes) only.
-function audit(event) {
-  process.stdout.write(
-    JSON.stringify({ ts: new Date().toISOString(), component: 'sidecar', ...event }) + '\n'
-  );
-}
+// The audit() function enforces a field allowlist, so unexpected keys (which
+// could carry PHI) are dropped automatically — see ./audit.js.
+const audit = createAudit();
 
 const server = http.createServer((req, res) => {
   const remote = req.socket.remoteAddress;
@@ -42,7 +40,18 @@ const server = http.createServer((req, res) => {
   // The bind already prevents external connections; this also catches
   // accidental misconfiguration (e.g. a future 0.0.0.0 bind).
   if (!ALLOWED_REMOTES.has(remote)) {
-    audit({ level: 'WARN', action: 'reject_non_loopback', remote, path: req.url, requestId });
+    // Security event: a non-loopback source attempted to connect. Tagged with
+    // category/severity so a SIEM can route it into the incident-review pipeline.
+    audit({
+      level: 'WARN',
+      category: 'security',
+      severity: 'warning',
+      action: 'reject_non_loopback',
+      outcome: 'deny',
+      remote,
+      path: req.url,
+      requestId,
+    });
     res.writeHead(403, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'forbidden: loopback only' }));
     req.socket.destroy();

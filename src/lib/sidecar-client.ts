@@ -1,19 +1,16 @@
 /**
- * Client for the loopback-isolated sidecar.
+ * Browser client for the loopback-isolated sidecar.
  *
- * No API key is sent: the sidecar binds to 127.0.0.1 and only accepts traffic
- * from the same pod/host network namespace. We DO forward the authenticated
- * human identity so the sidecar can attribute PHI access in its audit trail.
+ * A browser CANNOT reach the sidecar directly: 127.0.0.1:8081 from a browser is
+ * the end-user's own machine, not the pod. All calls go through the same-origin
+ * server proxy (`/api/sidecar/*` in docker/serve.js), which authenticates the
+ * Supabase session and forwards the VERIFIED identity to the sidecar for audit.
+ *
+ * Pass the user's Supabase access token; the proxy derives `x-actor-*` from it.
+ * Client-supplied identity headers are ignored by the proxy (anti-spoofing).
  */
 
-const SIDECAR_BASE = (import.meta.env?.VITE_SIDECAR_URL as string) || 'http://127.0.0.1:8081';
-
-export interface SidecarActor {
-  /** Authenticated user id from the Main App session (NOT a credential the sidecar checks). */
-  userId: string;
-  /** User role for audit attribution. */
-  role: string;
-}
+const PROXY_BASE = '/api/sidecar';
 
 export interface HandshakeResult {
   peer: string;
@@ -21,33 +18,41 @@ export interface HandshakeResult {
   trust: string;
 }
 
-function actorHeaders(actor?: SidecarActor, requestId?: string): Record<string, string> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (actor) {
-    headers['x-actor-user-id'] = actor.userId;
-    headers['x-actor-role'] = actor.role;
-  }
-  if (requestId) headers['x-request-id'] = requestId;
-  return headers;
+interface CallOptions {
+  /** Supabase access token (e.g. from `supabase.auth.getSession()`). Required. */
+  accessToken: string;
+  method?: string;
+  body?: unknown;
+  signal?: AbortSignal;
 }
 
-/** Liveness check — used by the Main App on startup / readiness probes. */
-export async function checkSidecarHealth(): Promise<boolean> {
-  try {
-    const res = await fetch(`${SIDECAR_BASE}/healthz`);
-    return res.ok;
-  } catch {
-    return false;
+/**
+ * Call a sidecar route through the authenticated proxy.
+ * @param path sidecar path, e.g. "/handshake" or "/deidentify"
+ */
+export async function callSidecar<T = unknown>(path: string, opts: CallOptions): Promise<T> {
+  if (!opts.accessToken) {
+    throw new Error('callSidecar: accessToken is required');
   }
-}
-
-/** Keyless handshake — verifies the Main App can talk to the sidecar with no credentials. */
-export async function handshake(actor?: SidecarActor): Promise<HandshakeResult> {
-  const res = await fetch(`${SIDECAR_BASE}/handshake`, { headers: actorHeaders(actor) });
+  const normalized = path.startsWith('/') ? path : `/${path}`;
+  const res = await fetch(`${PROXY_BASE}${normalized}`, {
+    method: opts.method || 'GET',
+    headers: {
+      Authorization: `Bearer ${opts.accessToken}`,
+      ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    signal: opts.signal,
+  });
   if (!res.ok) {
-    throw new Error(`sidecar handshake failed: ${res.status}`);
+    throw new Error(`sidecar call failed: ${res.status} ${normalized}`);
   }
-  return (await res.json()) as HandshakeResult;
+  return (await res.json()) as T;
 }
 
-export { SIDECAR_BASE };
+/** Keyless (to the sidecar) handshake through the authenticated proxy. */
+export async function handshake(accessToken: string): Promise<HandshakeResult> {
+  return callSidecar<HandshakeResult>('/handshake', { accessToken });
+}
+
+export { PROXY_BASE };
