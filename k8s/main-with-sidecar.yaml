@@ -1,0 +1,81 @@
+# Production co-location of Main App + sidecar.
+# All containers in a Pod automatically SHARE one network namespace, so the
+# sidecar at 127.0.0.1:8081 is reachable by main-app with no API key, and is
+# not exposed by any Service.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: adamrit-app
+  labels:
+    app: adamrit
+spec:
+  # Do NOT set hostNetwork: true — that would expose loopback to the whole node.
+  containers:
+    - name: main-app
+      image: registry.example.com/adamrit/main:latest
+      ports:
+        - containerPort: 3000 # public-facing, exposed via the Service below
+      env:
+        - name: VITE_SIDECAR_URL
+          value: "http://127.0.0.1:8081" # same Pod = same loopback
+      securityContext:
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+
+    - name: sidecar
+      image: registry.example.com/adamrit/sidecar:latest
+      # NO ports section: 127.0.0.1:8081 is reachable by main-app via the shared
+      # netns and is NOT exposed by any Service.
+      env:
+        - name: SIDECAR_PORT
+          value: "8081"
+      readinessProbe:
+        httpGet:
+          path: /healthz
+          port: 8081
+          host: 127.0.0.1
+        initialDelaySeconds: 3
+        periodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+---
+# Service exposes ONLY the Main App's port 3000 — never the sidecar's 8081.
+apiVersion: v1
+kind: Service
+metadata:
+  name: adamrit-svc
+spec:
+  selector:
+    app: adamrit
+  ports:
+    - port: 80
+      targetPort: 3000
+---
+# Defense in depth: default-deny ingress except from the ingress gateway.
+# NetworkPolicy does NOT govern intra-pod loopback traffic, so the
+# sidecar <-> main-app path is unaffected — exactly what we want.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: adamrit-default-deny
+spec:
+  podSelector:
+    matchLabels:
+      app: adamrit
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              role: ingress-gateway
+      ports:
+        - protocol: TCP
+          port: 3000

@@ -1,0 +1,24 @@
+# Keep the Docker build context small and reproducible.
+node_modules
+dist
+.git
+.github
+*.log
+npm-debug.log*
+
+# Editor / agent scratch
+tmpclaude-*
+.claude
+claude-auto-confirm
+
+# Docs, SQL dumps, and other build-irrelevant assets
+*.md
+*.sql
+*.pdf
+docs
+e2e
+supabase-migrations
+tally-exports
+
+# The sidecar builds from its own context (sidecar/)
+sidecar
