@@ -64,6 +64,23 @@
   padding-top: env(safe-area-inset-top, 0px);
 }
 
+/* Branded top-bar surface — a faint emerald sheen over the card token. Because
+   the header carries the safe-area-inset-top padding, this gradient fills the
+   status-bar strip too, so the top reads as one deliberate header instead of a
+   flat black band. */
+.tablet-topbar {
+  background:
+    linear-gradient(180deg, hsl(152 56% 45% / 0.12) 0%, transparent 70%),
+    hsl(var(--card));
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.tablet-light .tablet-topbar {
+  background:
+    linear-gradient(180deg, hsl(152 52% 36% / 0.1) 0%, transparent 70%),
+    hsl(var(--card));
+}
+
 /* Hide scrollbars on touch scroll areas */
 .tablet-no-scrollbar::-webkit-scrollbar {
   display: none;

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { useAuth } from '@/contexts/AuthContext';
 
 export interface PendingPrescription {
   id: string;
@@ -18,12 +19,17 @@ interface UsePendingPrescriptionsResult {
   isLoading: boolean;
 }
 
-const COUNT_KEY = ['pending-prescriptions', 'count'] as const;
-const RECENT_KEY = ['pending-prescriptions', 'recent'] as const;
-
 export const usePendingPrescriptions = (): UsePendingPrescriptionsResult => {
   const queryClient = useQueryClient();
+  const { hospitalType } = useAuth();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Pending camera/manual prescriptions (any hospital, unchanged) PLUS ward
+  // orders bridged from the tablet — scoped to THIS hospital so Hope and
+  // Ayushman pharmacists only see their own ward orders.
+  const pendingFilter = `status.eq.PENDING,and(status.eq.APPROVED,source.eq.ward,hospital_name.eq.${hospitalType})`;
+  const COUNT_KEY = ['pending-prescriptions', 'count', hospitalType] as const;
+  const RECENT_KEY = ['pending-prescriptions', 'recent', hospitalType] as const;
 
   const countQuery = useQuery({
     queryKey: COUNT_KEY,
@@ -31,7 +37,7 @@ export const usePendingPrescriptions = (): UsePendingPrescriptionsResult => {
       const { count, error } = await (supabase as any)
         .from('prescriptions')
         .select('id', { count: 'exact', head: true })
-        .eq('status', 'PENDING');
+        .or(pendingFilter);
       if (error) return 0;
       return count ?? 0;
     },
@@ -45,7 +51,7 @@ export const usePendingPrescriptions = (): UsePendingPrescriptionsResult => {
       const { data, error } = await (supabase as any)
         .from('prescriptions')
         .select('id, prescription_number, doctor_name, prescription_date, created_at, patients(name)')
-        .eq('status', 'PENDING')
+        .or(pendingFilter)
         .order('created_at', { ascending: false })
         .limit(5);
 
