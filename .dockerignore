@@ -20,5 +20,5 @@ e2e
 supabase-migrations
 tally-exports
 
-# The sidecar builds from its own context (sidecar/)
-sidecar
+# Note: sidecar/ is intentionally NOT ignored — Dockerfile.render (the combined
+# single-container image for Render) copies sidecar/server.js + audit.js.

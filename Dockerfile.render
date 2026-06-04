@@ -1,0 +1,39 @@
+# Combined single-container image for Render: Main App proxy + loopback sidecar.
+#
+# Render isolates each service in its own network namespace, so to keep the
+# sidecar reachable ONLY over loopback (no API key) both processes run in this
+# one container, supervised by docker/start.js. Render exposes only $PORT
+# (the proxy); the sidecar's 127.0.0.1:8081 is never exposed.
+
+# ── Build stage: compile the Vite SPA ──────────────────────────────────────
+FROM node:20-alpine AS build
+WORKDIR /app
+
+# Render passes service env vars as Docker build args, so VITE_* set in
+# render.yaml arrive here. Defaults are the PUBLIC Supabase anon values.
+ARG VITE_SUPABASE_URL="https://xvkxccqaopbnkvwgyfjv.supabase.co"
+ARG VITE_SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2a3hjY3Fhb3Bibmt2d2d5Zmp2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4MjMwMTIsImV4cCI6MjA2MzM5OTAxMn0.z9UkKHDm4RPMs_2IIzEPEYzd3-sbQSF6XpxaQg3vZhU"
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY . .
+RUN npm run build
+
+# ── Runtime stage: supervisor runs proxy + sidecar together ────────────────
+FROM node:20-alpine AS runtime
+WORKDIR /app
+COPY --from=build /app/dist ./dist
+COPY docker/serve.js docker/identity.js docker/start.js docker/package.json ./docker/
+COPY sidecar/server.js sidecar/audit.js sidecar/package.json ./sidecar/
+
+ENV NODE_ENV=production
+ENV SIDECAR_PORT=8081
+ENV PORT=10000
+# SUPABASE_JWT_SECRET is injected at runtime by Render (never baked in). When
+# unset in production the proxy fails closed (503) on /api/sidecar/*.
+USER node
+EXPOSE 10000
+
+CMD ["node", "docker/start.js"]

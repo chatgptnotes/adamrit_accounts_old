@@ -1,4 +1,30 @@
 services:
+  # Combined Main App + loopback sidecar in ONE container (preserves the keyless
+  # loopback model — Render isolates each service's network namespace, so the
+  # sidecar can only stay loopback-only by co-locating both processes here).
+  - type: web
+    name: adamrit-sidecar-app
+    runtime: docker
+    dockerfilePath: ./Dockerfile.render
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SIDECAR_PORT
+        value: "8081"
+      # Set this securely in the Render dashboard (sync:false = not in git).
+      # When unset, the /api/sidecar/* proxy fails closed (503) in production.
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      # Build-time (Vite) values — Render passes service env vars as build args.
+      - key: VITE_SUPABASE_URL
+        value: https://xvkxccqaopbnkvwgyfjv.supabase.co
+      - key: VITE_SUPABASE_ANON_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2a3hjY3Fhb3Bibmt2d2d5Zmp2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4MjMwMTIsImV4cCI6MjA2MzM5OTAxMn0.z9UkKHDm4RPMs_2IIzEPEYzd3-sbQSF6XpxaQg3vZhU
+
   - type: web
     name: esic-patient-mapper
     env: static
