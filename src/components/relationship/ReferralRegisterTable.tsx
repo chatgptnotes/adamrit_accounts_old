@@ -98,6 +98,8 @@ const ReferralRegisterTable = () => {
   const queryClient = useQueryClient();
   // Local editable copy of the rows so typing stays smooth; persisted on blur.
   const [rows, setRows] = useState<ReferralRow[]>([]);
+  // Date chosen for PDF export. '' means export every date.
+  const [exportDate, setExportDate] = useState<string>('');
 
   const { data: fetchedRows = [], isLoading } = useQuery({
     queryKey: ['referral-register'],
@@ -209,17 +211,32 @@ const ReferralRegisterTable = () => {
 
   // Rows clustered by date, each with its own daily subtotal.
   const dateGroups = buildDateGroups(rows);
+  // Distinct dates that actually have entries, for the export picker.
+  const availableDates = dateGroups.map((g) => g.key).filter(Boolean);
 
   // Build a printable landscape PDF of the current register, including totals.
   const handleExportPdf = () => {
-    if (rows.length === 0) {
+    // When a date is selected, export only that day; otherwise the whole register.
+    const groupsToExport = exportDate
+      ? dateGroups.filter((g) => g.key === exportDate)
+      : dateGroups;
+
+    const exportRowCount = groupsToExport.reduce((n, g) => n + g.rows.length, 0);
+    if (exportRowCount === 0) {
       toast({
         title: 'Nothing to export',
-        description: 'Add at least one row before generating a PDF.',
+        description: exportDate
+          ? 'No entries for the selected date.'
+          : 'Add at least one row before generating a PDF.',
         variant: 'destructive',
       });
       return;
     }
+
+    const exportTotals = groupsToExport.reduce(
+      (acc, g) => ({ paid: acc.paid + g.paid, referral: acc.referral + g.referral }),
+      { paid: 0, referral: 0 }
+    );
 
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -252,7 +269,12 @@ const ReferralRegisterTable = () => {
     let y = 16;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(14);
-    doc.text('Referral Register', pageWidth / 2, y, { align: 'center' });
+    doc.text(
+      exportDate ? `Referral Register - ${formatDateHeading(exportDate)}` : 'Referral Register',
+      pageWidth / 2,
+      y,
+      { align: 'center' }
+    );
     y += 5;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
@@ -275,7 +297,8 @@ const ReferralRegisterTable = () => {
 
     const tableWidth = cols.reduce((s, c) => s + c.w, 0);
 
-    dateGroups.forEach((group) => {
+    let serial = 0;
+    groupsToExport.forEach((group) => {
       // Date heading for this day's block.
       if (y > pageHeight - 24) {
         doc.addPage();
@@ -288,13 +311,13 @@ const ReferralRegisterTable = () => {
       y += 5;
       doc.setFont('helvetica', 'normal');
 
-      group.rows.forEach((row, idx) => {
+      group.rows.forEach((row) => {
         if (y > pageHeight - 18) {
           doc.addPage();
           y = 16;
           drawHeader();
         }
-        cellText(String(group.startSerial + idx + 1), 0, y);
+        cellText(String(++serial), 0, y);
         cellText(row.date_of_registration || '-', 1, y);
         cellText(row.patient_name || '-', 2, y);
         cellText(formatMoney(toNumber(row.paid_amount)), 3, y);
@@ -327,10 +350,10 @@ const ReferralRegisterTable = () => {
     y += 4;
     doc.setFont('helvetica', 'bold');
     cellText('Grand Total', 2, y);
-    cellText(formatMoney(totals.paid), 3, y);
-    cellText(formatMoney(totals.referral), 6, y);
+    cellText(formatMoney(exportTotals.paid), 3, y);
+    cellText(formatMoney(exportTotals.referral), 6, y);
 
-    doc.save(`referral_register_${new Date().toISOString().split('T')[0]}.pdf`);
+    doc.save(`referral_register_${exportDate || 'all-dates'}.pdf`);
   };
 
   return (
@@ -342,10 +365,23 @@ const ReferralRegisterTable = () => {
             Add rows manually. Entries are grouped by date with a daily total; Sr. No and totals are calculated automatically.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <select
+            value={exportDate}
+            onChange={(e) => setExportDate(e.target.value)}
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            title="Choose a date to export"
+          >
+            <option value="">All dates</option>
+            {availableDates.map((d) => (
+              <option key={d} value={d}>
+                {formatDateHeading(d)}
+              </option>
+            ))}
+          </select>
           <Button variant="outline" onClick={handleExportPdf}>
             <FileDown className="h-4 w-4 mr-2" />
-            Generate PDF
+            {exportDate ? 'Generate PDF (selected date)' : 'Generate PDF'}
           </Button>
           <Button onClick={() => addMutation.mutate()} disabled={addMutation.isPending}>
             <Plus className="h-4 w-4 mr-2" />
