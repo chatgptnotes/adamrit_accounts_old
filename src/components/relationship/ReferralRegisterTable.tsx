@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { jsPDF } from 'jspdf';
 import { supabase } from '@/integrations/supabase/client';
@@ -45,11 +45,61 @@ const toNumber = (value: string | number | null | undefined): number => {
 const formatMoney = (value: number): string =>
   value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// Render an ISO 'YYYY-MM-DD' as 'DD-Mon-YYYY' without timezone drift.
+const formatDateHeading = (iso: string | null): string => {
+  if (!iso) return 'No date';
+  const [y, m, d] = iso.split('-');
+  if (!y || !m || !d) return iso;
+  return `${d}-${MONTHS[parseInt(m, 10) - 1] ?? m}-${y}`;
+};
+
+// One day's worth of rows plus its running totals. startSerial keeps the
+// Sr. No continuous across days even though rows are clustered by date.
+interface DateGroup {
+  key: string; // '' for undated rows
+  date: string | null;
+  rows: ReferralRow[];
+  paid: number;
+  referral: number;
+  startSerial: number;
+}
+
+// Cluster rows by date_of_registration, chronological ascending, undated last.
+const buildDateGroups = (rows: ReferralRow[]): DateGroup[] => {
+  const map = new Map<string, DateGroup>();
+  for (const row of rows) {
+    const key = row.date_of_registration || '';
+    let group = map.get(key);
+    if (!group) {
+      group = { key, date: row.date_of_registration || null, rows: [], paid: 0, referral: 0, startSerial: 0 };
+      map.set(key, group);
+    }
+    group.rows.push(row);
+    group.paid += toNumber(row.paid_amount);
+    group.referral += toNumber(row.referral_amount);
+  }
+  const groups = Array.from(map.values()).sort((a, b) => {
+    if (a.key === '') return 1;
+    if (b.key === '') return -1;
+    return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+  });
+  let serial = 0;
+  for (const group of groups) {
+    group.startSerial = serial;
+    serial += group.rows.length;
+  }
+  return groups;
+};
+
 const ReferralRegisterTable = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   // Local editable copy of the rows so typing stays smooth; persisted on blur.
   const [rows, setRows] = useState<ReferralRow[]>([]);
+  // Date chosen for PDF export. '' means export every date.
+  const [exportDate, setExportDate] = useState<string>('');
 
   const { data: fetchedRows = [], isLoading } = useQuery({
     queryKey: ['referral-register'],
@@ -159,16 +209,34 @@ const ReferralRegisterTable = () => {
     { paid: 0, referral: 0 }
   );
 
+  // Rows clustered by date, each with its own daily subtotal.
+  const dateGroups = buildDateGroups(rows);
+  // Distinct dates that actually have entries, for the export picker.
+  const availableDates = dateGroups.map((g) => g.key).filter(Boolean);
+
   // Build a printable landscape PDF of the current register, including totals.
   const handleExportPdf = () => {
-    if (rows.length === 0) {
+    // When a date is selected, export only that day; otherwise the whole register.
+    const groupsToExport = exportDate
+      ? dateGroups.filter((g) => g.key === exportDate)
+      : dateGroups;
+
+    const exportRowCount = groupsToExport.reduce((n, g) => n + g.rows.length, 0);
+    if (exportRowCount === 0) {
       toast({
         title: 'Nothing to export',
-        description: 'Add at least one row before generating a PDF.',
+        description: exportDate
+          ? 'No entries for the selected date.'
+          : 'Add at least one row before generating a PDF.',
         variant: 'destructive',
       });
       return;
     }
+
+    const exportTotals = groupsToExport.reduce(
+      (acc, g) => ({ paid: acc.paid + g.paid, referral: acc.referral + g.referral }),
+      { paid: 0, referral: 0 }
+    );
 
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -201,7 +269,12 @@ const ReferralRegisterTable = () => {
     let y = 16;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(14);
-    doc.text('Referral Register', pageWidth / 2, y, { align: 'center' });
+    doc.text(
+      exportDate ? `Referral Register - ${formatDateHeading(exportDate)}` : 'Referral Register',
+      pageWidth / 2,
+      y,
+      { align: 'center' }
+    );
     y += 5;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
@@ -222,33 +295,65 @@ const ReferralRegisterTable = () => {
     };
     drawHeader();
 
-    rows.forEach((row, index) => {
+    const tableWidth = cols.reduce((s, c) => s + c.w, 0);
+
+    let serial = 0;
+    groupsToExport.forEach((group) => {
+      // Date heading for this day's block.
+      if (y > pageHeight - 24) {
+        doc.addPage();
+        y = 16;
+        drawHeader();
+      }
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.text(formatDateHeading(group.date), marginX + 2, y);
+      y += 5;
+      doc.setFont('helvetica', 'normal');
+
+      group.rows.forEach((row) => {
+        if (y > pageHeight - 18) {
+          doc.addPage();
+          y = 16;
+          drawHeader();
+        }
+        cellText(String(++serial), 0, y);
+        cellText(row.date_of_registration || '-', 1, y);
+        cellText(row.patient_name || '-', 2, y);
+        cellText(formatMoney(toNumber(row.paid_amount)), 3, y);
+        cellText(row.consultant || '-', 4, y);
+        cellText(row.referral_name || '-', 5, y);
+        cellText(formatMoney(toNumber(row.referral_amount)), 6, y);
+        y += 6;
+      });
+
+      // Daily subtotal line.
       if (y > pageHeight - 18) {
         doc.addPage();
         y = 16;
         drawHeader();
       }
-      cellText(String(index + 1), 0, y);
-      cellText(row.date_of_registration || '-', 1, y);
-      cellText(row.patient_name || '-', 2, y);
-      cellText(formatMoney(toNumber(row.paid_amount)), 3, y);
-      cellText(row.consultant || '-', 4, y);
-      cellText(row.referral_name || '-', 5, y);
-      cellText(formatMoney(toNumber(row.referral_amount)), 6, y);
-      y += 6;
+      doc.setLineWidth(0.1);
+      doc.line(marginX, y - 2, marginX + tableWidth, y - 2);
+      doc.setFont('helvetica', 'bold');
+      cellText(`Total for ${formatDateHeading(group.date)}`, 2, y);
+      cellText(formatMoney(group.paid), 3, y);
+      cellText(formatMoney(group.referral), 6, y);
+      doc.setFont('helvetica', 'normal');
+      y += 8;
     });
 
-    // Totals row.
+    // Grand total row.
     y += 1;
     doc.setLineWidth(0.3);
-    doc.line(marginX, y, marginX + cols.reduce((s, c) => s + c.w, 0), y);
+    doc.line(marginX, y, marginX + tableWidth, y);
     y += 4;
     doc.setFont('helvetica', 'bold');
-    cellText('Total Amount', 2, y);
-    cellText(formatMoney(totals.paid), 3, y);
-    cellText(formatMoney(totals.referral), 6, y);
+    cellText('Grand Total', 2, y);
+    cellText(formatMoney(exportTotals.paid), 3, y);
+    cellText(formatMoney(exportTotals.referral), 6, y);
 
-    doc.save(`referral_register_${new Date().toISOString().split('T')[0]}.pdf`);
+    doc.save(`referral_register_${exportDate || 'all-dates'}.pdf`);
   };
 
   return (
@@ -257,13 +362,26 @@ const ReferralRegisterTable = () => {
         <div>
           <h2 className="text-xl font-semibold text-primary">Referral Register</h2>
           <p className="text-sm text-muted-foreground">
-            Add rows manually. Sr. No and totals are calculated automatically.
+            Add rows manually. Entries are grouped by date with a daily total; Sr. No and totals are calculated automatically.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <select
+            value={exportDate}
+            onChange={(e) => setExportDate(e.target.value)}
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            title="Choose a date to export"
+          >
+            <option value="">All dates</option>
+            {availableDates.map((d) => (
+              <option key={d} value={d}>
+                {formatDateHeading(d)}
+              </option>
+            ))}
+          </select>
           <Button variant="outline" onClick={handleExportPdf}>
             <FileDown className="h-4 w-4 mr-2" />
-            Generate PDF
+            {exportDate ? 'Generate PDF (selected date)' : 'Generate PDF'}
           </Button>
           <Button onClick={() => addMutation.mutate()} disabled={addMutation.isPending}>
             <Plus className="h-4 w-4 mr-2" />
@@ -300,73 +418,97 @@ const ReferralRegisterTable = () => {
                 </TableCell>
               </TableRow>
             ) : (
-              rows.map((row, index) => (
-                <TableRow key={row.id}>
-                  <TableCell className="text-center font-medium">{index + 1}</TableCell>
-                  <TableCell>
-                    <Input
-                      type="date"
-                      value={row.date_of_registration ?? ''}
-                      onChange={(e) => handleChange(row.id, 'date_of_registration', e.target.value)}
-                      onBlur={() => handleBlur(row.id)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      value={row.patient_name ?? ''}
-                      placeholder="Patient name"
-                      onChange={(e) => handleChange(row.id, 'patient_name', e.target.value)}
-                      onBlur={() => handleBlur(row.id)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      type="number"
-                      className="text-right"
-                      value={row.paid_amount || ''}
-                      placeholder="0"
-                      onChange={(e) => handleChange(row.id, 'paid_amount', e.target.value)}
-                      onBlur={() => handleBlur(row.id)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      value={row.consultant ?? ''}
-                      placeholder="Consultant"
-                      onChange={(e) => handleChange(row.id, 'consultant', e.target.value)}
-                      onBlur={() => handleBlur(row.id)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      value={row.referral_name ?? ''}
-                      placeholder="Referral name"
-                      onChange={(e) => handleChange(row.id, 'referral_name', e.target.value)}
-                      onBlur={() => handleBlur(row.id)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      type="number"
-                      className="text-right"
-                      value={row.referral_amount || ''}
-                      placeholder="0"
-                      onChange={(e) => handleChange(row.id, 'referral_amount', e.target.value)}
-                      onBlur={() => handleBlur(row.id)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDelete(row.id)}
-                      className="text-red-600 hover:text-red-700"
-                      title="Delete row"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
+              dateGroups.map((group) => (
+                <Fragment key={group.key || 'no-date'}>
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
+                    <TableCell colSpan={8} className="py-1.5 text-sm font-semibold text-primary">
+                      {formatDateHeading(group.date)}
+                    </TableCell>
+                  </TableRow>
+                  {group.rows.map((row, idx) => (
+                    <TableRow key={row.id}>
+                      <TableCell className="text-center font-medium">
+                        {group.startSerial + idx + 1}
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="date"
+                          value={row.date_of_registration ?? ''}
+                          onChange={(e) => handleChange(row.id, 'date_of_registration', e.target.value)}
+                          onBlur={() => handleBlur(row.id)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          value={row.patient_name ?? ''}
+                          placeholder="Patient name"
+                          onChange={(e) => handleChange(row.id, 'patient_name', e.target.value)}
+                          onBlur={() => handleBlur(row.id)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          className="text-right"
+                          value={row.paid_amount || ''}
+                          placeholder="0"
+                          onChange={(e) => handleChange(row.id, 'paid_amount', e.target.value)}
+                          onBlur={() => handleBlur(row.id)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          value={row.consultant ?? ''}
+                          placeholder="Consultant"
+                          onChange={(e) => handleChange(row.id, 'consultant', e.target.value)}
+                          onBlur={() => handleBlur(row.id)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          value={row.referral_name ?? ''}
+                          placeholder="Referral name"
+                          onChange={(e) => handleChange(row.id, 'referral_name', e.target.value)}
+                          onBlur={() => handleBlur(row.id)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          className="text-right"
+                          value={row.referral_amount || ''}
+                          placeholder="0"
+                          onChange={(e) => handleChange(row.id, 'referral_amount', e.target.value)}
+                          onBlur={() => handleBlur(row.id)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDelete(row.id)}
+                          className="text-red-600 hover:text-red-700"
+                          title="Delete row"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  <TableRow className="bg-muted/20 hover:bg-muted/20">
+                    <TableCell colSpan={3} className="text-right text-sm font-medium">
+                      Total for {formatDateHeading(group.date)}
+                    </TableCell>
+                    <TableCell className="text-right font-medium tabular-nums">
+                      {formatMoney(group.paid)}
+                    </TableCell>
+                    <TableCell colSpan={2} />
+                    <TableCell className="text-right font-medium tabular-nums">
+                      {formatMoney(group.referral)}
+                    </TableCell>
+                    <TableCell />
+                  </TableRow>
+                </Fragment>
               ))
             )}
           </TableBody>
@@ -374,7 +516,7 @@ const ReferralRegisterTable = () => {
             <TableFooter>
               <TableRow>
                 <TableCell colSpan={3} className="font-semibold text-right">
-                  Total Amount
+                  Grand Total
                 </TableCell>
                 <TableCell className="text-right font-semibold tabular-nums">
                   {formatMoney(totals.paid)}
