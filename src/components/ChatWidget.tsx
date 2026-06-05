@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { MessageSquare, X, Send, Bot, User } from 'lucide-react';
+import { geminiGenerateContentUrl, geminiFetch } from '@/lib/gemini';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -12,7 +13,11 @@ const QUICK_QUESTIONS = [
   'Which wards have vacancies?',
 ];
 
-const OPENAI_KEY = import.meta.env.VITE_OPENAI_API_KEY || '';
+const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
+
+const SYSTEM_PROMPT = `You are an AI assistant for Adamrit, a hospital management system used at Hope Hospital and Ayushman Hospital in Nagpur, India.
+You help hospital staff answer questions about patients, billing, admissions, discharges, lab reports, and daily hospital operations.
+Be concise, accurate, and helpful. If you do not have live database access, suggest where the user can find the information in the dashboard.`;
 
 export default function ChatWidget() {
   const [open, setOpen] = useState(false);
@@ -29,35 +34,38 @@ export default function ChatWidget() {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
 
+    if (!GEMINI_KEY) {
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: 'AI is not configured. Please set VITE_GEMINI_API_KEY.' },
+      ]);
+      return;
+    }
+
     setInput('');
     setMessages((prev) => [...prev, { role: 'user', content: trimmed }]);
     setLoading(true);
 
     try {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      // Gemini uses "model" for the assistant role and carries the system
+      // prompt in a dedicated systemInstruction field (not the contents array).
+      const res = await geminiFetch(geminiGenerateContentUrl(GEMINI_KEY), {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${OPENAI_KEY}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          max_tokens: 400,
-          temperature: 0.3,
-          messages: [
-            {
-              role: 'system',
-              content: `You are an AI assistant for Adamrit, a hospital management system used at Hope Hospital and Ayushman Hospital in Nagpur, India.
-You help hospital staff answer questions about patients, billing, admissions, discharges, lab reports, and daily hospital operations.
-Be concise, accurate, and helpful. If you do not have live database access, suggest where the user can find the information in the dashboard.`,
-            },
-            ...messages.map((m) => ({ role: m.role, content: m.content })),
-            { role: 'user', content: trimmed },
+          systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+          contents: [
+            ...messages.map((m) => ({
+              role: m.role === 'assistant' ? 'model' : 'user',
+              parts: [{ text: m.content }],
+            })),
+            { role: 'user', parts: [{ text: trimmed }] },
           ],
+          generationConfig: { temperature: 0.3, maxOutputTokens: 400 },
         }),
       });
       const data = await res.json();
-      const reply = data.choices?.[0]?.message?.content || data.error?.message || 'No response.';
+      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response.';
       setMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
     } catch {
       setMessages((prev) => [
