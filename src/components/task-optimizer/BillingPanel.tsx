@@ -185,7 +185,7 @@ export default function BillingPanel() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<BillingTab>('emails');
   const [dashboardOpen, setDashboardOpen] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
+  const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [isChecking, setIsChecking] = useState(false);
   const { checkMail, regenerateDraft } = useGmailChecker();
 
@@ -201,9 +201,8 @@ export default function BillingPanel() {
       let q = supabase
         .from('email_inbox')
         .select('*')
-        .in('category', ['corporate-query', 'corporate', 'tpa', 'approval-needed', 'document-request'])
         .order('created_at', { ascending: false })
-        .limit(50);
+        .limit(100);
 
       if (filter !== 'all') q = q.eq('status', filter);
 

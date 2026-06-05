@@ -8,7 +8,6 @@ export interface CheckMailResult {
   skipped: number;
 }
 
-// Exchange stored refresh token for a short-lived access token — no OAuth popup needed.
 async function getGmailAccessToken(): Promise<string> {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -34,6 +33,17 @@ function decodeBase64Url(data: string): string {
   } catch {
     return '';
   }
+}
+
+// Encode a UTF-8 string to base64url (for Gmail raw message)
+function encodeToBase64Url(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  bytes.forEach(b => { binary += String.fromCharCode(b); });
+  return btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
 }
 
 function getHeader(headers: Array<{ name: string; value: string }>, name: string): string {
@@ -62,48 +72,72 @@ function extractTextBody(payload: Record<string, unknown>): string {
   return '';
 }
 
-// Rule-based classifier — no AI needed, completely free
-function classifyEmail(subject: string, body: string): {
-  category: string;
-  urgency: string;
-} {
+function classifyEmail(subject: string, body: string): { category: string; urgency: string } {
   const text = `${subject} ${body}`.toLowerCase();
-
   let category = 'general';
-  if (/tpa|third.party|insurance|claim|cashless|mediclaim|echs|cghs|esic/.test(text)) {
-    category = 'tpa';
-  } else if (/corporate|company|organization|tie.?up|empanelled/.test(text)) {
-    category = 'corporate';
-  } else if (/bill|invoice|payment|amount|dues|outstanding|receipt|discharge/.test(text)) {
-    category = 'billing';
-  } else if (/urgent|immediate|asap|emergency|critical/.test(text)) {
-    category = 'urgent';
-  }
+  if (/tpa|third.party|insurance|claim|cashless|mediclaim|echs|cghs|esic/.test(text)) category = 'tpa';
+  else if (/corporate|company|organization|tie.?up|empanelled/.test(text)) category = 'corporate';
+  else if (/bill|invoice|payment|amount|dues|outstanding|receipt|discharge/.test(text)) category = 'billing';
+  else if (/urgent|immediate|asap|emergency|critical/.test(text)) category = 'urgent';
 
   let urgency = 'low';
-  if (/urgent|immediate|asap|emergency|critical|today/.test(text)) {
-    urgency = 'high';
-  } else if (/soon|reminder|follow.?up|pending|awaiting/.test(text)) {
-    urgency = 'medium';
-  }
+  if (/urgent|immediate|asap|emergency|critical|today/.test(text)) urgency = 'high';
+  else if (/soon|reminder|follow.?up|pending|awaiting/.test(text)) urgency = 'medium';
 
   return { category, urgency };
 }
 
-// Template-based draft reply — free, professional, ready to edit
 function buildDraftReply(fromName: string, subject: string, category: string): string {
   const greeting = `Dear ${fromName || 'Sir/Madam'},`;
-  const closing = `\n\nWarm regards,\nHope Hospital Billing Team\ninfo@hopehospital.com`;
+  const closing  = `\n\nWarm regards,\nHope Hospital Billing Team\ninfo@hopehospital.com`;
 
   const bodies: Record<string, string> = {
-    tpa: `\n\nThank you for your email regarding "${subject}".\n\nWe have received your TPA/insurance query and our billing team is reviewing it. We will process the required documents and get back to you within 1 business day.\n\nIf you need immediate assistance, please call our billing helpdesk.`,
+    tpa:       `\n\nThank you for your email regarding "${subject}".\n\nWe have received your TPA/insurance query and our billing team is reviewing it. We will process the required documents and get back to you within 1 business day.\n\nIf you need immediate assistance, please call our billing helpdesk.`,
     corporate: `\n\nThank you for reaching out regarding "${subject}".\n\nWe have noted your query and our corporate billing team will follow up with you within 1 business day with the required information.\n\nPlease feel free to contact us if you need anything in the meantime.`,
-    billing: `\n\nThank you for your email regarding "${subject}".\n\nWe have received your billing query and will review your account. Our team will respond with the relevant details within 24 hours.\n\nFor urgent billing concerns, please contact our billing helpdesk directly.`,
-    urgent: `\n\nThank you for your email regarding "${subject}".\n\nWe understand this is an urgent matter and have escalated it to our billing manager for immediate attention. We will revert to you shortly.`,
-    general: `\n\nThank you for your email regarding "${subject}".\n\nWe have received your message and will respond within 1 business day.\n\nThank you for choosing Hope Hospital.`,
+    billing:   `\n\nThank you for your email regarding "${subject}".\n\nWe have received your billing query and will review your account. Our team will respond with the relevant details within 24 hours.\n\nFor urgent billing concerns, please contact our billing helpdesk directly.`,
+    urgent:    `\n\nThank you for your email regarding "${subject}".\n\nWe understand this is an urgent matter and have escalated it to our billing manager for immediate attention. We will revert to you shortly.`,
+    general:   `\n\nThank you for your email regarding "${subject}".\n\nWe have received your message and will respond within 1 business day.\n\nThank you for choosing Hope Hospital.`,
   };
 
   return greeting + (bodies[category] ?? bodies.general) + closing;
+}
+
+// Create a draft reply directly inside Gmail — appears in the Drafts folder
+async function createGmailDraft(
+  token: string,
+  toEmail: string,
+  subject: string,
+  replyBody: string,
+  threadId: string,
+  messageId: string,
+): Promise<void> {
+  const replySubject = /^re:/i.test(subject) ? subject : `Re: ${subject}`;
+
+  const raw = [
+    `From: Hope Hospital Billing <${import.meta.env.VITE_GMAIL_USER_EMAIL ?? 'info@hopehospital.com'}>`,
+    `To: ${toEmail}`,
+    `Subject: ${replySubject}`,
+    messageId ? `In-Reply-To: ${messageId}` : '',
+    messageId ? `References: ${messageId}` : '',
+    `MIME-Version: 1.0`,
+    `Content-Type: text/plain; charset=UTF-8`,
+    ``,
+    replyBody,
+  ].filter(Boolean).join('\r\n');
+
+  await fetch(`${GMAIL_API}/users/me/drafts`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      message: {
+        raw: encodeToBase64Url(raw),
+        threadId: threadId || undefined,
+      },
+    }),
+  });
 }
 
 export function useGmailChecker() {
@@ -113,7 +147,6 @@ export function useGmailChecker() {
     if (cachedToken) return cachedToken;
     const token = await getGmailAccessToken();
     setCachedToken(token);
-    // Gmail access tokens expire in 1 hour — clear cache after 55 min
     setTimeout(() => setCachedToken(null), 55 * 60 * 1000);
     return token;
   };
@@ -127,7 +160,7 @@ export function useGmailChecker() {
     );
     if (!listRes.ok) {
       if (listRes.status === 401) setCachedToken(null);
-      throw new Error(`Gmail fetch failed (${listRes.status}). Check that the Gmail credentials in .env are correct.`);
+      throw new Error(`Gmail fetch failed (${listRes.status})`);
     }
     const listData = await listRes.json();
     const messages: Array<{ id: string }> = listData.messages ?? [];
@@ -151,9 +184,11 @@ export function useGmailChecker() {
       const fromHeader = getHeader(headers, 'From');
       const fromEmail  = fromHeader.match(/<(.+)>/)?.[1] ?? fromHeader.trim();
       const fromName   = fromHeader.match(/^([^<]+)/)?.[1]?.trim() ?? fromEmail;
+      const messageId  = getHeader(headers, 'Message-ID');
+      const threadId   = (msgData as Record<string, unknown>).threadId as string ?? '';
       const body       = extractTextBody(msgData.payload as Record<string, unknown>);
 
-      // Dedup: skip if already saved today for this sender + subject
+      // Dedup: skip if already processed today
       const { count } = await supabase
         .from('email_inbox')
         .select('id', { count: 'exact', head: true })
@@ -165,6 +200,10 @@ export function useGmailChecker() {
       const { category, urgency } = classifyEmail(subject, body);
       const draftReply = buildDraftReply(fromName, subject, category);
 
+      // 1. Create draft reply directly in Gmail Drafts folder
+      await createGmailDraft(token, fromEmail, subject, draftReply, threadId, messageId);
+
+      // 2. Save to Supabase for app UI display
       await supabase.from('email_inbox').insert({
         from_email:   fromEmail,
         from_name:    fromName,
@@ -176,13 +215,18 @@ export function useGmailChecker() {
         status:       'pending',
         check_date:   today,
       });
+
       saved++;
+    }
+
+    // Open Gmail Drafts so user can review and send
+    if (saved > 0) {
+      window.open('https://mail.google.com/#drafts', '_blank');
     }
 
     return { saved, skipped };
   };
 
-  // Regenerate draft using templates — no AI, completely free
   const regenerateDraft = async (emailId: string, feedback?: string): Promise<string> => {
     const { data: email } = await supabase
       .from('email_inbox')
@@ -192,11 +236,8 @@ export function useGmailChecker() {
 
     if (!email) throw new Error('Email not found');
 
-    // If feedback is given, prepend it as a note in the draft for the staff to act on
     let newDraft = buildDraftReply(email.from_name ?? email.from_email, email.subject ?? '', email.category ?? 'general');
-    if (feedback?.trim()) {
-      newDraft = `[Note: ${feedback.trim()}]\n\n${newDraft}`;
-    }
+    if (feedback?.trim()) newDraft = `[Note: ${feedback.trim()}]\n\n${newDraft}`;
 
     await supabase.from('email_inbox').update({ draft_reply: newDraft }).eq('id', emailId);
     return newDraft;
