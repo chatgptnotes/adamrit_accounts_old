@@ -251,12 +251,15 @@ export default function BillingPanel() {
   });
 
   const handleCheckMail = async () => {
+    // Open Gmail inbox immediately — must happen synchronously before any await
+    // so the browser doesn't treat it as a blocked popup
+    window.open('https://mail.google.com/#inbox', '_blank');
     setIsChecking(true);
     try {
       const { saved } = await checkMail();
       toast({
         title: saved > 0 ? `Found ${saved} new email${saved !== 1 ? 's' : ''}` : 'No new emails',
-        description: saved > 0 ? 'New emails are ready for review.' : 'All emails are already up to date.',
+        description: saved > 0 ? `${saved} draft replies created in Gmail Drafts.` : 'All emails are already up to date.',
       });
       queryClient.invalidateQueries({ queryKey: ['billing-email-inbox'] });
     } catch (err) {

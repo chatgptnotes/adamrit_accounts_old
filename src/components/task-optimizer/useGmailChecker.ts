@@ -204,7 +204,7 @@ export function useGmailChecker() {
       await createGmailDraft(token, fromEmail, subject, draftReply, threadId, messageId);
 
       // 2. Save to Supabase for app UI display
-      await supabase.from('email_inbox').insert({
+      const { error: insertError } = await supabase.from('email_inbox').insert({
         from_email:   fromEmail,
         from_name:    fromName,
         subject,
@@ -216,12 +216,11 @@ export function useGmailChecker() {
         check_date:   today,
       });
 
-      saved++;
-    }
+      if (insertError) {
+        console.warn('email_inbox insert failed:', insertError.message, insertError.code);
+      }
 
-    // Open Gmail Drafts so user can review and send
-    if (saved > 0) {
-      window.open('https://mail.google.com/#drafts', '_blank');
+      saved++;
     }
 
     return { saved, skipped };
