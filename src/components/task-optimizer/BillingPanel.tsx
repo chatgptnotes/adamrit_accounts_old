@@ -44,14 +44,17 @@ const categoryColor: Record<string, string> = {
   'general': 'bg-gray-100 text-gray-700',
 };
 
-function EmailCard({ email, onApprove, onReject }: {
+function EmailCard({ email, onApprove, onReject, onRegenerate }: {
   email: EmailRow;
   onApprove: (id: string, reply: string) => void;
   onReject: (id: string) => void;
+  onRegenerate: (id: string, feedback: string) => Promise<string>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [draftText, setDraftText] = useState(email.draft_reply ?? '');
+  const [feedback, setFeedback] = useState('');
   const [loading, setLoading] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
 
   const isPending = email.status === 'pending';
 
@@ -110,35 +113,62 @@ function EmailCard({ email, onApprove, onReject }: {
             )}
 
             {isPending && (
-              <div className="flex gap-2 pt-1">
-                <Button
-                  size="sm"
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                  disabled={loading}
-                  onClick={async () => {
-                    setLoading(true);
-                    await onApprove(email.id, draftText);
-                    setLoading(false);
-                  }}
-                >
-                  <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                  {loading ? '...' : 'Approve & Send'}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="border-red-300 text-red-600 hover:bg-red-50"
-                  disabled={loading}
-                  onClick={async () => {
-                    setLoading(true);
-                    await onReject(email.id);
-                    setLoading(false);
-                  }}
-                >
-                  <XCircle className="mr-1.5 h-3.5 w-3.5" />
-                  {loading ? '...' : 'Reject'}
-                </Button>
-              </div>
+              <>
+                {/* Regenerate section */}
+                <div className="flex gap-2 items-center pt-1">
+                  <input
+                    type="text"
+                    value={feedback}
+                    onChange={e => setFeedback(e.target.value)}
+                    placeholder="Feedback (optional): e.g. make it shorter, more formal..."
+                    className="flex-1 text-xs border rounded px-2 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={regenerating}
+                    onClick={async () => {
+                      setRegenerating(true);
+                      const newDraft = await onRegenerate(email.id, feedback);
+                      if (newDraft) setDraftText(newDraft);
+                      setRegenerating(false);
+                    }}
+                  >
+                    <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${regenerating ? 'animate-spin' : ''}`} />
+                    {regenerating ? 'Generating…' : 'Regenerate'}
+                  </Button>
+                </div>
+
+                <div className="flex gap-2 pt-1">
+                  <Button
+                    size="sm"
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                    disabled={loading}
+                    onClick={async () => {
+                      setLoading(true);
+                      await onApprove(email.id, draftText);
+                      setLoading(false);
+                    }}
+                  >
+                    <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                    {loading ? '...' : 'Approve & Send'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-red-300 text-red-600 hover:bg-red-50"
+                    disabled={loading}
+                    onClick={async () => {
+                      setLoading(true);
+                      await onReject(email.id);
+                      setLoading(false);
+                    }}
+                  >
+                    <XCircle className="mr-1.5 h-3.5 w-3.5" />
+                    {loading ? '...' : 'Reject'}
+                  </Button>
+                </div>
+              </>
             )}
           </div>
         )}
@@ -155,6 +185,7 @@ export default function BillingPanel() {
   const [activeTab, setActiveTab] = useState<BillingTab>('emails');
   const [dashboardOpen, setDashboardOpen] = useState(false);
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
+  const [isChecking, setIsChecking] = useState(false);
 
   const billingTabs: { key: BillingTab; label: string; icon: React.ReactNode }[] = [
     { key: 'emails', label: 'Corporate Emails', icon: <Mail className="h-4 w-4" /> },
@@ -218,6 +249,47 @@ export default function BillingPanel() {
     },
   });
 
+  const handleCheckMail = async () => {
+    setIsChecking(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('check-corporate-emails');
+      if (error) throw error;
+      const { saved = 0 } = data as { fetched?: number; saved?: number; skipped?: number };
+      toast({
+        title: saved > 0 ? `Found ${saved} new email${saved !== 1 ? 's' : ''}` : 'No new emails',
+        description: saved > 0 ? 'New emails are ready for review.' : 'All emails are already up to date.',
+      });
+      queryClient.invalidateQueries({ queryKey: ['billing-email-inbox'] });
+    } catch (err) {
+      toast({
+        title: 'Mail check failed',
+        description: err instanceof Error ? err.message : 'Could not connect to mail server.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsChecking(false);
+    }
+  };
+
+  const handleRegenerate = async (emailId: string, feedback: string): Promise<string> => {
+    try {
+      const { data, error } = await supabase.functions.invoke('regenerate-email-draft', {
+        body: { email_id: emailId, feedback: feedback || undefined },
+      });
+      if (error) throw error;
+      const { draft_reply } = data as { draft_reply: string };
+      toast({ title: 'Draft refreshed', description: 'New AI reply ready for review.' });
+      return draft_reply;
+    } catch (err) {
+      toast({
+        title: 'Regenerate failed',
+        description: err instanceof Error ? err.message : 'Could not generate new draft.',
+        variant: 'destructive',
+      });
+      return '';
+    }
+  };
+
   const pending = emails.filter(e => e.status === 'pending').length;
   const tabs = [
     { key: 'pending', label: 'Pending', count: pending },
@@ -275,11 +347,21 @@ export default function BillingPanel() {
 
       {activeTab === 'emails' && (
         <>
-          {/* Schedule info */}
-          <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 border">
-            <Clock className="h-3.5 w-3.5" />
-            Auto-checks at <strong>8:00 AM</strong>, <strong>12:00 PM</strong>, <strong>5:00 PM</strong> daily
-            · Only corporate / TPA / approval emails shown
+          {/* Manual check + schedule info */}
+          <div className="flex items-center justify-between gap-3">
+            <Button
+              onClick={handleCheckMail}
+              disabled={isChecking}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              <Mail className={`mr-2 h-4 w-4 ${isChecking ? 'animate-pulse' : ''}`} />
+              {isChecking ? 'Checking mail…' : 'Start Checking Mail'}
+            </Button>
+            <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 border flex-1">
+              <Clock className="h-3.5 w-3.5 shrink-0" />
+              Auto-checks at <strong>8:00 AM</strong>, <strong>12:00 PM</strong>, <strong>5:00 PM</strong> daily
+              · info@hopehospital.com · Corporate / TPA emails only
+            </div>
           </div>
 
           <div className="flex items-center justify-between">
@@ -344,6 +426,7 @@ export default function BillingPanel() {
                   email={email}
                   onApprove={(id, reply) => approveMutation.mutateAsync({ id, reply })}
                   onReject={id => rejectMutation.mutateAsync(id)}
+                  onRegenerate={handleRegenerate}
                 />
               ))}
             </div>
