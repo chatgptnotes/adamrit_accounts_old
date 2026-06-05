@@ -881,7 +881,7 @@ export default function SkillFactory() {
                       <button
                         onClick={() => deleteSubagent(s.id)}
                         title="Delete subagent"
-                        className="absolute top-2 right-2 p-1 rounded text-gray-300 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        className="absolute top-2 right-2 p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -938,7 +938,7 @@ export default function SkillFactory() {
                   <button
                     onClick={() => deleteRule(r.id)}
                     title="Delete rule"
-                    className="absolute top-2 right-2 p-1 rounded text-gray-300 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute top-2 right-2 p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -1185,7 +1185,7 @@ function WorkflowRowView({
           <button
             onClick={onDelete}
             title="Delete step"
-            className="p-1 rounded text-gray-300 hover:text-red-600 hover:bg-red-50 shrink-0"
+            className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 shrink-0"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
