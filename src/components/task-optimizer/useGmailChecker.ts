@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { supabaseAdmin } from '@/integrations/supabase/adminClient';
+import { geminiFetch, geminiGenerateContentUrl, GEMINI_MODEL } from '@/lib/gemini';
 
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1';
 
@@ -297,11 +298,46 @@ export function useGmailChecker() {
   const rephraseDraft = async (emailId: string, style: ReplyStyle): Promise<string> => {
     const { data: email } = await supabaseAdmin
       .from('email_inbox')
-      .select('from_name, from_email, subject, category')
+      .select('from_name, from_email, subject, category, draft_reply')
       .eq('id', emailId)
       .single();
     if (!email) throw new Error('Email not found');
-    const newDraft = buildDraftReply(email.from_name ?? email.from_email, email.subject ?? '', email.category ?? 'general', style);
+
+    const styleInstructions: Record<ReplyStyle, string> = {
+      standard: 'professional and balanced tone',
+      formal:   'very formal official language, no contractions, use proper salutations',
+      brief:    'extremely short — 2 to 3 sentences maximum',
+      friendly: 'warm, empathetic and approachable tone with a personal touch',
+    };
+
+    const url = geminiGenerateContentUrl(import.meta.env.VITE_GEMINI_API_KEY as string, GEMINI_MODEL);
+    const res = await geminiFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: `You are a professional email assistant for Hope Hospital Billing Department.
+Rephrase the following draft reply in a ${styleInstructions[style]} style.
+Return ONLY the rephrased reply text — no subject line, no explanations, no extra commentary.
+
+Original email subject: ${email.subject}
+From: ${email.from_name ?? email.from_email}
+
+Current draft reply:
+${email.draft_reply ?? buildDraftReply(email.from_name ?? email.from_email, email.subject ?? '', email.category ?? 'general')}
+
+Rephrased reply (${styleInstructions[style]}):`,
+          }],
+        }],
+        generationConfig: { maxOutputTokens: 400, temperature: 0.7 },
+      }),
+    });
+
+    const data = await res.json();
+    const newDraft = (data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
+    if (!newDraft) throw new Error('Gemini returned empty response');
+
     await supabaseAdmin.from('email_inbox').update({ draft_reply: newDraft }).eq('id', emailId);
     return newDraft;
   };
