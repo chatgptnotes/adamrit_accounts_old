@@ -18,6 +18,7 @@ import {
   GitBranch,
   GripVertical,
   UserPlus,
+  Plus,
 } from 'lucide-react';
 import {
   DndContext,
@@ -37,11 +38,15 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { geminiGenerateContentUrl, geminiFetch } from '@/lib/gemini';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from 'sonner';
 
 // ── Skill Factory data ──────────────────────────────────────────────────────
+// Subagents are stored per-user in Supabase (table: skill_factory_subagents).
 // Each subagent bundles the rules that feed it and the workflow it produces.
-// This lives in code (not the DB) so the page works standalone; the AI
-// Assistant on the right is the live, Gemini-powered part.
+// The DEFAULT_SUBAGENTS below seed a brand-new user's account on first load and
+// also serve as an offline fallback if the table hasn't been created yet.
 
 interface Rule {
   id: string;
@@ -58,17 +63,27 @@ interface Subagent {
   id: string;
   name: string;
   description: string;
-  icon: typeof FileText;
+  icon: string; // key into ICON_MAP (icons can't be stored in the DB)
   rules: Rule[];
   workflow: WorkflowNode[];
 }
 
-const SUBAGENTS: Subagent[] = [
+// Icon keys persist as plain strings; this map resolves them back to components.
+const ICON_MAP: Record<string, typeof FileText> = {
+  file: FileText,
+  clipboard: ClipboardList,
+  test: TestTube,
+  pill: Pill,
+  camera: Camera,
+  box: Boxes,
+};
+const iconFor = (key: string) => ICON_MAP[key] ?? Boxes;
+
+const DEFAULT_SUBAGENTS: Omit<Subagent, 'id'>[] = [
   {
-    id: 'discharge',
     name: 'Discharge',
     description: 'Discharge document agent',
-    icon: FileText,
+    icon: 'file',
     rules: [
       { id: 'r1', trigger: 'Photo A', action: 'Admission note' },
       { id: 'r2', trigger: 'Photo B', action: "Doctor's discharge note" },
@@ -81,10 +96,9 @@ const SUBAGENTS: Subagent[] = [
     ],
   },
   {
-    id: 'ipd-registration',
     name: 'IPD Registration',
     description: 'Admission intake agent',
-    icon: ClipboardList,
+    icon: 'clipboard',
     rules: [
       { id: 'r1', trigger: 'Photo A', action: 'Aadhaar / ID card' },
       { id: 'r2', trigger: 'Photo B', action: 'Referral letter' },
@@ -96,13 +110,10 @@ const SUBAGENTS: Subagent[] = [
     ],
   },
   {
-    id: 'lab-orders',
     name: 'Lab Orders',
     description: 'Diagnostics & reports agent',
-    icon: TestTube,
-    rules: [
-      { id: 'r1', trigger: 'Photo A', action: 'Doctor order sheet' },
-    ],
+    icon: 'test',
+    rules: [{ id: 'r1', trigger: 'Photo A', action: 'Doctor order sheet' }],
     workflow: [
       { label: 'Read order sheet', type: 'step' },
       { label: 'Map to lab tests', type: 'step' },
@@ -110,13 +121,10 @@ const SUBAGENTS: Subagent[] = [
     ],
   },
   {
-    id: 'pharmacy',
     name: 'Pharmacy',
     description: 'Dispense & inventory agent',
-    icon: Pill,
-    rules: [
-      { id: 'r1', trigger: 'Photo A', action: 'Prescription' },
-    ],
+    icon: 'pill',
+    rules: [{ id: 'r1', trigger: 'Photo A', action: 'Prescription' }],
     workflow: [
       { label: 'Read prescription', type: 'step' },
       { label: 'Check stock', type: 'decision' },
@@ -124,19 +132,40 @@ const SUBAGENTS: Subagent[] = [
     ],
   },
   {
-    id: 'radiology',
     name: 'Radiology',
     description: 'Imaging agent',
-    icon: Camera,
-    rules: [
-      { id: 'r1', trigger: 'Photo A', action: 'Imaging request' },
-    ],
+    icon: 'camera',
+    rules: [{ id: 'r1', trigger: 'Photo A', action: 'Imaging request' }],
     workflow: [
       { label: 'Read request', type: 'step' },
       { label: 'Schedule scan', type: 'output' },
     ],
   },
 ];
+
+// ── Per-user persistence (Supabase) ──────────────────────────────────────────
+// Custom-auth app pattern: anon key, RLS disabled, scoped at the query layer by
+// the logged-in user's email. Falls back to in-memory defaults if the table is
+// missing so the page never hard-fails before the migration is run.
+const TABLE = 'skill_factory_subagents';
+
+interface SubagentRow {
+  id: string;
+  name: string;
+  description: string | null;
+  icon: string | null;
+  rules: Rule[] | null;
+  workflow: WorkflowNode[] | null;
+}
+
+const rowToSubagent = (r: SubagentRow): Subagent => ({
+  id: r.id,
+  name: r.name,
+  description: r.description ?? '',
+  icon: r.icon ?? 'box',
+  rules: Array.isArray(r.rules) ? r.rules : [],
+  workflow: Array.isArray(r.workflow) ? r.workflow : [],
+});
 
 const NAV = [
   { id: 'subagents', label: 'My Subagents', icon: Boxes },
@@ -177,9 +206,19 @@ interface WorkflowRow {
 const UNASSIGNED = '';
 
 export default function SkillFactory() {
+  const { user } = useAuth();
+  const userEmail = user?.email ?? '';
+
   const [activeNav, setActiveNav] = useState<(typeof NAV)[number]['id']>('subagents');
-  const [activeId, setActiveId] = useState(SUBAGENTS[0].id);
   const [search, setSearch] = useState('');
+
+  // Per-user subagents, loaded from Supabase (or in-memory defaults as fallback).
+  const [subagents, setSubagents] = useState<Subagent[]>([]);
+  const [activeId, setActiveId] = useState<string>('');
+  const [loadingAgents, setLoadingAgents] = useState(true);
+  // True once we've confirmed the DB table is reachable; when false, the +
+  // buttons still work but changes live only in memory for this session.
+  const [persist, setPersist] = useState(false);
 
   // People that workflow rows can be assigned to. Editable — new people added
   // from any row's dropdown appear in every row.
@@ -197,13 +236,91 @@ export default function SkillFactory() {
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const active = SUBAGENTS.find((s) => s.id === activeId) ?? SUBAGENTS[0];
-  const filtered = SUBAGENTS.filter((s) =>
+  const active = subagents.find((s) => s.id === activeId);
+  const filtered = subagents.filter((s) =>
     s.name.toLowerCase().includes(search.trim().toLowerCase()),
   );
 
+  // Load this user's subagents on mount. Seeds the defaults the first time a
+  // user has none; falls back to in-memory defaults if the table is missing.
+  useEffect(() => {
+    let cancelled = false;
+
+    const useDefaults = (canPersist: boolean) => {
+      const seeded = DEFAULT_SUBAGENTS.map((s, i) => ({ ...s, id: `default-${i}` }));
+      if (cancelled) return;
+      setSubagents(seeded);
+      setActiveId(seeded[0]?.id ?? '');
+      setPersist(canPersist);
+      setLoadingAgents(false);
+    };
+
+    const load = async () => {
+      setLoadingAgents(true);
+      // Not logged in (e.g. preview) — just show defaults, no persistence.
+      if (!userEmail) return useDefaults(false);
+
+      const { data, error } = await supabase
+        .from(TABLE)
+        .select('*')
+        .eq('user_email', userEmail)
+        .order('sort_order', { ascending: true });
+
+      if (error) {
+        // Table likely not created yet — degrade gracefully to in-memory mode.
+        console.warn('[SkillFactory] subagents table unavailable:', error.message);
+        return useDefaults(false);
+      }
+
+      if (data && data.length > 0) {
+        if (cancelled) return;
+        const list = (data as SubagentRow[]).map(rowToSubagent);
+        setSubagents(list);
+        setActiveId(list[0].id);
+        setPersist(true);
+        setLoadingAgents(false);
+        return;
+      }
+
+      // First visit for this user: seed the default subagents into their account.
+      const seedRows = DEFAULT_SUBAGENTS.map((s, i) => ({
+        user_email: userEmail,
+        name: s.name,
+        description: s.description,
+        icon: s.icon,
+        rules: s.rules,
+        workflow: s.workflow,
+        sort_order: i,
+      }));
+      const { data: inserted, error: seedErr } = await supabase
+        .from(TABLE)
+        .insert(seedRows)
+        .select('*');
+
+      if (seedErr || !inserted) {
+        console.warn('[SkillFactory] could not seed defaults:', seedErr?.message);
+        return useDefaults(false);
+      }
+      if (cancelled) return;
+      const list = (inserted as SubagentRow[]).map(rowToSubagent);
+      setSubagents(list);
+      setActiveId(list[0]?.id ?? '');
+      setPersist(true);
+      setLoadingAgents(false);
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [userEmail]);
+
   // Rebuild the editable rows whenever a different subagent is selected.
   useEffect(() => {
+    if (!active) {
+      setRows([]);
+      return;
+    }
     setRows(
       active.workflow.map((n, i) => ({
         id: `${active.id}-${i}`,
@@ -213,6 +330,73 @@ export default function SkillFactory() {
       })),
     );
   }, [active]);
+
+  // ── Create a new subagent (the "+" in the Subagents header) ──
+  const addSubagent = async () => {
+    const name = window.prompt('New subagent name:')?.trim();
+    if (!name) return;
+    const description = window.prompt('Short description (optional):')?.trim() || 'Custom subagent';
+
+    if (persist && userEmail) {
+      const { data, error } = await supabase
+        .from(TABLE)
+        .insert({
+          user_email: userEmail,
+          name,
+          description,
+          icon: 'box',
+          rules: [],
+          workflow: [],
+          sort_order: subagents.length,
+        })
+        .select('*')
+        .single();
+      if (error || !data) {
+        toast.error('Could not save the subagent.');
+        return;
+      }
+      const created = rowToSubagent(data as SubagentRow);
+      setSubagents((prev) => [...prev, created]);
+      setActiveId(created.id);
+      toast.success(`Subagent "${name}" created.`);
+    } else {
+      const created: Subagent = {
+        id: `local-${Date.now()}`,
+        name,
+        description,
+        icon: 'box',
+        rules: [],
+        workflow: [],
+      };
+      setSubagents((prev) => [...prev, created]);
+      setActiveId(created.id);
+    }
+  };
+
+  // ── Add a rule to the active subagent (the "+" in the Rules header) ──
+  const addRule = async () => {
+    if (!active) return;
+    const trigger = window.prompt('Rule trigger (e.g. "Photo C"):')?.trim();
+    if (!trigger) return;
+    const action = window.prompt('Maps to (e.g. "Consent form"):')?.trim();
+    if (!action) return;
+
+    const rule: Rule = { id: crypto.randomUUID(), trigger, action };
+    const nextRules = [...active.rules, rule];
+
+    // Optimistic local update.
+    setSubagents((prev) =>
+      prev.map((s) => (s.id === active.id ? { ...s, rules: nextRules } : s)),
+    );
+
+    if (persist && !active.id.startsWith('local-')) {
+      const { error } = await supabase
+        .from(TABLE)
+        .update({ rules: nextRules })
+        .eq('id', active.id);
+      if (error) toast.error('Could not save the rule.');
+    }
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -247,7 +431,7 @@ export default function SkillFactory() {
 
   const sendMessage = async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || loading) return;
+    if (!trimmed || loading || !active) return;
 
     if (!GEMINI_KEY) {
       setMessages((prev) => [
@@ -339,28 +523,49 @@ export default function SkillFactory() {
         <>
           {/* ── Subagents column ── */}
           <section className="w-60 shrink-0 border-r border-gray-200 bg-white overflow-y-auto">
-            <h2 className="px-4 pt-4 pb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
-              Subagents
-            </h2>
+            <div className="flex items-center justify-between px-4 pt-4 pb-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                Subagents
+              </h2>
+              <button
+                onClick={addSubagent}
+                title="Add subagent"
+                className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+              >
+                <Plus className="w-3 h-3" /> Add
+              </button>
+            </div>
             <div className="px-2 space-y-1">
-              {filtered.map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => setActiveId(s.id)}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg border transition-colors ${
-                    activeId === s.id
-                      ? 'border-blue-300 bg-blue-50'
-                      : 'border-transparent hover:bg-gray-50'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <s.icon className={`w-4 h-4 ${activeId === s.id ? 'text-blue-600' : 'text-gray-400'}`} />
-                    <span className="text-sm font-medium text-gray-900">{s.name}</span>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-0.5 pl-6">{s.description}</p>
-                </button>
-              ))}
-              {filtered.length === 0 && (
+              {loadingAgents && (
+                <p className="px-3 py-4 text-xs text-gray-400">Loading…</p>
+              )}
+              {!loadingAgents &&
+                filtered.map((s) => {
+                  const Icon = iconFor(s.icon);
+                  return (
+                    <button
+                      key={s.id}
+                      onClick={() => setActiveId(s.id)}
+                      className={`w-full text-left px-3 py-2.5 rounded-lg border transition-colors ${
+                        activeId === s.id
+                          ? 'border-blue-300 bg-blue-50'
+                          : 'border-transparent hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Icon className={`w-4 h-4 ${activeId === s.id ? 'text-blue-600' : 'text-gray-400'}`} />
+                        <span className="text-sm font-medium text-gray-900">{s.name}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-0.5 pl-6">{s.description}</p>
+                    </button>
+                  );
+                })}
+              {!loadingAgents && subagents.length === 0 && (
+                <p className="px-3 py-4 text-xs text-gray-400">
+                  No subagents yet. Click <span className="font-medium">Add</span> to create one.
+                </p>
+              )}
+              {!loadingAgents && subagents.length > 0 && filtered.length === 0 && (
                 <p className="px-3 py-4 text-xs text-gray-400">No subagents match.</p>
               )}
             </div>
@@ -368,11 +573,21 @@ export default function SkillFactory() {
 
           {/* ── Rules column ── */}
           <section className="w-56 shrink-0 border-r border-gray-200 bg-white overflow-y-auto">
-            <h2 className="px-4 pt-4 pb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
-              Rules
-            </h2>
+            <div className="flex items-center justify-between px-4 pt-4 pb-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                Rules
+              </h2>
+              <button
+                onClick={addRule}
+                disabled={!active}
+                title="Add rule"
+                className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <Plus className="w-3 h-3" /> Add
+              </button>
+            </div>
             <div className="px-3 space-y-2">
-              {active.rules.map((r) => (
+              {active?.rules.map((r) => (
                 <div
                   key={r.id}
                   className="rounded-lg border border-gray-200 px-3 py-2.5 bg-gray-50"
@@ -385,6 +600,11 @@ export default function SkillFactory() {
                   </div>
                 </div>
               ))}
+              {active && active.rules.length === 0 && (
+                <p className="px-1 py-3 text-xs text-gray-400">
+                  No rules yet. Click <span className="font-medium">Add</span> to map a photo to a document.
+                </p>
+              )}
             </div>
           </section>
 
@@ -454,11 +674,11 @@ export default function SkillFactory() {
           {messages.length === 0 && (
             <div className="space-y-2">
               <p className="text-xs text-gray-500">
-                Ask me about the <span className="font-medium">{active.name}</span> subagent — what it
+                Ask me about the <span className="font-medium">{active?.name ?? 'selected'}</span> subagent — what it
                 does, or how to add rules and steps.
               </p>
               {[
-                `Explain the ${active.name} workflow`,
+                `Explain the ${active?.name ?? ''} workflow`,
                 'When is Photo A uploaded?',
                 'Suggest one more rule for this agent',
               ].map((q) => (
