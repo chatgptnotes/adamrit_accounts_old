@@ -79,6 +79,7 @@ interface Prescription {
   doctor_name: string | null;
   prescription_date: string | null;
   status: string;
+  source?: string | null; // 'ward' = bridged from the tablet treatment sheet
   notes: string | null;
   prescription_image_url?: string | null;
   prescription_image_type?: string | null;
@@ -359,6 +360,34 @@ const DispenseModal: React.FC<DispenseModalProps> = ({ prescription, onClose, ho
 
     setIsDispensing(true);
     try {
+      // Guard against a double-dispense race: the linked ward medicine may have
+      // been dispensed elsewhere (e.g. the tablet, synced via DB trigger) since
+      // this modal opened. Re-read live quantities; if anything we're about to
+      // dispense is already fully dispensed, abort BEFORE creating any sale or
+      // decrementing stock so the patient can't be billed twice.
+      const { data: liveItems } = await (supabase as any)
+        .from('prescription_items')
+        .select('id, quantity_dispensed, quantity_prescribed')
+        .eq('prescription_id', prescription.id);
+      const liveById: Record<string, any> = Object.fromEntries(
+        (liveItems || []).map((i: any) => [i.id, i]),
+      );
+      const alreadyDispensed = itemsToDispense.some((item) => {
+        const live = liveById[item.id];
+        return live && (live.quantity_dispensed || 0) >= (live.quantity_prescribed || 0);
+      });
+      if (alreadyDispensed) {
+        setIsDispensing(false);
+        toast({
+          title: 'Already dispensed',
+          description: 'This medicine was already dispensed (possibly from the ward). Refreshing — please review before billing.',
+          variant: 'destructive',
+        });
+        queryClient.invalidateQueries({ queryKey: ['prescription-queue'] });
+        onClose();
+        return;
+      }
+
       // Step 1: Determine the new prescription status (computed only — the
       // prescription is marked dispensed AFTER the sale is saved, so a failed
       // sale never leaves a prescription dispensed with no bill).
@@ -1497,11 +1526,18 @@ const PrescriptionQueue: React.FC<PrescriptionQueueProps> = ({ autoOpenPrescript
     }
   }, [autoOpenPrescriptionId, prescriptions]);
 
+  // Ward orders are hospital-specific — a pharmacist only sees their own
+  // hospital's ward orders. Camera/manual prescriptions (source !== 'ward')
+  // are unchanged.
+  const scoped = prescriptions.filter(
+    (p) => p.source !== 'ward' || p.hospital_name === hospitalType,
+  );
+
   // Filter by status tab
   const statusFiltered =
     activeStatusTab === 'ALL'
-      ? prescriptions
-      : prescriptions.filter((p) => p.status === activeStatusTab);
+      ? scoped
+      : scoped.filter((p) => p.status === activeStatusTab);
 
   // Filter by search term
   const filtered = statusFiltered.filter((p) => {
@@ -1514,9 +1550,9 @@ const PrescriptionQueue: React.FC<PrescriptionQueueProps> = ({ autoOpenPrescript
     );
   });
 
-  // Count per status for badges
+  // Count per status for badges (hospital-scoped, same as the visible list)
   const countByStatus = (status: string) =>
-    prescriptions.filter((p) => p.status === status).length;
+    scoped.filter((p) => p.status === status).length;
 
   const pendingCount = countByStatus('PENDING');
   const approvedCount = countByStatus('APPROVED');
@@ -1647,6 +1683,11 @@ const PrescriptionQueue: React.FC<PrescriptionQueueProps> = ({ autoOpenPrescript
                           <p className="font-mono font-medium text-sm">
                             {prescription.prescription_number}
                           </p>
+                          {prescription.source === 'ward' && (
+                            <Badge className="mt-1 text-[10px] bg-purple-100 text-purple-700 border-purple-200">
+                              Ward
+                            </Badge>
+                          )}
                         </TableCell>
 
                         <TableCell>

@@ -1,0 +1,24 @@
+# Keep the Docker build context small and reproducible.
+node_modules
+dist
+.git
+.github
+*.log
+npm-debug.log*
+
+# Editor / agent scratch
+tmpclaude-*
+.claude
+claude-auto-confirm
+
+# Docs, SQL dumps, and other build-irrelevant assets
+*.md
+*.sql
+*.pdf
+docs
+e2e
+supabase-migrations
+tally-exports
+
+# Note: sidecar/ is intentionally NOT ignored — Dockerfile.render (the combined
+# single-container image for Render) copies sidecar/server.js + audit.js.

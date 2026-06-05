@@ -33,6 +33,7 @@ import SimpleSignup from "./SimpleSignup";
 
 // Lazy load Advanced Statement Report
 const AdvancedStatementReport = lazy(() => import("../pages/AdvancedStatementReport"));
+const ReportsCenter = lazy(() => import("../pages/ReportsCenter"));
 
 // Lazy load heavy feature pages
 const Accounting = lazy(() => import("../pages/Accounting"));
@@ -148,6 +149,7 @@ const TelephonyDashboard = lazy(() => import("../pages/TelephonyDashboard"));
 const PaymentQR = lazy(() => import("../pages/PaymentQR"));
 const QueueStatus = lazy(() => import("../pages/QueueStatus"));
 const CasualtyRegister = lazy(() => import("../pages/CasualtyRegister"));
+const SkillFactory = lazy(() => import("../pages/SkillFactory"));
 
 // Loading component
 const PageLoader = () => (
@@ -263,6 +265,7 @@ export const AppRoutes = () => {
         <Route path="/shifting" element={<Suspense fallback={<PageLoader />}><Shifting /></Suspense>} />
         <Route path="/pharmacy/edit-sale/:saleId" element={<Suspense fallback={<PageLoader />}><EditSaleBill /></Suspense>} />
         <Route path="/reports" element={<Suspense fallback={<PageLoader />}><Reports /></Suspense>} />
+        <Route path="/reports-center" element={<Suspense fallback={<PageLoader />}><ReportsCenter /></Suspense>} />
         <Route path="/final-bill/:visitId" element={<Suspense fallback={<PageLoader />}><FinalBill /></Suspense>} />
         <Route path="/no-deduction-letter/:visitId" element={<NoDeductionLetterPage />} />
         <Route path="/edit-final-bill/:visitId" element={<Suspense fallback={<PageLoader />}><EditFinalBill /></Suspense>} />
@@ -322,6 +325,7 @@ export const AppRoutes = () => {
         <Route path="/queue-status" element={<QueueStatus />} />
         <Route path="/nephroplus" element={<Suspense fallback={<PageLoader />}><NephroPlus /></Suspense>} />
         <Route path="/casualty-register" element={<Suspense fallback={<PageLoader />}><CasualtyRegister /></Suspense>} />
+        <Route path="/skill-factory" element={<Suspense fallback={<PageLoader />}><SkillFactory /></Suspense>} />
         {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
         <Route path="/master-data" element={<Suspense fallback={<PageLoader />}><MasterData /></Suspense>} />
         <Route path="*" element={<NotFound />} />

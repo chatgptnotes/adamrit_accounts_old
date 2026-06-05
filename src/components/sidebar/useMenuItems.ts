@@ -5,10 +5,40 @@ import { AppSidebarProps, MenuItem } from './types';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/hooks/usePermissions';
 import { isFeatureEnabled } from '@/types/hospital';
+import { useMasterCounts } from '@/hooks/useMasterCounts';
+import { groupForTitle } from './sidebarGroups';
+
+const ADMIN_ROLES = ['superadmin', 'super_admin', 'admin'];
+
+// Tab title -> roles allowed to SEE the count badge on that tab.
+// Tab *visibility* is already handled by the filter below; this only controls
+// whether the number shows, so non-relevant roles don't see noisy counts.
+const BADGE_ROLE_MAP: Record<string, string[]> = {
+  'Patient Dashboard': [...ADMIN_ROLES, 'doctor', 'consultant', 'nurse', 'receptionist', 'reception', 'front_office'],
+  'Patients': [...ADMIN_ROLES, 'doctor', 'consultant', 'nurse', 'receptionist', 'reception', 'front_office'],
+  'Pharmacy': [...ADMIN_ROLES, 'pharmacy', 'pharmacist'],
+  'Lab': [...ADMIN_ROLES, 'lab', 'lab_technician'],
+  'Radiology': [...ADMIN_ROLES, 'radiology', 'radiology_tech'],
+  'Lab Master': ADMIN_ROLES,
+  'Radiology Master': ADMIN_ROLES,
+  'Surgery': ADMIN_ROLES,
+  'Diagnoses': ADMIN_ROLES,
+  'Complications': ADMIN_ROLES,
+  'Medications': ADMIN_ROLES,
+  'Referees': ADMIN_ROLES,
+  'Users': ADMIN_ROLES,
+  'Hope Surgeons': ADMIN_ROLES,
+  'Hope Consultants': ADMIN_ROLES,
+  'Hope Anaesthetists': ADMIN_ROLES,
+  'Ayushman Surgeons': ADMIN_ROLES,
+  'Ayushman Consultants': ADMIN_ROLES,
+  'Ayushman Anaesthetists': ADMIN_ROLES,
+};
 
 export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; masterItems: MenuItem[] } => {
   const { hospitalType, user } = useAuth();
   const { canManageUsers } = usePermissions();
+  const masterCounts = useMasterCounts(!!user);
   const {
     diagnosesCount = 0,
     patientsCount = 0,
@@ -93,13 +123,8 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
             return true; // Show other items by default
         }
       })
-      .map(item => ({
-        title: item.title,
-        icon: item.icon,
-        description: `View ${item.title.toLowerCase()} data`,
-        route: item.url,
-        section: item.section || 'main' as const,
-        count: item.title === "Patient Dashboard" ? patientsCount :
+      .map(item => {
+        const rawCount = item.title === "Patient Dashboard" ? patientsCount :
                item.title === "Diagnoses" ? diagnosesCount :
                item.title === "Patients" ? patientsCount :
                item.title === "Users" ? usersCount :
@@ -115,15 +140,34 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
                item.title === "Ayushman Surgeons" ? ayushmanSurgeonsCount :
                item.title === "Ayushman Consultants" ? ayushmanConsultantsCount :
                item.title === "Ayushman Anaesthetists" ? ayushmanAnaesthetistsCount :
-               item.title === "Pharmacy" ? pendingPrescriptionsCount : 0
-      }));
+               item.title === "Pharmacy" ? pendingPrescriptionsCount : 0;
+
+        // Masters always show their list size (the section is admin-scoped
+        // already). Main tabs show a count only for roles relevant to that tab.
+        // A 0 count renders no badge — see SidebarMenuItem.
+        const isMaster = item.section === 'masters';
+        const showBadge = (BADGE_ROLE_MAP[item.title] || []).includes(user?.role || '');
+        const count = isMaster
+          ? (masterCounts[item.title] ?? 0)
+          : (showBadge ? rawCount : 0);
+
+        return {
+          title: item.title,
+          icon: item.icon,
+          description: `View ${item.title.toLowerCase()} data`,
+          route: item.url,
+          section: item.section || 'main' as const,
+          group: groupForTitle(item.title),
+          count,
+        };
+      });
 
     return {
       mainItems: filtered.filter(item => item.section !== 'masters'),
       masterItems: filtered.filter(item => item.section === 'masters'),
     };
   }, [
-    hospitalType, user, canManageUsers, diagnosesCount, patientsCount, usersCount, complicationsCount,
+    hospitalType, user, canManageUsers, masterCounts, diagnosesCount, patientsCount, usersCount, complicationsCount,
     cghsSurgeryCount, labCount, radiologyCount, medicationCount,
     refereesCount, hopeSurgeonsCount, hopeConsultantsCount, hopeAnaesthetistsCount,
     ayushmanSurgeonsCount, ayushmanConsultantsCount, ayushmanAnaesthetistsCount,

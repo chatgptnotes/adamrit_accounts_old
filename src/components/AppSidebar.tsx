@@ -10,23 +10,64 @@ import {
   SidebarSeparator,
 } from '@/components/ui/sidebar';
 import { Input } from '@/components/ui/input';
-import { Search } from 'lucide-react';
-import { AppSidebarProps } from './sidebar/types';
+import { Search, ChevronDown } from 'lucide-react';
+import { AppSidebarProps, MenuItem } from './sidebar/types';
 import { useMenuItems } from './sidebar/useMenuItems';
 import { SidebarMenuItem } from './sidebar/SidebarMenuItem';
 import { SidebarHeaderComponent } from './sidebar/SidebarHeaderComponent';
+import { GROUP_ORDER } from './sidebar/sidebarGroups';
 
 export function AppSidebar(props: AppSidebarProps) {
   const { mainItems, masterItems } = useMenuItems(props);
   const [search, setSearch] = useState('');
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  const q = search.toLowerCase();
+  const searching = q.length > 0;
 
   const filteredMain = mainItems.filter(item =>
-    item.title.toLowerCase().includes(search.toLowerCase())
+    item.title.toLowerCase().includes(q)
+  );
+  const filteredMasters = masterItems.filter(item =>
+    item.title.toLowerCase().includes(q)
   );
 
-  const filteredMasters = masterItems.filter(item =>
-    item.title.toLowerCase().includes(search.toLowerCase())
-  );
+  // Bucket the main items by their group, preserving GROUP_ORDER.
+  const groupsToRender = GROUP_ORDER
+    .map(name => ({ name, items: filteredMain.filter(i => (i.group || 'More') === name) }))
+    .filter(g => g.items.length > 0);
+
+  const toggle = (name: string) =>
+    setCollapsed(prev => ({ ...prev, [name]: !prev[name] }));
+
+  const renderGroup = (name: string, items: MenuItem[]) => {
+    // While searching, force-expand so matches are always visible.
+    const isOpen = searching || !collapsed[name];
+    return (
+      <SidebarGroup key={name}>
+        <SidebarGroupLabel
+          asChild
+          className="text-xs font-semibold uppercase tracking-wider text-muted-foreground cursor-pointer"
+        >
+          <button type="button" onClick={() => toggle(name)} className="flex w-full items-center justify-between">
+            <span>{name}</span>
+            <ChevronDown
+              className={`h-3.5 w-3.5 transition-transform ${isOpen ? '' : '-rotate-90'}`}
+            />
+          </button>
+        </SidebarGroupLabel>
+        {isOpen && (
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {items.map((item) => (
+                <SidebarMenuItem key={item.title} item={item} />
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        )}
+      </SidebarGroup>
+    );
+  };
 
   return (
     <Sidebar>
@@ -44,30 +85,14 @@ export function AppSidebar(props: AppSidebarProps) {
               />
             </div>
           </div>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {filteredMain.map((item) => (
-                <SidebarMenuItem key={item.title} item={item} />
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
         </SidebarGroup>
+
+        {groupsToRender.map(g => renderGroup(g.name, g.items))}
 
         {filteredMasters.length > 0 && (
           <>
             <SidebarSeparator />
-            <SidebarGroup>
-              <SidebarGroupLabel className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Masters
-              </SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {filteredMasters.map((item) => (
-                    <SidebarMenuItem key={item.title} item={item} />
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
+            {renderGroup('Masters', filteredMasters)}
           </>
         )}
       </SidebarContent>

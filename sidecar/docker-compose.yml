@@ -1,0 +1,42 @@
+# Local/dev co-location of Main App + sidecar via a shared network namespace.
+# In Compose, `network_mode: "service:<name>"` is the equivalent of a K8s Pod's
+# shared netns: the sidecar owns the network stack, the main app joins it, so
+# 127.0.0.1 is shared between them.
+#
+# Run from this directory:  docker compose up --build
+services:
+  sidecar:
+    build: .
+    environment:
+      SIDECAR_PORT: "8081"
+    restart: unless-stopped
+    # The sidecar OWNS the shared namespace. Because main-app joins this
+    # namespace, the Main App's PUBLIC port must be published HERE, not on
+    # main-app. The sidecar's 8081 is never published → unreachable off-host.
+    ports:
+      - "3000:3000" # Main App public port. (Adjust to your app's port.)
+
+  main-app:
+    # Builds the Vite SPA and serves it via docker/serve.js, which also performs
+    # a keyless startup handshake to the sidecar (see ../Dockerfile).
+    build:
+      context: .. # repo root (uses ../Dockerfile and ../.dockerignore)
+      dockerfile: Dockerfile
+      # Vite inlines VITE_* at BUILD time. List form (no value) passes these
+      # through from your shell env ONLY when set; when unset they are omitted
+      # so the Dockerfile ARG defaults (the public Supabase anon values) apply.
+      # Map form with a default would inject "" and clobber those defaults.
+      args:
+        - VITE_SUPABASE_URL
+        - VITE_SUPABASE_ANON_KEY
+    network_mode: "service:sidecar" # join the sidecar's netns → shared 127.0.0.1
+    depends_on:
+      - sidecar
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      SIDECAR_URL: "http://127.0.0.1:8081"
+      # Runtime secret used by the proxy to verify Supabase JWTs and derive the
+      # forwarded identity. Passed through from your shell env (do NOT hardcode).
+      # When unset in production the proxy fails closed (503) on /api/sidecar/*.
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-}

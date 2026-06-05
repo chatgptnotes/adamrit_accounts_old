@@ -1,4 +1,4 @@
-import { BarChart3, Calendar, PhoneCall, Users, UserPlus, Database, Activity, FileText, TestTube, Camera, Pill, MapPin, Stethoscope, UserCog, ScrollText, Calculator, Syringe, Shield, Building2, ClipboardList, ShieldCheck, Receipt, HeartHandshake, ExternalLink, UserCheck, Bed, DoorOpen, LayoutDashboard, BookOpen, Clock, TrendingUp, Scissors, Heart, Cross, ClipboardCheck, ArrowLeftRight, Wallet, Navigation, Award, Smartphone, MonitorSmartphone, MessageCircle, ScanLine, Footprints, Phone, QrCode, Sparkles } from 'lucide-react';
+import { BarChart3, Calendar, PhoneCall, Users, UserPlus, Database, Activity, FileText, TestTube, Camera, Pill, MapPin, Stethoscope, UserCog, Calculator, Syringe, Shield, Building2, ClipboardList, ShieldCheck, Receipt, HeartHandshake, ExternalLink, UserCheck, Bed, DoorOpen, LayoutDashboard, BookOpen, Clock, TrendingUp, Scissors, Heart, Cross, ClipboardCheck, ArrowLeftRight, Wallet, Navigation, Smartphone, MonitorSmartphone, MessageCircle, ScanLine, Footprints, Phone, QrCode, Sparkles, Boxes } from 'lucide-react';
 
 export type MenuSection = 'main' | 'masters';
 
@@ -22,9 +22,19 @@ export const menuItems: MenuItemDef[] = [
     icon: Sparkles,
   },
   {
+    title: "Skill Factory",
+    url: "/skill-factory",
+    icon: Boxes,
+  },
+  {
     title: "Director Dashboard",
     url: "/director-dashboard",
     icon: LayoutDashboard,
+  },
+  {
+    title: "Reports",
+    url: "/reports-center",
+    icon: FileText,
   },
   {
     title: "Patient Dashboard",
@@ -40,11 +50,6 @@ export const menuItems: MenuItemDef[] = [
     title: "Marketing",
     url: "/marketing",
     icon: TrendingUp,
-  },
-  {
-    title: "Marketing Dashboard",
-    url: "/marketing-dashboard",
-    icon: BarChart3,
   },
   {
     title: "NephroPlus Dialysis",
@@ -97,11 +102,6 @@ export const menuItems: MenuItemDef[] = [
     icon: UserPlus,
   },
   {
-    title: "Users",
-    url: "/users",
-    icon: UserCog,
-  },
-  {
     title: "Operation Theatre",
     url: "/ot",
     icon: Scissors,
@@ -147,11 +147,6 @@ export const menuItems: MenuItemDef[] = [
     icon: Receipt,
   },
   {
-    title: "Ledger Statement",
-    url: "/ledger-statement",
-    icon: FileText,
-  },
-  {
     title: "Corporate",
     url: "/corporate",
     icon: Building2,
@@ -170,16 +165,6 @@ export const menuItems: MenuItemDef[] = [
     title: "Bill Approvals",
     url: "/bill-approvals",
     icon: ClipboardCheck,
-  },
-  {
-    title: "Aging Statement",
-    url: "/bill-aging-statement",
-    icon: Clock,
-  },
-  {
-    title: "IT Transaction Register",
-    url: "/it-transaction-register",
-    icon: ScrollText,
   },
   {
     title: "Tally Integration",
@@ -207,16 +192,6 @@ export const menuItems: MenuItemDef[] = [
     icon: ArrowLeftRight,
   },
   {
-    title: "Activity Log",
-    url: "/activity-log",
-    icon: ClipboardCheck,
-  },
-  {
-    title: "Patient Journey Logs",
-    url: "/patient-journey-logs",
-    icon: ScrollText,
-  },
-  {
     title: "Queue Management",
     url: "/queue-management",
     icon: Clock,
@@ -235,11 +210,6 @@ export const menuItems: MenuItemDef[] = [
     title: "B2B Partners",
     url: "/b2b-portal",
     icon: Building2,
-  },
-  {
-    title: "Marketing Incentives",
-    url: "/marketing-incentives",
-    icon: Award,
   },
   {
     title: "Marketing Field Tracker",
@@ -417,6 +387,12 @@ export const menuItems: MenuItemDef[] = [
     title: "Location Master",
     url: "/location-master",
     icon: MapPin,
+    section: 'masters',
+  },
+  {
+    title: "Users",
+    url: "/users",
+    icon: UserCog,
     section: 'masters',
   },
   {

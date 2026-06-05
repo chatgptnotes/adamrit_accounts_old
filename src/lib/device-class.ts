@@ -12,25 +12,29 @@ export type DeviceClass = "mobile" | "tablet" | "desktop";
 const OVERRIDE_KEY = "adamrit_ui_mode";
 
 /**
- * Classify the current device from screen width, pointer type and userAgent.
- * Touch laptops (coarse pointer, wide screen) classify as desktop by design —
- * the manual override covers that exception.
+ * Classify the current device from the userAgent OS only. Touch laptops (any
+ * size, any DPI) classify as desktop by design — width and pointer type are
+ * deliberately ignored so a laptop never auto-switches to the tablet edition;
+ * the manual override covers anyone who wants the touch UI on such a device.
  */
 export function classifyDevice(): DeviceClass {
   if (typeof window === "undefined") return "desktop";
-  const w = window.innerWidth;
-  const coarse = window.matchMedia("(pointer: coarse)").matches;
   const ua = navigator.userAgent;
 
   // iPadOS 13+ reports a Mac userAgent — a real Mac has maxTouchPoints 0.
-  const isIpad = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+  // Older iPads (iOS <=12) report a literal "iPad" token instead.
+  const isIpad =
+    /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
   const isAndroidPhone = /Android/.test(ua) && /Mobile/.test(ua);
+  const isAndroidTablet = /Android/.test(ua) && !/Mobile/.test(ua);
   const isIphone = /iPhone|iPod/.test(ua);
 
-  if (isIphone || isAndroidPhone || (coarse && w <= 600)) return "mobile";
-  if (isIpad || (/Android/.test(ua) && coarse) || (coarse && w <= 1024)) {
-    return "tablet";
-  }
+  // Tablet/mobile editions require a real mobile/tablet OS in the userAgent.
+  // A laptop (Windows/macOS/Linux/ChromeOS) always lands on desktop, even when
+  // it has a touchscreen (coarse pointer) or a high-DPI/narrow window — those
+  // signals alone were previously misclassifying laptops as tablets.
+  if (isIphone || isAndroidPhone) return "mobile";
+  if (isIpad || isAndroidTablet) return "tablet";
   return "desktop";
 }
 

@@ -51,7 +51,7 @@ export function TabletTopBar() {
   };
 
   return (
-    <header className="tablet-safe-top relative z-10 flex-shrink-0 border-b border-border bg-card px-4 py-3 sm:px-6 lg:px-8">
+    <header className="tablet-safe-top tablet-topbar relative z-10 flex-shrink-0 border-b border-border px-4 py-3 sm:px-6 lg:px-8">
       {/* Same max-width envelope as the dashboard so the brand lines up above
           the first tile (Register Patient). */}
       <div className="mx-auto flex w-full max-w-7xl items-center gap-3">

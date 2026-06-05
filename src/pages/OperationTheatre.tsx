@@ -920,7 +920,7 @@ const OperationTheatre: React.FC = () => {
         <TabsContent value="schedule" className="space-y-4">
           {/* Quick stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Card>
+            <Card onClick={() => setScheduleFilterStatus("all")} className="cursor-pointer transition-shadow hover:shadow-md">
               <CardContent className="pt-4 pb-3 px-4 flex items-center gap-3">
                 <div className="p-2 bg-blue-100 rounded-lg">
                   <Calendar className="h-5 w-5 text-blue-600" />
@@ -931,7 +931,7 @@ const OperationTheatre: React.FC = () => {
                 </div>
               </CardContent>
             </Card>
-            <Card>
+            <Card onClick={() => setScheduleFilterStatus("in_surgery")} className="cursor-pointer transition-shadow hover:shadow-md">
               <CardContent className="pt-4 pb-3 px-4 flex items-center gap-3">
                 <div className="p-2 bg-orange-100 rounded-lg">
                   <Activity className="h-5 w-5 text-orange-600" />
@@ -942,7 +942,7 @@ const OperationTheatre: React.FC = () => {
                 </div>
               </CardContent>
             </Card>
-            <Card>
+            <Card onClick={() => setScheduleFilterStatus("completed")} className="cursor-pointer transition-shadow hover:shadow-md">
               <CardContent className="pt-4 pb-3 px-4 flex items-center gap-3">
                 <div className="p-2 bg-green-100 rounded-lg">
                   <CheckCircle2 className="h-5 w-5 text-green-600" />
@@ -953,7 +953,7 @@ const OperationTheatre: React.FC = () => {
                 </div>
               </CardContent>
             </Card>
-            <Card>
+            <Card onClick={() => setScheduleFilterStatus("cancelled")} className="cursor-pointer transition-shadow hover:shadow-md">
               <CardContent className="pt-4 pb-3 px-4 flex items-center gap-3">
                 <div className="p-2 bg-red-100 rounded-lg">
                   <XCircle className="h-5 w-5 text-red-600" />

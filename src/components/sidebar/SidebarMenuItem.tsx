@@ -52,9 +52,11 @@ export const SidebarMenuItem = ({ item }: SidebarMenuItemProps) => {
               </span>
             </div>
           </div>
-          <div className="bg-primary/10 text-primary px-2 py-1 rounded-full text-xs font-medium flex-shrink-0 min-w-[2rem] text-center">
-            {item.count}
-          </div>
+          {item.count > 0 && (
+            <div className="bg-primary/10 text-primary px-2 py-1 rounded-full text-xs font-medium flex-shrink-0 min-w-[2rem] text-center">
+              {item.count}
+            </div>
+          )}
         </a>
       </SidebarMenuButton>
     </SidebarMenuItemBase>

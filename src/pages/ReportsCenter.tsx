@@ -1,0 +1,125 @@
+import { Link } from 'react-router-dom';
+import {
+  LayoutDashboard, Calendar, ClipboardList, Wallet, FileText, BookOpen, Clock,
+  Receipt, ScrollText, TrendingUp, Award, Activity, Cross, ScanLine, Navigation,
+  Phone, MessageCircle, Users, FileSpreadsheet,
+} from 'lucide-react';
+
+/**
+ * Reports Center — one place that lists every standalone system report, ordered
+ * most-used at the top. Per-patient documents (invoices, discharge summaries)
+ * are intentionally excluded: those are opened from a specific patient/visit.
+ */
+interface ReportLink {
+  title: string;
+  route: string;
+  description: string;
+  icon: typeof FileText;
+}
+
+interface ReportSection {
+  heading: string;
+  items: ReportLink[];
+}
+
+// Sections are ordered by how frequently the team uses them; items within each
+// section are likewise ordered most-used first.
+const SECTIONS: ReportSection[] = [
+  {
+    heading: 'Dashboards & KPIs',
+    items: [
+      { title: 'Director Dashboard', route: '/director-dashboard', description: 'Hospital KPIs, collections, department activity', icon: LayoutDashboard },
+      { title: "Today's IPD", route: '/todays-ipd', description: 'Current IPD census and discharge status', icon: Calendar },
+      { title: "Today's OPD", route: '/todays-opd', description: 'Today’s OPD visits and walk-ins', icon: ClipboardList },
+      { title: 'OPD Summary', route: '/opd-summary', description: 'Searchable OPD visit summaries', icon: ClipboardList },
+    ],
+  },
+  {
+    heading: 'Financial',
+    items: [
+      { title: 'Bill Aging Statement', route: '/bill-aging-statement', description: 'Corporate bills aged by days outstanding', icon: Clock },
+      { title: 'Ledger Statement', route: '/ledger-statement', description: 'Account ledger by date range and narration', icon: FileText },
+      { title: 'Cash Book', route: '/cash-book', description: 'Daily cash receipts and payments', icon: BookOpen },
+      { title: 'Day Book', route: '/day-book', description: 'Daily journal of all transactions by mode', icon: BookOpen },
+      { title: 'Financial Summary', route: '/financial-summary', description: 'Charges broken down by service category', icon: Wallet },
+      { title: 'Expected Payment Date', route: '/expected-payment-date-report', description: 'Corporate bills by expected payment window', icon: Clock },
+      { title: 'Advance Statement', route: '/advance-statement-report', description: 'Patient advances and adjustments', icon: Receipt },
+      { title: 'Daywise Bills', route: '/daywise-bills', description: 'Sales bills and returns by date', icon: Receipt },
+      { title: 'Patient Ledger', route: '/patient-ledger', description: 'Per-patient transactions and running balance', icon: FileText },
+      { title: 'IT Transaction Register', route: '/it-transaction-register', description: 'Transactions synced to Tally', icon: ScrollText },
+    ],
+  },
+  {
+    heading: 'Operational Registers',
+    items: [
+      { title: 'Casualty Register', route: '/casualty-register', description: 'Emergency/casualty admissions and status', icon: Cross },
+      { title: 'Radiology Worklist', route: '/radiology-worklist', description: 'Radiology orders by workflow status', icon: ScanLine },
+      { title: 'Phlebotomist', route: '/phlebotomist', description: 'Home collection assignments and status', icon: Navigation },
+      { title: 'Telephony Dashboard', route: '/telephony', description: 'Call logs with patient lookup and actions', icon: Phone },
+    ],
+  },
+  {
+    heading: 'Marketing',
+    items: [
+      { title: 'Marketing Dashboard', route: '/marketing-dashboard', description: 'Daily marketing stats and chat notes', icon: TrendingUp },
+      { title: 'Marketing Incentives', route: '/marketing-incentives', description: 'Staff incentive achievement tracking', icon: Award },
+    ],
+  },
+  {
+    heading: 'Audit & Logs',
+    items: [
+      { title: 'Activity Log', route: '/activity-log', description: 'User system activity audit trail', icon: Activity },
+      { title: 'Patient Journey Logs', route: '/patient-journey-logs', description: 'Patient movement from registration to discharge', icon: ScrollText },
+      { title: 'Report Delivery', route: '/report-delivery', description: 'Lab report delivery and WhatsApp status', icon: MessageCircle },
+    ],
+  },
+  {
+    heading: 'Exports',
+    items: [
+      { title: 'Patient Data Export', route: '/reports', description: 'Export admission/discharge data to Excel', icon: FileSpreadsheet },
+    ],
+  },
+];
+
+export default function ReportsCenter() {
+  return (
+    <div className="p-4 md:p-6 max-w-7xl mx-auto">
+      <div className="mb-6 flex items-center gap-3">
+        <div className="rounded-xl bg-primary/10 p-2 text-primary">
+          <FileText className="h-6 w-6" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Reports Center</h1>
+          <p className="text-sm text-gray-500">All system reports in one place — most used at the top.</p>
+        </div>
+      </div>
+
+      <div className="space-y-8">
+        {SECTIONS.map((section) => (
+          <section key={section.heading}>
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">
+              {section.heading}
+            </h2>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {section.items.map((item) => (
+                <Link
+                  key={item.route}
+                  to={item.route}
+                  className="group flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-all hover:border-primary/40 hover:shadow-md active:scale-[0.99]"
+                >
+                  <div className="rounded-lg bg-primary/10 p-2 text-primary group-hover:bg-primary/20">
+                    <item.icon className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-semibold text-gray-800">{item.title}</div>
+                    <div className="text-xs text-gray-500">{item.description}</div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}

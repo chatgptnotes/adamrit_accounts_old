@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { LogIn, LogOut, Stethoscope, Wallet, BedDouble, Clock } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useDirectorKpis, type KpiPeriod } from '@/hooks/useDirectorKpis';
 
 const PERIOD_LABELS: Record<Exclude<KpiPeriod, 'specific'>, string> = {
@@ -39,12 +40,12 @@ export function DirectorKpiCards() {
   const fmtMoney = (n: number | null) => (n == null ? '—' : `₹${n.toLocaleString('en-IN')}`);
 
   const cards = [
-    { title: 'Admissions', value: fmtCount(data.admissions), subtitle: periodLabel, icon: LogIn, color: 'from-blue-500 to-blue-600' },
-    { title: 'Discharges', value: fmtCount(data.discharges), subtitle: periodLabel, icon: LogOut, color: 'from-green-500 to-green-600' },
-    { title: 'OPD Visits', value: fmtCount(data.opdVisits), subtitle: periodLabel, icon: Stethoscope, color: 'from-purple-500 to-purple-600' },
-    { title: 'Collection', value: fmtMoney(data.collection), subtitle: periodLabel, icon: Wallet, color: 'from-emerald-500 to-emerald-600' },
-    { title: 'Currently Admitted', value: fmtCount(data.activeIpd), subtitle: 'Live', icon: BedDouble, color: 'from-amber-500 to-amber-600' },
-    { title: 'Pending Approvals', value: fmtCount(data.pendingApprovals), subtitle: 'Live', icon: Clock, color: 'from-rose-500 to-rose-600' },
+    { title: 'Admissions', value: fmtCount(data.admissions), subtitle: periodLabel, icon: LogIn, color: 'from-blue-500 to-blue-600', route: '/currently-admitted' },
+    { title: 'Discharges', value: fmtCount(data.discharges), subtitle: periodLabel, icon: LogOut, color: 'from-green-500 to-green-600', route: '/discharged-patients' },
+    { title: 'OPD Visits', value: fmtCount(data.opdVisits), subtitle: periodLabel, icon: Stethoscope, color: 'from-purple-500 to-purple-600', route: '/todays-opd' },
+    { title: 'Collection', value: fmtMoney(data.collection), subtitle: periodLabel, icon: Wallet, color: 'from-emerald-500 to-emerald-600', route: '/accounting' },
+    { title: 'Currently Admitted', value: fmtCount(data.activeIpd), subtitle: 'Live', icon: BedDouble, color: 'from-amber-500 to-amber-600', route: '/currently-admitted' },
+    { title: 'Pending Approvals', value: fmtCount(data.pendingApprovals), subtitle: 'Live', icon: Clock, color: 'from-rose-500 to-rose-600', route: '/bill-approvals' },
   ];
 
   // Upper bound for the month picker — directors should not query future months.
@@ -96,9 +97,11 @@ export function DirectorKpiCards() {
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           {cards.map((card) => (
-            <div
+            <Link
               key={card.title}
-              className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"
+              to={card.route}
+              title={`Open ${card.title}`}
+              className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden block transition-transform hover:shadow-md hover:-translate-y-0.5 active:scale-[0.98]"
             >
               <div
                 className={`bg-gradient-to-br ${card.color} px-3 py-2 flex items-center justify-between`}
@@ -114,7 +117,7 @@ export function DirectorKpiCards() {
               <div className="px-3 py-2">
                 <div className="text-[10px] text-gray-400">{card.subtitle}</div>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       )}

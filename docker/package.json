@@ -1,0 +1,12 @@
+{
+  "name": "adamrit-main-app-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Containerized Main App runtime: static SPA server + authenticated sidecar proxy",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node serve.js",
+    "test": "node --test",
+    "smoke": "node proxy-smoke.js"
+  }
+}

@@ -1,0 +1,30 @@
+name: patient-pre-visit-instructions
+display_name: "Patient Pre-Visit Instructions"
+department: patient-facing
+version: 1.0.0
+description: "Generates personalised pre-visit instructions (fasting, what to bring, location) for an upcoming appointment. SMS + email."
+
+llm:
+  provider: vertex-ai
+  model: gemini-2.5-flash
+  temperature: 0.3
+  max_tokens: 1500
+
+confidence_threshold: 0.85
+max_cycles: 1
+
+knowledge:
+  - knowledge/intake.md
+  - knowledge/outputs.md
+  - knowledge/boundaries.md
+  - knowledge/glossary.md
+
+examples:
+  - examples/example-01.md
+
+tools:
+  - db.read_appointment
+  - db.read_patient_meta
+  - db.read_appointment_type_template
+
+human_review_required: true

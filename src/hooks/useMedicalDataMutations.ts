@@ -1,6 +1,10 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import {
+  bridgeApprovedMedicationToPharmacy,
+  cancelBridgedItemIfPending,
+} from '@/lib/ward-prescription-bridge';
 
 export const useMedicalDataMutations = () => {
   const queryClient = useQueryClient();
@@ -140,6 +144,8 @@ export const useMedicalDataMutations = () => {
         .eq('id', rowId);
 
       if (error) throw error;
+      // Pull it back out of the pharmacy queue if it was bridged & not dispensed.
+      await cancelBridgedItemIfPending(rowId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['visit-medications-custom'] });
@@ -174,6 +180,8 @@ export const useMedicalDataMutations = () => {
         .update({ end_date: today, ...(notes ? { notes } : {}) })
         .eq('id', rowId);
       if (error) throw error;
+      // Stopping before dispensing pulls it back out of the pharmacy queue.
+      await cancelBridgedItemIfPending(rowId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['visit-medications-custom'] });
@@ -211,6 +219,9 @@ export const useMedicalDataMutations = () => {
         .update({ end_date: today })
         .eq('id', rowId);
       if (endErr) throw endErr;
+      // The old order is replaced — remove its pharmacy item if still pending.
+      // The new row starts unapproved, so it won't bridge until re-approved.
+      await cancelBridgedItemIfPending(rowId);
       const { error: addErr } = await supabase
         .from('visit_medications')
         .insert({
@@ -243,6 +254,11 @@ export const useMedicalDataMutations = () => {
         .eq('id', rowId);
 
       if (error) throw error;
+
+      // Approving a med "sends it to the pharmacy": create a normal ward
+      // prescription so it flows through the existing desktop pharmacy queue +
+      // billing. Best-effort — never let a bridge hiccup fail the approval.
+      await bridgeApprovedMedicationToPharmacy(rowId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['visit-medications-custom'] });

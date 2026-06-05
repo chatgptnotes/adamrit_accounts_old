@@ -418,13 +418,13 @@ export const useCounts = (enabled: boolean = true) => {
   });
 
   const { data: pendingPrescriptionsCount = 0 } = useQuery({
-    queryKey: ['pending-prescriptions', 'count'],
+    queryKey: ['pending-prescriptions', 'count', hospitalConfig.name],
     queryFn: async () => {
       try {
         const { count, error } = await (supabase as any)
           .from('prescriptions')
           .select('id', { count: 'exact', head: true })
-          .eq('status', 'PENDING');
+          .or(`status.eq.PENDING,and(status.eq.APPROVED,source.eq.ward,hospital_name.eq.${hospitalConfig.name})`);
         if (error) return 0;
         return count ?? 0;
       } catch {

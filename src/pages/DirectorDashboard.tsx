@@ -21,6 +21,7 @@ import {
 } from '@/lib/office-upload-validation';
 import { DirectorFilePreviewDialog } from '@/components/DirectorFilePreviewDialog';
 import { DirectorKpiCards } from '@/components/DirectorKpiCards';
+import { DepartmentActivityMonitor } from '@/components/DepartmentActivityMonitor';
 import { DirectorProjectLauncher } from '@/components/DirectorProjectLauncher';
 import { DailyRevenueReportSection } from '@/components/DailyRevenueReportSection';
 import { usePaymentDeadlines, type PaymentDeadline } from '@/hooks/usePaymentDeadlines';
@@ -525,6 +526,8 @@ export default function DirectorDashboard() {
       </div>
 
       <DirectorKpiCards />
+
+      <DepartmentActivityMonitor />
 
       {(alertSummary.overdueCount > 0 || alertSummary.dueSoonCount > 0) && (
         <div
