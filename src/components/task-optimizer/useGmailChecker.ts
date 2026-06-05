@@ -1,12 +1,6 @@
 import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { createClient } from '@supabase/supabase-js';
-
-// Admin client bypasses RLS for writes — needed since email_inbox has RLS enabled
-const supabaseAdmin = createClient(
-  'https://xvkxccqaopbnkvwgyfjv.supabase.co',
-  import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY as string,
-);
+import { supabaseAdmin } from '@/integrations/supabase/adminClient';
 
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1';
 

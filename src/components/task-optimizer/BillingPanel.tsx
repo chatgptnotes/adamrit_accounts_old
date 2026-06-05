@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { supabaseAdmin } from '@/integrations/supabase/adminClient';
 import { useState } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
@@ -200,7 +201,7 @@ export default function BillingPanel() {
   const { data: emails = [], isLoading } = useQuery({
     queryKey: ['billing-email-inbox', filter],
     queryFn: async () => {
-      let q = supabase
+      let q = supabaseAdmin
         .from('email_inbox')
         .select('*')
         .order('created_at', { ascending: false })
@@ -217,7 +218,7 @@ export default function BillingPanel() {
 
   const approveMutation = useMutation({
     mutationFn: async ({ id, reply }: { id: string; reply: string }) => {
-      const { error } = await supabase
+      const { error } = await supabaseAdmin
         .from('email_inbox')
         .update({ status: 'approved', draft_reply: reply, approved_at: new Date().toISOString() })
         .eq('id', id);
@@ -240,7 +241,7 @@ export default function BillingPanel() {
 
   const rejectMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
+      const { error } = await supabaseAdmin
         .from('email_inbox')
         .update({ status: 'rejected' })
         .eq('id', id);
