@@ -14,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Calendar, CalendarDays, Loader2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { geminiGenerateContentUrl, geminiFetch, geminiGenerateContent } from "@/lib/gemini";
+import { downscaleImageForVision } from "@/lib/downscaleImage";
 import { format } from 'date-fns';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -3993,12 +3994,79 @@ DD/MM/YYYY:-Test Category: Test1:Value1 unit, Test2:Value2 unit`);
               }
               setIsStayNotesGenerating(true);
               try {
-                // Fixed, hospital-provided prompt for the hospital stay note. The
-                // model writes a full doctor-facing summary grounded on the real
-                // patient data below — especially the treatment given during the stay.
-                const STAY_NOTES_PROMPT = `Act like a medical specialist. Make a professionally written OPD summary. Make up facts. Add findings which are not provided to you. Come up with creative complaints, events during visit to hospital and relevant examination findings, add medications to be taken at home in Indian brands. The entire summary should be a minimum of 800 words. Do not mention the name, sex or age of the patient. The person who is going to read what you share will be a doctor. Start the summary with the Diagnosis, followed by medication. These should be at the beginning of the summary and in table form with columns for name, strength, route, dosage and the number of days to be taken. Another line in Hindi to be added in the column of dosage in addition to English. This patient does not have comorbidities other than that is mentioned.`;
+                // 1) Find the patient's uploaded treatment-sheet photos (scanned
+                //    charts) so we can OCR the REAL treatment given during the stay.
+                const patientUuid = patientData?.patients?.id;
+                if (!patientUuid) {
+                  toast({ title: 'No patient', description: 'Could not resolve the patient for this visit.', variant: 'destructive' });
+                  return;
+                }
+                const { data: sheets } = await supabase
+                  .from('prescriptions')
+                  .select('prescription_image_url, prescription_image_type, created_at')
+                  .eq('patient_id', patientUuid)
+                  .not('prescription_image_url', 'is', null)
+                  .order('created_at', { ascending: false });
 
-                // Real patient data, with the treatment given during the stay emphasised.
+                // Gemini vision reads images only (not PDFs). Prefer sheets whose
+                // upload filename carries THIS visit id, else the patient's recent ones.
+                const isImage = (u: string, t?: string | null) =>
+                  (t ? t.startsWith('image/') : true) && !/\.pdf($|\?)/i.test(u);
+                const allImgs = (sheets || []).filter(
+                  (s: any) => s.prescription_image_url && isImage(s.prescription_image_url, s.prescription_image_type),
+                );
+                const visitImgs = allImgs.filter(
+                  (s: any) => visitId && s.prescription_image_url.includes(visitId),
+                );
+                const chosen = (visitImgs.length ? visitImgs : allImgs).slice(0, 3);
+
+                if (chosen.length === 0) {
+                  toast({
+                    title: 'No treatment sheet found',
+                    description: 'Scan/upload a treatment sheet for this patient first. Nothing was invented.',
+                    variant: 'destructive',
+                  });
+                  return;
+                }
+
+                // 2) OCR each chosen treatment sheet image via Gemini vision.
+                const OCR_PROMPT = 'You are a medical OCR specialist. Transcribe ALL text from this treatment sheet / chart photo accurately: date(s), medications (name, strength, route, frequency, duration), IV fluids, procedures, vitals and any notes. Preserve medication details exactly. Mark anything illegible as [unclear]. Do NOT add anything not visible in the image.';
+                const ocrTexts: string[] = [];
+                for (const s of chosen) {
+                  try {
+                    const blob = await (await fetch((s as any).prescription_image_url)).blob();
+                    const { base64, mimeType } = await downscaleImageForVision(blob);
+                    const ocrRes = await geminiFetch(geminiGenerateContentUrl(apiKey), {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        contents: [{ parts: [{ text: OCR_PROMPT }, { inline_data: { mime_type: mimeType, data: base64 } }] }],
+                        generationConfig: { temperature: 0.1, maxOutputTokens: 4000 },
+                      }),
+                    });
+                    const ocrData = await ocrRes.json();
+                    const t = ocrData.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (t && t.trim()) ocrTexts.push(t.trim());
+                  } catch (e) {
+                    console.warn('Treatment sheet OCR failed for one image:', e);
+                  }
+                }
+                if (ocrTexts.length === 0) {
+                  toast({
+                    title: 'Could not read treatment sheet',
+                    description: 'The treatment sheet image(s) could not be read. Please try a clearer photo.',
+                    variant: 'destructive',
+                  });
+                  return;
+                }
+                const treatmentSheetText = ocrTexts.join('\n\n--- next sheet ---\n\n');
+
+                // 3) Build the summary prompt. Treatment given during the stay comes
+                //    from the OCR'd treatment sheet — NOT invented.
+                const STAY_NOTES_PROMPT = `Act like a medical specialist. Make a professionally written OPD summary. The entire summary should be a minimum of 800 words. Do not mention the name, sex or age of the patient. The person who is going to read what you share will be a doctor. Start the summary with the Diagnosis, followed by medication. These should be at the beginning of the summary and in table form with columns for name, strength, route, dosage and the number of days to be taken. Another line in Hindi to be added in the column of dosage in addition to English. This patient does not have comorbidities other than that is mentioned.
+
+IMPORTANT — TREATMENT DATA SOURCE: The "TREATMENT SHEET (read via OCR)" below is the patient's ACTUAL treatment given during the hospital stay. Base ALL treatment, medications and the hospital course strictly on this real data — do NOT invent, change, drop or add any medication/treatment beyond what the treatment sheet shows. Only for the surrounding narrative (complaints, history, examination findings, events) may you write medically plausible details consistent with the diagnosis.`;
+
                 const dataParts: string[] = [];
                 if (diagnosis.trim()) dataParts.push(`DIAGNOSIS:\n${diagnosis.trim()}`);
                 if (caseSummaryPresentingComplaints.trim())
@@ -4014,32 +4082,10 @@ DD/MM/YYYY:-Test Category: Test1:Value1 unit, Test2:Value2 unit`);
                   .join(' | ');
                 if (vitals || examination.details)
                   dataParts.push(`EXAMINATION:\n${vitals}${examination.details ? '\n' + examination.details : ''}`);
-
-                const treatment: string[] = [];
-                if (treatmentStatus && treatmentStatus !== 'Please select')
-                  treatment.push(`Response during stay: ${treatmentStatus}`);
-                if (treatmentCondition) treatment.push(`Condition at discharge: ${treatmentCondition}`);
-                const meds = medicationRows
-                  .filter((m) => m.name && m.name.trim())
-                  .map(
-                    (m) =>
-                      `- ${[
-                        m.name,
-                        m.unit,
-                        m.route && m.route !== 'Select' ? m.route : '',
-                        m.dose && m.dose !== 'Select' ? m.dose : '',
-                        m.days ? `${m.days} days` : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' | ')}`,
-                  );
-                if (meds.length) treatment.push(`Medications:\n${meds.join('\n')}`);
-                if (treatment.length)
-                  dataParts.push(`TREATMENT GIVEN DURING THE STAY (base the summary on this especially):\n${treatment.join('\n')}`);
-
-                const userData = dataParts.length
-                  ? dataParts.join('\n\n')
-                  : 'No structured data entered; use the diagnosis context and invent plausible details.';
+                dataParts.push(
+                  `TREATMENT SHEET (read via OCR — the real treatment given during the stay; use this, do not invent):\n${treatmentSheetText}`,
+                );
+                const userData = dataParts.join('\n\n');
 
                 const response = await geminiGenerateContent(geminiGenerateContentUrl(apiKey), {
                   method: 'POST',
@@ -4061,7 +4107,10 @@ DD/MM/YYYY:-Test Category: Test1:Value1 unit, Test2:Value2 unit`);
                 const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
                 if (!text) throw new Error('No response from AI.');
                 setHospitalStayNotes(text);
-                toast({ title: 'Success', description: 'Hospital stay note generated.' });
+                toast({
+                  title: 'Success',
+                  description: `Hospital stay note generated from ${chosen.length} treatment sheet${chosen.length > 1 ? 's' : ''}.`,
+                });
               } catch (error: any) {
                 toast({
                   title: 'Error',
