@@ -2,25 +2,13 @@ import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1';
-const OPENAI_API = 'https://api.openai.com/v1/chat/completions';
-
-const SYSTEM_PROMPT = `You are a professional billing email assistant for Hope Hospital billing department.
-Guidelines:
-- Always maintain a professional, empathetic, and helpful tone.
-- For document requests (bill copy, discharge summary, insurance letter): acknowledge and say it will be shared within 24 hours.
-- For corporate billing queries: acknowledge receipt and say the billing team will follow up within 1 business day.
-- For approval requests: say it will be reviewed by the billing manager.
-- Never share other patients' information.
-- Sign off as "Hope Hospital Billing Team".
-- Keep replies concise — 3 to 6 sentences.`;
 
 export interface CheckMailResult {
   saved: number;
   skipped: number;
 }
 
-// Exchange the stored refresh token for a short-lived access token.
-// No OAuth popup needed — uses credentials already configured.
+// Exchange stored refresh token for a short-lived access token — no OAuth popup needed.
 async function getGmailAccessToken(): Promise<string> {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -33,7 +21,7 @@ async function getGmailAccessToken(): Promise<string> {
     }),
   });
   const data = await res.json();
-  if (!data.access_token) throw new Error(data.error_description ?? 'Failed to get Gmail access token');
+  if (!data.access_token) throw new Error(data.error_description ?? 'Gmail token exchange failed');
   return data.access_token as string;
 }
 
@@ -74,18 +62,48 @@ function extractTextBody(payload: Record<string, unknown>): string {
   return '';
 }
 
-async function fetchFormatExamples(): Promise<string> {
-  const { data } = await supabase
-    .from('email_inbox')
-    .select('subject, draft_reply')
-    .eq('status', 'approved')
-    .not('draft_reply', 'is', null)
-    .order('approved_at', { ascending: false })
-    .limit(5);
+// Rule-based classifier — no AI needed, completely free
+function classifyEmail(subject: string, body: string): {
+  category: string;
+  urgency: string;
+} {
+  const text = `${subject} ${body}`.toLowerCase();
 
-  if (!data?.length) return '';
-  return '\n\nPreviously approved reply formats — match this tone and structure:\n' +
-    data.map((e, i) => `--- Example ${i + 1} ---\nSubject: ${e.subject}\nReply: ${e.draft_reply}`).join('\n\n');
+  let category = 'general';
+  if (/tpa|third.party|insurance|claim|cashless|mediclaim|echs|cghs|esic/.test(text)) {
+    category = 'tpa';
+  } else if (/corporate|company|organization|tie.?up|empanelled/.test(text)) {
+    category = 'corporate';
+  } else if (/bill|invoice|payment|amount|dues|outstanding|receipt|discharge/.test(text)) {
+    category = 'billing';
+  } else if (/urgent|immediate|asap|emergency|critical/.test(text)) {
+    category = 'urgent';
+  }
+
+  let urgency = 'low';
+  if (/urgent|immediate|asap|emergency|critical|today/.test(text)) {
+    urgency = 'high';
+  } else if (/soon|reminder|follow.?up|pending|awaiting/.test(text)) {
+    urgency = 'medium';
+  }
+
+  return { category, urgency };
+}
+
+// Template-based draft reply — free, professional, ready to edit
+function buildDraftReply(fromName: string, subject: string, category: string): string {
+  const greeting = `Dear ${fromName || 'Sir/Madam'},`;
+  const closing = `\n\nWarm regards,\nHope Hospital Billing Team\ninfo@hopehospital.com`;
+
+  const bodies: Record<string, string> = {
+    tpa: `\n\nThank you for your email regarding "${subject}".\n\nWe have received your TPA/insurance query and our billing team is reviewing it. We will process the required documents and get back to you within 1 business day.\n\nIf you need immediate assistance, please call our billing helpdesk.`,
+    corporate: `\n\nThank you for reaching out regarding "${subject}".\n\nWe have noted your query and our corporate billing team will follow up with you within 1 business day with the required information.\n\nPlease feel free to contact us if you need anything in the meantime.`,
+    billing: `\n\nThank you for your email regarding "${subject}".\n\nWe have received your billing query and will review your account. Our team will respond with the relevant details within 24 hours.\n\nFor urgent billing concerns, please contact our billing helpdesk directly.`,
+    urgent: `\n\nThank you for your email regarding "${subject}".\n\nWe understand this is an urgent matter and have escalated it to our billing manager for immediate attention. We will revert to you shortly.`,
+    general: `\n\nThank you for your email regarding "${subject}".\n\nWe have received your message and will respond within 1 business day.\n\nThank you for choosing Hope Hospital.`,
+  };
+
+  return greeting + (bodies[category] ?? bodies.general) + closing;
 }
 
 export function useGmailChecker() {
@@ -95,7 +113,7 @@ export function useGmailChecker() {
     if (cachedToken) return cachedToken;
     const token = await getGmailAccessToken();
     setCachedToken(token);
-    // Access tokens expire in 1 hour — clear cache after 55 min
+    // Gmail access tokens expire in 1 hour — clear cache after 55 min
     setTimeout(() => setCachedToken(null), 55 * 60 * 1000);
     return token;
   };
@@ -109,12 +127,11 @@ export function useGmailChecker() {
     );
     if (!listRes.ok) {
       if (listRes.status === 401) setCachedToken(null);
-      throw new Error(`Gmail fetch failed (${listRes.status})`);
+      throw new Error(`Gmail fetch failed (${listRes.status}). Check that the Gmail credentials in .env are correct.`);
     }
     const listData = await listRes.json();
     const messages: Array<{ id: string }> = listData.messages ?? [];
 
-    const formatSection = await fetchFormatExamples();
     const today = new Date().toISOString().split('T')[0];
     let saved = 0;
     let skipped = 0;
@@ -130,13 +147,13 @@ export function useGmailChecker() {
       const headers: Array<{ name: string; value: string }> =
         (msgData.payload as Record<string, unknown>)?.headers as Array<{ name: string; value: string }> ?? [];
 
-      const subject   = getHeader(headers, 'Subject') || '(no subject)';
+      const subject    = getHeader(headers, 'Subject') || '(no subject)';
       const fromHeader = getHeader(headers, 'From');
       const fromEmail  = fromHeader.match(/<(.+)>/)?.[1] ?? fromHeader.trim();
       const fromName   = fromHeader.match(/^([^<]+)/)?.[1]?.trim() ?? fromEmail;
       const body       = extractTextBody(msgData.payload as Record<string, unknown>);
 
-      // Dedup: skip if already saved today for this sender+subject
+      // Dedup: skip if already saved today for this sender + subject
       const { count } = await supabase
         .from('email_inbox')
         .select('id', { count: 'exact', head: true })
@@ -145,50 +162,8 @@ export function useGmailChecker() {
         .eq('check_date', today);
       if ((count ?? 0) > 0) { skipped++; continue; }
 
-      // OpenAI: classify + draft in one call
-      const openaiRes = await fetch(OPENAI_API, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${import.meta.env.VITE_OPENAI_API_KEY as string}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT + formatSection },
-            {
-              role: 'user',
-              content: `Analyze this email. Return ONLY valid JSON, no markdown:
-{
-  "category": one of ["billing","corporate","tpa","general","urgent"],
-  "urgency": one of ["high","medium","low"],
-  "draft_reply": "complete reply text"
-}
-
-From: ${fromName} <${fromEmail}>
-Subject: ${subject}
-Message: ${body.slice(0, 1200)}`,
-            },
-          ],
-          response_format: { type: 'json_object' },
-          temperature: 0.3,
-        }),
-      });
-
-      let category   = 'general';
-      let urgency    = 'low';
-      let draftReply = '';
-
-      if (openaiRes.ok) {
-        const aiData = await openaiRes.json();
-        try {
-          const parsed = JSON.parse(aiData.choices?.[0]?.message?.content ?? '{}');
-          const allowedCategories = ['billing', 'corporate', 'tpa', 'appointment', 'general', 'urgent'];
-          category   = allowedCategories.includes(parsed.category) ? parsed.category : 'general';
-          urgency    = ['high', 'medium', 'low'].includes(parsed.urgency) ? parsed.urgency : 'low';
-          draftReply = typeof parsed.draft_reply === 'string' ? parsed.draft_reply : '';
-        } catch { /* keep defaults */ }
-      }
+      const { category, urgency } = classifyEmail(subject, body);
+      const draftReply = buildDraftReply(fromName, subject, category);
 
       await supabase.from('email_inbox').insert({
         from_email:   fromEmail,
@@ -200,7 +175,6 @@ Message: ${body.slice(0, 1200)}`,
         draft_reply:  draftReply,
         status:       'pending',
         check_date:   today,
-        // check_run intentionally NULL — manual trigger
       });
       saved++;
     }
@@ -208,47 +182,21 @@ Message: ${body.slice(0, 1200)}`,
     return { saved, skipped };
   };
 
+  // Regenerate draft using templates — no AI, completely free
   const regenerateDraft = async (emailId: string, feedback?: string): Promise<string> => {
     const { data: email } = await supabase
       .from('email_inbox')
-      .select('from_name, from_email, subject, body_preview, category, urgency')
+      .select('from_name, from_email, subject, category')
       .eq('id', emailId)
       .single();
 
     if (!email) throw new Error('Email not found');
 
-    const formatSection = await fetchFormatExamples();
-    const feedbackNote  = feedback?.trim() ? `\n\nHuman feedback: "${feedback.trim()}"` : '';
-
-    const openaiRes = await fetch(OPENAI_API, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${import.meta.env.VITE_OPENAI_API_KEY as string}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT + formatSection },
-          {
-            role: 'user',
-            content: `Draft a reply to this email. Return ONLY the reply text — no subject line, start with greeting.
-
-Category: ${email.category ?? 'general'}
-Urgency: ${email.urgency ?? 'low'}
-From: ${email.from_name ?? email.from_email} <${email.from_email}>
-Subject: ${email.subject}
-Message preview: ${email.body_preview ?? ''}${feedbackNote}`,
-          },
-        ],
-        temperature: 0.5,
-      }),
-    });
-
-    if (!openaiRes.ok) throw new Error(`OpenAI error: ${openaiRes.status}`);
-    const aiData   = await openaiRes.json();
-    const newDraft = (aiData.choices?.[0]?.message?.content ?? '').trim();
-    if (!newDraft) throw new Error('AI returned empty draft');
+    // If feedback is given, prepend it as a note in the draft for the staff to act on
+    let newDraft = buildDraftReply(email.from_name ?? email.from_email, email.subject ?? '', email.category ?? 'general');
+    if (feedback?.trim()) {
+      newDraft = `[Note: ${feedback.trim()}]\n\n${newDraft}`;
+    }
 
     await supabase.from('email_inbox').update({ draft_reply: newDraft }).eq('id', emailId);
     return newDraft;
