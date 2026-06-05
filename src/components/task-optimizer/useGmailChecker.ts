@@ -1,5 +1,12 @@
 import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { createClient } from '@supabase/supabase-js';
+
+// Admin client bypasses RLS for writes — needed since email_inbox has RLS enabled
+const supabaseAdmin = createClient(
+  'https://xvkxccqaopbnkvwgyfjv.supabase.co',
+  import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY as string,
+);
 
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1';
 
@@ -203,8 +210,8 @@ export function useGmailChecker() {
       // 1. Create draft reply directly in Gmail Drafts folder
       await createGmailDraft(token, fromEmail, subject, draftReply, threadId, messageId);
 
-      // 2. Save to Supabase for app UI display
-      const { error: insertError } = await supabase.from('email_inbox').insert({
+      // 2. Save to Supabase for app UI display (admin client bypasses RLS)
+      const { error: insertError } = await supabaseAdmin.from('email_inbox').insert({
         from_email:   fromEmail,
         from_name:    fromName,
         subject,
@@ -238,7 +245,7 @@ export function useGmailChecker() {
     let newDraft = buildDraftReply(email.from_name ?? email.from_email, email.subject ?? '', email.category ?? 'general');
     if (feedback?.trim()) newDraft = `[Note: ${feedback.trim()}]\n\n${newDraft}`;
 
-    await supabase.from('email_inbox').update({ draft_reply: newDraft }).eq('id', emailId);
+    await supabaseAdmin.from('email_inbox').update({ draft_reply: newDraft }).eq('id', emailId);
     return newDraft;
   };
 
