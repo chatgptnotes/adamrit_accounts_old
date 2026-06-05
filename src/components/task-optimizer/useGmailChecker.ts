@@ -186,16 +186,15 @@ export function useGmailChecker() {
       const fromEmail  = fromHeader.match(/<(.+)>/)?.[1] ?? fromHeader.trim();
       const fromName   = fromHeader.match(/^([^<]+)/)?.[1]?.trim() ?? fromEmail;
       const messageId  = getHeader(headers, 'Message-ID');
+      const gmailMsgId = msg.id; // Gmail's internal unique ID — permanent dedup key
       const threadId   = (msgData as Record<string, unknown>).threadId as string ?? '';
       const body       = extractTextBody(msgData.payload as Record<string, unknown>);
 
-      // Dedup: skip if already processed today
-      const { count } = await supabase
+      // Dedup: skip if this exact Gmail message was already saved (stored in approved_by)
+      const { count } = await supabaseAdmin
         .from('email_inbox')
         .select('id', { count: 'exact', head: true })
-        .eq('from_email', fromEmail)
-        .eq('subject', subject)
-        .eq('check_date', today);
+        .eq('approved_by', `gmailid:${gmailMsgId}`);
       if ((count ?? 0) > 0) { skipped++; continue; }
 
       const { category, urgency } = classifyEmail(subject, body);
@@ -204,7 +203,7 @@ export function useGmailChecker() {
       // 1. Create draft reply directly in Gmail Drafts folder
       await createGmailDraft(token, fromEmail, subject, draftReply, threadId, messageId);
 
-      // 2. Save to Supabase for app UI display (admin client bypasses RLS)
+      // 2. Save to Supabase (approved_by stores gmail message ID for permanent dedup)
       const { error: insertError } = await supabaseAdmin.from('email_inbox').insert({
         from_email:   fromEmail,
         from_name:    fromName,
@@ -215,6 +214,7 @@ export function useGmailChecker() {
         draft_reply:  draftReply,
         status:       'pending',
         check_date:   today,
+        approved_by:  `gmailid:${gmailMsgId}`, // dedup key — overwritten when actually approved
       });
 
       if (insertError) {

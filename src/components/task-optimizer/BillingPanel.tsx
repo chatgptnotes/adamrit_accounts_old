@@ -251,7 +251,7 @@ export default function BillingPanel() {
     mutationFn: async ({ id, reply }: { id: string; reply: string }) => {
       const { error } = await supabaseAdmin
         .from('email_inbox')
-        .update({ status: 'approved', draft_reply: reply, approved_at: new Date().toISOString() })
+        .update({ status: 'approved', draft_reply: reply, approved_at: new Date().toISOString(), approved_by: 'staff' })
         .eq('id', id);
       if (error) throw error;
       return { id, reply };
