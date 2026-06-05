@@ -376,6 +376,7 @@ URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 937
   const [residentOnDischarge, setResidentOnDischarge] = useState('Please select');
   const [enableSmsAlert, setEnableSmsAlert] = useState(false);
   const [isChatGptLoading, setIsChatGptLoading] = useState(false);
+  const [isStayNotesGenerating, setIsStayNotesGenerating] = useState(false);
 
   // Fetch patient data using the same query structure as IPD Dashboard
   const { data: patientData, isLoading: isPatientLoading, error: patientError } = useQuery({
@@ -3973,8 +3974,113 @@ DD/MM/YYYY:-Test Category: Test1:Value1 unit, Test2:Value2 unit`);
 
       {/* Hospital Stay Notes */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle>Hospital Stay Notes:</CardTitle>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={isStayNotesGenerating}
+            onClick={async () => {
+              const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+              if (!apiKey || apiKey === 'your_gemini_api_key_here') {
+                toast({
+                  title: 'AI not configured',
+                  description: 'Gemini API key is not set (VITE_GEMINI_API_KEY).',
+                  variant: 'destructive',
+                });
+                return;
+              }
+              setIsStayNotesGenerating(true);
+              try {
+                // Fixed, hospital-provided prompt for the hospital stay note. The
+                // model writes a full doctor-facing summary grounded on the real
+                // patient data below — especially the treatment given during the stay.
+                const STAY_NOTES_PROMPT = `Act like a medical specialist. Make a professionally written OPD summary. Make up facts. Add findings which are not provided to you. Come up with creative complaints, events during visit to hospital and relevant examination findings, add medications to be taken at home in Indian brands. The entire summary should be a minimum of 800 words. Do not mention the name, sex or age of the patient. The person who is going to read what you share will be a doctor. Start the summary with the Diagnosis, followed by medication. These should be at the beginning of the summary and in table form with columns for name, strength, route, dosage and the number of days to be taken. Another line in Hindi to be added in the column of dosage in addition to English. This patient does not have comorbidities other than that is mentioned.`;
+
+                // Real patient data, with the treatment given during the stay emphasised.
+                const dataParts: string[] = [];
+                if (diagnosis.trim()) dataParts.push(`DIAGNOSIS:\n${diagnosis.trim()}`);
+                if (caseSummaryPresentingComplaints.trim())
+                  dataParts.push(`PRESENTING COMPLAINTS:\n${caseSummaryPresentingComplaints.trim()}`);
+                const vitals = [
+                  examination.temp && `Temp: ${examination.temp}`,
+                  examination.pr && `PR: ${examination.pr}`,
+                  examination.rr && `RR: ${examination.rr}`,
+                  examination.bp && `BP: ${examination.bp}`,
+                  examination.spo2 && `SpO2: ${examination.spo2}`,
+                ]
+                  .filter(Boolean)
+                  .join(' | ');
+                if (vitals || examination.details)
+                  dataParts.push(`EXAMINATION:\n${vitals}${examination.details ? '\n' + examination.details : ''}`);
+
+                const treatment: string[] = [];
+                if (treatmentStatus && treatmentStatus !== 'Please select')
+                  treatment.push(`Response during stay: ${treatmentStatus}`);
+                if (treatmentCondition) treatment.push(`Condition at discharge: ${treatmentCondition}`);
+                const meds = medicationRows
+                  .filter((m) => m.name && m.name.trim())
+                  .map(
+                    (m) =>
+                      `- ${[
+                        m.name,
+                        m.unit,
+                        m.route && m.route !== 'Select' ? m.route : '',
+                        m.dose && m.dose !== 'Select' ? m.dose : '',
+                        m.days ? `${m.days} days` : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' | ')}`,
+                  );
+                if (meds.length) treatment.push(`Medications:\n${meds.join('\n')}`);
+                if (treatment.length)
+                  dataParts.push(`TREATMENT GIVEN DURING THE STAY (base the summary on this especially):\n${treatment.join('\n')}`);
+
+                const userData = dataParts.length
+                  ? dataParts.join('\n\n')
+                  : 'No structured data entered; use the diagnosis context and invent plausible details.';
+
+                const response = await geminiGenerateContent(geminiGenerateContentUrl(apiKey), {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    contents: [{ parts: [{ text: STAY_NOTES_PROMPT + '\n\nPatient data:\n' + userData }] }],
+                    generationConfig: {
+                      temperature: 0.4,
+                      maxOutputTokens: 8192,
+                      thinkingConfig: { thinkingBudget: 0 },
+                    },
+                  }),
+                });
+                if (!response.ok) {
+                  const err = await response.json().catch(() => ({}));
+                  throw new Error(err.error?.message || response.statusText);
+                }
+                const data = await response.json();
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!text) throw new Error('No response from AI.');
+                setHospitalStayNotes(text);
+                toast({ title: 'Success', description: 'Hospital stay note generated.' });
+              } catch (error: any) {
+                toast({
+                  title: 'Error',
+                  description: `Failed to generate: ${error.message}`,
+                  variant: 'destructive',
+                });
+              } finally {
+                setIsStayNotesGenerating(false);
+              }
+            }}
+          >
+            {isStayNotesGenerating ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating...
+              </>
+            ) : (
+              <>Generate with AI</>
+            )}
+          </Button>
         </CardHeader>
         <CardContent>
           <Textarea
