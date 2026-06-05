@@ -10,6 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import BillingWorkflowDiagram from './BillingWorkflowDiagram';
 import DailyBillingWorkflow from './DailyBillingWorkflow';
 import BillingDashboardModal from './BillingDashboardModal';
+import { useGmailChecker } from './useGmailChecker';
 
 type EmailStatus = 'pending' | 'approved' | 'rejected';
 
@@ -186,6 +187,7 @@ export default function BillingPanel() {
   const [dashboardOpen, setDashboardOpen] = useState(false);
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
   const [isChecking, setIsChecking] = useState(false);
+  const { checkMail, regenerateDraft } = useGmailChecker();
 
   const billingTabs: { key: BillingTab; label: string; icon: React.ReactNode }[] = [
     { key: 'emails', label: 'Corporate Emails', icon: <Mail className="h-4 w-4" /> },
@@ -252,9 +254,7 @@ export default function BillingPanel() {
   const handleCheckMail = async () => {
     setIsChecking(true);
     try {
-      const { data, error } = await supabase.functions.invoke('check-corporate-emails');
-      if (error) throw error;
-      const { saved = 0 } = data as { fetched?: number; saved?: number; skipped?: number };
+      const { saved } = await checkMail();
       toast({
         title: saved > 0 ? `Found ${saved} new email${saved !== 1 ? 's' : ''}` : 'No new emails',
         description: saved > 0 ? 'New emails are ready for review.' : 'All emails are already up to date.',
@@ -263,7 +263,7 @@ export default function BillingPanel() {
     } catch (err) {
       toast({
         title: 'Mail check failed',
-        description: err instanceof Error ? err.message : 'Could not connect to mail server.',
+        description: err instanceof Error ? err.message : 'Could not connect to mail.',
         variant: 'destructive',
       });
     } finally {
@@ -273,13 +273,9 @@ export default function BillingPanel() {
 
   const handleRegenerate = async (emailId: string, feedback: string): Promise<string> => {
     try {
-      const { data, error } = await supabase.functions.invoke('regenerate-email-draft', {
-        body: { email_id: emailId, feedback: feedback || undefined },
-      });
-      if (error) throw error;
-      const { draft_reply } = data as { draft_reply: string };
+      const newDraft = await regenerateDraft(emailId, feedback || undefined);
       toast({ title: 'Draft refreshed', description: 'New AI reply ready for review.' });
-      return draft_reply;
+      return newDraft;
     } catch (err) {
       toast({
         title: 'Regenerate failed',
