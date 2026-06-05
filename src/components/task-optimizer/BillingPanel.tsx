@@ -1,0 +1,355 @@
+import { Receipt, Mail, RefreshCw, Clock, CheckCircle2, XCircle, AlertTriangle, GitBranch, LayoutDashboard, CalendarDays } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { useState } from 'react';
+import { Textarea } from '@/components/ui/textarea';
+import { useToast } from '@/hooks/use-toast';
+import BillingWorkflowDiagram from './BillingWorkflowDiagram';
+import DailyBillingWorkflow from './DailyBillingWorkflow';
+import BillingDashboardModal from './BillingDashboardModal';
+
+type EmailStatus = 'pending' | 'approved' | 'rejected';
+
+interface EmailRow {
+  id: string;
+  from_name: string | null;
+  from_email: string;
+  subject: string;
+  body_preview: string | null;
+  body_full: string | null;
+  category: string | null;
+  urgency: string | null;
+  draft_reply: string | null;
+  status: EmailStatus;
+  check_date: string;
+  approved_at: string | null;
+  created_at: string;
+}
+
+const urgencyColor: Record<string, string> = {
+  high: 'bg-red-100 text-red-700 border-red-200',
+  medium: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+  low: 'bg-green-100 text-green-700 border-green-200',
+};
+
+const categoryColor: Record<string, string> = {
+  'corporate-query': 'bg-purple-100 text-purple-700',
+  'corporate': 'bg-purple-100 text-purple-700',
+  'tpa': 'bg-orange-100 text-orange-700',
+  'approval-needed': 'bg-red-100 text-red-700',
+  'document-request': 'bg-blue-100 text-blue-700',
+  'general': 'bg-gray-100 text-gray-700',
+};
+
+function EmailCard({ email, onApprove, onReject }: {
+  email: EmailRow;
+  onApprove: (id: string, reply: string) => void;
+  onReject: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [draftText, setDraftText] = useState(email.draft_reply ?? '');
+  const [loading, setLoading] = useState(false);
+
+  const isPending = email.status === 'pending';
+
+  return (
+    <Card className={`border-l-4 ${isPending ? 'border-l-yellow-400' : email.status === 'approved' ? 'border-l-green-500' : 'border-l-red-400'}`}>
+      <CardContent className="p-4 space-y-3">
+        {/* Header row */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-sm truncate">{email.from_name || email.from_email}</span>
+              {email.category && (
+                <Badge className={`text-xs ${categoryColor[email.category] ?? 'bg-gray-100 text-gray-700'}`}>
+                  {email.category}
+                </Badge>
+              )}
+              {email.urgency && (
+                <Badge variant="outline" className={`text-xs ${urgencyColor[email.urgency] ?? ''}`}>
+                  {email.urgency}
+                </Badge>
+              )}
+              {email.status === 'approved' && (
+                <Badge className="text-xs bg-green-100 text-green-700">✓ Sent</Badge>
+              )}
+              {email.status === 'rejected' && (
+                <Badge className="text-xs bg-red-100 text-red-700">✗ Rejected</Badge>
+              )}
+            </div>
+            <p className="text-sm font-medium mt-1 text-gray-800">{email.subject}</p>
+            <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{email.body_preview}</p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0 text-xs"
+            onClick={() => setExpanded(v => !v)}
+          >
+            {expanded ? 'Hide reply' : 'View reply'}
+          </Button>
+        </div>
+
+        {/* Draft reply */}
+        {expanded && (
+          <div className="space-y-2 pt-1">
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Draft Reply</p>
+            {isPending ? (
+              <Textarea
+                value={draftText}
+                onChange={e => setDraftText(e.target.value)}
+                rows={6}
+                className="text-sm"
+                placeholder="Edit reply before sending..."
+              />
+            ) : (
+              <pre className="text-sm whitespace-pre-wrap bg-gray-50 rounded p-3 border text-gray-700">{email.draft_reply}</pre>
+            )}
+
+            {isPending && (
+              <div className="flex gap-2 pt-1">
+                <Button
+                  size="sm"
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                  disabled={loading}
+                  onClick={async () => {
+                    setLoading(true);
+                    await onApprove(email.id, draftText);
+                    setLoading(false);
+                  }}
+                >
+                  <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                  {loading ? '...' : 'Approve & Send'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-red-300 text-red-600 hover:bg-red-50"
+                  disabled={loading}
+                  onClick={async () => {
+                    setLoading(true);
+                    await onReject(email.id);
+                    setLoading(false);
+                  }}
+                >
+                  <XCircle className="mr-1.5 h-3.5 w-3.5" />
+                  {loading ? '...' : 'Reject'}
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+type BillingTab = 'emails' | 'flowchart' | 'daily';
+
+export default function BillingPanel() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState<BillingTab>('emails');
+  const [dashboardOpen, setDashboardOpen] = useState(false);
+  const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
+
+  const billingTabs: { key: BillingTab; label: string; icon: React.ReactNode }[] = [
+    { key: 'emails', label: 'Corporate Emails', icon: <Mail className="h-4 w-4" /> },
+    { key: 'flowchart', label: 'Workflow Diagram', icon: <GitBranch className="h-4 w-4" /> },
+    { key: 'daily', label: 'Daily Tasks', icon: <CalendarDays className="h-4 w-4" /> },
+  ];
+
+  const { data: emails = [], isLoading } = useQuery({
+    queryKey: ['billing-email-inbox', filter],
+    queryFn: async () => {
+      let q = supabase
+        .from('email_inbox')
+        .select('*')
+        .in('category', ['corporate-query', 'corporate', 'tpa', 'approval-needed', 'document-request'])
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (filter !== 'all') q = q.eq('status', filter);
+
+      const { data, error } = await q;
+      if (error) throw error;
+      return (data ?? []) as EmailRow[];
+    },
+    refetchInterval: 60_000,
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async ({ id, reply }: { id: string; reply: string }) => {
+      const { error } = await supabase
+        .from('email_inbox')
+        .update({ status: 'approved', draft_reply: reply, approved_at: new Date().toISOString() })
+        .eq('id', id);
+      if (error) throw error;
+      return { id, reply };
+    },
+    onSuccess: ({ id, reply }) => {
+      const email = emails.find(e => e.id === id);
+      if (email) {
+        const mailto =
+          `mailto:${encodeURIComponent(email.from_email)}` +
+          `?subject=${encodeURIComponent(`Re: ${email.subject}`)}` +
+          `&body=${encodeURIComponent(reply)}`;
+        window.open(mailto, '_blank');
+      }
+      toast({ title: 'Approved ✓', description: 'Reply opened in Gmail — click Send to deliver.' });
+      queryClient.invalidateQueries({ queryKey: ['billing-email-inbox'] });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('email_inbox')
+        .update({ status: 'rejected' })
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast({ title: 'Rejected', description: 'Email marked as rejected.' });
+      queryClient.invalidateQueries({ queryKey: ['billing-email-inbox'] });
+    },
+  });
+
+  const pending = emails.filter(e => e.status === 'pending').length;
+  const tabs = [
+    { key: 'pending', label: 'Pending', count: pending },
+    { key: 'approved', label: 'Approved', count: null },
+    { key: 'rejected', label: 'Rejected', count: null },
+    { key: 'all', label: 'All', count: null },
+  ] as const;
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center gap-2">
+        <Receipt className="h-5 w-5 text-primary" />
+        <h2 className="text-lg font-semibold">Billing Automation</h2>
+      </div>
+
+      {/* Sub-tabs */}
+      <div className="flex gap-1 border-b">
+        {billingTabs.map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === tab.key
+                ? 'border-primary text-primary'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {tab.icon}
+            {tab.label}
+            {tab.key === 'emails' && pending > 0 && (
+              <span className="ml-1 rounded-full bg-yellow-100 text-yellow-700 text-xs px-1.5 py-0.5">
+                {pending}
+              </span>
+            )}
+          </button>
+        ))}
+
+        {/* Billing Dashboard — opens modal directly on click */}
+        <button
+          onClick={() => setDashboardOpen(true)}
+          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-blue-600 hover:border-blue-400 transition-colors"
+        >
+          <LayoutDashboard className="h-4 w-4" />
+          Billing Dashboard
+        </button>
+      </div>
+
+      {/* Modal — controlled from tab click */}
+      <BillingDashboardModal open={dashboardOpen} onOpenChange={setDashboardOpen} />
+
+      {/* Tab content */}
+      {activeTab === 'flowchart' && <BillingWorkflowDiagram />}
+      {activeTab === 'daily' && <DailyBillingWorkflow />}
+
+      {activeTab === 'emails' && (
+        <>
+          {/* Schedule info */}
+          <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 border">
+            <Clock className="h-3.5 w-3.5" />
+            Auto-checks at <strong>8:00 AM</strong>, <strong>12:00 PM</strong>, <strong>5:00 PM</strong> daily
+            · Only corporate / TPA / approval emails shown
+          </div>
+
+          <div className="flex items-center justify-between">
+            {pending > 0 && (
+              <Badge className="bg-yellow-100 text-yellow-700 border border-yellow-200">
+                <AlertTriangle className="mr-1 h-3 w-3" />
+                {pending} pending approval
+              </Badge>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              onClick={() => queryClient.invalidateQueries({ queryKey: ['billing-email-inbox'] })}
+            >
+              <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+              Refresh
+            </Button>
+          </div>
+
+          {/* Email filter tabs */}
+          <div className="flex gap-1 border-b">
+            {tabs.map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setFilter(tab.key)}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  filter === tab.key
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {tab.label}
+                {tab.count != null && tab.count > 0 && (
+                  <span className="ml-1.5 rounded-full bg-yellow-100 text-yellow-700 text-xs px-1.5 py-0.5">
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Email list */}
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12 text-gray-400">
+              <Mail className="mr-2 h-5 w-5 animate-pulse" />
+              Loading emails...
+            </div>
+          ) : emails.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-2">
+              <CheckCircle2 className="h-10 w-10 text-green-300" />
+              <p className="text-sm">
+                {filter === 'pending' ? 'No emails pending approval.' : 'No emails found.'}
+              </p>
+              <p className="text-xs">Next auto-check runs at the scheduled time.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {emails.map(email => (
+                <EmailCard
+                  key={email.id}
+                  email={email}
+                  onApprove={(id, reply) => approveMutation.mutateAsync({ id, reply })}
+                  onReject={id => rejectMutation.mutateAsync(id)}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
