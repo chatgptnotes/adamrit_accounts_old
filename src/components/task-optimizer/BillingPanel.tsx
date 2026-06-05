@@ -53,21 +53,24 @@ function EmailCard({ email, onApprove, onReject, onRegenerate }: {
   onRegenerate: (id: string, feedback: string) => Promise<string>;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [activePane, setActivePane] = useState<'email' | 'reply'>('email');
   const [draftText, setDraftText] = useState(email.draft_reply ?? '');
   const [feedback, setFeedback] = useState('');
   const [loading, setLoading] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
 
   const isPending = email.status === 'pending';
+  const borderColor = isPending ? 'border-l-yellow-400' : email.status === 'approved' ? 'border-l-green-500' : 'border-l-red-400';
 
   return (
-    <Card className={`border-l-4 ${isPending ? 'border-l-yellow-400' : email.status === 'approved' ? 'border-l-green-500' : 'border-l-red-400'}`}>
-      <CardContent className="p-4 space-y-3">
-        {/* Header row */}
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-semibold text-sm truncate">{email.from_name || email.from_email}</span>
+    <Card className={`border-l-4 ${borderColor} cursor-pointer hover:shadow-md transition-shadow`}>
+      <CardContent className="p-0">
+        {/* Clickable header — click anywhere to open */}
+        <div className="p-4 space-y-1" onClick={() => setExpanded(v => !v)}>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+              <span className="font-semibold text-sm">{email.from_name || email.from_email}</span>
+              <span className="text-xs text-gray-400">&lt;{email.from_email}&gt;</span>
               {email.category && (
                 <Badge className={`text-xs ${categoryColor[email.category] ?? 'bg-gray-100 text-gray-700'}`}>
                   {email.category}
@@ -78,99 +81,125 @@ function EmailCard({ email, onApprove, onReject, onRegenerate }: {
                   {email.urgency}
                 </Badge>
               )}
-              {email.status === 'approved' && (
-                <Badge className="text-xs bg-green-100 text-green-700">✓ Sent</Badge>
-              )}
-              {email.status === 'rejected' && (
-                <Badge className="text-xs bg-red-100 text-red-700">✗ Rejected</Badge>
-              )}
+              {email.status === 'approved' && <Badge className="text-xs bg-green-100 text-green-700">✓ Sent</Badge>}
+              {email.status === 'rejected' && <Badge className="text-xs bg-red-100 text-red-700">✗ Rejected</Badge>}
             </div>
-            <p className="text-sm font-medium mt-1 text-gray-800">{email.subject}</p>
-            <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{email.body_preview}</p>
+            <span className="text-xs text-gray-400 shrink-0">{expanded ? '▲' : '▼'}</span>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="shrink-0 text-xs"
-            onClick={() => setExpanded(v => !v)}
-          >
-            {expanded ? 'Hide reply' : 'View reply'}
-          </Button>
+          <p className="text-sm font-medium text-gray-800">{email.subject}</p>
+          {!expanded && <p className="text-xs text-gray-500 line-clamp-2">{email.body_preview}</p>}
         </div>
 
-        {/* Draft reply */}
+        {/* Expanded: tabbed view */}
         {expanded && (
-          <div className="space-y-2 pt-1">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Draft Reply</p>
-            {isPending ? (
-              <Textarea
-                value={draftText}
-                onChange={e => setDraftText(e.target.value)}
-                rows={6}
-                className="text-sm"
-                placeholder="Edit reply before sending..."
-              />
-            ) : (
-              <pre className="text-sm whitespace-pre-wrap bg-gray-50 rounded p-3 border text-gray-700">{email.draft_reply}</pre>
+          <div className="border-t">
+            {/* Tab switcher */}
+            <div className="flex border-b bg-gray-50">
+              <button
+                onClick={() => setActivePane('email')}
+                className={`px-4 py-2 text-xs font-medium ${activePane === 'email' ? 'border-b-2 border-primary text-primary' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                📧 Full Email
+              </button>
+              <button
+                onClick={() => setActivePane('reply')}
+                className={`px-4 py-2 text-xs font-medium ${activePane === 'reply' ? 'border-b-2 border-primary text-primary' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                ✏️ Draft Reply {isPending && <span className="ml-1 text-yellow-600">●</span>}
+              </button>
+            </div>
+
+            {/* Email body pane */}
+            {activePane === 'email' && (
+              <div className="p-4">
+                <div className="text-xs text-gray-400 mb-2">From: {email.from_name} &lt;{email.from_email}&gt;</div>
+                <div className="text-xs text-gray-400 mb-3">Subject: {email.subject}</div>
+                <pre className="text-sm whitespace-pre-wrap text-gray-700 bg-gray-50 rounded p-3 border max-h-64 overflow-y-auto">
+                  {email.body_preview || 'No content available'}
+                </pre>
+                {isPending && (
+                  <button
+                    onClick={() => setActivePane('reply')}
+                    className="mt-3 text-xs text-primary hover:underline"
+                  >
+                    → Go to Draft Reply
+                  </button>
+                )}
+              </div>
             )}
 
-            {isPending && (
-              <>
-                {/* Regenerate section */}
-                <div className="flex gap-2 items-center pt-1">
-                  <input
-                    type="text"
-                    value={feedback}
-                    onChange={e => setFeedback(e.target.value)}
-                    placeholder="Feedback (optional): e.g. make it shorter, more formal..."
-                    className="flex-1 text-xs border rounded px-2 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-primary"
+            {/* Reply pane */}
+            {activePane === 'reply' && (
+              <div className="p-4 space-y-3">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                  {isPending ? 'Edit draft reply before sending' : 'Sent reply'}
+                </p>
+                {isPending ? (
+                  <Textarea
+                    value={draftText}
+                    onChange={e => setDraftText(e.target.value)}
+                    rows={8}
+                    className="text-sm font-mono"
+                    placeholder="Type your reply here..."
+                    onClick={e => e.stopPropagation()}
                   />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={regenerating}
-                    onClick={async () => {
-                      setRegenerating(true);
-                      const newDraft = await onRegenerate(email.id, feedback);
-                      if (newDraft) setDraftText(newDraft);
-                      setRegenerating(false);
-                    }}
-                  >
-                    <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${regenerating ? 'animate-spin' : ''}`} />
-                    {regenerating ? 'Generating…' : 'Regenerate'}
-                  </Button>
-                </div>
+                ) : (
+                  <pre className="text-sm whitespace-pre-wrap bg-gray-50 rounded p-3 border text-gray-700 max-h-48 overflow-y-auto">
+                    {email.draft_reply || '—'}
+                  </pre>
+                )}
 
-                <div className="flex gap-2 pt-1">
-                  <Button
-                    size="sm"
-                    className="bg-green-600 hover:bg-green-700 text-white"
-                    disabled={loading}
-                    onClick={async () => {
-                      setLoading(true);
-                      await onApprove(email.id, draftText);
-                      setLoading(false);
-                    }}
-                  >
-                    <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                    {loading ? '...' : 'Approve & Send'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="border-red-300 text-red-600 hover:bg-red-50"
-                    disabled={loading}
-                    onClick={async () => {
-                      setLoading(true);
-                      await onReject(email.id);
-                      setLoading(false);
-                    }}
-                  >
-                    <XCircle className="mr-1.5 h-3.5 w-3.5" />
-                    {loading ? '...' : 'Reject'}
-                  </Button>
-                </div>
-              </>
+                {isPending && (
+                  <>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        value={feedback}
+                        onChange={e => setFeedback(e.target.value)}
+                        onClick={e => e.stopPropagation()}
+                        placeholder="Optional: make it shorter / more formal / add specific details..."
+                        className="flex-1 text-xs border rounded px-2 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={regenerating}
+                        onClick={async e => {
+                          e.stopPropagation();
+                          setRegenerating(true);
+                          const nd = await onRegenerate(email.id, feedback);
+                          if (nd) setDraftText(nd);
+                          setRegenerating(false);
+                        }}
+                      >
+                        <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${regenerating ? 'animate-spin' : ''}`} />
+                        {regenerating ? 'Generating…' : 'Regenerate'}
+                      </Button>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        className="bg-green-600 hover:bg-green-700 text-white"
+                        disabled={loading || !draftText.trim()}
+                        onClick={async e => { e.stopPropagation(); setLoading(true); await onApprove(email.id, draftText); setLoading(false); }}
+                      >
+                        <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                        {loading ? 'Sending…' : 'Approve & Send'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-red-300 text-red-600 hover:bg-red-50"
+                        disabled={loading}
+                        onClick={async e => { e.stopPropagation(); setLoading(true); await onReject(email.id); setLoading(false); }}
+                      >
+                        <XCircle className="mr-1.5 h-3.5 w-3.5" />
+                        Reject
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -187,6 +216,7 @@ export default function BillingPanel() {
   const [activeTab, setActiveTab] = useState<BillingTab>('emails');
   const [dashboardOpen, setDashboardOpen] = useState(false);
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [isChecking, setIsChecking] = useState(false);
   const { checkMail, regenerateDraft } = useGmailChecker();
 
@@ -199,15 +229,16 @@ export default function BillingPanel() {
   ];
 
   const { data: emails = [], isLoading } = useQuery({
-    queryKey: ['billing-email-inbox', filter],
+    queryKey: ['billing-email-inbox', filter, categoryFilter],
     queryFn: async () => {
       let q = supabaseAdmin
         .from('email_inbox')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(100);
+        .limit(200);
 
       if (filter !== 'all') q = q.eq('status', filter);
+      if (categoryFilter !== 'all') q = q.eq('category', categoryFilter);
 
       const { data, error } = await q;
       if (error) throw error;
@@ -389,7 +420,24 @@ export default function BillingPanel() {
             </Button>
           </div>
 
-          {/* Email filter tabs */}
+          {/* Category filter chips */}
+          <div className="flex flex-wrap gap-1.5">
+            {['all', 'tpa', 'corporate', 'billing', 'urgent', 'general'].map(cat => (
+              <button
+                key={cat}
+                onClick={() => setCategoryFilter(cat)}
+                className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                  categoryFilter === cat
+                    ? 'bg-primary text-white border-primary'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-primary hover:text-primary'
+                }`}
+              >
+                {cat === 'all' ? 'All Categories' : cat.toUpperCase()}
+              </button>
+            ))}
+          </div>
+
+          {/* Status filter tabs */}
           <div className="flex gap-1 border-b">
             {tabs.map(tab => (
               <button

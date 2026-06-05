@@ -156,7 +156,7 @@ export function useGmailChecker() {
     const token = await getToken();
 
     const listRes = await fetch(
-      `${GMAIL_API}/users/me/messages?q=is:unread&maxResults=20`,
+      `${GMAIL_API}/users/me/messages?maxResults=50`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
     if (!listRes.ok) {
@@ -209,7 +209,7 @@ export function useGmailChecker() {
         from_email:   fromEmail,
         from_name:    fromName,
         subject,
-        body_preview: body.slice(0, 400),
+        body_preview: body.slice(0, 2000),
         category,
         urgency,
         draft_reply:  draftReply,
