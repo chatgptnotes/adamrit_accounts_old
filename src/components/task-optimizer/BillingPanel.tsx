@@ -262,7 +262,9 @@ export default function BillingPanel() {
   const [isChecking, setIsChecking] = useState(false);
   const { checkMail, regenerateDraft, rephraseDraft } = useGmailChecker();
 
-  const HOSPITAL_GMAIL = 'https://mail.google.com/mail/?authuser=info@hopehospital.com';
+  // Try account index 1 (chatgptnotes is 0, info@hopehospital.com is likely 1)
+  // If wrong, change the number in the URL below to 2 or 3
+  const HOSPITAL_GMAIL = 'https://mail.google.com/mail/u/1/#inbox';
 
   const billingTabs: { key: BillingTab; label: string; icon: React.ReactNode }[] = [
     { key: 'emails', label: 'Corporate Emails', icon: <Mail className="h-4 w-4" /> },
