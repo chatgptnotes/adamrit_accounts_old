@@ -19,6 +19,7 @@ import {
   GripVertical,
   UserPlus,
   Plus,
+  Trash2,
 } from 'lucide-react';
 import {
   DndContext,
@@ -611,6 +612,42 @@ export default function SkillFactory() {
     await persistRules(nextRules);
   };
 
+  // ── Delete a subagent (trash icon on each subagent card) ──
+  const deleteSubagent = async (id: string) => {
+    const s = subagents.find((x) => x.id === id);
+    if (!s) return;
+    if (!window.confirm(`Delete subagent "${s.name}" and all its rules?`)) return;
+
+    const next = subagents.filter((x) => x.id !== id);
+    setSubagents(next);
+    if (activeId === id) setActiveId(next[0]?.id ?? '');
+
+    // default-/local- ids only ever exist in memory, never in the DB.
+    if (persist && !id.startsWith('local-') && !id.startsWith('default-')) {
+      const { error } = await supabase.from(TABLE).delete().eq('id', id);
+      if (error) toast.error('Could not delete the subagent.');
+    }
+  };
+
+  // ── Delete a rule (trash icon on each rule card) ──
+  const deleteRule = async (ruleId: string) => {
+    if (!active) return;
+    const r = active.rules.find((x) => x.id === ruleId);
+    if (!r) return;
+    if (!window.confirm(`Delete rule "${r.trigger} → ${r.action}" and its workflow?`)) return;
+
+    const nextRules = active.rules.filter((x) => x.id !== ruleId);
+    if (activeRuleId === ruleId) setActiveRuleId(nextRules[0]?.id ?? '');
+    await persistRules(nextRules);
+  };
+
+  // ── Delete one workflow step from the active rule ──
+  const deleteStep = (index: number) => {
+    if (!activeRule) return;
+    const nextWf = activeRule.workflow.filter((_, i) => i !== index);
+    void saveRuleWorkflow(activeRule.id, nextWf);
+  };
+
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -826,21 +863,29 @@ export default function SkillFactory() {
                 filtered.map((s) => {
                   const Icon = iconFor(s.icon);
                   return (
-                    <button
-                      key={s.id}
-                      onClick={() => setActiveId(s.id)}
-                      className={`w-full text-left px-3 py-2.5 rounded-lg border transition-colors ${
-                        activeId === s.id
-                          ? 'border-blue-300 bg-blue-50'
-                          : 'border-transparent hover:bg-gray-50'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Icon className={`w-4 h-4 ${activeId === s.id ? 'text-blue-600' : 'text-gray-400'}`} />
-                        <span className="text-sm font-medium text-gray-900">{s.name}</span>
-                      </div>
-                      <p className="text-xs text-gray-500 mt-0.5 pl-6">{s.description}</p>
-                    </button>
+                    <div key={s.id} className="relative group">
+                      <button
+                        onClick={() => setActiveId(s.id)}
+                        className={`w-full text-left px-3 py-2.5 rounded-lg border transition-colors ${
+                          activeId === s.id
+                            ? 'border-blue-300 bg-blue-50'
+                            : 'border-transparent hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 pr-5">
+                          <Icon className={`w-4 h-4 ${activeId === s.id ? 'text-blue-600' : 'text-gray-400'}`} />
+                          <span className="text-sm font-medium text-gray-900">{s.name}</span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5 pl-6">{s.description}</p>
+                      </button>
+                      <button
+                        onClick={() => deleteSubagent(s.id)}
+                        title="Delete subagent"
+                        className="absolute top-2 right-2 p-1 rounded text-gray-300 hover:text-red-600 hover:bg-red-50 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   );
                 })}
               {!loadingAgents && subagents.length === 0 && (
@@ -871,25 +916,33 @@ export default function SkillFactory() {
             </div>
             <div className="px-3 space-y-2">
               {active?.rules.map((r) => (
-                <button
-                  key={r.id}
-                  onClick={() => setActiveRuleId(r.id)}
-                  className={`w-full text-left rounded-lg border px-3 py-2.5 transition-colors ${
-                    activeRuleId === r.id
-                      ? 'border-blue-300 bg-blue-50'
-                      : 'border-gray-200 bg-gray-50 hover:bg-gray-100'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 text-sm text-gray-900">
-                    <Camera className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                    <span className="font-medium">{r.trigger}</span>
-                    <span className="text-gray-400">→</span>
-                    <span className="truncate">{r.action}</span>
-                  </div>
-                  <p className="text-[10px] text-gray-400 mt-1 pl-5">
-                    {r.workflow.length > 0 ? `${r.workflow.length} step${r.workflow.length > 1 ? 's' : ''}` : 'no workflow yet'}
-                  </p>
-                </button>
+                <div key={r.id} className="relative group">
+                  <button
+                    onClick={() => setActiveRuleId(r.id)}
+                    className={`w-full text-left rounded-lg border px-3 py-2.5 transition-colors ${
+                      activeRuleId === r.id
+                        ? 'border-blue-300 bg-blue-50'
+                        : 'border-gray-200 bg-gray-50 hover:bg-gray-100'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 text-sm text-gray-900 pr-5">
+                      <Camera className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                      <span className="font-medium">{r.trigger}</span>
+                      <span className="text-gray-400">→</span>
+                      <span className="truncate">{r.action}</span>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1 pl-5">
+                      {r.workflow.length > 0 ? `${r.workflow.length} step${r.workflow.length > 1 ? 's' : ''}` : 'no workflow yet'}
+                    </p>
+                  </button>
+                  <button
+                    onClick={() => deleteRule(r.id)}
+                    title="Delete rule"
+                    className="absolute top-2 right-2 p-1 rounded text-gray-300 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               ))}
               {active && active.rules.length === 0 && (
                 <p className="px-1 py-3 text-xs text-gray-400">
@@ -956,6 +1009,7 @@ export default function SkillFactory() {
                             people={people}
                             onAssign={(v) => setAssignee(row.id, v)}
                             onAddPerson={() => addPerson(row.id)}
+                            onDelete={() => deleteStep(i)}
                           />
                         ))}
                       </div>
@@ -1089,12 +1143,14 @@ function WorkflowRowView({
   people,
   onAssign,
   onAddPerson,
+  onDelete,
 }: {
   row: WorkflowRow;
   index: number;
   people: string[];
   onAssign: (value: string) => void;
   onAddPerson: () => void;
+  onDelete: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: row.id,
@@ -1125,7 +1181,14 @@ function WorkflowRowView({
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-400 shrink-0">{index + 1}</span>
           <span className={`w-2 h-2 rounded-full shrink-0 ${TYPE_DOT[row.type]}`} />
-          <span className="text-sm font-medium text-gray-900 truncate">{row.label}</span>
+          <span className="text-sm font-medium text-gray-900 truncate flex-1">{row.label}</span>
+          <button
+            onClick={onDelete}
+            title="Delete step"
+            className="p-1 rounded text-gray-300 hover:text-red-600 hover:bg-red-50 shrink-0"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
         </div>
 
         {/* Row 2 — changeable / selectable person (with add-new) */}
