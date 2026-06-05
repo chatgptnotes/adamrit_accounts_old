@@ -88,10 +88,47 @@ function classifyEmail(subject: string, body: string): { category: string; urgen
   return { category, urgency };
 }
 
-function buildDraftReply(fromName: string, subject: string, category: string): string {
-  const greeting = `Dear ${fromName || 'Sir/Madam'},`;
-  const closing  = `\n\nWarm regards,\nHope Hospital Billing Team\ninfo@hopehospital.com`;
+type ReplyStyle = 'standard' | 'formal' | 'brief' | 'friendly';
 
+const REPLY_STYLES: ReplyStyle[] = ['standard', 'formal', 'brief', 'friendly'];
+const STYLE_LABELS: Record<ReplyStyle, string> = {
+  standard: 'Standard',
+  formal:   'Formal',
+  brief:    'Brief',
+  friendly: 'Friendly',
+};
+
+function buildDraftReply(fromName: string, subject: string, category: string, style: ReplyStyle = 'standard'): string {
+  const name    = fromName || 'Sir/Madam';
+  const closing = `\n\nWarm regards,\nHope Hospital Billing Team\ninfo@hopehospital.com`;
+
+  if (style === 'brief') {
+    return `Dear ${name},\n\nThank you for your email on "${subject}". We have received your query and will respond within 1 business day.${closing}`;
+  }
+
+  if (style === 'formal') {
+    const formalBodies: Record<string, string> = {
+      tpa:       `\n\nThis is to acknowledge receipt of your correspondence dated regarding the subject matter: "${subject}".\n\nYour TPA/insurance documentation request has been duly registered and forwarded to the concerned department. A formal response shall be provided within one working day.\n\nKindly quote this reference in all future correspondence.`,
+      corporate: `\n\nThis is to acknowledge receipt of your email regarding "${subject}".\n\nYour query has been registered and assigned to the Corporate Billing Department for necessary action. You shall receive a formal response within one working day.`,
+      billing:   `\n\nThis is to acknowledge receipt of your billing inquiry pertaining to "${subject}".\n\nYour account has been flagged for review by our Billing Department. A detailed response, along with the relevant documentation, shall be furnished within 24 working hours.`,
+      urgent:    `\n\nThis is to acknowledge your urgent communication regarding "${subject}".\n\nThe matter has been escalated to the Billing Manager on priority. You may expect a response within the shortest possible time frame.`,
+      general:   `\n\nThis is to acknowledge receipt of your communication regarding "${subject}".\n\nThe matter has been duly noted and shall be addressed within one working day.`,
+    };
+    return `Dear ${name},` + (formalBodies[category] ?? formalBodies.general) + closing;
+  }
+
+  if (style === 'friendly') {
+    const friendlyBodies: Record<string, string> = {
+      tpa:       `\n\nThank you so much for reaching out about "${subject}"! 😊\n\nWe've got your TPA/insurance query and our team is on it. We'll process the documents and come back to you by tomorrow. In the meantime, if you need anything urgently, please don't hesitate to call us directly.`,
+      corporate: `\n\nGreat to hear from you regarding "${subject}"! 😊\n\nOur corporate billing team has noted your query and will reach out with all the details you need within a day. We really value your partnership with Hope Hospital.`,
+      billing:   `\n\nThank you for writing to us about "${subject}"! 😊\n\nWe've received your billing query and our team will review your account right away. You'll hear back from us with full details within 24 hours. Please feel free to reach out if you have any other questions!`,
+      urgent:    `\n\nThank you for flagging this — we completely understand the urgency regarding "${subject}".\n\nWe've immediately escalated this to our billing manager and someone will be in touch with you very shortly. We sincerely apologise for any inconvenience caused.`,
+      general:   `\n\nThank you so much for your email about "${subject}"! 😊\n\nWe've received your message and will get back to you within 1 business day. We appreciate you reaching out to Hope Hospital!`,
+    };
+    return `Dear ${name},` + (friendlyBodies[category] ?? friendlyBodies.general) + closing;
+  }
+
+  // Standard style
   const bodies: Record<string, string> = {
     tpa:       `\n\nThank you for your email regarding "${subject}".\n\nWe have received your TPA/insurance query and our billing team is reviewing it. We will process the required documents and get back to you within 1 business day.\n\nIf you need immediate assistance, please call our billing helpdesk.`,
     corporate: `\n\nThank you for reaching out regarding "${subject}".\n\nWe have noted your query and our corporate billing team will follow up with you within 1 business day with the required information.\n\nPlease feel free to contact us if you need anything in the meantime.`,
@@ -99,9 +136,11 @@ function buildDraftReply(fromName: string, subject: string, category: string): s
     urgent:    `\n\nThank you for your email regarding "${subject}".\n\nWe understand this is an urgent matter and have escalated it to our billing manager for immediate attention. We will revert to you shortly.`,
     general:   `\n\nThank you for your email regarding "${subject}".\n\nWe have received your message and will respond within 1 business day.\n\nThank you for choosing Hope Hospital.`,
   };
-
-  return greeting + (bodies[category] ?? bodies.general) + closing;
+  return `Dear ${name},` + (bodies[category] ?? bodies.general) + closing;
 }
+
+export { REPLY_STYLES, STYLE_LABELS };
+export type { ReplyStyle };
 
 // Create a draft reply directly inside Gmail — appears in the Drafts folder
 async function createGmailDraft(
@@ -255,5 +294,17 @@ export function useGmailChecker() {
     return newDraft;
   };
 
-  return { checkMail, regenerateDraft };
+  const rephraseDraft = async (emailId: string, style: ReplyStyle): Promise<string> => {
+    const { data: email } = await supabaseAdmin
+      .from('email_inbox')
+      .select('from_name, from_email, subject, category')
+      .eq('id', emailId)
+      .single();
+    if (!email) throw new Error('Email not found');
+    const newDraft = buildDraftReply(email.from_name ?? email.from_email, email.subject ?? '', email.category ?? 'general', style);
+    await supabaseAdmin.from('email_inbox').update({ draft_reply: newDraft }).eq('id', emailId);
+    return newDraft;
+  };
+
+  return { checkMail, regenerateDraft, rephraseDraft };
 }

@@ -11,7 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import BillingWorkflowDiagram from './BillingWorkflowDiagram';
 import DailyBillingWorkflow from './DailyBillingWorkflow';
 import BillingDashboardModal from './BillingDashboardModal';
-import { useGmailChecker } from './useGmailChecker';
+import { useGmailChecker, REPLY_STYLES, STYLE_LABELS, type ReplyStyle } from './useGmailChecker';
 
 type EmailStatus = 'pending' | 'approved' | 'rejected';
 
@@ -46,11 +46,12 @@ const categoryColor: Record<string, string> = {
   'general': 'bg-gray-100 text-gray-700',
 };
 
-function EmailCard({ email, onApprove, onReject, onRegenerate }: {
+function EmailCard({ email, onApprove, onReject, onRegenerate, onRephrase }: {
   email: EmailRow;
   onApprove: (id: string, reply: string) => void;
   onReject: (id: string) => void;
   onRegenerate: (id: string, feedback: string) => Promise<string>;
+  onRephrase: (id: string, style: ReplyStyle) => Promise<string>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [activePane, setActivePane] = useState<'email' | 'reply'>('email');
@@ -58,6 +59,8 @@ function EmailCard({ email, onApprove, onReject, onRegenerate }: {
   const [feedback, setFeedback] = useState('');
   const [loading, setLoading] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [rephrasing, setRephrasing] = useState(false);
+  const [showStylePicker, setShowStylePicker] = useState(false);
 
   const isPending = email.status === 'pending';
   const borderColor = isPending ? 'border-l-yellow-400' : email.status === 'approved' ? 'border-l-green-500' : 'border-l-red-400';
@@ -176,7 +179,7 @@ function EmailCard({ email, onApprove, onReject, onRegenerate }: {
                         {regenerating ? 'Generating…' : 'Regenerate'}
                       </Button>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap">
                       <Button
                         size="sm"
                         className="bg-green-600 hover:bg-green-700 text-white"
@@ -186,6 +189,45 @@ function EmailCard({ email, onApprove, onReject, onRegenerate }: {
                         <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
                         {loading ? 'Sending…' : 'Approve & Send'}
                       </Button>
+
+                      {/* Re-phrase button with style picker */}
+                      <div className="relative">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-purple-300 text-purple-700 hover:bg-purple-50"
+                          disabled={rephrasing}
+                          onClick={e => { e.stopPropagation(); setShowStylePicker(v => !v); }}
+                        >
+                          <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${rephrasing ? 'animate-spin' : ''}`} />
+                          {rephrasing ? 'Re-phrasing…' : 'Re-phrase ▾'}
+                        </Button>
+                        {showStylePicker && (
+                          <div className="absolute bottom-full mb-1 left-0 bg-white border rounded-lg shadow-lg z-10 min-w-[140px]">
+                            {REPLY_STYLES.map(style => (
+                              <button
+                                key={style}
+                                onClick={async e => {
+                                  e.stopPropagation();
+                                  setShowStylePicker(false);
+                                  setRephrasing(true);
+                                  const nd = await onRephrase(email.id, style);
+                                  if (nd) setDraftText(nd);
+                                  setRephrasing(false);
+                                }}
+                                className="w-full text-left px-3 py-2 text-xs hover:bg-purple-50 hover:text-purple-700 first:rounded-t-lg last:rounded-b-lg"
+                              >
+                                {style === 'standard' && '📝 '}
+                                {style === 'formal'   && '🎩 '}
+                                {style === 'brief'    && '⚡ '}
+                                {style === 'friendly' && '😊 '}
+                                {STYLE_LABELS[style]}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
                       <Button
                         size="sm"
                         variant="outline"
@@ -218,7 +260,7 @@ export default function BillingPanel() {
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [isChecking, setIsChecking] = useState(false);
-  const { checkMail, regenerateDraft } = useGmailChecker();
+  const { checkMail, regenerateDraft, rephraseDraft } = useGmailChecker();
 
   const HOSPITAL_GMAIL = 'https://mail.google.com/mail/?authuser=info@hopehospital.com';
 
@@ -301,6 +343,17 @@ export default function BillingPanel() {
       });
     } finally {
       setIsChecking(false);
+    }
+  };
+
+  const handleRephrase = async (emailId: string, style: ReplyStyle): Promise<string> => {
+    try {
+      const newDraft = await rephraseDraft(emailId, style);
+      toast({ title: `Re-phrased as ${STYLE_LABELS[style]}`, description: 'Draft updated — review and approve.' });
+      return newDraft;
+    } catch (err) {
+      toast({ title: 'Re-phrase failed', description: err instanceof Error ? err.message : 'Error', variant: 'destructive' });
+      return '';
     }
   };
 
@@ -482,6 +535,7 @@ export default function BillingPanel() {
                   onApprove={(id, reply) => approveMutation.mutateAsync({ id, reply })}
                   onReject={id => rejectMutation.mutateAsync(id)}
                   onRegenerate={handleRegenerate}
+                  onRephrase={handleRephrase}
                 />
               ))}
             </div>
