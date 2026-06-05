@@ -378,6 +378,9 @@ URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 937
   const [enableSmsAlert, setEnableSmsAlert] = useState(false);
   const [isChatGptLoading, setIsChatGptLoading] = useState(false);
   const [isStayNotesGenerating, setIsStayNotesGenerating] = useState(false);
+  const [isClinicalHistoryGenerating, setIsClinicalHistoryGenerating] = useState(false);
+  const [autoFillFiles, setAutoFillFiles] = useState<File[]>([]);
+  const [isAutoFilling, setIsAutoFilling] = useState(false);
 
   // Fetch patient data using the same query structure as IPD Dashboard
   const { data: patientData, isLoading: isPatientLoading, error: patientError } = useQuery({
@@ -1492,6 +1495,116 @@ URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 937
   const removeMedicationRow = (id: string) => {
     if (medicationRows.length > 1) {
       setMedicationRows(medicationRows.filter(row => row.id !== id));
+    }
+  };
+
+  // Upload one or more document photos, OCR them with Gemini vision, and auto-fill
+  // every discharge-summary section from the extracted data (overwrite mode).
+  const autoFillFromPhotos = async () => {
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    if (!apiKey || apiKey === 'your_gemini_api_key_here') {
+      toast({ title: 'AI not configured', description: 'Gemini API key is not set (VITE_GEMINI_API_KEY).', variant: 'destructive' });
+      return;
+    }
+    if (autoFillFiles.length === 0) {
+      toast({ title: 'No photos', description: 'Choose one or more document photos first.', variant: 'destructive' });
+      return;
+    }
+    setIsAutoFilling(true);
+    try {
+      // Downscale every image and pack them all into ONE vision request.
+      const imageParts: { inline_data: { mime_type: string; data: string } }[] = [];
+      for (const f of autoFillFiles) {
+        try {
+          const { base64, mimeType } = await downscaleImageForVision(f);
+          imageParts.push({ inline_data: { mime_type: mimeType, data: base64 } });
+        } catch (e) {
+          console.warn('Could not process one image:', e);
+        }
+      }
+      if (imageParts.length === 0) {
+        toast({ title: 'Unreadable images', description: 'None of the photos could be processed (images only — not PDF).', variant: 'destructive' });
+        return;
+      }
+
+      const prompt = `You are a senior medical specialist reading uploaded hospital documents (admission/treatment sheets, doctor notes, charts) for a single patient's stay. Read ALL the attached images and return ONE JSON object (no markdown, no commentary) with exactly these keys:
+{
+  "diagnosis": "primary and secondary diagnoses as written",
+  "presenting_complaints": "a 3-4 line Clinical History / History of Present Illness paragraph based on the complaints, no diagnosis, no patient name/age/sex",
+  "examination": { "temp": "", "pr": "", "rr": "", "bp": "", "spo2": "", "details": "examination findings" },
+  "medications": [ { "name": "drug name (Indian brand)", "strength": "", "route": "PO/IV/IM etc", "dose": "OD/BD/TDS etc", "days": "number of days" } ],
+  "advice": "2-3 short lines of discharge advice",
+  "hospital_stay_notes": "a concise hospital stay summary based ONLY on what the documents show (treatment given, course during stay)"
+}
+Rules: Use ONLY information visible in the images for diagnosis, medications, vitals and hospital_stay_notes — do NOT invent medications or treatment. If a field is not present, use an empty string (or empty array for medications). Mark illegible text as [unclear]. Return valid JSON only.`;
+
+      const res = await geminiFetch(geminiGenerateContentUrl(apiKey), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }, ...imageParts] }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 8192, thinkingConfig: { thinkingBudget: 0 } },
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error?.message || res.statusText);
+      }
+      const data = await res.json();
+      const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+      let parsed: any;
+      try {
+        parsed = JSON.parse(cleaned);
+      } catch {
+        const m = cleaned.match(/\{[\s\S]*\}/);
+        if (!m) throw new Error('Could not read structured data from the photos.');
+        parsed = JSON.parse(m[0]);
+      }
+
+      // Overwrite each section from the extracted data.
+      if (typeof parsed.diagnosis === 'string') setDiagnosis(parsed.diagnosis.trim());
+      if (typeof parsed.presenting_complaints === 'string') setCaseSummaryPresentingComplaints(parsed.presenting_complaints.trim());
+      if (typeof parsed.advice === 'string') setAdvice(parsed.advice.trim());
+      if (typeof parsed.hospital_stay_notes === 'string') setHospitalStayNotes(parsed.hospital_stay_notes.trim());
+      if (parsed.examination && typeof parsed.examination === 'object') {
+        const e = parsed.examination;
+        setExamination({
+          temp: (e.temp ?? '').toString(),
+          pr: (e.pr ?? '').toString(),
+          rr: (e.rr ?? '').toString(),
+          bp: (e.bp ?? '').toString(),
+          spo2: (e.spo2 ?? '').toString(),
+          details: (e.details ?? '').toString(),
+        });
+      }
+      if (Array.isArray(parsed.medications) && parsed.medications.length > 0) {
+        const rows: MedicationRow[] = parsed.medications
+          .filter((m: any) => m && (m.name || '').toString().trim())
+          .map((m: any, i: number) => ({
+            id: `${Date.now()}-${i}`,
+            name: (m.name ?? '').toString().trim(),
+            unit: (m.strength ?? '').toString().trim(),
+            remark: '',
+            route: (m.route ?? '').toString().trim() || 'Select',
+            dose: (m.dose ?? m.frequency ?? '').toString().trim() || 'Select',
+            quantity: '',
+            days: (m.days ?? '').toString().trim() || '0',
+            startDate: '',
+            timing: { morning: false, afternoon: false, evening: false, night: false },
+            isSos: false,
+          }));
+        if (rows.length > 0) setMedicationRows(rows);
+      }
+
+      toast({
+        title: 'Auto-filled',
+        description: `Filled the discharge summary from ${imageParts.length} photo${imageParts.length > 1 ? 's' : ''}. Please review before saving.`,
+      });
+    } catch (error: any) {
+      toast({ title: 'Error', description: `Auto-fill failed: ${error.message}`, variant: 'destructive' });
+    } finally {
+      setIsAutoFilling(false);
     }
   };
 
@@ -2649,27 +2762,11 @@ URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 937
   ` : ''}
 
   ${(() => {
-    if (!summaryData.ot_notes) return '';
-    // Extract only CLINICAL HISTORY section from ot_notes
-    let clinicalHistory = summaryData.ot_notes;
-
-    // Remove "DIAGNOSIS:" section if present (it's rendered separately above)
-    clinicalHistory = clinicalHistory.replace(/^DIAGNOSIS:[\s\S]*?(?=\nCLINICAL HISTORY:|\n\n)/i, '');
-    // Remove "CLINICAL HISTORY:" header if present (with leading whitespace)
-    clinicalHistory = clinicalHistory.replace(/^\s*CLINICAL HISTORY:\s*/i, '');
-
-    // Remove markdown ## headers (e.g., "## Clinical History")
-    clinicalHistory = clinicalHistory.replace(/^##\s*.*?\n/gm, '');
-
-    // Extract only up to the next section marker (handles ##, ** and : formats, plus "Upon/On examination" text)
-    const sectionMarkers = /(\n\s*\||\n##\s*Examination|\n\*\*EXAMINATION|\nEXAMINATION:|\nUpon examination|\nOn examination|\nMEDICATION|\nADVICE:|\n\*\*ADVICE|\n##\s*Advice|\nOperation Notes)/i;
-    const match = clinicalHistory.search(sectionMarkers);
-    if (match > 0) {
-      clinicalHistory = clinicalHistory.substring(0, match).trim();
-    }
-
-    if (!clinicalHistory) return '';
-    return '<div class="section"><div class="section-subtitle">CLINICAL HISTORY:</div><div class="section-content">' + clinicalHistory.replace(/\n/g, '<br>') + '</div></div>';
+    // Clinical history = the (elaborated) presenting complaints the user entered —
+    // NO diagnosis. Driven by the Case Summary field, not the AI narrative.
+    const ch = (summaryData.chief_complaints || '').trim();
+    if (!ch) return '';
+    return '<div class="section"><div class="section-subtitle">CLINICAL HISTORY:</div><div class="section-content">' + ch.replace(/\n/g, '<br>') + '</div></div>';
   })()}
 
   ${(() => {
@@ -2775,38 +2872,18 @@ URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 937
   })()}
 
   ${(() => {
-    // First try to extract ADVICE from ot_notes
-    if (summaryData.ot_notes) {
-      const content = summaryData.ot_notes;
-      const adviceMatch = content.match(/ADVICE:?\s*([\s\S]*?)$/i);
-      if (adviceMatch && adviceMatch[1]) {
-        const advice = adviceMatch[1].trim();
-        if (advice) {
-          return '<div class="section"><div class="section-subtitle">ADVICE:</div><div class="section-content">' + advice.replace(/\n/g, '<br>') + '</div></div>';
-        }
-      }
-    }
-    // Fallback to original discharge_advice field
-    if (summaryData.discharge_advice) {
-      return '<div class="section"><div class="section-subtitle">ADVICE:</div><div class="section-content">' + summaryData.discharge_advice.replace(/\n/g, '<br>') + '</div></div>';
-    }
-    return '';
+    // Advice = exactly what the user entered (short, 2-3 lines) — NOT the long AI block.
+    const adv = (summaryData.discharge_advice || '').trim();
+    if (!adv) return '';
+    return '<div class="section"><div class="section-subtitle">ADVICE:</div><div class="section-content">' + adv.replace(/\n/g, '<br>') + '</div></div>';
   })()}
 
   ${(() => {
-    // Hospital Stay Notes - prefer AI-generated from ot_notes, fallback to database field
-    // First try to extract from ot_notes (AI-generated)
-    if (summaryData.ot_notes) {
-      const match = summaryData.ot_notes.match(/HOSPITAL STAY NOTES:?\s*([\s\S]*?)(?=MEDICATIONS ON DISCHARGE|MEDICATIONS:|ADVICE|$)/i);
-      if (match && match[1]?.trim()) {
-        return '<div class="section"><div class="section-subtitle">HOSPITAL STAY NOTES:</div><div class="section-content">' + match[1].trim().replace(/\n/g, '<br>') + '</div></div>';
-      }
-    }
-    // Fallback to database field if no AI-generated content
-    if (summaryData.hospital_stay_notes) {
-      return '<div class="section"><div class="section-subtitle">HOSPITAL STAY NOTES:</div><div class="section-content">' + summaryData.hospital_stay_notes.replace(/\n/g, '<br>') + '</div></div>';
-    }
-    return '';
+    // Hospital Stay Notes = the field (filled manually or by the "Generate with AI"
+    // OCR of the treatment sheet). Field-driven so it always shows when present.
+    const hsn = (summaryData.hospital_stay_notes || '').trim();
+    if (!hsn) return '';
+    return '<div class="section"><div class="section-subtitle">HOSPITAL STAY NOTES:</div><div class="section-content">' + hsn.replace(/\n/g, '<br>') + '</div></div>';
   })()}
 
   ${(() => {
@@ -3912,6 +3989,44 @@ DD/MM/YYYY:-Test Category: Test1:Value1 unit, Test2:Value2 unit`);
         </CardContent>
       </Card>
 
+      {/* Upload documents & auto-fill (OCR) */}
+      <Card className="border-blue-200 bg-blue-50/40">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-blue-900">Upload Documents → Auto-fill (AI OCR)</CardTitle>
+          <Button
+            type="button"
+            size="sm"
+            disabled={isAutoFilling || autoFillFiles.length === 0}
+            onClick={autoFillFromPhotos}
+          >
+            {isAutoFilling ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Reading…
+              </>
+            ) : (
+              <>Extract &amp; Fill{autoFillFiles.length ? ` (${autoFillFiles.length})` : ''}</>
+            )}
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <p className="text-xs text-gray-600 mb-2">
+            Upload one or more photos of the patient's documents (admission/treatment sheets, doctor notes, charts).
+            The AI reads them and fills Diagnosis, Clinical History, Examination, Medications, Advice and Hospital Stay Notes
+            (overwrites existing values). Images only — not PDF.
+          </p>
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={(e) => setAutoFillFiles(Array.from(e.target.files || []))}
+            className="text-sm"
+          />
+          {autoFillFiles.length > 0 && (
+            <p className="text-xs text-gray-500 mt-1">{autoFillFiles.length} file(s) selected.</p>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Diagnosis */}
       <Card>
         <CardHeader>
@@ -3945,8 +4060,58 @@ DD/MM/YYYY:-Test Category: Test1:Value1 unit, Test2:Value2 unit`);
 
       {/* Case Summary Presenting Complaints */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle>Case Summary Presenting Complaints:</CardTitle>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={isClinicalHistoryGenerating}
+            onClick={async () => {
+              const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+              if (!apiKey || apiKey === 'your_gemini_api_key_here') {
+                toast({ title: 'AI not configured', description: 'Gemini API key is not set (VITE_GEMINI_API_KEY).', variant: 'destructive' });
+                return;
+              }
+              if (!caseSummaryPresentingComplaints.trim()) {
+                toast({ title: 'Nothing to elaborate', description: 'Enter the presenting complaints first.', variant: 'destructive' });
+                return;
+              }
+              setIsClinicalHistoryGenerating(true);
+              try {
+                const prompt = `You are a medical specialist. Elaborate the following presenting complaints into a concise Clinical History / History of Present Illness paragraph of 3 to 4 lines for a doctor reader. Do NOT mention any diagnosis, and do NOT mention the patient's name, age or sex. Use formal medical language. Only elaborate the complaints given — do not invent unrelated findings or investigations.\n\nPresenting complaints:\n${caseSummaryPresentingComplaints.trim()}`;
+                const res = await geminiGenerateContent(geminiGenerateContentUrl(apiKey), {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: { temperature: 0.4, maxOutputTokens: 600, thinkingConfig: { thinkingBudget: 0 } },
+                  }),
+                });
+                if (!res.ok) {
+                  const err = await res.json().catch(() => ({}));
+                  throw new Error(err.error?.message || res.statusText);
+                }
+                const data = await res.json();
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!text) throw new Error('No response from AI.');
+                setCaseSummaryPresentingComplaints(text.trim());
+                toast({ title: 'Success', description: 'Clinical history elaborated.' });
+              } catch (error: any) {
+                toast({ title: 'Error', description: `Failed to elaborate: ${error.message}`, variant: 'destructive' });
+              } finally {
+                setIsClinicalHistoryGenerating(false);
+              }
+            }}
+          >
+            {isClinicalHistoryGenerating ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Elaborating...
+              </>
+            ) : (
+              <>Elaborate with AI</>
+            )}
+          </Button>
         </CardHeader>
         <CardContent>
           <Textarea
