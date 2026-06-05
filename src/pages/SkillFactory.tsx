@@ -48,15 +48,18 @@ import { toast } from 'sonner';
 // The DEFAULT_SUBAGENTS below seed a brand-new user's account on first load and
 // also serve as an offline fallback if the table hasn't been created yet.
 
+interface WorkflowNode {
+  label: string;
+  type: 'step' | 'decision' | 'output';
+}
+
+// A rule maps an uploaded photo to a document, and carries its OWN workflow —
+// the simple, automatable steps the "Head of Hospital" AI designs for it.
 interface Rule {
   id: string;
   trigger: string; // e.g. "Photo A"
   action: string; // e.g. "Admission note"
-}
-
-interface WorkflowNode {
-  label: string;
-  type: 'step' | 'decision' | 'output';
+  workflow: WorkflowNode[];
 }
 
 interface Subagent {
@@ -65,6 +68,8 @@ interface Subagent {
   description: string;
   icon: string; // key into ICON_MAP (icons can't be stored in the DB)
   rules: Rule[];
+  // Legacy: the workflow used to live on the subagent. Kept only so the DB
+  // column still round-trips; the authoritative workflow now lives per-rule.
   workflow: WorkflowNode[];
 }
 
@@ -84,61 +89,108 @@ const DEFAULT_SUBAGENTS: Omit<Subagent, 'id'>[] = [
     name: 'Discharge',
     description: 'Discharge document agent',
     icon: 'file',
+    workflow: [],
     rules: [
-      { id: 'r1', trigger: 'Photo A', action: 'Admission note' },
-      { id: 'r2', trigger: 'Photo B', action: "Doctor's discharge note" },
-    ],
-    workflow: [
-      { label: 'Admission note', type: 'step' },
-      { label: "Doctor's Discharge note", type: 'step' },
-      { label: 'Discharge approval', type: 'decision' },
-      { label: 'Generate discharge summary', type: 'output' },
+      {
+        id: 'r1',
+        trigger: 'Photo A',
+        action: 'Admission note',
+        workflow: [
+          { label: 'Read admission note photo', type: 'step' },
+          { label: 'Extract diagnosis & history', type: 'step' },
+          { label: 'Save to patient record', type: 'output' },
+        ],
+      },
+      {
+        id: 'r2',
+        trigger: 'Photo B',
+        action: "Doctor's discharge note",
+        workflow: [
+          { label: "Read doctor's discharge note", type: 'step' },
+          { label: 'Doctor approval', type: 'decision' },
+          { label: 'Generate discharge summary', type: 'output' },
+        ],
+      },
     ],
   },
   {
     name: 'IPD Registration',
     description: 'Admission intake agent',
     icon: 'clipboard',
+    workflow: [],
     rules: [
-      { id: 'r1', trigger: 'Photo A', action: 'Aadhaar / ID card' },
-      { id: 'r2', trigger: 'Photo B', action: 'Referral letter' },
-    ],
-    workflow: [
-      { label: 'Capture ID', type: 'step' },
-      { label: 'Verify patient', type: 'decision' },
-      { label: 'Create IPD visit', type: 'output' },
+      {
+        id: 'r1',
+        trigger: 'Photo A',
+        action: 'Aadhaar / ID card',
+        workflow: [
+          { label: 'Read ID card photo', type: 'step' },
+          { label: 'Extract name & ID number', type: 'step' },
+          { label: 'Create patient record', type: 'output' },
+        ],
+      },
+      {
+        id: 'r2',
+        trigger: 'Photo B',
+        action: 'Referral letter',
+        workflow: [
+          { label: 'Read referral letter', type: 'step' },
+          { label: 'Attach to IPD visit', type: 'output' },
+        ],
+      },
     ],
   },
   {
     name: 'Lab Orders',
     description: 'Diagnostics & reports agent',
     icon: 'test',
-    rules: [{ id: 'r1', trigger: 'Photo A', action: 'Doctor order sheet' }],
-    workflow: [
-      { label: 'Read order sheet', type: 'step' },
-      { label: 'Map to lab tests', type: 'step' },
-      { label: 'Create lab order', type: 'output' },
+    workflow: [],
+    rules: [
+      {
+        id: 'r1',
+        trigger: 'Photo A',
+        action: 'Doctor order sheet',
+        workflow: [
+          { label: 'Read order sheet', type: 'step' },
+          { label: 'Map to lab tests', type: 'step' },
+          { label: 'Create lab order', type: 'output' },
+        ],
+      },
     ],
   },
   {
     name: 'Pharmacy',
     description: 'Dispense & inventory agent',
     icon: 'pill',
-    rules: [{ id: 'r1', trigger: 'Photo A', action: 'Prescription' }],
-    workflow: [
-      { label: 'Read prescription', type: 'step' },
-      { label: 'Check stock', type: 'decision' },
-      { label: 'Create sale bill', type: 'output' },
+    workflow: [],
+    rules: [
+      {
+        id: 'r1',
+        trigger: 'Photo A',
+        action: 'Prescription',
+        workflow: [
+          { label: 'Read prescription', type: 'step' },
+          { label: 'Check stock', type: 'decision' },
+          { label: 'Create sale bill', type: 'output' },
+        ],
+      },
     ],
   },
   {
     name: 'Radiology',
     description: 'Imaging agent',
     icon: 'camera',
-    rules: [{ id: 'r1', trigger: 'Photo A', action: 'Imaging request' }],
-    workflow: [
-      { label: 'Read request', type: 'step' },
-      { label: 'Schedule scan', type: 'output' },
+    workflow: [],
+    rules: [
+      {
+        id: 'r1',
+        trigger: 'Photo A',
+        action: 'Imaging request',
+        workflow: [
+          { label: 'Read request', type: 'step' },
+          { label: 'Schedule scan', type: 'output' },
+        ],
+      },
     ],
   },
 ];
@@ -154,16 +206,40 @@ interface SubagentRow {
   name: string;
   description: string | null;
   icon: string | null;
-  rules: Rule[] | null;
+  rules: (Partial<Rule> & { id: string; trigger: string; action: string })[] | null;
   workflow: WorkflowNode[] | null;
 }
+
+// Bring rules into the per-rule-workflow shape. Older rows stored the workflow at
+// the subagent level; if a rule has none and the subagent does, the subagent
+// workflow is moved onto the first rule (one-time, no SQL migration needed).
+const normalizeRules = (
+  rawRules: SubagentRow['rules'],
+  subagentWorkflow: WorkflowNode[] | null,
+): Rule[] => {
+  const rules: Rule[] = (Array.isArray(rawRules) ? rawRules : []).map((r) => ({
+    id: r.id,
+    trigger: r.trigger,
+    action: r.action,
+    workflow: Array.isArray(r.workflow) ? r.workflow : [],
+  }));
+  if (
+    rules.length > 0 &&
+    rules[0].workflow.length === 0 &&
+    Array.isArray(subagentWorkflow) &&
+    subagentWorkflow.length > 0
+  ) {
+    rules[0] = { ...rules[0], workflow: subagentWorkflow };
+  }
+  return rules;
+};
 
 const rowToSubagent = (r: SubagentRow): Subagent => ({
   id: r.id,
   name: r.name,
   description: r.description ?? '',
   icon: r.icon ?? 'box',
-  rules: Array.isArray(r.rules) ? r.rules : [],
+  rules: normalizeRules(r.rules, r.workflow),
   workflow: Array.isArray(r.workflow) ? r.workflow : [],
 });
 
@@ -183,16 +259,115 @@ interface Message {
 
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
 
-function buildSystemPrompt(agent: Subagent): string {
-  const rules = agent.rules.map((r) => `${r.trigger} → ${r.action}`).join('; ');
-  const flow = agent.workflow.map((n) => n.label).join(' → ');
-  return `You are the AI Assistant inside "Skill Factory", a no-code builder where hospital staff at Hope Hospital and Ayushman Hospital (Nagpur, India) create "subagents" that automate paperwork from photos.
+// Hard ceiling on steps per workflow. The "Head of Hospital" splits anything
+// bigger into multiple smaller skills.
+const MAX_STEPS = 5;
+const VALID_TYPES = new Set<WorkflowNode['type']>(['step', 'decision', 'output']);
 
-The user is currently editing the "${agent.name}" subagent.
-- Its rules map uploaded photos to documents: ${rules || 'none yet'}.
-- Its workflow is: ${flow}.
+// The AI commits a workflow by appending one fenced ```skillfactory``` block of
+// JSON. Anything outside the block is normal prose the user reads.
+const SKILL_FENCE = /```skillfactory\s*([\s\S]*?)```/i;
 
-Help the user understand, improve, and extend this subagent — explain what the workflow does, suggest new rules or steps, and describe each node in plain language. Be concise and practical for a hospital setting. When useful, refer to the steps and rules above by name.`;
+interface SkillWorkflow {
+  kind: 'workflow';
+  workflow: WorkflowNode[];
+}
+interface SkillBreakdown {
+  kind: 'breakdown';
+  rules: { trigger: string; action: string; workflow: WorkflowNode[] }[];
+}
+type ParsedSkill = SkillWorkflow | SkillBreakdown;
+
+// Pull the fenced block out of a reply: `display` is the prose the user sees,
+// `payload` is the parsed JSON (or null if absent/malformed).
+function extractSkillBlock(raw: string): { display: string; payload: unknown } {
+  const match = raw.match(SKILL_FENCE);
+  if (!match) return { display: raw.trim(), payload: null };
+  const display = raw.replace(match[0], '').trim();
+  let payload: unknown = null;
+  try {
+    payload = JSON.parse(match[1].trim());
+  } catch {
+    payload = null;
+  }
+  return { display, payload };
+}
+
+// Keep only valid nodes, coerce unknown types to 'step', cap at MAX_STEPS.
+function clampWorkflow(nodes: unknown): WorkflowNode[] | null {
+  if (!Array.isArray(nodes)) return null;
+  const cleaned = nodes
+    .filter((n): n is { label: unknown; type?: unknown } => !!n && typeof n === 'object')
+    .map((n) => ({
+      label: typeof n.label === 'string' ? n.label.trim() : '',
+      type: VALID_TYPES.has(n.type as WorkflowNode['type'])
+        ? (n.type as WorkflowNode['type'])
+        : ('step' as const),
+    }))
+    .filter((n) => n.label.length > 0)
+    .slice(0, MAX_STEPS);
+  return cleaned.length > 0 ? cleaned : null;
+}
+
+function validateSkill(payload: unknown): ParsedSkill | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const p = payload as Record<string, unknown>;
+  if (p.kind === 'workflow') {
+    const wf = clampWorkflow(p.workflow);
+    return wf ? { kind: 'workflow', workflow: wf } : null;
+  }
+  if (p.kind === 'breakdown' && Array.isArray(p.rules)) {
+    const rules = p.rules
+      .slice(0, 6)
+      .filter((r): r is Record<string, unknown> => !!r && typeof r === 'object')
+      .map((r) => {
+        const wf = clampWorkflow(r.workflow);
+        const trigger = typeof r.trigger === 'string' ? r.trigger.trim() : '';
+        const action = typeof r.action === 'string' ? r.action.trim() : '';
+        return wf && trigger && action ? { trigger, action, workflow: wf } : null;
+      })
+      .filter((r): r is SkillBreakdown['rules'][number] => r !== null);
+    return rules.length > 0 ? { kind: 'breakdown', rules } : null;
+  }
+  return null;
+}
+
+// The "Head of Hospital" skill — a veteran ops chief who knows how every job is
+// done and turns a rule into the simplest automatable workflow (or splits it).
+function buildHeadOfHospitalPrompt(agent: Subagent, rule: Rule | null): string {
+  const existing = agent.rules.map((r) => `${r.trigger} → ${r.action}`).join('; ');
+  const ruleLine = rule
+    ? `"${rule.trigger} → ${rule.action}"${rule.workflow.length ? ` (currently ${rule.workflow.length} steps)` : ' (no steps yet)'}`
+    : 'none selected — ask the user to pick or describe a rule first';
+  return `You are the "Head of Hospital" — a veteran hospital operations chief at Hope Hospital and Ayushman Hospital (Nagpur, India). You know, in concrete detail, how every job in the hospital is actually done: reception, IPD/OPD registration, nursing, doctor notes, discharge, pharmacy dispensing, lab and radiology orders, billing, and Ayushman/PMJAY scheme paperwork.
+
+You work inside "Skill Factory", a no-code tool where staff turn a photo-driven RULE into an automatable workflow. The user is building one rule and wants you to design the workflow that runs when it fires.
+
+HOW YOU WORK
+1. Understand first. If the task is at all ambiguous, ask 1-3 SHORT, relevant clarifying questions BEFORE designing (who uploads the photo, what document it is, what the output should be, who approves). While you are still asking, send NO code block.
+2. Once you have enough, design the SIMPLEST workflow a computer could run, step by step.
+
+THE 5-STEP LAW
+A workflow you output must have AT MOST ${MAX_STEPS} steps. Keep each step concrete and automatable. Use exactly these node types: "step" (a normal action), "decision" (a yes/no or branch), "output" (the final artifact — a note, bill, order, summary).
+
+THE BREAKDOWN LAW
+If the task genuinely needs more than ${MAX_STEPS} steps, do NOT cram it. Split it into 2-3 smaller rules ("skills"), each a self-contained ${MAX_STEPS}-steps-or-fewer workflow, chained so one rule's output feeds the next rule's trigger. Prefer several small skills over one big one. We only automate SIMPLE workflows for now.
+
+OUTPUT PROTOCOL (critical)
+When — and only when — you are ready to commit, write one or two short human sentences, then append EXACTLY ONE fenced code block tagged "skillfactory" containing JSON. Never put commentary inside the JSON. Two allowed shapes:
+\`\`\`skillfactory
+{"kind":"workflow","workflow":[{"label":"...","type":"step"},{"label":"...","type":"output"}]}
+\`\`\`
+\`\`\`skillfactory
+{"kind":"breakdown","rules":[{"trigger":"...","action":"...","workflow":[{"label":"...","type":"step"}]}]}
+\`\`\`
+JSON rules: every workflow has 1-${MAX_STEPS} nodes; every type is step|decision|output; breakdown has 1-6 rules. If you are still asking a question, send NO code block.
+
+CURRENT CONTEXT
+- Subagent: "${agent.name}" — ${agent.description}
+- Rule being designed: ${ruleLine}
+- Existing rules in this subagent: ${existing || 'none yet'}
+Keep everything practical for a busy Indian hospital. Be concise.`;
 }
 
 // A workflow step as an editable, draggable row: a name plus an assigned person.
@@ -215,6 +390,8 @@ export default function SkillFactory() {
   // Per-user subagents, loaded from Supabase (or in-memory defaults as fallback).
   const [subagents, setSubagents] = useState<Subagent[]>([]);
   const [activeId, setActiveId] = useState<string>('');
+  // The rule whose workflow is shown/edited in the Workflow column.
+  const [activeRuleId, setActiveRuleId] = useState<string>('');
   const [loadingAgents, setLoadingAgents] = useState(true);
   // True once we've confirmed the DB table is reachable; when false, the +
   // buttons still work but changes live only in memory for this session.
@@ -237,6 +414,7 @@ export default function SkillFactory() {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const active = subagents.find((s) => s.id === activeId);
+  const activeRule = active?.rules.find((r) => r.id === activeRuleId) ?? null;
   const filtered = subagents.filter((s) =>
     s.name.toLowerCase().includes(search.trim().toLowerCase()),
   );
@@ -315,21 +493,30 @@ export default function SkillFactory() {
     };
   }, [userEmail]);
 
-  // Rebuild the editable rows whenever a different subagent is selected.
+  // Keep a valid rule selected. Preserves an explicit selection (e.g. a rule the
+  // user/AI just added) and only falls back to the first rule when the current
+  // one no longer belongs to the active subagent (e.g. after switching subagents).
   useEffect(() => {
-    if (!active) {
+    setActiveRuleId((cur) =>
+      active?.rules.some((r) => r.id === cur) ? cur : active?.rules[0]?.id ?? '',
+    );
+  }, [activeId, active]);
+
+  // Rebuild the editable rows from the SELECTED RULE's workflow.
+  useEffect(() => {
+    if (!activeRule) {
       setRows([]);
       return;
     }
     setRows(
-      active.workflow.map((n, i) => ({
-        id: `${active.id}-${i}`,
+      activeRule.workflow.map((n, i) => ({
+        id: `${activeRule.id}-${i}`,
         label: n.label,
         type: n.type,
         assignee: UNASSIGNED,
       })),
     );
-  }, [active]);
+  }, [activeRule]);
 
   // ── Create a new subagent (the "+" in the Subagents header) ──
   const addSubagent = async () => {
@@ -381,13 +568,14 @@ export default function SkillFactory() {
     const action = window.prompt('Maps to (e.g. "Consent form"):')?.trim();
     if (!action) return;
 
-    const rule: Rule = { id: crypto.randomUUID(), trigger, action };
+    const rule: Rule = { id: crypto.randomUUID(), trigger, action, workflow: [] };
     const nextRules = [...active.rules, rule];
 
-    // Optimistic local update.
+    // Optimistic local update; select the new rule so its (empty) workflow shows.
     setSubagents((prev) =>
       prev.map((s) => (s.id === active.id ? { ...s, rules: nextRules } : s)),
     );
+    setActiveRuleId(rule.id);
 
     if (persist && !active.id.startsWith('local-')) {
       const { error } = await supabase
@@ -398,6 +586,31 @@ export default function SkillFactory() {
     }
   };
 
+  // Persist the full rules array for the active subagent (shared by AI apply,
+  // drag-reorder, etc.). In-memory only when not persisting.
+  const persistRules = async (nextRules: Rule[]) => {
+    if (!active) return;
+    setSubagents((prev) =>
+      prev.map((s) => (s.id === active.id ? { ...s, rules: nextRules } : s)),
+    );
+    if (persist && !active.id.startsWith('local-')) {
+      const { error } = await supabase
+        .from(TABLE)
+        .update({ rules: nextRules })
+        .eq('id', active.id);
+      if (error) toast.error('Could not save changes.');
+    }
+  };
+
+  // Write a new workflow onto the active rule (used by drag-reorder + AI apply).
+  const saveRuleWorkflow = async (ruleId: string, workflow: WorkflowNode[]) => {
+    if (!active) return;
+    const nextRules = active.rules.map((r) =>
+      r.id === ruleId ? { ...r, workflow } : r,
+    );
+    await persistRules(nextRules);
+  };
+
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -405,11 +618,17 @@ export default function SkillFactory() {
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active: dragged, over } = event;
-    if (!over || dragged.id === over.id) return;
+    if (!over || dragged.id === over.id || !activeRule) return;
     setRows((prev) => {
       const from = prev.findIndex((r) => r.id === dragged.id);
       const to = prev.findIndex((r) => r.id === over.id);
-      return arrayMove(prev, from, to);
+      const next = arrayMove(prev, from, to);
+      // Persist the new step order onto the active rule's workflow.
+      void saveRuleWorkflow(
+        activeRule.id,
+        next.map((r) => ({ label: r.label, type: r.type })),
+      );
+      return next;
     });
   };
 
@@ -428,6 +647,57 @@ export default function SkillFactory() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
+
+  // Apply a workflow the AI committed: either onto the active rule, or split the
+  // work into several smaller rules ("skills"). Auto-saves. Returns a one-line
+  // confirmation for the chat.
+  const applySkill = async (parsed: ParsedSkill): Promise<string> => {
+    if (!active) return 'No subagent selected.';
+
+    if (parsed.kind === 'workflow') {
+      if (activeRule) {
+        await saveRuleWorkflow(activeRule.id, parsed.workflow);
+        return `Saved a ${parsed.workflow.length}-step workflow to "${activeRule.trigger} → ${activeRule.action}".`;
+      }
+      const last = parsed.workflow[parsed.workflow.length - 1];
+      const created: Rule = {
+        id: crypto.randomUUID(),
+        trigger: 'New task',
+        action: last?.label ?? 'Workflow',
+        workflow: parsed.workflow,
+      };
+      await persistRules([...active.rules, created]);
+      setActiveRuleId(created.id);
+      return `Created a new rule with a ${parsed.workflow.length}-step workflow.`;
+    }
+
+    // breakdown: split into multiple smaller rules, de-duping triggers.
+    const used = new Set<string>();
+    active.rules.forEach((r) => {
+      if (!activeRule || r.id !== activeRule.id) used.add(r.trigger.toLowerCase());
+    });
+    const uniqueTrigger = (t: string) => {
+      let candidate = t;
+      let n = 2;
+      while (used.has(candidate.toLowerCase())) candidate = `${t} (${n++})`;
+      used.add(candidate.toLowerCase());
+      return candidate;
+    };
+    const built: Rule[] = parsed.rules.map((br, i) => ({
+      id: i === 0 && activeRule ? activeRule.id : crypto.randomUUID(),
+      trigger: uniqueTrigger(br.trigger),
+      action: br.action,
+      workflow: br.workflow,
+    }));
+
+    const nextRules = activeRule
+      ? [...active.rules.map((r) => (r.id === activeRule.id ? built[0] : r)), ...built.slice(1)]
+      : [...active.rules, ...built];
+    await persistRules(nextRules);
+    setActiveRuleId(built[0].id);
+    const names = built.map((r) => `"${r.trigger} → ${r.action}"`).join(', ');
+    return `Split into ${built.length} skill${built.length > 1 ? 's' : ''}: ${names} — all saved.`;
+  };
 
   const sendMessage = async (text: string) => {
     const trimmed = text.trim();
@@ -452,7 +722,7 @@ export default function SkillFactory() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: buildSystemPrompt(active) }] },
+          systemInstruction: { parts: [{ text: buildHeadOfHospitalPrompt(active, activeRule) }] },
           contents: [
             ...messages.map((m) => ({
               role: m.role === 'assistant' ? 'model' : 'user',
@@ -460,12 +730,25 @@ export default function SkillFactory() {
             })),
             { role: 'user', parts: [{ text: trimmed }] },
           ],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 600 },
+          generationConfig: { temperature: 0.3, maxOutputTokens: 800 },
         }),
       });
       const data = await res.json();
       const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response.';
-      setMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
+
+      // Split the reply into prose (shown) and an optional committed workflow.
+      const { display, payload } = extractSkillBlock(reply);
+      const parsed = payload ? validateSkill(payload) : null;
+      if (display) {
+        setMessages((prev) => [...prev, { role: 'assistant', content: display }]);
+      } else if (!parsed) {
+        setMessages((prev) => [...prev, { role: 'assistant', content: reply || 'No response.' }]);
+      }
+      if (parsed) {
+        const note = await applySkill(parsed);
+        setMessages((prev) => [...prev, { role: 'assistant', content: note }]);
+        toast.success(note);
+      }
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -588,17 +871,25 @@ export default function SkillFactory() {
             </div>
             <div className="px-3 space-y-2">
               {active?.rules.map((r) => (
-                <div
+                <button
                   key={r.id}
-                  className="rounded-lg border border-gray-200 px-3 py-2.5 bg-gray-50"
+                  onClick={() => setActiveRuleId(r.id)}
+                  className={`w-full text-left rounded-lg border px-3 py-2.5 transition-colors ${
+                    activeRuleId === r.id
+                      ? 'border-blue-300 bg-blue-50'
+                      : 'border-gray-200 bg-gray-50 hover:bg-gray-100'
+                  }`}
                 >
                   <div className="flex items-center gap-1.5 text-sm text-gray-900">
-                    <Camera className="w-3.5 h-3.5 text-gray-400" />
+                    <Camera className="w-3.5 h-3.5 text-gray-400 shrink-0" />
                     <span className="font-medium">{r.trigger}</span>
                     <span className="text-gray-400">→</span>
-                    <span>{r.action}</span>
+                    <span className="truncate">{r.action}</span>
                   </div>
-                </div>
+                  <p className="text-[10px] text-gray-400 mt-1 pl-5">
+                    {r.workflow.length > 0 ? `${r.workflow.length} step${r.workflow.length > 1 ? 's' : ''}` : 'no workflow yet'}
+                  </p>
+                </button>
               ))}
               {active && active.rules.length === 0 && (
                 <p className="px-1 py-3 text-xs text-gray-400">
@@ -608,13 +899,18 @@ export default function SkillFactory() {
             </div>
           </section>
 
-          {/* ── Workflow column ── */}
+          {/* ── Workflow column (belongs to the selected rule) ── */}
           <section className="flex-1 min-w-0 bg-gray-50 overflow-y-auto">
             <div className="flex items-center justify-between px-5 pt-4 pb-2">
-              <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400 truncate">
                 Workflow
+                {activeRule && (
+                  <span className="ml-2 normal-case font-normal text-gray-500">
+                    · {activeRule.trigger} → {activeRule.action}
+                  </span>
+                )}
               </h2>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 <button className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors">
                   <Play className="w-3 h-3" /> Execute
                 </button>
@@ -624,31 +920,50 @@ export default function SkillFactory() {
               </div>
             </div>
 
-            <p className="px-5 pb-2 text-xs text-gray-400">
-              Drag rows to reorder. Assign a person to each step.
-            </p>
-            <div className="px-4 pb-6 max-w-2xl">
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleDragEnd}
-              >
-                <SortableContext items={rows.map((r) => r.id)} strategy={verticalListSortingStrategy}>
-                  <div className="space-y-2">
-                    {rows.map((row, i) => (
-                      <WorkflowRowView
-                        key={row.id}
-                        row={row}
-                        index={i}
-                        people={people}
-                        onAssign={(v) => setAssignee(row.id, v)}
-                        onAddPerson={() => addPerson(row.id)}
-                      />
-                    ))}
-                  </div>
-                </SortableContext>
-              </DndContext>
-            </div>
+            {!activeRule && (
+              <p className="px-5 py-8 text-sm text-gray-400 text-center">
+                Select a rule on the left to see or build its workflow.
+              </p>
+            )}
+
+            {activeRule && rows.length === 0 && (
+              <div className="px-5 py-8 text-center">
+                <p className="text-sm text-gray-500">This rule has no workflow yet.</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  Ask the AI Assistant on the right to design it — it'll break the task into simple, automatable steps.
+                </p>
+              </div>
+            )}
+
+            {activeRule && rows.length > 0 && (
+              <>
+                <p className="px-5 pb-2 text-xs text-gray-400">
+                  Drag rows to reorder. Assign a person to each step.
+                </p>
+                <div className="px-4 pb-6 max-w-2xl">
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDragEnd}
+                  >
+                    <SortableContext items={rows.map((r) => r.id)} strategy={verticalListSortingStrategy}>
+                      <div className="space-y-2">
+                        {rows.map((row, i) => (
+                          <WorkflowRowView
+                            key={row.id}
+                            row={row}
+                            index={i}
+                            people={people}
+                            onAssign={(v) => setAssignee(row.id, v)}
+                            onAddPerson={() => addPerson(row.id)}
+                          />
+                        ))}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                </div>
+              </>
+            )}
           </section>
         </>
       ) : (
@@ -674,13 +989,13 @@ export default function SkillFactory() {
           {messages.length === 0 && (
             <div className="space-y-2">
               <p className="text-xs text-gray-500">
-                Ask me about the <span className="font-medium">{active?.name ?? 'selected'}</span> subagent — what it
-                does, or how to add rules and steps.
+                I'm your <span className="font-medium">Head of Hospital</span>. Tell me what should happen for
+                {activeRule ? ` "${activeRule.trigger} → ${activeRule.action}"` : ' the selected rule'} and I'll design a simple, automatable workflow — splitting it into smaller skills if it gets too complex.
               </p>
               {[
-                `Explain the ${active?.name ?? ''} workflow`,
-                'When is Photo A uploaded?',
-                'Suggest one more rule for this agent',
+                `Design the workflow for "${activeRule?.trigger ?? 'this rule'}"`,
+                'This task feels big — break it into smaller skills',
+                'What do you need to know to build this workflow?',
               ].map((q) => (
                 <button
                   key={q}
