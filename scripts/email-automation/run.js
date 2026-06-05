@@ -7,7 +7,10 @@ const fs = require('fs');
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
 const { getUnreadEmails, applyLabel, createDraft } = require('./gmail-client');
-const { classifyEmail, draftReply } = require('./ai-processor');
+const { classifyEmail, draftReply } = require('./keyword-classifier');
+const { saveEmailToSupabase } = require('./supabase-logger');
+
+const CORPORATE_CATEGORIES = ['corporate-query', 'approval-needed', 'patient-query'];
 
 const LAST_RUN_FILE = path.join(__dirname, 'last-run.json');
 
@@ -26,7 +29,7 @@ function writeLastRunTimestamp() {
 
 function printSummary(results) {
   console.log('\n═══════════════════════════════════════════════════════');
-  console.log('  HOPE HOSPITAL — EMAIL DIGEST');
+  console.log('  HOSPITAL BILLING — EMAIL DIGEST');
   console.log(`  Run time: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST`);
   console.log('═══════════════════════════════════════════════════════');
 
@@ -58,10 +61,10 @@ function printSummary(results) {
 }
 
 async function main() {
-  console.log('🔍 Hope Hospital Email Automation — starting run...');
+  console.log('🔍 Hospital Billing Email Automation — starting run...');
 
   // Validate env
-  const required = ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN', 'GMAIL_USER_EMAIL', 'ANTHROPIC_API_KEY'];
+  const required = ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN', 'GMAIL_USER_EMAIL'];
   const missing = required.filter(k => !process.env[k]);
   if (missing.length > 0) {
     console.error(`❌ Missing env vars: ${missing.join(', ')}`);
@@ -92,10 +95,23 @@ async function main() {
 
     try {
       const classification = await classifyEmail(email.subject, email.body);
+
+      if (classification.category === 'skip') {
+        process.stdout.write(`— skipped\n`);
+        continue;
+      }
+
       const replyText = await draftReply(email, classification);
 
       await applyLabel(email.id, `HH/${classification.category}`);
-      await createDraft(email, replyText);
+
+      // Corporate emails → save to Supabase for in-app approval
+      // Other categories → create Gmail draft directly
+      if (CORPORATE_CATEGORIES.includes(classification.category)) {
+        await saveEmailToSupabase(email, classification, replyText);
+      } else {
+        await createDraft(email, replyText);
+      }
 
       process.stdout.write(`✓ [${classification.category}]\n`);
 

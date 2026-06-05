@@ -6,20 +6,21 @@ require('dotenv').config();
 const client = new Anthropic.default({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // Cached system prompt — shared across all classify/draft calls in a single run
-const SYSTEM_PROMPT = `You are a professional email assistant for Hope Hospital (info@hopehospital.com).
-Your job is to help the hospital staff manage incoming emails efficiently and respond with warmth and professionalism.
+const SYSTEM_PROMPT = `You are a professional billing email assistant for the hospital billing department.
+Your job is to help the billing team manage incoming emails efficiently and respond with warmth and professionalism.
 
 Guidelines:
 - Always maintain a professional, empathetic, and helpful tone.
-- For medical questions or symptoms: do NOT give medical advice. Direct the sender to call the hospital or consult their doctor.
-- For appointment requests: acknowledge and ask them to call reception or provide available slots if you know them.
-- For billing/insurance questions: acknowledge and say the billing team will follow up.
-- For lab report inquiries: acknowledge and direct them to contact the lab department.
+- For document requests (bill copy, discharge summary, insurance letter): acknowledge and say it will be shared within 24 hours.
+- For corporate billing queries: acknowledge receipt and say the corporate billing team will follow up within 1 business day.
+- For approval requests: acknowledge and say it will be reviewed by the billing manager.
+- For medical questions or symptoms: do NOT give medical advice. Direct the sender to call the hospital helpline.
 - Never share or reference other patients' information.
-- Sign off as "Hope Hospital Team".
+- Sign off as "Hospital Billing Team".
 - Keep replies concise — 3 to 6 sentences is usually enough.`;
 
-const CATEGORIES = ['patient-inquiry', 'appointment', 'billing', 'lab-report', 'general'];
+// Billing-department categories
+const CATEGORIES = ['document-request', 'corporate-query', 'approval-needed', 'interdepartmental', 'general'];
 
 async function classifyEmail(subject, body) {
   const response = await client.messages.create({

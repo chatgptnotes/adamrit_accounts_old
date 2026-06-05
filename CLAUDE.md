@@ -35,150 +35,147 @@ This project uses the Ironbark learning loop with auto-sync to the community ski
 - **Background sync**: Every 30 min, `sync-cli.js` pulls new community skills and pushes local ones
 - **Opt-out**: `IRONBARK_SYNC_DISABLED=1`
 
-### Available Harvested Skills (138)
+### Available Harvested Skills (135)
 
-Each skill lives at `~/.claude/skills/harvested/<name>/SKILL.md`. Reference any skill below by name when the task matches.
+Loaded from `~/.claude/skills/harvested/`. Reference any skill below by name or path when the task matches.
 
-| Skill | Description |
-|-------|-------------|
-| `active-inactive-toggle-with-counter` | Soft-hide records with an is_active boolean column — pill button on each card toggles active/hidden, |
-| `Adamrit Final Bill Lock — pre-deploy SHA256 check` | Freezes src/pages/FinalBill.tsx in the Adamrit hospital-management app. A `prebuild` script (chained |
-| `Annotated Sales-Pitch Coaching PDF` | When you write a 30/60/90-second elevator pitch for someone (founder rehearsing for an enterprise me |
-| `architecture-flowchart-on-every-project-plan` |  |
-| `Async AI Advisory on Real-Time Hot Path` | Pattern for void-launching AI analysis from time-critical control loops (alarm engines, tag processo |
-| `Auto-Tenant Fetch Wrapper` | Modify the frontend API fetch wrapper to auto-append tenant_id from session storage so all existing  |
-| `BNI CRM — Bugs & Gotchas Harvested During Build` | Non-obvious issues encountered while building a Supabase-backed multi-page CRM (BNI 121). Covers ngi |
-| `Browser-Console curl|bash Deploy Bootstrap` | When SSH to a VPS is blocked from the agent's network and the only available shell is a browser-base |
-| `bulk-file-to-db-importer` | Node.js script to bulk-import local files (HTML, PDF, etc.) into a Supabase table under a specific u |
-| `Chatbot Reply/Ignore Intent Gate` | System prompt pattern that adds a first-pass REPLY vs IGNORE decision layer to any chatbot, preventi |
-| `Claude CLI: ANTHROPIC_API_KEY env silently overrides Max-plan OAuth` | When the Claude CLI runs inside a container or service and ANTHROPIC_API_KEY is in the environment,  |
-| `Claude Code -> DeepSeek Backend (Anthropic-Compatible Redirect)` | Point Claude Code at DeepSeek's Anthropic-compatible endpoint via ANTHROPIC_BASE_URL + ANTHROPIC_AUT |
-| `Claude Code Permanent SSH Access to VPS` | Set up passwordless SSH key access so Claude Code can run remote commands on a VPS directly via Bash |
-| `client-facing-no-platform-reuse-framing` |  |
-| `client-project-plan-bettroi-style-pipeline` |  |
-| `cloud-to-vps-http-bridge` | Lightweight Node.js HTTP bridge that lets a serverless cloud platform (Vercel, Railway, etc.) trigge |
-| `copy-sql-migration-to-clipboard` | After writing any SQL migration file, immediately copy it to clipboard with pbcopy so the user can p |
-| `Credential Survivorship Audit` | When a credentials-based failure recurs after a previous fix, the credential was only partially remo |
-| `Cron-Poll Continuous Deploy via git ls-remote SHA Check` | When GitHub Actions SSH-deploy and inbound webhooks are both unavailable (SSH port blocked from runn |
-| `cross-brand-proposal-style-sender-mismatch` |  |
-| `cross-group-drag-and-drop-categorize` | Drag items between categorized groups with react-beautiful-dnd. Each group is its own Droppable keye |
-| `Custom Slash Command — Encode Multi-Step Protocols` | Create custom Claude Code slash commands in ~/.claude/commands/ that invoke repeatable multi-step wo |
-| `custom-domain-wrong-project-404` | A custom domain returns 404 (or serves stale features) on routes that demonstrably exist in your cur |
-| `deep-link-copy-button-hash-anchor` | Lightweight one-click "copy link" button that copies a deep URL to clipboard, scrolling to a specifi |
-| `document-type-discipline-plan-vs-proposal` |  |
-| `document-version-history` | Save every version of a document before overwriting — Supabase versions table, PATCH intercept, rest |
-| `Dual LLM Provider Budget Defense` | Production budget-burn protection when running two LLM providers — per-user app-layer daily cap (not |
-| `Dual-Publish Reusable Setup Guide as Local Skill + Standalone Public Repo` | When the user asks to save procedural how-to content "for next time," publish it in two places at on |
-| `Email-Allowlist Dual-Gate Dashboard` | Restrict access to a privileged dashboard (CEO/CFO/Director/Admin view) to a hard-coded allowlist of |
-| `env-var-secret-newline-and-redeploy-snapshot` | Two silent traps when setting platform secrets from the CLI — `echo` appends a trailing newline that |
-| `EventEmitter → Socket.IO → Zustand Reactive Pipeline` | Full backend-to-frontend reactive chain using Node EventEmitter as source, Socket.IO rooms for trans |
-| `excel-matrix-to-react-lookup` | Convert a multi-dimensional Excel combination matrix into a JS lookup table and React UI card, dynam |
-| `Exhaustive Error Hunting — Never Stop at the First Fix` | When debugging a broken feature, NEVER assume the first error found is the only one. Systematically  |
-| `Express Rate Limit Hardening` | Security fixes for express-rate-limit — never trust X-Forwarded-For in keyGenerator, handle IPv6, us |
-| `Express Tenant Middleware Chain` | requireAuth → requireTenantAccess → route pattern with profile caching and role-based tenant resolut |
-| `file-list-image-preview-modal` | In a file list, swap the generic icon for an image thumbnail when file_type starts with "image/", an |
-| `front-back-id-document-image-upload` | Upload front and back images for any identity document (PAN, Aadhaar, credit card, passport, etc.) — |
-| `gh api Bulk Operations Without Zsh Glob Expansion Bugs` | When scripting `gh api` to POST/PATCH the same payload to many GitHub repos (bulk webhooks, branch-p |
-| `Global CLAUDE.md — Auto-Loaded Coding Standards` | Create ~/.claude/CLAUDE.md to inject coding rules, forbidden patterns, and workflow protocols into e |
-| `Google OAuth COOP Popup Fix on Vercel` | Two-stage fix for Google OAuth popup blocked by Cross-Origin-Opener-Policy (COOP) on Vercel — first  |
-| `Hand-Fillable PDF Blanks via Dotted-Underline CSS Spans` | When generating a PDF that will be printed and signed by hand (legal forms, KYC, lease agreements, s |
-| `handwriting-ocr-via-claude-sonnet-slack-pipeline` | Capture handwritten paper notes into your knowledge base by photographing a page → dropping in Slack |
-| `HTML Print Window with Per-Section Page Breaks` | Generate downloadable PDFs from a SPA by opening a styled HTML document in a new window, applying CS |
-| `HTML-to-PPTX Programmatic Generation` | Generate professional PowerPoint presentations (.pptx) programmatically using python-pptx — build sl |
-| `HTTP API Failure Isolation via Probe Matrix` | When an HTTP API call fails with an ambiguous error and you don't know whether the cause is the URL, |
-| `human-in-loop-classification-via-markdown-review` | When an AI classifier auto-files records (meetings, emails, photos, etc.) into folders but quality m |
-| `Idempotent ~/.zshrc / ~/.bashrc Block Append with Marker-Based Dedupe` | Append a multi-line block of exports/aliases/path edits to a user's shell rc file via an installer t |
-| `idempotent-rag-ingestion-via-source-ref-delete` | Prevent duplicate vector chunks when re-syncing markdown / docs into a RAG store. Before inserting c |
-| `Industrial Rollback Policy Pattern` | PLC batch write rollback with persistence, exponential retry, timeout, and real-time operator notifi |
-| `karpathy-guidelines` | Behavioral guidelines to reduce common LLM coding mistakes. Use when writing, reviewing, or refactor |
-| `LLM Chat Context — History Depth and Temperature Config` | Configure conversation history depth (maxHistoryMessages) and temperature on a deployed LLM chatbot  |
-| `LLM Model Routing` | Regex-based classifier to route simple user queries to cheap models (Haiku) and complex ones to expe |
-| `LLM Provider baseUrl + API-Type URL Construction Bug` | When a custom LLM provider's baseUrl already includes a version suffix and the gateway appends /v1/m |
-| `LLM Vision Confidence Escalation Cascade` | Two-stage vision pipeline — cheap primary model on every request, expensive model only on low-confid |
-| `Mac Disk Space Cleanup Playbook` | Systematic Mac disk space recovery — ordered by impact. Covers Chrome AI models, screen recordings,  |
-| `macOS Chrome Disk-Write Quota Crash Fix` | Diagnose and fix Chrome being killed by macOS for exceeding disk write limits — root cause is the 4  |
-| `MCA Director-Appointment Form Generator (DIR-2 / DIR-8 / MBP-1 / Info Template)` | A repeatable HTML→PDF generator for filling India's Ministry of Corporate Affairs director-appointme |
-| `merge-revert-on-broken-prod` | When a feature-branch merge breaks production (UI distortion, layout regressions, broken auth, etc.) |
-| `multi-agent-code-review-fanout` | Parallel code review by fanning out one Agent per file/feature surface. Each agent gets a focused pe |
-| `Multi-Channel Alert Gateway` | BaseChannel abstraction + severity-based routing + parallel delivery via Promise.allSettled + retry  |
-| `Multi-Tenant Audit Checklist` | Systematic methodology for finding multi-tenant data leaks — check every GET endpoint, AI context, e |
-| `No Mock Data in Production SCADA/Multi-Modal Apps` | Eliminate hardcoded mock arrays in CRUD pages and backend demo-data fallbacks — every feature must u |
-| `No Unwired Placeholders — Wire Everything on First Pass` | Every button, link, and interactive element must have a working onClick/navigation handler from the  |
-| `no-em-dashes-in-pdf` | Remove em dashes and en dashes from HTML before Chrome headless PDF generation — they render inconsi |
-| `oauth-headless-ssh-tunnel` | Complete an OAuth2 browser flow on a headless Linux server by forwarding the redirect URI port via S |
-| `OpenClaw WhatsApp Echo Loop & LLM Quota Fix` | Stop infinite WhatsApp message loops caused by selfChatMode and quota-exceeded LLM keys in OpenClaw. |
-| `openwrt-busybox-shell-scripting` | Practical shell scripting on OpenWrt/BusyBox edge devices (Teltonika TRB/RUT, GL.iNet, etc.). Covers |
-| `pdf-spec-to-compliance-matrix` | Methodological pattern for turning a vendor specification PDF into a citation-anchored markdown comp |
-| `Pentest-Driven Architecture Review` | Validate architectural decisions against the most recent pentest report + a handful of targeted live |
-| `per-record-file-attachment` | Attach a single file (image or PDF) to an individual DB record — store the path in a nullable column |
-| `permanent-rule-three-authority-propagation` |  |
-| `pgvector Multi-Tenant Retrieval` | Multi-tenant pgvector RAG pattern — enforce project/tenant isolation at the query layer with WHERE p |
-| `Placeholder Audit and Resolution Pattern` | Systematic scan for empty placeholders, disabled buttons, stub endpoints, dead files, and unmounted  |
-| `plain-english-explainer-box` | Add a "How to read this document" plain-language box to any technical document so non-technical stak |
-| `plain-english-stakeholder-glossary-companion` |  |
-| `Plan File Versioned Evolution` | How to evolve a committed roadmap document incrementally via targeted Edit calls, version-bump foote |
-| `PLC Live Integration Test Infrastructure` | Software PLC simulators + test harness for validating SCADA protocol adapters with real TCP traffic  |
-| `PM2 Cluster Mode Breaks In-Memory SCADA State` | PM2 cluster mode causes polling engine, tag engine, and Socket.IO room subscriptions to split across |
-| `Postgres FK Constraint Repair via Dynamic DO Block` | When a foreign-key constraint was added out-of-band (via the database dashboard, ad-hoc psql session |
-| `PostgREST Schema Cache Reload After DDL` | Supabase / PostgREST returns "Could not find the 'X' column of 'Y' in the schema cache" even after ` |
-| `pre-save-file-upload-temp-uuid` | Upload files in an "Add" form before the DB record exists — generate a crypto.randomUUID() on compon |
-| `printable-standalone-react-page` | React page that renders clean for printing/PDF — sidebar excluded via route prefix, @media print hid |
-| `Prisma SQL Injection Defense` | Safe patterns for dynamic SQL with Prisma $queryRawUnsafe — allowlist maps instead of string interpo |
-| `Process Log Tracing — Find Logs When Not Under Named Systemd Service` | When a process logs to systemd journal but isn't registered as a named service, journalctl -u <name> |
-| `Project Gate Pattern` | Enforce project selection before accessing project-scoped pages — gate at layout level, not per-page |
-| `proposal-field-standardization` |  |
-| `pull-based-remote-agent-architecture` | Remote shell execution on NAT-bound IoT/edge devices via cloud-polling agent. Device pulls commands  |
-| `python-fstring-html-curly-brace-trap` |  |
-| `quick-login-direct-auth` | Quick-login buttons that directly authenticate via Supabase auth API on click — not just pre-filling |
-| `railway-cli-noninteractive-auth` | Railway CLI's OAuth login token doesn't persist to non-interactive subshells (Claude Code, CI script |
-| `railway-native-dep-removal` | When migrating from a native C++ npm package (better-sqlite3, bcrypt, sharp, canvas) to a pure-JS al |
-| `railway-toml-ui-precedence` | Railway UI custom build/start commands override railway.toml. If both are set and the UI has a typo, |
-| `React Async-Callback State Snapshot Before Reset` | Bug pattern — when a handler resets React state synchronously AND fires an async mutation whose `onS |
-| `React Error Object Rendering Guard` | Prevent React error #31 when API proxy/intermediary returns {code, message} objects instead of {erro |
-| `ReactFlow Node Data Persistence` | Fix silent data loss in ReactFlow editors where elementsToNodes/nodesToElements serialization drops  |
-| `referer-based-admin-page-no-password` | Build a low-friction admin UI for internal tools — standalone HTML page served from your domain + se |
-| `Responsive shadcn Dialog with Pinned Header/Footer and Scrollable Body` | Make a shadcn (Radix UI) `<DialogContent>` responsive on small viewports — body content scrolls insi |
-| `rsync Deploy Protection in a Directory Shared with Human-Managed Files` | Your deploy script rsyncs a repo subtree into a directory that *also* contains files maintained outs |
-| `SCADA Real-Time ReactFlow — Complete Debugging Case Study` | 12-issue chain that prevented live PLC tag values from updating ReactFlow HMI elements. Documents ev |
-| `SCADA Screen Persistence Pattern` | HMI screens stored in Zustand must persist to database via API — loadScreens on mount, save on creat |
-| `SCADA Tag Autocomplete Component` | Inline searchable dropdown for selecting PLC/SCADA tags scoped to the active project — fetches once, |
-| `Screenshot-to-Root-Cause Error Diagnosis` | Decode minified React/production errors from browser screenshots — decode error URLs, trace stack tr |
-| `Self-Updating Cron Script via Remote Fetch and Atomic Re-Exec` | A long-running cron script installed at `/usr/local/bin/foo.sh` is a frozen snapshot of the day it w |
-| `send-to-brain-slack-message-shortcut` | Add a "Send to Brain" message shortcut to a Slack bot so users can right-click any message → ingest  |
-| `shared-vps-coexistence` | Operational rules and procedures for safely adding a new product to a busy multi-tenant Linux VPS (H |
-| `silent-out-of-scope-no-enumeration` |  |
-| `slack-bot-permanent-on-macos-launchd` | Run a Slack bot 24/7 on your Mac without deploying to cloud. Uses @slack/bolt Socket Mode (no inboun |
-| `Sliding Window Dedup Guard` | Time-windowed event counting with three dedup layers (memory Map, database query, cooldown period) f |
-| `Socket.IO Room Subscription Chain` | Complete the subscribe chain — frontend store must emit subscribe event to server, server must join  |
-| `Soft-Delete via hidden Flag for Reversible Dedupe` | Instead of `delete from`, mark duplicate or stale records with `hidden=true` and have every list vie |
-| `Split Auth Modal — Sign-In vs Sign-Up Mode` | Single AuthModal component with a `mode` prop that drives distinct UX flows — sign-in rejects new us |
-| `stateful-cli-as-http-service` | Wrap a stateful or interactive CLI (claude, gh copilot, REPL tools) as an HTTP service. Covers the s |
-| `static-file-swap-stable-url` | To replace a document/asset's content without breaking any existing links, share URLs, or database p |
-| `Subscription vs Pay-As-You-Go API Key Billing Mismatch (Insufficient-Balance Despite Valid Plan)` | When a SaaS / LLM provider returns "insufficient balance" or 4xx-billing errors despite an active, p |
-| `Supabase Owner-Only Storage + RLS for Sensitive Per-User PII` | When a Supabase app needs to store sensitive per-user files (KYC docs, ID cards, medical reports, fi |
-| `Supabase Polling Overload — Diagnosis and Fix` | When Supabase shows millions of DB requests from a React app, the cause is almost always cascading R |
-| `Supabase SQL → Clipboard Workflow` | When `supabase db push` is blocked by historical unapplied migrations on a linked project, copy each |
-| `Supabase Tenant Filtering via Inner Joins` | Use !inner join + dot-notation filtering to scope Supabase queries through related tables for multi- |
-| `supabase-multi-tenant-rls-jwt-claims` | Full recipe for multi-tenant SaaS isolation on Supabase using Postgres Row Level Security and JWT cu |
-| `supabase-storage-bucket-dashboard-fallback` | `INSERT INTO storage.buckets (...)` in a SQL migration silently fails on hosted Supabase because the |
-| `SVG Sanitization with DOMPurify` | Replace regex-based SVG sanitizers with DOMPurify SVG profile — regex is trivially bypassable |
-| `svg-icons-html-pdf` |  |
-| `template-and-instance-document-pair` |  |
-| `three-tier-milestone-hierarchy` |  |
-| `Timezone-Aware Hourly Cron Fanout` | Run an hourly cron that uses Intl.DateTimeFormat to check each user's local hour — only deliver to u |
-| `Token-Saving Toolkit Install` | One-stop install procedure for the 5 Claude Code tools that cut token / API spend the most — Graphif |
-| `Vercel Prebuilt Deploy Workaround` | When Vercel remote builds fail silently (empty error message), build locally with vercel build --pro |
-| `vercel-frontend-vps-backend-split` | Topology pattern when the frontend is on Vercel (auto-deploy from GitHub) but the backend (API + DB  |
-| `Vite Environment URL Auto-Detection` | Frontend apps deployed to Vercel must auto-detect API/WebSocket URLs for production vs development — |
-| `weasyprint-rest-api-pdf` | Fetch data from a Supabase REST API with curl (no app running), generate styled A4 PDFs per entity w |
-| `WhatsApp Instant Acknowledgment Before Slow Processing` | Send an immediate ack message to the user before kicking off a long-running operation (AI inference, |
-| `WhatsApp Personalized Research Before Replying` | Before replying to any BNI member on WhatsApp, research their company, specialty, city, and prior co |
-| `WhatsApp Self-Chat Loop — Token Drain Diagnosis` | When LLM balance drains faster than expected on a WhatsApp bot, check for self-chat loop (bot replyi |
-| `Worker Read-Only DB Role Pattern` | Background workers (BullMQ, cron, etc.) should read operational data via a dedicated SELECT-only Pos |
-| `Z.AI (Zhipu GLM) Provider Config — OpenAI-Compatible Format` | Z.AI (bigmodel.cn / zhipuai.cn) uses OpenAI-compatible /chat/completions API. Setting api type to "a |
-| `Z.AI GLM Coding Plan + Claude Code (Anthropic-Compatible Endpoint, Per-Slot Model Mapping)` | Configure Claude Code to use Z.AI's GLM Coding Plan (Lite / Pro / Max subscription) via the Anthropi |
-| `Zero Mock, Zero Fallback — Honest Data or Honest Error` | Enforce strict no-mock, no-fallback policy across frontend and backend. API failure shows error, emp |
-| `Zero-Hardcode Bottom-Up Integration Protocol` | 5-step mandatory build order for any data-display feature — Backend → Verify → Store → UI → Traceabi |
+| Skill | Description | Path |
+|-------|-------------|------|
+| `active-inactive-toggle-with-counter` |  | `C:/Users/ruchi/.claude/skills/harvested/active-inactive-toggle-with-counter/SKILL.md` |
+| `adamrit-check-test` |  | `C:/Users/ruchi/.claude/skills/harvested/adamrit-check-test/SKILL.md` |
+| `annotated-pitch-coaching-pdf` |  | `C:/Users/ruchi/.claude/skills/harvested/annotated-pitch-coaching-pdf/SKILL.md` |
+| `architecture-flowchart-on-every-project-plan` |  | `C:/Users/ruchi/.claude/skills/harvested/architecture-flowchart-on-every-project-plan/SKILL.md` |
+| `async-ai-advisory-hot-path` |  | `C:/Users/ruchi/.claude/skills/harvested/async-ai-advisory-hot-path/SKILL.md` |
+| `auto-tenant-fetch-wrapper` |  | `C:/Users/ruchi/.claude/skills/harvested/auto-tenant-fetch-wrapper/SKILL.md` |
+| `bni-crm-build-pitfalls` |  | `C:/Users/ruchi/.claude/skills/harvested/bni-crm-build-pitfalls/SKILL.md` |
+| `browser-console-curl-bash-deploy` |  | `C:/Users/ruchi/.claude/skills/harvested/browser-console-curl-bash-deploy/SKILL.md` |
+| `bulk-file-to-db-importer` |  | `C:/Users/ruchi/.claude/skills/harvested/bulk-file-to-db-importer/SKILL.md` |
+| `chatbot-reply-intent-gate` |  | `C:/Users/ruchi/.claude/skills/harvested/chatbot-reply-intent-gate/SKILL.md` |
+| `claude-cli-oauth-vs-apikey-precedence` |  | `C:/Users/ruchi/.claude/skills/harvested/claude-cli-oauth-vs-apikey-precedence/SKILL.md` |
+| `claude-code-deepseek-backend` |  | `C:/Users/ruchi/.claude/skills/harvested/claude-code-deepseek-backend/SKILL.md` |
+| `claude-vps-ssh-access` |  | `C:/Users/ruchi/.claude/skills/harvested/claude-vps-ssh-access/SKILL.md` |
+| `client-facing-no-platform-reuse-framing` |  | `C:/Users/ruchi/.claude/skills/harvested/client-facing-no-platform-reuse-framing/SKILL.md` |
+| `client-project-plan-bettroi-style-pipeline` |  | `C:/Users/ruchi/.claude/skills/harvested/client-project-plan-bettroi-style-pipeline/SKILL.md` |
+| `cloud-to-vps-http-bridge` |  | `C:/Users/ruchi/.claude/skills/harvested/cloud-to-vps-http-bridge/SKILL.md` |
+| `copy-sql-migration-to-clipboard` |  | `C:/Users/ruchi/.claude/skills/harvested/copy-sql-migration-to-clipboard/SKILL.md` |
+| `credential-survivorship-audit` |  | `C:/Users/ruchi/.claude/skills/harvested/credential-survivorship-audit/SKILL.md` |
+| `cron-poll-continuous-deploy` |  | `C:/Users/ruchi/.claude/skills/harvested/cron-poll-continuous-deploy/SKILL.md` |
+| `cross-brand-proposal-style-sender-mismatch` |  | `C:/Users/ruchi/.claude/skills/harvested/cross-brand-proposal-style-sender-mismatch/SKILL.md` |
+| `cross-group-drag-and-drop-categorize` |  | `C:/Users/ruchi/.claude/skills/harvested/cross-group-drag-and-drop-categorize/SKILL.md` |
+| `custom-domain-wrong-project-404` |  | `C:/Users/ruchi/.claude/skills/harvested/custom-domain-wrong-project-404/SKILL.md` |
+| `custom-slash-command-protocol` |  | `C:/Users/ruchi/.claude/skills/harvested/custom-slash-command-protocol/SKILL.md` |
+| `deep-link-copy-button-hash-anchor` |  | `C:/Users/ruchi/.claude/skills/harvested/deep-link-copy-button-hash-anchor/SKILL.md` |
+| `document-type-discipline-plan-vs-proposal` |  | `C:/Users/ruchi/.claude/skills/harvested/document-type-discipline-plan-vs-proposal/SKILL.md` |
+| `document-version-history` |  | `C:/Users/ruchi/.claude/skills/harvested/document-version-history/SKILL.md` |
+| `dotted-blank-fillable-pdf` |  | `C:/Users/ruchi/.claude/skills/harvested/dotted-blank-fillable-pdf/SKILL.md` |
+| `dual-llm-provider-budget-defense` |  | `C:/Users/ruchi/.claude/skills/harvested/dual-llm-provider-budget-defense/SKILL.md` |
+| `dual-publish-skill-and-repo` |  | `C:/Users/ruchi/.claude/skills/harvested/dual-publish-skill-and-repo/SKILL.md` |
+| `email-allowlist-dual-gate-dashboard` |  | `C:/Users/ruchi/.claude/skills/harvested/email-allowlist-dual-gate-dashboard/SKILL.md` |
+| `env-var-secret-newline-and-redeploy-snapshot` |  | `C:/Users/ruchi/.claude/skills/harvested/env-var-secret-newline-and-redeploy-snapshot/SKILL.md` |
+| `eventemitter-socketio-zustand-pipeline` |  | `C:/Users/ruchi/.claude/skills/harvested/eventemitter-socketio-zustand-pipeline/SKILL.md` |
+| `excel-matrix-to-react-lookup` |  | `C:/Users/ruchi/.claude/skills/harvested/excel-matrix-to-react-lookup/SKILL.md` |
+| `exhaustive-error-hunting` |  | `C:/Users/ruchi/.claude/skills/harvested/exhaustive-error-hunting/SKILL.md` |
+| `express-rate-limit-hardening` |  | `C:/Users/ruchi/.claude/skills/harvested/express-rate-limit-hardening/SKILL.md` |
+| `express-tenant-middleware-chain` |  | `C:/Users/ruchi/.claude/skills/harvested/express-tenant-middleware-chain/SKILL.md` |
+| `file-list-image-preview-modal` |  | `C:/Users/ruchi/.claude/skills/harvested/file-list-image-preview-modal/SKILL.md` |
+| `front-back-id-document-image-upload` |  | `C:/Users/ruchi/.claude/skills/harvested/front-back-id-document-image-upload/SKILL.md` |
+| `gh-api-bulk-json-stdin` |  | `C:/Users/ruchi/.claude/skills/harvested/gh-api-bulk-json-stdin/SKILL.md` |
+| `global-claude-md-standards` |  | `C:/Users/ruchi/.claude/skills/harvested/global-claude-md-standards/SKILL.md` |
+| `google-oauth-coop-vercel-fix` |  | `C:/Users/ruchi/.claude/skills/harvested/google-oauth-coop-vercel-fix/SKILL.md` |
+| `handwriting-ocr-via-claude-sonnet-slack-pipeline` |  | `C:/Users/ruchi/.claude/skills/harvested/handwriting-ocr-via-claude-sonnet-slack-pipeline/SKILL.md` |
+| `html-print-window-section-pagebreaks` |  | `C:/Users/ruchi/.claude/skills/harvested/html-print-window-section-pagebreaks/SKILL.md` |
+| `html-to-pptx-python` |  | `C:/Users/ruchi/.claude/skills/harvested/html-to-pptx-python/SKILL.md` |
+| `http-api-probe-matrix-isolation` |  | `C:/Users/ruchi/.claude/skills/harvested/http-api-probe-matrix-isolation/SKILL.md` |
+| `human-in-loop-classification-via-markdown-review` |  | `C:/Users/ruchi/.claude/skills/harvested/human-in-loop-classification-via-markdown-review/SKILL.md` |
+| `idempotent-rag-ingestion-via-source-ref-delete` |  | `C:/Users/ruchi/.claude/skills/harvested/idempotent-rag-ingestion-via-source-ref-delete/SKILL.md` |
+| `idempotent-shellrc-marker-dedupe` |  | `C:/Users/ruchi/.claude/skills/harvested/idempotent-shellrc-marker-dedupe/SKILL.md` |
+| `karpathy-guidelines` |  | `C:/Users/ruchi/.claude/skills/harvested/karpathy-guidelines/SKILL.md` |
+| `llm-chat-context-config` |  | `C:/Users/ruchi/.claude/skills/harvested/llm-chat-context-config/SKILL.md` |
+| `llm-model-routing` |  | `C:/Users/ruchi/.claude/skills/harvested/llm-model-routing/SKILL.md` |
+| `llm-provider-url-construction-bug` |  | `C:/Users/ruchi/.claude/skills/harvested/llm-provider-url-construction-bug/SKILL.md` |
+| `llm-vision-confidence-escalation-cascade` |  | `C:/Users/ruchi/.claude/skills/harvested/llm-vision-confidence-escalation-cascade/SKILL.md` |
+| `mac-disk-space-cleanup-playbook` |  | `C:/Users/ruchi/.claude/skills/harvested/mac-disk-space-cleanup-playbook/SKILL.md` |
+| `macos-chrome-disk-write-crash-fix` |  | `C:/Users/ruchi/.claude/skills/harvested/macos-chrome-disk-write-crash-fix/SKILL.md` |
+| `mca-director-form-generator` |  | `C:/Users/ruchi/.claude/skills/harvested/mca-director-form-generator/SKILL.md` |
+| `multi-agent-code-review-fanout` |  | `C:/Users/ruchi/.claude/skills/harvested/multi-agent-code-review-fanout/SKILL.md` |
+| `multi-channel-alert-gateway` |  | `C:/Users/ruchi/.claude/skills/harvested/multi-channel-alert-gateway/SKILL.md` |
+| `multi-tenant-audit-checklist` |  | `C:/Users/ruchi/.claude/skills/harvested/multi-tenant-audit-checklist/SKILL.md` |
+| `no-em-dashes-in-pdf` |  | `C:/Users/ruchi/.claude/skills/harvested/no-em-dashes-in-pdf/SKILL.md` |
+| `no-mock-data-in-production` |  | `C:/Users/ruchi/.claude/skills/harvested/no-mock-data-in-production/SKILL.md` |
+| `no-unwired-placeholders` |  | `C:/Users/ruchi/.claude/skills/harvested/no-unwired-placeholders/SKILL.md` |
+| `oauth-headless-ssh-tunnel` |  | `C:/Users/ruchi/.claude/skills/harvested/oauth-headless-ssh-tunnel/SKILL.md` |
+| `openclaw-whatsapp-loop-fix` |  | `C:/Users/ruchi/.claude/skills/harvested/openclaw-whatsapp-loop-fix/SKILL.md` |
+| `openwrt-busybox-shell-scripting` |  | `C:/Users/ruchi/.claude/skills/harvested/openwrt-busybox-shell-scripting/SKILL.md` |
+| `pdf-spec-to-compliance-matrix` |  | `C:/Users/ruchi/.claude/skills/harvested/pdf-spec-to-compliance-matrix/SKILL.md` |
+| `pentest-driven-architecture-review` |  | `C:/Users/ruchi/.claude/skills/harvested/pentest-driven-architecture-review/SKILL.md` |
+| `per-record-file-attachment` |  | `C:/Users/ruchi/.claude/skills/harvested/per-record-file-attachment/SKILL.md` |
+| `permanent-rule-three-authority-propagation` |  | `C:/Users/ruchi/.claude/skills/harvested/permanent-rule-three-authority-propagation/SKILL.md` |
+| `pgvector-multitenant-retrieval` |  | `C:/Users/ruchi/.claude/skills/harvested/pgvector-multitenant-retrieval/SKILL.md` |
+| `placeholder-audit-pattern` |  | `C:/Users/ruchi/.claude/skills/harvested/placeholder-audit-pattern/SKILL.md` |
+| `plain-english-explainer-box` |  | `C:/Users/ruchi/.claude/skills/harvested/plain-english-explainer-box/SKILL.md` |
+| `plain-english-stakeholder-glossary-companion` |  | `C:/Users/ruchi/.claude/skills/harvested/plain-english-stakeholder-glossary-companion/SKILL.md` |
+| `plan-file-versioned-evolution` |  | `C:/Users/ruchi/.claude/skills/harvested/plan-file-versioned-evolution/SKILL.md` |
+| `plc-live-test-infrastructure` |  | `C:/Users/ruchi/.claude/skills/harvested/plc-live-test-infrastructure/SKILL.md` |
+| `pm2-cluster-scada-pitfall` |  | `C:/Users/ruchi/.claude/skills/harvested/pm2-cluster-scada-pitfall/SKILL.md` |
+| `postgres-fk-repair-dynamic-block` |  | `C:/Users/ruchi/.claude/skills/harvested/postgres-fk-repair-dynamic-block/SKILL.md` |
+| `postgrest-schema-cache-reload` |  | `C:/Users/ruchi/.claude/skills/harvested/postgrest-schema-cache-reload/SKILL.md` |
+| `pre-save-file-upload-temp-uuid` |  | `C:/Users/ruchi/.claude/skills/harvested/pre-save-file-upload-temp-uuid/SKILL.md` |
+| `printable-standalone-react-page` |  | `C:/Users/ruchi/.claude/skills/harvested/printable-standalone-react-page/SKILL.md` |
+| `prisma-sql-injection-defense` |  | `C:/Users/ruchi/.claude/skills/harvested/prisma-sql-injection-defense/SKILL.md` |
+| `process-log-tracing` |  | `C:/Users/ruchi/.claude/skills/harvested/process-log-tracing/SKILL.md` |
+| `project-gate-pattern` |  | `C:/Users/ruchi/.claude/skills/harvested/project-gate-pattern/SKILL.md` |
+| `proposal-field-standardization` |  | `C:/Users/ruchi/.claude/skills/harvested/proposal-field-standardization/SKILL.md` |
+| `pull-based-remote-agent-architecture` |  | `C:/Users/ruchi/.claude/skills/harvested/pull-based-remote-agent-architecture/SKILL.md` |
+| `python-fstring-html-curly-brace-trap` |  | `C:/Users/ruchi/.claude/skills/harvested/python-fstring-html-curly-brace-trap/SKILL.md` |
+| `quick-login-direct-auth` |  | `C:/Users/ruchi/.claude/skills/harvested/quick-login-direct-auth/SKILL.md` |
+| `railway-cli-noninteractive-auth` |  | `C:/Users/ruchi/.claude/skills/harvested/railway-cli-noninteractive-auth/SKILL.md` |
+| `railway-native-dep-removal` |  | `C:/Users/ruchi/.claude/skills/harvested/railway-native-dep-removal/SKILL.md` |
+| `railway-toml-ui-precedence` |  | `C:/Users/ruchi/.claude/skills/harvested/railway-toml-ui-precedence/SKILL.md` |
+| `react-async-state-snapshot` |  | `C:/Users/ruchi/.claude/skills/harvested/react-async-state-snapshot/SKILL.md` |
+| `react-error-object-guard` |  | `C:/Users/ruchi/.claude/skills/harvested/react-error-object-guard/SKILL.md` |
+| `reactflow-data-persistence` |  | `C:/Users/ruchi/.claude/skills/harvested/reactflow-data-persistence/SKILL.md` |
+| `referer-based-admin-page-no-password` |  | `C:/Users/ruchi/.claude/skills/harvested/referer-based-admin-page-no-password/SKILL.md` |
+| `rollback-policy-pattern` |  | `C:/Users/ruchi/.claude/skills/harvested/rollback-policy-pattern/SKILL.md` |
+| `rsync-deploy-shared-dir-protection` |  | `C:/Users/ruchi/.claude/skills/harvested/rsync-deploy-shared-dir-protection/SKILL.md` |
+| `scada-realtime-reactflow-debugging` |  | `C:/Users/ruchi/.claude/skills/harvested/scada-realtime-reactflow-debugging/SKILL.md` |
+| `scada-tag-autocomplete` |  | `C:/Users/ruchi/.claude/skills/harvested/scada-tag-autocomplete/SKILL.md` |
+| `screen-persistence-pattern` |  | `C:/Users/ruchi/.claude/skills/harvested/screen-persistence-pattern/SKILL.md` |
+| `screenshot-error-diagnosis` |  | `C:/Users/ruchi/.claude/skills/harvested/screenshot-error-diagnosis/SKILL.md` |
+| `self-updating-cron-script` |  | `C:/Users/ruchi/.claude/skills/harvested/self-updating-cron-script/SKILL.md` |
+| `send-to-brain-slack-message-shortcut` |  | `C:/Users/ruchi/.claude/skills/harvested/send-to-brain-slack-message-shortcut/SKILL.md` |
+| `shadcn-dialog-responsive-scrollable` |  | `C:/Users/ruchi/.claude/skills/harvested/shadcn-dialog-responsive-scrollable/SKILL.md` |
+| `shared-vps-coexistence` |  | `C:/Users/ruchi/.claude/skills/harvested/shared-vps-coexistence/SKILL.md` |
+| `silent-out-of-scope-no-enumeration` |  | `C:/Users/ruchi/.claude/skills/harvested/silent-out-of-scope-no-enumeration/SKILL.md` |
+| `slack-bot-permanent-on-macos-launchd` |  | `C:/Users/ruchi/.claude/skills/harvested/slack-bot-permanent-on-macos-launchd/SKILL.md` |
+| `sliding-window-dedup-guard` |  | `C:/Users/ruchi/.claude/skills/harvested/sliding-window-dedup-guard/SKILL.md` |
+| `socketio-room-subscription-chain` |  | `C:/Users/ruchi/.claude/skills/harvested/socketio-room-subscription-chain/SKILL.md` |
+| `soft-delete-hidden-flag` |  | `C:/Users/ruchi/.claude/skills/harvested/soft-delete-hidden-flag/SKILL.md` |
+| `split-auth-modal-signin-signup` |  | `C:/Users/ruchi/.claude/skills/harvested/split-auth-modal-signin-signup/SKILL.md` |
+| `stateful-cli-as-http-service` |  | `C:/Users/ruchi/.claude/skills/harvested/stateful-cli-as-http-service/SKILL.md` |
+| `subscription-vs-payg-api-key-billing-mismatch` |  | `C:/Users/ruchi/.claude/skills/harvested/subscription-vs-payg-api-key-billing-mismatch/SKILL.md` |
+| `supabase-multi-tenant-rls-jwt-claims` |  | `C:/Users/ruchi/.claude/skills/harvested/supabase-multi-tenant-rls-jwt-claims/SKILL.md` |
+| `supabase-owner-only-storage-pii` |  | `C:/Users/ruchi/.claude/skills/harvested/supabase-owner-only-storage-pii/SKILL.md` |
+| `supabase-polling-overload-fix` |  | `C:/Users/ruchi/.claude/skills/harvested/supabase-polling-overload-fix/SKILL.md` |
+| `supabase-sql-clipboard-workflow` |  | `C:/Users/ruchi/.claude/skills/harvested/supabase-sql-clipboard-workflow/SKILL.md` |
+| `supabase-tenant-filtering` |  | `C:/Users/ruchi/.claude/skills/harvested/supabase-tenant-filtering/SKILL.md` |
+| `svg-icons-html-pdf` |  | `C:/Users/ruchi/.claude/skills/harvested/svg-icons-html-pdf/SKILL.md` |
+| `svg-sanitization-dompurify` |  | `C:/Users/ruchi/.claude/skills/harvested/svg-sanitization-dompurify/SKILL.md` |
+| `template-and-instance-document-pair` |  | `C:/Users/ruchi/.claude/skills/harvested/template-and-instance-document-pair/SKILL.md` |
+| `three-tier-milestone-hierarchy` |  | `C:/Users/ruchi/.claude/skills/harvested/three-tier-milestone-hierarchy/SKILL.md` |
+| `timezone-aware-cron-fanout` |  | `C:/Users/ruchi/.claude/skills/harvested/timezone-aware-cron-fanout/SKILL.md` |
+| `token-saving-toolkit-install` |  | `C:/Users/ruchi/.claude/skills/harvested/token-saving-toolkit-install/SKILL.md` |
+| `vercel-frontend-vps-backend-split` |  | `C:/Users/ruchi/.claude/skills/harvested/vercel-frontend-vps-backend-split/SKILL.md` |
+| `vercel-prebuilt-deploy` |  | `C:/Users/ruchi/.claude/skills/harvested/vercel-prebuilt-deploy/SKILL.md` |
+| `vite-env-url-detection` |  | `C:/Users/ruchi/.claude/skills/harvested/vite-env-url-detection/SKILL.md` |
+| `weasyprint-rest-api-pdf` |  | `C:/Users/ruchi/.claude/skills/harvested/weasyprint-rest-api-pdf/SKILL.md` |
+| `whatsapp-instant-ack` |  | `C:/Users/ruchi/.claude/skills/harvested/whatsapp-instant-ack/SKILL.md` |
+| `whatsapp-personalized-research` |  | `C:/Users/ruchi/.claude/skills/harvested/whatsapp-personalized-research/SKILL.md` |
+| `whatsapp-selfchat-token-drain` |  | `C:/Users/ruchi/.claude/skills/harvested/whatsapp-selfchat-token-drain/SKILL.md` |
+| `worker-readonly-db-role-pattern` |  | `C:/Users/ruchi/.claude/skills/harvested/worker-readonly-db-role-pattern/SKILL.md` |
+| `zai-coding-plan-claude-code` |  | `C:/Users/ruchi/.claude/skills/harvested/zai-coding-plan-claude-code/SKILL.md` |
+| `zai-openai-compatible-provider` |  | `C:/Users/ruchi/.claude/skills/harvested/zai-openai-compatible-provider/SKILL.md` |
+| `zero-hardcode-integration-protocol` |  | `C:/Users/ruchi/.claude/skills/harvested/zero-hardcode-integration-protocol/SKILL.md` |
+| `zero-mock-zero-fallback` |  | `C:/Users/ruchi/.claude/skills/harvested/zero-mock-zero-fallback/SKILL.md` |
 
 _Catalog auto-regenerated on every Claude Code session start. Do not edit between the IRONBARK markers, manual edits outside the block are preserved._
 
