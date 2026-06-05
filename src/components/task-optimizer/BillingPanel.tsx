@@ -253,7 +253,6 @@ export default function BillingPanel() {
   });
 
   const handleCheckMail = async () => {
-    window.open(HOSPITAL_GMAIL, '_blank');
     setIsChecking(true);
     try {
       const { saved } = await checkMail();
