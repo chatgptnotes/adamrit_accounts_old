@@ -114,7 +114,7 @@ function EmailCard({ email, onApprove, onReject, onRegenerate }: {
               <div className="p-4">
                 <div className="text-xs text-gray-400 mb-2">From: {email.from_name} &lt;{email.from_email}&gt;</div>
                 <div className="text-xs text-gray-400 mb-3">Subject: {email.subject}</div>
-                <pre className="text-sm whitespace-pre-wrap text-gray-700 bg-gray-50 rounded p-3 border max-h-64 overflow-y-auto">
+                <pre className="text-sm whitespace-pre-wrap text-gray-700 bg-gray-50 rounded p-3 border max-h-[500px] overflow-y-auto">
                   {email.body_preview || 'No content available'}
                 </pre>
                 {isPending && (

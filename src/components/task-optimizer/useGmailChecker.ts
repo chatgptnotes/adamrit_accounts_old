@@ -190,12 +190,24 @@ export function useGmailChecker() {
       const threadId   = (msgData as Record<string, unknown>).threadId as string ?? '';
       const body       = extractTextBody(msgData.payload as Record<string, unknown>);
 
-      // Dedup: skip if this exact Gmail message was already saved (stored in approved_by)
-      const { count } = await supabaseAdmin
+      // Check if this Gmail message was already saved (using gmail message ID stored in approved_by)
+      const { data: existing } = await supabaseAdmin
         .from('email_inbox')
-        .select('id', { count: 'exact', head: true })
-        .eq('approved_by', `gmailid:${gmailMsgId}`);
-      if ((count ?? 0) > 0) { skipped++; continue; }
+        .select('id, body_preview')
+        .eq('approved_by', `gmailid:${gmailMsgId}`)
+        .single();
+
+      if (existing) {
+        // Already saved — update body if it was previously truncated
+        if (!existing.body_preview || existing.body_preview.length < body.length) {
+          await supabaseAdmin
+            .from('email_inbox')
+            .update({ body_preview: body })
+            .eq('id', existing.id);
+        }
+        skipped++;
+        continue;
+      }
 
       const { category, urgency } = classifyEmail(subject, body);
       const draftReply = buildDraftReply(fromName, subject, category);
@@ -208,13 +220,13 @@ export function useGmailChecker() {
         from_email:   fromEmail,
         from_name:    fromName,
         subject,
-        body_preview: body.slice(0, 2000),
+        body_preview: body, // full body — TEXT column has no size limit
         category,
         urgency,
         draft_reply:  draftReply,
         status:       'pending',
         check_date:   today,
-        approved_by:  `gmailid:${gmailMsgId}`, // dedup key — overwritten when actually approved
+        approved_by:  `gmailid:${gmailMsgId}`,
       });
 
       if (insertError) {
