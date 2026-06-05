@@ -171,6 +171,55 @@ const PaymentVoucher = () => {
     }
   };
 
+  // Print a single voucher as a standalone receipt-style document.
+  const handlePrintOne = (v: PaymentVoucher): void => {
+    const win = window.open('', '_blank', 'width=900,height=1100');
+    if (!win) {
+      toast.error('Popup blocked — please allow popups for this site to print');
+      return;
+    }
+    const row = (label: string, value: string): string => `
+      <tr>
+        <td class="lbl">${escapeHTML(label)}</td>
+        <td class="val">${escapeHTML(value)}</td>
+      </tr>`;
+    const html = `<!doctype html><html><head><meta charset="utf-8" />
+<title>Payment Voucher — ${escapeHTML(v.voucher_no)}</title>
+<style>
+  body { font-family: Arial, Helvetica, sans-serif; margin: 14mm; color: #000; }
+  h2 { margin: 0 0 2px; }
+  .org { font-size: 14px; font-weight: 700; }
+  .meta { color: #555; font-size: 12px; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td { border: 1px solid #555; padding: 8px 10px; vertical-align: top; }
+  td.lbl { width: 32%; background: #f1f5f9; font-weight: 600; }
+  td.amt .val { font-weight: 700; font-size: 15px; }
+  .sign { margin-top: 56px; display: flex; justify-content: space-between; font-size: 12px; }
+  .sign div { border-top: 1px solid #555; padding-top: 4px; width: 38%; text-align: center; }
+  @page { size: A4 portrait; margin: 14mm; }
+</style></head><body>
+  <div class="org">${escapeHTML(hospitalType)}</div>
+  <h2>Payment Voucher</h2>
+  <div class="meta">Voucher No: ${escapeHTML(v.voucher_no)} · Date: ${escapeHTML(formatDateLabel(v.voucher_date))}</div>
+  <table>
+    ${row('Voucher No.', v.voucher_no)}
+    ${row('Date', formatDateLabel(v.voucher_date))}
+    ${row('Person Name', v.person_name)}
+    ${row('Purpose / Reason', v.purpose || '-')}
+    ${row('Paid By', v.paid_by || '-')}
+    <tr class="amt"><td class="lbl">Amount</td><td class="val">₹ ${fmtINR(Number(v.amount))}</td></tr>
+  </table>
+  <div class="sign">
+    <div>Received By</div>
+    <div>Authorised Signatory</div>
+  </div>
+  <script>window.onload=function(){setTimeout(function(){window.print()},150)}</script>
+</body></html>`;
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+  };
+
   const handlePrint = (): void => {
     const win = window.open('', '_blank', 'width=900,height=1100');
     if (!win) {
@@ -304,7 +353,7 @@ const PaymentVoucher = () => {
                   <TableHead>Purpose</TableHead>
                   <TableHead>Paid By</TableHead>
                   <TableHead className="text-right">Amount (₹)</TableHead>
-                  <TableHead className="w-12"></TableHead>
+                  <TableHead className="w-20"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -333,15 +382,27 @@ const PaymentVoucher = () => {
                             <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setDeleteConfirmId(null)}>No</Button>
                           </div>
                         ) : (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            aria-label="Delete voucher"
-                            onClick={() => setDeleteConfirmId(v.id)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5 text-red-500" />
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              aria-label="Print voucher"
+                              title="Print voucher"
+                              onClick={() => handlePrintOne(v)}
+                            >
+                              <Printer className="h-3.5 w-3.5 text-blue-600" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              aria-label="Delete voucher"
+                              onClick={() => setDeleteConfirmId(v.id)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                            </Button>
+                          </div>
                         )}
                       </TableCell>
                     </TableRow>
