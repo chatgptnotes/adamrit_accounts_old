@@ -187,22 +187,9 @@ export default function BillingPanel() {
   const [dashboardOpen, setDashboardOpen] = useState(false);
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [isChecking, setIsChecking] = useState(false);
-  const [showIndexPrompt, setShowIndexPrompt] = useState(false);
   const { checkMail, regenerateDraft } = useGmailChecker();
 
-  // Get stored Gmail account index — set once, used every time after
-  const gmailAccountIndex = localStorage.getItem('gmail_account_index');
-
-  const openGmail = () => {
-    if (gmailAccountIndex !== null) {
-      // Already configured — open directly, no login prompt
-      window.open(`https://mail.google.com/mail/u/${gmailAccountIndex}/#inbox`, '_blank');
-    } else {
-      // First time — use AccountChooser then ask user to save the index
-      window.open('https://accounts.google.com/AccountChooser?Email=info%40hopehospital.com&continue=https%3A%2F%2Fmail.google.com%2F', '_blank');
-      setShowIndexPrompt(true);
-    }
-  };
+  const HOSPITAL_GMAIL = 'https://mail.google.com/mail/?authuser=info@hopehospital.com';
 
   const billingTabs: { key: BillingTab; label: string; icon: React.ReactNode }[] = [
     { key: 'emails', label: 'Corporate Emails', icon: <Mail className="h-4 w-4" /> },
@@ -266,8 +253,7 @@ export default function BillingPanel() {
   });
 
   const handleCheckMail = async () => {
-    // Open Gmail immediately (synchronously, before any await — avoids popup blocker)
-    openGmail();
+    window.open(HOSPITAL_GMAIL, '_blank');
     setIsChecking(true);
     try {
       const { saved } = await checkMail();
@@ -316,49 +302,16 @@ export default function BillingPanel() {
       <div className="flex items-center gap-2">
         <Receipt className="h-5 w-5 text-primary" />
         <h2 className="text-lg font-semibold">Billing Automation</h2>
-        {gmailAccountIndex !== null && (
-          <button
-            className="ml-auto text-xs text-gray-400 hover:text-red-500"
-            onClick={() => { localStorage.removeItem('gmail_account_index'); window.location.reload(); }}
-          >
-            Reset Gmail account
-          </button>
-        )}
+        <a
+          href={HOSPITAL_GMAIL}
+          target="_blank"
+          rel="noreferrer"
+          className="ml-auto text-xs text-blue-500 hover:underline flex items-center gap-1"
+        >
+          <Mail className="h-3 w-3" />
+          info@hopehospital.com
+        </a>
       </div>
-
-      {/* One-time Gmail account index prompt */}
-      {showIndexPrompt && gmailAccountIndex === null && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
-          <p className="text-sm font-medium text-blue-800">
-            One-time setup — look at the Gmail tab that just opened.
-          </p>
-          <p className="text-xs text-blue-700">
-            Check the URL in that tab. It will show something like <strong>mail.google.com/mail/u/<span className="underline">1</span>/</strong>
-            — what is the number after <strong>/u/</strong>?
-          </p>
-          <div className="flex gap-2">
-            {[0, 1, 2, 3].map(n => (
-              <button
-                key={n}
-                onClick={() => {
-                  localStorage.setItem('gmail_account_index', String(n));
-                  setShowIndexPrompt(false);
-                  toast({ title: 'Gmail account saved', description: `Will always open account ${n} (info@hopehospital.com) from now on.` });
-                }}
-                className="px-4 py-1.5 rounded border border-blue-300 text-blue-700 text-sm font-medium hover:bg-blue-100"
-              >
-                {n}
-              </button>
-            ))}
-            <button
-              onClick={() => setShowIndexPrompt(false)}
-              className="px-3 py-1.5 rounded text-xs text-gray-500 hover:text-gray-700"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Sub-tabs */}
       <div className="flex gap-1 border-b">
