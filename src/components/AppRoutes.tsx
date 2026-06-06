@@ -150,6 +150,8 @@ const PaymentQR = lazy(() => import("../pages/PaymentQR"));
 const QueueStatus = lazy(() => import("../pages/QueueStatus"));
 const CasualtyRegister = lazy(() => import("../pages/CasualtyRegister"));
 const SkillFactory = lazy(() => import("../pages/SkillFactory"));
+const SkillFactoryV2 = lazy(() => import("../pages/SkillFactoryV2"));
+const DeadlineDashboard = lazy(() => import("../components/task-optimizer/flow/DeadlineDashboard"));
 
 // Loading component
 const PageLoader = () => (
@@ -157,6 +159,12 @@ const PageLoader = () => (
     <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
   </div>
 );
+
+// Thin wrapper that gives DeadlineDashboard a Back button bound to the router.
+const DeadlineTrackingRoute = () => {
+  const navigate = useNavigate();
+  return <DeadlineDashboard onBack={() => navigate(-1)} />;
+};
 
 // Director Dashboard route guard
 const DirectorRoute = () => {
@@ -325,7 +333,12 @@ export const AppRoutes = () => {
         <Route path="/queue-status" element={<QueueStatus />} />
         <Route path="/nephroplus" element={<Suspense fallback={<PageLoader />}><NephroPlus /></Suspense>} />
         <Route path="/casualty-register" element={<Suspense fallback={<PageLoader />}><CasualtyRegister /></Suspense>} />
-        <Route path="/skill-factory" element={<Suspense fallback={<PageLoader />}><SkillFactory /></Suspense>} />
+        {/* Skill Factory tab → render v2 directly. /v2 is kept as a stable alias. */}
+        <Route path="/skill-factory" element={<Suspense fallback={<PageLoader />}><SkillFactoryV2 /></Suspense>} />
+        <Route path="/skill-factory/v2" element={<Suspense fallback={<PageLoader />}><SkillFactoryV2 /></Suspense>} />
+        {/* Legacy in-memory builder, kept for fallback at /skill-factory/legacy */}
+        <Route path="/skill-factory/legacy" element={<Suspense fallback={<PageLoader />}><SkillFactory /></Suspense>} />
+        <Route path="/deadline-tracking" element={<Suspense fallback={<PageLoader />}><DeadlineTrackingRoute /></Suspense>} />
         {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
         <Route path="/master-data" element={<Suspense fallback={<PageLoader />}><MasterData /></Suspense>} />
         <Route path="*" element={<NotFound />} />

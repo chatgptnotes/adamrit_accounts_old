@@ -19,6 +19,9 @@ export interface GenerateFlowInput {
 export interface GeneratedFlow {
   name: string;
   explanation: string;
+  // Clarifying or refinement questions the assistant proposes after building
+  // the flow — rendered as clickable chips in the chatbot.
+  questions?: string[];
   nodes: StoredNode[];
   edges: StoredEdge[];
 }
@@ -32,6 +35,7 @@ type RawAction = { type?: string; message?: string; setStatus?: string; to?: str
 interface RawFlow {
   name?: string;
   explanation?: string;
+  questions?: unknown;
   trigger?: { toStatus?: string };
   conditions?: RawCondition[];
   actions?: RawAction[];
@@ -72,6 +76,8 @@ function buildPrompt({ persona, instruction, current }: GenerateFlowInput): stri
   const verb = currentSpec ? 'edit the' : 'design an';
   return `You ${verb} automation for a hospital "Task Optimizer". An automation runs when a staff task's STATUS CHANGES (statuses: suggested, in_progress, done, dismissed). Tailor it to the person's role.
 
+You also act as a thoughtful coach: after producing the automation, propose 2-3 SHORT follow-up questions that help the user refine it, decide between approaches, or add the next sensible step. Phrase each question so the user can answer it by sending it straight back (e.g. "Should I also notify the supervisor?" "Add a 24-hour delay before reminding?"). Make the questions specific to the role and the task, not generic.
+
 Person's role / persona: ${persona}
 What they want: ${instruction}
 ${editBlock}
@@ -79,6 +85,7 @@ Return ONLY valid JSON (no markdown, no code fences) of exactly this shape:
 {
   "name": "short automation name",
   "explanation": "one or two sentences describing what it does, addressed to the persona",
+  "questions": ["question 1?", "question 2?", "question 3?"],
   "trigger": { "toStatus": "one of: suggested, in_progress, done, dismissed, any" },
   "conditions": [ { "field": "designation|suggestion_type|time_saved_mins", "op": "eq|contains|gte", "value": "string" } ],
   "actions": [ { "type": "notify|tag|set_status|whatsapp|email", "message": "text (may use {staff} {task} {status})", "setStatus": "optional status for set_status", "to": "email address (for email type only)", "subject": "email subject (for email type only, may use {staff} {task} {status})" } ]
@@ -87,6 +94,7 @@ Return ONLY valid JSON (no markdown, no code fences) of exactly this shape:
 Rules:
 - At least one action. Conditions may be an empty array.
 - suggestion_type values are one of: automate, reduce, delegate, keep.
+- "questions" MUST contain 2-3 strings ending with "?". These are next-step refinements or automation choices the user might want to try.
 - Use whatsapp only if the user explicitly wants a WhatsApp message sent; keep messages concise.
 - Use email only if the user explicitly wants an email sent; provide a to address and subject.
 - Output a single valid JSON object.`;
@@ -157,9 +165,19 @@ function mapToGraph(raw: RawFlow): GeneratedFlow {
     edges.push({ id: `e-${lastChainId}-${id}`, source: lastChainId, target: id });
   });
 
+  // Sanitize the AI's follow-up questions: max 3, each must end in "?" and be
+  // non-empty. Defensive against the model emitting arrays of objects, etc.
+  const questions: string[] = Array.isArray(raw.questions)
+    ? (raw.questions as unknown[])
+        .map((q) => (typeof q === 'string' ? q.trim() : ''))
+        .filter((q): q is string => q.length > 0 && q.length <= 140)
+        .slice(0, 3)
+    : [];
+
   return {
     name: (raw.name ?? '').toString().trim() || 'AI automation',
     explanation: (raw.explanation ?? '').toString().trim(),
+    questions,
     nodes,
     edges,
   };

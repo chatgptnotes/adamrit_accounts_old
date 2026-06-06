@@ -16,11 +16,14 @@ export const menuItems: MenuItemDef[] = [
     url: "/",
     icon: BarChart3,
   },
-  {
-    title: "Task Optimizer",
-    url: "/task-optimizer",
-    icon: Sparkles,
-  },
+  // Task Optimizer hidden from the sidebar — its data + route still work, but
+  // it's no longer surfaced as a top-level menu item. Skill Factory is the
+  // user-facing entry point now.
+  // {
+  //   title: "Task Optimizer",
+  //   url: "/task-optimizer",
+  //   icon: Sparkles,
+  // },
   {
     title: "Skill Factory",
     url: "/skill-factory",

@@ -15,7 +15,9 @@ function getMessage(data: FlowNodeData): string {
   return '';
 }
 
-const HANDLE_BASE = '!h-3.5 !w-3.5 !border-2 !border-white !rounded-full !shadow-sm';
+// Larger handles + a soft outer ring make the connect target easier to grab.
+const HANDLE_BASE =
+  '!h-4 !w-4 !border-2 !border-white !rounded-full !shadow transition-transform hover:!scale-125';
 
 // ── Trigger Node ────────────────────────────────────────────────────
 function TriggerNode({ data, selected }: NodeProps) {

@@ -77,6 +77,20 @@ const getRoleDefaultRoute = (role: string, email?: string): string => {
   }
 };
 
+// Hide the global FAB pair on Skill Factory (which mounts its own AI sidebar in
+// the same screen area). Exact match so /skill-factory/legacy still shows them.
+const ROUTES_WITHOUT_FLOATERS = new Set(['/skill-factory', '/skill-factory/v2']);
+const FloatingFabs: React.FC = () => {
+  const { pathname } = useLocation();
+  if (ROUTES_WITHOUT_FLOATERS.has(pathname)) return null;
+  return (
+    <>
+      <FloatingCameraFAB />
+      <ChatWidget />
+    </>
+  );
+};
+
 // Role-based redirect component — lives inside BrowserRouter so it can use useNavigate
 // This replaces window.location.href which caused infinite reload loops on mobile
 const RoleRedirect: React.FC<{ user: { role: string; email: string } }> = ({ user }) => {
@@ -332,8 +346,7 @@ const AppContent = () => {
               <div className="flex-1 min-h-0 overflow-auto">
                 <AppRoutes />
               </div>
-              <FloatingCameraFAB />
-              <ChatWidget />
+              <FloatingFabs />
             </main>
           </div>
         </SidebarProvider>
