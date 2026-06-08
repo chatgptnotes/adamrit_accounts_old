@@ -109,14 +109,32 @@ const readSubtasks = (logId: string): Record<string, string[]> => {
     const raw = localStorage.getItem(subtasksKey(logId));
     if (!raw) return {};
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, string[]>) : {};
+    if (!parsed || typeof parsed !== 'object') return {};
+    // Drop empty / whitespace-only entries — they used to slip in via an edge
+    // case in earlier builds and would render as a blank subtask card.
+    const cleaned: Record<string, string[]> = {};
+    for (const [task, list] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!Array.isArray(list)) continue;
+      cleaned[task] = list
+        .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+        .map((s) => s.trim());
+    }
+    return cleaned;
   } catch {
     return {};
   }
 };
 const writeSubtasks = (logId: string, map: Record<string, string[]>) => {
   try {
-    localStorage.setItem(subtasksKey(logId), JSON.stringify(map));
+    // Sanitize on write too — blocks blank rows from ever reaching localStorage,
+    // even if some upstream path managed to push an empty entry into state.
+    const cleaned: Record<string, string[]> = {};
+    for (const [task, list] of Object.entries(map)) {
+      cleaned[task] = (Array.isArray(list) ? list : [])
+        .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+        .map((s) => s.trim());
+    }
+    localStorage.setItem(subtasksKey(logId), JSON.stringify(cleaned));
   } catch {
     /* noop */
   }
@@ -521,6 +539,77 @@ function buildVerdictStarter(
   return { nodes, edges };
 }
 
+// Keep the canvas's "step-N" sub-action nodes in lock-step with the Steps panel.
+// Strips any existing step-N nodes (and their connecting edges) and re-chains
+// one node per current subtask after the canvas's tail node. Used so that
+// adding / removing / reordering a step on the left always updates the canvas
+// on the right — even for saved flows or the Deadline Tracking demo.
+const STEP_ID_RX = /^step-\d+$/;
+function syncSubtaskSteps(
+  nodes: StoredNode[],
+  edges: StoredEdge[],
+  subtasks: string[],
+): { nodes: StoredNode[]; edges: StoredEdge[] } {
+  const keptNodes = nodes.filter((n) => !STEP_ID_RX.test(n.id));
+  const keptEdges = edges.filter(
+    (e) => !STEP_ID_RX.test(e.source) && !STEP_ID_RX.test(e.target),
+  );
+  if (subtasks.length === 0) return { nodes: keptNodes, edges: keptEdges };
+
+  // The "tail" is the node we should chain subtask steps after: the one with no
+  // outgoing edge among the kept graph. Fall back to the last node if every
+  // node has an outgoing edge (cyclic / no clear tail).
+  const hasOutgoing = new Set(keptEdges.map((e) => e.source));
+  const tail =
+    keptNodes.find((n) => !hasOutgoing.has(n.id)) ?? keptNodes[keptNodes.length - 1];
+  if (!tail) return { nodes: keptNodes, edges: keptEdges };
+
+  const baseX = tail.position.x;
+  const baseY = tail.position.y;
+  const newNodes: StoredNode[] = subtasks.map((s, i) => ({
+    id: `step-${i + 1}`,
+    type: 'action',
+    position: { x: baseX, y: baseY + 130 * (i + 1) },
+    data: {
+      kind: 'action',
+      label: `Step ${i + 1}: ${s}`,
+      config: { type: 'notify', message: s } as ActionConfig,
+    },
+  }));
+  const newEdges: StoredEdge[] = [];
+  let prev = tail.id;
+  for (const n of newNodes) {
+    newEdges.push({ id: `e-${prev}-${n.id}`, source: prev, target: n.id });
+    prev = n.id;
+  }
+  return { nodes: [...keptNodes, ...newNodes], edges: [...keptEdges, ...newEdges] };
+}
+
+// Reverse direction of syncSubtaskSteps: read the action nodes on the canvas
+// and pull out the labels that look like step entries. Used to mirror canvas
+// edits (new node dropped from palette, label renamed, node deleted) back into
+// the Steps panel so "anything done on the canvas" stays in the subtask list.
+// Filters: nodes of type 'action', excluding the verdict-starter "main" action
+// (id 'action-1' whose label does NOT start with "Step "). Step prefix
+// ("Step N:" or "Step N ·") is stripped so labels round-trip cleanly through
+// syncSubtaskSteps.
+const STEP_LABEL_RX = /^step\s+\d+\s*[:·\-]?\s*/i;
+function deriveSubtasksFromCanvas(nodes: StoredNode[]): string[] {
+  const out: string[] = [];
+  for (const n of nodes) {
+    if (n.type !== 'action') continue;
+    const label = ((n.data as { label?: string } | undefined)?.label ?? '').trim();
+    if (!label) continue;
+    const looksLikeStep = STEP_LABEL_RX.test(label);
+    // Drop the verdict-starter "main action" — id 'action-1' with a non-Step
+    // label represents the task itself, not a step underneath it.
+    if (n.id === 'action-1' && !looksLikeStep) continue;
+    const clean = label.replace(STEP_LABEL_RX, '').trim();
+    if (clean.length > 0) out.push(clean);
+  }
+  return out;
+}
+
 // Rule 16 — true while a saved flow's timestamp is younger than 24 hours.
 // Used to decide whether to show the "Just saved · Review" pill.
 function isWithin24h(iso: string | null | undefined): boolean {
@@ -721,11 +810,37 @@ export default function SkillFactoryV2() {
     setSubtasksMap(readSubtasks(activeLog.id));
   }, [activeLog?.id]);
 
-  const activeSubtasks: string[] = activeTask ? subtasksMap[activeTask] ?? [] : [];
+  // Filter on display too — blocks any blank in-memory entry from rendering as
+  // an empty card before the next persist/reload purges it from localStorage.
+  const activeSubtasks: string[] = activeTask
+    ? (subtasksMap[activeTask] ?? []).filter((s) => typeof s === 'string' && s.trim().length > 0)
+    : [];
+
+  // Refs that always point at the latest canvas state. persistSubtasks needs
+  // them so it can imperatively sync step-N nodes onto the live canvas without
+  // going through a useEffect (which would clobber unsaved user edits on the
+  // canvas). They're updated on every render, kept outside React's state.
+  const nodesRef = useRef<StoredNode[]>([]);
+  const edgesRef = useRef<StoredEdge[]>([]);
+  nodesRef.current = currentNodes;
+  edgesRef.current = currentEdges;
 
   const persistSubtasks = (next: Record<string, string[]>) => {
     setSubtasksMap(next);
     if (activeLog) writeSubtasks(activeLog.id, next);
+    // Steps → Canvas: mirror the new subtask list onto the live canvas as
+    // step-N nodes, preserving any other nodes the user/AI added. Done here
+    // (imperatively) instead of via a useEffect dep on subtasksMap so canvas
+    // edits aren't wiped every time a step changes.
+    if (activeTask) {
+      const subs = (next[activeTask] ?? []).filter(
+        (s) => typeof s === 'string' && s.trim().length > 0,
+      );
+      const synced = syncSubtaskSteps(nodesRef.current, edgesRef.current, subs);
+      setCurrentNodes(synced.nodes);
+      setCurrentEdges(synced.edges);
+      setFlowDirty(true);
+    }
   };
 
   // Open the inline "+ Step" input at the top of the Steps panel.
@@ -809,22 +924,24 @@ export default function SkillFactoryV2() {
       // Drilled into a specific task. The Deadline Tracking task always shows
       // the real, end-to-end automation we built (overrides any old stub flow
       // saved before this view existed); other tasks prefer their saved flow.
+      const subs = subtasksMap[activeTask] ?? [];
+      let base: { nodes: StoredNode[]; edges: StoredEdge[] };
       if (isDeadlineTrackingTask(activeTask)) {
-        const dl = buildDeadlineTrackingFlow();
-        setCurrentNodes(dl.nodes);
-        setCurrentEdges(dl.edges);
+        base = buildDeadlineTrackingFlow();
       } else if (savedFlow) {
-        setCurrentNodes(savedFlow.nodes);
-        setCurrentEdges(savedFlow.edges);
+        base = { nodes: savedFlow.nodes, edges: savedFlow.edges };
       } else {
-        const starter = buildVerdictStarter(
+        // Pass [] here — syncSubtaskSteps below is the single source of truth
+        // for step-N nodes so adds/removes/reorders stay reflected on the canvas.
+        base = buildVerdictStarter(
           activeTask,
           verdictByTask.get(activeTask.toLowerCase()) ?? null,
-          subtasksMap[activeTask] ?? [],
+          [],
         );
-        setCurrentNodes(starter.nodes);
-        setCurrentEdges(starter.edges);
       }
+      const synced = syncSubtaskSteps(base.nodes, base.edges, subs);
+      setCurrentNodes(synced.nodes);
+      setCurrentEdges(synced.edges);
     } else if (activeStaff && ruleTasks.length > 0) {
       // Just a staff selected. If the staff itself is the Deadline Tracking
       // persona, or any of its tasks reference deadlines, show the real
@@ -847,7 +964,12 @@ export default function SkillFactoryV2() {
       setCurrentEdges([]);
     }
     setFlowDirty(false);
-  }, [savedFlow, activeTask, activeStaff?.key, ruleTasks, verdictByTask, subtasksMap]);
+    // subtasksMap intentionally NOT in deps: subtask edits sync onto the canvas
+    // imperatively via persistSubtasks (Steps → Canvas) and the onChange handler
+    // mirrors canvas edits back into subtasksMap (Canvas → Steps). Keeping it
+    // here would re-derive the canvas from scratch on every step add/remove and
+    // wipe any user edits.
+  }, [savedFlow, activeTask, activeStaff?.key, ruleTasks, verdictByTask]);
 
   const persistLogTasks = async (logId: string, nextTasks: string[]) => {
     setLogs((prev) => prev.map((l) => (l.id === logId ? { ...l, tasks: nextTasks } : l)));
@@ -1572,6 +1694,23 @@ export default function SkillFactoryV2() {
                 setCurrentNodes(n);
                 setCurrentEdges(edges);
                 setFlowDirty(true);
+                // Canvas → Steps: when a node is added / renamed / deleted on
+                // the canvas, mirror those changes back into subtasksMap so the
+                // Steps panel reflects "anything done on the canvas". We write
+                // state + localStorage directly (not via persistSubtasks) to
+                // avoid bouncing the change back onto the canvas as a rebuild.
+                if (activeTask) {
+                  const derived = deriveSubtasksFromCanvas(n);
+                  const cur = subtasksMap[activeTask] ?? [];
+                  const changed =
+                    derived.length !== cur.length ||
+                    derived.some((s, i) => s !== cur[i]);
+                  if (changed) {
+                    const nextMap = { ...subtasksMap, [activeTask]: derived };
+                    setSubtasksMap(nextMap);
+                    if (activeLog) writeSubtasks(activeLog.id, nextMap);
+                  }
+                }
               }}
               // Overview is preview-only — edits would be wiped on the next data
               // refresh anyway. The user must drill into a task to edit.
