@@ -14,10 +14,13 @@ import {
   ArrowDownToLine,
   Bell,
   Zap,
+  AlertTriangle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { generateFlowFromPrompt } from '@/lib/generateFlowFromPrompt';
+import { generateFlowFromPrompt, type GeneratedFlow } from '@/lib/generateFlowFromPrompt';
+import { FlowSafetyError } from '@/lib/flowSafety';
+import { fetchFireCountThisWeek, getCachedFireCount } from '@/lib/automationFireStats';
 import type { StoredNode, StoredEdge } from '@/lib/taskOptimizerFlows';
 import SkillInsightChip from './SkillInsightChip';
 
@@ -26,7 +29,9 @@ export interface SkillFactoryChatbotProps {
   subtasks: string[];
   designation: string;
   currentFlow: { nodes: StoredNode[]; edges: StoredEdge[] };
-  onApplyFlow: (nodes: StoredNode[], edges: StoredEdge[]) => void;
+  // opts.dryRun: when true, the parent should apply to the canvas but skip the
+  // auto-save (Rule 15). Parent decides what "skip" means — typically no DB write.
+  onApplyFlow: (nodes: StoredNode[], edges: StoredEdge[], opts?: { dryRun?: boolean }) => void;
   // When false, the user-input textarea + Send button at the bottom are hidden.
   // The chatbot then only drives off the Execute button in the header.
   showComposer?: boolean;
@@ -40,6 +45,14 @@ interface ChatMessage {
   questions?: string[];
   // Number of nodes applied to canvas, present only on successful AI replies.
   appliedNodes?: number;
+  // Saved automation name (only set for non-dry-run successes). The UI looks
+  // up the fire-count for this name to render Rule 14's "Fired N times" line.
+  appliedFlowName?: string;
+  // When present, this message is the safety-block notice — rendered in red,
+  // with one clickable "safe alternative" chip so the chat never dead-ends.
+  safetyBlock?: {
+    safeAlternative: string | null;
+  };
 }
 
 // Build the prompt that gets pushed to the chatbot when Execute is clicked.
@@ -67,21 +80,29 @@ function buildExecutePrompt(task: string, subtasks: string[], flow: { nodes: Sto
 // to give each option a visual identity instead of a wall of text.
 function starterPromptsFor(task: string, designation: string): { icon: typeof Wand2; label: string; prompt: string }[] {
   if (!task.trim()) {
+    // No task picked → surface the new real-world triggers so first-time users
+    // discover bill_added / deadline_due / deadline_overdue / deadline_paid by
+    // tapping. Each chip maps 1:1 to one new trigger type.
     return [
       {
-        icon: Wand2,
-        label: 'Suggest an automation',
-        prompt: `What's a quick automation I can set up today for ${designation || 'me'}?`,
+        icon: Bell,
+        label: 'Ping me when a bill is added',
+        prompt: 'Notify me whenever a new bill is added.',
       },
       {
         icon: Clock3,
-        label: 'Save time on a task',
-        prompt: `How can I save time on a typical ${designation || 'staff'} task?`,
+        label: 'Remind me before a deadline',
+        prompt: 'Remind me one day before a deadline is due.',
       },
       {
-        icon: Sparkles,
-        label: 'First workflow walkthrough',
-        prompt: 'Walk me through building my first workflow step by step.',
+        icon: Zap,
+        label: 'Escalate overdue items',
+        prompt: 'When a deadline becomes overdue, notify the supervisor.',
+      },
+      {
+        icon: CheckCircle2,
+        label: 'Celebrate paid bills',
+        prompt: 'When a bill is marked paid, log it and tag the staff who handled it.',
       },
     ];
   }
@@ -124,6 +145,9 @@ export default function SkillFactoryChatbot({
   const [loading, setLoading] = useState(false);
   const [insightVisible, setInsightVisible] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Rule 15 — when on, applied flows render to canvas but the parent skips
+  // persistence. Lets the user iterate without polluting the DB.
+  const [dryRun, setDryRun] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const isEditing = currentFlow.nodes.length > 0;
@@ -147,21 +171,39 @@ export default function SkillFactoryChatbot({
         instruction: text,
         current: isEditing ? currentFlow : undefined,
       });
-      onApplyFlow(flow.nodes, flow.edges);
+      onApplyFlow(flow.nodes, flow.edges, { dryRun });
+      const baseText = flow.explanation || (isEditing ? 'Updated the workflow on the canvas.' : 'Built a workflow on the canvas.');
       setMessages(prev => [
         ...prev,
         {
           role: 'assistant',
-          text: flow.explanation || (isEditing ? 'Updated the workflow on the canvas.' : 'Built a workflow on the canvas.'),
+          text: dryRun ? `${baseText} (Dry run — nothing saved.)` : baseText,
           questions: flow.questions ?? [],
           appliedNodes: flow.nodes.length,
+          // Only saved flows get a fire-count lookup — dry runs aren't in the DB.
+          appliedFlowName: dryRun ? undefined : flow.name,
         },
       ]);
     } catch (error: unknown) {
-      setMessages(prev => [
-        ...prev,
-        { role: 'assistant', text: error instanceof Error ? error.message : 'Something went wrong. Please try again.' },
-      ]);
+      // Safety block (Layer B or C): render a distinct red bubble with one
+      // safe-alternative chip so the conversation never dead-ends. No flow is
+      // applied — onApplyFlow was never called.
+      if (error instanceof FlowSafetyError) {
+        setMessages(prev => [
+          ...prev,
+          {
+            role: 'assistant',
+            text:
+              "I can't build that — it would delete or modify records I'm not allowed to touch. Try one of the safe alternatives below.",
+            safetyBlock: { safeAlternative: error.safeAlternative },
+          },
+        ]);
+      } else {
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', text: error instanceof Error ? error.message : 'Something went wrong. Please try again.' },
+        ]);
+      }
     } finally {
       setLoading(false);
     }
@@ -200,6 +242,20 @@ export default function SkillFactoryChatbot({
               )}
             </p>
           </div>
+          {/* Dry-run toggle (Rule 15) — small icon button, distinct amber tint when on */}
+          <button
+            type="button"
+            onClick={() => setDryRun(v => !v)}
+            title={dryRun ? 'Dry run is ON — flows render but are NOT saved' : 'Turn on dry run to test without saving'}
+            className={
+              dryRun
+                ? 'shrink-0 inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800'
+                : 'shrink-0 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-medium text-slate-600 hover:border-slate-300'
+            }
+          >
+            <Sparkles className="h-3 w-3" />
+            {dryRun ? 'Dry run' : 'Save on apply'}
+          </button>
         </div>
         <div className="mt-2.5 flex items-center gap-1.5">
           <Button
@@ -289,7 +345,18 @@ export default function SkillFactoryChatbot({
             <UserBubble key={i}>{m.text}</UserBubble>
           ) : (
             <div key={i} className="space-y-1.5">
-              <AssistantBubble appliedNodes={m.appliedNodes}>{m.text}</AssistantBubble>
+              {m.safetyBlock ? (
+                <SafetyBlockBubble
+                  text={m.text}
+                  safeAlternative={m.safetyBlock.safeAlternative}
+                  onPickAlternative={(alt) => send(alt)}
+                  disabled={loading}
+                />
+              ) : (
+                <AssistantBubble appliedNodes={m.appliedNodes} appliedFlowName={m.appliedFlowName}>
+                  {m.text}
+                </AssistantBubble>
+              )}
               {m.questions && m.questions.length > 0 && (
                 <div className="space-y-1 pl-9">
                   <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-slate-400">
@@ -383,7 +450,15 @@ export default function SkillFactoryChatbot({
 }
 
 // ── Bubble components ───────────────────────────────────────────────
-function AssistantBubble({ children, appliedNodes }: { children: React.ReactNode; appliedNodes?: number }) {
+function AssistantBubble({
+  children,
+  appliedNodes,
+  appliedFlowName,
+}: {
+  children: React.ReactNode;
+  appliedNodes?: number;
+  appliedFlowName?: string;
+}) {
   return (
     <div className="flex items-start gap-2">
       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-700 text-white shadow-sm">
@@ -398,6 +473,64 @@ function AssistantBubble({ children, appliedNodes }: { children: React.ReactNode
             <CheckCircle2 className="h-2.5 w-2.5" />
             Applied to canvas · {appliedNodes} node{appliedNodes === 1 ? '' : 's'}
           </div>
+        )}
+        {appliedFlowName && <FireCountFooter flowName={appliedFlowName} />}
+      </div>
+    </div>
+  );
+}
+
+// Rule 14 surface — show "Fired N times this week" below saved-automation
+// bubbles. Quiet grey footer; hidden when N=0 so a freshly-saved automation
+// doesn't show a discouraging zero before it has had a chance to fire.
+function FireCountFooter({ flowName }: { flowName: string }) {
+  const [count, setCount] = useState<number | null>(() => getCachedFireCount(flowName));
+  useEffect(() => {
+    let cancelled = false;
+    void fetchFireCountThisWeek(flowName).then((n) => {
+      if (!cancelled) setCount(n);
+    });
+    return () => { cancelled = true; };
+  }, [flowName]);
+  if (!count || count <= 0) return null;
+  return (
+    <p className="pl-1 text-[10px] text-slate-400">
+      Fired {count} time{count === 1 ? '' : 's'} this week.
+    </p>
+  );
+}
+
+// Distinct red bubble for safety-blocked prompts (Layer B/C catch). Carries
+// one clickable safe-alternative so the conversation doesn't dead-end.
+function SafetyBlockBubble({
+  text,
+  safeAlternative,
+  onPickAlternative,
+  disabled,
+}: {
+  text: string;
+  safeAlternative: string | null;
+  onPickAlternative: (prompt: string) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="flex items-start gap-2">
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-rose-100 text-rose-700 shadow-sm">
+        <AlertTriangle className="h-3.5 w-3.5" />
+      </div>
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="max-w-[88%] whitespace-pre-wrap rounded-2xl rounded-tl-sm border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900 shadow-sm">
+          {text}
+        </div>
+        {safeAlternative && (
+          <button
+            onClick={() => onPickAlternative(safeAlternative)}
+            disabled={disabled}
+            className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-white px-2.5 py-1 text-[11px] font-medium text-rose-800 hover:border-rose-300 hover:bg-rose-50 disabled:opacity-40 transition-colors"
+          >
+            <CheckCircle2 className="h-3 w-3" />
+            {safeAlternative}
+          </button>
         )}
       </div>
     </div>

@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
+import { dispatchFlowEvent } from '@/lib/flowDispatcher';
 
 export type UtilityBillType =
   | 'wifi'
@@ -97,12 +98,29 @@ export function useUtilityDeadlines() {
         notes: input.notes ?? null,
       };
       if (input.attachment_url) row.attachment_url = input.attachment_url;
-      const { error } = await supabase.from(TABLE).insert(row);
+      // Returning the row so the dispatcher can use its id as a dedup key.
+      const { data, error } = await supabase.from(TABLE).insert(row).select('*').single();
       if (error) throw error;
+      return data as UtilityDeadline | null;
     },
-    onSuccess: () => {
+    onSuccess: (inserted) => {
       toast.success('Bill added');
       invalidate();
+      // Fire the bill_added automation event (Rule 12 logs each fire).
+      if (inserted?.id) {
+        void dispatchFlowEvent('bill_added', {
+          hospitalType,
+          entityId: inserted.id,
+          // Lets flows filter by bill_type (e.g. only fire for 'wifi').
+          eventData: { billType: inserted.bill_type },
+          meta: {
+            name: inserted.name,
+            bill_type: inserted.bill_type,
+            amount: inserted.amount,
+            due_date: inserted.due_date,
+          },
+        });
+      }
     },
     onError: (e: unknown) => {
       console.warn('[useUtilityDeadlines] create failed', e);
@@ -187,9 +205,15 @@ export function useUtilityDeadlines() {
       }
       return { recurring: bill.recurring };
     },
-    onSuccess: (res) => {
+    onSuccess: (res, bill) => {
       toast.success(res.recurring ? 'Marked paid — next month created' : 'Marked paid');
       invalidate();
+      // Fire deadline_paid for any flow listening on the paid event.
+      void dispatchFlowEvent('deadline_paid', {
+        hospitalType,
+        entityId: bill.id,
+        meta: { name: bill.name, amount: bill.amount, due_date: bill.due_date },
+      });
     },
     onError: (e: unknown) => {
       console.warn('[useUtilityDeadlines] markPaid failed', e);

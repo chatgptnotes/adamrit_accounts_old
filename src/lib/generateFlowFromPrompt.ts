@@ -7,6 +7,15 @@ import type {
   ConditionConfig,
   ActionConfig,
 } from '@/lib/taskOptimizerFlows';
+import {
+  FlowSafetyError,
+  SAFETY_LAW,
+  SAFE_ACTION_TYPES,
+  isDestructiveIntent,
+  isFlowEventType,
+  isSafeActionType,
+  pickSafeAlternative,
+} from '@/lib/flowSafety';
 
 // Persona-driven, plain-English -> automation graph. When `current` is given,
 // the AI EDITS that existing workflow instead of building a fresh one.
@@ -28,15 +37,25 @@ export interface GeneratedFlow {
 
 const CONDITION_FIELDS = ['designation', 'suggestion_type', 'time_saved_mins'] as const;
 const CONDITION_OPS = ['eq', 'contains', 'gte'] as const;
-const ACTION_TYPES = ['notify', 'tag', 'set_status', 'whatsapp', 'email'] as const;
+// SAFE_ACTION_TYPES (imported from flowSafety) is the single source of truth —
+// it's the same allowlist the runtime, prompt, and validator share.
+const ACTION_TYPES = SAFE_ACTION_TYPES;
 
 type RawCondition = { field?: string; op?: string; value?: string };
 type RawAction = { type?: string; message?: string; setStatus?: string; to?: string; subject?: string };
+// Trigger shapes the AI may emit. `event` is optional for backward compat with
+// status_changed-only callers; mapToGraph defaults missing event to status_changed.
+type RawTrigger = {
+  event?: string;
+  toStatus?: string;
+  billType?: string;
+  withinDays?: number;
+};
 interface RawFlow {
   name?: string;
   explanation?: string;
   questions?: unknown;
-  trigger?: { toStatus?: string };
+  trigger?: RawTrigger;
   conditions?: RawCondition[];
   actions?: RawAction[];
 }
@@ -74,7 +93,9 @@ function buildPrompt({ persona, instruction, current }: GenerateFlowInput): stri
     ? `\nThe user is EDITING an existing automation. Here is its current JSON:\n${JSON.stringify(currentSpec)}\n\nApply the requested change to it. KEEP every existing trigger, condition, and action unless the change clearly replaces or removes it. Return the FULL updated automation (not just the change).\n`
     : '';
   const verb = currentSpec ? 'edit the' : 'design an';
-  return `You ${verb} automation for a hospital "Task Optimizer". An automation runs when a staff task's STATUS CHANGES (statuses: suggested, in_progress, done, dismissed). Tailor it to the person's role.
+  return `${SAFETY_LAW}
+
+You ${verb} automation for a hospital app. Automations fire on one of these real events: a task's status changes; a bill is added; a deadline becomes due; a deadline becomes overdue; a deadline is marked paid. Tailor it to the person's role.
 
 You also act as a thoughtful coach: after producing the automation, propose 2-3 SHORT follow-up questions that help the user refine it, decide between approaches, or add the next sensible step. Phrase each question so the user can answer it by sending it straight back (e.g. "Should I also notify the supervisor?" "Add a 24-hour delay before reminding?"). Make the questions specific to the role and the task, not generic.
 
@@ -86,13 +107,15 @@ Return ONLY valid JSON (no markdown, no code fences) of exactly this shape:
   "name": "short automation name",
   "explanation": "one or two sentences describing what it does, addressed to the persona",
   "questions": ["question 1?", "question 2?", "question 3?"],
-  "trigger": { "toStatus": "one of: suggested, in_progress, done, dismissed, any" },
+  "trigger": { "event": "status_changed|bill_added|deadline_due|deadline_overdue|deadline_paid", "toStatus": "(status_changed only) one of: suggested, in_progress, done, dismissed, any", "withinDays": "(deadline_due only) integer, default 3" },
   "conditions": [ { "field": "designation|suggestion_type|time_saved_mins", "op": "eq|contains|gte", "value": "string" } ],
   "actions": [ { "type": "notify|tag|set_status|whatsapp|email", "message": "text (may use {staff} {task} {status})", "setStatus": "optional status for set_status", "to": "email address (for email type only)", "subject": "email subject (for email type only, may use {staff} {task} {status})" } ]
 }
 
 Rules:
 - At least one action. Conditions may be an empty array.
+- Default to event=status_changed if the user doesn't mention bills or deadlines.
+- For non-status events (bill_added / deadline_*), prefer 'notify' / 'whatsapp' / 'email' actions — 'tag' and 'set_status' need a task row and may be skipped at runtime.
 - suggestion_type values are one of: automate, reduce, delegate, keep.
 - "questions" MUST contain 2-3 strings ending with "?". These are next-step refinements or automation choices the user might want to try.
 - Use whatsapp only if the user explicitly wants a WhatsApp message sent; keep messages concise.
@@ -100,20 +123,58 @@ Rules:
 - Output a single valid JSON object.`;
 }
 
+// Build the right TriggerConfig variant for the AI-emitted event. The previous
+// (silent-coerce) version always produced status_changed; now we honour the AI's
+// choice and refuse anything outside the allowlist (Safety Layer C).
+function buildTriggerConfig(raw: RawTrigger | undefined): { config: TriggerConfig; label: string } {
+  // Default to legacy status_changed when no event is specified.
+  const event = raw?.event ?? 'status_changed';
+  if (!isFlowEventType(event)) {
+    throw new FlowSafetyError(
+      'unknown_trigger',
+      `The AI proposed an event type "${event}" that isn't in the allowlist.`,
+    );
+  }
+  switch (event) {
+    case 'status_changed':
+      return {
+        config: {
+          event: 'status_changed',
+          toStatus: raw?.toStatus === 'any' ? 'any' : coerceStatus(raw?.toStatus, 'done'),
+        },
+        label: 'When status changes',
+      };
+    case 'bill_added':
+      return {
+        config: { event: 'bill_added', billType: raw?.billType ?? 'any' },
+        label: 'When a bill is added',
+      };
+    case 'deadline_due':
+      return {
+        config: {
+          event: 'deadline_due',
+          withinDays: Number.isFinite(raw?.withinDays) ? Math.max(1, Math.min(30, Number(raw?.withinDays))) : 3,
+        },
+        label: 'When a deadline is due',
+      };
+    case 'deadline_overdue':
+      return { config: { event: 'deadline_overdue' }, label: 'When a deadline is overdue' };
+    case 'deadline_paid':
+      return { config: { event: 'deadline_paid' }, label: 'When a bill is marked paid' };
+  }
+}
+
 function mapToGraph(raw: RawFlow): GeneratedFlow {
   const nodes: StoredNode[] = [];
   const edges: StoredEdge[] = [];
 
-  // Trigger
-  const triggerCfg: TriggerConfig = {
-    event: 'status_changed',
-    toStatus: raw.trigger?.toStatus === 'any' ? 'any' : coerceStatus(raw.trigger?.toStatus, 'done'),
-  };
+  // Trigger (Safety Layer C — throw on unknown event)
+  const { config: triggerCfg, label: triggerLabel } = buildTriggerConfig(raw.trigger);
   nodes.push({
     id: 'trigger-1',
     type: 'trigger',
     position: { x: 60, y: 160 },
-    data: { kind: 'trigger', label: 'When status changes', config: triggerCfg },
+    data: { kind: 'trigger', label: triggerLabel, config: triggerCfg },
   });
 
   // Conditions, chained after the trigger left-to-right.
@@ -139,12 +200,19 @@ function mapToGraph(raw: RawFlow): GeneratedFlow {
   });
 
   // Actions placed in the column after the last chain node, stacked vertically.
+  // Safety Layer C: unknown action types now throw FlowSafetyError instead of
+  // silently degrading to 'notify' — the chatbot surfaces this as a red note so
+  // the user knows the AI was overruled (no confused "saved a different thing").
   const actionsRaw = Array.isArray(raw.actions) && raw.actions.length > 0 ? raw.actions : [{ type: 'notify' }];
   const actionX = 60 + 320 * (conditions.length + 1);
   actionsRaw.forEach((a, i) => {
-    const type = (ACTION_TYPES.includes(a.type as (typeof ACTION_TYPES)[number])
-      ? a.type
-      : 'notify') as ActionConfig['type'];
+    if (!isSafeActionType(a.type)) {
+      throw new FlowSafetyError(
+        'unknown_action',
+        `The AI proposed an action type "${a.type ?? '(missing)'}" that isn't allowed.`,
+      );
+    }
+    const type = a.type as ActionConfig['type'];
     const cfg: ActionConfig = { type };
     if (type === 'set_status') cfg.setStatus = coerceStatus(a.setStatus, 'in_progress');
     else cfg.message = (a.message ?? '').toString();
@@ -191,6 +259,18 @@ export async function generateFlowFromPrompt(input: GenerateFlowInput): Promise<
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (!apiKey) throw new Error('Gemini API key is not configured.');
   if (!input.instruction.trim()) throw new Error('Please describe the automation you want.');
+
+  // Safety Layer B — refuse destructive prompts BEFORE Gemini sees them. Stops
+  // prompt-laundering ("schedule a job that deletes bills") at the door, since
+  // the model is never given the chance to rationalize the request into a
+  // plausible-but-unsafe graph.
+  if (isDestructiveIntent(input.instruction)) {
+    throw new FlowSafetyError(
+      'destructive_prompt',
+      'Your request asked to delete or remove data. Automations can only notify, tag, or change status — never erase.',
+      pickSafeAlternative(input.instruction),
+    );
+  }
 
   let response: Response;
   try {

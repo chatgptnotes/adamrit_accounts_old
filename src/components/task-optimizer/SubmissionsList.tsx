@@ -16,8 +16,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { optimizeTasks, ACTION_STATUSES, type TaskSuggestion, type ActionStatus } from '@/lib/optimizeTasks';
 import { fetchTaskActions, upsertTaskAction, type TaskAction } from '@/lib/taskOptimizerActions';
-import { fetchEnabledFlows } from '@/lib/taskOptimizerFlows';
-import { runTaskFlows } from '@/lib/runTaskFlows';
+import { dispatchFlowEvent } from '@/lib/flowDispatcher';
 import { SuggestionBadge, STATUS_META } from './suggestionMeta';
 
 interface TaskLogRow {
@@ -169,12 +168,17 @@ function SubmissionCard({
     onSuccess: async (rowId, variables) => {
       queryClient.invalidateQueries({ queryKey: ['task-optimizer-actions'] });
       // Run any enabled automations for this status change. Best-effort: a
-      // failure here never affects the saved status.
+      // failure here never affects the saved status. Routed through the
+      // dispatcher so audit-log + rate-limit + dedup are applied consistently
+      // with the new event types.
       try {
-        const flows = await fetchEnabledFlows(hospitalType);
-        const results = await runTaskFlows(
-          flows,
-          {
+        const results = await dispatchFlowEvent('status_changed', {
+          hospitalType,
+          entityId: rowId,
+          // Each distinct status transition for the same row should fire once
+          // (suggested → in_progress → done are three legitimate events).
+          dedupSuffix: variables.status,
+          statusContext: {
             staffName: entry.staff_name,
             designation: entry.designation,
             suggestionType: variables.suggestionType,
@@ -182,8 +186,8 @@ function SubmissionCard({
             timeSavedMins: variables.timeSavedMins ?? null,
             taskText: variables.taskText,
           },
-          rowId,
-        );
+          actionRowId: rowId,
+        });
         if (results.length > 0) {
           // tag/set_status actions may have mutated rows — refresh.
           queryClient.invalidateQueries({ queryKey: ['task-optimizer-actions'] });

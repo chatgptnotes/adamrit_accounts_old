@@ -7,11 +7,26 @@ import type { ActionStatus, SuggestionType } from '@/lib/optimizeTasks';
 
 export type FlowNodeKind = 'trigger' | 'condition' | 'action';
 
-export interface TriggerConfig {
-  event: 'status_changed';
-  // Fire when the new status equals this, or on any status change.
-  toStatus: ActionStatus | 'any';
-}
+// The complete set of real-world events the runtime can fire flows on.
+// Extending this list is a 5-step process (see plan: Part 5). Anything outside
+// this set is rejected by FlowSafetyError before reaching the runtime.
+export const FLOW_EVENT_TYPES = [
+  'status_changed',
+  'bill_added',
+  'deadline_due',
+  'deadline_overdue',
+  'deadline_paid',
+] as const;
+export type FlowEventType = (typeof FLOW_EVENT_TYPES)[number];
+
+// Discriminated union of trigger configurations — old `status_changed` rows
+// parse unchanged so no DB migration is needed.
+export type TriggerConfig =
+  | { event: 'status_changed'; toStatus: ActionStatus | 'any' }
+  | { event: 'bill_added'; billType?: string | 'any' }
+  | { event: 'deadline_due'; withinDays?: number }
+  | { event: 'deadline_overdue' }
+  | { event: 'deadline_paid' };
 
 export type ConditionField = 'designation' | 'suggestion_type' | 'time_saved_mins';
 export type ConditionOp = 'eq' | 'contains' | 'gte';

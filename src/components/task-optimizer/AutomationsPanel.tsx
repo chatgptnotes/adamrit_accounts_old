@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { Loader2, Plus, Workflow, Trash2, Power, PowerOff, Users } from 'lucide-react';
+import { Loader2, Plus, Workflow, Trash2, Power, PowerOff, Users, PauseCircle, PlayCircle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
@@ -12,6 +12,7 @@ import {
   makeStarterFlow,
   type TaskFlow,
 } from '@/lib/taskOptimizerFlows';
+import { getAutomationsPausedUntil, setAutomationsPausedUntil } from '@/lib/flowDispatcher';
 import { COMMON_TASKS } from './commonTasks';
 import FlowCanvas from './flow/FlowCanvas';
 
@@ -40,6 +41,29 @@ const AutomationsPanel = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<TaskFlow | 'new' | null>(null);
+
+  // Master kill switch (Rule 13) — pauses every flow for the current
+  // origin/hospital. Stored in localStorage so it survives reloads. Default
+  // pause window is 1 hour; admins can click again to resume immediately.
+  const [pausedUntil, setPausedUntil] = useState<number | null>(() => getAutomationsPausedUntil());
+  useEffect(() => {
+    if (!pausedUntil) return;
+    const ms = Math.max(0, pausedUntil - Date.now());
+    const id = setTimeout(() => setPausedUntil(getAutomationsPausedUntil()), ms);
+    return () => clearTimeout(id);
+  }, [pausedUntil]);
+  const togglePauseAll = () => {
+    if (pausedUntil) {
+      setAutomationsPausedUntil(null);
+      setPausedUntil(null);
+      toast({ title: 'Automations resumed' });
+    } else {
+      const until = Date.now() + 60 * 60 * 1000;
+      setAutomationsPausedUntil(until);
+      setPausedUntil(until);
+      toast({ title: 'Automations paused', description: 'All flows are suppressed for 1 hour.' });
+    }
+  };
 
   const { data: flows, isLoading, error } = useQuery({
     queryKey: ['task-optimizer-flows', hospitalType],
@@ -110,14 +134,37 @@ const AutomationsPanel = () => {
         <div>
           <h2 className="flex items-center gap-2 text-lg font-semibold">
             <Workflow className="h-5 w-5 text-primary" /> Automations
+            {pausedUntil && (
+              <span className="rounded-full bg-amber-100 text-amber-800 text-xs font-medium px-2 py-0.5">
+                Paused
+              </span>
+            )}
           </h2>
           <p className="text-sm text-muted-foreground">
-            Build trigger → condition → action flows per staff role, run when a task's status changes.
+            Build trigger → condition → action flows. Run on bill_added, deadline_due, deadline_overdue, deadline_paid, or task status changes.
           </p>
         </div>
-        <Button size="sm" onClick={() => setEditing('new')}>
-          <Plus className="mr-1.5 h-4 w-4" /> New automation
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant={pausedUntil ? 'default' : 'outline'}
+            onClick={togglePauseAll}
+            title={pausedUntil ? 'Resume all automations now' : 'Suppress all flows for 1 hour'}
+          >
+            {pausedUntil ? (
+              <>
+                <PlayCircle className="mr-1.5 h-4 w-4" /> Resume
+              </>
+            ) : (
+              <>
+                <PauseCircle className="mr-1.5 h-4 w-4" /> Pause all
+              </>
+            )}
+          </Button>
+          <Button size="sm" onClick={() => setEditing('new')}>
+            <Plus className="mr-1.5 h-4 w-4" /> New automation
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (

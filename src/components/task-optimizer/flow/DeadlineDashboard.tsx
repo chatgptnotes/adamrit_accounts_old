@@ -34,6 +34,8 @@ import {
   type UtilityBillType,
   type UtilityDeadline,
 } from '@/hooks/useUtilityDeadlines';
+import { useAuth } from '@/contexts/AuthContext';
+import { dispatchFlowEvent } from '@/lib/flowDispatcher';
 import DeadlineNotificationBell from './DeadlineNotificationBell';
 
 // ── Bill types catalogue (§3) ───────────────────────────────────────
@@ -231,6 +233,32 @@ export default function DeadlineDashboard({ onBack }: Props) {
     () => deadlines.filter((d) => d.status !== 'paid').reduce((s, d) => s + Number(d.amount || 0), 0),
     [deadlines],
   );
+
+  // ── Automation event emission for due / overdue bills ────────────────
+  // Whenever the bills list changes (load, mutation, midnight rollover), scan
+  // for rows that are overdue or due-soon and dispatch the matching event.
+  // The dispatcher dedups per-(bill, event, day, tab) so this effect can run
+  // freely without producing duplicate notifications. Skips paid bills.
+  const { hospitalType } = useAuth();
+  useEffect(() => {
+    if (isLoading || deadlines.length === 0) return;
+    for (const { row, status } of derived) {
+      if (status === 'paid') continue;
+      const eventType = status === 'overdue' ? 'deadline_overdue' : status === 'due_soon' ? 'deadline_due' : null;
+      if (!eventType) continue;
+      const days = daysUntil(row.due_date, today);
+      void dispatchFlowEvent(eventType, {
+        hospitalType,
+        entityId: row.id,
+        // Rule 17 — pass the bill's creation timestamp so a freshly-saved
+        // automation doesn't retroactively fire for bills that already existed.
+        entityCreatedAt: row.created_at,
+        // Lets deadline_due flows gate on cfg.withinDays (e.g. "1 day before").
+        eventData: { billType: row.bill_type, daysUntilDue: days },
+        meta: { name: row.name, amount: row.amount, due_date: row.due_date, days_until: days },
+      });
+    }
+  }, [derived, hospitalType, isLoading, deadlines.length]);
 
   // ── Filter + search ──────────────────────────────────────────────
   const visible = useMemo(() => {

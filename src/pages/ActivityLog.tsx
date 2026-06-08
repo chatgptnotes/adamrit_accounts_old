@@ -79,6 +79,19 @@ const ACTION_TYPES = [
   "report_generate",
   "lab_order_create",
   "prescription_create",
+  // Automation engine events — surface what the dispatcher wrote so admins
+  // can see exactly which flows fired, were skipped, blocked by safety, or
+  // suppressed by the kill switch / rate limit.
+  "automation_fired",
+  "automation_skipped",
+  "automation_blocked_safety",
+  "automation_rate_limited",
+  "automation_paused",
+  // Legacy per-action labels still written by the runtime (kept for filtering
+  // historical rows logged before the unified codes were introduced).
+  "task_flow_notify",
+  "task_flow_whatsapp_intent",
+  "task_flow_email_intent",
 ];
 
 const PAGE_SIZE = 50;
@@ -376,6 +389,12 @@ const ActivityLog = () => {
     action: string | null
   ): "default" | "secondary" | "destructive" | "outline" => {
     if (!action) return "secondary";
+    // Automation engine events — distinct colors so admins spot blocks/limits
+    // at a glance when scrolling the log.
+    if (action === "automation_blocked_safety") return "destructive";
+    if (action === "automation_rate_limited" || action === "automation_paused") return "outline";
+    if (action === "automation_fired") return "default";
+    if (action === "automation_skipped") return "secondary";
     if (action.includes("login")) return "default";
     if (action.includes("create")) return "default";
     if (action.includes("delete") || action.includes("discharge"))
@@ -739,6 +758,7 @@ const ActivityLog = () => {
                         <TableHead>Action</TableHead>
                         <TableHead>Page</TableHead>
                         <TableHead className="w-[250px]">Details</TableHead>
+                        <TableHead className="w-[100px]">Undo</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -783,6 +803,9 @@ const ActivityLog = () => {
                             }
                           >
                             {truncateDetails(log.details)}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            <AutomationUndoCell log={log} />
                           </TableCell>
                         </TableRow>
                       ))}
@@ -833,3 +856,88 @@ const ActivityLog = () => {
 };
 
 export default ActivityLog;
+
+// ── Automation Undo (Rule 14) ──────────────────────────────────────
+// One-shot per row: when an automation_fired row carries action.undo info AND
+// is younger than the 30-second window, render a button that issues the
+// inverse update (priorValue back into rowId.column). Disabled outside the
+// window, hidden when there's nothing to undo.
+interface UndoDescriptor {
+  table: 'task_optimizer_actions';
+  rowId: string;
+  column: 'note' | 'status';
+  priorValue: string | null;
+}
+
+const UNDO_WINDOW_MS = 30_000;
+
+function pickUndoFromDetails(details: ActivityLogRow['details']): UndoDescriptor | null {
+  if (!details) return null;
+  const actions = (details as { actions?: unknown }).actions;
+  if (!Array.isArray(actions)) return null;
+  for (const a of actions) {
+    if (a && typeof a === 'object') {
+      const undo = (a as { undo?: unknown }).undo;
+      if (
+        undo &&
+        typeof undo === 'object' &&
+        typeof (undo as UndoDescriptor).rowId === 'string' &&
+        ((undo as UndoDescriptor).column === 'note' || (undo as UndoDescriptor).column === 'status')
+      ) {
+        return undo as UndoDescriptor;
+      }
+    }
+  }
+  return null;
+}
+
+const AutomationUndoCell: React.FC<{ log: ActivityLogRow }> = ({ log }) => {
+  const undo = log.action === 'automation_fired' ? pickUndoFromDetails(log.details) : null;
+  const [reverted, setReverted] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const [busy, setBusy] = useState(false);
+
+  // Tick once a second while the row is still in-window so the button greys
+  // out the moment 30s elapses. Stops ticking once the window closes (saves
+  // CPU on a 100-row page).
+  useEffect(() => {
+    if (!undo) return;
+    const elapsed = Date.now() - new Date(log.created_at).getTime();
+    if (elapsed >= UNDO_WINDOW_MS) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [undo, log.created_at]);
+
+  if (!undo) return <span className="text-muted-foreground">—</span>;
+  if (reverted) return <span className="text-emerald-600">Reverted</span>;
+
+  const elapsed = now - new Date(log.created_at).getTime();
+  const expired = elapsed >= UNDO_WINDOW_MS;
+  const secondsLeft = Math.max(0, Math.ceil((UNDO_WINDOW_MS - elapsed) / 1000));
+
+  const doUndo = async () => {
+    if (expired || busy) return;
+    setBusy(true);
+    try {
+      const patch: Record<string, unknown> = {
+        [undo.column]: undo.priorValue,
+        updated_at: new Date().toISOString(),
+      };
+      const { error } = await supabase.from(undo.table).update(patch).eq('id', undo.rowId);
+      if (error) {
+        console.warn('[ActivityLog] undo failed', error);
+        setBusy(false);
+        return;
+      }
+      setReverted(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Button size="sm" variant="outline" disabled={expired || busy} onClick={doUndo}>
+      {busy ? '…' : expired ? 'Expired' : `Undo (${secondsLeft}s)`}
+    </Button>
+  );
+};

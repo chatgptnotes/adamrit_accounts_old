@@ -64,6 +64,7 @@ import {
   type TaskFlow,
   type ActionConfig,
   type TriggerConfig,
+  type FlowNodeKind,
 } from '@/lib/taskOptimizerFlows';
 import type { TaskSuggestion } from '@/lib/optimizeTasks';
 import { COMMON_TASKS } from '@/components/task-optimizer/commonTasks';
@@ -359,6 +360,95 @@ function buildTaskOverviewFlow(
   return { nodes: [triggerNode, ...actionNodes], edges };
 }
 
+// Detect the Deadline Tracking task by its name (case-insensitive substring) so
+// the canvas can show the real, end-to-end automation we built — not a generic
+// status-change → notify stub. Matches "Deadline Tracking", "Deadline Tracker",
+// "deadline_tracking", "Bill Deadline", "Utility Deadlines", etc.
+function isDeadlineTrackingTask(task: string): boolean {
+  return /deadline/i.test(task);
+}
+
+// Concrete, step-by-step picture of the Deadline Tracking automation that's
+// already wired in /deadline-tracking. Shows the user: open dashboard → fill
+// bill (name + due date + amount) → due-date check → notify → mark paid → next
+// month auto-created. Used as the canvas starter whenever the active task is
+// "Deadline Tracking" and no custom flow has been saved yet.
+function buildDeadlineTrackingFlow(): { nodes: StoredNode[]; edges: StoredEdge[] } {
+  const steps: Array<{
+    label: string;
+    kind: FlowNodeKind;
+    message?: string;
+  }> = [
+    {
+      label: 'Step 1 · Open Deadline Tracking',
+      kind: 'trigger',
+      message: 'User clicks Deadline Tracking and opens the dashboard',
+    },
+    {
+      label: 'Step 2 · Add bill — name, due date, amount',
+      kind: 'action',
+      message: 'Enter utility/bill name, due date, and price in the form',
+    },
+    {
+      label: 'Step 3 · Save bill to database',
+      kind: 'action',
+      message: 'Row inserted into utility_deadlines (hospital-scoped)',
+    },
+    {
+      label: 'Step 4 · Check due date daily',
+      kind: 'action',
+      message: 'Compare due date with today — overdue, due-soon (≤3 days), or upcoming',
+    },
+    {
+      label: 'Step 5 · Notify when due / overdue',
+      kind: 'action',
+      message: 'Bell badge + 30-sec pulsing reminder + once-a-day pop-up',
+    },
+    {
+      label: 'Step 6 · Mark paid → auto-create next month',
+      kind: 'action',
+      message: 'Recurring bills clone forward one month (Jan 31 → Feb 28/29 safe)',
+    },
+  ];
+
+  // Snake layout: row 0 left→right (0,1,2), row 1 right→left (3,4,5) so the
+  // chain never crosses itself and every step's label has room to breathe.
+  const COLS = 3;
+  const X0 = 60;
+  const Y0 = 80;
+  const X_GAP = 320; // node width (260) + breathing room
+  const Y_GAP = 230;
+
+  const pos = (i: number) => {
+    const row = Math.floor(i / COLS);
+    const colInRow = i % COLS;
+    const x = row % 2 === 0 ? colInRow : COLS - 1 - colInRow;
+    return { x: X0 + x * X_GAP, y: Y0 + row * Y_GAP };
+  };
+
+  const nodes: StoredNode[] = steps.map((s, i) => ({
+    id: i === 0 ? 'trigger-1' : `action-${i}`,
+    type: s.kind,
+    position: pos(i),
+    data: {
+      kind: s.kind,
+      label: s.label,
+      config:
+        s.kind === 'trigger'
+          ? ({ event: 'status_changed', toStatus: 'in_progress' } as TriggerConfig)
+          : ({ type: 'notify', message: s.message ?? '' } as ActionConfig),
+    },
+  }));
+
+  const edges: StoredEdge[] = nodes.slice(1).map((n, i) => ({
+    id: `e-${nodes[i].id}-${n.id}`,
+    source: nodes[i].id,
+    target: n.id,
+  }));
+
+  return { nodes, edges };
+}
+
 // Verdict-aware starter for a drilled-into task that has no saved flow yet.
 // Returns a trigger + main action + one chained sub-action per subtask, so the
 // canvas always reflects "task + its steps" out of the box.
@@ -429,6 +519,37 @@ function buildVerdictStarter(
   });
 
   return { nodes, edges };
+}
+
+// Rule 16 — true while a saved flow's timestamp is younger than 24 hours.
+// Used to decide whether to show the "Just saved · Review" pill.
+function isWithin24h(iso: string | null | undefined): boolean {
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return false;
+  return Date.now() - t < 24 * 60 * 60 * 1000;
+}
+
+// "Just saved · Review" pill — shows for 24h after an auto-save so the user
+// has a discoverable rollback path beyond the 30-second Undo toast. Clicking
+// Disable flips the flow's `enabled` flag to false (a soft kill — the flow
+// stays in the DB, just won't fire).
+function JustSavedPill({ flowName, onDisable }: { flowName: string; onDisable: () => void }) {
+  return (
+    <div className="flex items-center gap-2 rounded-full bg-blue-50 border border-blue-200 px-3 py-1.5 text-[11px] text-blue-900 shadow-sm">
+      <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+      <span className="font-medium truncate max-w-[180px]" title={flowName}>
+        Just saved · Review
+      </span>
+      <button
+        onClick={onDisable}
+        title="Disable this automation — it will stop firing immediately"
+        className="ml-1 text-blue-700 hover:text-rose-700 font-semibold underline-offset-2 hover:underline"
+      >
+        Disable
+      </button>
+    </div>
+  );
 }
 
 export default function SkillFactoryV2() {
@@ -685,9 +806,14 @@ export default function SkillFactoryV2() {
 
   useEffect(() => {
     if (activeTask) {
-      // Drilled into a specific task. Prefer the saved flow; otherwise seed a
-      // verdict-aware starter so the canvas is never empty on first open.
-      if (savedFlow) {
+      // Drilled into a specific task. The Deadline Tracking task always shows
+      // the real, end-to-end automation we built (overrides any old stub flow
+      // saved before this view existed); other tasks prefer their saved flow.
+      if (isDeadlineTrackingTask(activeTask)) {
+        const dl = buildDeadlineTrackingFlow();
+        setCurrentNodes(dl.nodes);
+        setCurrentEdges(dl.edges);
+      } else if (savedFlow) {
         setCurrentNodes(savedFlow.nodes);
         setCurrentEdges(savedFlow.edges);
       } else {
@@ -700,10 +826,22 @@ export default function SkillFactoryV2() {
         setCurrentEdges(starter.edges);
       }
     } else if (activeStaff && ruleTasks.length > 0) {
-      // Just a staff selected → overview of every task chained from a Start trigger.
-      const overview = buildTaskOverviewFlow(ruleTasks, activeStaff.designation, verdictByTask);
-      setCurrentNodes(overview.nodes);
-      setCurrentEdges(overview.edges);
+      // Just a staff selected. If the staff itself is the Deadline Tracking
+      // persona, or any of its tasks reference deadlines, show the real
+      // deadline automation; otherwise fall back to the chained task overview.
+      if (
+        isDeadlineTrackingTask(activeStaff.name) ||
+        isDeadlineTrackingTask(activeStaff.designation) ||
+        ruleTasks.some((t) => isDeadlineTrackingTask(t))
+      ) {
+        const dl = buildDeadlineTrackingFlow();
+        setCurrentNodes(dl.nodes);
+        setCurrentEdges(dl.edges);
+      } else {
+        const overview = buildTaskOverviewFlow(ruleTasks, activeStaff.designation, verdictByTask);
+        setCurrentNodes(overview.nodes);
+        setCurrentEdges(overview.edges);
+      }
     } else {
       setCurrentNodes([]);
       setCurrentEdges([]);
@@ -942,33 +1080,127 @@ export default function SkillFactoryV2() {
     }
   };
 
+  // Snapshot of the canvas state before the most recent chatbot apply, used to
+  // power the 30-second Undo on the auto-save toast. Held in a ref so the
+  // toast handler always sees the latest snapshot without re-rendering.
+  const preApplySnapshotRef = useRef<{ nodes: StoredNode[]; edges: StoredEdge[] } | null>(null);
+
+  // Single save path — used by both the manual "Save" button and the chatbot
+  // auto-save. When activeTask is set, behaves exactly like before (status-
+  // change automation tied to a staff member's task). When it isn't, derives a
+  // name from the trigger label so non-status automations (bill_added etc.)
+  // can be saved as global flows.
+  const persistFlow = async (
+    nodes: StoredNode[],
+    edges: StoredEdge[],
+    opts: { silent?: boolean } = {},
+  ): Promise<boolean> => {
+    const safeNodes = nodes.length ? nodes : makeStarterFlow().nodes;
+    const safeEdges = edges.length ? edges : makeStarterFlow().edges;
+
+    let name = activeTask;
+    let role = activeStaff?.designation ?? null;
+    if (!name) {
+      const triggerNode = safeNodes.find((n) => n.type === 'trigger');
+      const triggerLabel = triggerNode?.data?.label as string | undefined;
+      name = triggerLabel?.trim() || 'AI automation';
+      if (!role) role = 'global';
+    }
+    if (!role) role = activeStaff?.designation ?? 'global';
+
+    try {
+      await saveTaskFlow({
+        id: savedFlow?.id,
+        hospitalType,
+        role,
+        name,
+        enabled: savedFlow?.enabled ?? true,
+        nodes: safeNodes,
+        edges: safeEdges,
+      });
+      setCurrentNodes(safeNodes);
+      setCurrentEdges(safeEdges);
+      const refreshed = await fetchTaskFlows(hospitalType);
+      setFlows(refreshed);
+      setFlowDirty(false);
+      if (!opts.silent) toast.success('Workflow saved.');
+      return true;
+    } catch (e: unknown) {
+      console.warn('[SkillFactoryV2] save flow failed', e);
+      toast.error('Could not save the workflow.');
+      return false;
+    }
+  };
+
   const saveCurrentFlow = async () => {
     if (!activeStaff || !activeTask) {
       toast.error('Pick a staff member and task first.');
       return;
     }
-    const nodes = currentNodes.length ? currentNodes : makeStarterFlow().nodes;
-    const edges = currentEdges.length ? currentEdges : makeStarterFlow().edges;
+    await persistFlow(currentNodes, currentEdges);
+  };
+
+  // Rule 16 — soft kill from the "Just saved · Review" pill. Disables the
+  // current saved flow (enabled=false) without deleting it, so the user can
+  // re-enable later from the Automations panel.
+  const disableSavedFlow = async () => {
+    if (!savedFlow) return;
     try {
       await saveTaskFlow({
-        id: savedFlow?.id,
-        hospitalType,
-        role: activeStaff.designation,
-        name: activeTask,
-        enabled: savedFlow?.enabled ?? true,
-        nodes,
-        edges,
+        id: savedFlow.id,
+        hospitalType: savedFlow.hospital_type,
+        role: savedFlow.role,
+        name: savedFlow.name,
+        enabled: false,
+        nodes: savedFlow.nodes,
+        edges: savedFlow.edges,
       });
-      toast.success('Workflow saved.');
-      setCurrentNodes(nodes);
-      setCurrentEdges(edges);
       const refreshed = await fetchTaskFlows(hospitalType);
       setFlows(refreshed);
-      setFlowDirty(false);
+      toast.success('Automation disabled.', {
+        description: 'It will no longer fire. Re-enable it from the Automations panel.',
+      });
     } catch (e: unknown) {
-      console.warn('[SkillFactoryV2] save flow failed', e);
-      toast.error('Could not save the workflow.');
+      console.warn('[SkillFactoryV2] disable flow failed', e);
+      toast.error('Could not disable the automation.');
     }
+  };
+
+  // Apply a flow the chatbot built. Default behavior: auto-save with a 30s
+  // Undo. Dry-run mode (Rule 15): apply to canvas only, NO DB write, NO Undo
+  // needed — the snapshot is still here in memory.
+  const applyChatbotFlow = async (
+    nodes: StoredNode[],
+    edges: StoredEdge[],
+    opts: { dryRun?: boolean } = {},
+  ) => {
+    preApplySnapshotRef.current = { nodes: currentNodes, edges: currentEdges };
+    setCurrentNodes(nodes);
+    setCurrentEdges(edges);
+    setFlowDirty(true);
+    if (opts.dryRun) {
+      toast.message('Dry run — nothing saved.', {
+        description: 'Toggle off "Dry run" in the chatbot to save next time.',
+      });
+      return;
+    }
+    const ok = await persistFlow(nodes, edges, { silent: true });
+    if (!ok) return;
+    toast.success('Automation saved.', {
+      description: 'Active now.',
+      duration: 30000,
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          const snap = preApplySnapshotRef.current;
+          if (!snap) return;
+          setCurrentNodes(snap.nodes);
+          setCurrentEdges(snap.edges);
+          void persistFlow(snap.nodes, snap.edges, { silent: true });
+          toast.message('Reverted. Nothing was saved.');
+        },
+      },
+    });
   };
 
   const filteredStaff = useMemo(() => {
@@ -1345,17 +1577,27 @@ export default function SkillFactoryV2() {
               // refresh anyway. The user must drill into a task to edit.
               readOnly={!activeTask}
               // In-canvas slot: button lives inside the React Flow viewport
-              // (top-right panel), pinned to the canvas itself.
+              // (top-right panel), pinned to the canvas itself. Stacked with
+              // the Rule-16 "Just saved · Review" pill so users have a
+              // discoverable rollback path long after the 30s Undo expires.
               topRightPanel={
-                <button
-                  onClick={() => navigate('/deadline-tracking')}
-                  title="Open the live Deadline Tracking dashboard (the automation we built)"
-                  className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors shadow-lg ring-2 ring-emerald-300/60"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  Deadline Automation — Open Dashboard
-                  <ExternalLink className="w-3.5 h-3.5 opacity-90" />
-                </button>
+                <div className="flex flex-col items-end gap-2">
+                  {savedFlow && isWithin24h(savedFlow.updated_at) && (
+                    <JustSavedPill
+                      flowName={savedFlow.name}
+                      onDisable={() => void disableSavedFlow()}
+                    />
+                  )}
+                  <button
+                    onClick={() => navigate('/deadline-tracking')}
+                    title="Open the live Deadline Tracking dashboard (the automation we built)"
+                    className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors shadow-lg ring-2 ring-emerald-300/60"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    Deadline Automation — Open Dashboard
+                    <ExternalLink className="w-3.5 h-3.5 opacity-90" />
+                  </button>
+                </div>
               }
             />
           </div>
@@ -1373,10 +1615,8 @@ export default function SkillFactoryV2() {
             subtasks={activeSubtasks}
             designation={activeStaff.designation}
             currentFlow={{ nodes: currentNodes, edges: currentEdges }}
-            onApplyFlow={(n, edges) => {
-              setCurrentNodes(n);
-              setCurrentEdges(edges);
-              setFlowDirty(true);
+            onApplyFlow={(n, edges, opts) => {
+              void applyChatbotFlow(n, edges, opts);
             }}
           />
         ) : (
