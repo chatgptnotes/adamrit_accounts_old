@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import {
   LayoutDashboard, BookOpen, FileText, Package,
   BarChart3, ArrowUpFromLine, Link2, Banknote, Landmark,
-  Scale, FileBarChart
+  Scale, FileBarChart, PlusCircle
 } from 'lucide-react'
 import TallyDashboard from '@/components/tally/TallyDashboard'
 import TallyLedgers from '@/components/tally/TallyLedgers'
@@ -18,6 +18,7 @@ import TallyCashBook from '@/components/tally/TallyCashBook'
 import TallyBankBook from '@/components/tally/TallyBankBook'
 import TallyBankReconciliation from '@/components/tally/TallyBankReconciliation'
 import TallyGST from '@/components/tally/TallyGST'
+import TallyCreateVoucher from '@/components/tally/TallyCreateVoucher'
 
 const tabs = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -31,6 +32,7 @@ const tabs = [
   { id: 'gst', label: 'GST', icon: FileBarChart },
   { id: 'billsync', label: 'Bill Sync', icon: ArrowUpFromLine },
   { id: 'mapping', label: 'Mapping', icon: Link2 },
+  { id: 'create-voucher', label: 'Create Voucher', icon: PlusCircle },
 ]
 
 export default function TallyPage() {
@@ -155,6 +157,7 @@ export default function TallyPage() {
         {activeTab === 'gst' && <TallyGST serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
         {activeTab === 'billsync' && <TallyBillSync serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
         {activeTab === 'mapping' && <TallyMapping serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
+        {activeTab === 'create-voucher' && <TallyCreateVoucher serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
       </div>
     </div>
   )
