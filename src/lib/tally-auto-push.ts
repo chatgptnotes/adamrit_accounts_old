@@ -669,3 +669,82 @@ export async function pushPharmacySaleToTally(sale: {
     }, err.message || String(err), sale.invoiceNumber, config.companyId);
   }
 }
+
+// Push a payment voucher (cash going OUT) to Tally as a Payment Voucher
+export async function pushPaymentVoucherToTally(voucher: {
+  voucherNo: string;
+  date: string;
+  personName: string;
+  amount: number;
+  purpose?: string;
+}) {
+  const config = await isTallyActive();
+  if (!config.active) return;
+
+  const mapping = await getLedgerMapping(config.companyId);
+  const cashLedger = mapping.paymentModes?.["Cash"] || "Cash";
+  const expenseLedger = voucher.personName;
+  const narration = `Payment #${voucher.voucherNo} to ${voucher.personName}${voucher.purpose ? ` — ${voucher.purpose}` : ""}`;
+
+  try {
+    const response = await fetch("/api/tally-proxy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        endpoint: "push",
+        action: "create-voucher",
+        serverUrl: config.serverUrl,
+        companyName: config.companyName,
+        data: {
+          voucherType: "Payment",
+          date: voucher.date,
+          narration,
+          partyLedger: expenseLedger,
+          ledgerEntries: [
+            { ledgerName: expenseLedger, amount: voucher.amount, isDeemedPositive: true },
+            { ledgerName: cashLedger, amount: voucher.amount, isDeemedPositive: false },
+          ],
+        },
+      }),
+    });
+    const result = await response.json();
+    await logPush("auto_push_payment_voucher", !!result.success, result.errors, voucher.voucherNo, config.companyId);
+    if (result.success) {
+      await mirrorVoucherToLocal({
+        voucherType: "Payment",
+        voucherNumber: voucher.voucherNo,
+        date: voucher.date,
+        partyLedger: expenseLedger,
+        amount: voucher.amount,
+        narration,
+        ledgerEntries: [
+          { ledger: expenseLedger, amount: voucher.amount, is_debit: true },
+          { ledger: cashLedger, amount: voucher.amount, is_debit: false },
+        ],
+        adamritPaymentId: voucher.voucherNo,
+        companyId: config.companyId,
+      });
+    } else {
+      await enqueueForRetry("payment_voucher", "create-voucher", {
+        voucherType: "Payment", date: voucher.date, narration,
+        partyLedger: expenseLedger,
+        ledgerEntries: [
+          { ledgerName: expenseLedger, amount: voucher.amount, isDeemedPositive: true },
+          { ledgerName: cashLedger, amount: voucher.amount, isDeemedPositive: false },
+        ],
+      }, result.errors?.join("; ") || result.message || "Push failed", voucher.voucherNo, config.companyId);
+    }
+    return result;
+  } catch (err: any) {
+    console.error("Tally payment voucher push failed:", err);
+    await logPush("auto_push_payment_voucher", false, String(err), voucher.voucherNo, config.companyId);
+    await enqueueForRetry("payment_voucher", "create-voucher", {
+      voucherType: "Payment", date: voucher.date, narration,
+      partyLedger: expenseLedger,
+      ledgerEntries: [
+        { ledgerName: expenseLedger, amount: voucher.amount, isDeemedPositive: true },
+        { ledgerName: cashLedger, amount: voucher.amount, isDeemedPositive: false },
+      ],
+    }, err.message || String(err), voucher.voucherNo, config.companyId);
+  }
+}

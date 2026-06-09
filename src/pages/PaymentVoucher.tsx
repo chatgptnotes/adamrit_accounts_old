@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
 import { Receipt, Plus, Trash2, Printer, RotateCcw } from 'lucide-react';
+import { pushPaymentVoucherToTally } from '@/lib/tally-auto-push';
 
 interface PaymentVoucher {
   id: string;
@@ -148,6 +149,13 @@ const PaymentVoucher = () => {
       });
       if (error) throw error;
       toast.success(`Voucher ${voucher_no} saved`);
+      pushPaymentVoucherToTally({
+        voucherNo: voucher_no,
+        date: form.date,
+        personName,
+        amount,
+        purpose: form.purpose.trim() || undefined,
+      });
       setForm((prev) => ({ ...emptyForm(), date: prev.date }));
       loadVouchers();
     } catch (err) {
