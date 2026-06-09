@@ -1,65 +1,96 @@
-// Gemini models, tiered by capability/cost. Route each call to the cheapest
-// model that can do the job — this is the single biggest token-cost lever.
+// Gemini access for the browser — routed through the keyless `ai-proxy` Edge
+// Function so no API key ever ships in the client bundle.
+//
+// History: callers used to hit https://generativelanguage.googleapis.com
+// directly with `?key=VITE_GEMINI_API_KEY`, which Vite inlines into the bundle —
+// exposing the key to anyone with DevTools. Now `geminiFetch` forwards the same
+// request body to `ai-proxy`, which holds the key in server env. The public
+// signatures below are unchanged so existing call sites keep working untouched:
+// they still build a URL with `geminiGenerateContentUrl(...)` (the apiKey arg is
+// now vestigial — pass '' ) and read the response with `await res.json()`.
+//
+// Models, tiered by capability/cost. Route each call to the cheapest model that
+// can do the job — this is the single biggest token-cost lever.
 //
 //  - GEMINI_MODEL       (flash):      vision/OCR, clinical, long-form generation
 //  - GEMINI_MODEL_LITE  (flash-lite): plain text -> JSON extraction, low-stakes
 //
-// `gemini-2.0-flash` was retired for new API keys (April 2026), causing 404s
-// at every call site that hardcoded it — bump here when a model is retired.
+// The flash -> flash-lite fallback now lives server-side in ai-proxy.
+import { supabase } from '@/integrations/supabase/client';
+
 export const GEMINI_MODEL = 'gemini-2.5-flash';
 export const GEMINI_MODEL_LITE = 'gemini-2.5-flash-lite';
 
 export const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
+// Builds the same URL shape as before so `geminiFetch` can parse the model out
+// of it. The key is no longer embedded — callers may pass '' for `apiKey`.
 export function geminiGenerateContentUrl(
   apiKey: string,
   model: string = GEMINI_MODEL,
 ): string {
-  return `${GEMINI_API_BASE}/models/${model}:generateContent?key=${apiKey}`;
+  void apiKey; // retained for call-site compatibility; key now lives server-side
+  return `${GEMINI_API_BASE}/models/${model}:generateContent`;
 }
 
-// HTTP statuses where retrying on the lighter model can succeed: quota
-// exhaustion (429), model unavailability/retirement (404), and transient
-// server errors (500/502/503). Auth (401/403) and malformed-request (400)
-// errors are NOT retried — flash-lite would fail identically.
-const FALLBACK_STATUSES = new Set([404, 429, 500, 502, 503]);
-
-function withModel(url: string, model: string): string {
-  return url.replace(/\/models\/[^:]+:generateContent/, `/models/${model}:generateContent`);
+function modelFromUrl(url: string): string {
+  const m = url.match(/\/models\/([^:/]+):generateContent/);
+  return m?.[1] ?? GEMINI_MODEL;
 }
 
-// Core request with seamless model degradation. When a call targets the
-// primary (flash) model and fails for a transient/quota/availability reason,
-// the identical request is retried on flash-lite — which has separate quota
-// and stays available — so OCR/extraction/generation keeps working instead of
-// surfacing a hard error to the user. Calls already on flash-lite are not
-// retried (nothing cheaper to fall back to). Returns whichever Response the
-// caller should handle: the successful flash-lite Response, or the original
-// failed Response so existing `res.ok` checks still see a meaningful status.
-// Never throws on HTTP errors — it is a drop-in replacement for `fetch`.
-export async function geminiGenerateContent(url: string, init: RequestInit): Promise<Response> {
-  const res = await fetch(url, init);
-  if (res.ok) return res;
-
-  const targetsPrimary = url.includes(`/models/${GEMINI_MODEL}:`);
-  if (targetsPrimary && FALLBACK_STATUSES.has(res.status)) {
-    // `init.body` is a JSON string here, so the same init is safely reusable.
-    const liteRes = await fetch(withModel(url, GEMINI_MODEL_LITE), init);
-    if (liteRes.ok) return liteRes;
-  }
-  return res;
-}
-
-// Fetch wrapper that surfaces the API's actual error body in the thrown
-// Error message. Without this, model retirements / quota / auth failures
-// surface only as "Gemini API error: 404" with no diagnostic context.
-// Routes through geminiGenerateContent so flash failures seamlessly fall back
-// to flash-lite before any error is thrown.
+// Drop-in replacement for the old fetch wrapper. Instead of calling Google
+// directly, it forwards the request body to the `ai-proxy` Edge Function and
+// wraps the result back into a `Response` so existing `res.ok` / `await
+// res.json()` callers are unaffected. Throws with the API error body on failure,
+// matching the previous behaviour.
 export async function geminiFetch(url: string, init: RequestInit): Promise<Response> {
-  const res = await geminiGenerateContent(url, init);
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`Gemini API error ${res.status}: ${body || res.statusText}`);
+  const model = modelFromUrl(url);
+  const payload = typeof init.body === 'string' ? JSON.parse(init.body) : init.body ?? {};
+
+  const invoke = supabase.functions.invoke('ai-proxy', {
+    body: { provider: 'gemini', model, payload },
+  });
+
+  // Honor a caller-supplied AbortSignal (e.g. drug-interactions' 30s timeout).
+  // supabase.functions.invoke can't be cancelled mid-flight, so we race it
+  // against the abort and surface the same error a fetch would throw.
+  const { data, error } = init.signal
+    ? await Promise.race([
+        invoke,
+        new Promise<never>((_, reject) => {
+          const sig = init.signal as AbortSignal;
+          if (sig.aborted) reject(new DOMException('Aborted', 'AbortError'));
+          sig.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+        }),
+      ])
+    : await invoke;
+
+  if (error) {
+    // supabase-js surfaces non-2xx from the function as `error`; the function's
+    // JSON body (when present) carries the real provider message.
+    const detail = (error as { message?: string })?.message || String(error);
+    throw new Error(`Gemini API error (proxy): ${detail}`);
   }
-  return res;
+
+  // The proxy returns the provider's raw JSON, which supabase-js parses into
+  // `data`. Re-serialize so callers can keep using `await res.json()`.
+  return new Response(JSON.stringify(data), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+// Kept as an alias for any caller importing the lower-level name; the proxy now
+// owns the flash -> flash-lite degradation, so this is identical to geminiFetch
+// minus the throw-on-error (callers of this name handled `res.ok` themselves).
+export async function geminiGenerateContent(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await geminiFetch(url, init);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return new Response(JSON.stringify({ error: msg }), {
+      status: 502,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
 }
