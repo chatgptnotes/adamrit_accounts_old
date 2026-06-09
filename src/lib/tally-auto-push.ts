@@ -87,6 +87,51 @@ async function getLedgerMapping(companyId?: string) {
   };
 }
 
+// After a successful push to TallyPrime, mirror the entry into tally_vouchers so
+// TallyCashBook can display it immediately via Supabase Realtime — without waiting
+// for a manual "Refresh from Tally".
+async function mirrorVoucherToLocal(v: {
+  voucherType: string;
+  voucherNumber: string;
+  date: string;
+  partyLedger: string;
+  amount: number;
+  narration: string;
+  ledgerEntries: { ledger: string; amount: number; is_debit: boolean }[];
+  adamritPaymentId?: string;
+  adamritBillId?: string;
+  companyId?: string;
+}) {
+  try {
+    if (!v.companyId) return;
+    // Skip if already exists (re-push or prior real Tally sync)
+    const { count } = await supabase
+      .from("tally_vouchers")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", v.companyId)
+      .eq("voucher_number", v.voucherNumber);
+    if (count && count > 0) return;
+
+    await supabase.from("tally_vouchers").insert({
+      voucher_type: v.voucherType,
+      voucher_number: v.voucherNumber,
+      date: v.date,
+      party_ledger: v.partyLedger,
+      amount: v.amount,
+      narration: v.narration,
+      ledger_entries: v.ledgerEntries,
+      sync_direction: "to_tally",
+      sync_status: "synced",
+      adamrit_payment_id: v.adamritPaymentId || null,
+      adamrit_bill_id: v.adamritBillId || null,
+      company_id: v.companyId,
+      synced_at: new Date().toISOString(),
+    });
+  } catch {
+    // Mirror failure must never affect the main push flow
+  }
+}
+
 async function logPush(syncType: string, success: boolean, errors?: any, ref?: string, companyId?: string) {
   try {
     await supabase.from("tally_sync_log").insert({
@@ -168,7 +213,22 @@ export async function pushBillToTally(bill: {
     });
     const result = await response.json();
     await logPush("auto_push_bill", !!result.success, result.errors, bill.billNumber, config.companyId);
-    if (!result.success) {
+    if (result.success) {
+      await mirrorVoucherToLocal({
+        voucherType: "Sales",
+        voucherNumber: bill.billNumber,
+        date: bill.date,
+        partyLedger: bill.patientName,
+        amount: bill.totalAmount,
+        narration: `IPD Bill #${bill.billNumber} - ${bill.patientName}`,
+        ledgerEntries: [
+          { ledger: bill.patientName, amount: bill.totalAmount, is_debit: true },
+          ...tallyItems.map((item) => ({ ledger: item.ledgerName, amount: item.amount, is_debit: false })),
+        ],
+        adamritBillId: bill.billNumber,
+        companyId: config.companyId,
+      });
+    } else {
       await enqueueForRetry("bill", "create-sales-voucher", {
         billNumber: bill.billNumber, patientName: bill.patientName,
         date: bill.date, totalAmount: bill.totalAmount, items: tallyItems,
@@ -222,7 +282,22 @@ export async function pushPaymentToTally(payment: {
     });
     const result = await response.json();
     await logPush("auto_push_payment", !!result.success, result.errors, payment.receiptNumber, config.companyId);
-    if (!result.success) {
+    if (result.success) {
+      await mirrorVoucherToLocal({
+        voucherType: "Receipt",
+        voucherNumber: payment.receiptNumber,
+        date: payment.date,
+        partyLedger: payment.patientName,
+        amount: payment.amount,
+        narration: `Receipt #${payment.receiptNumber} from ${payment.patientName} via ${payment.paymentMode}`,
+        ledgerEntries: [
+          { ledger: bankLedger, amount: payment.amount, is_debit: true },
+          { ledger: payment.patientName, amount: payment.amount, is_debit: false },
+        ],
+        adamritPaymentId: payment.receiptNumber,
+        companyId: config.companyId,
+      });
+    } else {
       await enqueueForRetry("payment", "create-receipt-voucher", {
         receiptNumber: payment.receiptNumber, patientName: payment.patientName,
         date: payment.date, amount: payment.amount, paymentMode: payment.paymentMode, bankLedger,
@@ -553,7 +628,26 @@ export async function pushPharmacySaleToTally(sale: {
     });
     const result = await response.json();
     await logPush("auto_push_pharmacy", !!result.success, result.errors, sale.invoiceNumber, config.companyId);
-    if (!result.success) {
+    if (result.success) {
+      await mirrorVoucherToLocal({
+        voucherType: "Sales",
+        voucherNumber: sale.invoiceNumber,
+        date: sale.date,
+        partyLedger: sale.patientName,
+        amount: sale.totalAmount,
+        narration: `Pharmacy Sale #${sale.invoiceNumber} - ${sale.patientName}`,
+        ledgerEntries: [
+          { ledger: sale.patientName, amount: sale.totalAmount, is_debit: true },
+          ...sale.items.map((item) => ({
+            ledger: mapping.pharmacySalesLedger || "Pharmacy Sales",
+            amount: item.amount,
+            is_debit: false,
+          })),
+        ],
+        adamritBillId: sale.invoiceNumber,
+        companyId: config.companyId,
+      });
+    } else {
       await enqueueForRetry("pharmacy", "create-sales-voucher", {
         billNumber: sale.invoiceNumber, patientName: sale.patientName,
         date: sale.date, totalAmount: sale.totalAmount,

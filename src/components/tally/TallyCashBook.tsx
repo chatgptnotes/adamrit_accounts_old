@@ -28,10 +28,15 @@ export default function TallyCashBook({ serverUrl, companyName, companyId }) {
   const [refreshing, setRefreshing] = useState(false)
   const [openingBalance, setOpeningBalance] = useState(0)
 
-  // Date range: default current month
+  // Date range: default to full current month (day-by-day sequence)
   const now = new Date()
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
+  const defaultFrom = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+  const defaultTo = (() => {
+    const last = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+    return `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}`
+  })()
+  const [dateFrom, setDateFrom] = useState(defaultFrom)
+  const [dateTo, setDateTo] = useState(defaultTo)
   const [typeFilter, setTypeFilter] = useState('All')
   const [page, setPage] = useState(0)
 
@@ -93,6 +98,41 @@ export default function TallyCashBook({ serverUrl, companyName, companyId }) {
   useEffect(() => {
     setPage(0)
   }, [dateFrom, dateTo, typeFilter, companyId])
+
+  // Realtime: when a new voucher is mirrored into tally_vouchers after a push,
+  // merge it into state immediately so it appears without a manual refresh.
+  useEffect(() => {
+    if (!companyId) return
+
+    const channel = supabase
+      .channel(`tally_vouchers_live_${companyId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'tally_vouchers', filter: `company_id=eq.${companyId}` },
+        (payload) => {
+          const v = payload.new as any
+          // Apply the same cash-ledger filter used by fetchData
+          const entries = Array.isArray(v.ledger_entries) ? v.ledger_entries : []
+          const isCash = entries.some((e: any) => {
+            const name = (e.ledger || '').toLowerCase()
+            return name.includes('cash') || name === 'cash'
+          })
+          if (!isCash) return
+
+          setVouchers((prev) => {
+            // Skip if already present (e.g. triggered twice)
+            if (prev.some((r: any) => r.id === v.id)) return prev
+            const updated = [...prev, v]
+            // Keep ascending date order (day-by-day sequence)
+            updated.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
+            return updated
+          })
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [companyId])
 
   async function handleRefresh() {
     if (!serverUrl || !companyName) {
