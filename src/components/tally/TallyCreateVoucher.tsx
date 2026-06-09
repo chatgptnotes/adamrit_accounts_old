@@ -15,14 +15,6 @@ interface Props {
   companyId: string
 }
 
-const CASH_BANK_KEYWORDS = ['cash', 'bank', 'cash-in-hand', 'cash in hand', 'bank accounts', 'bank account']
-
-function isCashOrBank(parentGroup: string | null): boolean {
-  if (!parentGroup) return false
-  const g = parentGroup.toLowerCase()
-  return CASH_BANK_KEYWORDS.some(k => g.includes(k))
-}
-
 function today(): string {
   return new Date().toISOString().split('T')[0]
 }
@@ -96,9 +88,17 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
     if (companyId) loadLedgers()
   }, [companyId])
 
-  // ── Derived ledger lists ──────────────────────────────────────
-  const accountLedgers = allLedgers.filter(l => isCashOrBank(l.parent_group))
-  const particularLedgers = allLedgers
+  // ── Group ledgers by parent_group for optgroup selects ───────
+  function groupedLedgers(ledgers: Ledger[]): Record<string, string[]> {
+    return ledgers.reduce<Record<string, string[]>>((acc, l) => {
+      const g = l.parent_group || 'Other'
+      if (!acc[g]) acc[g] = []
+      acc[g].push(l.name)
+      return acc
+    }, {})
+  }
+
+  const ledgerGroups = groupedLedgers(allLedgers)
 
   // ── Voucher number generator (same logic as PaymentVoucher page) ──
   async function nextVoucherNo(date: string): Promise<string> {
@@ -266,7 +266,7 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
         {/* Account */}
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">
-            Account (Cash / Bank) <span className="text-red-500">*</span>
+            Account <span className="text-red-500">*</span>
           </label>
           <select
             value={form.account}
@@ -274,12 +274,14 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
           >
             <option value="">— Select Account —</option>
-            {accountLedgers.map(l => (
-              <option key={l.name} value={l.name}>{l.name}</option>
+            {Object.entries(ledgerGroups).sort(([a], [b]) => a.localeCompare(b)).map(([group, names]) => (
+              <optgroup key={group} label={group}>
+                {names.map(name => <option key={name} value={name}>{name}</option>)}
+              </optgroup>
             ))}
           </select>
-          {accountLedgers.length === 0 && !loadingLedgers && (
-            <p className="text-xs text-amber-600 mt-1">No Cash/Bank ledgers found. Refresh ledgers or sync from Tally first.</p>
+          {allLedgers.length === 0 && !loadingLedgers && (
+            <p className="text-xs text-amber-600 mt-1">No ledgers found. Make sure Tally is online and click Refresh.</p>
           )}
         </div>
 
@@ -308,8 +310,10 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
           >
             <option value="">— Select Particulars —</option>
-            {particularLedgers.map(l => (
-              <option key={l.name} value={l.name}>{l.name}</option>
+            {Object.entries(ledgerGroups).sort(([a], [b]) => a.localeCompare(b)).map(([group, names]) => (
+              <optgroup key={group} label={group}>
+                {names.map(name => <option key={name} value={name}>{name}</option>)}
+              </optgroup>
             ))}
           </select>
         </div>
