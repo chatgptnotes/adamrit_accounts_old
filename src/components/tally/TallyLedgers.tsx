@@ -64,7 +64,7 @@ export default function TallyLedgers({ serverUrl, companyName, companyId }) {
 
     if (groupFilter !== 'All') {
       result = result.filter(
-        (l) => (l.parent_group || '').toLowerCase() === groupFilter.toLowerCase()
+        (l) => (l.parent_group || '').toLowerCase().replace(/-/g, ' ') === groupFilter.toLowerCase().replace(/-/g, ' ')
       )
     }
 

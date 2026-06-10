@@ -244,6 +244,10 @@ async function handleSync(body: any) {
   const supabase = createClient(supabaseUrl, supabaseKey)
   const startTime = Date.now()
 
+  // Resolve company_id from companyName (required for correct upsert conflict target)
+  const { data: configRow } = await supabase.from('tally_config').select('id').eq('company_name', companyName).single()
+  const companyId: string | null = configRow?.id ?? null
+
   // Create sync log
   const { data: logData } = await supabase.from('tally_sync_log').insert({
     sync_type: action, direction: 'inward', status: 'started',
@@ -265,6 +269,7 @@ async function handleSync(body: any) {
             const name = getVal(el, 'NAME') || getAttr(el, 'NAME')
             if (!name) continue
             await supabase.from('tally_ledgers').upsert({
+              company_id: companyId,
               name, tally_guid: getVal(el, 'GUID') || getAttr(el, 'GUID') || null,
               parent_group: getVal(el, 'PARENT'),
               opening_balance: parseFloat(getVal(el, 'OPENINGBALANCE') || '0'),
@@ -275,7 +280,7 @@ async function handleSync(body: any) {
               gst_number: getVal(el, 'PARTYGSTIN') || null,
               pan_number: getVal(el, 'INCOMETAXNUMBER') || null,
               last_synced_at: new Date().toISOString(),
-            }, { onConflict: 'tally_guid', ignoreDuplicates: false })
+            }, { onConflict: 'company_id,name', ignoreDuplicates: false })
             recordsSynced++
           } catch (e: any) { recordsFailed++; errors.push(e.message) }
         }

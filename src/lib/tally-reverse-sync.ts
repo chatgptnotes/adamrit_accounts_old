@@ -238,7 +238,7 @@ export async function reverseSync(
           .eq("name", name);
       } else {
         // Insert new ledger
-        await supabase.from("tally_ledgers").insert({
+        await supabase.from("tally_ledgers").upsert({
           company_id: companyId,
           name,
           tally_guid: getVal(el, "GUID") || getAttr(el, "GUID") || null,
@@ -248,7 +248,7 @@ export async function reverseSync(
           ),
           closing_balance: closingBalance,
           last_synced_at: new Date().toISOString(),
-        });
+        }, { onConflict: 'company_id,name', ignoreDuplicates: false });
         result.newLedgers++;
       }
     }
