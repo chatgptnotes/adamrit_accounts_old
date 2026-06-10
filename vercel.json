@@ -11,6 +11,9 @@
       "maxDuration": 120
     }
   },
+  "crons": [
+    { "path": "/api/deadline-reminders", "schedule": "30 3 * * *" }
+  ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
