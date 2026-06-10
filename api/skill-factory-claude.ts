@@ -24,6 +24,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt : ''
   if (!prompt.trim()) return res.status(400).json({ error: 'prompt required' })
 
+  // Optional per-request model override (sonnet|opus|haiku). The sidecar
+  // allowlists it; we just pass it through. Discharge-summary generation
+  // sends 'opus'; the Skill Factory chatbot omits it (sidecar default sonnet).
+  const model = typeof req.body?.model === 'string' ? req.body.model : undefined
+
   let upstream: Response
   try {
     upstream = await fetch(VPS_URL, {
@@ -32,7 +37,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${VPS_TOKEN}`,
       },
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify(model ? { prompt, model } : { prompt }),
     })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'unknown'

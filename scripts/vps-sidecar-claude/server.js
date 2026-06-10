@@ -27,10 +27,13 @@ app.post('/claude', (req, res) => {
   const prompt = String(req.body?.prompt || '');
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
 
-  // --model sonnet: structured flow-generation doesn't need the top-tier model;
-  // Sonnet is faster + cheaper and plenty capable for this. Change the alias
-  // (sonnet/opus/haiku) here to switch models for all Skill Factory calls.
-  const cp = spawn('claude', ['-p', prompt, '--model', 'sonnet', '--output-format=json'], { timeout: 120_000 });
+  // Per-request model, allowlisted so a caller can never inject arbitrary CLI
+  // args. Default sonnet (Skill Factory chatbot — faster + cheaper for
+  // flow-gen); the discharge-summary generation sends 'opus' for quality.
+  const ALLOWED_MODELS = ['sonnet', 'opus', 'haiku'];
+  const model = ALLOWED_MODELS.includes(req.body?.model) ? req.body.model : 'sonnet';
+
+  const cp = spawn('claude', ['-p', prompt, '--model', model, '--output-format=json'], { timeout: 120_000 });
   let out = '';
   let err = '';
   cp.stdout.on('data', (d) => { out += d; });

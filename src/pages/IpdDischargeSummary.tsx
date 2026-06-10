@@ -13,7 +13,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Calendar, CalendarDays, Loader2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { geminiGenerateContentUrl, geminiFetch, geminiGenerateContent } from "@/lib/gemini";
+import { geminiGenerateContentUrl, geminiFetch } from "@/lib/gemini";
+import { callVpsClaude } from "@/lib/vpsClaude";
 import { downscaleImageForVision } from "@/lib/downscaleImage";
 import { format } from 'date-fns';
 import { useAuth } from '@/contexts/AuthContext';
@@ -4080,21 +4081,9 @@ DD/MM/YYYY:-Test Category: Test1:Value1 unit, Test2:Value2 unit`);
               setIsClinicalHistoryGenerating(true);
               try {
                 const prompt = `You are a medical specialist. Elaborate the following presenting complaints into a concise Clinical History / History of Present Illness paragraph of 3 to 4 lines for a doctor reader. Do NOT mention any diagnosis, and do NOT mention the patient's name, age or sex. Use formal medical language. Only elaborate the complaints given — do not invent unrelated findings or investigations.\n\nPresenting complaints:\n${caseSummaryPresentingComplaints.trim()}`;
-                const res = await geminiGenerateContent(geminiGenerateContentUrl(apiKey), {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: { temperature: 0.4, maxOutputTokens: 600, thinkingConfig: { thinkingBudget: 0 } },
-                  }),
-                });
-                if (!res.ok) {
-                  const err = await res.json().catch(() => ({}));
-                  throw new Error(err.error?.message || res.statusText);
-                }
-                const data = await res.json();
-                const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (!text) throw new Error('No response from AI.');
+                // Generation runs on VPS Claude (Opus). OCR/vision elsewhere on
+                // this page still uses Gemini.
+                const text = await callVpsClaude(prompt, 'opus');
                 setCaseSummaryPresentingComplaints(text.trim());
                 toast({ title: 'Success', description: 'Clinical history elaborated.' });
               } catch (error: any) {
@@ -4252,25 +4241,9 @@ IMPORTANT — TREATMENT DATA SOURCE: The "TREATMENT SHEET (read via OCR)" below 
                 );
                 const userData = dataParts.join('\n\n');
 
-                const response = await geminiGenerateContent(geminiGenerateContentUrl(apiKey), {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    contents: [{ parts: [{ text: STAY_NOTES_PROMPT + '\n\nPatient data:\n' + userData }] }],
-                    generationConfig: {
-                      temperature: 0.4,
-                      maxOutputTokens: 8192,
-                      thinkingConfig: { thinkingBudget: 0 },
-                    },
-                  }),
-                });
-                if (!response.ok) {
-                  const err = await response.json().catch(() => ({}));
-                  throw new Error(err.error?.message || response.statusText);
-                }
-                const data = await response.json();
-                const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (!text) throw new Error('No response from AI.');
+                // Narrative generation on VPS Claude (Opus); the treatment-sheet
+                // OCR above still runs on Gemini vision.
+                const text = await callVpsClaude(STAY_NOTES_PROMPT + '\n\nPatient data:\n' + userData, 'opus');
                 setHospitalStayNotes(text);
                 toast({
                   title: 'Success',
@@ -4815,27 +4788,8 @@ STRICT RULES:
 - Multiple surgeries: separate paragraphs with one blank line.
 - Output ONLY the description paragraphs — no preamble, no closing remark.`;
 
-                    const response = await geminiFetch(geminiGenerateContentUrl(geminiApiKey), {
-                      method: 'POST',
-                      headers: {
-                        'Content-Type': 'application/json'
-                      },
-                      body: JSON.stringify({
-                        contents: [{
-                          parts: [{
-                            text: prompt
-                          }]
-                        }],
-                        generationConfig: {
-                          temperature: 0.3,
-                          maxOutputTokens: 4000,
-                          thinkingConfig: { thinkingBudget: 0 }
-                        }
-                      })
-                    });
-
-                    const data = await response.json();
-                    const generatedDescription = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                    // Operative-note generation on VPS Claude (Opus).
+                    const generatedDescription = await callVpsClaude(prompt, 'opus');
 
                     if (generatedDescription) {
                       setSharedSurgeryDescription(generatedDescription.trim());
@@ -5173,45 +5127,8 @@ Non-negotiable rules:
 - If surgery was performed, include detailed Operative Notes (minimum 6 sentences).
 - End the document with this exact line, unchanged: URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 9373111709.${conservativeRules}`;
 
-                          // Call Google Gemini API
-                          const response = await geminiGenerateContent(geminiGenerateContentUrl(import.meta.env.VITE_GEMINI_API_KEY), {
-                            method: 'POST',
-                            headers: {
-                              'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({
-                              contents: [{
-                                parts: [{
-                                  text: systemPrompt + '\n\nUser Request:\n' + contentToSend
-                                }]
-                              }],
-                              generationConfig: {
-                                temperature: 0.4,
-                                maxOutputTokens: 8192,
-                                thinkingConfig: { thinkingBudget: 0 }
-                              }
-                            })
-                          });
-
-                          if (!response.ok) {
-                            const errorData = await response.json();
-                            throw new Error(`Gemini API error: ${errorData.error?.message || response.statusText}`);
-                          }
-
-                          const data = await response.json();
-                          const candidate = data.candidates?.[0];
-                          const finishReason = candidate?.finishReason;
-                          if (finishReason && finishReason !== 'STOP') {
-                            console.warn('Gemini finishReason:', finishReason, data);
-                            if (finishReason === 'MAX_TOKENS') {
-                              toast({
-                                title: 'Output truncated',
-                                description: 'Response hit max tokens. Increase maxOutputTokens or reduce input.',
-                                variant: 'destructive',
-                              });
-                            }
-                          }
-                          const generatedSummary = candidate?.content?.parts?.[0]?.text;
+                          // Full discharge-summary generation on VPS Claude (Opus).
+                          const generatedSummary = await callVpsClaude(systemPrompt + '\n\nUser Request:\n' + contentToSend, 'opus');
 
                           if (generatedSummary) {
                             // Display generated summary in Stay Notes box

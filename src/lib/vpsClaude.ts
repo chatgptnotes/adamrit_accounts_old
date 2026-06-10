@@ -18,11 +18,13 @@ export interface VpsClaudeResponse {
   [k: string]: unknown;
 }
 
-export async function callVpsClaude(prompt: string): Promise<string> {
+export type VpsClaudeModel = 'sonnet' | 'opus' | 'haiku';
+
+export async function callVpsClaude(prompt: string, model?: VpsClaudeModel): Promise<string> {
   const res = await fetch('/api/skill-factory-claude', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify(model ? { prompt, model } : { prompt }),
   });
 
   if (!res.ok) {
