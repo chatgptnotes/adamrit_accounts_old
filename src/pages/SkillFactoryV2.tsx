@@ -787,13 +787,24 @@ export default function SkillFactoryV2() {
     const load = async () => {
       setLoading(true);
       try {
-        let q = supabase
-          .from(LOGS_TABLE)
-          .select('id, user_email, hospital_type, staff_name, designation, log_date, tasks, ai_suggestions, task_attachments, created_at')
-          .order('created_at', { ascending: false })
-          .limit(500);
-        if (hospitalType) q = q.eq('hospital_type', hospitalType);
-        const { data, error } = await q;
+        // Base columns always exist; task_attachments is newer and may not be
+        // migrated yet. Try with it, and if the DB doesn't have the column,
+        // retry WITHOUT it so the whole page never fails to load (attachments
+        // just won't show until the migration is run).
+        const BASE_COLS = 'id, user_email, hospital_type, staff_name, designation, log_date, tasks, ai_suggestions, created_at';
+        const runSelect = async (cols: string) => {
+          let q = supabase
+            .from(LOGS_TABLE)
+            .select(cols)
+            .order('created_at', { ascending: false })
+            .limit(500);
+          if (hospitalType) q = q.eq('hospital_type', hospitalType);
+          return q;
+        };
+        let { data, error } = await runSelect(`${BASE_COLS}, task_attachments`);
+        if (error && /task_attachments/i.test(error.message || '')) {
+          ({ data, error } = await runSelect(BASE_COLS));
+        }
         if (error) throw error;
         const flowRows = await fetchTaskFlows(hospitalType);
         if (cancelled) return;
@@ -984,10 +995,12 @@ export default function SkillFactoryV2() {
 
   useEffect(() => {
     if (activeTask) {
-      // Drilled into a specific task. The Deadline Tracking task always shows
-      // the real, end-to-end automation we built (overrides any old stub flow
-      // saved before this view existed); other tasks prefer their saved flow.
-      if (isDeadlineTrackingTask(activeTask)) {
+      // Drilled into a specific task. The Deadline Tracking task shows its
+      // built-in demo (trigger + AI-generated steps) ONLY until a real flow is
+      // saved for it. Once the chatbot generates/saves one, savedFlow matches and
+      // we fall through to the normal path below — so generated flows stick on
+      // the canvas and persist, exactly like every other task.
+      if (isDeadlineTrackingTask(activeTask) && !savedFlow) {
         // The deadline flow itself is just the trigger node; its follow-up steps
         // are AI-generated into subtasksMap by the auto-seed effect below (with a
         // DEADLINE_DEFAULT_STEPS fallback so it's never left empty). Render
