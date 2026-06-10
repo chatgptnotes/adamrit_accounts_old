@@ -40,7 +40,7 @@ import {
   type UtilityDeadline,
 } from '@/hooks/useUtilityDeadlines';
 import { useAuth } from '@/contexts/AuthContext';
-import { dispatchFlowEvent } from '@/lib/flowDispatcher';
+import { dispatchFlowEventWithToasts } from '@/lib/flowDispatcher';
 import { extractUtilityBill } from '@/lib/extractUtilityBill';
 import DeadlineNotificationBell from './DeadlineNotificationBell';
 
@@ -262,7 +262,7 @@ export default function DeadlineDashboard({ onBack }: Props) {
       const eventType = status === 'overdue' ? 'deadline_overdue' : status === 'due_soon' ? 'deadline_due' : null;
       if (!eventType) continue;
       const days = daysUntil(row.due_date, today);
-      void dispatchFlowEvent(eventType, {
+      void dispatchFlowEventWithToasts(eventType, {
         hospitalType,
         entityId: row.id,
         // Rule 17 — pass the bill's creation timestamp so a freshly-saved
@@ -371,7 +371,7 @@ export default function DeadlineDashboard({ onBack }: Props) {
     async (file: Blob, fileName: string) => {
       setScanning(true);
       try {
-        const extracted = await extractUtilityBill(file, fileName);
+        const extracted = await extractUtilityBill(file, fileName, hospitalType);
         const url = await uploadAttachment(file, fileName);
         const notes = extracted.consumer_number
           ? `Consumer No: ${extracted.consumer_number}`
@@ -415,7 +415,7 @@ export default function DeadlineDashboard({ onBack }: Props) {
         if (scanInputRef.current) scanInputRef.current.value = '';
       }
     },
-    [createDeadline],
+    [createDeadline, hospitalType],
   );
 
   // ── In-app webcam (mirrors CameraUpload.tsx) ─────────────────────

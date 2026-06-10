@@ -1,8 +1,8 @@
 -- Open Dashboard / Deadline Tracking: per-hospital utility-bill tracker.
--- Isolated table — the dashboard reads/writes only this. Hospital scoping is
--- done in the browser (RLS disabled; staff already authenticate via the app's
--- custom auth).
+-- Safe to run multiple times — every statement is idempotent.
+-- Paste the whole file into Supabase SQL Editor and click Run.
 
+-- 1. Table
 create table if not exists public.utility_deadlines (
   id uuid primary key default gen_random_uuid(),
   hospital_type text,
@@ -18,14 +18,13 @@ create table if not exists public.utility_deadlines (
   updated_at timestamptz not null default now()
 );
 
--- Most queries filter by hospital + order by due_date asc.
+-- 2. Index for the hot query: filter by hospital + order by due_date asc.
 create index if not exists utility_deadlines_hospital_due_idx
   on public.utility_deadlines (hospital_type, due_date);
 
--- RLS strategy: enable RLS but add a single permissive policy for anon +
--- authenticated. Disabling RLS works in some projects, but Supabase often
--- re-enables it (project default), causing 42501 "new row violates row-level
--- security policy" on insert. A permissive policy is the durable approach.
+-- 3. RLS — enable + permissive policy.
+--    Supabase auto-enables RLS on new tables, so a permissive policy is the
+--    durable way to let the browser anon key read/write.
 alter table public.utility_deadlines enable row level security;
 
 drop policy if exists "utility_deadlines anon all" on public.utility_deadlines;
@@ -36,4 +35,6 @@ create policy "utility_deadlines anon all"
   using (true)
   with check (true);
 
+-- 4. Grants (defence in depth — RLS already allows; grants ensure no
+--    "permission denied" before the policy is even checked).
 grant select, insert, update, delete on public.utility_deadlines to anon, authenticated;

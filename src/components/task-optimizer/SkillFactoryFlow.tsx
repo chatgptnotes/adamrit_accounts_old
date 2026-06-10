@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type DragEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -71,12 +71,24 @@ const nextId = (kind: string) => `${kind}-${Date.now()}-${idCounter++}`;
 
 function CanvasInner({ nodes, edges, onChange, readOnly, topRightPanel }: SkillFactoryFlowProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, fitView } = useReactFlow();
 
   // The canvas is fully controlled by the parent. We translate react-flow's
   // change events back into the parent's StoredNode[] / StoredEdge[] shape.
   const rfNodes = nodes as unknown as Node[];
   const rfEdges = edges.map(e => ({ ...DEFAULT_EDGE_OPTIONS, ...e })) as unknown as Edge[];
+
+  // Refit when the node SET changes (id list, not positions/selection). The
+  // initial `fitView` prop only runs on mount, so without this a subtask added
+  // imperatively from the Steps panel lands below the viewport and looks like
+  // nothing happened. Watching the id list (not the array reference) keeps the
+  // viewport stable during drag/select churn.
+  const idSignature = nodes.map((n) => n.id).join('|');
+  useEffect(() => {
+    if (!nodes.length) return;
+    const t = setTimeout(() => fitView({ duration: 240, padding: 0.2 }), 30);
+    return () => clearTimeout(t);
+  }, [idSignature, fitView, nodes.length]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {

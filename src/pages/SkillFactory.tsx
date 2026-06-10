@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Bot,
   User,
@@ -20,6 +21,8 @@ import {
   UserPlus,
   Plus,
   Trash2,
+  ExternalLink,
+  CheckCircle2,
 } from 'lucide-react';
 import {
   DndContext,
@@ -384,6 +387,7 @@ const UNASSIGNED = '';
 export default function SkillFactory() {
   const { user } = useAuth();
   const userEmail = user?.email ?? '';
+  const navigate = useNavigate();
 
   const [activeNav, setActiveNav] = useState<(typeof NAV)[number]['id']>('subagents');
   const [search, setSearch] = useState('');
@@ -797,7 +801,19 @@ export default function SkillFactory() {
   };
 
   return (
-    <div className="flex h-full min-h-0 bg-gray-50">
+    <div className="flex h-full min-h-0 bg-gray-50 relative">
+      {/* ── Always-visible Open-Dashboard FAB (bottom-right, fixed to the page) ── */}
+      <button
+        onClick={() => navigate('/deadline-tracking')}
+        title="Open the live Deadline Tracking dashboard (the automation we built)"
+        className="fixed bottom-6 right-6 z-50 flex items-center gap-2 text-sm px-4 py-3 rounded-full bg-emerald-600 text-white hover:bg-emerald-700 transition-colors shadow-2xl ring-4 ring-emerald-300/50 animate-pulse"
+      >
+        <CheckCircle2 className="w-5 h-5" />
+        <span className="font-semibold">Deadline Automation</span>
+        <span className="opacity-90">— Open Dashboard</span>
+        <ExternalLink className="w-4 h-4 opacity-90" />
+      </button>
+
       {/* ── Skill Factory rail ── */}
       <aside className="w-52 shrink-0 border-r border-gray-200 bg-white flex flex-col">
         <div className="px-4 py-4 border-b border-gray-100">

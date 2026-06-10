@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { useAuth } from '@/contexts/AuthContext';
 import { useUtilityDeadlines, notifyBillScannedSlack } from '@/hooks/useUtilityDeadlines';
 import { extractUtilityBill } from '@/lib/extractUtilityBill';
 import { uploadBillAttachment } from '@/lib/uploadBillAttachment';
@@ -23,6 +24,7 @@ interface Props {
 }
 
 export default function BillScanMenu({ onOpenDashboard }: Props) {
+  const { hospitalType } = useAuth();
   const { createDeadline } = useUtilityDeadlines();
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -40,7 +42,7 @@ export default function BillScanMenu({ onOpenDashboard }: Props) {
     async (file: Blob, fileName: string) => {
       setScanning(true);
       try {
-        const ex = await extractUtilityBill(file, fileName);
+        const ex = await extractUtilityBill(file, fileName, hospitalType);
         const url = await uploadBillAttachment(file, fileName);
         const notes = ex.consumer_number ? `Consumer No: ${ex.consumer_number}` : ex.biller || null;
         const inserted = await createDeadline({
@@ -65,7 +67,7 @@ export default function BillScanMenu({ onOpenDashboard }: Props) {
         setScanning(false);
       }
     },
-    [createDeadline, onOpenDashboard],
+    [createDeadline, onOpenDashboard, hospitalType],
   );
 
   // ── Camera (mirrors the dashboard's in-app webcam) ────────────────
