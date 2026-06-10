@@ -5,17 +5,18 @@ import basicSsl from "@vitejs/plugin-basic-ssl";
 import path from "path";
 
 // Dev-only Slack relay. The browser can't POST to a Slack webhook directly
-// (no CORS), so the page POSTs { text } to same-origin /slack-proxy and this
+// (no CORS), so the page POSTs { text } to same-origin /api/slack and this
 // middleware forwards it server-side to SLACK_WEBHOOK_URL (kept in .env.local,
 // gitignored). The Slack Workflow webhook variable key is literally "t-e-x-t"
-// (with dashes), so the forwarded body MUST use that key. PRODUCTION NOTE: this
-// only exists under `npm run dev` — it is not part of a production build.
+// (with dashes), so the forwarded body MUST use that key. In production the same
+// /api/slack path is handled by the Vercel function api/slack.ts — so one URL
+// works in both; this middleware only runs under `npm run dev`.
 function slackProxyPlugin(env: Record<string, string>): Plugin {
   return {
     name: "slack-proxy-dev",
     apply: "serve",
     configureServer(server) {
-      server.middlewares.use("/slack-proxy", (req, res) => {
+      server.middlewares.use("/api/slack", (req, res) => {
         if (req.method !== "POST") {
           res.statusCode = 405;
           res.end("Method Not Allowed");

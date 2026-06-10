@@ -59,6 +59,7 @@ import { supabase } from '@/integrations/supabase/client';
 import {
   fetchTaskFlows,
   saveTaskFlow,
+  deleteTaskFlow,
   makeStarterFlow,
   type StoredNode,
   type StoredEdge,
@@ -1419,6 +1420,79 @@ export default function SkillFactoryV2() {
     });
   };
 
+  // Load an existing saved automation onto the canvas to edit. Snapshots the
+  // current canvas (so the chatbot's Undo could revert) and resets the dirty
+  // signature so a no-edit load doesn't show "unsaved".
+  const loadExistingFlow = (flowId: string) => {
+    const f = flows.find((x) => x.id === flowId);
+    if (!f) {
+      toast.error('That automation could not be found.');
+      return;
+    }
+    preApplySnapshotRef.current = { nodes: currentNodes, edges: currentEdges };
+    setCurrentNodes(f.nodes);
+    setCurrentEdges(f.edges);
+    setFlowDirty(false);
+    cleanFlowSigRef.current = meaningfulFlowSig(f.nodes, f.edges);
+  };
+
+  // Create a NEW saved automation from a chatbot suggestion. Unlike persistFlow,
+  // this never UPSERTs the open flow and never touches the canvas — it INSERTs a
+  // fresh row (saveTaskFlow with no id) under a de-duped name. The name is forced
+  // ≠ activeTask so the canvas-repaint build effect can't match it to savedFlow
+  // and clobber the open flow. Returns the new row's id+name.
+  const createAutomation = async (
+    flow: GeneratedFlow,
+    opts: { nameOverride?: string; alsoLoad?: boolean } = {},
+  ): Promise<{ id: string; name: string } | null> => {
+    const role = activeStaff?.designation ?? 'global';
+    const baseName = (opts.nameOverride || flow.name || 'AI automation').trim() || 'AI automation';
+    const taken = new Set(
+      flows
+        .filter((f) => (f.role ?? '').toLowerCase() === role.toLowerCase())
+        .map((f) => f.name.toLowerCase()),
+    );
+    if (activeTask) taken.add(activeTask.toLowerCase());
+    let name = baseName;
+    let n = 2;
+    while (taken.has(name.toLowerCase())) name = `${baseName} (${n++})`;
+
+    const nodes = flow.nodes.length ? flow.nodes : makeStarterFlow().nodes;
+    const edges = flow.edges.length ? flow.edges : makeStarterFlow().edges;
+    try {
+      await saveTaskFlow({ /* no id → INSERT a new row */ hospitalType, role, name, enabled: true, nodes, edges });
+      const refreshed = await fetchTaskFlows(hospitalType);
+      setFlows(refreshed);
+      const created = refreshed.find(
+        (f) => f.name === name && (f.role ?? '').toLowerCase() === role.toLowerCase(),
+      );
+      if (!created) {
+        toast.error('Automation was saved but could not be located.');
+        return null;
+      }
+      toast.success(`New automation created: "${name}".`, {
+        description: 'Saved and live.',
+        duration: 30000,
+        action: {
+          label: 'Undo',
+          onClick: () => {
+            void deleteTaskFlow(created.id).then(async () => {
+              const after = await fetchTaskFlows(hospitalType);
+              setFlows(after);
+              toast.message('Removed the new automation.');
+            });
+          },
+        },
+      });
+      if (opts.alsoLoad) loadExistingFlow(created.id);
+      return { id: created.id, name: created.name };
+    } catch (e: unknown) {
+      console.warn('[SkillFactoryV2] create automation failed', e);
+      toast.error('Could not create the automation.');
+      return null;
+    }
+  };
+
   // Create a log for the active staff on demand — mirrors commitAddTask's insert
   // but seeds no starter tasks (the AI provides them). Returns null if it can't.
   const ensureActiveLog = async (): Promise<TaskOptimizerLog | null> => {
@@ -2013,6 +2087,13 @@ export default function SkillFactoryV2() {
             onApply={(flow, opts) => {
               void applyAiResult(flow, opts);
             }}
+            onCreateAutomation={(flow, opts) => createAutomation(flow, opts)}
+            onLoadExistingFlow={(flowId) => loadExistingFlow(flowId)}
+            listExistingFlows={() =>
+              flows
+                .filter((f) => (f.role ?? '').toLowerCase() === (activeStaff?.designation ?? '').toLowerCase())
+                .map((f) => ({ id: f.id, name: f.name, enabled: f.enabled }))
+            }
           />
         ) : (
           <div className="h-full flex items-center justify-center text-center text-gray-400 px-6">

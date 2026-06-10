@@ -16,8 +16,13 @@ export const FLOW_EVENT_TYPES = [
   'deadline_due',
   'deadline_overdue',
   'deadline_paid',
+  'task_added',
+  'scheduled',
 ] as const;
 export type FlowEventType = (typeof FLOW_EVENT_TYPES)[number];
+
+export const SCHEDULED_CADENCES = ['15m', 'hourly', 'daily'] as const;
+export type ScheduledCadence = (typeof SCHEDULED_CADENCES)[number];
 
 // Discriminated union of trigger configurations — old `status_changed` rows
 // parse unchanged so no DB migration is needed.
@@ -26,7 +31,9 @@ export type TriggerConfig =
   | { event: 'bill_added'; billType?: string | 'any' }
   | { event: 'deadline_due'; withinDays?: number }
   | { event: 'deadline_overdue' }
-  | { event: 'deadline_paid' };
+  | { event: 'deadline_paid' }
+  | { event: 'task_added'; textContains?: string; designationContains?: string }
+  | { event: 'scheduled'; cadence: ScheduledCadence };
 
 export type ConditionField = 'designation' | 'suggestion_type' | 'time_saved_mins';
 export type ConditionOp = 'eq' | 'contains' | 'gte';
@@ -36,17 +43,20 @@ export interface ConditionConfig {
   value: string;
 }
 
-export type ActionType = 'notify' | 'tag' | 'set_status' | 'whatsapp' | 'email';
+export type ActionType = 'notify' | 'tag' | 'set_status' | 'whatsapp' | 'email' | 'gmail_check' | 'slack';
 export interface ActionConfig {
   type: ActionType;
   // notify/whatsapp/email: message; tag: note text; set_status: target status.
   message?: string;
   setStatus?: ActionStatus;
-  // whatsapp/email stay opt-in; live sends are never made without this + creds.
+  // whatsapp/email/gmail_check stay opt-in; live sends/reads are never made
+  // without this + creds.
   enabled?: boolean;
   // email-specific
   to?: string;
   subject?: string;
+  // gmail_check-specific: Gmail search query (e.g. `is:unread newer_than:1d`).
+  query?: string;
 }
 
 export type FlowNodeConfig = TriggerConfig | ConditionConfig | ActionConfig;

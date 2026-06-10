@@ -1,5 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 import { logActivity } from '@/lib/activity-logger';
+import { notifyUtilitySlack } from '@/lib/notifySlack';
 import type {
   TaskFlow,
   FlowEventContext,
@@ -49,6 +50,8 @@ function triggerMatches(flow: TaskFlow, ctx: FlowEventContext): boolean {
 export interface FlowEventData {
   billType?: string;
   daysUntilDue?: number;
+  taskText?: string;
+  designation?: string;
 }
 
 // Generic per-event matcher used by runFlowsForEvent. For status_changed it
@@ -91,6 +94,19 @@ function triggerMatchesEvent(
       case 'deadline_overdue':
       case 'deadline_paid':
         return true;
+      case 'task_added': {
+        const wantText = cfg.textContains?.toString().trim().toLowerCase();
+        const wantDes = cfg.designationContains?.toString().trim().toLowerCase();
+        const gotText = eventData?.taskText?.toString().toLowerCase() ?? '';
+        const gotDes = eventData?.designation?.toString().toLowerCase() ?? '';
+        if (wantText && !gotText.includes(wantText)) return false;
+        if (wantDes && !gotDes.includes(wantDes)) return false;
+        return true;
+      }
+      case 'scheduled':
+        // Scheduled flows are evaluated by the server-side runner
+        // (run-scheduled-flows edge function), never the client dispatcher.
+        return false;
     }
   });
 }
@@ -229,6 +245,31 @@ async function runAction(
           ? `Email queued to ${cfg.to || '(no address)'}: ${cfg.subject || msg || ctx.taskText}`
           : `Email action (disabled) — would send to ${cfg.to || '(no address)'}: ${cfg.subject || msg || ctx.taskText}`,
       };
+
+    case 'gmail_check':
+      // Browser-side stub: the real Gmail poll runs inside the
+      // run-scheduled-flows edge function. From a `task_added` trigger on the
+      // client we just record intent so the user sees the automation took.
+      logActivity('task_flow_gmail_check_intent', {
+        flow: flow.name,
+        query: cfg.query,
+        enabled: !!cfg.enabled,
+      });
+      return {
+        flowName: flow.name,
+        kind: 'gmail_check',
+        message: cfg.enabled
+          ? `Gmail check queued${cfg.query ? ` (${cfg.query})` : ''}`
+          : `Gmail check (disabled) — would run${cfg.query ? ` (${cfg.query})` : ''}`,
+      };
+
+    case 'slack':
+      // Channel broadcast (low blast radius) — fires by default, unlike the
+      // opt-in whatsapp/email DM actions. notifyUtilitySlack swallows its own
+      // errors, so this never throws into the runtime.
+      await notifyUtilitySlack(msg || `Automation "${flow.name}" fired for "${ctx.taskText}"`);
+      logActivity('task_flow_slack', { flow: flow.name, task: ctx.taskText });
+      return { flowName: flow.name, kind: 'slack', message: `Slack alert sent: ${msg || ctx.taskText}` };
 
     default:
       return { flowName: flow.name, kind: cfg.type, message: 'Unknown action' };

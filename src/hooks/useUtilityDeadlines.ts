@@ -4,7 +4,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import { dispatchFlowEvent } from '@/lib/flowDispatcher';
+import { dispatchFlowEventWithToasts } from '@/lib/flowDispatcher';
+import { notifyUtilitySlack } from '@/lib/notifySlack';
 
 export type UtilityBillType =
   | 'wifi'
@@ -152,18 +153,10 @@ export async function notifyBillScannedSlack(bill: UtilityDeadline): Promise<voi
   await notifyUtilitySlack(msg);
 }
 
-export async function notifyUtilitySlack(message: string): Promise<void> {
-  try {
-    await fetch('/slack-proxy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: message }),
-    });
-  } catch (e) {
-    // Dev-only path — never block the UI if the relay isn't running.
-    console.warn('[useUtilityDeadlines] Slack notify failed (is the dev server running?)', e);
-  }
-}
+// Re-exported (imported at the top) so existing importers of this hook module
+// keep working, while the flow runtime imports it directly from
+// '@/lib/notifySlack' to avoid an import cycle.
+export { notifyUtilitySlack };
 
 export function useUtilityDeadlines() {
   const { hospitalType } = useAuth();
@@ -209,7 +202,7 @@ export function useUtilityDeadlines() {
       invalidate();
       // Fire the bill_added automation event (Rule 12 logs each fire).
       if (inserted?.id) {
-        void dispatchFlowEvent('bill_added', {
+        void dispatchFlowEventWithToasts('bill_added', {
           hospitalType,
           entityId: inserted.id,
           // Lets flows filter by bill_type (e.g. only fire for 'wifi').
@@ -310,7 +303,7 @@ export function useUtilityDeadlines() {
       toast.success(res.recurring ? 'Marked paid — next month created' : 'Marked paid');
       invalidate();
       // Fire deadline_paid for any flow listening on the paid event.
-      void dispatchFlowEvent('deadline_paid', {
+      void dispatchFlowEventWithToasts('deadline_paid', {
         hospitalType,
         entityId: bill.id,
         meta: { name: bill.name, amount: bill.amount, due_date: bill.due_date },

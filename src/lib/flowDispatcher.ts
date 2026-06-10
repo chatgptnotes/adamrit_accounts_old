@@ -45,6 +45,8 @@ export interface FlowEventPayload {
   eventData?: {
     billType?: string;        // for bill_added — matched against cfg.billType
     daysUntilDue?: number;    // for deadline_due — must be <= cfg.withinDays
+    taskText?: string;        // for task_added — matched against cfg.textContains
+    designation?: string;     // for task_added — matched against cfg.designationContains
   };
   // Free-form extras carried through to the audit log for traceability.
   meta?: Record<string, unknown>;
@@ -247,4 +249,34 @@ export function _resetDispatcherForTests(): void {
   dedupOrder.length = 0;
   rateBuckets.clear();
   dispatchDepth = 0;
+}
+
+// Surface every flow action result as a toast so the user actually SEES the
+// notification their automation produced. `bill_added`, `deadline_paid`, and
+// the passive `deadline_due` / `deadline_overdue` scans are all fire-and-forget
+// at their call sites — without this helper the notify message is computed and
+// returned, then silently discarded.
+//
+// Imported lazily so this dispatcher module stays buildable in non-UI contexts
+// (e.g. e2e/jest runners) that don't have sonner wired up.
+export async function dispatchFlowEventWithToasts(
+  eventType: FlowEventType,
+  payload: FlowEventPayload,
+): Promise<FlowActionResult[]> {
+  const results = await dispatchFlowEvent(eventType, payload);
+  if (results.length === 0) return results;
+  try {
+    const { toast } = await import('sonner');
+    for (const r of results) {
+      const label = r.flowName ? `${r.flowName}: ${r.message}` : r.message;
+      if (r.kind === 'notify' || r.kind === 'whatsapp' || r.kind === 'email' || r.kind === 'slack') {
+        toast(label, { duration: 8000 });
+      } else {
+        toast.message(r.message, { description: r.flowName, duration: 5000 });
+      }
+    }
+  } catch {
+    /* toast lib unavailable (tests) — silent */
+  }
+  return results;
 }

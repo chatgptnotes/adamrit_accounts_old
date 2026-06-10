@@ -29,6 +29,8 @@ import {
 import { FlowSafetyError } from '@/lib/flowSafety';
 import { fetchFireCountThisWeek, getCachedFireCount } from '@/lib/automationFireStats';
 import { parseReminderFromPrompt } from '@/lib/parseReminderFromPrompt';
+import { classifyChatIntent } from '@/lib/classifyChatIntent';
+import { suggestAutomations, type AutomationSuggestion } from '@/lib/suggestAutomations';
 import { LLM_BACKEND } from '@/lib/vpsClaude';
 import { useUtilityDeadlines } from '@/hooks/useUtilityDeadlines';
 import type { StoredNode, StoredEdge } from '@/lib/taskOptimizerFlows';
@@ -49,9 +51,25 @@ export interface SkillFactoryChatbotProps {
   // the canvas but skip the auto-save (Rule 15) — parent decides what "skip"
   // means, typically no DB write.
   onApply: (flow: GeneratedFlow, opts?: { dryRun?: boolean }) => void;
+  // Agentic extensions — when provided, the chatbot can also: (a) SUGGEST
+  // automations on request; (b) CREATE a NEW saved automation on confirm
+  // WITHOUT clobbering the canvas; (c) LIST + LOAD an existing saved automation.
+  // onCreateAutomation returns the new row's id+name (or null on absent prop).
+  onCreateAutomation?: (
+    flow: GeneratedFlow,
+    opts?: { nameOverride?: string; alsoLoad?: boolean },
+  ) => Promise<{ id: string; name: string } | null>;
+  listExistingFlows?: () => ExistingFlowRef[];
+  onLoadExistingFlow?: (flowId: string) => void;
   // When false, the user-input textarea + Send button at the bottom are hidden.
   // The chatbot then only drives off the Execute button in the header.
   showComposer?: boolean;
+}
+
+interface ExistingFlowRef {
+  id: string;
+  name: string;
+  enabled: boolean;
 }
 
 // One-line, human summary of the task/step edits an AI reply applied — appended
@@ -96,6 +114,14 @@ interface ChatMessage {
     billType: string;
     recurring: boolean;
   };
+  // Automation suggestions (shown on request) — each rendered as a card with a
+  // "Set this up" button that confirms + creates the automation.
+  suggestions?: AutomationSuggestion[];
+  // Existing saved automations for this staff — rendered as a picker; tapping
+  // one loads it onto the canvas to edit.
+  existingFlows?: ExistingFlowRef[];
+  // A newly-created automation — rendered with an "Open on canvas" chip.
+  createdAutomation?: { id: string; name: string };
 }
 
 // Build the prompt that gets pushed to the chatbot when Execute is clicked.
@@ -190,6 +216,9 @@ export default function SkillFactoryChatbot({
   stepsByTask,
   currentFlow,
   onApply,
+  onCreateAutomation,
+  listExistingFlows,
+  onLoadExistingFlow,
   showComposer = true,
 }: SkillFactoryChatbotProps) {
   const [instruction, setInstruction] = useState('');
@@ -252,6 +281,44 @@ export default function SkillFactoryChatbot({
         return;
       }
 
+      // Branch 2 — conversational intents (only when the agentic props are wired):
+      // "what can you automate for me?" → suggestions; "show me my automations"
+      // → existing-flow picker. classifyChatIntent returns null for everything
+      // else, so the design path below stays the default.
+      const intent = classifyChatIntent(text);
+      if (intent === 'suggest' && onCreateAutomation) {
+        const suggestions = await suggestAutomations({
+          persona: designation || 'staff member',
+          instruction: text,
+          tasks: allTasks,
+          stepsByTask,
+        });
+        setMessages(prev => [
+          ...prev,
+          {
+            role: 'assistant',
+            text: `Here are a few automations I can set up for ${designation || 'this staff member'}. Tap one to build it:`,
+            suggestions,
+          },
+        ]);
+        return;
+      }
+      if (intent === 'edit_existing' && listExistingFlows) {
+        const existing = listExistingFlows();
+        setMessages(prev => [
+          ...prev,
+          {
+            role: 'assistant',
+            text: existing.length
+              ? 'Here are the saved automations for this staff member. Tap one to open it on the canvas:'
+              : 'There are no saved automations for this staff member yet. Ask me to suggest some, or describe one to build.',
+            existingFlows: existing,
+            questions: existing.length ? undefined : ['What can you automate for me?'],
+          },
+        ]);
+        return;
+      }
+
       const flow = await generateFlowFromPrompt({
         persona: designation || 'staff member',
         instruction: text,
@@ -277,28 +344,80 @@ export default function SkillFactoryChatbot({
         },
       ]);
     } catch (error: unknown) {
-      // Safety block (Layer B or C): render a distinct red bubble with one
-      // safe-alternative chip so the conversation never dead-ends. No flow is
-      // applied — onApplyFlow was never called.
-      if (error instanceof FlowSafetyError) {
+      pushError(error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Shared error → bubble. Safety blocks (Layer B/C) get a distinct red bubble
+  // with one safe-alternative chip so the conversation never dead-ends; no flow
+  // is applied. Everything else surfaces the verbatim message (no fallback).
+  const pushError = (error: unknown) => {
+    if (error instanceof FlowSafetyError) {
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: "I can't build that — it would delete or modify records I'm not allowed to touch. Try one of the safe alternatives below.",
+          safetyBlock: { safeAlternative: error.safeAlternative },
+        },
+      ]);
+    } else {
+      setMessages(prev => [
+        ...prev,
+        { role: 'assistant', text: error instanceof Error ? error.message : 'Something went wrong. Please try again.' },
+      ]);
+    }
+  };
+
+  // Confirm a suggestion → build a FRESH automation (no `current`, so it doesn't
+  // edit the open canvas) through the full safety pipeline, then create it as a
+  // NEW saved row via onCreateAutomation (which does NOT touch the canvas).
+  const confirmSuggestion = async (s: AutomationSuggestion) => {
+    if (loading) return;
+    setMessages(prev => [...prev, { role: 'user', text: `Set up: ${s.title}` }]);
+    setLoading(true);
+    try {
+      const flow = await generateFlowFromPrompt({
+        persona: designation || 'staff member',
+        instruction: s.buildPrompt,
+        activeTask: task,
+        tasks: allTasks,
+        stepsByTask,
+      });
+      const created = onCreateAutomation ? await onCreateAutomation(flow, { nameOverride: s.title }) : null;
+      if (created) {
         setMessages(prev => [
           ...prev,
           {
             role: 'assistant',
-            text:
-              "I can't build that — it would delete or modify records I'm not allowed to touch. Try one of the safe alternatives below.",
-            safetyBlock: { safeAlternative: error.safeAlternative },
+            text: `Created a new automation: "${created.name}". It's saved and live for ${designation || 'this staff member'}.`,
+            createdAutomation: created,
           },
         ]);
       } else {
+        // No create callback wired — fall back to applying on the canvas.
+        onApply(flow);
         setMessages(prev => [
           ...prev,
-          { role: 'assistant', text: error instanceof Error ? error.message : 'Something went wrong. Please try again.' },
+          { role: 'assistant', text: flow.explanation || 'Built the automation on the canvas.', appliedNodes: flow.nodes.length, appliedFlowName: flow.name },
         ]);
       }
+    } catch (error: unknown) {
+      pushError(error);
     } finally {
       setLoading(false);
     }
+  };
+
+  // Load an existing saved automation onto the canvas to edit.
+  const loadExisting = (f: ExistingFlowRef) => {
+    onLoadExistingFlow?.(f.id);
+    setMessages(prev => [
+      ...prev,
+      { role: 'assistant', text: `Loaded "${f.name}" onto the canvas. Edit it and hit Save to update it.` },
+    ]);
   };
 
   const handleExecute = () => {
@@ -470,6 +589,68 @@ export default function SkillFactoryChatbot({
                       {q}
                     </button>
                   ))}
+                </div>
+              )}
+              {m.suggestions && m.suggestions.length > 0 && (
+                <div className="space-y-1.5 pl-9">
+                  {m.suggestions.map((s) => (
+                    <div key={s.title} className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 shadow-sm">
+                      <div className="flex items-start gap-2">
+                        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+                          <Sparkles className="h-3 w-3" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] font-medium text-slate-800">{s.title}</p>
+                          {s.rationale && <p className="text-[10px] text-slate-500 leading-snug">{s.rationale}</p>}
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            <span className="inline-flex items-center rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-600">
+                              on {s.trigger.replace(/_/g, ' ')}
+                            </span>
+                            <span className="inline-flex items-center rounded-full bg-blue-50 px-1.5 py-0.5 text-[9px] font-medium text-blue-700">
+                              {s.primaryAction}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => confirmSuggestion(s)}
+                        disabled={loading}
+                        className="mt-1.5 inline-flex w-full items-center justify-center gap-1 rounded-md bg-blue-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 transition-colors"
+                      >
+                        <Zap className="h-3 w-3" /> Set this up
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {m.existingFlows && m.existingFlows.length > 0 && (
+                <div className="space-y-1 pl-9">
+                  <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-slate-400">
+                    <ArrowDownToLine className="h-3 w-3" /> Open one
+                  </p>
+                  {m.existingFlows.map((f) => (
+                    <button
+                      key={f.id}
+                      onClick={() => loadExisting(f)}
+                      disabled={loading}
+                      className="flex w-full items-center gap-2 text-left text-[11px] px-2.5 py-1.5 rounded-md border border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/60 disabled:opacity-40 transition-colors"
+                    >
+                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${f.enabled ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                      <span className="min-w-0 flex-1 truncate text-slate-700">{f.name}</span>
+                      {!f.enabled && <span className="text-[9px] text-slate-400">disabled</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {m.createdAutomation && (
+                <div className="pl-9">
+                  <button
+                    onClick={() => onLoadExistingFlow?.(m.createdAutomation!.id)}
+                    disabled={loading}
+                    className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-800 hover:border-emerald-300 disabled:opacity-40 transition-colors"
+                  >
+                    <ArrowDownToLine className="h-3 w-3" /> Open on canvas
+                  </button>
                 </div>
               )}
             </div>

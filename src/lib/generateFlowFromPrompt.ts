@@ -154,7 +154,7 @@ Return ONLY valid JSON (no markdown, no code fences) of exactly this shape:
   "questions": ["question 1?", "question 2?", "question 3?"],
   "trigger": { "event": "status_changed|bill_added|deadline_due|deadline_overdue|deadline_paid", "toStatus": "(status_changed only) one of: suggested, in_progress, done, dismissed, any", "withinDays": "(deadline_due only) integer, default 3" },
   "conditions": [ { "field": "designation|suggestion_type|time_saved_mins", "op": "eq|contains|gte", "value": "string" } ],
-  "actions": [ { "type": "notify|tag|set_status|whatsapp|email", "message": "text (may use {staff} {task} {status})", "setStatus": "optional status for set_status", "to": "email address (for email type only)", "subject": "email subject (for email type only, may use {staff} {task} {status})" } ],
+  "actions": [ { "type": "notify|tag|set_status|whatsapp|email|slack", "message": "text (may use {staff} {task} {status})", "setStatus": "optional status for set_status", "to": "email address (for email type only)", "subject": "email subject (for email type only, may use {staff} {task} {status})" } ],
   "taskChanges": [ { "action": "add|remove", "task": "task name" } ],
   "stepChanges": [ { "action": "add|remove", "task": "owning task name", "step": "step text" } ]
 }
@@ -167,6 +167,7 @@ Rules:
 - "questions" MUST contain 2-3 strings ending with "?". These are next-step refinements or automation choices the user might want to try.
 - Use whatsapp only if the user explicitly wants a WhatsApp message sent; keep messages concise.
 - Use email only if the user explicitly wants an email sent; provide a to address and subject.
+- Use slack to post an alert to the team Slack channel (e.g. "notify the team on Slack when a bill is scanned"). Put the alert text in "message"; it fires by default (no opt-in needed).
 - taskChanges and stepChanges default to []. Only fill them when the user asks to add/create/remove/delete a task or step.
 - To remove a task or step, its text MUST exactly match one shown in the workspace context above.
 - For a step, set "task" to the task it belongs under; if the user didn't name one and a task is in focus, use the focused task.
