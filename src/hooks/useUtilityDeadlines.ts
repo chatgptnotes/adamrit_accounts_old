@@ -48,6 +48,9 @@ export interface UpsertUtilityDeadline {
   recurring: boolean;
   notes?: string | null;
   attachment_url?: string | null;
+  // Optional exact-time reminder (ISO timestamp). When set, the
+  // fire-due-reminders cron posts a one-off Slack alert at this time.
+  notify_at?: string | null;
 }
 
 const TABLE = 'utility_deadlines';
@@ -192,6 +195,7 @@ export function useUtilityDeadlines() {
         notes: input.notes ?? null,
       };
       if (input.attachment_url) row.attachment_url = input.attachment_url;
+      if (input.notify_at) row.notify_at = input.notify_at;
       // Returning the row so the dispatcher can use its id as a dedup key.
       const { data, error } = await supabase.from(TABLE).insert(row).select('*').single();
       if (error) throw error;

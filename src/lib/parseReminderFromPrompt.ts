@@ -111,9 +111,21 @@ interface RawReminder {
   name?: string;
   bill_type?: string;
   due_hint?: string;
+  time_hint?: string | null;
   amount?: number | string;
   recurring?: boolean;
   notes?: string | null;
+}
+
+// Build an exact-time reminder ISO timestamp (IST) from the resolved due date +
+// an "HH:MM" 24h hint. Returns null when no specific time was given — the daily
+// 9 AM digest still covers the deadline.
+function computeNotifyAt(dueIso: string, timeHint: string | null | undefined): string | null {
+  const m = (timeHint ?? '').trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const hh = String(Math.min(23, Math.max(0, Number(m[1])))).padStart(2, '0');
+  const mm = String(Math.min(59, Math.max(0, Number(m[2])))).padStart(2, '0');
+  return `${dueIso}T${hh}:${mm}:00+05:30`; // India Standard Time
 }
 
 function buildPrompt(instruction: string, todayIso: string): string {
@@ -128,6 +140,7 @@ Return ONLY valid JSON (no markdown) of exactly this shape:
   "name": "short human label, e.g. 'Airtel postpaid bill' or 'Pay rent to Mr. Sharma'",
   "bill_type": "one of: ${BILL_TYPES.join(', ')}",
   "due_hint": "one of: today | tomorrow | in_N_days (N is an integer) | next_<weekday> | YYYY-MM-DD",
+  "time_hint": "the time of day to remind, as HH:MM in 24-hour (e.g. '17:00' for 5 pm, '09:30'), or null if the user gave no specific time",
   "amount": numeric amount in INR (0 if not mentioned),
   "recurring": true if the user said monthly/every month/recurring, else false,
   "notes": "any extra context the user gave, else null"
@@ -137,6 +150,7 @@ Rules:
 - Pick the most specific bill_type if the user named a service (wifi, electricity, Airtel postpaid, etc.). Use 'other' if unclear.
 - If the user said "tomorrow" return "tomorrow"; "today" → "today"; "in 3 days" → "in_3_days"; an actual date → ISO YYYY-MM-DD.
 - Keep the name SHORT — like a calendar entry, not a sentence. Include the particular name/vendor if the user gave one (e.g. "Pay Sharma electricity bill").
+- If the user mentions a time of day ("at 5 pm", "by 9 am", "evening", "morning"), set time_hint to HH:MM 24-hour ("evening" → "18:00", "morning" → "09:00", "5 pm" → "17:00"). If no time was mentioned, time_hint MUST be null.
 - Output a single valid JSON object.`;
 }
 
@@ -211,6 +225,7 @@ export async function parseReminderFromPrompt(instruction: string): Promise<Pars
     due_date: iso,
     recurring: parsed.recurring === true,
     notes: parsed.notes ? String(parsed.notes).trim() : null,
+    notify_at: computeNotifyAt(iso, parsed.time_hint),
     dueLabel: label,
   };
 }

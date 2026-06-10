@@ -268,6 +268,7 @@ export default function SkillFactoryChatbot({
           due_date: reminder.due_date,
           recurring: reminder.recurring,
           notes: reminder.notes,
+          notify_at: reminder.notify_at,
         });
         setMessages(prev => [
           ...prev,
