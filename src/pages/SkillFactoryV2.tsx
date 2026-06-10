@@ -69,6 +69,7 @@ import {
 } from '@/lib/taskOptimizerFlows';
 import type { TaskSuggestion } from '@/lib/optimizeTasks';
 import type { GeneratedFlow, TaskChange, StepChange } from '@/lib/generateFlowFromPrompt';
+import { generateSubtasksForTask } from '@/lib/generateSubtasks';
 import { COMMON_TASKS } from '@/components/task-optimizer/commonTasks';
 
 import SkillFactoryFlow from '@/components/task-optimizer/SkillFactoryFlow';
@@ -1065,6 +1066,47 @@ export default function SkillFactoryV2() {
     // wipe any user edits.
   }, [savedFlow, activeTask, activeStaff?.key, ruleTasks, verdictByTask]);
 
+  // Auto-fill a task's Steps panel with AI-generated sub-tasks when it has none
+  // — the generic equivalent of the hardcoded DEADLINE_DEFAULT_STEPS seed above,
+  // for every other task. Guards: only when a task is open, it's NOT the deadline
+  // task (which has its own seed), its steps are `undefined` (never set — an empty
+  // [] means the user intentionally cleared them, so we leave it), and we haven't
+  // already kicked off generation for it this session. Best-effort: failures stay
+  // silent and leave the panel empty. Seeds subtasksMap directly (like the
+  // deadline seed) so the canvas isn't re-derived from scratch.
+  const autoSeededStepsRef = useRef<Set<string>>(new Set());
+  const [autoSeedingTask, setAutoSeedingTask] = useState<string | null>(null);
+  useEffect(() => {
+    if (!activeTask || !activeLog) return;
+    if (isDeadlineTrackingTask(activeTask)) return;
+    if (subtasksMap[activeTask] !== undefined) return;
+    const key = `${activeLog.id}::${activeTask}`;
+    if (autoSeededStepsRef.current.has(key)) return;
+    autoSeededStepsRef.current.add(key);
+
+    let cancelled = false;
+    setAutoSeedingTask(activeTask);
+    const taskAtStart = activeTask;
+    const logAtStart = activeLog;
+    void generateSubtasksForTask({ task: taskAtStart, designation: activeStaff?.designation ?? 'staff' })
+      .then((steps) => {
+        if (cancelled || steps.length === 0) return;
+        setSubtasksMap((prev) => {
+          if (prev[taskAtStart] !== undefined) return prev; // user added some meanwhile
+          const next = { ...prev, [taskAtStart]: steps };
+          writeSubtasks(logAtStart.id, next);
+          return next;
+        });
+      })
+      .catch((e) => console.warn('[SkillFactoryV2] auto-seed steps failed', e))
+      .finally(() => {
+        if (!cancelled) setAutoSeedingTask((t) => (t === taskAtStart ? null : t));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTask, activeLog, subtasksMap, activeStaff?.designation]);
+
   const persistLogTasks = async (logId: string, nextTasks: string[]) => {
     setLogs((prev) => prev.map((l) => (l.id === logId ? { ...l, tasks: nextTasks } : l)));
     const { error } = await supabase.from(LOGS_TABLE).update({ tasks: nextTasks }).eq('id', logId);
@@ -1870,8 +1912,13 @@ export default function SkillFactoryV2() {
                   hint="Press ↵ to add · Esc to cancel"
                 />
               )}
+              {autoSeedingTask === activeTask && activeSubtasks.length === 0 && !addingStep && (
+                <div className="flex items-center gap-1.5 px-1 py-2 text-[11px] text-violet-600">
+                  <Sparkles className="h-3 w-3 animate-pulse" /> Generating steps…
+                </div>
+              )}
               <SortableContext items={activeSubtasks} strategy={verticalListSortingStrategy}>
-                <StepsDropZone empty={activeSubtasks.length === 0 && !addingStep}>
+                <StepsDropZone empty={activeSubtasks.length === 0 && !addingStep && autoSeedingTask !== activeTask}>
                   {activeSubtasks.length > 0 && (
                     <div className="space-y-1.5 pt-1">
                       {activeSubtasks.map((s, i) => (
