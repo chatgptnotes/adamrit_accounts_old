@@ -136,7 +136,10 @@ async function ocrImage(file: Blob): Promise<string> {
   }
 }
 
-async function readBillText(file: Blob, fileName: string): Promise<string> {
+// Document-agnostic OCR: PDF text layer (or page-1 OCR for scanned PDFs) /
+// image OCR → raw text. Exported so the generic task-document scanner can reuse
+// it; the bill-specific parsing lives in parseUtilityBill below.
+export async function readBillText(file: Blob, fileName: string): Promise<string> {
   if (isPdf(file, fileName)) {
     const text = await pdfTextLayer(file);
     if (text.replace(/\s/g, '').length >= 40) return text; // has a real text layer
@@ -155,15 +158,38 @@ const money = (s: string): number => {
   return Number.isFinite(n) ? Math.round(n) : 0;
 };
 
+// Month abbreviations → 2-digit number, for "15 Jun 2026"-style dates.
+const MONTHS: Record<string, string> = {
+  jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+  jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+};
+
+// Due-date label synonyms seen across MSEDCL, BSNL, Airtel and ISP bills.
+const DUE_LABEL =
+  '(?:due\\s*date|pay(?:ment)?\\s*(?:due\\s*)?(?:date|by)|last\\s*date(?:\\s*(?:of|for)\\s*payment)?|due\\s*on|bill\\s*due\\s*date)';
+
 function parseDueDate(text: string): string {
-  // Prefer the value next to a "DUE DATE" label.
-  const labelled = text.match(/due\s*date[^0-9]{0,20}(\d{2})[/\-.](\d{2})[/\-.](\d{4})/i);
+  // 1. Numeric date next to a due-date label, e.g. "Due Date 15/06/2026".
+  const labelled = text.match(new RegExp(`${DUE_LABEL}[^0-9]{0,20}(\\d{2})[/\\-.](\\d{2})[/\\-.](\\d{4})`, 'i'));
   if (labelled) return `${labelled[3]}-${labelled[2]}-${labelled[1]}`;
-  // Fallback: take the latest DD/MM/YYYY in the document (due date is usually
-  // later than the bill date and any "if paid upto" date).
-  const all = [...text.matchAll(/\b(\d{2})[/\-.](\d{2})[/\-.](\d{4})\b/g)];
-  if (all.length === 0) return '';
-  const iso = all.map((m) => `${m[3]}-${m[2]}-${m[1]}`).sort();
+  // 2. Month-name date next to the label, e.g. "Pay by 15 Jun 2026".
+  const labelledMon = text.match(
+    new RegExp(`${DUE_LABEL}[^0-9A-Za-z]{0,20}(\\d{1,2})[\\s\\-]*([A-Za-z]{3,9})[\\s\\-]*(\\d{4})`, 'i'),
+  );
+  if (labelledMon) {
+    const mm = MONTHS[labelledMon[2].toLowerCase().slice(0, 3)];
+    if (mm) return `${labelledMon[3]}-${mm}-${labelledMon[1].padStart(2, '0')}`;
+  }
+  // 3. Fallback: latest date in the document (due date is usually later than the
+  // bill date and any "if paid upto" date). Collect both numeric and month-name.
+  const iso: string[] = [];
+  for (const m of text.matchAll(/\b(\d{2})[/\-.](\d{2})[/\-.](\d{4})\b/g)) iso.push(`${m[3]}-${m[2]}-${m[1]}`);
+  for (const m of text.matchAll(/\b(\d{1,2})[\s\-]+([A-Za-z]{3,9})[\s\-]+(\d{4})\b/g)) {
+    const mm = MONTHS[m[2].toLowerCase().slice(0, 3)];
+    if (mm) iso.push(`${m[3]}-${mm}-${String(m[1]).padStart(2, '0')}`);
+  }
+  if (iso.length === 0) return '';
+  iso.sort();
   return iso[iso.length - 1];
 }
 
@@ -178,7 +204,10 @@ function parseAmount(text: string, exclude: string[] = []): number {
   if (afterPpd) return money(afterPpd[1]);
   // Generic billers: "Amount Payable" / "Total Amount Due" / "Net Amount" etc.
   const payable = t.match(
-    new RegExp(`(?:amount\\s*payable|total\\s*amount\\s*due|net\\s*(?:amount|payable)|grand\\s*total|bill\\s*amount|payable\\s*amount|total\\s*bill\\s*amount)[^0-9]{0,40}(${AMT})`, 'i'),
+    new RegExp(
+      `(?:amount\\s*payable|total\\s*amount\\s*(?:due|payable)|amount\\s*due|net\\s*(?:amount\\s*)?(?:amount|payable)?|grand\\s*total|bill\\s*amount|payable\\s*amount|total\\s*bill\\s*amount|total\\s*payable|sum\\s*payable|current\\s*(?:bill\\s*)?(?:amount|charges|outstanding)|outstanding\\s*amount)[^0-9]{0,40}(${AMT})`,
+      'i',
+    ),
   );
   if (payable) return money(payable[1]);
   // Last resort: pick the best rupee-looking candidate. Decimal/grouped figures
@@ -208,30 +237,66 @@ function parseConsumerNumber(text: string): string {
   return standalone ? standalone[1] : '';
 }
 
-function detectBillType(text: string): UtilityBillType {
+// Pick a bill type from the text. `hospitalType` lets us resolve the org's
+// hospital-specific variants (e.g. an electricity bill scanned while logged into
+// Ayushman becomes `electricity_ayushman`, BSNL landline → `ayushman_landline_bsnl`).
+function detectBillType(text: string, hospitalType: string | null = null): UtilityBillType {
   const t = text.toLowerCase();
-  if (/airtel/.test(t) && /(postpaid|mobile)/.test(t)) return 'airtel_postpaid';
-  if (/electric|mahavitaran|msedcl|mahadiscom|state electricity|power\b/.test(t)) return 'electricity';
-  if (/broadband|internet|wi-?fi|fibre|fiber|act fibernet|jiofiber/.test(t)) return 'wifi';
-  if (/landline|bsnl|telephone/.test(t)) return 'landline';
+  const isAyushman = (hospitalType ?? '').toLowerCase().includes('ayushman');
+
+  // Mobile postpaid — check before the generic Airtel/BSNL branches so an Airtel
+  // landline or broadband isn't swallowed here.
+  if (/airtel/.test(t) && /(postpaid|mobile|my\s*plan)/.test(t)) return 'airtel_postpaid';
+
+  // Electricity — MSEDCL/Mahavitaran and the other discoms.
+  if (/electric|mahavitaran|msedcl|mahadiscom|state electricity|\bmseb\b|power\s*bill|energy\s*charge|units?\s*consumed|adani\s*electricity|tata\s*power|torrent\s*power/.test(t)) {
+    return isAyushman ? 'electricity_ayushman' : 'electricity';
+  }
+
+  // Internet / broadband. "Orange" is a distinct named connection in this org;
+  // a backup Orange line is tracked separately.
+  if (/\borange\b/.test(t)) return /backup/.test(t) ? 'backup_orange' : 'orange_internet';
+  if (/broadband|internet|wi-?fi|fibre|fiber|act\s*fibernet|jiofiber|hathway|tikona|excitel|\bisp\b/.test(t)) return 'wifi';
+
+  // Landline / telephone.
+  if (/landline|telephone|\bbsnl\b/.test(t)) {
+    if (isAyushman) return 'ayushman_landline_bsnl';
+    if (/\bhope\b/.test(t)) return 'hope_landline';
+    return 'landline';
+  }
+
+  // Maintenance / society / hostel rent (no biller brand — match by place name).
+  if (/shrivardhan|maintenance|society\s*charges?/.test(t)) return 'maintenance_shrivardhan';
+  if (/automative\s*square/.test(t)) return 'hostel_automative_square';
+  if (/mohan\s*nagar/.test(t)) return 'hostel_mohan_nagar';
+
   return 'other';
 }
 
 function detectBiller(text: string): string {
   const t = text.toLowerCase();
-  if (/msedcl|mahavitaran|mahadiscom|maharashtra state electricity/.test(t)) return 'MSEDCL';
+  if (/msedcl|mahavitaran|mahadiscom|maharashtra state electricity|\bmseb\b/.test(t)) return 'MSEDCL';
+  if (/adani\s*electricity/.test(t)) return 'Adani Electricity';
+  if (/tata\s*power/.test(t)) return 'Tata Power';
+  if (/torrent\s*power/.test(t)) return 'Torrent Power';
   if (/airtel/.test(t)) return 'Airtel';
   if (/\bbsnl\b/.test(t)) return 'BSNL';
-  if (/\bjio\b/.test(t)) return 'Jio';
+  if (/\bjio\b|jiofiber/.test(t)) return 'Jio';
+  if (/\borange\b/.test(t)) return 'Orange';
+  if (/act\s*fibernet/.test(t)) return 'ACT Fibernet';
+  if (/hathway/.test(t)) return 'Hathway';
+  if (/tikona/.test(t)) return 'Tikona';
+  if (/excitel/.test(t)) return 'Excitel';
+  if (/vodafone|\bidea\b|\bvi\b/.test(t)) return 'Vi';
   return '';
 }
 
-export function parseUtilityBill(text: string): ExtractedBill {
+export function parseUtilityBill(text: string, hospitalType: string | null = null): ExtractedBill {
   const due_date = parseDueDate(text);
   const consumer_number = parseConsumerNumber(text);
   // Exclude the consumer/account number so it can't be mistaken for the amount.
   const amount = parseAmount(text, [consumer_number]);
-  const bill_type = detectBillType(text);
+  const bill_type = detectBillType(text, hospitalType);
   const biller = detectBiller(text);
 
   if (!Number.isFinite(amount) || amount <= 0) {
@@ -272,8 +337,16 @@ export function parseUtilityBill(text: string): ExtractedBill {
  * Read a utility-bill photo or PDF entirely in the browser (no API key) and
  * return the parsed payment details. Throws when the amount or due date can't
  * be read — the caller surfaces a toast and lets the user fill them manually.
+ *
+ * `hospitalType` (the logged-in hospital) is used to resolve the org's
+ * hospital-specific bill variants — pass it so an electricity/landline bill maps
+ * to the right Ayushman vs Hope entry.
  */
-export async function extractUtilityBill(file: Blob, fileName = ''): Promise<ExtractedBill> {
+export async function extractUtilityBill(
+  file: Blob,
+  fileName = '',
+  hospitalType: string | null = null,
+): Promise<ExtractedBill> {
   const text = await readBillText(file, fileName);
-  return parseUtilityBill(text);
+  return parseUtilityBill(text, hospitalType);
 }

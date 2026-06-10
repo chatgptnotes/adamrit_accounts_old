@@ -9,11 +9,29 @@ import { LLM_BACKEND, callVpsClaude } from '@/lib/vpsClaude';
 export interface GenerateSubtasksInput {
   task: string;
   designation: string;
+  // Optional project context so steps fit the wider workflow this task lives in.
+  staffName?: string;
+  hospitalType?: string;
+  projectTasks?: string[]; // the staff member's other tasks = the "project"
 }
 
-function buildPrompt({ task, designation }: GenerateSubtasksInput): string {
-  return `Break this hospital-staff task into 3-6 short, concrete sub-task steps that a ${designation || 'staff member'} would actually perform, in the order they'd do them.
+function buildPrompt({ task, designation, staffName, hospitalType, projectTasks }: GenerateSubtasksInput): string {
+  const contextLines: string[] = [];
+  if (hospitalType) contextLines.push(`- Hospital / unit type: ${hospitalType}`);
+  if (staffName) contextLines.push(`- Staff member: ${staffName}`);
+  if (projectTasks && projectTasks.length) {
+    contextLines.push(
+      `- Their full task list (the wider project this task belongs to): ${projectTasks
+        .map((t) => `"${t}"`)
+        .join(', ')}`,
+    );
+  }
+  const context = contextLines.length
+    ? `\nProject context:\n${contextLines.join('\n')}\nUse this context so the steps fit how THIS task connects to the staff member's other work, and don't duplicate steps that clearly belong to a different task in the list.\n`
+    : '';
 
+  return `Break this hospital-staff task into 3-6 short, concrete sub-task steps that a ${designation || 'staff member'} would actually perform, in the order they'd do them.
+${context}
 Task: "${task}"
 
 Return ONLY a JSON array of short step strings (no markdown, no prose). Each step:

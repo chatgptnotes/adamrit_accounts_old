@@ -17,6 +17,8 @@ import {
   AlertTriangle,
   AlarmClock,
   IndianRupee,
+  FileText,
+  ExternalLink,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -31,6 +33,9 @@ import { fetchFireCountThisWeek, getCachedFireCount } from '@/lib/automationFire
 import { parseReminderFromPrompt } from '@/lib/parseReminderFromPrompt';
 import { classifyChatIntent } from '@/lib/classifyChatIntent';
 import { suggestAutomations, type AutomationSuggestion } from '@/lib/suggestAutomations';
+import { scanAndExtractForTask, type ScanField, type ScanAttachment } from '@/lib/scanForTask';
+import { uploadBillAttachment } from '@/lib/uploadBillAttachment';
+import DocumentScanMenu from './DocumentScanMenu';
 import { LLM_BACKEND } from '@/lib/vpsClaude';
 import { useUtilityDeadlines } from '@/hooks/useUtilityDeadlines';
 import type { StoredNode, StoredEdge } from '@/lib/taskOptimizerFlows';
@@ -61,6 +66,11 @@ export interface SkillFactoryChatbotProps {
   ) => Promise<{ id: string; name: string } | null>;
   listExistingFlows?: () => ExistingFlowRef[];
   onLoadExistingFlow?: (flowId: string) => void;
+  // Document scan: attach a scanned/extracted doc to the active task. When
+  // omitted, the scan button is hidden. taskAttachments lists the active task's
+  // existing scans so the chatbot can show them.
+  onAttachScan?: (task: string, data: ScanAttachment) => void;
+  taskAttachments?: ScanAttachment[];
   // When false, the user-input textarea + Send button at the bottom are hidden.
   // The chatbot then only drives off the Execute button in the header.
   showComposer?: boolean;
@@ -122,6 +132,8 @@ interface ChatMessage {
   existingFlows?: ExistingFlowRef[];
   // A newly-created automation — rendered with an "Open on canvas" chip.
   createdAutomation?: { id: string; name: string };
+  // A scanned document's extracted result — rendered as a fields card.
+  scanResult?: { title: string; summary: string; fields: ScanField[]; fileUrl: string | null };
 }
 
 // Build the prompt that gets pushed to the chatbot when Execute is clicked.
@@ -224,6 +236,8 @@ export default function SkillFactoryChatbot({
   onCreateAutomation,
   listExistingFlows,
   onLoadExistingFlow,
+  onAttachScan,
+  taskAttachments,
   showComposer = true,
 }: SkillFactoryChatbotProps) {
   const [instruction, setInstruction] = useState('');
@@ -427,6 +441,46 @@ export default function SkillFactoryChatbot({
     ]);
   };
 
+  // Scan/upload a document for the active task: OCR → AI extracts fields inferred
+  // from the task name → show a summary + attach to the task. Best-effort upload.
+  const handleScanFile = async (file: Blob, fileName: string) => {
+    if (loading) return;
+    if (!task.trim()) {
+      setMessages(prev => [
+        ...prev,
+        { role: 'assistant', text: 'Open a task first — the scanned document attaches to that task.' },
+      ]);
+      return;
+    }
+    setMessages(prev => [...prev, { role: 'user', text: `📎 Scanning ${fileName}…` }]);
+    setLoading(true);
+    try {
+      const [result, fileUrl] = await Promise.all([
+        scanAndExtractForTask({ file, fileName, task, designation: designation || 'staff' }),
+        uploadBillAttachment(file, fileName),
+      ]);
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: result.summary || `Scanned "${result.title}".`,
+          scanResult: { title: result.title, summary: result.summary, fields: result.fields, fileUrl },
+        },
+      ]);
+      onAttachScan?.(task, {
+        title: result.title,
+        summary: result.summary,
+        fields: result.fields,
+        fileUrl,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (error: unknown) {
+      pushError(error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleExecute = () => {
     const prompt = buildExecutePrompt(task, subtasks, currentFlow);
     send(prompt);
@@ -531,6 +585,31 @@ export default function SkillFactoryChatbot({
 
       {/* ── Messages ── */}
       <div className="flex-1 space-y-3 overflow-y-auto p-3">
+        {/* Scanned documents already attached to this task */}
+        {taskAttachments && taskAttachments.length > 0 && (
+          <div className="rounded-lg border border-violet-200 bg-violet-50/60 px-2.5 py-2">
+            <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-violet-500">
+              <FileText className="h-3 w-3" /> Scanned for this task ({taskAttachments.length})
+            </p>
+            <div className="mt-1 space-y-1">
+              {taskAttachments.map((a, i) => (
+                <div key={i} className="flex items-center gap-1.5 text-[11px]">
+                  <span className="min-w-0 flex-1 truncate text-violet-900" title={a.summary}>{a.title}</span>
+                  {a.fileUrl && (
+                    <a
+                      href={a.fileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex shrink-0 items-center gap-0.5 text-violet-700 hover:underline"
+                    >
+                      <ExternalLink className="h-2.5 w-2.5" /> open
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {/* Greeting + starter prompts — only when nothing's been said yet */}
         {messages.length === 0 && (
           <>
@@ -576,6 +655,8 @@ export default function SkillFactoryChatbot({
                   text={m.text}
                   reminder={m.reminderCreated}
                 />
+              ) : m.scanResult ? (
+                <ScanResultBubble scan={m.scanResult} />
               ) : (
                 <AssistantBubble appliedNodes={m.appliedNodes} appliedFlowName={m.appliedFlowName}>
                   {m.text}
@@ -704,8 +785,18 @@ export default function SkillFactoryChatbot({
               }}
               placeholder={isEditing ? 'Refine the workflow…' : 'What should this workflow do?'}
               rows={2}
-              className="resize-none rounded-lg border-slate-200 pr-10 text-xs focus-visible:ring-blue-500"
+              className={`resize-none rounded-lg border-slate-200 pr-10 text-xs focus-visible:ring-blue-500 ${onAttachScan ? 'pl-10' : ''}`}
             />
+            {onAttachScan && (
+              <div className="absolute bottom-1.5 left-1.5">
+                <DocumentScanMenu
+                  onFile={handleScanFile}
+                  disabled={!aiReady || !task.trim()}
+                  busy={loading}
+                  title={task.trim() ? 'Scan or upload a document for this task' : 'Open a task first'}
+                />
+              </div>
+            )}
             <button
               onClick={() => send(instruction)}
               disabled={loading || !instruction.trim() || !aiReady}
@@ -873,6 +964,51 @@ function ReminderCreatedBubble({
           <p className="mt-1.5 text-[10px] text-emerald-700/80">
             Notification scheduled. You can edit it in the Deadline Tracking dashboard.
           </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Scanned-document result — a violet card with the AI-extracted fields + a link
+// to the stored file.
+function ScanResultBubble({
+  scan,
+}: {
+  scan: { title: string; summary: string; fields: ScanField[]; fileUrl: string | null };
+}) {
+  return (
+    <div className="flex items-start gap-2">
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-700 shadow-sm">
+        <FileText className="h-3.5 w-3.5" />
+      </div>
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="max-w-[88%] rounded-2xl rounded-tl-sm border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900 shadow-sm">
+          <p className="font-semibold">{scan.title}</p>
+          {scan.summary && <p className="mt-0.5 text-[11px] leading-snug text-violet-800">{scan.summary}</p>}
+          {scan.fields.length > 0 && (
+            <div className="mt-1.5 space-y-0.5 border-t border-violet-200/70 pt-1.5 text-[11px]">
+              {scan.fields.map((f) => (
+                <div key={f.label} className="flex gap-1.5">
+                  <span className="shrink-0 font-medium text-violet-700">{f.label}:</span>
+                  <span className="min-w-0 break-words text-violet-900">{f.value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="mt-1.5 flex items-center gap-2 text-[10px] text-violet-700/80">
+            <span>Attached to this task.</span>
+            {scan.fileUrl && (
+              <a
+                href={scan.fileUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-0.5 font-medium text-violet-700 hover:underline"
+              >
+                <ExternalLink className="h-2.5 w-2.5" /> Open file
+              </a>
+            )}
+          </div>
         </div>
       </div>
     </div>

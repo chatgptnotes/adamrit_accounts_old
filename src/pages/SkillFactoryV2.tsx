@@ -70,6 +70,7 @@ import {
 import type { TaskSuggestion } from '@/lib/optimizeTasks';
 import type { GeneratedFlow, TaskChange, StepChange } from '@/lib/generateFlowFromPrompt';
 import { generateSubtasksForTask } from '@/lib/generateSubtasks';
+import type { ScanAttachment } from '@/lib/scanForTask';
 import { COMMON_TASKS } from '@/components/task-optimizer/commonTasks';
 
 import SkillFactoryFlow from '@/components/task-optimizer/SkillFactoryFlow';
@@ -94,6 +95,9 @@ interface TaskOptimizerLog {
   log_date: string;
   tasks: string[] | null;
   ai_suggestions: TaskSuggestion[] | null;
+  // Scanned documents per task label (see scanForTask). Optional — older rows
+  // and inserts that don't select it will be undefined (treated as empty).
+  task_attachments?: Record<string, ScanAttachment[]> | null;
   created_at: string;
 }
 
@@ -785,7 +789,7 @@ export default function SkillFactoryV2() {
       try {
         let q = supabase
           .from(LOGS_TABLE)
-          .select('id, user_email, hospital_type, staff_name, designation, log_date, tasks, ai_suggestions, created_at')
+          .select('id, user_email, hospital_type, staff_name, designation, log_date, tasks, ai_suggestions, task_attachments, created_at')
           .order('created_at', { ascending: false })
           .limit(500);
         if (hospitalType) q = q.eq('hospital_type', hospitalType);
@@ -984,22 +988,19 @@ export default function SkillFactoryV2() {
       // the real, end-to-end automation we built (overrides any old stub flow
       // saved before this view existed); other tasks prefer their saved flow.
       if (isDeadlineTrackingTask(activeTask)) {
-        // The Deadline Tracking flow is a fixed, self-contained demo — its nodes
-        // ARE the steps. We do NOT run syncSubtaskSteps here: doing so would
-        // re-materialise each action node as a step-N node, which onChange then
-        // re-derives, so the subtask list would grow on every render. Instead we
-        // seed the Steps panel once from the flow's own actions.
+        // The deadline flow itself is just the trigger node; its follow-up steps
+        // are AI-generated into subtasksMap by the auto-seed effect below (with a
+        // DEADLINE_DEFAULT_STEPS fallback so it's never left empty). Render
+        // whatever steps exist onto the canvas as step-N nodes. The Canvas → Steps
+        // mirror skips deadline tasks (see onChange), so they're never re-derived
+        // back into the list — no growth.
         const base = buildDeadlineTrackingFlow();
-        setCurrentNodes(base.nodes);
-        setCurrentEdges(base.edges);
-        const flowSteps = deriveSubtasksFromCanvas(base.nodes);
-        const cur = subtasksMap[activeTask] ?? [];
-        const same = flowSteps.length === cur.length && flowSteps.every((s, i) => s === cur[i]);
-        if (!same) {
-          const nextMap = { ...subtasksMap, [activeTask]: flowSteps };
-          setSubtasksMap(nextMap);
-          if (activeLog) writeSubtasks(activeLog.id, nextMap);
-        }
+        const subs = (subtasksMap[activeTask] ?? []).filter(
+          (s) => typeof s === 'string' && s.trim().length > 0,
+        );
+        const synced = syncSubtaskSteps(base.nodes, base.edges, subs);
+        setCurrentNodes(synced.nodes);
+        setCurrentEdges(synced.edges);
         setFlowDirty(false);
         return;
       }
@@ -1078,8 +1079,12 @@ export default function SkillFactoryV2() {
   const [autoSeedingTask, setAutoSeedingTask] = useState<string | null>(null);
   useEffect(() => {
     if (!activeTask || !activeLog) return;
-    if (isDeadlineTrackingTask(activeTask)) return;
-    if (subtasksMap[activeTask] !== undefined) return;
+    const stored = subtasksMap[activeTask];
+    const isDeadline = isDeadlineTrackingTask(activeTask);
+    // Skip when steps already exist. An empty [] means "user cleared them" for a
+    // normal task (leave it alone), but the Deadline task should never stay empty,
+    // so we still (re)generate it when its list is empty.
+    if (stored !== undefined && (stored.length > 0 || !isDeadline)) return;
     const key = `${activeLog.id}::${activeTask}`;
     if (autoSeededStepsRef.current.has(key)) return;
     autoSeededStepsRef.current.add(key);
@@ -1088,24 +1093,40 @@ export default function SkillFactoryV2() {
     setAutoSeedingTask(activeTask);
     const taskAtStart = activeTask;
     const logAtStart = activeLog;
-    void generateSubtasksForTask({ task: taskAtStart, designation: activeStaff?.designation ?? 'staff' })
-      .then((steps) => {
-        if (cancelled || steps.length === 0) return;
-        setSubtasksMap((prev) => {
-          if (prev[taskAtStart] !== undefined) return prev; // user added some meanwhile
-          const next = { ...prev, [taskAtStart]: steps };
-          writeSubtasks(logAtStart.id, next);
-          return next;
-        });
+    // Full project context: the staff member's OTHER tasks (the wider workflow),
+    // their name, and the hospital type, so the AI tailors steps to our project.
+    const projectTasks = ruleTasks.filter((t) => t !== taskAtStart);
+    const seed = (steps: string[]) => {
+      if (cancelled || steps.length === 0) return;
+      setSubtasksMap((prev) => {
+        // Don't clobber steps the user added in the meantime.
+        if (prev[taskAtStart] !== undefined && prev[taskAtStart].length > 0) return prev;
+        const next = { ...prev, [taskAtStart]: steps };
+        writeSubtasks(logAtStart.id, next);
+        return next;
+      });
+    };
+    void generateSubtasksForTask({
+      task: taskAtStart,
+      designation: activeStaff?.designation ?? 'staff',
+      staffName: activeStaff?.name,
+      hospitalType: hospitalType ?? undefined,
+      projectTasks,
+    })
+      // For the Deadline task, fall back to the known-good default steps when the
+      // AI returns nothing, so it's never left empty.
+      .then((steps) => seed(steps.length ? steps : isDeadline ? DEADLINE_DEFAULT_STEPS : []))
+      .catch((e) => {
+        console.warn('[SkillFactoryV2] auto-seed steps failed', e);
+        if (isDeadline) seed(DEADLINE_DEFAULT_STEPS);
       })
-      .catch((e) => console.warn('[SkillFactoryV2] auto-seed steps failed', e))
       .finally(() => {
         if (!cancelled) setAutoSeedingTask((t) => (t === taskAtStart ? null : t));
       });
     return () => {
       cancelled = true;
     };
-  }, [activeTask, activeLog, subtasksMap, activeStaff?.designation]);
+  }, [activeTask, activeLog, subtasksMap, activeStaff?.designation, activeStaff?.name, ruleTasks, hospitalType]);
 
   const persistLogTasks = async (logId: string, nextTasks: string[]) => {
     setLogs((prev) => prev.map((l) => (l.id === logId ? { ...l, tasks: nextTasks } : l)));
@@ -1534,6 +1555,30 @@ export default function SkillFactoryV2() {
       return null;
     }
   };
+
+  // Attach a scanned document's extracted result to a task. Stored in
+  // task_optimizer_logs.task_attachments, keyed by task label (mirrors the
+  // subtasks-by-label model). Optimistic local update + persist.
+  const attachScanToTask = async (taskLabel: string, data: ScanAttachment) => {
+    if (!activeLog) {
+      toast.error('Could not attach the document — no active log for this staff member.');
+      return;
+    }
+    const logId = activeLog.id;
+    const current = (activeLog.task_attachments ?? {}) as Record<string, ScanAttachment[]>;
+    const next = { ...current, [taskLabel]: [...(current[taskLabel] ?? []), data] };
+    setLogs((prev) => prev.map((l) => (l.id === logId ? { ...l, task_attachments: next } : l)));
+    const { error } = await supabase.from(LOGS_TABLE).update({ task_attachments: next }).eq('id', logId);
+    if (error) {
+      toast.error('Could not save the scanned document.');
+      console.warn('[SkillFactoryV2] attach scan failed', error);
+    }
+  };
+
+  // Scanned docs attached to the task currently in focus (for the chatbot list).
+  const activeTaskAttachments: ScanAttachment[] = activeTask
+    ? ((activeLog?.task_attachments ?? {})[activeTask] ?? [])
+    : [];
 
   // Create a log for the active staff on demand — mirrors commitAddTask's insert
   // but seeds no starter tasks (the AI provides them). Returns null if it can't.
@@ -2141,6 +2186,8 @@ export default function SkillFactoryV2() {
                 .filter((f) => (f.role ?? '').toLowerCase() === (activeStaff?.designation ?? '').toLowerCase())
                 .map((f) => ({ id: f.id, name: f.name, enabled: f.enabled }))
             }
+            onAttachScan={(taskLabel, data) => void attachScanToTask(taskLabel, data)}
+            taskAttachments={activeTaskAttachments}
           />
         ) : (
           <div className="h-full flex items-center justify-center text-center text-gray-400 px-6">
