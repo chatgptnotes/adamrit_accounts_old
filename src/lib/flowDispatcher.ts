@@ -269,7 +269,15 @@ export async function dispatchFlowEventWithToasts(
     const { toast } = await import('sonner');
     for (const r of results) {
       const label = r.flowName ? `${r.flowName}: ${r.message}` : r.message;
-      if (r.kind === 'notify' || r.kind === 'whatsapp' || r.kind === 'email' || r.kind === 'slack') {
+      if (r.kind === 'guide' && r.deepLink) {
+        // Clickable deep link — jump straight to the page/tab to act on.
+        // window.location keeps this dispatcher React-free (no useNavigate).
+        const link = r.deepLink;
+        toast(label, {
+          duration: 12000,
+          action: { label: link.label || 'Open', onClick: () => window.location.assign(link.url) },
+        });
+      } else if (r.kind === 'notify' || r.kind === 'whatsapp' || r.kind === 'email' || r.kind === 'slack' || r.kind === 'guide') {
         toast(label, { duration: 8000 });
       } else {
         toast.message(r.message, { description: r.flowName, duration: 5000 });

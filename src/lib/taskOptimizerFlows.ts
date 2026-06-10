@@ -43,10 +43,10 @@ export interface ConditionConfig {
   value: string;
 }
 
-export type ActionType = 'notify' | 'tag' | 'set_status' | 'whatsapp' | 'email' | 'gmail_check' | 'slack';
+export type ActionType = 'notify' | 'tag' | 'set_status' | 'whatsapp' | 'email' | 'gmail_check' | 'slack' | 'guide';
 export interface ActionConfig {
   type: ActionType;
-  // notify/whatsapp/email: message; tag: note text; set_status: target status.
+  // notify/whatsapp/email/slack/guide: message; tag: note text; set_status: target status.
   message?: string;
   setStatus?: ActionStatus;
   // whatsapp/email/gmail_check stay opt-in; live sends/reads are never made
@@ -57,6 +57,10 @@ export interface ActionConfig {
   subject?: string;
   // gmail_check-specific: Gmail search query (e.g. `is:unread newer_than:1d`).
   query?: string;
+  // guide-specific: the app route to deep-link the user to, plus the button
+  // label shown on the clickable notification (e.g. url '/lab?tab=results').
+  url?: string;
+  label?: string;
 }
 
 export type FlowNodeConfig = TriggerConfig | ConditionConfig | ActionConfig;

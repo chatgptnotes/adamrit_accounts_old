@@ -48,8 +48,9 @@ function buildSuggestPrompt({ persona, instruction, activeTask, tasks, stepsByTa
         })
         .join('\n')
     : '(no tasks yet)';
+  const activeSteps = activeTask ? (stepsMap[activeTask] ?? []) : [];
   const focusBlock = activeTask
-    ? `\nThe user is currently focused on the task "${activeTask}". PRIORITISE automations that help with THIS task specifically (its steps are listed above). Make at least two of the suggestions about "${activeTask}".\n`
+    ? `\nThe user is currently focused on the task "${activeTask}"${activeSteps.length ? ` (sub-tasks: ${activeSteps.map((s) => `"${s}"`).join(', ')})` : ''}. PRIORITISE automations for THIS task. Where it helps, target a SPECIFIC sub-task (step) above and name that suggestion after the step, so the user gets a focused automation per sub-task. Make at least two suggestions about "${activeTask}".\n`
     : '';
 
   return `You are an automation coach for a hospital app. Suggest 2-3 useful automations tailored to this staff member's role and their actual tasks. Do NOT build them — just propose ideas the user can pick from.

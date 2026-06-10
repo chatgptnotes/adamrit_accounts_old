@@ -1,6 +1,7 @@
 import { geminiGenerateContentUrl, geminiFetch, GEMINI_MODEL_LITE } from '@/lib/gemini';
 import { LLM_BACKEND, callVpsClaude } from '@/lib/vpsClaude';
 import { ACTION_STATUSES, type ActionStatus } from '@/lib/optimizeTasks';
+import { formatRegistryForPrompt } from '@/lib/pageActionRegistry';
 import type {
   StoredNode,
   StoredEdge,
@@ -67,7 +68,7 @@ const CONDITION_OPS = ['eq', 'contains', 'gte'] as const;
 const ACTION_TYPES = SAFE_ACTION_TYPES;
 
 type RawCondition = { field?: string; op?: string; value?: string };
-type RawAction = { type?: string; message?: string; setStatus?: string; to?: string; subject?: string };
+type RawAction = { type?: string; message?: string; setStatus?: string; to?: string; subject?: string; url?: string; label?: string };
 // Trigger shapes the AI may emit. `event` is optional for backward compat with
 // status_changed-only callers; mapToGraph defaults missing event to status_changed.
 type RawTrigger = {
@@ -140,6 +141,8 @@ ${taskLines}
 
 You ${verb} automation for a hospital app. Automations fire on one of these real events: a task's status changes; a bill is added; a deadline becomes due; a deadline becomes overdue; a deadline is marked paid. Tailor it to the person's role.
 
+${formatRegistryForPrompt()}
+
 You also act as a thoughtful coach: after producing the automation, propose 2-3 SHORT follow-up questions that help the user refine it, decide between approaches, or add the next sensible step. Phrase each question so the user can answer it by sending it straight back (e.g. "Should I also notify the supervisor?" "Add a 24-hour delay before reminding?"). Make the questions specific to the role and the task, not generic.
 
 Person's role / persona: ${persona}
@@ -154,7 +157,7 @@ Return ONLY valid JSON (no markdown, no code fences) of exactly this shape:
   "questions": ["question 1?", "question 2?", "question 3?"],
   "trigger": { "event": "status_changed|bill_added|deadline_due|deadline_overdue|deadline_paid", "toStatus": "(status_changed only) one of: suggested, in_progress, done, dismissed, any", "withinDays": "(deadline_due only) integer, default 3" },
   "conditions": [ { "field": "designation|suggestion_type|time_saved_mins", "op": "eq|contains|gte", "value": "string" } ],
-  "actions": [ { "type": "notify|tag|set_status|whatsapp|email|slack", "message": "text (may use {staff} {task} {status})", "setStatus": "optional status for set_status", "to": "email address (for email type only)", "subject": "email subject (for email type only, may use {staff} {task} {status})" } ],
+  "actions": [ { "type": "notify|tag|set_status|whatsapp|email|slack|guide", "message": "text (may use {staff} {task} {status})", "setStatus": "optional status for set_status", "to": "email address (for email type only)", "subject": "email subject (for email type only, may use {staff} {task} {status})", "url": "(guide only) app route to open, e.g. /lab?tab=results", "label": "(guide only) short button label, e.g. Open Lab Results" } ],
   "taskChanges": [ { "action": "add|remove", "task": "task name" } ],
   "stepChanges": [ { "action": "add|remove", "task": "owning task name", "step": "step text" } ]
 }
@@ -168,6 +171,7 @@ Rules:
 - Use whatsapp only if the user explicitly wants a WhatsApp message sent; keep messages concise.
 - Use email only if the user explicitly wants an email sent; provide a to address and subject.
 - Use slack to post an alert to the team Slack channel (e.g. "notify the team on Slack when a bill is scanned"). Put the alert text in "message"; it fires by default (no opt-in needed).
+- Use guide to point the user to a page to act on — set "url" to one of the routes listed in the page catalog above and "label" to a short button text, with "message" describing what to do. Only use routes from that catalog; never invent a URL.
 - taskChanges and stepChanges default to []. Only fill them when the user asks to add/create/remove/delete a task or step.
 - To remove a task or step, its text MUST exactly match one shown in the workspace context above.
 - For a step, set "task" to the task it belongs under; if the user didn't name one and a task is in focus, use the focused task.
@@ -317,6 +321,10 @@ function mapToGraph(raw: RawFlow, input: GenerateFlowInput): GeneratedFlow {
       cfg.to = (a.to ?? '').toString();
       cfg.subject = (a.subject ?? '').toString();
       cfg.enabled = false; // opt-in only
+    }
+    if (type === 'guide') {
+      cfg.url = (a.url ?? '').toString();
+      cfg.label = (a.label ?? '').toString();
     }
     const id = `action-${i + 1}`;
     const label = type === 'set_status' ? `Set status → ${cfg.setStatus}` : type.charAt(0).toUpperCase() + type.slice(1);

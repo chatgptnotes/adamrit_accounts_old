@@ -27,6 +27,9 @@ export interface FlowActionResult {
     column: 'note' | 'status';
     priorValue: string | null;
   };
+  // guide action only — a clickable deep link surfaced on the toast so the user
+  // can jump straight to the page/tab they need to act on.
+  deepLink?: { url: string; label: string };
 }
 
 function nodesOfKind(flow: TaskFlow, kind: StoredNode['type']): StoredNode[] {
@@ -270,6 +273,19 @@ async function runAction(
       await notifyUtilitySlack(msg || `Automation "${flow.name}" fired for "${ctx.taskText}"`);
       logActivity('task_flow_slack', { flow: flow.name, task: ctx.taskText });
       return { flowName: flow.name, kind: 'slack', message: `Slack alert sent: ${msg || ctx.taskText}` };
+
+    case 'guide': {
+      // Non-mutating: points the user at the page/tab to act on. The dispatcher
+      // renders the clickable deep link; here we just carry url + label + text.
+      const url = (cfg.url || '').trim();
+      logActivity('task_flow_guide', { flow: flow.name, url, task: ctx.taskText });
+      return {
+        flowName: flow.name,
+        kind: 'guide',
+        message: msg || `Open ${cfg.label || 'the page'} for "${ctx.taskText}"`,
+        deepLink: url ? { url, label: (cfg.label || 'Open').trim() } : undefined,
+      };
+    }
 
     default:
       return { flowName: flow.name, kind: cfg.type, message: 'Unknown action' };

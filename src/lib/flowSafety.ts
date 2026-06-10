@@ -11,7 +11,7 @@ import { FLOW_EVENT_TYPES, type FlowEventType } from '@/lib/taskOptimizerFlows';
 
 // Whitelist of action types the runtime knows how to execute. Anything else is
 // rejected by mapToGraph. Source of truth for the AI prompt's allow-list.
-export const SAFE_ACTION_TYPES = ['notify', 'tag', 'set_status', 'whatsapp', 'email', 'gmail_check', 'slack'] as const;
+export const SAFE_ACTION_TYPES = ['notify', 'tag', 'set_status', 'whatsapp', 'email', 'gmail_check', 'slack', 'guide'] as const;
 export type SafeActionType = (typeof SAFE_ACTION_TYPES)[number];
 
 // Verbs that signal an intent to harm/delete data. Matched as whole words to
