@@ -15,6 +15,8 @@ import {
   Bell,
   Zap,
   AlertTriangle,
+  AlarmClock,
+  IndianRupee,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -26,6 +28,9 @@ import {
 } from '@/lib/generateFlowFromPrompt';
 import { FlowSafetyError } from '@/lib/flowSafety';
 import { fetchFireCountThisWeek, getCachedFireCount } from '@/lib/automationFireStats';
+import { parseReminderFromPrompt } from '@/lib/parseReminderFromPrompt';
+import { LLM_BACKEND } from '@/lib/vpsClaude';
+import { useUtilityDeadlines } from '@/hooks/useUtilityDeadlines';
 import type { StoredNode, StoredEdge } from '@/lib/taskOptimizerFlows';
 import SkillInsightChip from './SkillInsightChip';
 
@@ -81,6 +86,16 @@ interface ChatMessage {
   safetyBlock?: {
     safeAlternative: string | null;
   };
+  // When present, this message reports a reminder/bill that was created from
+  // natural-language ("remind me to pay X tomorrow") — rendered in a distinct
+  // green card with the resolved due date, amount, and bill type.
+  reminderCreated?: {
+    name: string;
+    dueLabel: string;
+    amount: number;
+    billType: string;
+    recurring: boolean;
+  };
 }
 
 // Build the prompt that gets pushed to the chatbot when Execute is clicked.
@@ -110,8 +125,14 @@ function starterPromptsFor(task: string, designation: string): { icon: typeof Wa
   if (!task.trim()) {
     // No task picked → surface the new real-world triggers so first-time users
     // discover bill_added / deadline_due / deadline_overdue / deadline_paid by
-    // tapping. Each chip maps 1:1 to one new trigger type.
+    // tapping. Each chip maps 1:1 to one new trigger type. The first chip is
+    // a quick-add reminder (no canvas — creates a real row + notification).
     return [
+      {
+        icon: AlarmClock,
+        label: 'Quick add a reminder',
+        prompt: 'Remind me to pay the Airtel postpaid bill tomorrow, ₹2000.',
+      },
       {
         icon: Bell,
         label: 'Ping me when a bill is added',
@@ -175,6 +196,11 @@ export default function SkillFactoryChatbot({
   const [loading, setLoading] = useState(false);
   const [insightVisible, setInsightVisible] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Lets the chatbot create real utility_deadlines rows from natural-language
+  // ("remind me to pay X tomorrow") — bypassing the automation-design path.
+  // The hook fires bill_added on insert, which the existing notification bell
+  // and any bill_added flow picks up automatically.
+  const { createDeadline } = useUtilityDeadlines();
   // Rule 15 — when on, applied flows render to canvas but the parent skips
   // persistence. Lets the user iterate without polluting the DB.
   const [dryRun, setDryRun] = useState(false);
@@ -196,6 +222,36 @@ export default function SkillFactoryChatbot({
     setInstruction('');
     setLoading(true);
     try {
+      // Branch 1 — natural-language reminder/bill creation.
+      // Skipped silently (returns null) when the prompt doesn't look like a
+      // create request, falling through to the automation-design path below.
+      const reminder = await parseReminderFromPrompt(text);
+      if (reminder) {
+        await createDeadline({
+          name: reminder.name,
+          bill_type: reminder.bill_type,
+          amount: reminder.amount,
+          due_date: reminder.due_date,
+          recurring: reminder.recurring,
+          notes: reminder.notes,
+        });
+        setMessages(prev => [
+          ...prev,
+          {
+            role: 'assistant',
+            text: `Created a reminder for "${reminder.name}".`,
+            reminderCreated: {
+              name: reminder.name,
+              dueLabel: reminder.dueLabel,
+              amount: reminder.amount,
+              billType: reminder.bill_type,
+              recurring: reminder.recurring,
+            },
+          },
+        ]);
+        return;
+      }
+
       const flow = await generateFlowFromPrompt({
         persona: designation || 'staff member',
         instruction: text,
@@ -251,9 +307,10 @@ export default function SkillFactoryChatbot({
   };
 
   const starters = starterPromptsFor(task, designation);
-  // Surface a clear setup banner if the Gemini key isn't configured — otherwise
-  // every send fails with a generic "Something went wrong" toast.
-  const hasGeminiKey = !!import.meta.env.VITE_GEMINI_API_KEY;
+  // AI is "ready" if we're on the VPS Claude backend, or a Gemini key is
+  // present. Otherwise surface a clear setup banner — without it every send
+  // fails with a generic "Something went wrong" toast.
+  const aiReady = LLM_BACKEND === 'vps' || !!import.meta.env.VITE_GEMINI_API_KEY;
 
   return (
     <div className="flex h-full flex-col bg-gradient-to-b from-white to-slate-50">
@@ -300,10 +357,10 @@ export default function SkillFactoryChatbot({
             onClick={handleExecute}
             disabled={
               loading ||
-              !hasGeminiKey ||
+              !aiReady ||
               (!task.trim() && subtasks.length === 0 && currentFlow.nodes.length === 0)
             }
-            title={hasGeminiKey ? 'Send task + sub-tasks + current canvas to the AI' : 'Configure VITE_GEMINI_API_KEY first'}
+            title={aiReady ? 'Send task + sub-tasks + current canvas to the AI' : 'Configure VITE_GEMINI_API_KEY first'}
             className="h-7 flex-1 text-xs"
           >
             <Play className="mr-1 h-3 w-3" /> Execute
@@ -327,9 +384,9 @@ export default function SkillFactoryChatbot({
         </div>
       )}
 
-      {/* Setup banner — shown only when the Gemini key is missing. Replaces the
+      {/* Setup banner — shown only when no AI backend is ready. Replaces the
           confusing "Something went wrong" toast each call would otherwise emit. */}
-      {!hasGeminiKey && (
+      {!aiReady && (
         <div className="border-b border-amber-200 bg-amber-50 px-3 py-2">
           <div className="flex items-start gap-2">
             <Wand2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
@@ -387,6 +444,11 @@ export default function SkillFactoryChatbot({
                   safeAlternative={m.safetyBlock.safeAlternative}
                   onPickAlternative={(alt) => send(alt)}
                   disabled={loading}
+                />
+              ) : m.reminderCreated ? (
+                <ReminderCreatedBubble
+                  text={m.text}
+                  reminder={m.reminderCreated}
                 />
               ) : (
                 <AssistantBubble appliedNodes={m.appliedNodes} appliedFlowName={m.appliedFlowName}>
@@ -458,8 +520,8 @@ export default function SkillFactoryChatbot({
             />
             <button
               onClick={() => send(instruction)}
-              disabled={loading || !instruction.trim() || !hasGeminiKey}
-              title={hasGeminiKey ? 'Send (Enter)' : 'Configure VITE_GEMINI_API_KEY first'}
+              disabled={loading || !instruction.trim() || !aiReady}
+              title={aiReady ? 'Send (Enter)' : 'Configure VITE_GEMINI_API_KEY first'}
               className="absolute bottom-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-md bg-blue-600 text-white shadow-sm transition-all hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400"
             >
               {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
@@ -568,6 +630,62 @@ function SafetyBlockBubble({
             {safeAlternative}
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Reminder/bill created via natural-language prompt. Distinct green card so the
+// user can tell at a glance that a real row was saved (vs. an automation
+// designed on the canvas). Shows the parsed fields so any mis-parse is visible
+// — the user can then edit in the deadlines table.
+function ReminderCreatedBubble({
+  text,
+  reminder,
+}: {
+  text: string;
+  reminder: {
+    name: string;
+    dueLabel: string;
+    amount: number;
+    billType: string;
+    recurring: boolean;
+  };
+}) {
+  const inr = (n: number) =>
+    n > 0
+      ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n)
+      : '—';
+  return (
+    <div className="flex items-start gap-2">
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 shadow-sm">
+        <AlarmClock className="h-3.5 w-3.5" />
+      </div>
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="max-w-[88%] rounded-2xl rounded-tl-sm border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 shadow-sm">
+          <p className="font-medium">{text}</p>
+          <div className="mt-1.5 space-y-0.5 text-[11px]">
+            <div className="flex items-center gap-1">
+              <Clock3 className="h-3 w-3 text-emerald-700" />
+              <span>Due {reminder.dueLabel}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <IndianRupee className="h-3 w-3 text-emerald-700" />
+              <span>{inr(reminder.amount)}</span>
+              <span className="text-emerald-700/70">·</span>
+              <span className="capitalize">{reminder.billType.replace(/_/g, ' ')}</span>
+              {reminder.recurring && (
+                <>
+                  <span className="text-emerald-700/70">·</span>
+                  <span>recurring monthly</span>
+                </>
+              )}
+            </div>
+          </div>
+          <p className="mt-1.5 text-[10px] text-emerald-700/80">
+            Notification scheduled. You can edit it in the Deadline Tracking dashboard.
+          </p>
+        </div>
       </div>
     </div>
   );

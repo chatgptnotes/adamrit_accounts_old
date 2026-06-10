@@ -65,9 +65,6 @@ import {
   type TaskFlow,
   type ActionConfig,
   type TriggerConfig,
-  type ConditionConfig,
-  type FlowNodeConfig,
-  type FlowNodeKind,
 } from '@/lib/taskOptimizerFlows';
 import type { TaskSuggestion } from '@/lib/optimizeTasks';
 import type { GeneratedFlow, TaskChange, StepChange } from '@/lib/generateFlowFromPrompt';
@@ -75,6 +72,7 @@ import { COMMON_TASKS } from '@/components/task-optimizer/commonTasks';
 
 import SkillFactoryFlow from '@/components/task-optimizer/SkillFactoryFlow';
 import SkillFactoryChatbot from '@/components/task-optimizer/SkillFactoryChatbot';
+import NotificationBell from '@/components/task-optimizer/NotificationBell';
 import SkillInsightChip from '@/components/task-optimizer/SkillInsightChip';
 import BillScanMenu from '@/components/task-optimizer/flow/BillScanMenu';
 import {
@@ -110,20 +108,33 @@ const LOGS_TABLE = 'task_optimizer_logs';
 // Subtasks live per (log, task) in localStorage for v2 — easy to add, no
 // migration needed. Phase 2 will move them into task_optimizer_logs.subtasks.
 const subtasksKey = (logId: string) => `sf-v2:subtasks:${logId}`;
+// Drop blanks AND case-insensitive duplicates. Earlier builds could push the
+// same label in twice when the canvas mirrored structural template nodes back
+// into subtasks; this lets that stale localStorage self-heal on the next read.
+const cleanSubtaskList = (list: unknown): string[] => {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const s of list) {
+    if (typeof s !== 'string') continue;
+    const trimmed = s.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
+};
 const readSubtasks = (logId: string): Record<string, string[]> => {
   try {
     const raw = localStorage.getItem(subtasksKey(logId));
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return {};
-    // Drop empty / whitespace-only entries — they used to slip in via an edge
-    // case in earlier builds and would render as a blank subtask card.
     const cleaned: Record<string, string[]> = {};
     for (const [task, list] of Object.entries(parsed as Record<string, unknown>)) {
-      if (!Array.isArray(list)) continue;
-      cleaned[task] = list
-        .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
-        .map((s) => s.trim());
+      cleaned[task] = cleanSubtaskList(list);
     }
     return cleaned;
   } catch {
@@ -132,13 +143,9 @@ const readSubtasks = (logId: string): Record<string, string[]> => {
 };
 const writeSubtasks = (logId: string, map: Record<string, string[]>) => {
   try {
-    // Sanitize on write too — blocks blank rows from ever reaching localStorage,
-    // even if some upstream path managed to push an empty entry into state.
     const cleaned: Record<string, string[]> = {};
     for (const [task, list] of Object.entries(map)) {
-      cleaned[task] = (Array.isArray(list) ? list : [])
-        .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
-        .map((s) => s.trim());
+      cleaned[task] = cleanSubtaskList(list);
     }
     localStorage.setItem(subtasksKey(logId), JSON.stringify(cleaned));
   } catch {
@@ -392,82 +399,38 @@ function isDeadlineTrackingTask(task: string): boolean {
   return /deadline/i.test(task);
 }
 
+// Default subtasks for the Deadline Tracking task. Seeded into subtasksMap on
+// first visit so the Steps panel isn't empty out of the box — the user can
+// edit/delete/reorder these like any other step. The canvas renders each as a
+// step-N node (single source of truth), so there are no structural twins to
+// dedupe against.
+const DEADLINE_DEFAULT_STEPS: string[] = [
+  'Add bill — name, due date, amount',
+  'Save bill to database',
+  'Check due date daily',
+  'Notify when due / overdue',
+  'Mark paid → auto-create next month',
+];
+
 // Concrete, step-by-step picture of the Deadline Tracking automation that's
-// already wired in /deadline-tracking. Reflects the no-API scan flow: scan a
-// bill (camera/upload) → OCR reads amount + due date → save → due-date check →
-// notify → mark paid. Used as the canvas starter whenever the active task is
-// "Deadline Tracking" and no custom flow has been saved yet.
+// already wired in /deadline-tracking. The trigger is the only structural node
+// (start of flow); the 5 follow-up steps live in subtasksMap so the Steps panel
+// and the canvas stay 1:1 — no action-1..5 / step-N twin nodes possible.
 function buildDeadlineTrackingFlow(): { nodes: StoredNode[]; edges: StoredEdge[] } {
-  const steps: Array<{
-    label: string;
-    kind: FlowNodeKind;
-    config: FlowNodeConfig;
-  }> = [
+  const nodes: StoredNode[] = [
     {
-      label: 'Trigger · Scan a bill (camera / upload)',
-      kind: 'trigger',
-      config: { event: 'bill_added', billType: 'any' } as TriggerConfig,
-    },
-    {
-      label: 'Read amount & due date — offline OCR (no API)',
-      kind: 'action',
-      config: { type: 'notify', message: 'Tesseract / PDF text layer reads amount + due date in the browser' } as ActionConfig,
-    },
-    {
-      label: 'Save to deadline tracker',
-      kind: 'action',
-      config: { type: 'notify', message: 'Row inserted into utility_deadlines (hospital-scoped)' } as ActionConfig,
-    },
-    {
-      label: 'Condition · If due soon (≤ 7 days) or overdue',
-      kind: 'condition',
-      config: { field: 'time_saved_mins', op: 'gte', value: '0' } as ConditionConfig,
-    },
-    {
-      label: 'Action · Notify — bell badge + daily reminder',
-      kind: 'action',
-      config: { type: 'notify', message: 'Bell badge + 30-sec pulsing reminder + once-a-day pop-up' } as ActionConfig,
-    },
-    {
-      label: 'Mark paid → auto-create next month',
-      kind: 'action',
-      config: { type: 'notify', message: 'Recurring bills clone forward one month (Jan 31 → Feb 28/29 safe)' } as ActionConfig,
+      id: 'trigger-1',
+      type: 'trigger',
+      position: { x: 60, y: 80 },
+      data: {
+        kind: 'trigger',
+        label: 'When user opens Deadline Tracking',
+        config: { event: 'status_changed', toStatus: 'in_progress' } as TriggerConfig,
+      },
     },
   ];
 
-  // Snake layout: row 0 left→right (0,1,2), row 1 right→left (3,4,5) so the
-  // chain never crosses itself and every step's label has room to breathe.
-  const COLS = 3;
-  const X0 = 60;
-  const Y0 = 80;
-  const X_GAP = 320; // node width (260) + breathing room
-  const Y_GAP = 230;
-
-  const pos = (i: number) => {
-    const row = Math.floor(i / COLS);
-    const colInRow = i % COLS;
-    const x = row % 2 === 0 ? colInRow : COLS - 1 - colInRow;
-    return { x: X0 + x * X_GAP, y: Y0 + row * Y_GAP };
-  };
-
-  const nodes: StoredNode[] = steps.map((s, i) => ({
-    id: `${s.kind}-${i + 1}`,
-    type: s.kind,
-    position: pos(i),
-    data: {
-      kind: s.kind,
-      label: s.label,
-      config: s.config,
-    },
-  }));
-
-  const edges: StoredEdge[] = nodes.slice(1).map((n, i) => ({
-    id: `e-${nodes[i].id}-${n.id}`,
-    source: nodes[i].id,
-    target: n.id,
-  }));
-
-  return { nodes, edges };
+  return { nodes, edges: [] };
 }
 
 // Verdict-aware starter for a drilled-into task that has no saved flow yet.
@@ -588,29 +551,50 @@ function syncSubtaskSteps(
   return { nodes: [...keptNodes, ...newNodes], edges: [...keptEdges, ...newEdges] };
 }
 
-// Reverse direction of syncSubtaskSteps: read the action nodes on the canvas
-// and pull out the labels that look like step entries. Used to mirror canvas
-// edits (new node dropped from palette, label renamed, node deleted) back into
-// the Steps panel so "anything done on the canvas" stays in the subtask list.
-// Filters: nodes of type 'action', excluding the verdict-starter "main" action
-// (id 'action-1' whose label does NOT start with "Step "). Step prefix
-// ("Step N:" or "Step N ·") is stripped so labels round-trip cleanly through
-// syncSubtaskSteps.
+// Reverse direction of syncSubtaskSteps: read the step-N nodes on the canvas
+// and pull out their labels. Only step-N ids count as user-managed subtasks —
+// template structural nodes (trigger-1, action-1..N from buildDeadlineTrackingFlow
+// / buildVerdictStarter) and palette-dropped nodes are first-class workflow
+// blocks, NOT subtasks, even when their labels happen to start with "Step N".
+// Deduped so a stale localStorage that picked up the same label twice can't
+// keep showing it twice.
 const STEP_LABEL_RX = /^step\s+\d+\s*[:·\-]?\s*/i;
 function deriveSubtasksFromCanvas(nodes: StoredNode[]): string[] {
   const out: string[] = [];
+  const seen = new Set<string>();
   for (const n of nodes) {
-    if (n.type !== 'action') continue;
+    if (!STEP_ID_RX.test(n.id)) continue;
     const label = ((n.data as { label?: string } | undefined)?.label ?? '').trim();
     if (!label) continue;
-    const looksLikeStep = STEP_LABEL_RX.test(label);
-    // Drop the verdict-starter "main action" — id 'action-1' with a non-Step
-    // label represents the task itself, not a step underneath it.
-    if (n.id === 'action-1' && !looksLikeStep) continue;
     const clean = label.replace(STEP_LABEL_RX, '').trim();
-    if (clean.length > 0) out.push(clean);
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
   }
   return out;
+}
+
+// Cheap content signature used to detect whether the canvas has *meaningfully*
+// changed since the last save. React Flow fires onChange for selection and
+// dimension updates on every render — without filtering, those would flip
+// flowDirty back to true the instant a save resets it, making the "unsaved
+// changes" indicator stick even after a successful save.
+function meaningfulFlowSig(nodes: StoredNode[], edges: StoredEdge[]): string {
+  const n = nodes.map((x) => {
+    const data = x.data as { label?: unknown; config?: unknown } | undefined;
+    return [
+      x.id,
+      x.type,
+      Math.round(x.position?.x ?? 0),
+      Math.round(x.position?.y ?? 0),
+      typeof data?.label === 'string' ? data.label : '',
+      data?.config ? JSON.stringify(data.config) : '',
+    ].join('|');
+  });
+  const e = edges.map((x) => `${x.id}|${x.source}|${x.target}`);
+  return `${n.join('::')}//${e.join('::')}`;
 }
 
 // Rule 16 — true while a saved flow's timestamp is younger than 24 hours.
@@ -745,6 +729,11 @@ export default function SkillFactoryV2() {
   const [currentNodes, setCurrentNodes] = useState<StoredNode[]>([]);
   const [currentEdges, setCurrentEdges] = useState<StoredEdge[]>([]);
   const [flowDirty, setFlowDirty] = useState(false);
+  // Signature captured at the last known "clean" point (load, save). The
+  // onChange handler diffs the incoming canvas content against this so React
+  // Flow's internal selection/dimension/measure events don't keep flipping
+  // flowDirty back to true after a save.
+  const cleanFlowSigRef = useRef('');
 
   // Per-log map of task → its subtasks. Loaded from localStorage when the
   // active log changes; saved on every mutation.
@@ -992,7 +981,6 @@ export default function SkillFactoryV2() {
       // Drilled into a specific task. The Deadline Tracking task always shows
       // the real, end-to-end automation we built (overrides any old stub flow
       // saved before this view existed); other tasks prefer their saved flow.
-      const subs = subtasksMap[activeTask] ?? [];
       if (isDeadlineTrackingTask(activeTask)) {
         // The Deadline Tracking flow is a fixed, self-contained demo — its nodes
         // ARE the steps. We do NOT run syncSubtaskSteps here: doing so would
@@ -1024,6 +1012,25 @@ export default function SkillFactoryV2() {
           verdictByTask.get(activeTask.toLowerCase()) ?? null,
           [],
         );
+      }
+      // Seed the Deadline task's Steps panel so it isn't empty out of the box.
+      // Empty *and* undefined both seed, which also recovers users whose stored
+      // subtasks were wiped by the earlier "structural cleanup" pass. If the
+      // user genuinely deletes every step, they can simply navigate away and
+      // back — the seed is a UX guard, not a hard policy.
+      let subs = subtasksMap[activeTask];
+      if (
+        isDeadlineTrackingTask(activeTask) &&
+        (subs === undefined || subs.length === 0)
+      ) {
+        subs = DEADLINE_DEFAULT_STEPS;
+        setSubtasksMap((prev) => {
+          const next = { ...prev, [activeTask]: DEADLINE_DEFAULT_STEPS };
+          if (activeLog) writeSubtasks(activeLog.id, next);
+          return next;
+        });
+      } else {
+        subs = subs ?? [];
       }
       const synced = syncSubtaskSteps(base.nodes, base.edges, subs);
       setCurrentNodes(synced.nodes);
@@ -1328,6 +1335,7 @@ export default function SkillFactoryV2() {
       });
       setCurrentNodes(safeNodes);
       setCurrentEdges(safeEdges);
+      cleanFlowSigRef.current = meaningfulFlowSig(safeNodes, safeEdges);
       const refreshed = await fetchTaskFlows(hospitalType);
       setFlows(refreshed);
       setFlowDirty(false);
@@ -1515,6 +1523,7 @@ export default function SkillFactoryV2() {
       {staffCollapsed ? (
         <section className="w-11 shrink-0 border-r border-gray-200 bg-white flex flex-col items-center py-3 gap-3">
           <Sparkles className="w-4 h-4 text-blue-600" />
+          <NotificationBell variant="compact" />
           <button
             onClick={toggleStaffCollapsed}
             title="Expand Staff panel"
@@ -1550,10 +1559,11 @@ export default function SkillFactoryV2() {
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
                 v2
               </span>
+              <NotificationBell variant="inline" />
               <button
                 onClick={toggleStaffCollapsed}
                 title="Collapse Staff panel"
-                className="ml-auto p-1 rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                className="p-1 rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700"
               >
                 <PanelLeftClose className="w-4 h-4" />
               </button>
@@ -1914,7 +1924,15 @@ export default function SkillFactoryV2() {
               onChange={(n, edges) => {
                 setCurrentNodes(n);
                 setCurrentEdges(edges);
-                setFlowDirty(true);
+                // Only flag dirty when the canvas's *meaningful* content
+                // changes (id/type/position/label/config or edge wiring).
+                // Skipping selection/dimension-only updates prevents the
+                // "unsaved changes" pill from sticking after a save.
+                if (meaningfulFlowSig(n, edges) !== cleanFlowSigRef.current) {
+                  setFlowDirty(true);
+                } else {
+                  setFlowDirty(false);
+                }
                 // Canvas → Steps: when a node is added / renamed / deleted on
                 // the canvas, mirror those changes back into subtasksMap so the
                 // Steps panel reflects "anything done on the canvas". We write

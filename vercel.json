@@ -6,6 +6,9 @@
   "functions": {
     "api/tally-proxy.ts": {
       "maxDuration": 300
+    },
+    "api/skill-factory-claude.ts": {
+      "maxDuration": 120
     }
   },
   "rewrites": [

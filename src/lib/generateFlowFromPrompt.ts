@@ -1,4 +1,5 @@
 import { geminiGenerateContentUrl, geminiFetch, GEMINI_MODEL_LITE } from '@/lib/gemini';
+import { LLM_BACKEND, callVpsClaude } from '@/lib/vpsClaude';
 import { ACTION_STATUSES, type ActionStatus } from '@/lib/optimizeTasks';
 import type {
   StoredNode,
@@ -352,14 +353,12 @@ function mapToGraph(raw: RawFlow, input: GenerateFlowInput): GeneratedFlow {
  * schema. Throws on missing key / blank instruction / unreachable AI.
  */
 export async function generateFlowFromPrompt(input: GenerateFlowInput): Promise<GeneratedFlow> {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!apiKey) throw new Error('Gemini API key is not configured.');
   if (!input.instruction.trim()) throw new Error('Please describe the automation you want.');
 
-  // Safety Layer B — refuse destructive prompts BEFORE Gemini sees them. Stops
-  // prompt-laundering ("schedule a job that deletes bills") at the door, since
-  // the model is never given the chance to rationalize the request into a
-  // plausible-but-unsafe graph.
+  // Safety Layer B — refuse destructive prompts BEFORE the model sees them.
+  // Stops prompt-laundering ("schedule a job that deletes bills") at the door,
+  // since the model is never given the chance to rationalize the request into
+  // a plausible-but-unsafe graph.
   if (isDestructiveIntent(input.instruction)) {
     throw new FlowSafetyError(
       'destructive_prompt',
@@ -368,30 +367,38 @@ export async function generateFlowFromPrompt(input: GenerateFlowInput): Promise<
     );
   }
 
-  let response: Response;
-  try {
-    response = await geminiFetch(geminiGenerateContentUrl(apiKey, GEMINI_MODEL_LITE), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: buildPrompt(input) }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 1500 },
-      }),
-    });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : '';
-    if (message.includes('429') || /quota|RESOURCE_EXHAUSTED/i.test(message)) {
-      throw new Error('The AI service is rate-limited or out of quota. Please try again shortly.');
+  let text: string;
+  if (LLM_BACKEND === 'vps') {
+    // No fallback: any VPS failure throws and surfaces verbatim to the chat UI.
+    text = await callVpsClaude(buildPrompt(input));
+  } else {
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    if (!apiKey) throw new Error('Gemini API key is not configured.');
+    let response: Response;
+    try {
+      response = await geminiFetch(geminiGenerateContentUrl(apiKey, GEMINI_MODEL_LITE), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: buildPrompt(input) }] }],
+          generationConfig: { temperature: 0.3, maxOutputTokens: 1500 },
+        }),
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : '';
+      if (message.includes('429') || /quota|RESOURCE_EXHAUSTED/i.test(message)) {
+        throw new Error('The AI service is rate-limited or out of quota. Please try again shortly.');
+      }
+      if (message.includes('400') && /API key not valid/i.test(message)) {
+        throw new Error('The Gemini API key is invalid. Please check VITE_GEMINI_API_KEY.');
+      }
+      if (message.includes('403')) throw new Error('The Gemini API key is not authorized for this model.');
+      throw new Error('Could not reach the AI service. Please try again.');
     }
-    if (message.includes('400') && /API key not valid/i.test(message)) {
-      throw new Error('The Gemini API key is invalid. Please check VITE_GEMINI_API_KEY.');
-    }
-    if (message.includes('403')) throw new Error('The Gemini API key is not authorized for this model.');
-    throw new Error('Could not reach the AI service. Please try again.');
+    const data = await response.json();
+    text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
   }
 
-  const data = await response.json();
-  const text: string = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
   const cleaned = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
 
   let parsed: unknown;

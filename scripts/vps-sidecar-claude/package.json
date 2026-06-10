@@ -1,0 +1,13 @@
+{
+  "name": "sidecar-claude",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Localhost HTTP sidecar that fronts the Claude CLI on the VPS. Fronted by the existing aiass reverse-proxy.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
