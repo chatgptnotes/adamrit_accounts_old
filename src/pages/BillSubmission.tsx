@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { Receipt, Pencil, Trash2, Search, User, Loader2, Download, Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -741,6 +741,7 @@ const BillSubmissionPage: React.FC = () => {
                       <TableHead>Intimation Date</TableHead>
                       <TableHead>Date of Discharge</TableHead>
                       <TableHead className="text-right">Bill Amount</TableHead>
+                      <TableHead className="text-right">Yojna / Corporate Bill</TableHead>
                       <TableHead>Submitted By</TableHead>
                       <TableHead>Submission Date</TableHead>
                       <TableHead>Expect to Receive Payment</TableHead>
@@ -754,13 +755,13 @@ const BillSubmissionPage: React.FC = () => {
                   <TableBody>
                     {isLoading ? (
                       <TableRow>
-                        <TableCell colSpan={16} className="text-center py-8">
+                        <TableCell colSpan={17} className="text-center py-8">
                           <Loader2 className="h-6 w-6 animate-spin mx-auto" />
                         </TableCell>
                       </TableRow>
                     ) : filteredSubmissions.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={16} className="text-center py-8 text-gray-500">
+                        <TableCell colSpan={17} className="text-center py-8 text-gray-500">
                           {submissions.length === 0
                             ? 'No bill submissions yet. Search for a patient above to create one.'
                             : 'No records match the selected filters.'}
@@ -782,6 +783,16 @@ const BillSubmissionPage: React.FC = () => {
                           </TableCell>
                           <TableCell>{formatDate(submission.discharge_date)}</TableCell>
                           <TableCell className="text-right">{formatAmount(submission.bill_amount)}</TableCell>
+                          <TableCell className="text-right">
+                            <Link
+                              to={submission.bill_link}
+                              className={submission.bill_total != null
+                                ? 'text-blue-600 hover:underline font-medium'
+                                : 'text-gray-400 hover:underline'}
+                            >
+                              {submission.bill_total != null ? formatAmount(submission.bill_total) : '-'}
+                            </Link>
+                          </TableCell>
                           <TableCell>{submission.executive_who_submitted || '-'}</TableCell>
                           <TableCell>{formatDate(submission.date_of_submission)}</TableCell>
                           <TableCell>{formatDate(submission.expected_payment_date)}</TableCell>

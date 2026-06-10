@@ -38,6 +38,10 @@ const getCorporateBillPrefix = (corporateName: string | null | undefined): strin
   return shortNameMap[corporateName] || corporateName.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
 };
 
+// Detect government scheme (yojna) corporates so the right bill page/total is shown
+const isYojnaCorporate = (corp?: string | null) =>
+  /yojna|yojana|pm-?jay|mjpjay|ayushman|rbsk/i.test(corp || '');
+
 // Generate bill numbers for submissions grouped by corporate-month
 const assignBillNumbers = (
   submissions: any[],
@@ -120,6 +124,8 @@ export const useBillSubmissions = (hospitalName?: string) => {
       // Fetch bill numbers for all visit_ids from bills table
       const visitIds = (data || []).map((item: any) => item.visit_id).filter(Boolean);
       let billNoMap: Record<string, string> = {};
+      const finalTotalMap: Record<string, number> = {};
+      const yojnaTotalMap: Record<string, number> = {};
       if (visitIds.length > 0) {
         const { data: billsData } = await (supabase as any)
           .from('bills')
@@ -130,21 +136,67 @@ export const useBillSubmissions = (hospitalName?: string) => {
             if (b.visit_id) billNoMap[b.visit_id] = b.formatted_bill_no || b.bill_no || '';
           }
         }
+
+        // Final (corporate) bill totals. The bills table has many duplicate/0-amount draft
+        // rows per visit, so take the latest NON-ZERO total: filter > 0, newest first, keep
+        // the first one seen per visit.
+        const { data: finalTotals } = await (supabase as any)
+          .from('bills')
+          .select('visit_id, total_amount, created_at')
+          .in('visit_id', visitIds)
+          .gt('total_amount', 0)
+          .order('created_at', { ascending: false });
+        if (finalTotals) {
+          for (const b of finalTotals) {
+            if (b.visit_id && finalTotalMap[b.visit_id] == null) {
+              finalTotalMap[b.visit_id] = b.total_amount;
+            }
+          }
+        }
+
+        // Yojna bill totals (separate yojna_bills table written by the Yojna Bill page):
+        // latest non-zero per visit, same approach.
+        const { data: yojnaData } = await (supabase as any)
+          .from('yojna_bills')
+          .select('visit_id, total_amount, updated_at')
+          .in('visit_id', visitIds)
+          .gt('total_amount', 0)
+          .order('updated_at', { ascending: false });
+        if (yojnaData) {
+          for (const y of yojnaData) {
+            if (y.visit_id && yojnaTotalMap[y.visit_id] == null) {
+              yojnaTotalMap[y.visit_id] = y.total_amount;
+            }
+          }
+        }
       }
 
       // Assign bill numbers (from bills table or auto-generated)
       const withBillNos = assignBillNumbers(data || [], billNoMap);
 
       // Map data to include patient_name, dates, and bill_no
-      return withBillNos.map((item: any) => ({
-        ...item,
-        bill_no: item._bill_no || billNoMap[item.visit_id] || '',
-        patient_name: item.visits?.patients?.name || '',
-        patient_corporate: item.visits?.patients?.corporate || '',
-        admission_date: item.visits?.admission_date || '',
-        discharge_date: item.visits?.discharge_date || '',
-        intimation_date: item.intimation_date || '',
-      }));
+      return withBillNos.map((item: any) => {
+        const corp = item.visits?.patients?.corporate || '';
+        const yt = yojnaTotalMap[item.visit_id];
+        const ft = finalTotalMap[item.visit_id];
+        const preferYojna = isYojnaCorporate(corp);
+        // Pick by corporate type, but fall back to whichever bill actually exists
+        const useYojna = preferYojna ? (yt != null || ft == null) : (ft == null && yt != null);
+        const bill_total = useYojna ? (yt ?? null) : (ft ?? null);
+        const bill_link = useYojna ? `/yojna-bill/${item.visit_id}` : `/final-bill/${item.visit_id}`;
+
+        return {
+          ...item,
+          bill_no: item._bill_no || billNoMap[item.visit_id] || '',
+          patient_name: item.visits?.patients?.name || '',
+          patient_corporate: item.visits?.patients?.corporate || '',
+          admission_date: item.visits?.admission_date || '',
+          discharge_date: item.visits?.discharge_date || '',
+          intimation_date: item.intimation_date || '',
+          bill_total,
+          bill_link,
+        };
+      });
     },
   });
 };
