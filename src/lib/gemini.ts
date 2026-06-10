@@ -15,9 +15,6 @@
 //  - GEMINI_MODEL       (flash):      vision/OCR, clinical, long-form generation
 //  - GEMINI_MODEL_LITE  (flash-lite): plain text -> JSON extraction, low-stakes
 //
-// The flash -> flash-lite fallback now lives server-side in ai-proxy.
-import { supabase } from '@/integrations/supabase/client';
-
 export const GEMINI_MODEL = 'gemini-2.5-flash';
 export const GEMINI_MODEL_LITE = 'gemini-2.5-flash-lite';
 
@@ -38,46 +35,22 @@ function modelFromUrl(url: string): string {
   return m?.[1] ?? GEMINI_MODEL;
 }
 
-// Drop-in replacement for the old fetch wrapper. Instead of calling Google
-// directly, it forwards the request body to the `ai-proxy` Edge Function and
-// wraps the result back into a `Response` so existing `res.ok` / `await
-// res.json()` callers are unaffected. Throws with the API error body on failure,
-// matching the previous behaviour.
+// Direct browser -> Google call. The API key is read from VITE_GEMINI_API_KEY
+// and appended to the request URL.
+//
+// NOTE: this ships the key in the client bundle (anyone with DevTools can read
+// it). Chosen deliberately so the chatbot and other AI features work WITHOUT
+// deploying the ai-proxy edge function. To re-hide the key later, restore the
+// ai-proxy version of this function and deploy that function.
 export async function geminiFetch(url: string, init: RequestInit): Promise<Response> {
   const model = modelFromUrl(url);
-  const payload = typeof init.body === 'string' ? JSON.parse(init.body) : init.body ?? {};
-
-  const invoke = supabase.functions.invoke('ai-proxy', {
-    body: { provider: 'gemini', model, payload },
-  });
-
-  // Honor a caller-supplied AbortSignal (e.g. drug-interactions' 30s timeout).
-  // supabase.functions.invoke can't be cancelled mid-flight, so we race it
-  // against the abort and surface the same error a fetch would throw.
-  const { data, error } = init.signal
-    ? await Promise.race([
-        invoke,
-        new Promise<never>((_, reject) => {
-          const sig = init.signal as AbortSignal;
-          if (sig.aborted) reject(new DOMException('Aborted', 'AbortError'));
-          sig.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
-        }),
-      ])
-    : await invoke;
-
-  if (error) {
-    // supabase-js surfaces non-2xx from the function as `error`; the function's
-    // JSON body (when present) carries the real provider message.
-    const detail = (error as { message?: string })?.message || String(error);
-    throw new Error(`Gemini API error (proxy): ${detail}`);
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('Gemini API key is not configured. Add VITE_GEMINI_API_KEY to .env and restart the dev server.');
   }
-
-  // The proxy returns the provider's raw JSON, which supabase-js parses into
-  // `data`. Re-serialize so callers can keep using `await res.json()`.
-  return new Response(JSON.stringify(data), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-  });
+  // fetch() natively honors init.signal, so caller AbortSignals keep working.
+  const directUrl = `${GEMINI_API_BASE}/models/${encodeURIComponent(model)}:generateContent?key=${apiKey}`;
+  return fetch(directUrl, init);
 }
 
 // Kept as an alias for any caller importing the lower-level name; the proxy now
