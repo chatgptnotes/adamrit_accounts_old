@@ -8,6 +8,7 @@ import { geminiGenerateContentUrl, geminiFetch, GEMINI_MODEL_LITE } from '@/lib/
 import { LLM_BACKEND, callVpsClaude } from '@/lib/vpsClaude';
 import { FLOW_EVENT_TYPES, type FlowEventType } from '@/lib/taskOptimizerFlows';
 import { SAFE_ACTION_TYPES, type SafeActionType, isFlowEventType, isSafeActionType } from '@/lib/flowSafety';
+import { APP_AUTOMATION_CONTEXT } from '@/lib/automationCapabilities';
 
 export interface AutomationSuggestion {
   title: string;
@@ -21,6 +22,9 @@ export interface AutomationSuggestion {
 export interface SuggestAutomationsInput {
   persona: string; // staff role / designation
   instruction: string; // the user's ask (e.g. "what can you automate for me?")
+  // The task the user has drilled into, if any. When set, suggestions are
+  // focused on automating THAT task specifically.
+  activeTask?: string;
   tasks?: string[];
   stepsByTask?: Record<string, string[]>;
 }
@@ -33,7 +37,7 @@ interface RawSuggestion {
   buildPrompt?: string;
 }
 
-function buildSuggestPrompt({ persona, instruction, tasks, stepsByTask }: SuggestAutomationsInput): string {
+function buildSuggestPrompt({ persona, instruction, activeTask, tasks, stepsByTask }: SuggestAutomationsInput): string {
   const taskList = tasks ?? [];
   const stepsMap = stepsByTask ?? {};
   const taskLines = taskList.length
@@ -44,8 +48,14 @@ function buildSuggestPrompt({ persona, instruction, tasks, stepsByTask }: Sugges
         })
         .join('\n')
     : '(no tasks yet)';
+  const focusBlock = activeTask
+    ? `\nThe user is currently focused on the task "${activeTask}". PRIORITISE automations that help with THIS task specifically (its steps are listed above). Make at least two of the suggestions about "${activeTask}".\n`
+    : '';
 
   return `You are an automation coach for a hospital app. Suggest 2-3 useful automations tailored to this staff member's role and their actual tasks. Do NOT build them — just propose ideas the user can pick from.
+
+${APP_AUTOMATION_CONTEXT}
+${focusBlock}
 
 Automations fire on real events (triggers): ${FLOW_EVENT_TYPES.join(', ')}.
 They run actions: ${SAFE_ACTION_TYPES.join(', ')}.

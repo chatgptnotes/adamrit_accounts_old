@@ -183,6 +183,11 @@ function starterPromptsFor(task: string, designation: string): { icon: typeof Wa
   }
   return [
     {
+      icon: Sparkles,
+      label: 'Suggest automations for this',
+      prompt: `Suggest ways to automate "${task}".`,
+    },
+    {
       icon: Zap,
       label: 'Fully automate this',
       prompt: `How can I fully automate "${task}"?`,
@@ -237,8 +242,8 @@ export default function SkillFactoryChatbot({
 
   const isEditing = currentFlow.nodes.length > 0;
   const greeting = task.trim()
-    ? `Let's automate "${task}". Type a goal, tap a suggestion, or hit Execute.`
-    : `Pick a task on the left or describe what you want to automate. I'll build the workflow and apply it to the canvas.`;
+    ? `Let's automate "${task}". I can suggest ideas for this task, build or edit the automation on the canvas, or save a brand-new one. Ask "suggest automations for this", or just describe what you want.`
+    : `Pick a task on the left, or ask me to suggest automations. I can build a new automation, edit the one on the canvas, or open your saved ones.`;
 
   // Auto-scroll to latest message
   useEffect(() => {
@@ -290,6 +295,7 @@ export default function SkillFactoryChatbot({
         const suggestions = await suggestAutomations({
           persona: designation || 'staff member',
           instruction: text,
+          activeTask: task,
           tasks: allTasks,
           stepsByTask,
         });
