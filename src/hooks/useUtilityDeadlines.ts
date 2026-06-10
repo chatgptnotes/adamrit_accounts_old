@@ -64,6 +64,107 @@ export function addOneMonth(due: string): string {
   void date; // keep variable for readability
 }
 
+// ── Slack notification (dev-only relay) ─────────────────────────────
+// Builds the "Payment Status" digest and POSTs it to same-origin /slack-proxy,
+// which the Vite dev server forwards to SLACK_WEBHOOK_URL (see vite.config.ts).
+// Window = due_date within ±3 days of today; paid = updated within last 3 days.
+// Empty sections are omitted; returns null (nothing sent) if all three are empty.
+const SLACK_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const slackDate = (d: string): string => {
+  const [y, m, day] = d.split('-').map(Number);
+  if (!y || !m || !day) return d;
+  return `${String(day).padStart(2, '0')} ${SLACK_MONTHS[m - 1]} ${y}`;
+};
+const slackInr = (n: number): string =>
+  '₹' + new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n || 0);
+const slackNow = (): string => {
+  const d = new Date();
+  const h = d.getHours();
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ampm = h >= 12 ? 'pm' : 'am';
+  const h12 = ((h + 11) % 12) + 1;
+  return `${slackDate(d.toISOString().slice(0, 10))}, ${h12}:${mm} ${ampm}`;
+};
+const slackDaysUntil = (due: string): number => {
+  const [y, m, d] = due.split('-').map(Number);
+  const t = new Date();
+  return Math.round(
+    (Date.UTC(y, (m ?? 1) - 1, d ?? 1) - Date.UTC(t.getFullYear(), t.getMonth(), t.getDate())) / 86_400_000,
+  );
+};
+
+export function buildUtilitySlackSummary(
+  deadlines: UtilityDeadline[],
+  hospitalType: string | null,
+): string | null {
+  const overdue: UtilityDeadline[] = [];
+  const due: UtilityDeadline[] = [];
+  const paid: UtilityDeadline[] = [];
+  const now = Date.now();
+  for (const d of deadlines) {
+    if (d.status === 'paid') {
+      const upd = new Date(d.updated_at).getTime();
+      if (Number.isFinite(upd) && now - upd <= 3 * 86_400_000) paid.push(d);
+      continue;
+    }
+    const n = slackDaysUntil(d.due_date);
+    if (n < 0 && n >= -3) overdue.push(d);
+    else if (n >= 0 && n <= 3) due.push(d);
+  }
+  if (!overdue.length && !due.length && !paid.length) return null;
+
+  const sum = (arr: UtilityDeadline[]) => arr.reduce((s, d) => s + Number(d.amount || 0), 0);
+  const lines: string[] = [
+    `*Payment Status — ${hospitalType || 'hope'}*`,
+    `Updated: ${slackNow()}`,
+    '──────────────────────────────',
+    '',
+  ];
+  if (overdue.length) {
+    lines.push(`*Overdue (${overdue.length}) — ${slackInr(sum(overdue))}*`);
+    for (const d of overdue) lines.push(`• ${d.name} — ${slackInr(Number(d.amount || 0))} — due ${slackDate(d.due_date)}`);
+    lines.push('');
+  }
+  if (due.length) {
+    lines.push(`*Due (${due.length}) — ${slackInr(sum(due))}*`);
+    for (const d of due) lines.push(`• ${d.name} — ${slackInr(Number(d.amount || 0))} — due ${slackDate(d.due_date)}`);
+    lines.push('');
+  }
+  if (paid.length) {
+    lines.push(`*Paid (${paid.length}) — ${slackInr(sum(paid))}*`);
+    for (const d of paid) lines.push(`• ${d.name} — ${slackInr(Number(d.amount || 0))}`);
+  }
+  while (lines[lines.length - 1] === '') lines.pop();
+  lines.push('──────────────────────────────', `*Total Outstanding: ${slackInr(sum(overdue) + sum(due))}*`);
+  return lines.join('\n');
+}
+
+// Instant Slack alert when a bill is scanned in (focused, always fires — unlike
+// the windowed digest, a freshly-scanned bill may not be in the ±3-day window).
+export async function notifyBillScannedSlack(bill: UtilityDeadline): Promise<void> {
+  const msg = [
+    `*New bill scanned — ${bill.hospital_type || 'hope'}*`,
+    `• ${bill.name} — ${slackInr(Number(bill.amount || 0))} — due ${slackDate(bill.due_date)}`,
+    bill.notes ? `_${bill.notes}_` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+  await notifyUtilitySlack(msg);
+}
+
+export async function notifyUtilitySlack(message: string): Promise<void> {
+  try {
+    await fetch('/slack-proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: message }),
+    });
+  } catch (e) {
+    // Dev-only path — never block the UI if the relay isn't running.
+    console.warn('[useUtilityDeadlines] Slack notify failed (is the dev server running?)', e);
+  }
+}
+
 export function useUtilityDeadlines() {
   const { hospitalType } = useAuth();
   const qc = useQueryClient();
@@ -214,6 +315,16 @@ export function useUtilityDeadlines() {
         entityId: bill.id,
         meta: { name: bill.name, amount: bill.amount, due_date: bill.due_date },
       });
+      // Post the current payment-status digest to Slack (dev-only relay). Use the
+      // cached list with the just-paid bill flipped to paid so it shows under
+      // "Paid" immediately, before the invalidated query refetches.
+      const cached = (qc.getQueryData(qk(hospitalType)) as UtilityDeadline[] | undefined) ?? [];
+      const nowIso = new Date().toISOString();
+      const snapshot = cached.map((d) =>
+        d.id === bill.id ? { ...d, status: 'paid' as const, updated_at: nowIso } : d,
+      );
+      const summary = buildUtilitySlackSummary(snapshot, hospitalType);
+      if (summary) void notifyUtilitySlack(summary);
     },
     onError: (e: unknown) => {
       console.warn('[useUtilityDeadlines] markPaid failed', e);

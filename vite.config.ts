@@ -1,17 +1,67 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import basicSsl from "@vitejs/plugin-basic-ssl";
 import path from "path";
 
+// Dev-only Slack relay. The browser can't POST to a Slack webhook directly
+// (no CORS), so the page POSTs { text } to same-origin /slack-proxy and this
+// middleware forwards it server-side to SLACK_WEBHOOK_URL (kept in .env.local,
+// gitignored). The Slack Workflow webhook variable key is literally "t-e-x-t"
+// (with dashes), so the forwarded body MUST use that key. PRODUCTION NOTE: this
+// only exists under `npm run dev` — it is not part of a production build.
+function slackProxyPlugin(env: Record<string, string>): Plugin {
+  return {
+    name: "slack-proxy-dev",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use("/slack-proxy", (req, res) => {
+        if (req.method !== "POST") {
+          res.statusCode = 405;
+          res.end("Method Not Allowed");
+          return;
+        }
+        const webhook = env.SLACK_WEBHOOK_URL || process.env.SLACK_WEBHOOK_URL;
+        const send = (status: number, body: unknown) => {
+          res.statusCode = status;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify(body));
+        };
+        if (!webhook) {
+          send(500, { error: "SLACK_WEBHOOK_URL not set in .env.local" });
+          return;
+        }
+        let raw = "";
+        req.on("data", (c) => (raw += c));
+        req.on("end", async () => {
+          try {
+            const { text } = JSON.parse(raw || "{}");
+            const r = await fetch(webhook, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ "t-e-x-t": text ?? "" }),
+            });
+            send(r.ok ? 200 : 502, { ok: r.ok, status: r.status });
+          } catch (e) {
+            send(500, { error: e instanceof Error ? e.message : String(e) });
+          }
+        });
+      });
+    },
+  };
+}
+
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ mode }) => {
+  // Load non-VITE_ env (e.g. SLACK_WEBHOOK_URL) for server-side dev use only.
+  const env = loadEnv(mode, process.cwd(), "");
+  return {
   server: {
     host: "::",
     port: 8080,
   },
   plugins: [
-    ...(mode === 'development' ? [basicSsl()] : []),
+    ...(mode === 'development' ? [basicSsl(), slackProxyPlugin(env)] : []),
     react(),
     // Service worker for installability + instant app-shell launch. We keep the
     // hand-written public/manifest.webmanifest (manifest: false) and only let the
@@ -77,4 +127,5 @@ export default defineConfig(({ mode }) => ({
       }
     }
   }
-}));
+  };
+});

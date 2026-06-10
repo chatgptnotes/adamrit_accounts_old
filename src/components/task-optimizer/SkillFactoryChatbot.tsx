@@ -18,7 +18,12 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { generateFlowFromPrompt, type GeneratedFlow } from '@/lib/generateFlowFromPrompt';
+import {
+  generateFlowFromPrompt,
+  type GeneratedFlow,
+  type TaskChange,
+  type StepChange,
+} from '@/lib/generateFlowFromPrompt';
 import { FlowSafetyError } from '@/lib/flowSafety';
 import { fetchFireCountThisWeek, getCachedFireCount } from '@/lib/automationFireStats';
 import type { StoredNode, StoredEdge } from '@/lib/taskOptimizerFlows';
@@ -28,13 +33,36 @@ export interface SkillFactoryChatbotProps {
   task: string;
   subtasks: string[];
   designation: string;
+  // The full task list + each task's steps for the active staff member. Passed
+  // to the AI as context so it can add / remove tasks and steps, not just the
+  // canvas.
+  allTasks: string[];
+  stepsByTask: Record<string, string[]>;
   currentFlow: { nodes: StoredNode[]; edges: StoredEdge[] };
-  // opts.dryRun: when true, the parent should apply to the canvas but skip the
-  // auto-save (Rule 15). Parent decides what "skip" means — typically no DB write.
-  onApplyFlow: (nodes: StoredNode[], edges: StoredEdge[], opts?: { dryRun?: boolean }) => void;
+  // Hands the whole AI result to the parent, which applies task changes, step
+  // changes, and the canvas workflow together. opts.dryRun: when true, apply to
+  // the canvas but skip the auto-save (Rule 15) — parent decides what "skip"
+  // means, typically no DB write.
+  onApply: (flow: GeneratedFlow, opts?: { dryRun?: boolean }) => void;
   // When false, the user-input textarea + Send button at the bottom are hidden.
   // The chatbot then only drives off the Execute button in the header.
   showComposer?: boolean;
+}
+
+// One-line, human summary of the task/step edits an AI reply applied — appended
+// to the assistant bubble so the user sees what changed on the left, not just
+// the canvas.
+function summarizeChanges(taskChanges: TaskChange[], stepChanges: StepChange[]): string {
+  const parts: string[] = [];
+  const addedTasks = taskChanges.filter((c) => c.action === 'add').map((c) => c.task);
+  const removedTasks = taskChanges.filter((c) => c.action === 'remove').map((c) => c.task);
+  const addedSteps = stepChanges.filter((c) => c.action === 'add').length;
+  const removedSteps = stepChanges.filter((c) => c.action === 'remove').length;
+  if (addedTasks.length) parts.push(`Added task ${addedTasks.map((t) => `"${t}"`).join(', ')}`);
+  if (removedTasks.length) parts.push(`Removed task ${removedTasks.map((t) => `"${t}"`).join(', ')}`);
+  if (addedSteps) parts.push(`added ${addedSteps} step${addedSteps > 1 ? 's' : ''}`);
+  if (removedSteps) parts.push(`removed ${removedSteps} step${removedSteps > 1 ? 's' : ''}`);
+  return parts.length ? `${parts.join(' · ')}.` : '';
 }
 
 interface ChatMessage {
@@ -137,8 +165,10 @@ export default function SkillFactoryChatbot({
   task,
   subtasks,
   designation,
+  allTasks,
+  stepsByTask,
   currentFlow,
-  onApplyFlow,
+  onApply,
   showComposer = true,
 }: SkillFactoryChatbotProps) {
   const [instruction, setInstruction] = useState('');
@@ -170,14 +200,20 @@ export default function SkillFactoryChatbot({
         persona: designation || 'staff member',
         instruction: text,
         current: isEditing ? currentFlow : undefined,
+        activeTask: task,
+        tasks: allTasks,
+        stepsByTask,
       });
-      onApplyFlow(flow.nodes, flow.edges, { dryRun });
+      onApply(flow, { dryRun });
       const baseText = flow.explanation || (isEditing ? 'Updated the workflow on the canvas.' : 'Built a workflow on the canvas.');
+      const changeNote = summarizeChanges(flow.taskChanges, flow.stepChanges);
       setMessages(prev => [
         ...prev,
         {
           role: 'assistant',
-          text: dryRun ? `${baseText} (Dry run — nothing saved.)` : baseText,
+          text: [baseText, changeNote, dryRun ? '(Dry run — nothing saved.)' : '']
+            .filter(Boolean)
+            .join(' '),
           questions: flow.questions ?? [],
           appliedNodes: flow.nodes.length,
           // Only saved flows get a fire-count lookup — dry runs aren't in the DB.

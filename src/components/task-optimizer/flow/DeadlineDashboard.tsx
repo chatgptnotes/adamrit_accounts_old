@@ -1,7 +1,7 @@
 // Open Dashboard — utility-bill deadline tracker.
 // Self-contained: reads/writes only `utility_deadlines`. See
 // OPEN_DASHBOARD_DOCUMENTATION.md (sections 4–8) for the full spec.
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlarmClock,
   ArrowLeft,
@@ -26,16 +26,22 @@ import {
   Building2,
   Home,
   FileText,
+  ScanLine,
+  Camera,
+  SwitchCamera,
+  Upload,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import {
   useUtilityDeadlines,
+  notifyBillScannedSlack,
   type UtilityBillType,
   type UtilityDeadline,
 } from '@/hooks/useUtilityDeadlines';
 import { useAuth } from '@/contexts/AuthContext';
 import { dispatchFlowEvent } from '@/lib/flowDispatcher';
+import { extractUtilityBill } from '@/lib/extractUtilityBill';
 import DeadlineNotificationBell from './DeadlineNotificationBell';
 
 // ── Bill types catalogue (§3) ───────────────────────────────────────
@@ -201,6 +207,15 @@ export default function DeadlineDashboard({ onBack }: Props) {
   const formCardRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // ── Scan-a-bill (OCR) + in-app webcam state ──────────────────────
+  const [scanning, setScanning] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
+  const scanInputRef = useRef<HTMLInputElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
   // Re-derive status at local midnight rollover so "Due today" → "1 day overdue"
   // updates without a refresh.
   useEffect(() => {
@@ -316,26 +331,167 @@ export default function DeadlineDashboard({ onBack }: Props) {
     }
   };
 
-  const onUpload = async (file: File) => {
-    setUploading(true);
+  // Upload a file to the `uploads` bucket and return its public URL (or null on
+  // failure). Shared by the manual "Attach file" path and the scan path.
+  const uploadAttachment = async (file: Blob, fileName: string): Promise<string | null> => {
     try {
-      const path = `utility-deadlines/${Date.now()}-${file.name.replace(/[^a-z0-9.\-_]/gi, '_')}`;
+      const safeName = fileName.replace(/[^a-z0-9.\-_]/gi, '_');
+      const path = `utility-deadlines/${Date.now()}-${safeName}`;
       const { error: upErr } = await supabase.storage.from('uploads').upload(path, file, {
         upsert: false,
         cacheControl: '3600',
       });
       if (upErr) throw upErr;
       const { data: pub } = supabase.storage.from('uploads').getPublicUrl(path);
-      setForm((f) => ({ ...f, attachment_url: pub.publicUrl }));
-      toast.success('Receipt attached');
+      return pub.publicUrl;
     } catch (e: unknown) {
       console.warn('[DeadlineDashboard] upload failed', e);
-      toast.error('Could not upload the receipt.');
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      return null;
     }
   };
+
+  const onUpload = async (file: File) => {
+    setUploading(true);
+    const url = await uploadAttachment(file, file.name);
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (url) {
+      setForm((f) => ({ ...f, attachment_url: url }));
+      toast.success('Receipt attached');
+    } else {
+      toast.error('Could not upload the receipt.');
+    }
+  };
+
+  // ── Scan a bill → auto-fill → auto-save → notify ─────────────────
+  // One pass: read the bill with Gemini Vision, upload the source file, then
+  // create the deadline (which fires `bill_added` → notification). On failure,
+  // fall back to filling whatever was read so the entry isn't lost.
+  const handleScan = useCallback(
+    async (file: Blob, fileName: string) => {
+      setScanning(true);
+      try {
+        const extracted = await extractUtilityBill(file, fileName);
+        const url = await uploadAttachment(file, fileName);
+        const notes = extracted.consumer_number
+          ? `Consumer No: ${extracted.consumer_number}`
+          : extracted.biller || null;
+
+        // Mirror into the form so the read values are visible during the save.
+        setForm({
+          id: null,
+          name: extracted.name,
+          bill_type: extracted.bill_type,
+          amount: String(extracted.amount),
+          due_date: extracted.due_date,
+          notes: notes ?? '',
+          attachment_url: url,
+          recurring: true,
+        });
+
+        const inserted = await createDeadline({
+          name: extracted.name,
+          bill_type: extracted.bill_type,
+          amount: extracted.amount,
+          due_date: extracted.due_date,
+          recurring: true,
+          notes,
+          attachment_url: url,
+        });
+        // Instant Slack alert for the scanned bill (dev-only relay; no-op in prod).
+        if (inserted) void notifyBillScannedSlack(inserted);
+
+        setForm(emptyForm());
+        toast.success(
+          `Scanned & added: ${extracted.name} · ${inr(extracted.amount)} · due ${prettyDate(extracted.due_date)}`,
+        );
+      } catch (e: unknown) {
+        console.warn('[DeadlineDashboard] scan failed', e);
+        const msg = e instanceof Error ? e.message : 'Could not scan the bill.';
+        toast.error(`${msg} You can fill in the details manually below.`);
+        formCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } finally {
+        setScanning(false);
+        if (scanInputRef.current) scanInputRef.current.value = '';
+      }
+    },
+    [createDeadline],
+  );
+
+  // ── In-app webcam (mirrors CameraUpload.tsx) ─────────────────────
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setCameraActive(false);
+  }, []);
+
+  const startCamera = useCallback(async () => {
+    try {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+      });
+      streamRef.current = stream;
+      setCameraActive(true);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.onloadedmetadata = () => videoRef.current?.play().catch(() => {});
+      }
+    } catch (e) {
+      console.warn('[DeadlineDashboard] camera error', e);
+      toast.error('Unable to access the camera. Please check permissions.');
+      setCameraActive(false);
+    }
+  }, [facingMode]);
+
+  const switchCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    setFacingMode((p) => (p === 'environment' ? 'user' : 'environment'));
+  }, []);
+
+  // Restart the stream when the facing mode flips while the camera is open.
+  useEffect(() => {
+    if (cameraActive) void startCamera();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [facingMode]);
+
+  // Stop the camera on unmount so the device light doesn't stay on.
+  useEffect(() => () => stopCamera(), [stopCamera]);
+
+  const capturePhoto = useCallback(() => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || !video.videoWidth || !video.videoHeight) {
+      toast.error('Camera is still loading — try again in a moment.');
+      return;
+    }
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          toast.error('Could not capture the photo. Please try again.');
+          return;
+        }
+        stopCamera();
+        void handleScan(blob, `bill_capture_${Date.now()}.jpg`);
+      },
+      'image/jpeg',
+      0.9,
+    );
+  }, [stopCamera, handleScan]);
 
   const confirmDelete = async (d: UtilityDeadline) => {
     if (!window.confirm(`Delete this bill? "${d.name}" — this can't be undone.`)) return;
@@ -433,6 +589,98 @@ export default function DeadlineDashboard({ onBack }: Props) {
               {isEditing ? 'Edit bill' : 'Add a new bill'}
             </h2>
           </div>
+
+          {/* ── Scan a bill (auto OCR → fill → save → notify) ── */}
+          {!isEditing && (
+            <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50/60 p-3">
+              {cameraActive ? (
+                <div className="space-y-2">
+                  <div className="relative rounded-lg overflow-hidden bg-black">
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full max-h-64 object-contain"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={capturePhoto}
+                      disabled={scanning}
+                      className="inline-flex items-center gap-1.5 text-sm px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      <Camera className="w-4 h-4" /> Capture & scan
+                    </button>
+                    <button
+                      type="button"
+                      onClick={switchCamera}
+                      className="inline-flex items-center gap-1.5 text-sm px-3 py-2 rounded-md border border-slate-200 bg-white hover:bg-slate-50"
+                    >
+                      <SwitchCamera className="w-4 h-4" /> Switch
+                    </button>
+                    <button
+                      type="button"
+                      onClick={stopCamera}
+                      className="inline-flex items-center gap-1.5 text-sm px-3 py-2 rounded-md border border-slate-200 bg-white hover:bg-slate-50"
+                    >
+                      <X className="w-4 h-4" /> Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="w-9 h-9 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                    {scanning ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <ScanLine className="w-4 h-4" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-slate-900">
+                      {scanning ? 'Scanning bill…' : 'Scan a bill'}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {scanning
+                        ? 'Reading the amount and due date — this adds the bill automatically.'
+                        : 'Upload or snap a bill — we read the amount & due date and add it for you.'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={scanning}
+                      onClick={() => scanInputRef.current?.click()}
+                      className="inline-flex items-center gap-1.5 text-sm px-3 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      <Upload className="w-4 h-4" /> Upload & scan
+                    </button>
+                    <button
+                      type="button"
+                      disabled={scanning}
+                      onClick={() => void startCamera()}
+                      className="inline-flex items-center gap-1.5 text-sm px-3 py-2 rounded-md border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      <Camera className="w-4 h-4" /> Use camera
+                    </button>
+                  </div>
+                </div>
+              )}
+              <input
+                ref={scanInputRef}
+                type="file"
+                accept="image/*,application/pdf"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void handleScan(f, f.name);
+                }}
+              />
+              <canvas ref={canvasRef} className="hidden" />
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <Field label="Bill name" required>

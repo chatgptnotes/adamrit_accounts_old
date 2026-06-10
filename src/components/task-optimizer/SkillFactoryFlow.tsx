@@ -1,4 +1,4 @@
-import { useCallback, useRef, type DragEvent, type ReactNode } from 'react';
+import { useCallback, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -19,7 +19,7 @@ import {
   type DefaultEdgeOptions,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Zap, Filter, Play } from 'lucide-react';
+import { Zap, Filter, Play, Trash2 } from 'lucide-react';
 import { flowNodeTypes } from './flow/nodeTypes';
 import type {
   FlowNodeKind,
@@ -81,9 +81,49 @@ function CanvasInner({ nodes, edges, onChange, readOnly, topRightPanel }: SkillF
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
       const next = applyNodeChanges(changes, rfNodes);
-      onChange(next as unknown as StoredNode[], edges);
+      // When a node is removed (Delete/Backspace key), drop edges touching it in
+      // the same update so no dangling edges are left behind.
+      const removed = new Set(
+        changes.filter((c): c is NodeChange & { type: 'remove'; id: string } => c.type === 'remove').map((c) => c.id),
+      );
+      const nextEdges = removed.size ? edges.filter((e) => !removed.has(e.source) && !removed.has(e.target)) : edges;
+      onChange(next as unknown as StoredNode[], nextEdges);
     },
     [rfNodes, edges, onChange],
+  );
+
+  // Selected node ids — tracked via onSelectionChange so the controlled-nodes
+  // round-trip can't lose the selection. Drives the Delete button.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  const deleteSelected = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    const gone = new Set(selectedIds);
+    onChange(
+      nodes.filter((n) => !gone.has(n.id)),
+      edges.filter((e) => !gone.has(e.source) && !gone.has(e.target)),
+    );
+    setSelectedIds([]);
+  }, [selectedIds, nodes, edges, onChange]);
+
+  // Click-to-add: drop a fresh node at the canvas centre (a small cascade offset
+  // keeps repeated adds from stacking exactly on top of each other).
+  const addNode = useCallback(
+    (kind: FlowNodeKind) => {
+      const rect = wrapperRef.current?.getBoundingClientRect();
+      const center = rect
+        ? screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
+        : { x: 120, y: 120 };
+      const cascade = (nodes.length % 6) * 26;
+      const node: Node = {
+        id: nextId(kind),
+        type: kind,
+        position: { x: center.x + cascade, y: center.y + cascade },
+        data: defaultData(kind) as unknown as Record<string, unknown>,
+      };
+      onChange([...nodes, node as unknown as StoredNode], edges);
+    },
+    [screenToFlowPosition, nodes, edges, onChange],
   );
 
   const onEdgesChange = useCallback(
@@ -131,20 +171,35 @@ function CanvasInner({ nodes, edges, onChange, readOnly, topRightPanel }: SkillF
 
   return (
     <div className="flex h-full flex-col gap-2">
-      {/* Mini palette — drag onto canvas (hidden in read-only mode) */}
+      {/* Mini palette — click to add or drag onto canvas (hidden in read-only
+          mode). The Delete button appears once a node is selected. */}
       {!readOnly && (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {PALETTE.map(({ kind, label, Icon, color }) => (
-            <div
+            <button
               key={kind}
+              type="button"
               draggable
               onDragStart={e => onDragStart(e, kind)}
-              className="flex cursor-grab items-center gap-1.5 rounded-md border bg-card px-2 py-1 text-xs shadow-sm active:cursor-grabbing"
+              onClick={() => addNode(kind)}
+              title={`Click to add a ${label} node, or drag onto the canvas`}
+              className="flex cursor-grab items-center gap-1.5 rounded-md border bg-card px-2 py-1 text-xs shadow-sm hover:bg-accent active:cursor-grabbing"
             >
               <Icon className={`h-3.5 w-3.5 ${color}`} />
               {label}
-            </div>
+            </button>
           ))}
+          {selectedIds.length > 0 && (
+            <button
+              type="button"
+              onClick={deleteSelected}
+              title="Delete the selected node (or press Delete / Backspace)"
+              className="ml-auto flex items-center gap-1.5 rounded-md border border-red-200 bg-white px-2 py-1 text-xs text-red-600 shadow-sm hover:bg-red-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete {selectedIds.length > 1 ? `(${selectedIds.length})` : 'node'}
+            </button>
+          )}
         </div>
       )}
 
@@ -163,6 +218,8 @@ function CanvasInner({ nodes, edges, onChange, readOnly, topRightPanel }: SkillF
           onNodesChange={onNodesChange}
           onEdgesChange={readOnly ? undefined : onEdgesChange}
           onConnect={readOnly ? undefined : onConnect}
+          onSelectionChange={({ nodes: sel }) => setSelectedIds(readOnly ? [] : sel.map((n) => n.id))}
+          deleteKeyCode={readOnly ? null : ['Delete', 'Backspace']}
           nodeTypes={flowNodeTypes}
           defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
           fitView

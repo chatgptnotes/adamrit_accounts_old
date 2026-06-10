@@ -20,8 +20,9 @@ import {
   CornerDownRight,
   ListTodo,
   AlertTriangle,
-  ExternalLink,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import {
   DndContext,
@@ -64,19 +65,24 @@ import {
   type TaskFlow,
   type ActionConfig,
   type TriggerConfig,
+  type ConditionConfig,
+  type FlowNodeConfig,
   type FlowNodeKind,
 } from '@/lib/taskOptimizerFlows';
 import type { TaskSuggestion } from '@/lib/optimizeTasks';
+import type { GeneratedFlow, TaskChange, StepChange } from '@/lib/generateFlowFromPrompt';
 import { COMMON_TASKS } from '@/components/task-optimizer/commonTasks';
 
 import SkillFactoryFlow from '@/components/task-optimizer/SkillFactoryFlow';
 import SkillFactoryChatbot from '@/components/task-optimizer/SkillFactoryChatbot';
 import SkillInsightChip from '@/components/task-optimizer/SkillInsightChip';
+import BillScanMenu from '@/components/task-optimizer/flow/BillScanMenu';
 import {
   ResizablePanelGroup,
   ResizablePanel,
   ResizableHandle,
 } from '@/components/ui/resizable';
+import type { ImperativePanelHandle } from 'react-resizable-panels';
 
 // ── Local types ─────────────────────────────────────────────────────
 interface TaskOptimizerLog {
@@ -387,45 +393,45 @@ function isDeadlineTrackingTask(task: string): boolean {
 }
 
 // Concrete, step-by-step picture of the Deadline Tracking automation that's
-// already wired in /deadline-tracking. Shows the user: open dashboard → fill
-// bill (name + due date + amount) → due-date check → notify → mark paid → next
-// month auto-created. Used as the canvas starter whenever the active task is
+// already wired in /deadline-tracking. Reflects the no-API scan flow: scan a
+// bill (camera/upload) → OCR reads amount + due date → save → due-date check →
+// notify → mark paid. Used as the canvas starter whenever the active task is
 // "Deadline Tracking" and no custom flow has been saved yet.
 function buildDeadlineTrackingFlow(): { nodes: StoredNode[]; edges: StoredEdge[] } {
   const steps: Array<{
     label: string;
     kind: FlowNodeKind;
-    message?: string;
+    config: FlowNodeConfig;
   }> = [
     {
-      label: 'Step 1 · Open Deadline Tracking',
+      label: 'Trigger · Scan a bill (camera / upload)',
       kind: 'trigger',
-      message: 'User clicks Deadline Tracking and opens the dashboard',
+      config: { event: 'bill_added', billType: 'any' } as TriggerConfig,
     },
     {
-      label: 'Step 2 · Add bill — name, due date, amount',
+      label: 'Read amount & due date — offline OCR (no API)',
       kind: 'action',
-      message: 'Enter utility/bill name, due date, and price in the form',
+      config: { type: 'notify', message: 'Tesseract / PDF text layer reads amount + due date in the browser' } as ActionConfig,
     },
     {
-      label: 'Step 3 · Save bill to database',
+      label: 'Save to deadline tracker',
       kind: 'action',
-      message: 'Row inserted into utility_deadlines (hospital-scoped)',
+      config: { type: 'notify', message: 'Row inserted into utility_deadlines (hospital-scoped)' } as ActionConfig,
     },
     {
-      label: 'Step 4 · Check due date daily',
-      kind: 'action',
-      message: 'Compare due date with today — overdue, due-soon (≤3 days), or upcoming',
+      label: 'Condition · If due soon (≤ 7 days) or overdue',
+      kind: 'condition',
+      config: { field: 'time_saved_mins', op: 'gte', value: '0' } as ConditionConfig,
     },
     {
-      label: 'Step 5 · Notify when due / overdue',
+      label: 'Action · Notify — bell badge + daily reminder',
       kind: 'action',
-      message: 'Bell badge + 30-sec pulsing reminder + once-a-day pop-up',
+      config: { type: 'notify', message: 'Bell badge + 30-sec pulsing reminder + once-a-day pop-up' } as ActionConfig,
     },
     {
-      label: 'Step 6 · Mark paid → auto-create next month',
+      label: 'Mark paid → auto-create next month',
       kind: 'action',
-      message: 'Recurring bills clone forward one month (Jan 31 → Feb 28/29 safe)',
+      config: { type: 'notify', message: 'Recurring bills clone forward one month (Jan 31 → Feb 28/29 safe)' } as ActionConfig,
     },
   ];
 
@@ -445,16 +451,13 @@ function buildDeadlineTrackingFlow(): { nodes: StoredNode[]; edges: StoredEdge[]
   };
 
   const nodes: StoredNode[] = steps.map((s, i) => ({
-    id: i === 0 ? 'trigger-1' : `action-${i}`,
+    id: `${s.kind}-${i + 1}`,
     type: s.kind,
     position: pos(i),
     data: {
       kind: s.kind,
       label: s.label,
-      config:
-        s.kind === 'trigger'
-          ? ({ event: 'status_changed', toStatus: 'in_progress' } as TriggerConfig)
-          : ({ type: 'notify', message: s.message ?? '' } as ActionConfig),
+      config: s.config,
     },
   }));
 
@@ -641,6 +644,48 @@ function JustSavedPill({ flowName, onDisable }: { flowName: string; onDisable: (
   );
 }
 
+// Thin vertical rail shown in place of a collapsed column — a single expand
+// button plus the column's name rotated 90°. Used by all four resizable columns.
+function CollapsedRail({
+  label,
+  side,
+  onExpand,
+}: {
+  label: string;
+  side: 'left' | 'right';
+  onExpand: () => void;
+}) {
+  const Chevron = side === 'right' ? ChevronLeft : ChevronRight;
+  return (
+    <div className="h-full flex flex-col items-center gap-3 py-3 bg-white border-x border-gray-200">
+      <button
+        onClick={onExpand}
+        title={`Expand ${label}`}
+        className="p-1 rounded-md text-gray-500 hover:bg-gray-100"
+      >
+        <Chevron className="w-4 h-4" />
+      </button>
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 select-none [writing-mode:vertical-rl] rotate-180">
+        {label}
+      </div>
+    </div>
+  );
+}
+
+// Small collapse button placed in a column header.
+function CollapseButton({ label, side, onClick }: { label: string; side: 'left' | 'right'; onClick: () => void }) {
+  const Chevron = side === 'right' ? ChevronRight : ChevronLeft;
+  return (
+    <button
+      onClick={onClick}
+      title={`Collapse ${label}`}
+      className="p-1 rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 shrink-0"
+    >
+      <Chevron className="w-3.5 h-3.5" />
+    </button>
+  );
+}
+
 export default function SkillFactoryV2() {
   const { user, hospitalType } = useAuth();
   const userEmail = user?.email ?? '';
@@ -648,6 +693,23 @@ export default function SkillFactoryV2() {
 
   const [search, setSearch] = useState('');
   const [staffCollapsed, setStaffCollapsed] = useState<boolean>(() => readCollapsed());
+
+  // Per-column collapse (Tasks / Steps / Workflow / Chatbot). Each column can be
+  // collapsed to a thin rail via the library's imperative collapse()/expand();
+  // `colCollapsed` mirrors that state (driven by onCollapse/onExpand) so we know
+  // when to render the rail instead of the full column.
+  const tasksPanelRef = useRef<ImperativePanelHandle>(null);
+  const stepsPanelRef = useRef<ImperativePanelHandle>(null);
+  const workflowPanelRef = useRef<ImperativePanelHandle>(null);
+  const aiPanelRef = useRef<ImperativePanelHandle>(null);
+  const [colCollapsed, setColCollapsed] = useState({
+    tasks: false,
+    steps: false,
+    workflow: false,
+    ai: false,
+  });
+  const setCol = (k: 'tasks' | 'steps' | 'workflow' | 'ai', v: boolean) =>
+    setColCollapsed((s) => (s[k] === v ? s : { ...s, [k]: v }));
 
   // Inline-input state — replaces the native window.prompt() popups so every
   // "Add" opens a text field inside its own column instead of a browser dialog.
@@ -671,6 +733,12 @@ export default function SkillFactoryV2() {
 
   const [activeStaffKey, setActiveStaffKey] = useState<string>('');
   const [activeTask, setActiveTask] = useState<string>('');
+
+  // The Steps panel unmounts/remounts as the active task changes; reset its
+  // collapse flag so it always returns expanded (the library panel remounts open).
+  useEffect(() => {
+    setCol('steps', false);
+  }, [activeTask]);
 
   const [staffOrder, setStaffOrder] = useState<string[]>([]);
 
@@ -925,10 +993,28 @@ export default function SkillFactoryV2() {
       // the real, end-to-end automation we built (overrides any old stub flow
       // saved before this view existed); other tasks prefer their saved flow.
       const subs = subtasksMap[activeTask] ?? [];
-      let base: { nodes: StoredNode[]; edges: StoredEdge[] };
       if (isDeadlineTrackingTask(activeTask)) {
-        base = buildDeadlineTrackingFlow();
-      } else if (savedFlow) {
+        // The Deadline Tracking flow is a fixed, self-contained demo — its nodes
+        // ARE the steps. We do NOT run syncSubtaskSteps here: doing so would
+        // re-materialise each action node as a step-N node, which onChange then
+        // re-derives, so the subtask list would grow on every render. Instead we
+        // seed the Steps panel once from the flow's own actions.
+        const base = buildDeadlineTrackingFlow();
+        setCurrentNodes(base.nodes);
+        setCurrentEdges(base.edges);
+        const flowSteps = deriveSubtasksFromCanvas(base.nodes);
+        const cur = subtasksMap[activeTask] ?? [];
+        const same = flowSteps.length === cur.length && flowSteps.every((s, i) => s === cur[i]);
+        if (!same) {
+          const nextMap = { ...subtasksMap, [activeTask]: flowSteps };
+          setSubtasksMap(nextMap);
+          if (activeLog) writeSubtasks(activeLog.id, nextMap);
+        }
+        setFlowDirty(false);
+        return;
+      }
+      let base: { nodes: StoredNode[]; edges: StoredEdge[] };
+      if (savedFlow) {
         base = { nodes: savedFlow.nodes, edges: savedFlow.edges };
       } else {
         // Pass [] here — syncSubtaskSteps below is the single source of truth
@@ -1215,13 +1301,13 @@ export default function SkillFactoryV2() {
   const persistFlow = async (
     nodes: StoredNode[],
     edges: StoredEdge[],
-    opts: { silent?: boolean } = {},
+    opts: { silent?: boolean; nameOverride?: string; roleOverride?: string } = {},
   ): Promise<boolean> => {
     const safeNodes = nodes.length ? nodes : makeStarterFlow().nodes;
     const safeEdges = edges.length ? edges : makeStarterFlow().edges;
 
-    let name = activeTask;
-    let role = activeStaff?.designation ?? null;
+    let name = opts.nameOverride ?? activeTask;
+    let role = opts.roleOverride ?? activeStaff?.designation ?? null;
     if (!name) {
       const triggerNode = safeNodes.find((n) => n.type === 'trigger');
       const triggerLabel = triggerNode?.data?.label as string | undefined;
@@ -1294,7 +1380,7 @@ export default function SkillFactoryV2() {
   const applyChatbotFlow = async (
     nodes: StoredNode[],
     edges: StoredEdge[],
-    opts: { dryRun?: boolean } = {},
+    opts: { dryRun?: boolean; nameOverride?: string } = {},
   ) => {
     preApplySnapshotRef.current = { nodes: currentNodes, edges: currentEdges };
     setCurrentNodes(nodes);
@@ -1306,7 +1392,7 @@ export default function SkillFactoryV2() {
       });
       return;
     }
-    const ok = await persistFlow(nodes, edges, { silent: true });
+    const ok = await persistFlow(nodes, edges, { silent: true, nameOverride: opts.nameOverride });
     if (!ok) return;
     toast.success('Automation saved.', {
       description: 'Active now.',
@@ -1318,11 +1404,101 @@ export default function SkillFactoryV2() {
           if (!snap) return;
           setCurrentNodes(snap.nodes);
           setCurrentEdges(snap.edges);
-          void persistFlow(snap.nodes, snap.edges, { silent: true });
+          void persistFlow(snap.nodes, snap.edges, { silent: true, nameOverride: opts.nameOverride });
           toast.message('Reverted. Nothing was saved.');
         },
       },
     });
+  };
+
+  // Create a log for the active staff on demand — mirrors commitAddTask's insert
+  // but seeds no starter tasks (the AI provides them). Returns null if it can't.
+  const ensureActiveLog = async (): Promise<TaskOptimizerLog | null> => {
+    if (activeLog) return activeLog;
+    if (!activeStaff || !userEmail) return null;
+    const today = new Date().toISOString().slice(0, 10);
+    const { data, error } = await supabase
+      .from(LOGS_TABLE)
+      .insert({
+        user_email: userEmail,
+        hospital_type: hospitalType,
+        staff_name: activeStaff.name,
+        designation: activeStaff.designation,
+        log_date: today,
+        tasks: [],
+        ai_suggestions: null,
+      })
+      .select('id, user_email, hospital_type, staff_name, designation, log_date, tasks, ai_suggestions, created_at')
+      .single();
+    if (error || !data) {
+      toast.error('Could not create the task log.');
+      return null;
+    }
+    const row = data as TaskOptimizerLog;
+    setLogs((prev) => [row, ...prev]);
+    return row;
+  };
+
+  // Apply the AI's add/remove of tasks to the active staff's log. Idempotent:
+  // never re-adds an existing task, never removes a missing one. Returns the
+  // resulting log + the names of tasks newly added (so the caller can drill in).
+  const applyTaskChanges = async (
+    changes: TaskChange[],
+  ): Promise<{ log: TaskOptimizerLog | null; added: string[] }> => {
+    if (!activeStaff || changes.length === 0) return { log: activeLog, added: [] };
+    const log = await ensureActiveLog();
+    if (!log) return { log: null, added: [] };
+    let tasks = [...(log.tasks ?? [])];
+    const added: string[] = [];
+    for (const c of changes) {
+      const exists = tasks.some((t) => t.toLowerCase() === c.task.toLowerCase());
+      if (c.action === 'add' && !exists) {
+        tasks.push(c.task);
+        added.push(c.task);
+      } else if (c.action === 'remove' && exists) {
+        tasks = tasks.filter((t) => t.toLowerCase() !== c.task.toLowerCase());
+      }
+    }
+    await persistLogTasks(log.id, tasks);
+    return { log, added };
+  };
+
+  // Apply the AI's add/remove of steps. Writes straight to subtasksMap +
+  // localStorage (not via persistSubtasks) so it doesn't re-sync the canvas and
+  // fight the workflow the same apply is about to paint.
+  const applyStepChanges = (changes: StepChange[], logId: string | undefined) => {
+    if (changes.length === 0) return;
+    const next: Record<string, string[]> = { ...subtasksMap };
+    for (const c of changes) {
+      const key = Object.keys(next).find((k) => k.toLowerCase() === c.task.toLowerCase()) ?? c.task;
+      const cur = next[key] ?? [];
+      if (c.action === 'add') {
+        if (!cur.some((s) => s.toLowerCase() === c.step.toLowerCase())) next[key] = [...cur, c.step];
+      } else {
+        next[key] = cur.filter((s) => s.toLowerCase() !== c.step.toLowerCase());
+      }
+    }
+    setSubtasksMap(next);
+    if (logId) writeSubtasks(logId, next);
+  };
+
+  // Single entry point for a chatbot result: apply task changes, then step
+  // changes, then the canvas workflow — in that order so the canvas wins the
+  // final paint. When the AI invents a brand-new task and the user isn't drilled
+  // into one, the flow is saved under that task and we drill into it, so clicking
+  // the new task later shows exactly this workflow.
+  const applyAiResult = async (flow: GeneratedFlow, opts: { dryRun?: boolean } = {}) => {
+    const { log, added } = await applyTaskChanges(flow.taskChanges);
+    applyStepChanges(flow.stepChanges, log?.id ?? activeLog?.id);
+    if (!activeTask && added.length > 0) {
+      await applyChatbotFlow(flow.nodes, flow.edges, { dryRun: opts.dryRun, nameOverride: added[0] });
+      setActiveTask(added[0]);
+    } else {
+      await applyChatbotFlow(flow.nodes, flow.edges, {
+        dryRun: opts.dryRun,
+        nameOverride: activeTask || undefined,
+      });
+    }
   };
 
   const filteredStaff = useMemo(() => {
@@ -1477,11 +1653,25 @@ export default function SkillFactoryV2() {
         className="flex-1"
       >
 
-      <ResizablePanel id="tasks" order={1} defaultSize={activeTask ? 18 : 22} minSize={10}>
+      <ResizablePanel
+        id="tasks"
+        order={1}
+        ref={tasksPanelRef}
+        collapsible
+        collapsedSize={3}
+        defaultSize={activeTask ? 18 : 22}
+        minSize={10}
+        onCollapse={() => setCol('tasks', true)}
+        onExpand={() => setCol('tasks', false)}
+      >
       {/* ── Tasks column ── */}
+      {colCollapsed.tasks ? (
+        <CollapsedRail label="Tasks" side="left" onExpand={() => tasksPanelRef.current?.expand()} />
+      ) : (
       <section className="h-full border-r border-gray-200 bg-white overflow-y-auto">
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400 flex items-center gap-1.5">
+            <CollapseButton label="Tasks" side="left" onClick={() => tasksPanelRef.current?.collapse()} />
             <ListTodo className="w-3.5 h-3.5 text-blue-600" />
             Tasks
           </h2>
@@ -1535,7 +1725,7 @@ export default function SkillFactoryV2() {
           )}
         </div>
       </section>
-
+      )}
       </ResizablePanel>
 
       {/* ── Steps panel (appears only when a task is selected) ──
@@ -1545,7 +1735,20 @@ export default function SkillFactoryV2() {
       {activeTask && (
         <>
         <ResizableHandle withHandle />
-        <ResizablePanel id="steps" order={2} defaultSize={14} minSize={8}>
+        <ResizablePanel
+          id="steps"
+          order={2}
+          ref={stepsPanelRef}
+          collapsible
+          collapsedSize={3}
+          defaultSize={14}
+          minSize={8}
+          onCollapse={() => setCol('steps', true)}
+          onExpand={() => setCol('steps', false)}
+        >
+        {colCollapsed.steps ? (
+          <CollapsedRail label="Steps" side="left" onExpand={() => stepsPanelRef.current?.expand()} />
+        ) : (
         <section className="h-full border-r border-violet-200 bg-violet-50/70 overflow-y-auto">
           {/* Connector strip echoing the indent — anchors the panel to the active task */}
           <div className="h-1 bg-violet-300/60" />
@@ -1553,6 +1756,7 @@ export default function SkillFactoryV2() {
             <div className="border-l-2 border-violet-300/60 pl-2.5 pr-2 pt-3 pb-1">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex items-center gap-1">
+                  <CollapseButton label="Steps" side="left" onClick={() => stepsPanelRef.current?.collapse()} />
                   <CornerDownRight className="w-3.5 h-3.5 text-violet-500 shrink-0" />
                   <h2 className="text-[11px] font-bold uppercase tracking-wider text-violet-700">Steps</h2>
                 </div>
@@ -1604,16 +1808,32 @@ export default function SkillFactoryV2() {
             </div>
           </div>
         </section>
+        )}
         </ResizablePanel>
         </>
       )}
 
       <ResizableHandle withHandle />
-      <ResizablePanel id="workflow" order={3} defaultSize={activeTask ? 45 : 53} minSize={25}>
+      <ResizablePanel
+        id="workflow"
+        order={3}
+        ref={workflowPanelRef}
+        collapsible
+        collapsedSize={3}
+        defaultSize={activeTask ? 45 : 53}
+        minSize={25}
+        onCollapse={() => setCol('workflow', true)}
+        onExpand={() => setCol('workflow', false)}
+      >
       {/* ── Workflow column ── */}
+      {colCollapsed.workflow ? (
+        <CollapsedRail label="Workflow" side="left" onExpand={() => workflowPanelRef.current?.expand()} />
+      ) : (
       <section className="h-full min-w-0 bg-gray-50 flex flex-col">
         <div className="flex items-center justify-between gap-3 px-5 pt-4 pb-2">
-          <div className="min-w-0">
+          <div className="min-w-0 flex items-start gap-1">
+            <CollapseButton label="Workflow" side="left" onClick={() => workflowPanelRef.current?.collapse()} />
+            <div className="min-w-0">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400 truncate">
               Workflow
               {activeTask && (
@@ -1625,6 +1845,7 @@ export default function SkillFactoryV2() {
                 <SkillInsightChip task={activeTask} />
               </div>
             )}
+            </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {flowDirty && <span className="text-[11px] text-amber-600">unsaved changes</span>}
@@ -1699,7 +1920,11 @@ export default function SkillFactoryV2() {
                 // Steps panel reflects "anything done on the canvas". We write
                 // state + localStorage directly (not via persistSubtasks) to
                 // avoid bouncing the change back onto the canvas as a rebuild.
-                if (activeTask) {
+                // The Deadline Tracking flow is fixed — its action nodes are not
+                // user subtasks, so we never mirror them back (that's what made
+                // the subtask list grow). The Steps panel is seeded once in the
+                // build effect instead.
+                if (activeTask && !isDeadlineTrackingTask(activeTask)) {
                   const derived = deriveSubtasksFromCanvas(n);
                   const cur = subtasksMap[activeTask] ?? [];
                   const changed =
@@ -1727,35 +1952,48 @@ export default function SkillFactoryV2() {
                       onDisable={() => void disableSavedFlow()}
                     />
                   )}
-                  <button
-                    onClick={() => navigate('/deadline-tracking')}
-                    title="Open the live Deadline Tracking dashboard (the automation we built)"
-                    className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors shadow-lg ring-2 ring-emerald-300/60"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    Deadline Automation — Open Dashboard
-                    <ExternalLink className="w-3.5 h-3.5 opacity-90" />
-                  </button>
+                  <BillScanMenu onOpenDashboard={() => navigate('/deadline-tracking')} />
                 </div>
               }
             />
           </div>
         </div>
       </section>
+      )}
       </ResizablePanel>
 
       <ResizableHandle withHandle />
-      <ResizablePanel id="ai" order={4} defaultSize={activeTask ? 23 : 25} minSize={15}>
+      <ResizablePanel
+        id="ai"
+        order={4}
+        ref={aiPanelRef}
+        collapsible
+        collapsedSize={3}
+        defaultSize={activeTask ? 23 : 25}
+        minSize={15}
+        onCollapse={() => setCol('ai', true)}
+        onExpand={() => setCol('ai', false)}
+      >
       {/* ── AI Assistant ── */}
-      <aside className="h-full border-l border-gray-200 bg-white">
+      {colCollapsed.ai ? (
+        <CollapsedRail label="Chatbot" side="right" onExpand={() => aiPanelRef.current?.expand()} />
+      ) : (
+      <aside className="h-full border-l border-gray-200 bg-white flex flex-col">
+        <div className="flex items-center gap-1 px-2 py-1 border-b border-gray-100 shrink-0">
+          <CollapseButton label="Chatbot" side="right" onClick={() => aiPanelRef.current?.collapse()} />
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Chatbot</span>
+        </div>
+        <div className="flex-1 min-h-0">
         {activeStaff ? (
           <SkillFactoryChatbot
             task={activeTask}
             subtasks={activeSubtasks}
             designation={activeStaff.designation}
+            allTasks={ruleTasks}
+            stepsByTask={subtasksMap}
             currentFlow={{ nodes: currentNodes, edges: currentEdges }}
-            onApplyFlow={(n, edges, opts) => {
-              void applyChatbotFlow(n, edges, opts);
+            onApply={(flow, opts) => {
+              void applyAiResult(flow, opts);
             }}
           />
         ) : (
@@ -1763,7 +2001,9 @@ export default function SkillFactoryV2() {
             <p className="text-xs">Pick a staff member to start designing automations with AI.</p>
           </div>
         )}
+        </div>
       </aside>
+      )}
       </ResizablePanel>
 
       </ResizablePanelGroup>

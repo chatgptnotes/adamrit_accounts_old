@@ -23,6 +23,26 @@ export interface GenerateFlowInput {
   persona: string;
   instruction: string;
   current?: { nodes: StoredNode[]; edges: StoredEdge[] };
+  // Optional workspace context so the assistant can also organise the left-hand
+  // panels — add / remove tasks and steps — not just build the canvas.
+  // activeTask is the task the user has drilled into (if any); tasks is the full
+  // task list for the staff member; stepsByTask maps each task to its steps.
+  activeTask?: string;
+  tasks?: string[];
+  stepsByTask?: Record<string, string[]>;
+}
+
+// A task to add to / remove from the Tasks column.
+export interface TaskChange {
+  action: 'add' | 'remove';
+  task: string;
+}
+
+// A step to add to / remove from a task's Steps list.
+export interface StepChange {
+  action: 'add' | 'remove';
+  task: string;
+  step: string;
 }
 
 export interface GeneratedFlow {
@@ -33,6 +53,10 @@ export interface GeneratedFlow {
   questions?: string[];
   nodes: StoredNode[];
   edges: StoredEdge[];
+  // Task / step mutations the assistant wants applied to the left-hand panels.
+  // Empty arrays when the user only asked to change the workflow.
+  taskChanges: TaskChange[];
+  stepChanges: StepChange[];
 }
 
 const CONDITION_FIELDS = ['designation', 'suggestion_type', 'time_saved_mins'] as const;
@@ -58,6 +82,8 @@ interface RawFlow {
   trigger?: RawTrigger;
   conditions?: RawCondition[];
   actions?: RawAction[];
+  taskChanges?: unknown;
+  stepChanges?: unknown;
 }
 
 function coerceStatus(value: string | undefined, fallback: ActionStatus): ActionStatus {
@@ -87,8 +113,24 @@ function summarizeFlow(nodes: StoredNode[]): RawFlow | null {
   return { trigger, conditions, actions };
 }
 
-function buildPrompt({ persona, instruction, current }: GenerateFlowInput): string {
+function buildPrompt({ persona, instruction, current, activeTask, tasks, stepsByTask }: GenerateFlowInput): string {
   const currentSpec = current ? summarizeFlow(current.nodes) : null;
+  const taskList = tasks ?? [];
+  const stepsMap = stepsByTask ?? {};
+  const taskLines = taskList.length
+    ? taskList
+        .map((t) => {
+          const steps = stepsMap[t] ?? [];
+          return steps.length ? `- "${t}" (steps: ${steps.map((s) => `"${s}"`).join(', ')})` : `- "${t}"`;
+        })
+        .join('\n')
+    : '(no tasks yet)';
+  const workspaceBlock = `
+Workspace you can also edit (not just the canvas):
+Task currently in focus: ${activeTask ? `"${activeTask}"` : '(none — staff overview)'}
+Existing tasks for this person:
+${taskLines}
+`;
   const editBlock = currentSpec
     ? `\nThe user is EDITING an existing automation. Here is its current JSON:\n${JSON.stringify(currentSpec)}\n\nApply the requested change to it. KEEP every existing trigger, condition, and action unless the change clearly replaces or removes it. Return the FULL updated automation (not just the change).\n`
     : '';
@@ -101,7 +143,9 @@ You also act as a thoughtful coach: after producing the automation, propose 2-3 
 
 Person's role / persona: ${persona}
 What they want: ${instruction}
-${editBlock}
+${workspaceBlock}${editBlock}
+Beyond the canvas, you can also organise the person's work: add a new task, remove an existing task, and add or remove steps under a task. Do this ONLY when the user asks for it (words like add, create, new, remove, delete, drop). Otherwise leave taskChanges and stepChanges as empty arrays.
+
 Return ONLY valid JSON (no markdown, no code fences) of exactly this shape:
 {
   "name": "short automation name",
@@ -109,7 +153,9 @@ Return ONLY valid JSON (no markdown, no code fences) of exactly this shape:
   "questions": ["question 1?", "question 2?", "question 3?"],
   "trigger": { "event": "status_changed|bill_added|deadline_due|deadline_overdue|deadline_paid", "toStatus": "(status_changed only) one of: suggested, in_progress, done, dismissed, any", "withinDays": "(deadline_due only) integer, default 3" },
   "conditions": [ { "field": "designation|suggestion_type|time_saved_mins", "op": "eq|contains|gte", "value": "string" } ],
-  "actions": [ { "type": "notify|tag|set_status|whatsapp|email", "message": "text (may use {staff} {task} {status})", "setStatus": "optional status for set_status", "to": "email address (for email type only)", "subject": "email subject (for email type only, may use {staff} {task} {status})" } ]
+  "actions": [ { "type": "notify|tag|set_status|whatsapp|email", "message": "text (may use {staff} {task} {status})", "setStatus": "optional status for set_status", "to": "email address (for email type only)", "subject": "email subject (for email type only, may use {staff} {task} {status})" } ],
+  "taskChanges": [ { "action": "add|remove", "task": "task name" } ],
+  "stepChanges": [ { "action": "add|remove", "task": "owning task name", "step": "step text" } ]
 }
 
 Rules:
@@ -120,6 +166,10 @@ Rules:
 - "questions" MUST contain 2-3 strings ending with "?". These are next-step refinements or automation choices the user might want to try.
 - Use whatsapp only if the user explicitly wants a WhatsApp message sent; keep messages concise.
 - Use email only if the user explicitly wants an email sent; provide a to address and subject.
+- taskChanges and stepChanges default to []. Only fill them when the user asks to add/create/remove/delete a task or step.
+- To remove a task or step, its text MUST exactly match one shown in the workspace context above.
+- For a step, set "task" to the task it belongs under; if the user didn't name one and a task is in focus, use the focused task.
+- When the user describes a brand-new piece of work, add it as a task AND add its steps, in addition to building the canvas workflow.
 - Output a single valid JSON object.`;
 }
 
@@ -164,7 +214,51 @@ function buildTriggerConfig(raw: RawTrigger | undefined): { config: TriggerConfi
   }
 }
 
-function mapToGraph(raw: RawFlow): GeneratedFlow {
+// Shape-validate the AI's task changes: action ∈ {add,remove}, non-empty name,
+// length-capped, de-duplicated. Existence checks (don't re-add, don't remove a
+// missing task) are enforced by the caller against live state.
+function sanitizeTaskChanges(raw: unknown): TaskChange[] {
+  if (!Array.isArray(raw)) return [];
+  const out: TaskChange[] = [];
+  const seen = new Set<string>();
+  for (const r of raw) {
+    if (!r || typeof r !== 'object') continue;
+    const action = (r as { action?: unknown }).action;
+    const task = (r as { task?: unknown }).task;
+    if ((action !== 'add' && action !== 'remove') || typeof task !== 'string') continue;
+    const name = task.trim();
+    if (!name || name.length > 80) continue;
+    const key = `${action}:${name.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ action, task: name });
+  }
+  return out;
+}
+
+// Same for step changes. A missing owning task falls back to the focused task.
+function sanitizeStepChanges(raw: unknown, fallbackTask: string | undefined): StepChange[] {
+  if (!Array.isArray(raw)) return [];
+  const out: StepChange[] = [];
+  const seen = new Set<string>();
+  for (const r of raw) {
+    if (!r || typeof r !== 'object') continue;
+    const action = (r as { action?: unknown }).action;
+    const stepRaw = (r as { step?: unknown }).step;
+    const taskRaw = (r as { task?: unknown }).task;
+    if ((action !== 'add' && action !== 'remove') || typeof stepRaw !== 'string') continue;
+    const step = stepRaw.trim();
+    const task = (typeof taskRaw === 'string' && taskRaw.trim()) || (fallbackTask ?? '');
+    if (!step || !task || step.length > 120) continue;
+    const key = `${action}:${task.toLowerCase()}:${step.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ action, task, step });
+  }
+  return out;
+}
+
+function mapToGraph(raw: RawFlow, input: GenerateFlowInput): GeneratedFlow {
   const nodes: StoredNode[] = [];
   const edges: StoredEdge[] = [];
 
@@ -248,6 +342,8 @@ function mapToGraph(raw: RawFlow): GeneratedFlow {
     questions,
     nodes,
     edges,
+    taskChanges: sanitizeTaskChanges(raw.taskChanges),
+    stepChanges: sanitizeStepChanges(raw.stepChanges, input.activeTask),
   };
 }
 
@@ -307,5 +403,5 @@ export async function generateFlowFromPrompt(input: GenerateFlowInput): Promise<
     parsed = JSON.parse(match[0]);
   }
 
-  return mapToGraph(parsed as RawFlow);
+  return mapToGraph(parsed as RawFlow, input);
 }
