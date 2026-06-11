@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Sparkles, Loader2, ListChecks, BarChart3, Plus, CheckCircle2, Workflow, FileText, Receipt } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -85,7 +86,16 @@ const TaskOptimizerDashboard = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [view, setView] = useState<'entry' | 'submissions' | 'automations' | 'billing' | 'insights'>('entry');
+  // Deep-linkable view: /task-optimizer?view=billing opens the Billing panel
+  // directly (likewise submissions / automations / insights).
+  const [searchParams] = useSearchParams();
+  const viewParam = searchParams.get('view');
+  const validViews = ['entry', 'submissions', 'automations', 'billing', 'insights'] as const;
+  type DashboardView = typeof validViews[number];
+  const initialView: DashboardView = (validViews as readonly string[]).includes(viewParam ?? '')
+    ? (viewParam as DashboardView)
+    : 'entry';
+  const [view, setView] = useState<DashboardView>(initialView);
   const [name, setName] = useState('');
   const [designation, setDesignation] = useState(
     () => ROLE_TO_DESIGNATION[user?.role ?? ''] ?? '',

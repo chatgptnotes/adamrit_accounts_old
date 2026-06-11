@@ -1,13 +1,24 @@
 import { useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { supabaseAdmin } from '@/integrations/supabase/adminClient';
-import { geminiFetch, geminiGenerateContentUrl, GEMINI_MODEL } from '@/lib/gemini';
+import { geminiFetch, geminiGenerateContentUrl, GEMINI_MODEL, hasValidGeminiKey } from '@/lib/gemini';
 
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1';
 
 export interface CheckMailResult {
   saved: number;
   skipped: number;
+}
+
+// A raw inbox message as shown in the "Get Mails" section — fetched read-only
+// from Gmail (no classification, no Supabase write, no draft creation).
+export interface InboxMail {
+  id: string;
+  fromName: string;
+  fromEmail: string;
+  subject: string;
+  snippet: string;
+  receivedAt: string | null;
+  unread: boolean;
 }
 
 async function getGmailAccessToken(): Promise<string> {
@@ -52,26 +63,36 @@ function getHeader(headers: Array<{ name: string; value: string }>, name: string
   return headers.find(h => h.name.toLowerCase() === name.toLowerCase())?.value ?? '';
 }
 
-function extractTextBody(payload: Record<string, unknown>): string {
-  const body = payload.body as { data?: string } | undefined;
-  if (body?.data) return decodeBase64Url(body.data);
-
-  const parts = payload.parts as Array<Record<string, unknown>> | undefined;
-  if (!parts) return '';
-
-  for (const part of parts) {
-    if (part.mimeType === 'text/plain') {
-      const pb = part.body as { data?: string } | undefined;
-      if (pb?.data) return decodeBase64Url(pb.data);
-    }
+// Find the first body of a given MIME type anywhere in the (possibly nested)
+// MIME tree. Real emails routinely nest text/plain inside multipart/alternative
+// inside multipart/mixed, so this must recurse rather than scan one level —
+// otherwise the body comes back empty.
+function findMimePart(node: Record<string, unknown>, mime: string): string {
+  if (node.mimeType === mime) {
+    const b = node.body as { data?: string } | undefined;
+    if (b?.data) return decodeBase64Url(b.data);
   }
-  for (const part of parts) {
-    if (part.mimeType === 'text/html') {
-      const pb = part.body as { data?: string } | undefined;
-      if (pb?.data) return decodeBase64Url(pb.data).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const parts = node.parts as Array<Record<string, unknown>> | undefined;
+  if (parts) {
+    for (const part of parts) {
+      const found = findMimePart(part, mime);
+      if (found) return found;
     }
   }
   return '';
+}
+
+function extractTextBody(payload: Record<string, unknown>): string {
+  // Prefer text/plain anywhere in the tree; fall back to stripped text/html.
+  const plain = findMimePart(payload, 'text/plain');
+  if (plain) return plain;
+
+  const html = findMimePart(payload, 'text/html');
+  if (html) return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+  // Last resort: a non-multipart message whose body sits directly on payload.
+  const body = payload.body as { data?: string } | undefined;
+  return body?.data ? decodeBase64Url(body.data) : '';
 }
 
 function classifyEmail(subject: string, body: string): { category: string; urgency: string } {
@@ -143,6 +164,30 @@ function buildDraftReply(fromName: string, subject: string, category: string, st
 export { REPLY_STYLES, STYLE_LABELS };
 export type { ReplyStyle };
 
+// VPS sidecar that performs AI re-phrase/regenerate server-side, so no LLM key
+// is bundled into the frontend. Configured via VITE_REPHRASE_SIDECAR_URL; when
+// unset, the caller falls back to direct Gemini (if keyed) or local templates.
+const SIDECAR_URL = import.meta.env.VITE_REPHRASE_SIDECAR_URL as string | undefined;
+const SIDECAR_KEY = import.meta.env.VITE_REPHRASE_SIDECAR_KEY as string | undefined;
+
+// POST a payload to the sidecar and return its `{ text }` reply. Throws on any
+// non-2xx / empty response so callers can fall back to the local template.
+async function sidecarCall(path: string, payload: unknown): Promise<string> {
+  const res = await fetch(`${SIDECAR_URL!.replace(/\/$/, '')}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(SIDECAR_KEY ? { 'x-sidecar-key': SIDECAR_KEY } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`Sidecar ${path} error ${res.status}`);
+  const data = await res.json();
+  const text = (data?.text ?? '').trim();
+  if (!text) throw new Error('Sidecar returned empty response');
+  return text;
+}
+
 // Create a draft reply directly inside Gmail — appears in the Drafts folder
 async function createGmailDraft(
   token: string,
@@ -192,11 +237,15 @@ export function useGmailChecker() {
     return token;
   };
 
-  const checkMail = async (): Promise<CheckMailResult> => {
+  // Read-only inbox fetch for the "Get Mails" section. Uses format=metadata
+  // (headers + snippet only) so 25 mails load in one parallel burst instead of
+  // 25 sequential full-body downloads. Covers ALL incoming mail (including
+  // auto-archived / tab-categorized), excluding only sent, drafts and chats.
+  const fetchInbox = async (max = 25): Promise<InboxMail[]> => {
     const token = await getToken();
 
     const listRes = await fetch(
-      `${GMAIL_API}/users/me/messages?maxResults=50`,
+      `${GMAIL_API}/users/me/messages?maxResults=${max}&q=${encodeURIComponent('-in:sent -in:draft -in:chats')}`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
     if (!listRes.ok) {
@@ -206,16 +255,122 @@ export function useGmailChecker() {
     const listData = await listRes.json();
     const messages: Array<{ id: string }> = listData.messages ?? [];
 
-    const today = new Date().toISOString().split('T')[0];
-    let saved = 0;
-    let skipped = 0;
-
-    for (const msg of messages) {
-      const msgRes = await fetch(
-        `${GMAIL_API}/users/me/messages/${msg.id}?format=full`,
+    const mails = await Promise.all(messages.map(async (msg): Promise<InboxMail | null> => {
+      const res = await fetch(
+        `${GMAIL_API}/users/me/messages/${msg.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      if (!msgRes.ok) continue;
+      if (!res.ok) return null;
+      const d = await res.json();
+
+      const headers: Array<{ name: string; value: string }> =
+        (d.payload as Record<string, unknown>)?.headers as Array<{ name: string; value: string }> ?? [];
+      const fromHeader = getHeader(headers, 'From');
+      const fromEmail  = fromHeader.match(/<([^>]+)>/)?.[1] ?? fromHeader.trim();
+      const fromName   = fromHeader.match(/^([^<]+)/)?.[1]?.trim().replace(/^"|"$/g, '') ?? fromEmail;
+
+      const internalMs = Number(d.internalDate);
+      const hdrDate    = getHeader(headers, 'Date');
+      let receivedAt: string | null = null;
+      if (Number.isFinite(internalMs) && internalMs > 0) {
+        receivedAt = new Date(internalMs).toISOString();
+      } else if (hdrDate) {
+        const parsed = new Date(hdrDate);
+        if (!isNaN(parsed.getTime())) receivedAt = parsed.toISOString();
+      }
+
+      return {
+        id: msg.id,
+        fromName,
+        fromEmail,
+        subject: getHeader(headers, 'Subject') || '(no subject)',
+        snippet: (d.snippet ?? '') as string,
+        receivedAt,
+        unread: ((d.labelIds ?? []) as string[]).includes('UNREAD'),
+      };
+    }));
+
+    return (mails.filter(Boolean) as InboxMail[]).sort(
+      (a, b) => new Date(b.receivedAt ?? 0).getTime() - new Date(a.receivedAt ?? 0).getTime(),
+    );
+  };
+
+  const checkMail = async (
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<CheckMailResult> => {
+    const token = await getToken();
+
+    // Preload every already-imported gmail ID in one query (instead of one
+    // Supabase round-trip per message) so known mails are skipped without even
+    // fetching them from Gmail.
+    const { data: knownRows } = await supabaseAdmin
+      .from('email_inbox')
+      .select('approved_by')
+      .like('approved_by', 'gmailid:%');
+    const knownIds = new Set((knownRows ?? []).map(r => r.approved_by as string));
+
+    // Incremental check: only ask Gmail for mail received AFTER the newest
+    // mail already imported — but always re-scan at least the last 3 days
+    // (knownIds dedup makes the overlap cheap) so a row with a skewed
+    // received_at can never make the checker skip genuinely new mail. On a
+    // fresh table (nothing imported yet) start from the last 7 days.
+    const { data: newestRows } = await supabaseAdmin
+      .from('email_inbox')
+      .select('received_at')
+      .not('received_at', 'is', null)
+      .order('received_at', { ascending: false })
+      .limit(1);
+    const newestMs = newestRows?.[0]?.received_at ? new Date(newestRows[0].received_at).getTime() : NaN;
+    const sinceMs = Math.min(
+      Number.isFinite(newestMs) ? newestMs - 60 * 60 * 1000 : Date.now() - 7 * 24 * 60 * 60 * 1000,
+      Date.now() - 3 * 24 * 60 * 60 * 1000,
+    );
+
+    // ALL incoming mail — not just the INBOX label. Mail that filters/scripts
+    // auto-archive or tab-categorize (Updates, Promotions, HH/* labels) has no
+    // INBOX label but must still be imported. SENT and DRAFT are excluded in
+    // the query itself (without this, the drafts this very function creates
+    // would be listed and "replied" to — a self-reply feedback loop); spam and
+    // trash are excluded by the API by default. Hard cap as a runaway guard.
+    const afterQuery = encodeURIComponent(
+      `after:${Math.floor(sinceMs / 1000)} -in:sent -in:draft -in:chats`,
+    );
+    const MAX_TOTAL = 2000;
+    const allIds: string[] = [];
+    let pageToken: string | undefined;
+    do {
+      const listRes = await fetch(
+        `${GMAIL_API}/users/me/messages?maxResults=100&q=${afterQuery}${pageToken ? `&pageToken=${pageToken}` : ''}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!listRes.ok) {
+        if (listRes.status === 401) setCachedToken(null);
+        throw new Error(`Gmail fetch failed (${listRes.status})`);
+      }
+      const listData = await listRes.json();
+      allIds.push(...((listData.messages ?? []) as Array<{ id: string }>).map(m => m.id));
+      pageToken = listData.nextPageToken as string | undefined;
+    } while (pageToken && allIds.length < MAX_TOTAL);
+
+    const newIds = allIds.filter(id => !knownIds.has(`gmailid:${id}`));
+    let skipped = allIds.length - newIds.length;
+    let saved = 0;
+    let done = 0;
+    onProgress?.(0, newIds.length);
+
+    const today = new Date().toISOString().split('T')[0];
+    // Only mails received in the last 7 days get a reply draft created in the
+    // Gmail Drafts folder — bulk-importing the inbox history must not flood
+    // Drafts with replies to months-old mail. (The in-app draft_reply text is
+    // still generated for every mail.)
+    const draftCutoffMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+    const processOne = async (gmailMsgId: string): Promise<void> => {
+      const msgRes = await fetch(
+        `${GMAIL_API}/users/me/messages/${gmailMsgId}?format=full`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!msgRes.ok) { skipped++; return; }
       const msgData = await msgRes.json();
 
       const headers: Array<{ name: string; value: string }> =
@@ -223,39 +378,32 @@ export function useGmailChecker() {
 
       const subject    = getHeader(headers, 'Subject') || '(no subject)';
       const fromHeader = getHeader(headers, 'From');
-      const fromEmail  = fromHeader.match(/<(.+)>/)?.[1] ?? fromHeader.trim();
+      const fromEmail  = fromHeader.match(/<([^>]+)>/)?.[1] ?? fromHeader.trim();
       const fromName   = fromHeader.match(/^([^<]+)/)?.[1]?.trim() ?? fromEmail;
       const messageId  = getHeader(headers, 'Message-ID');
-      const gmailMsgId = msg.id; // Gmail's internal unique ID — permanent dedup key
       const threadId   = (msgData as Record<string, unknown>).threadId as string ?? '';
       const body       = extractTextBody(msgData.payload as Record<string, unknown>);
 
-      // Check if this Gmail message was already saved (using gmail message ID stored in approved_by)
-      const { data: existing } = await supabaseAdmin
-        .from('email_inbox')
-        .select('id, body_preview')
-        .eq('approved_by', `gmailid:${gmailMsgId}`)
-        .single();
-
-      if (existing) {
-        // Already saved — update body if it was previously truncated
-        if (!existing.body_preview || existing.body_preview.length < body.length) {
-          await supabaseAdmin
-            .from('email_inbox')
-            .update({ body_preview: body })
-            .eq('id', existing.id);
-        }
-        skipped++;
-        continue;
+      // Real received date/time of the email — prefer Gmail's internalDate
+      // (epoch ms), fall back to the RFC-2822 `Date` header. Saved to
+      // received_at so the inbox can show and group emails date-wise.
+      const internalMs = Number((msgData as Record<string, unknown>).internalDate);
+      const hdrDate    = getHeader(headers, 'Date');
+      let receivedAt: string | null = null;
+      if (Number.isFinite(internalMs) && internalMs > 0) {
+        receivedAt = new Date(internalMs).toISOString();
+      } else if (hdrDate) {
+        const d = new Date(hdrDate);
+        if (!isNaN(d.getTime())) receivedAt = d.toISOString();
       }
 
       const { category, urgency } = classifyEmail(subject, body);
       const draftReply = buildDraftReply(fromName, subject, category);
 
-      // 1. Create draft reply directly in Gmail Drafts folder
-      await createGmailDraft(token, fromEmail, subject, draftReply, threadId, messageId);
-
-      // 2. Save to Supabase (approved_by stores gmail message ID for permanent dedup)
+      // 1. Save to Supabase FIRST (approved_by stores the gmail message ID for
+      //    permanent dedup). Doing this before any Gmail side effect means a
+      //    failure here can't leave an orphan draft that the next run would
+      //    duplicate — we just skip and retry cleanly.
       const { error: insertError } = await supabaseAdmin.from('email_inbox').insert({
         from_email:   fromEmail,
         from_name:    fromName,
@@ -266,30 +414,122 @@ export function useGmailChecker() {
         draft_reply:  draftReply,
         status:       'pending',
         check_date:   today,
+        received_at:  receivedAt,
         approved_by:  `gmailid:${gmailMsgId}`,
       });
 
       if (insertError) {
         console.warn('email_inbox insert failed:', insertError.message, insertError.code);
+        return; // do not create a Gmail draft we can't track; retry next run
+      }
+
+      // 2. Create the draft reply in Gmail Drafts — recent mail only (see
+      //    draftCutoffMs above). Best-effort: the row above is the source of
+      //    truth, so a draft failure must not abort the whole mail check.
+      const receivedMs = receivedAt ? new Date(receivedAt).getTime() : Date.now();
+      if (receivedMs >= draftCutoffMs) {
+        try {
+          await createGmailDraft(token, fromEmail, subject, draftReply, threadId, messageId);
+        } catch (e) {
+          console.warn('Gmail draft creation failed (email already saved):', e);
+        }
       }
 
       saved++;
+    };
+
+    // Process in parallel chunks of 10 so a large inbox imports in seconds,
+    // not minutes, without hammering the Gmail API.
+    const CHUNK = 10;
+    for (let i = 0; i < newIds.length; i += CHUNK) {
+      await Promise.all(newIds.slice(i, i + CHUNK).map(processOne));
+      done = Math.min(i + CHUNK, newIds.length);
+      onProgress?.(done, newIds.length);
     }
 
     return { saved, skipped };
   };
 
   const regenerateDraft = async (emailId: string, feedback?: string): Promise<string> => {
-    const { data: email } = await supabase
+    const { data: email } = await supabaseAdmin
       .from('email_inbox')
-      .select('from_name, from_email, subject, category')
+      .select('from_name, from_email, subject, category, body_preview, draft_reply')
       .eq('id', emailId)
       .single();
 
     if (!email) throw new Error('Email not found');
 
-    let newDraft = buildDraftReply(email.from_name ?? email.from_email, email.subject ?? '', email.category ?? 'general');
-    if (feedback?.trim()) newDraft = `[Note: ${feedback.trim()}]\n\n${newDraft}`;
+    const baseDraft = buildDraftReply(
+      email.from_name ?? email.from_email,
+      email.subject ?? '',
+      email.category ?? 'general',
+    );
+    const templateFallback = feedback?.trim() ? `[Note: ${feedback.trim()}]\n\n${baseDraft}` : baseDraft;
+
+    // Preferred path: VPS sidecar holds the LLM key and regenerates server-side.
+    if (SIDECAR_URL) {
+      try {
+        const text = await sidecarCall('/regenerate', {
+          fromName: email.from_name ?? email.from_email,
+          subject: email.subject ?? '',
+          category: email.category ?? 'general',
+          body: email.body_preview ?? '',
+          previousDraft: email.draft_reply ?? baseDraft,
+          feedback: feedback?.trim() ?? '',
+        });
+        await supabaseAdmin.from('email_inbox').update({ draft_reply: text }).eq('id', emailId);
+        return text;
+      } catch (e) {
+        console.warn('Sidecar regenerate failed, falling back:', e);
+        // fall through to direct Gemini / local template below
+      }
+    }
+
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
+
+    // No valid Gemini key configured — fall back to the deterministic template.
+    if (!hasValidGeminiKey(apiKey)) {
+      await supabaseAdmin.from('email_inbox').update({ draft_reply: templateFallback }).eq('id', emailId);
+      return templateFallback;
+    }
+
+    const url = geminiGenerateContentUrl(apiKey, GEMINI_MODEL);
+    const res = await geminiFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: `You are a professional email assistant for Hope Hospital Billing Department.
+Write a fresh reply to the email below. Keep it professional, on-topic and concise.
+${feedback?.trim()
+  ? `Apply this instruction from the staff member: ${feedback.trim()}`
+  : 'Use different wording from the previous draft while keeping the same meaning and intent.'}
+Always end with this exact sign-off:
+Warm regards,
+Hope Hospital Billing Team
+info@hopehospital.com
+
+Return ONLY the reply text — no subject line, no explanations, no extra commentary.
+
+Email subject: ${email.subject}
+From: ${email.from_name ?? email.from_email}
+Email body:
+${email.body_preview ?? ''}
+
+Previous draft reply:
+${email.draft_reply ?? baseDraft}
+
+New reply:`,
+          }],
+        }],
+        generationConfig: { maxOutputTokens: 500, temperature: 0.9 },
+      }),
+    });
+
+    const data = await res.json();
+    const aiDraft = (data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
+    const newDraft = aiDraft || templateFallback;
 
     await supabaseAdmin.from('email_inbox').update({ draft_reply: newDraft }).eq('id', emailId);
     return newDraft;
@@ -310,7 +550,46 @@ export function useGmailChecker() {
       friendly: 'warm, empathetic and approachable tone with a personal touch',
     };
 
-    const url = geminiGenerateContentUrl(import.meta.env.VITE_GEMINI_API_KEY as string, GEMINI_MODEL);
+    const currentDraft = email.draft_reply ?? buildDraftReply(
+      email.from_name ?? email.from_email,
+      email.subject ?? '',
+      email.category ?? 'general',
+    );
+
+    // Preferred path: VPS sidecar holds the LLM key and rephrases server-side.
+    if (SIDECAR_URL) {
+      try {
+        const text = await sidecarCall('/rephrase', {
+          fromName: email.from_name ?? email.from_email,
+          subject: email.subject ?? '',
+          category: email.category ?? 'general',
+          draft: currentDraft,
+          style,
+        });
+        await supabaseAdmin.from('email_inbox').update({ draft_reply: text }).eq('id', emailId);
+        return text;
+      } catch (e) {
+        console.warn('Sidecar rephrase failed, falling back:', e);
+        // fall through to direct Gemini / local template below
+      }
+    }
+
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
+
+    // No valid Gemini key — produce a free, local rephrase using the built-in
+    // per-style templates instead of calling the API (which would 400).
+    if (!hasValidGeminiKey(apiKey)) {
+      const localRephrase = buildDraftReply(
+        email.from_name ?? email.from_email,
+        email.subject ?? '',
+        email.category ?? 'general',
+        style,
+      );
+      await supabaseAdmin.from('email_inbox').update({ draft_reply: localRephrase }).eq('id', emailId);
+      return localRephrase;
+    }
+
+    const url = geminiGenerateContentUrl(apiKey, GEMINI_MODEL);
     const res = await geminiFetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -342,5 +621,5 @@ Rephrased reply (${styleInstructions[style]}):`,
     return newDraft;
   };
 
-  return { checkMail, regenerateDraft, rephraseDraft };
+  return { fetchInbox, checkMail, regenerateDraft, rephraseDraft };
 }

@@ -23,6 +23,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Mail,
 } from 'lucide-react';
 import {
   DndContext,
@@ -74,6 +75,7 @@ import type { ScanAttachment } from '@/lib/scanForTask';
 import { COMMON_TASKS } from '@/components/task-optimizer/commonTasks';
 
 import SkillFactoryFlow from '@/components/task-optimizer/SkillFactoryFlow';
+import BillingPanel from '@/components/task-optimizer/BillingPanel';
 import SkillFactoryChatbot from '@/components/task-optimizer/SkillFactoryChatbot';
 import NotificationBell from '@/components/task-optimizer/NotificationBell';
 import SkillInsightChip from '@/components/task-optimizer/SkillInsightChip';
@@ -241,6 +243,23 @@ const staffKey = (name: string) => name.trim().toLowerCase();
 
 const ADMIN_ROLES = new Set(['admin', 'superadmin', 'super_admin']);
 const isAdminRole = (role?: string) => !!role && ADMIN_ROLES.has(role);
+
+// Role-based mailbox visibility — which auth roles may open each shared
+// mailbox. cmd@ is the CMD/management mailbox (admins only); info@ is the
+// general hospital inbox handled by billing / accounts / front office.
+const EMAIL_ACCOUNTS: { address: string; roles: Set<string> }[] = [
+  {
+    address: 'info@hopehospital.com',
+    roles: new Set([...ADMIN_ROLES, 'billing', 'accounts', 'receptionist', 'reception', 'front_office']),
+  },
+  {
+    address: 'cmd@hopehospital.com',
+    roles: new Set([...ADMIN_ROLES]),
+  },
+];
+
+const emailAccountsForRole = (role?: string) =>
+  role ? EMAIL_ACCOUNTS.filter((a) => a.roles.has(role)) : [];
 
 // Demo persona that's always available so the page can open onto a sensible
 // default even before any task_optimizer_logs rows exist.
@@ -723,6 +742,11 @@ export default function SkillFactoryV2() {
 
   const [activeStaffKey, setActiveStaffKey] = useState<string>('');
   const [activeTask, setActiveTask] = useState<string>('');
+
+  // When a mailbox is selected from the Email section, the main area shows the
+  // email dashboard (BillingPanel) instead of the Tasks/Workflow columns.
+  // Selecting any staff member switches back.
+  const [activeMailbox, setActiveMailbox] = useState<string | null>(null);
 
   // The Steps panel unmounts/remounts as the active task changes; reset its
   // collapse flag so it always returns expanded (the library panel remounts open).
@@ -1709,7 +1733,7 @@ export default function SkillFactoryV2() {
             {staffList.slice(0, 12).map((s) => (
               <button
                 key={s.key}
-                onClick={() => setActiveStaffKey(s.key)}
+                onClick={() => { setActiveMailbox(null); setActiveStaffKey(s.key); }}
                 title={`${s.designation} · ${s.name}`}
                 className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold transition-colors ${
                   activeStaffKey === s.key
@@ -1805,17 +1829,57 @@ export default function SkillFactoryV2() {
                         staff={s}
                         active={activeStaffKey === s.key}
                         ruleCount={(latestLogForStaff(logs, s.name)?.tasks ?? []).length}
-                        onSelect={() => setActiveStaffKey(s.key)}
+                        onSelect={() => { setActiveMailbox(null); setActiveStaffKey(s.key); }}
                       />
                     ))}
                   </div>
                 </SortableContext>
               </DndContext>
             )}
+
+            {/* ── Email accounts — role-based: only mailboxes the signed-in
+                  user's role may handle are listed. Opens the mail panel
+                  (Task Optimizer → Billing). ── */}
+            {emailAccountsForRole(user?.role).length > 0 && (
+              <div className="mt-4 pt-3 border-t border-gray-100">
+                <h2 className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                  Email
+                </h2>
+                <div className="space-y-1">
+                  {emailAccountsForRole(user?.role).map(({ address }) => (
+                    <button
+                      key={address}
+                      onClick={() => setActiveMailbox(address)}
+                      title={`Open mails for ${address}`}
+                      className={`w-full flex items-center gap-2 px-2 py-2 rounded-lg text-left transition-colors group ${
+                        activeMailbox === address ? 'bg-blue-50 ring-1 ring-blue-200' : 'hover:bg-blue-50'
+                      }`}
+                    >
+                      <span className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                        <Mail className="w-3.5 h-3.5" />
+                      </span>
+                      <span className={`text-xs truncate ${
+                        activeMailbox === address ? 'text-blue-700 font-medium' : 'text-gray-700 group-hover:text-blue-700'
+                      }`}>{address}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </section>
       )}
 
+      {/* ── Mailbox view: clicking an Email account swaps the Tasks/Workflow
+            columns for the email dashboard. Selecting staff switches back. ── */}
+      {activeMailbox ? (
+        <section className="flex-1 overflow-y-auto bg-gray-50">
+          <div className="max-w-5xl mx-auto p-6">
+            <BillingPanel />
+          </div>
+        </section>
+      ) : (
+      <>
       {/* ── Tasks + Steps share one DndContext so cards can be dragged across.
             Everything below Staff is also wrapped in a ResizablePanelGroup so
             the user can drag dividers to resize, persisted via autoSaveId. ── */}
@@ -2223,6 +2287,8 @@ export default function SkillFactoryV2() {
         ) : null}
       </DragOverlay>
       </DndContext>
+      </>
+      )}
     </div>
   );
 }

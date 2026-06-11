@@ -1,17 +1,15 @@
-import { Receipt, Mail, RefreshCw, Clock, CheckCircle2, XCircle, AlertTriangle, GitBranch, LayoutDashboard, CalendarDays } from 'lucide-react';
+import { Receipt, Mail, RefreshCw, Clock, CheckCircle2, XCircle, AlertTriangle, LayoutDashboard, CalendarDays, Inbox, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { supabaseAdmin } from '@/integrations/supabase/adminClient';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import BillingWorkflowDiagram from './BillingWorkflowDiagram';
-import DailyBillingWorkflow from './DailyBillingWorkflow';
 import BillingDashboardModal from './BillingDashboardModal';
-import { useGmailChecker, REPLY_STYLES, STYLE_LABELS, type ReplyStyle } from './useGmailChecker';
+import { useGmailChecker, REPLY_STYLES, STYLE_LABELS, type ReplyStyle, type InboxMail } from './useGmailChecker';
 
 type EmailStatus = 'pending' | 'approved' | 'rejected';
 
@@ -27,6 +25,7 @@ interface EmailRow {
   draft_reply: string | null;
   status: EmailStatus;
   check_date: string;
+  received_at: string | null;
   approved_at: string | null;
   created_at: string;
 }
@@ -45,6 +44,55 @@ const categoryColor: Record<string, string> = {
   'document-request': 'bg-blue-100 text-blue-700',
   'general': 'bg-gray-100 text-gray-700',
 };
+
+// Timestamp we sort/group by: the real received_at when present, else created_at.
+function emailWhen(e: { received_at: string | null; created_at: string }): string {
+  return e.received_at ?? e.created_at;
+}
+
+// "9 Jun 2026, 3:45 PM" — shown on each card.
+function fmtDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleString(undefined, {
+    day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
+}
+
+// Local YYYY-MM-DD key used to bucket emails into day groups.
+function dayKey(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return 'unknown';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// "Today" / "Yesterday" / "Monday, 9 June 2026" for the day-group header.
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return 'Unknown date';
+  const a = new Date(); a.setHours(0, 0, 0, 0);
+  const b = new Date(d); b.setHours(0, 0, 0, 0);
+  const diff = Math.round((a.getTime() - b.getTime()) / 86400000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+// Sort newest-first by received date and bucket into day groups.
+function groupByDay(emails: EmailRow[]): { key: string; label: string; items: EmailRow[] }[] {
+  const sorted = [...emails].sort(
+    (a, b) => new Date(emailWhen(b)).getTime() - new Date(emailWhen(a)).getTime(),
+  );
+  const groups: { key: string; label: string; items: EmailRow[] }[] = [];
+  for (const e of sorted) {
+    const iso = emailWhen(e);
+    const key = dayKey(iso);
+    let g = groups.find(x => x.key === key);
+    if (!g) { g = { key, label: dayLabel(iso), items: [] }; groups.push(g); }
+    g.items.push(e);
+  }
+  return groups;
+}
 
 function EmailCard({ email, onApprove, onReject, onRegenerate, onRephrase }: {
   email: EmailRow;
@@ -87,6 +135,10 @@ function EmailCard({ email, onApprove, onReject, onRegenerate, onRephrase }: {
               {email.status === 'approved' && <Badge className="text-xs bg-green-100 text-green-700">✓ Sent</Badge>}
               {email.status === 'rejected' && <Badge className="text-xs bg-red-100 text-red-700">✗ Rejected</Badge>}
             </div>
+            <span className="flex items-center gap-1 text-xs text-gray-400 shrink-0">
+              <Clock className="h-3 w-3" />
+              {fmtDateTime(emailWhen(email))}
+            </span>
             <span className="text-xs text-gray-400 shrink-0">{expanded ? '▲' : '▼'}</span>
           </div>
           <p className="text-sm font-medium text-gray-800">{email.subject}</p>
@@ -250,39 +302,74 @@ function EmailCard({ email, onApprove, onReject, onRegenerate, onRephrase }: {
   );
 }
 
-type BillingTab = 'emails' | 'flowchart' | 'daily';
+type BillingTab = 'inbox' | 'emails';
 
 export default function BillingPanel() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<BillingTab>('emails');
+  const [activeTab, setActiveTab] = useState<BillingTab>('inbox');
   const [dashboardOpen, setDashboardOpen] = useState(false);
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [searchTerm, setSearchTerm] = useState('');
   const [isChecking, setIsChecking] = useState(false);
-  const { checkMail, regenerateDraft, rephraseDraft } = useGmailChecker();
+  const [checkProgress, setCheckProgress] = useState<{ done: number; total: number } | null>(null);
+  const { fetchInbox, checkMail, regenerateDraft, rephraseDraft } = useGmailChecker();
+
+  // "Get Mails" section state — raw inbox fetched read-only from Gmail
+  const [inboxMails, setInboxMails] = useState<InboxMail[]>([]);
+  const [inboxLoading, setInboxLoading] = useState(false);
+  const [inboxFetchedAt, setInboxFetchedAt] = useState<Date | null>(null);
+
+  const handleGetMails = async () => {
+    setInboxLoading(true);
+    try {
+      const mails = await fetchInbox(25);
+      setInboxMails(mails);
+      setInboxFetchedAt(new Date());
+      toast({
+        title: `Fetched ${mails.length} mail${mails.length !== 1 ? 's' : ''}`,
+        description: 'Latest emails from info@hopehospital.com inbox.',
+      });
+    } catch (err) {
+      toast({
+        title: 'Could not get mails',
+        description: err instanceof Error ? err.message : 'Could not connect to Gmail.',
+        variant: 'destructive',
+      });
+    } finally {
+      setInboxLoading(false);
+    }
+  };
 
   // Try account index 1 (chatgptnotes is 0, info@hopehospital.com is likely 1)
   // If wrong, change the number in the URL below to 2 or 3
   const HOSPITAL_GMAIL = 'https://mail.google.com/mail/u/1/#inbox';
 
   const billingTabs: { key: BillingTab; label: string; icon: React.ReactNode }[] = [
-    { key: 'emails', label: 'Corporate Emails', icon: <Mail className="h-4 w-4" /> },
-    { key: 'flowchart', label: 'Workflow Diagram', icon: <GitBranch className="h-4 w-4" /> },
-    { key: 'daily', label: 'Daily Tasks', icon: <CalendarDays className="h-4 w-4" /> },
+    { key: 'inbox', label: 'Get Mails', icon: <Inbox className="h-4 w-4" /> },
+    { key: 'emails', label: 'All Emails', icon: <Mail className="h-4 w-4" /> },
   ];
 
   const { data: emails = [], isLoading } = useQuery({
-    queryKey: ['billing-email-inbox', filter, categoryFilter],
+    queryKey: ['billing-email-inbox', filter, categoryFilter, searchTerm],
     queryFn: async () => {
+      // Order by the real received date (newest first) — NOT created_at, which
+      // is the import time: a bulk import writes old mails with new created_at,
+      // pushing months-old mail to the top and cutting recent mail off at the
+      // row limit. Rows with no received_at sort last.
       let q = supabaseAdmin
         .from('email_inbox')
         .select('*')
-        .order('created_at', { ascending: false })
-        .limit(200);
+        .order('received_at', { ascending: false, nullsFirst: false })
+        .limit(1000);
 
       if (filter !== 'all') q = q.eq('status', filter);
       if (categoryFilter !== 'all') q = q.eq('category', categoryFilter);
+      // Server-side search across sender and subject — finds mail anywhere in
+      // the table, including rows past the 1000-row display window.
+      const term = searchTerm.trim().replace(/[%,()]/g, ' ').trim();
+      if (term) q = q.or(`subject.ilike.%${term}%,from_email.ilike.%${term}%,from_name.ilike.%${term}%`);
 
       const { data, error } = await q;
       if (error) throw error;
@@ -295,7 +382,10 @@ export default function BillingPanel() {
     mutationFn: async ({ id, reply }: { id: string; reply: string }) => {
       const { error } = await supabaseAdmin
         .from('email_inbox')
-        .update({ status: 'approved', draft_reply: reply, approved_at: new Date().toISOString(), approved_by: 'staff' })
+        // NOTE: do NOT overwrite approved_by here — it holds the `gmailid:<id>`
+        // dedup key. Clobbering it makes checkMail re-import this same email as a
+        // fresh pending row (with a duplicate Gmail draft) on the next run.
+        .update({ status: 'approved', draft_reply: reply, approved_at: new Date().toISOString() })
         .eq('id', id);
       if (error) throw error;
       return { id, reply };
@@ -330,11 +420,18 @@ export default function BillingPanel() {
 
   const handleCheckMail = async () => {
     setIsChecking(true);
+    setCheckProgress(null);
     try {
-      const { saved } = await checkMail();
+      const { saved, skipped } = await checkMail((done, total) => {
+        setCheckProgress({ done, total });
+        // Stream newly imported mails into the list while the check runs.
+        if (done % 50 === 0) queryClient.invalidateQueries({ queryKey: ['billing-email-inbox'] });
+      });
       toast({
-        title: saved > 0 ? `Found ${saved} new email${saved !== 1 ? 's' : ''}` : 'No new emails',
-        description: saved > 0 ? `${saved} draft replies created in Gmail Drafts.` : 'All emails are already up to date.',
+        title: saved > 0 ? `Imported ${saved} new email${saved !== 1 ? 's' : ''}` : 'No new emails',
+        description: saved > 0
+          ? `${saved} new mail${saved !== 1 ? 's' : ''} imported${skipped > 0 ? `, ${skipped} already imported` : ''}.`
+          : 'No new mail since the last check.',
       });
       queryClient.invalidateQueries({ queryKey: ['billing-email-inbox'] });
     } catch (err) {
@@ -345,8 +442,20 @@ export default function BillingPanel() {
       });
     } finally {
       setIsChecking(false);
+      setCheckProgress(null);
     }
   };
+
+  // Auto-connect: run one incremental mail check when the panel opens, so the
+  // latest mail shows up without pressing the button. The check is cheap — it
+  // only asks Gmail for mail newer than the last import.
+  const autoChecked = useRef(false);
+  useEffect(() => {
+    if (autoChecked.current) return;
+    autoChecked.current = true;
+    void handleCheckMail();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleRephrase = async (emailId: string, style: ReplyStyle): Promise<string> => {
     try {
@@ -434,9 +543,68 @@ export default function BillingPanel() {
       {/* Modal — controlled from tab click */}
       <BillingDashboardModal open={dashboardOpen} onOpenChange={setDashboardOpen} />
 
-      {/* Tab content */}
-      {activeTab === 'flowchart' && <BillingWorkflowDiagram />}
-      {activeTab === 'daily' && <DailyBillingWorkflow />}
+      {/* ── Get Mails: fetch the live Gmail inbox (read-only) ── */}
+      {activeTab === 'inbox' && (
+        <>
+          <div className="flex items-center justify-between gap-3">
+            <Button
+              onClick={handleGetMails}
+              disabled={inboxLoading}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              <Download className={`mr-2 h-4 w-4 ${inboxLoading ? 'animate-bounce' : ''}`} />
+              {inboxLoading ? 'Getting mails…' : 'Get Mails'}
+            </Button>
+            <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 border flex-1">
+              <Inbox className="h-3.5 w-3.5 shrink-0" />
+              {inboxFetchedAt
+                ? <>Showing <strong>{inboxMails.length}</strong> latest mails · fetched at {inboxFetchedAt.toLocaleTimeString()}</>
+                : <>Click <strong>Get Mails</strong> to fetch the latest emails from info@hopehospital.com</>}
+            </div>
+          </div>
+
+          {inboxLoading ? (
+            <div className="flex items-center justify-center py-12 text-gray-400">
+              <Mail className="mr-2 h-5 w-5 animate-pulse" />
+              Fetching mails from Gmail...
+            </div>
+          ) : inboxMails.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-2">
+              <Inbox className="h-10 w-10 text-gray-300" />
+              <p className="text-sm">No mails fetched yet.</p>
+              <p className="text-xs">Press "Get Mails" above to load your inbox.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {inboxMails.map(mail => (
+                <Card key={mail.id} className={mail.unread ? 'border-l-4 border-l-blue-500' : ''}>
+                  <CardContent className="p-4 space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+                        <span className={`text-sm ${mail.unread ? 'font-bold' : 'font-semibold'}`}>
+                          {mail.fromName || mail.fromEmail}
+                        </span>
+                        <span className="text-xs text-gray-400 truncate">&lt;{mail.fromEmail}&gt;</span>
+                        {mail.unread && <Badge className="text-xs bg-blue-100 text-blue-700">Unread</Badge>}
+                      </div>
+                      {mail.receivedAt && (
+                        <span className="flex items-center gap-1 text-xs text-gray-400 shrink-0">
+                          <Clock className="h-3 w-3" />
+                          {fmtDateTime(mail.receivedAt)}
+                        </span>
+                      )}
+                    </div>
+                    <p className={`text-sm text-gray-800 ${mail.unread ? 'font-semibold' : 'font-medium'}`}>
+                      {mail.subject}
+                    </p>
+                    <p className="text-xs text-gray-500 line-clamp-2">{mail.snippet}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
+      )}
 
       {activeTab === 'emails' && (
         <>
@@ -448,12 +616,16 @@ export default function BillingPanel() {
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
               <Mail className={`mr-2 h-4 w-4 ${isChecking ? 'animate-pulse' : ''}`} />
-              {isChecking ? 'Checking mail…' : 'Start Checking Mail'}
+              {isChecking
+                ? checkProgress && checkProgress.total > 0
+                  ? `Importing ${checkProgress.done}/${checkProgress.total}…`
+                  : 'Checking mail…'
+                : 'Start Checking Mail'}
             </Button>
             <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 border flex-1">
               <Clock className="h-3.5 w-3.5 shrink-0" />
-              Auto-checks at <strong>8:00 AM</strong>, <strong>12:00 PM</strong>, <strong>5:00 PM</strong> daily
-              · info@hopehospital.com · Corporate / TPA emails only
+              Auto-checks when this panel opens · info@hopehospital.com · All inbox emails
+              (TPA / Corporate / Billing / Urgent / General)
             </div>
           </div>
 
@@ -473,6 +645,17 @@ export default function BillingPanel() {
               <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
               Refresh
             </Button>
+          </div>
+
+          {/* Search */}
+          <div className="relative">
+            <Mail className="h-3.5 w-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              placeholder="Search mails by sender or subject…"
+              className="w-full text-sm pl-9 pr-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary bg-white"
+            />
           </div>
 
           {/* Category filter chips */}
@@ -526,19 +709,29 @@ export default function BillingPanel() {
               <p className="text-sm">
                 {filter === 'pending' ? 'No emails pending approval.' : 'No emails found.'}
               </p>
-              <p className="text-xs">Next auto-check runs at the scheduled time.</p>
+              <p className="text-xs">Press "Start Checking Mail" to fetch the latest mail.</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {emails.map(email => (
-                <EmailCard
-                  key={email.id}
-                  email={email}
-                  onApprove={(id, reply) => approveMutation.mutateAsync({ id, reply })}
-                  onReject={id => rejectMutation.mutateAsync(id)}
-                  onRegenerate={handleRegenerate}
-                  onRephrase={handleRephrase}
-                />
+            <div className="space-y-5">
+              {groupByDay(emails).map(group => (
+                <div key={group.key} className="space-y-3">
+                  <div className="flex items-center gap-2 pt-1">
+                    <CalendarDays className="h-4 w-4 text-primary" />
+                    <h3 className="text-sm font-semibold text-gray-700">{group.label}</h3>
+                    <span className="text-xs text-gray-400">({group.items.length})</span>
+                    <div className="flex-1 border-t border-gray-100 ml-1" />
+                  </div>
+                  {group.items.map(email => (
+                    <EmailCard
+                      key={email.id}
+                      email={email}
+                      onApprove={(id, reply) => approveMutation.mutateAsync({ id, reply })}
+                      onReject={id => rejectMutation.mutateAsync(id)}
+                      onRegenerate={handleRegenerate}
+                      onRephrase={handleRephrase}
+                    />
+                  ))}
+                </div>
               ))}
             </div>
           )}

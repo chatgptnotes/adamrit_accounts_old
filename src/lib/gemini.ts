@@ -20,6 +20,16 @@ export const GEMINI_MODEL_LITE = 'gemini-2.5-flash-lite';
 
 export const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
+// True only when a real-looking key is configured. Guards against the empty
+// string and the `.env.example` placeholder (`your_gemini_api_key_here`), both
+// of which are truthy and would otherwise be sent to Google and rejected with a
+// 400 "API key not valid". Callers use this to fall back to free local
+// templates instead of surfacing a hard API error.
+export function hasValidGeminiKey(key?: string): boolean {
+  const k = key?.trim() ?? '';
+  return k.length > 10 && !k.toLowerCase().startsWith('your_');
+}
+
 // Builds the same URL shape as before so `geminiFetch` can parse the model out
 // of it. The key is no longer embedded — callers may pass '' for `apiKey`.
 export function geminiGenerateContentUrl(
