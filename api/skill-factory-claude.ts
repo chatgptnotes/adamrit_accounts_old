@@ -29,6 +29,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // sends 'opus'; the Skill Factory chatbot omits it (sidecar default sonnet).
   const model = typeof req.body?.model === 'string' ? req.body.model : undefined
 
+  // Optional vision images: [{ base64, mimeType }]. The sidecar writes each to a
+  // temp file and points the CLI's Read tool at it. Passed through as-is.
+  const rawImages = Array.isArray(req.body?.images) ? req.body.images : []
+  const images = rawImages
+    .filter((i: any) => i && typeof i.base64 === 'string' && typeof i.mimeType === 'string')
+    .map((i: any) => ({ base64: i.base64, mimeType: i.mimeType }))
+
   let upstream: Response
   try {
     upstream = await fetch(VPS_URL, {
@@ -37,7 +44,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${VPS_TOKEN}`,
       },
-      body: JSON.stringify(model ? { prompt, model } : { prompt }),
+      body: JSON.stringify({ prompt, ...(model ? { model } : {}), ...(images.length ? { images } : {}) }),
     })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'unknown'

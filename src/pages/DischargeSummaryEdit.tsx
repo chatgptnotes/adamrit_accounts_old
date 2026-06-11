@@ -14,6 +14,7 @@ import { useDebounce } from 'use-debounce';
 import DischargeSummary from '@/components/DischargeSummary';
 import { useVisitDiagnosis } from '@/hooks/useVisitDiagnosis';
 import { geminiGenerateContentUrl, geminiGenerateContent } from '@/lib/gemini';
+import { LLM_BACKEND, callVpsClaude } from '@/lib/vpsClaude';
 import { downscaleImageForVision } from '@/lib/downscaleImage';
 import { useToast } from '@/hooks/use-toast';
 
@@ -2285,42 +2286,48 @@ IMPORTANT:
 - Do NOT add information that is not in the handwritten document
 - Output ONLY the transcribed and structured text, no explanations`;
 
-      const requestBody = {
-        contents: [{
-          parts: [
-            {
-              inline_data: {
-                mime_type: mimeType,
-                data: base64Data,
+      let extractedText: string;
+      if (LLM_BACKEND === 'vps') {
+        // Vision on VPS Claude Opus (subscription auth). No fallback: errors throw.
+        extractedText = (await callVpsClaude(ocrPrompt, 'opus', [{ base64: base64Data, mimeType }])) || '';
+      } else {
+        const requestBody = {
+          contents: [{
+            parts: [
+              {
+                inline_data: {
+                  mime_type: mimeType,
+                  data: base64Data,
+                }
+              },
+              {
+                text: ocrPrompt
               }
-            },
-            {
-              text: ocrPrompt
-            }
-          ]
-        }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 4000
-        }
-      };
+            ]
+          }],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 4000
+          }
+        };
 
-      const response = await geminiGenerateContent(
-        geminiGenerateContentUrl(import.meta.env.VITE_GEMINI_API_KEY),
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody),
-        }
-      );
+        const response = await geminiGenerateContent(
+          geminiGenerateContentUrl(import.meta.env.VITE_GEMINI_API_KEY),
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody),
+          }
+        );
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        throw new Error(`Gemini API error: ${response.status} - ${errorData?.error?.message || response.statusText}`);
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => null);
+          throw new Error(`Gemini API error: ${response.status} - ${errorData?.error?.message || response.statusText}`);
+        }
+
+        const data = await response.json();
+        extractedText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       }
-
-      const data = await response.json();
-      const extractedText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
       if (!extractedText) {
         toast({
@@ -2384,54 +2391,61 @@ IMPORTANT:
       // Comprehensive medical discharge summary request
       const systemPrompt = 'You are an expert medical professional specializing in creating comprehensive OPD summaries for hospitals. Generate detailed, professional medical documentation following Indian medical standards and terminology. Include ALL provided medical data including investigations, lab results, radiology findings, OT notes, and complications.';
 
-      const requestBody = {
-        contents: [{
-          parts: [{
-            text: systemPrompt + '\n\n' + editablePrompt
-          }]
-        }],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 4000
+      let aiResponse: string;
+      if (LLM_BACKEND === 'vps') {
+        // Clinical discharge-summary generation on VPS Claude Opus (matches the
+        // IpdDischargeSummary text generations). No fallback: errors throw.
+        aiResponse = (await callVpsClaude(systemPrompt + '\n\n' + editablePrompt, 'opus')) || '';
+      } else {
+        const requestBody = {
+          contents: [{
+            parts: [{
+              text: systemPrompt + '\n\n' + editablePrompt
+            }]
+          }],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 4000
+          }
+        };
+
+        console.log('🔍 Request body:', JSON.stringify(requestBody, null, 2));
+
+        // Call Google Gemini API
+        const response = await geminiGenerateContent(geminiGenerateContentUrl(import.meta.env.VITE_GEMINI_API_KEY), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(requestBody)
+        });
+
+        console.log('📡 API Response received:');
+
+        if (!response.ok) {
+          // Try to get error details from response
+          let errorDetails = 'Unknown error';
+          try {
+            const errorData = await response.json();
+            errorDetails = JSON.stringify(errorData, null, 2);
+            console.error('🚨 API Error Response:', errorData);
+          } catch (parseError) {
+            console.error('🚨 Could not parse error response:', parseError);
+            errorDetails = await response.text();
+          }
+
+          throw new Error(`Gemini API error: ${response.status} - ${response.statusText}\nDetails: ${errorDetails}`);
         }
-      };
 
-      console.log('🔍 Request body:', JSON.stringify(requestBody, null, 2));
-
-      // Call Google Gemini API
-      const response = await geminiGenerateContent(geminiGenerateContentUrl(import.meta.env.VITE_GEMINI_API_KEY), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody)
-      });
-
-      console.log('📡 API Response received:');
-
-      if (!response.ok) {
-        // Try to get error details from response
-        let errorDetails = 'Unknown error';
-        try {
-          const errorData = await response.json();
-          errorDetails = JSON.stringify(errorData, null, 2);
-          console.error('🚨 API Error Response:', errorData);
-        } catch (parseError) {
-          console.error('🚨 Could not parse error response:', parseError);
-          errorDetails = await response.text();
-        }
-
-        throw new Error(`Gemini API error: ${response.status} - ${response.statusText}\nDetails: ${errorDetails}`);
+        const data = await response.json();
+        console.log('✅ API Response data structure:', {
+          candidates: data.candidates?.length,
+          hasContent: !!data.candidates?.[0]?.content?.parts?.[0]?.text,
+          usageMetadata: data.usageMetadata
+        });
+        // Get AI response content (Gemini format)
+        aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       }
-
-      const data = await response.json();
-      console.log('✅ API Response data structure:', {
-        candidates: data.candidates?.length,
-        hasContent: !!data.candidates?.[0]?.content?.parts?.[0]?.text,
-        usageMetadata: data.usageMetadata
-      });
-      // Get AI response content (Gemini format)
-      const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       console.log('🤖 AI Response received:', aiResponse ? aiResponse.substring(0, 200) + '...' : 'No content');
 
       // Check if AI response is properly formatted

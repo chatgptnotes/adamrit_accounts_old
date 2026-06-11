@@ -326,6 +326,7 @@ const BillSubmissionPage: React.FC = () => {
         billAmount: Number(existing.bill_amount) || 0,
         submittedBy: existing.executive_who_submitted || '',
         submissionDate: existing.date_of_submission ? String(existing.date_of_submission).split('T')[0] : '',
+        intimationDate: existing.intimation_date ? String(existing.intimation_date).split('T')[0] : '',
         expectedPaymentDate: existing.expected_payment_date ? String(existing.expected_payment_date).split('T')[0] : '',
         receivedAmount: Number(existing.received_amount) || 0,
         deductionAmount: Number(existing.deduction_amount) || 0,

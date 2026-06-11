@@ -30,7 +30,9 @@ import {
 } from '@/lib/generateFlowFromPrompt';
 import { FlowSafetyError } from '@/lib/flowSafety';
 import { fetchFireCountThisWeek, getCachedFireCount } from '@/lib/automationFireStats';
-import { parseReminderFromPrompt } from '@/lib/parseReminderFromPrompt';
+import { parseReminderFromPrompt, type ParsedReminder } from '@/lib/parseReminderFromPrompt';
+import { matchRecipient } from '@/lib/slackRecipients';
+import { useSlackRecipients } from '@/hooks/useSlackRecipients';
 import { classifyChatIntent } from '@/lib/classifyChatIntent';
 import { suggestAutomations, type AutomationSuggestion } from '@/lib/suggestAutomations';
 import { scanAndExtractForTask, type ScanField, type ScanAttachment } from '@/lib/scanForTask';
@@ -123,6 +125,7 @@ interface ChatMessage {
     amount: number;
     billType: string;
     recurring: boolean;
+    important: boolean;
   };
   // Automation suggestions (shown on request) — each rendered as a card with a
   // "Set this up" button that confirms + creates the automation.
@@ -134,6 +137,11 @@ interface ChatMessage {
   createdAutomation?: { id: string; name: string };
   // A scanned document's extracted result — rendered as a fields card.
   scanResult?: { title: string; summary: string; fields: ScanField[]; fileUrl: string | null };
+  // When present, this message is asking WHO a parsed-but-not-yet-created
+  // reminder should be sent to — rendered as recipient chips (roster + shared
+  // channel). The reminder is held here (not re-parsed) so picking a chip just
+  // commits it with the chosen recipient_id.
+  pendingRecipient?: { reminder: ParsedReminder; hint: string | null };
 }
 
 // Build the prompt that gets pushed to the chatbot when Execute is clicked.
@@ -225,6 +233,18 @@ const QUICK_REFINEMENTS: { icon: typeof Wand2; label: string; prompt: string }[]
   { icon: ArrowDownToLine, label: 'Add tagging', prompt: 'Also tag the action with a short note when this runs.' },
 ];
 
+// Interpret the user's answer to "what's their Slack ID?". Returns 'skip' for a
+// name-only recipient, a resolved { id, kind } when a Slack ID is found (U/W =
+// person, C/G/D = channel), or null when the text is neither (→ re-ask).
+function parseSlackTarget(input: string): 'skip' | { slack_target: string; kind: 'dm' | 'channel' } | null {
+  const t = input.trim();
+  if (/^(skip|no|none|name ?only|by name|later|n\/a)$/i.test(t)) return 'skip';
+  const m = t.match(/\b([UWCGD][A-Z0-9]{6,})\b/i);
+  if (!m) return null;
+  const id = m[1].toUpperCase();
+  return { slack_target: id, kind: /^[CGD]/.test(id) ? 'channel' : 'dm' };
+}
+
 export default function SkillFactoryChatbot({
   task,
   subtasks,
@@ -249,9 +269,17 @@ export default function SkillFactoryChatbot({
   // The hook fires bill_added on insert, which the existing notification bell
   // and any bill_added flow picks up automatically.
   const { createDeadline } = useUtilityDeadlines();
+  // Roster of Slack recipients a reminder can be addressed to. Used to resolve a
+  // "to Murli sir" phrase to a recipient_id, and to render the "who?" chips when
+  // the user named no one (or someone not on the roster). createRecipient lets
+  // the user add a new person/channel inline, without leaving the chat.
+  const { recipients, createRecipient } = useSlackRecipients();
   // Rule 15 — when on, applied flows render to canvas but the parent skips
   // persistence. Lets the user iterate without polluting the DB.
   const [dryRun, setDryRun] = useState(false);
+  // When set, the chatbot is waiting for the user to type the Slack ID of a new
+  // recipient they're adding inline. The next message is treated as that answer.
+  const [pendingNewRecipient, setPendingNewRecipient] = useState<{ reminder: ParsedReminder; name: string } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const isEditing = currentFlow.nodes.length > 0;
@@ -264,10 +292,119 @@ export default function SkillFactoryChatbot({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages, loading]);
 
+  // Create the utility_deadlines row for a parsed reminder, addressed to an
+  // optional recipient. Shared by the direct path (recipient matched in the
+  // prompt) and the "who?" chips (recipient picked after the fact).
+  const commitReminder = async (
+    reminder: ParsedReminder,
+    recipient: { id: string; name: string } | null,
+  ) => {
+    await createDeadline({
+      name: reminder.name,
+      bill_type: reminder.bill_type,
+      amount: reminder.amount,
+      due_date: reminder.due_date,
+      recurring: reminder.recurring,
+      notes: reminder.notes,
+      notify_at: reminder.notify_at,
+      recipient_id: recipient?.id ?? null,
+      important: reminder.important,
+    });
+    setMessages(prev => [
+      ...prev,
+      {
+        role: 'assistant',
+        text: recipient
+          ? `Created a reminder for "${reminder.name}" — I'll notify ${recipient.name}.`
+          : `Created a reminder for "${reminder.name}".`,
+        reminderCreated: {
+          name: reminder.name,
+          dueLabel: reminder.dueLabel,
+          amount: reminder.amount,
+          billType: reminder.bill_type,
+          recurring: reminder.recurring,
+          important: reminder.important === true,
+        },
+      },
+    ]);
+  };
+
+  // A "who?" recipient chip was tapped — commit the held reminder with the
+  // chosen recipient (or null for the shared channel). Guards against double
+  // taps while a create is in flight.
+  const pickRecipient = async (
+    reminder: ParsedReminder,
+    recipient: { id: string; name: string } | null,
+  ) => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      await commitReminder(reminder, recipient);
+    } catch (error: unknown) {
+      pushError(error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Add a brand-new recipient inline. Instead of creating a name-only row
+  // immediately, ask for their Slack ID so the reminder can actually ping them.
+  // The next message the user sends is captured by finalizeNewRecipient.
+  const addAndPickRecipient = (reminder: ParsedReminder, name: string) => {
+    if (loading) return;
+    setPendingNewRecipient({ reminder, name });
+    setMessages(prev => [
+      ...prev,
+      {
+        role: 'assistant',
+        text: `What's ${name}'s Slack ID? Paste their Slack member ID (starts with "U") — or a channel ID (starts with "C") — so reminders ping them. Type "skip" to add by name only for now.`,
+      },
+    ]);
+  };
+
+  // Handle the user's reply to the "what's their Slack ID?" prompt: create the
+  // recipient (with the ID, or name-only on "skip") and address the held
+  // reminder to them. On an unrecognized answer, re-ask without losing state.
+  const finalizeNewRecipient = async (answer: string, pending: { reminder: ParsedReminder; name: string }) => {
+    const parsed = parseSlackTarget(answer);
+    if (parsed === null) {
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: `That doesn't look like a Slack ID — they start with "U" for a person or "C" for a channel. Paste it again, or type "skip" to add ${pending.name} by name only.`,
+        },
+      ]);
+      return; // keep pendingNewRecipient set so the next message retries
+    }
+    setLoading(true);
+    try {
+      const slack_target = parsed === 'skip' ? null : parsed.slack_target;
+      const kind = parsed === 'skip' ? 'dm' : parsed.kind;
+      const created = await createRecipient({ name: pending.name, aliases: [], kind, slack_target });
+      if (created) {
+        setPendingNewRecipient(null);
+        await commitReminder(pending.reminder, { id: created.id, name: created.name });
+      } else {
+        pushError(new Error('Could not add the recipient. Please try again.'));
+      }
+    } catch (error: unknown) {
+      pushError(error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const send = async (text: string) => {
     if (!text.trim() || loading) return;
     setMessages(prev => [...prev, { role: 'user', text }]);
     setInstruction('');
+    // If we asked for a new recipient's Slack ID, this message is the answer —
+    // create the recipient + commit the held reminder, don't re-parse as a flow.
+    if (pendingNewRecipient) {
+      await finalizeNewRecipient(text, pendingNewRecipient);
+      return;
+    }
     setLoading(true);
     try {
       // Branch 1 — natural-language reminder/bill creation.
@@ -275,29 +412,23 @@ export default function SkillFactoryChatbot({
       // create request, falling through to the automation-design path below.
       const reminder = await parseReminderFromPrompt(text);
       if (reminder) {
-        await createDeadline({
-          name: reminder.name,
-          bill_type: reminder.bill_type,
-          amount: reminder.amount,
-          due_date: reminder.due_date,
-          recurring: reminder.recurring,
-          notes: reminder.notes,
-          notify_at: reminder.notify_at,
-        });
-        setMessages(prev => [
-          ...prev,
-          {
-            role: 'assistant',
-            text: `Created a reminder for "${reminder.name}".`,
-            reminderCreated: {
-              name: reminder.name,
-              dueLabel: reminder.dueLabel,
-              amount: reminder.amount,
-              billType: reminder.bill_type,
-              recurring: reminder.recurring,
-            },
-          },
-        ]);
+        // Resolve "to Murli sir" against the roster. A clear match → create now.
+        // A named-but-unknown recipient, or no recipient at all → ask who, with
+        // the parsed reminder held on the message so a chip just commits it.
+        const match = reminder.recipient_hint
+          ? matchRecipient(reminder.recipient_hint, recipients)
+          : null;
+        if (match) {
+          await commitReminder(reminder, { id: match.id, name: match.name });
+        } else {
+          const askText = reminder.recipient_hint
+            ? `I don't have anyone called "${reminder.recipient_hint}" on the recipient list yet. Who should I send this reminder to?`
+            : 'Who should I send this reminder to?';
+          setMessages(prev => [
+            ...prev,
+            { role: 'assistant', text: askText, pendingRecipient: { reminder, hint: reminder.recipient_hint } },
+          ]);
+        }
         return;
       }
 
@@ -679,6 +810,39 @@ export default function SkillFactoryChatbot({
                   ))}
                 </div>
               )}
+              {m.pendingRecipient && (
+                <div className="space-y-1 pl-9">
+                  <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-slate-400">
+                    <Bell className="h-3 w-3" /> Send to
+                  </p>
+                  {m.pendingRecipient.hint && (
+                    <button
+                      onClick={() => addAndPickRecipient(m.pendingRecipient!.reminder, m.pendingRecipient!.hint!)}
+                      disabled={loading}
+                      className="block w-full text-left text-[11px] px-2.5 py-1.5 rounded-md border border-blue-300 bg-blue-50/60 text-blue-700 font-medium hover:bg-blue-100 disabled:opacity-40 transition-colors"
+                    >
+                      + Add "{m.pendingRecipient.hint}" as a new recipient
+                    </button>
+                  )}
+                  {recipients.filter((r) => r.active).map((r) => (
+                    <button
+                      key={r.id}
+                      onClick={() => pickRecipient(m.pendingRecipient!.reminder, { id: r.id, name: r.name })}
+                      disabled={loading}
+                      className="block w-full text-left text-[11px] px-2.5 py-1.5 rounded-md border border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/60 disabled:opacity-40 transition-colors"
+                    >
+                      {r.kind === 'channel' ? `# ${r.name}` : r.name}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => pickRecipient(m.pendingRecipient!.reminder, null)}
+                    disabled={loading}
+                    className="block w-full text-left text-[11px] px-2.5 py-1.5 rounded-md border border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/60 disabled:opacity-40 transition-colors"
+                  >
+                    Shared channel (no specific person)
+                  </button>
+                </div>
+              )}
               {m.suggestions && m.suggestions.length > 0 && (
                 <div className="space-y-1.5 pl-9">
                   {m.suggestions.map((s) => (
@@ -929,6 +1093,7 @@ function ReminderCreatedBubble({
     amount: number;
     billType: string;
     recurring: boolean;
+    important: boolean;
   };
 }) {
   const inr = (n: number) =>
@@ -961,6 +1126,11 @@ function ReminderCreatedBubble({
               )}
             </div>
           </div>
+          {reminder.important && (
+            <div className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+              ⭐ Important — directors will be notified
+            </div>
+          )}
           <p className="mt-1.5 text-[10px] text-emerald-700/80">
             Notification scheduled. You can edit it in the Deadline Tracking dashboard.
           </p>

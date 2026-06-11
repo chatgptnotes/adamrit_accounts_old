@@ -3,6 +3,7 @@
 // aid only — it must be verified against a clinical reference and never blocks
 // dispensing.
 import { geminiGenerateContentUrl, geminiFetch } from './gemini';
+import { LLM_BACKEND, callVpsClaude } from './vpsClaude';
 
 export interface DrugInteraction {
   drugs: string[];
@@ -20,13 +21,6 @@ export interface InteractionReport {
 export async function checkDrugInteractions(
   medicines: { name: string; generic?: string; strength?: string }[]
 ): Promise<InteractionReport> {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!apiKey || apiKey === 'your_gemini_api_key_here') {
-    throw new Error(
-      'Gemini API key is not configured. Add VITE_GEMINI_API_KEY to .env and restart the dev server.'
-    );
-  }
-
   const list = medicines
     .filter((m) => (m.name || '').trim())
     .map((m, i) => {
@@ -50,40 +44,51 @@ Rules:
 Respond with ONLY valid JSON (no markdown, no commentary) in EXACTLY this shape:
 {"interactions":[{"drugs":["Medicine A","Medicine B"],"severity":"major","effect":"what happens","recommendation":"what to do"}],"summary":"one-line overall summary"}`;
 
-  // Abort the request if the AI does not respond — otherwise the panel would
-  // spin on "Analyzing…" forever.
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
-  let data: any;
-  try {
-    const res = await geminiFetch(geminiGenerateContentUrl(apiKey), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 2048,
-          // Force clean JSON output (no markdown fences).
-          responseMimeType: 'application/json',
-          // Disable Gemini 2.5 "thinking" — those tokens otherwise consume the
-          // output budget and slow the response, leaving the panel stuck.
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-      }),
-      signal: controller.signal,
-    });
-    data = await res.json();
-  } catch (e: any) {
-    if (e?.name === 'AbortError') {
-      throw new Error('The interaction check timed out (no response from the AI). Tap Re-check to retry.');
+  let text: string;
+  if (LLM_BACKEND === 'vps') {
+    // No fallback: VPS failure throws and surfaces verbatim to the caller.
+    text = await callVpsClaude(prompt);
+  } else {
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    if (!apiKey || apiKey === 'your_gemini_api_key_here') {
+      throw new Error(
+        'Gemini API key is not configured. Add VITE_GEMINI_API_KEY to .env and restart the dev server.'
+      );
     }
-    throw e;
-  } finally {
-    clearTimeout(timeoutId);
+    // Abort the request if the AI does not respond — otherwise the panel would
+    // spin on "Analyzing…" forever.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    let data: any;
+    try {
+      const res = await geminiFetch(geminiGenerateContentUrl(apiKey), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 2048,
+            // Force clean JSON output (no markdown fences).
+            responseMimeType: 'application/json',
+            // Disable Gemini 2.5 "thinking" — those tokens otherwise consume the
+            // output budget and slow the response, leaving the panel stuck.
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
+        signal: controller.signal,
+      });
+      data = await res.json();
+    } catch (e: any) {
+      if (e?.name === 'AbortError') {
+        throw new Error('The interaction check timed out (no response from the AI). Tap Re-check to retry.');
+      }
+      throw e;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
   }
-
-  const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) {
     throw new Error('The interaction check returned an unexpected response. Please re-check.');

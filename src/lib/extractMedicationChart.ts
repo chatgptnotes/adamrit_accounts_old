@@ -1,4 +1,5 @@
 import { geminiGenerateContentUrl, geminiFetch } from '@/lib/gemini';
+import { LLM_BACKEND, callVpsClaude } from '@/lib/vpsClaude';
 import { downscaleImageForVision } from '@/lib/downscaleImage';
 
 // One medicine read from a handwritten medication chart. Kept all-strings
@@ -53,26 +54,33 @@ Rules:
  * unparseable response, or no medicines found) — callers surface a toast.
  */
 export async function extractMedicationChart(image: Blob): Promise<ExtractedChart> {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!apiKey) throw new Error('Gemini API key is not configured.');
-
   const { base64, mimeType } = await downscaleImageForVision(image);
-  const response = await geminiFetch(geminiGenerateContentUrl(apiKey), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{
-        parts: [
-          { text: EXTRACT_PROMPT },
-          { inline_data: { mime_type: mimeType, data: base64 } },
-        ],
-      }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 4000 },
-    }),
-  });
 
-  const data = await response.json();
-  const text: string = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  let text: string;
+  if (LLM_BACKEND === 'vps') {
+    // Vision on VPS Claude Opus (subscription auth). No fallback: errors throw.
+    text = (await callVpsClaude(EXTRACT_PROMPT, 'opus', [{ base64, mimeType }])) || '';
+  } else {
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    if (!apiKey) throw new Error('Gemini API key is not configured.');
+
+    const response = await geminiFetch(geminiGenerateContentUrl(apiKey), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: EXTRACT_PROMPT },
+            { inline_data: { mime_type: mimeType, data: base64 } },
+          ],
+        }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 4000 },
+      }),
+    });
+
+    const data = await response.json();
+    text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  }
   const cleaned = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
 
   let parsed: { doctor?: string; medicines?: ExtractedMedicine[] };

@@ -43,6 +43,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { dispatchFlowEventWithToasts } from '@/lib/flowDispatcher';
 import { extractUtilityBill } from '@/lib/extractUtilityBill';
 import DeadlineNotificationBell from './DeadlineNotificationBell';
+import SlackRecipientsManager from './SlackRecipientsManager';
 
 // ── Bill types catalogue (§3) ───────────────────────────────────────
 interface BillTypeMeta {
@@ -527,6 +528,7 @@ export default function DeadlineDashboard({ onBack }: Props) {
             <p className="text-[10px] uppercase tracking-wider text-slate-300">Outstanding</p>
             <p className="text-lg font-bold tabular-nums">{inr(outstanding)}</p>
           </div>
+          <SlackRecipientsManager variant="dark" />
           <DeadlineNotificationBell variant="dark" autoPopup />
           {onBack && (
             <button

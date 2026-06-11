@@ -35,6 +35,8 @@ export interface UtilityDeadline {
   recurring: boolean;
   notes: string | null;
   attachment_url: string | null;
+  recipient_id: string | null;
+  important: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -51,6 +53,12 @@ export interface UpsertUtilityDeadline {
   // Optional exact-time reminder (ISO timestamp). When set, the
   // fire-due-reminders cron posts a one-off Slack alert at this time.
   notify_at?: string | null;
+  // Optional slack_recipients.id — addresses the reminder to a specific person
+  // or channel. Null = the shared channel (current behavior).
+  recipient_id?: string | null;
+  // High-priority / MD-level flag (set in chat or by the AI). Directors receive
+  // only reminders where this is true (or that the auto-rules deem important).
+  important?: boolean;
 }
 
 const TABLE = 'utility_deadlines';
@@ -196,6 +204,8 @@ export function useUtilityDeadlines() {
       };
       if (input.attachment_url) row.attachment_url = input.attachment_url;
       if (input.notify_at) row.notify_at = input.notify_at;
+      if (input.recipient_id) row.recipient_id = input.recipient_id;
+      if (input.important) row.important = input.important;
       // Returning the row so the dispatcher can use its id as a dedup key.
       const { data, error } = await supabase.from(TABLE).insert(row).select('*').single();
       if (error) throw error;
@@ -244,6 +254,8 @@ export function useUtilityDeadlines() {
         updated_at: new Date().toISOString(),
       };
       if (input.attachment_url !== undefined) patch.attachment_url = input.attachment_url;
+      if (input.recipient_id !== undefined) patch.recipient_id = input.recipient_id;
+      if (input.important !== undefined) patch.important = input.important;
       const { error } = await supabase.from(TABLE).update(patch).eq('id', input.id);
       if (error) throw error;
     },
