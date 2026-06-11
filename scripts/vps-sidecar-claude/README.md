@@ -68,6 +68,48 @@ curl -s https://aiass.yourdomain.tld/claude \
 - 502 with `claude_cli_failed` → the `claude` CLI on the VPS errored; check
   whether the CLI session is still authenticated (`claude -p hi` in that shell).
 
+## Token-spend tracking (GET /usage)
+
+Every `claude -p --output-format=json` reply carries this call's real token
+counts + notional cost. The sidecar now appends one JSONL line per call to
+`usage.jsonl` (override with `USAGE_LOG`), stamped with the sidecar name, model,
+and the calling feature/page. `GET /usage` (bearer-protected) aggregates it:
+all-time / today / this-month, per-model, per-feature.
+
+Run each sidecar with a name so the report can tell them apart:
+
+```bash
+SIDECAR_NAME=adamrit-sidecar VPS_CLAUDE_TOKEN=$(cat .token) \
+  pm2 restart adamrit-sidecar --update-env
+```
+
+Check it locally:
+
+```bash
+curl -s http://127.0.0.1:8791/usage -H "Authorization: Bearer $(cat .token)" | jq .
+```
+
+Publish `/usage` through nginx (add a sibling location to the existing
+`/adamrit-claude` one — note the trailing `/usage`):
+
+```nginx
+location /adamrit-usage {
+  proxy_pass http://127.0.0.1:8791/usage;
+  proxy_set_header Host $host;
+  proxy_set_header Authorization $http_authorization;
+}
+```
+
+then `sudo nginx -t && sudo systemctl reload nginx`. Set the resulting public
+URL as `VPS_CLAUDE_USAGE_URL` in Vercel (comma-separate if you add the second
+sidecar). The browser reads it via `/api/vps-claude-usage` → the `/vps-claude-usage`
+page.
+
+To also track the *other* sidecar (`sidecar-claude`, 8788) — which the app does
+NOT call but shares your Claude subscription — deploy this same `server.js` to
+it with `SIDECAR_NAME=sidecar-claude`, add an `/…-usage` nginx location for
+8788, and append that URL to `VPS_CLAUDE_USAGE_URL`.
+
 ## Configure the main repo
 
 After the VPS side is up, set these env vars locally and in Vercel:

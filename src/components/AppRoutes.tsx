@@ -21,6 +21,7 @@ import IpdDischargeSummary from "../pages/IpdDischargeSummary";
 
 // Lazy load discharged patients page
 const DischargedPatients = lazy(() => import("../pages/DischargedPatients"));
+const VpsClaudeUsage = lazy(() => import("../pages/VpsClaudeUsage"));
 const Accommodation = lazy(() => import("../pages/Accommodation"));
 const RoomManagement = lazy(() => import("../pages/RoomManagement"));
 const DirectorDashboard = lazy(() => import("../pages/DirectorDashboard"));
@@ -198,6 +199,7 @@ export const AppRoutes = () => {
     <Suspense fallback={<PageLoader />}>
       <Routes>
         <Route path="/" element={<LandingPage />} />
+        <Route path="/vps-claude-usage" element={<Suspense fallback={<PageLoader />}><VpsClaudeUsage /></Suspense>} />
         <Route path="/dashboard" element={<Index />} />
         <Route path="/director-dashboard" element={<DirectorRoute />} />
         <Route path="/login" element={<LoginPage />} />

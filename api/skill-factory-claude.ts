@@ -36,6 +36,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     .filter((i: any) => i && typeof i.base64 === 'string' && typeof i.mimeType === 'string')
     .map((i: any) => ({ base64: i.base64, mimeType: i.mimeType }))
 
+  // Token-usage attribution: tag this call with the page that made it so the
+  // sidecar's /usage report can break spend down per feature — without touching
+  // any of the ~20 call sites. Same-origin fetches send the full page path in
+  // Referer; fall back to an explicit body.feature, then 'unknown'.
+  let feature = typeof req.body?.feature === 'string' ? req.body.feature : ''
+  if (!feature) {
+    try {
+      feature = req.headers.referer ? new URL(req.headers.referer).pathname : ''
+    } catch {
+      feature = ''
+    }
+  }
+  feature = (feature || 'unknown').slice(0, 80)
+
   let upstream: Response
   try {
     upstream = await fetch(VPS_URL, {
@@ -44,7 +58,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${VPS_TOKEN}`,
       },
-      body: JSON.stringify({ prompt, ...(model ? { model } : {}), ...(images.length ? { images } : {}) }),
+      body: JSON.stringify({ prompt, feature, ...(model ? { model } : {}), ...(images.length ? { images } : {}) }),
     })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'unknown'
