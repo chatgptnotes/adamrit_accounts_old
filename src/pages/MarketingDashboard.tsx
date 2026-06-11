@@ -14,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useCorporateBulkPayments } from '@/hooks/useCorporateBulkPayments';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { geminiGenerateContentUrl, geminiGenerateContent } from '@/lib/gemini';
+import { LLM_BACKEND, callVpsClaude } from '@/lib/vpsClaude';
 import { ClinicalKPIs } from '@/components/ClinicalKPIs';
 
 const db = supabase as any;
@@ -538,25 +539,31 @@ Return JSON only:
   "meetingDate": "${todayDate}"
 }`;
 
-      const res = await geminiGenerateContent(geminiGenerateContentUrl(import.meta.env.VITE_GEMINI_API_KEY), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.2,
-            responseMimeType: 'application/json'
-          }
-        })
-      });
-      
-      const data = await res.json();
-      
-      if (data.error) {
-        throw new Error(data.error.message);
+      let text: string;
+      if (LLM_BACKEND === 'vps') {
+        // No fallback: VPS failure throws and surfaces in the chat error state.
+        text = await callVpsClaude(prompt);
+      } else {
+        const res = await geminiGenerateContent(geminiGenerateContentUrl(import.meta.env.VITE_GEMINI_API_KEY), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.2,
+              responseMimeType: 'application/json'
+            }
+          })
+        });
+
+        const data = await res.json();
+
+        if (data.error) {
+          throw new Error(data.error.message);
+        }
+
+        text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       }
-      
-      let text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       
       // Clean up JSON if needed
       text = text.trim();

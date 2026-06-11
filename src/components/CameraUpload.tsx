@@ -36,6 +36,7 @@ import { useToast } from '@/hooks/use-toast';
 import { logActivity } from '@/lib/activity-logger';
 import { useAuth } from '@/contexts/AuthContext';
 import { geminiGenerateContentUrl, geminiFetch, GEMINI_MODEL_LITE } from '@/lib/gemini';
+import { LLM_BACKEND, callVpsClaude } from '@/lib/vpsClaude';
 import { downscaleImageForVision } from '@/lib/downscaleImage';
 
 // ---------------------------------------------------------------------------
@@ -450,9 +451,6 @@ const CameraUpload: React.FC<CameraUploadProps> = ({
   // -------------------------------------------------------------------------
 
   const parseWithAI = useCallback(async (instruction: string): Promise<AiParseResult> => {
-    const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!geminiApiKey) throw new Error('No Gemini API key');
-
     const systemPrompt = `You extract file metadata from a user instruction about a medical document upload.
 Return ONLY valid JSON with these fields:
 {
@@ -473,18 +471,24 @@ Category mapping hints:
 
 Extract patient name if mentioned. Extract any ID/UHID if mentioned. Put the document type description in "notes".`;
 
-    // Low-grade text->JSON task: route to the cheaper lite model.
-    const response = await geminiFetch(geminiGenerateContentUrl(geminiApiKey, GEMINI_MODEL_LITE), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: systemPrompt + '\n\n' + instruction }] }],
-        generationConfig: { temperature: 0, maxOutputTokens: 200 },
-      }),
-    });
-
-    const data = await response.json();
-    const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    let content: string;
+    if (LLM_BACKEND === 'vps') {
+      content = await callVpsClaude(systemPrompt + '\n\n' + instruction);
+    } else {
+      const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      if (!geminiApiKey) throw new Error('No Gemini API key');
+      // Low-grade text->JSON task: route to the cheaper lite model.
+      const response = await geminiFetch(geminiGenerateContentUrl(geminiApiKey, GEMINI_MODEL_LITE), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: systemPrompt + '\n\n' + instruction }] }],
+          generationConfig: { temperature: 0, maxOutputTokens: 200 },
+        }),
+      });
+      const data = await response.json();
+      content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    }
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('No JSON in AI response');
     return JSON.parse(jsonMatch[0]) as AiParseResult;
@@ -686,12 +690,6 @@ Extract patient name if mentioned. Extract any ID/UHID if mentioned. Put the doc
   // -------------------------------------------------------------------------
 
   const transcribePrescription = useCallback(async (imageBlob: Blob): Promise<string | null> => {
-    const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!geminiApiKey) {
-      toast({ title: 'AI Unavailable', description: 'Gemini API key not configured.', variant: 'destructive' });
-      return null;
-    }
-
     // Downscale before encoding to keep vision token cost in check.
     const { base64, mimeType } = await downscaleImageForVision(imageBlob);
 
@@ -724,6 +722,18 @@ Rules:
 - Include duration (e.g., 5 days, 7 days, 2 weeks)
 - If any field is not clearly visible, write "as directed"
 - Use standard medical abbreviations`;
+
+    if (LLM_BACKEND === 'vps') {
+      // Vision on VPS Claude Opus (subscription auth). No fallback: a VPS error
+      // throws and is surfaced by the caller's catch.
+      return (await callVpsClaude(systemPrompt, 'opus', [{ base64, mimeType }])) || null;
+    }
+
+    const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    if (!geminiApiKey) {
+      toast({ title: 'AI Unavailable', description: 'Gemini API key not configured.', variant: 'destructive' });
+      return null;
+    }
 
     const response = await geminiFetch(geminiGenerateContentUrl(geminiApiKey), {
       method: 'POST',
@@ -784,12 +794,6 @@ Rules:
   // -------------------------------------------------------------------------
 
   const transcribeTreatmentSheet = useCallback(async (imageBlob: Blob): Promise<string | null> => {
-    const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!geminiApiKey) {
-      toast({ title: 'AI Unavailable', description: 'Gemini API key not configured.', variant: 'destructive' });
-      return null;
-    }
-
     // Downscale before encoding to keep vision token cost in check.
     const { base64, mimeType } = await downscaleImageForVision(imageBlob);
 
@@ -826,6 +830,16 @@ Rules:
 - If any field is unclear, write "as directed"
 - The JSON block must be valid JSON
 - IMPORTANT: For each medicine, identify the generic/molecule name (e.g. PARACETAMOL, AMOXICILLIN+CLAVULANATE) and the brand name (e.g. Dolo 650, Augmentin). Put molecule in "generic_name" in UPPERCASE and brand in "brand_name". For combination drugs, list all molecules separated by + (e.g. "AMOXICILLIN+CLAVULANATE"). If only brand is visible, still try to identify the generic molecule. If only generic is visible, leave brand_name empty.`;
+
+    if (LLM_BACKEND === 'vps') {
+      return (await callVpsClaude(systemPrompt, 'opus', [{ base64, mimeType }])) || null;
+    }
+
+    const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    if (!geminiApiKey) {
+      toast({ title: 'AI Unavailable', description: 'Gemini API key not configured.', variant: 'destructive' });
+      return null;
+    }
 
     const response = await geminiFetch(geminiGenerateContentUrl(geminiApiKey), {
       method: 'POST',
@@ -946,12 +960,6 @@ Rules:
   // -------------------------------------------------------------------------
 
   const transcribeOpdSummary = useCallback(async (imageBlob: Blob): Promise<OpdExtractedData | null> => {
-    const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!geminiApiKey) {
-      toast({ title: 'AI Unavailable', description: 'Gemini API key not configured.', variant: 'destructive' });
-      return null;
-    }
-
     // Downscale before encoding to keep vision token cost in check.
     const { base64, mimeType } = await downscaleImageForVision(imageBlob);
 
@@ -984,22 +992,33 @@ Rules:
 - For medicines, include dose and frequency if visible
 - Return ONLY the JSON object, nothing else`;
 
-    const response = await geminiFetch(geminiGenerateContentUrl(geminiApiKey), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: systemPrompt },
-            { inline_data: { mime_type: mimeType, data: base64 } }
-          ]
-        }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 3000 },
-      }),
-    });
+    let text: string;
+    if (LLM_BACKEND === 'vps') {
+      text = (await callVpsClaude(systemPrompt, 'opus', [{ base64, mimeType }])) || '';
+    } else {
+      const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      if (!geminiApiKey) {
+        toast({ title: 'AI Unavailable', description: 'Gemini API key not configured.', variant: 'destructive' });
+        return null;
+      }
 
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const response = await geminiFetch(geminiGenerateContentUrl(geminiApiKey), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: systemPrompt },
+              { inline_data: { mime_type: mimeType, data: base64 } }
+            ]
+          }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 3000 },
+        }),
+      });
+
+      const data = await response.json();
+      text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    }
 
     try {
       // Strip markdown code fences if present

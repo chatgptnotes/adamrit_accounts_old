@@ -5,6 +5,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { supabase } from "@/integrations/supabase/client"
 import { geminiGenerateContentUrl, geminiGenerateContent } from "@/lib/gemini"
+import { LLM_BACKEND, callVpsClaude } from "@/lib/vpsClaude"
 import { format, differenceInDays } from "date-fns"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -5334,9 +5335,9 @@ Generated on: ${new Date().toLocaleDateString('en-IN')}`);
       return;
     }
 
-    // Check if Gemini API key is available
+    // Check if Gemini API key is available (only needed when not on the VPS backend)
     const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!geminiApiKey) {
+    if (LLM_BACKEND !== 'vps' && !geminiApiKey) {
       toast.error('Gemini API key not configured. Please add VITE_GEMINI_API_KEY to your environment variables.');
       return;
     }
@@ -5430,35 +5431,44 @@ ${allSurgeriesInfo}
 INSTRUCTIONS: Write exactly 3-4 lines. Include procedure name, surgeon name, type of anaesthesia, and post-operative condition. Use formal medical language. No bullet points or numbering. Write as a continuous paragraph.`;
 
 
-      const response = await geminiGenerateContent(geminiGenerateContentUrl(geminiApiKey), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: 'You are a medical documentation specialist. Generate ONLY 3-4 lines of clinical summary.\n\n' + surgeryPrompt
-            }]
-          }],
-          generationConfig: {
-            temperature: 0.5,
-            maxOutputTokens: 800
-          }
-        })
-      });
+      const opNotesPrompt = 'You are a medical documentation specialist. Generate ONLY 3-4 lines of clinical summary.\n\n' + surgeryPrompt;
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Gemini API Response Error:', response.status, errorData);
-        throw new Error(`Gemini API error: ${errorData.error?.message || response.statusText}`);
+      let generatedText: string | undefined;
+      if (LLM_BACKEND === 'vps') {
+        // OT/operation notes are a final clinical document → VPS Claude Opus
+        // (matches the IpdDischargeSummary operation-notes generator). No
+        // fallback: a VPS error throws and is handled by the catch below.
+        generatedText = await callVpsClaude(opNotesPrompt, 'opus');
+      } else {
+        const response = await geminiGenerateContent(geminiGenerateContentUrl(geminiApiKey), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{
+                text: opNotesPrompt
+              }]
+            }],
+            generationConfig: {
+              temperature: 0.5,
+              maxOutputTokens: 800
+            }
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error('Gemini API Response Error:', response.status, errorData);
+          throw new Error(`Gemini API error: ${errorData.error?.message || response.statusText}`);
+        }
+
+        const data = await response.json();
+        generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
       }
-
-      const data = await response.json();
-
-      const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!generatedText) {
-        throw new Error('No response from Gemini API');
+        throw new Error('No response from the AI service');
       }
 
       // Combine alias lines at top with AI-generated summary below

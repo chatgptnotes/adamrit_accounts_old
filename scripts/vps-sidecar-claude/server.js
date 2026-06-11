@@ -8,9 +8,14 @@
 
 const express = require('express');
 const { spawn } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const app = express();
-app.use(express.json({ limit: '256kb' }));
+// Vision requests carry a base64 image, so the body can be a few MB. Text-only
+// requests are tiny; this just raises the ceiling.
+app.use(express.json({ limit: '12mb' }));
 
 const TOKEN = process.env.VPS_CLAUDE_TOKEN;
 if (!TOKEN) {
@@ -33,18 +38,52 @@ app.post('/claude', (req, res) => {
   const ALLOWED_MODELS = ['sonnet', 'opus', 'haiku'];
   const model = ALLOWED_MODELS.includes(req.body?.model) ? req.body.model : 'sonnet';
 
-  const cp = spawn('claude', ['-p', prompt, '--model', model, '--output-format=json'], { timeout: 120_000 });
+  // Optional vision images: [{ base64, mimeType }]. The headless CLI has no
+  // base64/stdin image input, so we write each to a temp file and tell the Read
+  // tool to load them (Read returns images as visual content). --allowedTools
+  // "Read" pre-approves the read so headless mode never hangs on a prompt.
+  const tmpFiles = [];
+  let cliPrompt = prompt;
+  const cliArgs = ['-p', '', '--model', model, '--output-format=json'];
+  const images = Array.isArray(req.body?.images)
+    ? req.body.images.filter((i) => i && typeof i.base64 === 'string' && typeof i.mimeType === 'string')
+    : [];
+  if (images.length > 0) {
+    try {
+      images.forEach((img, idx) => {
+        const ext = (img.mimeType.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '') || 'png';
+        const tmpFile = path.join(os.tmpdir(), `adamrit-vision-${process.pid}-${Date.now()}-${idx}.${ext}`);
+        fs.writeFileSync(tmpFile, Buffer.from(img.base64, 'base64'));
+        tmpFiles.push(tmpFile);
+      });
+    } catch (e) {
+      tmpFiles.forEach((f) => { try { fs.unlinkSync(f); } catch { /* best effort */ } });
+      return res.status(500).json({ error: 'image_write_failed', message: e.message });
+    }
+    const paths = tmpFiles.map((f) => `"${f}"`).join(' and ');
+    cliPrompt = `Read the image${tmpFiles.length > 1 ? 's' : ''} at ${paths} and use ${tmpFiles.length > 1 ? 'them' : 'it'} to answer the following. Reply with only the requested output.\n\n${prompt}`;
+    cliArgs.push('--allowedTools', 'Read');
+  }
+  cliArgs[1] = cliPrompt;
+
+  const cleanup = () => {
+    while (tmpFiles.length) { try { fs.unlinkSync(tmpFiles.pop()); } catch { /* best effort */ } }
+  };
+
+  const cp = spawn('claude', cliArgs, { timeout: 120_000 });
   let out = '';
   let err = '';
   cp.stdout.on('data', (d) => { out += d; });
   cp.stderr.on('data', (d) => { err += d; });
   cp.on('close', (code) => {
+    cleanup();
     if (code !== 0) {
       return res.status(502).json({ error: 'claude_cli_failed', code, stderr: err.slice(0, 2000) });
     }
     res.type('application/json').send(out);
   });
   cp.on('error', (e) => {
+    cleanup();
     res.status(500).json({ error: 'spawn_failed', message: e.message });
   });
 });

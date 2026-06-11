@@ -14,7 +14,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Calendar, CalendarDays, Loader2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { geminiGenerateContentUrl, geminiFetch } from "@/lib/gemini";
-import { callVpsClaude } from "@/lib/vpsClaude";
+import { LLM_BACKEND, callVpsClaude } from "@/lib/vpsClaude";
 import { downscaleImageForVision } from "@/lib/downscaleImage";
 import { format } from 'date-fns';
 import { useAuth } from '@/contexts/AuthContext';
@@ -1503,7 +1503,7 @@ URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 937
   // every discharge-summary section from the extracted data (overwrite mode).
   const autoFillFromPhotos = async () => {
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!apiKey || apiKey === 'your_gemini_api_key_here') {
+    if (LLM_BACKEND !== 'vps' && (!apiKey || apiKey === 'your_gemini_api_key_here')) {
       toast({ title: 'AI not configured', description: 'Gemini API key is not set (VITE_GEMINI_API_KEY).', variant: 'destructive' });
       return;
     }
@@ -1515,10 +1515,12 @@ URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 937
     try {
       // Downscale every image and pack them all into ONE vision request.
       const imageParts: { inline_data: { mime_type: string; data: string } }[] = [];
+      const visionImages: { base64: string; mimeType: string }[] = [];
       for (const f of autoFillFiles) {
         try {
           const { base64, mimeType } = await downscaleImageForVision(f);
           imageParts.push({ inline_data: { mime_type: mimeType, data: base64 } });
+          visionImages.push({ base64, mimeType });
         } catch (e) {
           console.warn('Could not process one image:', e);
         }
@@ -1539,20 +1541,27 @@ URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 937
 }
 Rules: Use ONLY information visible in the images for diagnosis, medications, vitals and hospital_stay_notes — do NOT invent medications or treatment. If a field is not present, use an empty string (or empty array for medications). Mark illegible text as [unclear]. Return valid JSON only.`;
 
-      const res = await geminiFetch(geminiGenerateContentUrl(apiKey), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }, ...imageParts] }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 8192, thinkingConfig: { thinkingBudget: 0 } },
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error?.message || res.statusText);
+      let raw: string;
+      if (LLM_BACKEND === 'vps') {
+        // Vision on VPS Claude Opus (subscription auth). All photos go in one
+        // request. No fallback: a VPS error throws and is caught below.
+        raw = (await callVpsClaude(prompt, 'opus', visionImages)) || '';
+      } else {
+        const res = await geminiFetch(geminiGenerateContentUrl(apiKey), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }, ...imageParts] }],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 8192, thinkingConfig: { thinkingBudget: 0 } },
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error?.message || res.statusText);
+        }
+        const data = await res.json();
+        raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       }
-      const data = await res.json();
-      const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
       let parsed: any;
       try {
@@ -4070,7 +4079,7 @@ DD/MM/YYYY:-Test Category: Test1:Value1 unit, Test2:Value2 unit`);
             disabled={isClinicalHistoryGenerating}
             onClick={async () => {
               const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-              if (!apiKey || apiKey === 'your_gemini_api_key_here') {
+              if (LLM_BACKEND !== 'vps' && (!apiKey || apiKey === 'your_gemini_api_key_here')) {
                 toast({ title: 'AI not configured', description: 'Gemini API key is not set (VITE_GEMINI_API_KEY).', variant: 'destructive' });
                 return;
               }
@@ -4138,7 +4147,7 @@ DD/MM/YYYY:-Test Category: Test1:Value1 unit, Test2:Value2 unit`);
             disabled={isStayNotesGenerating}
             onClick={async () => {
               const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-              if (!apiKey || apiKey === 'your_gemini_api_key_here') {
+              if (LLM_BACKEND !== 'vps' && (!apiKey || apiKey === 'your_gemini_api_key_here')) {
                 toast({
                   title: 'AI not configured',
                   description: 'Gemini API key is not set (VITE_GEMINI_API_KEY).',
@@ -4190,16 +4199,21 @@ DD/MM/YYYY:-Test Category: Test1:Value1 unit, Test2:Value2 unit`);
                   try {
                     const blob = await (await fetch((s as any).prescription_image_url)).blob();
                     const { base64, mimeType } = await downscaleImageForVision(blob);
-                    const ocrRes = await geminiFetch(geminiGenerateContentUrl(apiKey), {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        contents: [{ parts: [{ text: OCR_PROMPT }, { inline_data: { mime_type: mimeType, data: base64 } }] }],
-                        generationConfig: { temperature: 0.1, maxOutputTokens: 4000 },
-                      }),
-                    });
-                    const ocrData = await ocrRes.json();
-                    const t = ocrData.candidates?.[0]?.content?.parts?.[0]?.text;
+                    let t: string | undefined;
+                    if (LLM_BACKEND === 'vps') {
+                      t = await callVpsClaude(OCR_PROMPT, 'opus', [{ base64, mimeType }]);
+                    } else {
+                      const ocrRes = await geminiFetch(geminiGenerateContentUrl(apiKey), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          contents: [{ parts: [{ text: OCR_PROMPT }, { inline_data: { mime_type: mimeType, data: base64 } }] }],
+                          generationConfig: { temperature: 0.1, maxOutputTokens: 4000 },
+                        }),
+                      });
+                      const ocrData = await ocrRes.json();
+                      t = ocrData.candidates?.[0]?.content?.parts?.[0]?.text;
+                    }
                     if (t && t.trim()) ocrTexts.push(t.trim());
                   } catch (e) {
                     console.warn('Treatment sheet OCR failed for one image:', e);
@@ -4725,7 +4739,7 @@ IMPORTANT — TREATMENT DATA SOURCE: The "TREATMENT SHEET (read via OCR)" below 
                     // Google returns a generic "API key not valid" that
                     // masks the real problem (the key was never set).
                     const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
-                    if (!geminiApiKey || geminiApiKey === 'your_gemini_api_key_here') {
+                    if (LLM_BACKEND !== 'vps' && (!geminiApiKey || geminiApiKey === 'your_gemini_api_key_here')) {
                       throw new Error(
                         'Gemini API key is not configured. Add VITE_GEMINI_API_KEY=<your-key> to .env and restart the dev server.'
                       );

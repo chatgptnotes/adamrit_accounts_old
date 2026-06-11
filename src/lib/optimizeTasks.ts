@@ -1,4 +1,5 @@
 import { geminiGenerateContentUrl, geminiFetch, GEMINI_MODEL_LITE } from '@/lib/gemini';
+import { LLM_BACKEND, callVpsClaude } from '@/lib/vpsClaude';
 import { ADAMRIT_MODULES } from '@/components/task-optimizer/commonTasks';
 
 // How the AI thinks a task should be handled.
@@ -72,18 +73,13 @@ Rules:
 - Output must be a single valid JSON array.`;
 }
 
-/**
- * Ask Gemini how a staff member could reduce or automate their daily tasks.
- * Returns one structured suggestion per task. Throws on any failure (missing
- * key, network, or unparseable response) — callers surface a toast/error.
- */
-export async function optimizeTasks(input: OptimizeTasksInput): Promise<TaskSuggestion[]> {
+async function runLlm(prompt: string): Promise<string> {
+  if (LLM_BACKEND === 'vps') {
+    // No fallback: VPS failure throws and surfaces verbatim to the caller.
+    return callVpsClaude(prompt);
+  }
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (!apiKey) throw new Error('Gemini API key is not configured.');
-
-  const tasks = input.tasks.map(t => t.trim()).filter(Boolean);
-  if (tasks.length === 0) throw new Error('Please add at least one task.');
-
   let response: Response;
   try {
     // Low-grade text->JSON task: route to the cheaper lite model.
@@ -91,7 +87,7 @@ export async function optimizeTasks(input: OptimizeTasksInput): Promise<TaskSugg
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: buildPrompt({ ...input, tasks }) }] }],
+        contents: [{ parts: [{ text: prompt }] }],
         generationConfig: { temperature: 0.3, maxOutputTokens: 2000 },
       }),
     });
@@ -112,9 +108,20 @@ export async function optimizeTasks(input: OptimizeTasksInput): Promise<TaskSugg
     }
     throw new Error('Could not reach the AI service. Please try again.');
   }
-
   const data = await response.json();
-  const text: string = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+}
+
+/**
+ * Ask the LLM how a staff member could reduce or automate their daily tasks.
+ * Returns one structured suggestion per task. Throws on any failure (missing
+ * key, network, or unparseable response) — callers surface a toast/error.
+ */
+export async function optimizeTasks(input: OptimizeTasksInput): Promise<TaskSuggestion[]> {
+  const tasks = input.tasks.map(t => t.trim()).filter(Boolean);
+  if (tasks.length === 0) throw new Error('Please add at least one task.');
+
+  const text = await runLlm(buildPrompt({ ...input, tasks }));
   const cleaned = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
 
   let parsed: unknown;

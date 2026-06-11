@@ -42,6 +42,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { geminiGenerateContentUrl, geminiFetch } from '@/lib/gemini';
+import { LLM_BACKEND, callVpsClaude } from '@/lib/vpsClaude';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
@@ -744,7 +745,7 @@ export default function SkillFactory() {
     const trimmed = text.trim();
     if (!trimmed || loading || !active) return;
 
-    if (!GEMINI_KEY) {
+    if (LLM_BACKEND !== 'vps' && !GEMINI_KEY) {
       setMessages((prev) => [
         ...prev,
         { role: 'assistant', content: 'AI is not configured. Please set VITE_GEMINI_API_KEY.' },
@@ -757,25 +758,37 @@ export default function SkillFactory() {
     setLoading(true);
 
     try {
-      // Gemini uses "model" for the assistant role and carries the system
-      // prompt in a dedicated systemInstruction field (not the contents array).
-      const res = await geminiFetch(geminiGenerateContentUrl(GEMINI_KEY), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: buildHeadOfHospitalPrompt(active, activeRule) }] },
-          contents: [
-            ...messages.map((m) => ({
-              role: m.role === 'assistant' ? 'model' : 'user',
-              parts: [{ text: m.content }],
-            })),
-            { role: 'user', parts: [{ text: trimmed }] },
-          ],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 800 },
-        }),
-      });
-      const data = await res.json();
-      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response.';
+      const systemPrompt = buildHeadOfHospitalPrompt(active, activeRule);
+      let reply: string;
+      if (LLM_BACKEND === 'vps') {
+        // The VPS Claude sidecar is single-turn (one CLI call per request), so
+        // flatten the system prompt + prior turns + new message into one prompt.
+        const history = messages
+          .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+          .join('\n');
+        const prompt = `${systemPrompt}\n\n${history ? `${history}\n` : ''}User: ${trimmed}\nAssistant:`;
+        reply = (await callVpsClaude(prompt)) || 'No response.';
+      } else {
+        // Gemini uses "model" for the assistant role and carries the system
+        // prompt in a dedicated systemInstruction field (not the contents array).
+        const res = await geminiFetch(geminiGenerateContentUrl(GEMINI_KEY), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            contents: [
+              ...messages.map((m) => ({
+                role: m.role === 'assistant' ? 'model' : 'user',
+                parts: [{ text: m.content }],
+              })),
+              { role: 'user', parts: [{ text: trimmed }] },
+            ],
+            generationConfig: { temperature: 0.3, maxOutputTokens: 800 },
+          }),
+        });
+        const data = await res.json();
+        reply = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response.';
+      }
 
       // Split the reply into prose (shown) and an optional committed workflow.
       const { display, payload } = extractSkillBlock(reply);
