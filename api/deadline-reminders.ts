@@ -36,6 +36,25 @@ interface DeadlineRow {
   due_date: string
   status: string
   hospital_type: string | null
+  recipient_id: string | null
+  important: boolean
+}
+
+// Build a Slack mention for a recipient row: real mention syntax when a Slack ID
+// is wired (so it pings), else plain '@Name' fallback. Mirrors mentionFor() in
+// src/lib/slackRecipients.ts (duplicated so the API has no src/ import).
+function mentionFor(r: { name: string; slack_target: string | null; kind: string }): string {
+  if (!r.slack_target) return `@${r.name}`
+  return r.kind === 'channel' ? `<#${r.slack_target}>` : `<@${r.slack_target}>`
+}
+
+// Whether a reminder is MD-level. Mirrors src/lib/reminderImportance.ts.
+const IMPORTANT_AMOUNT_THRESHOLD = 100_000
+function isImportant(r: { important?: boolean; amount?: number; due_date?: string }, today: string): boolean {
+  if (r.important) return true
+  if ((Number(r.amount) || 0) >= IMPORTANT_AMOUNT_THRESHOLD) return true
+  if (r.due_date && r.due_date < today) return true
+  return false
 }
 
 function section(title: string, rows: DeadlineRow[]): string[] {
@@ -64,7 +83,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const supabase = createClient(SUPABASE_URL, key)
   const { data, error } = await supabase
     .from('utility_deadlines')
-    .select('name, amount, due_date, status, hospital_type')
+    .select('name, amount, due_date, status, hospital_type, recipient_id, important')
     .neq('status', 'paid')
   if (error) return res.status(502).json({ error: 'db_query_failed', detail: error.message })
 
@@ -73,35 +92,98 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const in2 = addDays(today, 2)
 
   const rows = (data ?? []) as DeadlineRow[]
-  const overdue = rows.filter((r) => r.due_date < today)
-  const dueTomorrow = rows.filter((r) => r.due_date === tomorrow)
-  const dueIn2 = rows.filter((r) => r.due_date === in2)
+  const relevant = rows.filter((r) => r.due_date < today || r.due_date === tomorrow || r.due_date === in2)
 
   // Nothing to report → don't post an empty digest.
-  if (!overdue.length && !dueTomorrow.length && !dueIn2.length) {
+  if (!relevant.length) {
     return res.status(200).json({ ok: true, posted: false, reason: 'no_due_or_overdue', today })
   }
 
-  const lines: string[] = [`*⏰ Deadline reminders — ${today}*`, '']
-  lines.push(...section('Overdue', overdue))
-  lines.push(...section('Due tomorrow', dueTomorrow))
-  lines.push(...section('Due in 2 days', dueIn2))
-  while (lines[lines.length - 1] === '') lines.pop()
-  const text = lines.join('\n')
-
-  try {
-    const r = await fetch(webhook, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 't-e-x-t': text }),
-    })
-    return res.status(r.ok ? 200 : 502).json({
-      ok: r.ok,
-      posted: r.ok,
-      counts: { overdue: overdue.length, dueTomorrow: dueTomorrow.length, dueIn2: dueIn2.length },
-      today,
-    })
-  } catch (err: unknown) {
-    return res.status(502).json({ error: 'slack_unreachable', detail: err instanceof Error ? err.message : 'unknown' })
+  // Recipient mentions for addressed rows (with director flag), plus the full
+  // set of active directors (MDs) — who get an important-only summary even if no
+  // row is addressed to them.
+  const recipientMap = new Map<string, { mention: string; is_director: boolean }>()
+  const recipientIds = Array.from(new Set(relevant.map((r) => r.recipient_id).filter(Boolean))) as string[]
+  if (recipientIds.length) {
+    const { data: recips } = await supabase
+      .from('slack_recipients')
+      .select('id, name, slack_target, kind, is_director')
+      .in('id', recipientIds)
+    for (const rc of recips ?? []) recipientMap.set(rc.id, { mention: mentionFor(rc), is_director: !!rc.is_director })
   }
+  const { data: directorRows } = await supabase
+    .from('slack_recipients')
+    .select('id, name, slack_target, kind')
+    .eq('is_director', true)
+    .eq('active', true)
+  const directors = (directorRows ?? []).map((rc) => ({ mention: mentionFor(rc) }))
+
+  const buildText = (groupRows: DeadlineRow[], header: string): string => {
+    const overdue = groupRows.filter((r) => r.due_date < today)
+    const dueTomorrow = groupRows.filter((r) => r.due_date === tomorrow)
+    const dueIn2 = groupRows.filter((r) => r.due_date === in2)
+    const lines: string[] = [header, '']
+    lines.push(...section('Overdue', overdue))
+    lines.push(...section('Due tomorrow', dueTomorrow))
+    lines.push(...section('Due in 2 days', dueIn2))
+    while (lines[lines.length - 1] === '') lines.pop()
+    return lines.join('\n')
+  }
+
+  const post = async (text: string): Promise<boolean> => {
+    try {
+      const r = await fetch(webhook, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 't-e-x-t': text }),
+      })
+      return r.ok
+    } catch {
+      return false
+    }
+  }
+
+  let posted = 0
+  let failed = 0
+
+  // ── Regular per-recipient digests ──
+  // Directors are excluded here (they get the important-only summary below);
+  // their routine rows fold into the shared bucket so they're recorded without
+  // pinging the MD.
+  const groups = new Map<string | null, DeadlineRow[]>()
+  for (const r of relevant) {
+    const rec = r.recipient_id ? recipientMap.get(r.recipient_id) : undefined
+    const groupKey = rec && !rec.is_director ? r.recipient_id : null
+    const arr = groups.get(groupKey) ?? []
+    arr.push(r)
+    groups.set(groupKey, arr)
+  }
+  for (const [groupKey, groupRows] of Array.from(groups.entries())) {
+    const mention = groupKey ? recipientMap.get(groupKey)?.mention ?? null : null
+    const header = mention
+      ? `*${mention} — ⏰ Deadline reminders — ${today}*`
+      : `*⏰ Deadline reminders — ${today}*`
+    if (await post(buildText(groupRows, header))) posted++
+    else failed++
+  }
+
+  // ── Director (MD) important-only summary ──
+  // Every active director gets the same hospital-wide "important" briefing.
+  const importantRows = relevant.filter((r) => isImportant(r, today))
+  if (importantRows.length) {
+    for (const d of directors) {
+      const header = `*${d.mention} — ⭐ Important — ${today}*`
+      if (await post(buildText(importantRows, header))) posted++
+      else failed++
+    }
+  }
+
+  return res.status(failed && !posted ? 502 : 200).json({
+    ok: posted > 0,
+    posted,
+    failed,
+    directors: directors.length,
+    important: importantRows.length,
+    today,
+  })
 }

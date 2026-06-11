@@ -20,6 +20,25 @@ interface DueRow {
   amount: number
   due_date: string
   hospital_type: string | null
+  recipient_id: string | null
+  important: boolean
+}
+
+// Build a Slack mention for a recipient row: real mention syntax when a Slack ID
+// is wired (so it pings), else plain '@Name' fallback. Mirrors mentionFor() in
+// src/lib/slackRecipients.ts (duplicated here so the API has no src/ import).
+function mentionFor(r: { name: string; slack_target: string | null; kind: string }): string {
+  if (!r.slack_target) return `@${r.name}`
+  return r.kind === 'channel' ? `<#${r.slack_target}>` : `<@${r.slack_target}>`
+}
+
+// Whether a reminder is MD-level. Mirrors src/lib/reminderImportance.ts.
+const IMPORTANT_AMOUNT_THRESHOLD = 100_000
+function isImportant(r: { important?: boolean; amount?: number; due_date?: string }, today: string): boolean {
+  if (r.important) return true
+  if ((Number(r.amount) || 0) >= IMPORTANT_AMOUNT_THRESHOLD) return true
+  if (r.due_date && r.due_date < today) return true
+  return false
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -38,7 +57,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const { data, error } = await supabase
     .from('utility_deadlines')
-    .select('id, name, amount, due_date, hospital_type')
+    .select('id, name, amount, due_date, hospital_type, recipient_id, important')
     .neq('status', 'paid')
     .not('notify_at', 'is', null)
     .is('notify_sent_at', null)
@@ -48,10 +67,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const rows = (data ?? []) as DueRow[]
   if (rows.length === 0) return res.status(200).json({ ok: true, fired: 0, checked: 0 })
 
+  // Resolve recipient_id → mention + director flag. A director (MD) is only
+  // pinged for IMPORTANT items; routine items addressed to them post without the
+  // mention so they don't get bothered.
+  const recipientMap = new Map<string, { mention: string; is_director: boolean }>()
+  const recipientIds = Array.from(new Set(rows.map((r) => r.recipient_id).filter(Boolean))) as string[]
+  if (recipientIds.length) {
+    const { data: recips } = await supabase
+      .from('slack_recipients')
+      .select('id, name, slack_target, kind, is_director')
+      .in('id', recipientIds)
+    for (const rc of recips ?? []) recipientMap.set(rc.id, { mention: mentionFor(rc), is_director: !!rc.is_director })
+  }
+
+  const today = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10) // IST
+
   const firedIds: string[] = []
   for (const r of rows) {
     const hosp = r.hospital_type ? ` _(${r.hospital_type})_` : ''
-    const text = `⏰ Reminder: *${r.name}* — ${inr(Number(r.amount) || 0)} — due ${r.due_date}${hosp}`
+    const imp = isImportant(r, today)
+    const rec = r.recipient_id ? recipientMap.get(r.recipient_id) : undefined
+    // Skip the mention for a director on a routine item (don't ping the MD).
+    const who = rec ? (rec.is_director && !imp ? null : rec.mention) : null
+    const star = imp ? '⭐ ' : ''
+    const text = `${who ? who + ' ' : ''}${star}⏰ Reminder: *${r.name}* — ${inr(Number(r.amount) || 0)} — due ${r.due_date}${hosp}`
     try {
       const resp = await fetch(webhook, {
         method: 'POST',

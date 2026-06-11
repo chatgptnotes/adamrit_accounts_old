@@ -26,6 +26,10 @@ export interface ParsedReminder extends UpsertUtilityDeadline {
   // Echo back the resolved date as a friendly label so the chat bubble can say
   // "Due tomorrow (Jun 9, 2026)" instead of just the ISO string.
   dueLabel: string;
+  // Raw "who to send this to" phrase the model lifted from the request, e.g.
+  // "Murli sir" / "finance channel". Resolved to a recipient_id by the chatbot
+  // against the slack_recipients roster; null when the user named no one.
+  recipient_hint: string | null;
 }
 
 // Fast, local intent gate — answers "should I even call Gemini?" before
@@ -115,6 +119,8 @@ interface RawReminder {
   amount?: number | string;
   recurring?: boolean;
   notes?: string | null;
+  recipient?: string | null;
+  important?: boolean;
 }
 
 // Build an exact-time reminder ISO timestamp (IST) from the resolved due date +
@@ -143,11 +149,14 @@ Return ONLY valid JSON (no markdown) of exactly this shape:
   "time_hint": "the time of day to remind, as HH:MM in 24-hour (e.g. '17:00' for 5 pm, '09:30'), or null if the user gave no specific time",
   "amount": numeric amount in INR (0 if not mentioned),
   "recurring": true if the user said monthly/every month/recurring, else false,
-  "notes": "any extra context the user gave, else null"
+  "notes": "any extra context the user gave, else null",
+  "recipient": "the person or channel the reminder should be sent to (e.g. 'Murli sir', 'Ruby maam', 'finance channel'), or null if the user named no one",
+  "important": true if this is a high-priority item a hospital director (MD) must see — a large payment, a penalty/legal/critical deadline, an escalation, or the user said 'important'/'urgent'/'priority' — else false
 }
 
 Rules:
 - Pick the most specific bill_type if the user named a service (wifi, electricity, Airtel postpaid, etc.). Use 'other' if unclear.
+- For "recipient", capture only the person/channel the reminder should go TO (e.g. "to Murli sir" → "Murli sir", "in the finance channel" → "finance channel"). Do NOT confuse this with a vendor being paid (e.g. "pay Sharma" is a vendor, not the recipient). If no one is named, recipient MUST be null.
 - If the user said "tomorrow" return "tomorrow"; "today" → "today"; "in 3 days" → "in_3_days"; an actual date → ISO YYYY-MM-DD.
 - Keep the name SHORT — like a calendar entry, not a sentence. Include the particular name/vendor if the user gave one (e.g. "Pay Sharma electricity bill").
 - If the user mentions a time of day ("at 5 pm", "by 9 am", "evening", "morning"), set time_hint to HH:MM 24-hour ("evening" → "18:00", "morning" → "09:00", "5 pm" → "17:00"). If no time was mentioned, time_hint MUST be null.
@@ -227,6 +236,8 @@ export async function parseReminderFromPrompt(instruction: string): Promise<Pars
     notes: parsed.notes ? String(parsed.notes).trim() : null,
     notify_at: computeNotifyAt(iso, parsed.time_hint),
     dueLabel: label,
+    recipient_hint: parsed.recipient ? String(parsed.recipient).trim() : null,
+    important: parsed.important === true,
   };
 }
 
@@ -331,6 +342,8 @@ export async function parseRemindersFromPrompt(
       recurring: raw?.recurring === true,
       notes: raw?.notes ? String(raw.notes).trim() : null,
       dueLabel: label,
+      recipient_hint: raw?.recipient ? String(raw.recipient).trim() : null,
+      important: raw?.important === true,
     });
   }
   return reminders;
