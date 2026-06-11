@@ -36,6 +36,8 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
   })
   const [saving, setSaving] = useState(false)
   const [lastSaved, setLastSaved] = useState<string | null>(null)
+  const [accountSearch, setAccountSearch] = useState('')
+  const [showAccountList, setShowAccountList] = useState(false)
 
   // ── Ledger fetch ──────────────────────────────────────────────
   const loadLedgers = useCallback(async (forceLive = false) => {
@@ -88,6 +90,15 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
     if (companyId) loadLedgers()
   }, [companyId])
 
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      const target = e.target as HTMLElement
+      if (!target.closest('.relative')) setShowAccountList(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
   // ── Group ledgers by parent_group for optgroup selects ───────
   function groupedLedgers(ledgers: Ledger[]): Record<string, string[]> {
     return ledgers.reduce<Record<string, string[]>>((acc, l) => {
@@ -98,6 +109,12 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
     }, {})
   }
 
+  // Account dropdown: only Cash and Bank type ledgers (not patient/debtor ledgers)
+  const ACCOUNT_GROUPS = ['Cash-in-Hand', 'Bank Accounts', 'Bank OD A/c', 'Cash', 'Bank']
+  const accountLedgers = allLedgers.filter(l =>
+    ACCOUNT_GROUPS.some(g => (l.parent_group || '').toLowerCase().includes(g.toLowerCase()))
+  )
+  const accountGroups = groupedLedgers(accountLedgers.length > 0 ? accountLedgers : allLedgers)
   const ledgerGroups = groupedLedgers(allLedgers)
 
   // ── Voucher number generator (same logic as PaymentVoucher page) ──
@@ -263,23 +280,49 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
           </div>
         </div>
 
-        {/* Account */}
-        <div>
+        {/* Account — searchable */}
+        <div className="relative">
           <label className="block text-xs font-medium text-gray-600 mb-1">
             Account <span className="text-red-500">*</span>
           </label>
-          <select
-            value={form.account}
-            onChange={e => setForm(f => ({ ...f, account: e.target.value }))}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
-          >
-            <option value="">— Select Account —</option>
-            {Object.entries(ledgerGroups).sort(([a], [b]) => a.localeCompare(b)).map(([group, names]) => (
-              <optgroup key={group} label={group}>
-                {names.map(name => <option key={name} value={name}>{name}</option>)}
-              </optgroup>
-            ))}
-          </select>
+          {form.account ? (
+            <div className="flex items-center gap-2 px-3 py-2 border border-blue-500 rounded-lg bg-blue-50 text-sm">
+              <span className="flex-1 font-medium text-blue-800">{form.account}</span>
+              <button type="button" onClick={() => { setForm(f => ({ ...f, account: '' })); setAccountSearch(''); setShowAccountList(false) }} className="text-blue-400 hover:text-red-500 text-xs">✕</button>
+            </div>
+          ) : (
+            <div>
+              <input
+                type="text"
+                value={accountSearch}
+                onChange={e => { setAccountSearch(e.target.value); setShowAccountList(true) }}
+                onFocus={() => setShowAccountList(true)}
+                placeholder="Type to search ledger (e.g. Cash, HDFC)…"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              {showAccountList && (
+                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+                  {allLedgers
+                    .filter(l => !accountSearch || l.name.toLowerCase().includes(accountSearch.toLowerCase()))
+                    .slice(0, 50)
+                    .map(l => (
+                      <button
+                        key={l.name}
+                        type="button"
+                        onMouseDown={() => { setForm(f => ({ ...f, account: l.name })); setAccountSearch(''); setShowAccountList(false) }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 border-b border-gray-100 last:border-0"
+                      >
+                        <span className="font-medium">{l.name}</span>
+                        {l.parent_group && <span className="text-xs text-gray-400 ml-2">{l.parent_group}</span>}
+                      </button>
+                    ))}
+                  {allLedgers.filter(l => !accountSearch || l.name.toLowerCase().includes(accountSearch.toLowerCase())).length === 0 && (
+                    <p className="px-3 py-2 text-xs text-gray-400">No ledgers match "{accountSearch}"</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           {allLedgers.length === 0 && !loadingLedgers && (
             <p className="text-xs text-amber-600 mt-1">No ledgers found. Make sure Tally is online and click Refresh.</p>
           )}
