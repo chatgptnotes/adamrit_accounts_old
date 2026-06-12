@@ -146,14 +146,32 @@ async function fetchPrescriptions(): Promise<Prescription[]> {
   if (error) throw error;
   if (!prescriptions || prescriptions.length === 0) return [];
 
-  // Fetch prescription items for all prescriptions
+  // Fetch prescription items for all prescriptions. PostgREST caps every
+  // response at 1000 rows, and there are more than 1000 items across all
+  // prescriptions — a single query silently dropped the overflow (sorted
+  // oldest-first), so the newest ward prescriptions came back with 0 items.
+  // Chunk the id list (keeps the URL sane) and page through each chunk.
   const prescriptionIds = prescriptions.map((p: any) => p.id);
-  const { data: items, error: itemsError } = await (supabase as any)
-    .from('prescription_items')
-    .select('*')
-    .in('prescription_id', prescriptionIds);
-
-  if (itemsError) throw itemsError;
+  const items: any[] = [];
+  const ID_CHUNK = 300;
+  const PAGE = 1000;
+  for (let c = 0; c < prescriptionIds.length; c += ID_CHUNK) {
+    const idChunk = prescriptionIds.slice(c, c + ID_CHUNK);
+    let from = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { data: page, error: itemsError } = await (supabase as any)
+        .from('prescription_items')
+        .select('*')
+        .in('prescription_id', idChunk)
+        .range(from, from + PAGE - 1);
+      if (itemsError) throw itemsError;
+      if (!page || page.length === 0) break;
+      items.push(...page);
+      if (page.length < PAGE) break;
+      from += PAGE;
+    }
+  }
 
   // Fetch patient names
   const patientIds = [...new Set(prescriptions.map((p: any) => p.patient_id).filter(Boolean))];
