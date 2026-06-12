@@ -2032,6 +2032,32 @@ const FinalBill = () => {
     reasonForDelay: ''
   });
 
+  // Billing Executive options come entirely from the User table: any staff whose
+  // role is "billing" (case-insensitive) appears here, so names can be added,
+  // renamed, or removed from Supabase without any code change.
+  const { data: billingExecutiveOptions = [] } = useQuery({
+    queryKey: ['billing-executives'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('User')
+        .select('full_name')
+        .ilike('role', 'billing')
+        .order('full_name', { ascending: true });
+      if (error) throw error;
+      const seen = new Set<string>();
+      const out: { value: string; label: string }[] = [];
+      for (const u of (data || [])) {
+        const name = (u.full_name || '').trim();
+        if (!name) continue;
+        const value = name.toLowerCase().replace(/\s+/g, '_');
+        if (seen.has(value)) continue;
+        seen.add(value);
+        out.push({ value, label: name });
+      }
+      return out;
+    },
+  });
+
   const [nmiTracking, setNmiTracking] = useState({
     nmiDate: '',
     nmi: '',
@@ -23504,17 +23530,9 @@ Dr. Murali B K
                         <SelectValue placeholder="Please Select" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="chetna">Chetna</SelectItem>
-                        <SelectItem value="arpit">Arpit</SelectItem>
-                        <SelectItem value="akshay">Akshay</SelectItem>
-                        <SelectItem value="shohib">Shohib</SelectItem>
-                        <SelectItem value="nisha">Nisha</SelectItem>
-                        <SelectItem value="diksha">Diksha</SelectItem>
-                        <SelectItem value="pragati">Pragati</SelectItem>
-                        <SelectItem value="jagruti">Jagruti</SelectItem>
-                        <SelectItem value="abhishekh">Abhishekh</SelectItem>
-                        <SelectItem value="priyanka_tandekar">Priyanka Tandekar</SelectItem>
-                        <SelectItem value="sailesh">Sailesh</SelectItem>
+                        {billingExecutiveOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
