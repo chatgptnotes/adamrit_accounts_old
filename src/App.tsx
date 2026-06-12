@@ -131,6 +131,48 @@ const queryClient = new QueryClient({
   },
 });
 
+// Auto-recover from stale code chunks after a deploy. When a new build replaces
+// the hashed JS/CSS chunk filenames, a tab still running the old index.html
+// fails to import a lazily-loaded route and would otherwise land on the error
+// boundary ("Something went wrong"). We reload once to pull the fresh
+// index.html and its new chunk hashes — guarded so a genuinely missing chunk
+// can't loop forever.
+const CHUNK_RELOAD_KEY = 'app:chunk-reload-at';
+const isChunkLoadError = (error: unknown): boolean => {
+  const msg = (error instanceof Error ? error.message : String(error ?? '')).toLowerCase();
+  return (
+    msg.includes('failed to fetch dynamically imported module') ||
+    msg.includes('error loading dynamically imported module') ||
+    msg.includes('importing a module script failed') ||
+    msg.includes('loading chunk') ||
+    msg.includes('loading css chunk')
+  );
+};
+// Reload once for a chunk error. Returns true if a reload was triggered, so the
+// caller can suppress the error UI while the page is on its way out.
+const reloadOnceForChunkError = (error: unknown): boolean => {
+  if (!isChunkLoadError(error)) return false;
+  try {
+    const last = Number(sessionStorage.getItem(CHUNK_RELOAD_KEY) || 0);
+    // If we already reloaded for a chunk error in the last 10s, the chunk is
+    // genuinely gone — stop, and let the normal error UI show instead of looping.
+    if (Date.now() - last < 10_000) return false;
+    sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()));
+  } catch {
+    /* sessionStorage blocked (private mode) — fall through and reload anyway */
+  }
+  window.location.reload();
+  return true;
+};
+
+// Vite emits this when a dynamically-imported chunk fails to preload — the most
+// common stale-deploy symptom. Recover before it ever reaches the boundary.
+window.addEventListener('vite:preloadError', (e) => {
+  if (reloadOnceForChunkError((e as unknown as { payload?: unknown }).payload)) {
+    e.preventDefault();
+  }
+});
+
 // Error Boundary Component
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -146,18 +188,30 @@ class ErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    // Stale-chunk errors self-heal with a one-time reload; only log the rest.
+    if (reloadOnceForChunkError(error)) return;
     console.error('App Error:', error, errorInfo);
   }
 
   render() {
     if (this.state.hasError) {
+      // A chunk error reload is in flight — show a neutral "updating" message
+      // rather than the alarming error screen for the split second before the
+      // page navigates away.
+      if (isChunkLoadError(this.state.error)) {
+        return (
+          <div className="min-h-screen flex items-center justify-center bg-gray-50">
+            <div className="text-center p-8 text-gray-600">Updating to the latest version…</div>
+          </div>
+        );
+      }
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50">
           <div className="text-center p-8">
             <h1 className="text-2xl font-bold text-red-600 mb-4">Something went wrong</h1>
             <p className="text-gray-600 mb-4">The application encountered an error. Please refresh the page.</p>
-            <button 
-              onClick={() => window.location.reload()} 
+            <button
+              onClick={() => window.location.reload()}
               className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
             >
               Refresh Page
