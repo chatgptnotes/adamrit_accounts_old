@@ -1,8 +1,21 @@
 import { useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { createClient } from '@supabase/supabase-js';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+
+// The shared `@/integrations/supabase/client` persists Supabase Auth (Google
+// OAuth) sessions. When one is present, its `authenticated`-role JWT is attached
+// to every request and the prescriptions RLS returns 0 rows under that role — so
+// the bell silently shows "0" even while pending prescriptions exist. These
+// notification reads are global (not user-scoped), so we query them through a
+// dedicated anon client that never carries an OAuth session, mirroring the
+// `supabaseAnon` client already used in AuthContext for the same reason.
+const supabaseAnon = createClient(
+  'https://xvkxccqaopbnkvwgyfjv.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2a3hjY3Fhb3Bibmt2d2d5Zmp2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4MjMwMTIsImV4cCI6MjA2MzM5OTAxMn0.z9UkKHDm4RPMs_2IIzEPEYzd3-sbQSF6XpxaQg3vZhU',
+  { auth: { persistSession: false, autoRefreshToken: false } }
+);
 
 export interface PendingPrescription {
   id: string;
@@ -34,7 +47,7 @@ export const usePendingPrescriptions = (): UsePendingPrescriptionsResult => {
   const countQuery = useQuery({
     queryKey: COUNT_KEY,
     queryFn: async () => {
-      const { count, error } = await (supabase as any)
+      const { count, error } = await (supabaseAnon as any)
         .from('prescriptions')
         .select('id', { count: 'exact', head: true })
         .or(pendingFilter);
@@ -48,7 +61,7 @@ export const usePendingPrescriptions = (): UsePendingPrescriptionsResult => {
   const recentQuery = useQuery({
     queryKey: RECENT_KEY,
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await (supabaseAnon as any)
         .from('prescriptions')
         .select('id, prescription_number, doctor_name, prescription_date, created_at, patients(name)')
         .or(pendingFilter)
@@ -71,7 +84,7 @@ export const usePendingPrescriptions = (): UsePendingPrescriptionsResult => {
   });
 
   useEffect(() => {
-    const channel = (supabase as any)
+    const channel = (supabaseAnon as any)
       .channel('prescription-changes')
       .on(
         'postgres_changes',
@@ -93,7 +106,7 @@ export const usePendingPrescriptions = (): UsePendingPrescriptionsResult => {
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
-      supabase.removeChannel(channel);
+      supabaseAnon.removeChannel(channel);
     };
   }, [queryClient]);
 
