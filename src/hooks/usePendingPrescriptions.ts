@@ -1,21 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { createClient } from '@supabase/supabase-js';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
-
-// The shared `@/integrations/supabase/client` persists Supabase Auth (Google
-// OAuth) sessions. When one is present, its `authenticated`-role JWT is attached
-// to every request and the prescriptions RLS returns 0 rows under that role — so
-// the bell silently shows "0" even while pending prescriptions exist. These
-// notification reads are global (not user-scoped), so we query them through a
-// dedicated anon client that never carries an OAuth session, mirroring the
-// `supabaseAnon` client already used in AuthContext for the same reason.
-const supabaseAnon = createClient(
-  'https://xvkxccqaopbnkvwgyfjv.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2a3hjY3Fhb3Bibmt2d2d5Zmp2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4MjMwMTIsImV4cCI6MjA2MzM5OTAxMn0.z9UkKHDm4RPMs_2IIzEPEYzd3-sbQSF6XpxaQg3vZhU',
-  { auth: { persistSession: false, autoRefreshToken: false } }
-);
+// Use the anon data client: the shared OAuth-aware client returns 0 rows under
+// an authenticated Google session, so the bell would silently show "0".
+import { supabaseData as supabaseAnon } from '@/integrations/supabase/data-client';
 
 export interface PendingPrescription {
   id: string;

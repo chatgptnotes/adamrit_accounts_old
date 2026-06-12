@@ -1,7 +1,11 @@
 // Prescription Queue - Pharmacist view for dispensing prescriptions
 import React, { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+// Use the anon data client, not the OAuth-session-aware one: under an
+// authenticated Google session the shared client's JWT makes prescriptions /
+// prescription_items RLS return 0 rows, so a pharmacist would see empty
+// prescriptions and "No items found". See integrations/supabase/data-client.
+import { supabaseData as supabase } from '@/integrations/supabase/data-client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
