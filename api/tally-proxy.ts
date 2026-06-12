@@ -61,8 +61,10 @@ function parseResponse(xml: string) {
   const lastMsg = getVal(xml, 'LASTMSG')
   if (lastMsg && lastMsg.toLowerCase().includes('error')) errors.push(lastMsg)
 
+  // Tally sometimes returns CREATED:0/ALTERED:0 even on a successful import
+  // (e.g. when the company context is implied). Treat no-errors as success.
   return {
-    success: errors.length === 0 && (created > 0 || altered > 0),
+    success: errors.length === 0,
     message: errors.length > 0 ? errors.join('; ') : `Created: ${created}, Altered: ${altered}`,
     created, altered,
     errors: errors.length > 0 ? errors : undefined,

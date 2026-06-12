@@ -89,6 +89,38 @@ export default function TallyLedgerView({ ledgerName, onClose, serverUrl, compan
     setPage(0)
   }, [dateFrom, dateTo])
 
+  // Realtime: insert new vouchers as they are created (from Create Voucher tab or
+  // auto-push) so the ledger view updates without closing and reopening.
+  useEffect(() => {
+    if (!companyId || !ledgerName) return
+    const name = ledgerName.toLowerCase()
+
+    const channel = supabase
+      .channel(`ledger_view_${companyId}_${ledgerName}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'tally_vouchers', filter: `company_id=eq.${companyId}` },
+        (payload) => {
+          const v = payload.new as any
+          const entries = Array.isArray(v.ledger_entries) ? v.ledger_entries : []
+          const relevant =
+            entries.some((e: any) => (e.ledger || '').toLowerCase() === name) ||
+            (v.party_ledger || '').toLowerCase() === name
+          if (!relevant) return
+
+          setVouchers((prev) => {
+            if (prev.some((r: any) => r.id === v.id)) return prev
+            const updated = [...prev, v]
+            updated.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
+            return updated
+          })
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [companyId, ledgerName])
+
   // Compute running balance with debit/credit
   const { rows, totalDebit, totalCredit } = useMemo(() => {
     const ledName = ledgerName.toLowerCase()

@@ -172,8 +172,10 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
         toast.warning('Saved to HMS but could not reach TallyPrime')
       }
 
-      // 3 — Mirror to tally_vouchers so Cash Book Realtime picks it up
-      if (tallySuccess && companyId) {
+      // 3 — Mirror to tally_vouchers so Ledger View and Cash Book pick it up.
+      // Always insert (regardless of tallySuccess) so vouchers are visible in the
+      // ledger view even when Tally is offline. sync_status reflects push state.
+      if (companyId) {
         const { count } = await supabase
           .from('tally_vouchers')
           .select('id', { count: 'exact', head: true })
@@ -193,10 +195,10 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
               { ledger: form.account, amount, is_debit: false },
             ],
             sync_direction: 'to_tally',
-            sync_status: 'synced',
+            sync_status: tallySuccess ? 'synced' : 'pending',
             adamrit_payment_id: voucherNo,
             company_id: companyId,
-            synced_at: new Date().toISOString(),
+            synced_at: tallySuccess ? new Date().toISOString() : null,
           })
         }
       }

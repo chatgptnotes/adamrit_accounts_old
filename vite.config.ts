@@ -3,6 +3,164 @@ import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import basicSsl from "@vitejs/plugin-basic-ssl";
 import path from "path";
+import * as http from "http";
+import * as https from "https";
+
+// Dev-only Tally proxy. In production, api/tally-proxy.ts (Vercel function)
+// handles this. In dev, Vite doesn't serve API routes, so the browser POST to
+// /api/tally-proxy returns 404 and the push silently fails. This middleware
+// intercepts the same path and forwards XML to TallyPrime from Node.js
+// (no CORS/mixed-content restrictions since it runs server-side).
+function tallyProxyPlugin(): Plugin {
+  function esc(s: string) {
+    return (s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+  function fmtDate(d: string) {
+    return (d || "").replace(/-/g, "");
+  }
+
+  function buildVoucherXml(companyName: string, action: string, data: any): string {
+    switch (action) {
+      case "create-voucher": {
+        let entries = "";
+        for (const e of data.ledgerEntries || []) {
+          const amt = e.isDeemedPositive ? -Math.abs(e.amount) : Math.abs(e.amount);
+          entries += `<ALLLEDGERENTRIES.LIST><LEDGERNAME>${esc(e.ledgerName || e.ledger)}</LEDGERNAME><ISDEEMEDPOSITIVE>${e.isDeemedPositive ? "Yes" : "No"}</ISDEEMEDPOSITIVE><AMOUNT>${amt}</AMOUNT></ALLLEDGERENTRIES.LIST>`;
+        }
+        return `<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER><BODY><DESC><STATICVARIABLES><SVCURRENTCOMPANY>${esc(companyName)}</SVCURRENTCOMPANY></STATICVARIABLES></DESC><DATA><TALLYMESSAGE xmlns:UDF="TallyUDF"><VOUCHER VCHTYPE="${esc(data.voucherType)}" ACTION="Create"><DATE>${fmtDate(data.date)}</DATE><NARRATION>${esc(data.narration || "")}</NARRATION><VOUCHERTYPENAME>${esc(data.voucherType)}</VOUCHERTYPENAME><PARTYLEDGERNAME>${esc(data.partyLedger || "")}</PARTYLEDGERNAME>${entries}</VOUCHER></TALLYMESSAGE></DATA></BODY></ENVELOPE>`;
+      }
+      case "create-sales-voucher": {
+        let entries = `<ALLLEDGERENTRIES.LIST><LEDGERNAME>${esc(data.patientName)}</LEDGERNAME><ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE><AMOUNT>-${data.totalAmount}</AMOUNT></ALLLEDGERENTRIES.LIST>`;
+        for (const item of data.items || []) {
+          entries += `<ALLLEDGERENTRIES.LIST><LEDGERNAME>${esc(item.ledgerName || "Hospital Income")}</LEDGERNAME><ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE><AMOUNT>${item.amount}</AMOUNT></ALLLEDGERENTRIES.LIST>`;
+        }
+        return `<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER><BODY><DESC><STATICVARIABLES><SVCURRENTCOMPANY>${esc(companyName)}</SVCURRENTCOMPANY></STATICVARIABLES></DESC><DATA><TALLYMESSAGE xmlns:UDF="TallyUDF"><VOUCHER VCHTYPE="Sales" ACTION="Create"><DATE>${fmtDate(data.date)}</DATE><NARRATION>IPD Bill #${esc(data.billNumber || "")}</NARRATION><VOUCHERTYPENAME>Sales</VOUCHERTYPENAME><PARTYLEDGERNAME>${esc(data.patientName)}</PARTYLEDGERNAME>${entries}</VOUCHER></TALLYMESSAGE></DATA></BODY></ENVELOPE>`;
+      }
+      case "create-receipt-voucher": {
+        const bank = data.bankLedger || (data.paymentMode === "Cash" ? "Cash" : "Bank Account");
+        return `<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER><BODY><DESC><STATICVARIABLES><SVCURRENTCOMPANY>${esc(companyName)}</SVCURRENTCOMPANY></STATICVARIABLES></DESC><DATA><TALLYMESSAGE xmlns:UDF="TallyUDF"><VOUCHER VCHTYPE="Receipt" ACTION="Create"><DATE>${fmtDate(data.date)}</DATE><NARRATION>Receipt #${esc(data.receiptNumber || "")} from ${esc(data.patientName || "")}</NARRATION><VOUCHERTYPENAME>Receipt</VOUCHERTYPENAME><PARTYLEDGERNAME>${esc(data.patientName || "")}</PARTYLEDGERNAME><ALLLEDGERENTRIES.LIST><LEDGERNAME>${esc(bank)}</LEDGERNAME><ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE><AMOUNT>-${data.amount}</AMOUNT></ALLLEDGERENTRIES.LIST><ALLLEDGERENTRIES.LIST><LEDGERNAME>${esc(data.patientName || "")}</LEDGERNAME><ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE><AMOUNT>${data.amount}</AMOUNT></ALLLEDGERENTRIES.LIST></VOUCHER></TALLYMESSAGE></DATA></BODY></ENVELOPE>`;
+      }
+      default:
+        return "";
+    }
+  }
+
+  function callTally(serverUrl: string, xmlBody: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const url = new URL(serverUrl);
+      const lib = url.protocol === "https:" ? https : http;
+      const buf = Buffer.from(xmlBody, "utf8");
+      const req = lib.request(
+        {
+          hostname: url.hostname,
+          port: parseInt(url.port || "9000", 10),
+          path: url.pathname || "/",
+          method: "POST",
+          headers: { "Content-Type": "application/xml", "Content-Length": buf.length },
+        },
+        (res) => {
+          let data = "";
+          res.on("data", (c) => (data += c));
+          res.on("end", () => resolve(data));
+        }
+      );
+      req.setTimeout(30000, () => { req.destroy(); reject(new Error("Tally timeout after 30s")); });
+      req.on("error", reject);
+      req.write(buf);
+      req.end();
+    });
+  }
+
+  function parseResp(xml: string) {
+    const created = parseInt((xml.match(/<CREATED[^>]*>([^<]*)<\/CREATED>/i) || [])[1] || "0", 10);
+    const altered = parseInt((xml.match(/<ALTERED[^>]*>([^<]*)<\/ALTERED>/i) || [])[1] || "0", 10);
+    const errors: string[] = [];
+    for (const m of xml.matchAll(/<LINEERROR[^>]*>([^<]*)<\/LINEERROR>/gi)) {
+      if (m[1]?.trim()) errors.push(m[1].trim());
+    }
+    return { success: errors.length === 0, message: errors.join("; ") || `Created:${created} Altered:${altered}`, created, altered, errors: errors.length ? errors : undefined };
+  }
+
+  return {
+    name: "tally-proxy-dev",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use("/api/tally-proxy", (req: any, res: any) => {
+        if (req.method === "GET") {
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ status: "ok (dev)", endpoints: ["test-connection", "push", "proxy"] }));
+          return;
+        }
+        if (req.method !== "POST") { res.statusCode = 405; res.end(); return; }
+
+        let raw = "";
+        req.on("data", (c: any) => (raw += c));
+        req.on("end", async () => {
+          const send = (obj: any) => {
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify(obj));
+          };
+          try {
+            const body = JSON.parse(raw || "{}");
+            const { endpoint, action, serverUrl, companyName, data, xmlBody } = body;
+
+            if (!serverUrl) { send({ error: "Missing serverUrl" }); return; }
+
+            if (endpoint === "test-connection") {
+              const xml = `<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>List of Companies</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES></DESC></BODY></ENVELOPE>`;
+              try {
+                const resp = await callTally(serverUrl, xml);
+                const names = [...resp.matchAll(/<NAME[^>]*>([^<]+)<\/NAME>/gi)].map((m) => m[1].trim()).filter(Boolean);
+                send({ connected: true, companies: [...new Set(names)], version: "Connected" });
+              } catch (e: any) {
+                send({ connected: false, companies: [], version: "", error: e.message });
+              }
+              return;
+            }
+
+            if (endpoint === "proxy") {
+              try { send({ response: await callTally(serverUrl, xmlBody) }); }
+              catch (e: any) { send({ error: e.message }); }
+              return;
+            }
+
+            if (endpoint === "push") {
+              if (!action || !companyName || !data) { send({ error: "Missing action/companyName/data" }); return; }
+              const xml = buildVoucherXml(companyName, action, data);
+              if (!xml) { send({ error: `Unknown push action: ${action}` }); return; }
+              console.log(`[tally-proxy] PUSH ${action} → ${serverUrl} company="${companyName}"`);
+              try {
+                const raw = await callTally(serverUrl, xml);
+                console.log(`[tally-proxy] Tally response (first 500 chars):`, raw.substring(0, 500));
+                const result = parseResp(raw);
+                console.log(`[tally-proxy] Parsed:`, result);
+                send(result);
+              } catch (e: any) {
+                console.error(`[tally-proxy] callTally error:`, e.message);
+                send({ success: false, message: e.message });
+              }
+              return;
+            }
+
+            // sync — needs Supabase service key; skip in dev (use Dashboard Refresh instead)
+            if (endpoint === "sync") {
+              send({ success: false, message: "Sync not available in dev mode — use the Refresh button on the Dashboard or run vercel dev." });
+              return;
+            }
+
+            send({ error: `Unknown endpoint: ${endpoint}` });
+          } catch (e: any) {
+            send({ error: e.message });
+          }
+        });
+      });
+    },
+  };
+}
 
 // Dev-only Slack relay. The browser can't POST to a Slack webhook directly
 // (no CORS), so the page POSTs { text } to same-origin /api/slack and this
@@ -62,7 +220,7 @@ export default defineConfig(({ mode }) => {
     port: 8080,
   },
   plugins: [
-    ...(mode === 'development' ? [basicSsl(), slackProxyPlugin(env)] : []),
+    ...(mode === 'development' ? [basicSsl(), slackProxyPlugin(env), tallyProxyPlugin()] : []),
     react(),
     // Service worker for installability + instant app-shell launch. We keep the
     // hand-written public/manifest.webmanifest (manifest: false) and only let the
