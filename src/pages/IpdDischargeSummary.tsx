@@ -4233,7 +4233,7 @@ DD/MM/YYYY:-Test Category: Test1:Value1 unit, Test2:Value2 unit`);
                 //    from the OCR'd treatment sheet — NOT invented.
                 const STAY_NOTES_PROMPT = `Act like a medical specialist. Make a professionally written OPD summary. The entire summary should be a minimum of 800 words. Do not mention the name, sex or age of the patient. The person who is going to read what you share will be a doctor. Start the summary with the Diagnosis, followed by medication. These should be at the beginning of the summary and in table form with columns for name, strength, route, dosage and the number of days to be taken. Another line in Hindi to be added in the column of dosage in addition to English. This patient does not have comorbidities other than that is mentioned.
 
-IMPORTANT — TREATMENT DATA SOURCE: The "TREATMENT SHEET (read via OCR)" below is the patient's ACTUAL treatment given during the hospital stay. Base ALL treatment, medications and the hospital course strictly on this real data — do NOT invent, change, drop or add any medication/treatment beyond what the treatment sheet shows. Only for the surrounding narrative (complaints, history, examination findings, events) may you write medically plausible details consistent with the diagnosis.`;
+IMPORTANT — TREATMENT DATA SOURCE: The "TREATMENT SHEET (read via OCR)" below is the patient's ACTUAL treatment given during the hospital stay. Base ALL treatment, medications and the hospital course strictly on this real data — do NOT invent, change, drop or add any medication/treatment beyond what the treatment sheet shows. Use ONLY the patient data provided below (diagnosis, presenting complaints, examination, and the OCR'd treatment sheet). Do NOT invent or assume any clinical facts, medications, findings, complications or events that are not present in that data. You may use neutral connective and narrative phrasing so it reads as a professional note, but every clinical fact must trace back to the provided data. If a detail is not in the data, omit it — do not guess.`;
 
                 const dataParts: string[] = [];
                 if (diagnosis.trim()) dataParts.push(`DIAGNOSIS:\n${diagnosis.trim()}`);
@@ -4258,11 +4258,35 @@ IMPORTANT — TREATMENT DATA SOURCE: The "TREATMENT SHEET (read via OCR)" below 
                 // Narrative generation on VPS Claude (Opus); the treatment-sheet
                 // OCR above still runs on Gemini vision.
                 const text = await callVpsClaude(STAY_NOTES_PROMPT + '\n\nPatient data:\n' + userData, 'opus');
-                setHospitalStayNotes(text);
-                toast({
-                  title: 'Success',
-                  description: `Hospital stay note generated from ${chosen.length} treatment sheet${chosen.length > 1 ? 's' : ''}.`,
-                });
+
+                // If the note comes back too short (< 4 non-empty lines), expand it
+                // ONCE — elaborating only on the real data, never inventing facts.
+                const countLines = (s: string) => s.split('\n').map((l) => l.trim()).filter(Boolean).length;
+                let finalText = text;
+                if (countLines(finalText) < 4) {
+                  const EXPAND_PROMPT = `The following hospital stay note is too brief. Expand it into a fuller, well-structured professional note. CRITICAL: do NOT add any new clinical facts, medications, findings, complications or events — use ONLY the patient data and treatment sheet provided. Elaborate, organise and explain the existing real data more thoroughly; do not invent anything. If the source data is limited, it is acceptable for the note to remain short.`;
+                  try {
+                    const expanded = await callVpsClaude(
+                      EXPAND_PROMPT + '\n\nPatient data:\n' + userData + '\n\nCurrent note:\n' + finalText,
+                      'opus',
+                    );
+                    if (expanded && countLines(expanded) > countLines(finalText)) finalText = expanded;
+                  } catch (e) {
+                    console.warn('Stay note expansion retry failed:', e);
+                  }
+                }
+                setHospitalStayNotes(finalText);
+                if (countLines(finalText) < 4) {
+                  toast({
+                    title: 'Generated (limited data)',
+                    description: 'The treatment sheet had limited data, so the note is brief. Nothing was invented.',
+                  });
+                } else {
+                  toast({
+                    title: 'Success',
+                    description: `Hospital stay note generated from ${chosen.length} treatment sheet${chosen.length > 1 ? 's' : ''}.`,
+                  });
+                }
               } catch (error: any) {
                 toast({
                   title: 'Error',
