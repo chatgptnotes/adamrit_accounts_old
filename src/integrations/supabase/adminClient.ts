@@ -1,7 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
-
-// Admin client with service role key — bypasses RLS for internal tools
-export const supabaseAdmin = createClient(
-  'https://xvkxccqaopbnkvwgyfjv.supabase.co',
-  import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY as string,
-);
+// A service-role key must never ship in a browser bundle — it bypasses RLS and
+// is visible to anyone. The only table this client touches (email_inbox) has RLS
+// disabled and grants anon full access, so the regular anon client is sufficient.
+// Re-export it under the old name to keep existing import sites working.
+export { supabase as supabaseAdmin } from './client';
