@@ -10,6 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { EnhancedDatePicker } from '@/components/ui/enhanced-date-picker';
 import { supabase } from '@/integrations/supabase/client';
+import { supabaseData } from '@/integrations/supabase/data-client';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Printer } from 'lucide-react';
@@ -61,7 +62,12 @@ const paymentModes = [
   { value: 'CREDIT', label: 'Credit' },
 ];
 
-const billingExecutives = [
+// Curated billing-executive names that should always be available in the
+// dropdown, regardless of what the User table currently holds. These are also
+// seeded into the Supabase User table by migration
+// 20260613000000_seed_billing_executives.sql. New billing executives added to
+// the User table show up automatically (merged below).
+const BASE_BILLING_EXECUTIVES = [
   'Chetna',
   'Arpit',
   'Akshay',
@@ -74,6 +80,22 @@ const billingExecutives = [
   'Priyanka Tandekar',
   'Sailesh'
 ];
+
+// Filter out non-staff / system accounts and raw login usernames so they never
+// appear in the Billing Executive dropdown (e.g. admin, test, superadmin,
+// nurse, dotted usernames like "shashank.bill", or numeric ones like
+// "abuzarqureshi1983").
+const SYSTEM_ACCOUNT_NAMES = new Set([
+  'superadmin', 'admin', 'test', 'user', 'nurse', 'lab', 'doctor', 'doctor1',
+  'cmd', 'marketingmanager', 'emergencysevafirebase', 'ottech', 'reception',
+  'reception1', 'staff', 'demo'
+]);
+const isJunkExecutiveName = (name: string): boolean => {
+  const n = name.trim();
+  if (!n) return true;
+  if (/[0-9._]/.test(n)) return true; // raw username (digits, dots, underscores)
+  return SYSTEM_ACCOUNT_NAMES.has(n.toLowerCase());
+};
 
 // UUID validation helper function
 const isValidUUID = (uuid: string | undefined): boolean => {
@@ -140,6 +162,40 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
   });
   const [bankAccounts, setBankAccounts] = useState<Array<{ id: string; account_name: string }>>([]);
   const [packages, setPackages] = useState<Array<{ id: string; name: string }>>([]);
+  const [billingExecutives, setBillingExecutives] = useState<string[]>([]);
+
+  // Load billing executives when the modal opens: the curated base list is
+  // always present, merged with real staff from the Supabase User table (junk /
+  // system accounts filtered out). New billing executives added to the DB show
+  // up here automatically.
+  useEffect(() => {
+    if (!isOpen) return;
+    (async () => {
+      const { data, error } = await supabaseData
+        .from('User')
+        .select('full_name, email, is_active, hospital_type')
+        .eq('hospital_type', hospitalType || 'hope')
+        .neq('is_active', false)
+        .order('full_name');
+      if (error) {
+        console.error('Failed to load billing executives', error);
+      }
+      const dbNames = (data || [])
+        .map((u: any) => (u.full_name?.trim() || u.email?.split('@')[0] || '').trim())
+        .filter((n: string) => n && !isJunkExecutiveName(n));
+
+      // Merge base + DB names, de-duplicated case-insensitively (first spelling wins).
+      const seen = new Set<string>();
+      const merged: string[] = [];
+      for (const name of [...BASE_BILLING_EXECUTIVES, ...dbNames]) {
+        const key = name.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(name);
+      }
+      setBillingExecutives(merged.sort((a, b) => a.localeCompare(b)));
+    })();
+  }, [isOpen, hospitalType]);
 
   // Generate default narration when modal opens or payment mode changes
   useEffect(() => {
