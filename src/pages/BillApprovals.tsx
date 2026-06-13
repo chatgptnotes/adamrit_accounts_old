@@ -421,14 +421,29 @@ const BillApprovals = () => {
     );
   }
 
+  // Generic, accent-insensitive substring matcher. Empty query matches all.
+  const q = searchTerm.trim().toLowerCase();
+  const matches = (...fields: any[]) =>
+    !q || fields.some((f) => String(f ?? '').toLowerCase().includes(q));
+
   const filteredPending = pendingBills.filter((bill: any) =>
-    bill.patientName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    bill.bill_no?.toLowerCase().includes(searchTerm.toLowerCase())
+    matches(bill.patientName, bill.bill_no, bill.formatted_bill_no, bill.registrationNumber, bill.category, bill.hospital_name)
   );
 
   const filteredApproved = approvedBills.filter((bill: any) =>
-    bill.patientName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    bill.bill_no?.toLowerCase().includes(searchTerm.toLowerCase())
+    matches(bill.patientName, bill.bill_no, bill.formatted_bill_no, bill.registrationNumber, bill.category, bill.hospital_name)
+  );
+
+  const filteredPharmacyDiscounts = pendingPharmacyDiscounts.filter((sale: any) =>
+    matches(sale.patient_name, sale.bill_number, sale.payment_method, sale.hospital_name)
+  );
+
+  const filteredVisitDiscounts = pendingDiscounts.filter((disc: any) =>
+    matches(disc.patientName, disc.registrationNumber, disc.discount_reason, disc.applied_by, disc.hospital_name)
+  );
+
+  const filteredPackages = pendingPackages.filter((pkg: any) =>
+    matches(pkg.patientName, pkg.registrationNumber, pkg.visit_id)
   );
 
   return (
@@ -488,7 +503,7 @@ const BillApprovals = () => {
         <div className="mb-4 relative max-w-sm">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
           <Input
-            placeholder="Search by patient name or bill no..."
+            placeholder="Search by patient, bill no, reg ID, category, hospital..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-10"
@@ -612,7 +627,7 @@ const BillApprovals = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Percent className="h-5 w-5 text-orange-500" />
-                  Pending Discount Approvals ({pendingDiscounts.length + pendingPharmacyDiscounts.length})
+                  Pending Discount Approvals ({filteredVisitDiscounts.length + filteredPharmacyDiscounts.length})
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -640,10 +655,12 @@ const BillApprovals = () => {
 
                 {/* Pharmacy Discounts sub-tab */}
                 {discountSubTab === 'pharmacy' && (
-                  pendingPharmacyDiscounts.length === 0 ? (
+                  filteredPharmacyDiscounts.length === 0 ? (
                     <div className="text-center py-8">
                       <CheckCircle className="h-10 w-10 text-green-400 mx-auto mb-2" />
-                      <p className="text-sm text-muted-foreground">No pharmacy discount requests pending.</p>
+                      <p className="text-sm text-muted-foreground">
+                        {q ? 'No pharmacy discount requests match your search.' : 'No pharmacy discount requests pending.'}
+                      </p>
                     </div>
                   ) : (
                     <div className="overflow-auto">
@@ -662,7 +679,7 @@ const BillApprovals = () => {
                           </tr>
                         </thead>
                         <tbody>
-                          {pendingPharmacyDiscounts.map((sale: any) => (
+                          {filteredPharmacyDiscounts.map((sale: any) => (
                             <tr key={sale.sale_id} className="border-t hover:bg-orange-50/50">
                               <td className="p-3">
                                 <Badge className={sale.hospital_name === 'hope' ? 'bg-blue-100 text-blue-800 hover:bg-blue-100' : sale.hospital_name === 'ayushman' ? 'bg-green-100 text-green-800 hover:bg-green-100' : 'bg-gray-100 text-gray-800 hover:bg-gray-100'}>
@@ -709,10 +726,12 @@ const BillApprovals = () => {
 
                 {/* Visit Discounts sub-tab */}
                 {discountSubTab === 'visit' && (
-                  pendingDiscounts.length === 0 ? (
+                  filteredVisitDiscounts.length === 0 ? (
                     <div className="text-center py-8">
                       <CheckCircle className="h-10 w-10 text-green-400 mx-auto mb-2" />
-                      <p className="text-sm text-muted-foreground">No visit discount requests pending.</p>
+                      <p className="text-sm text-muted-foreground">
+                        {q ? 'No visit discount requests match your search.' : 'No visit discount requests pending.'}
+                      </p>
                     </div>
                   ) : (
                     <div className="overflow-auto">
@@ -728,7 +747,7 @@ const BillApprovals = () => {
                           </tr>
                         </thead>
                         <tbody>
-                          {pendingDiscounts.map((disc: any) => (
+                          {filteredVisitDiscounts.map((disc: any) => (
                             <tr key={disc.id} className="border-t hover:bg-orange-50/50">
                               <td className="p-3">
                                 <Badge className={disc.hospital_name === 'hope' ? 'bg-blue-100 text-blue-800 hover:bg-blue-100' : disc.hospital_name === 'ayushman' ? 'bg-green-100 text-green-800 hover:bg-green-100' : 'bg-gray-100 text-gray-800 hover:bg-gray-100'}>
@@ -776,18 +795,18 @@ const BillApprovals = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Package className="h-5 w-5 text-purple-500" />
-                  Pending Package Approvals ({pendingPackages.length})
+                  Pending Package Approvals ({filteredPackages.length})
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {pendingPackages.length === 0 ? (
+                {filteredPackages.length === 0 ? (
                   <div className="text-center py-12 text-muted-foreground">
                     <Package className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                    <p>No pending package approvals</p>
+                    <p>{q ? 'No package approvals match your search.' : 'No pending package approvals'}</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {pendingPackages.map((pkg: any) => (
+                    {filteredPackages.map((pkg: any) => (
                       <Card key={pkg.id} className="border-2 border-purple-200 bg-purple-50/50">
                         <CardContent className="p-4">
                           <div className="flex justify-between items-start mb-3">

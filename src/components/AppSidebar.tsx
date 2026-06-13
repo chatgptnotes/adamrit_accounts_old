@@ -22,15 +22,24 @@ export function AppSidebar(props: AppSidebarProps) {
   const [search, setSearch] = useState('');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
-  const q = search.toLowerCase();
+  const q = search.trim().toLowerCase();
   const searching = q.length > 0;
+  const terms = q.split(/\s+/).filter(Boolean);
 
-  const filteredMain = mainItems.filter(item =>
-    item.title.toLowerCase().includes(q)
-  );
-  const filteredMasters = masterItems.filter(item =>
-    item.title.toLowerCase().includes(q)
-  );
+  // Match the tab title, its description subtitle, route, OR its section/group
+  // name, so searching "billing" surfaces every tab under "Billing & Accounts"
+  // even though no tab is literally titled "Billing". Each whitespace-separated
+  // term must appear somewhere in the haystack (AND), so "patient dash" matches
+  // "Patient Dashboard" and "billing accounts" matches the "Billing & Accounts"
+  // group despite the "&". Masters are matched against the "Masters" label they
+  // render under (their item.group is not "Masters").
+  const matches = (item: MenuItem, sectionLabel: string) => {
+    const haystack = `${item.title} ${item.description || ''} ${item.route || ''} ${item.group || ''} ${sectionLabel}`.toLowerCase();
+    return terms.every(t => haystack.includes(t));
+  };
+
+  const filteredMain = mainItems.filter(item => matches(item, ''));
+  const filteredMasters = masterItems.filter(item => matches(item, 'Masters'));
 
   // Bucket the main items by their group, preserving GROUP_ORDER.
   const groupsToRender = GROUP_ORDER
