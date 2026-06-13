@@ -168,8 +168,10 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
         if (!tallySuccess) {
           toast.warning(`Saved to HMS but Tally push failed: ${result.errors?.join(', ') || result.message}`)
         }
-      } catch {
-        toast.warning('Saved to HMS but could not reach TallyPrime')
+      } catch (err: any) {
+        const msg = err?.message || String(err)
+        console.error('[TallyPush] network error:', msg)
+        toast.warning(`Saved to HMS but could not reach TallyPrime: ${msg}`)
       }
 
       // 3 — Mirror to tally_vouchers so Ledger View and Cash Book pick it up.
