@@ -125,6 +125,9 @@ const CasualtyRegister = () => {
 
       setRows(filtered);
       setCurrentPage(1);
+    } catch (err) {
+      console.error('Failed to load casualty register:', err);
+      setRows([]);
     } finally {
       setLoading(false);
     }

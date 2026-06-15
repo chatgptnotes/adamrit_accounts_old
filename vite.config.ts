@@ -265,7 +265,12 @@ export default defineConfig(({ mode }) => {
     global: 'globalThis',
   },
   optimizeDeps: {
-    exclude: ['jspdf', '@ckeditor/ckeditor5-build-classic']
+    exclude: ['jspdf'],
+    // CKEditor ships a CJS/UMD-only build with no ESM entry. It must be
+    // pre-bundled (not excluded) so Vite's dev server can synthesize the
+    // `default` export; excluding it breaks `import ClassicEditor from ...`
+    // in dev with "does not provide an export named 'default'".
+    include: ['@ckeditor/ckeditor5-build-classic']
   },
   build: {
     target: 'es2015',
