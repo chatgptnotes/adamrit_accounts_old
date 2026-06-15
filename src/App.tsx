@@ -77,9 +77,8 @@ const getRoleDefaultRoute = (role: string, email?: string): string => {
   }
 };
 
-// Hide the global FAB pair on Skill Factory (which mounts its own AI sidebar in
-// the same screen area). Exact match so /skill-factory/legacy still shows them.
-const ROUTES_WITHOUT_FLOATERS = new Set(['/skill-factory', '/skill-factory/v2']);
+// Routes that suppress the global FAB pair (exact path match).
+const ROUTES_WITHOUT_FLOATERS = new Set<string>([]);
 const FloatingFabs: React.FC = () => {
   const { pathname } = useLocation();
   if (ROUTES_WITHOUT_FLOATERS.has(pathname)) return null;

@@ -20,8 +20,6 @@ export const GROUP_BY_TITLE: Record<string, string> = {
   'Dashboard': 'Overview',
   'Director Dashboard': 'Overview',
   'Reports': 'Overview',
-  'Task Optimizer': 'Overview',
-  'Skill Factory': 'Overview',
   'Patient Dashboard': 'Overview',
   'Patient Overview': 'Overview',
   'Account Logs': 'Overview',

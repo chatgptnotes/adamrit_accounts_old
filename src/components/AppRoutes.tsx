@@ -150,9 +150,7 @@ const TelephonyDashboard = lazy(() => import("../pages/TelephonyDashboard"));
 const PaymentQR = lazy(() => import("../pages/PaymentQR"));
 const QueueStatus = lazy(() => import("../pages/QueueStatus"));
 const CasualtyRegister = lazy(() => import("../pages/CasualtyRegister"));
-const SkillFactory = lazy(() => import("../pages/SkillFactory"));
 const AccountLogsPage = lazy(() => import("../pages/AccountLogs"));
-const SkillFactoryV2 = lazy(() => import("../pages/SkillFactoryV2"));
 const DeadlineDashboard = lazy(() => import("../components/task-optimizer/flow/DeadlineDashboard"));
 
 // Loading component
@@ -326,6 +324,7 @@ export const AppRoutes = () => {
         <Route path="/doctor-view" element={<Suspense fallback={<PageLoader />}><DoctorView /></Suspense>} />
         <Route path="/patient-portal" element={<PatientPortal />} />
         <Route path="/self-check-in" element={<SelfCheckIn />} />
+        <Route path="/kiosk" element={<SelfCheckIn />} />
         <Route path="/report-delivery" element={<Suspense fallback={<PageLoader />}><ReportDelivery /></Suspense>} />
         <Route path="/radiology-worklist" element={<Suspense fallback={<PageLoader />}><RadiologyWorklist /></Suspense>} />
         <Route path="/attendance" element={<Suspense fallback={<PageLoader />}><StaffAttendance /></Suspense>} />
@@ -337,11 +336,6 @@ export const AppRoutes = () => {
         <Route path="/queue-status" element={<QueueStatus />} />
         <Route path="/nephroplus" element={<Suspense fallback={<PageLoader />}><NephroPlus /></Suspense>} />
         <Route path="/casualty-register" element={<Suspense fallback={<PageLoader />}><CasualtyRegister /></Suspense>} />
-        {/* Skill Factory tab → render v2 directly. /v2 is kept as a stable alias. */}
-        <Route path="/skill-factory" element={<Suspense fallback={<PageLoader />}><SkillFactoryV2 /></Suspense>} />
-        <Route path="/skill-factory/v2" element={<Suspense fallback={<PageLoader />}><SkillFactoryV2 /></Suspense>} />
-        {/* Legacy in-memory builder, kept for fallback at /skill-factory/legacy */}
-        <Route path="/skill-factory/legacy" element={<Suspense fallback={<PageLoader />}><SkillFactory /></Suspense>} />
         <Route path="/deadline-tracking" element={<Suspense fallback={<PageLoader />}><DeadlineTrackingRoute /></Suspense>} />
         {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
         <Route path="/master-data" element={<Suspense fallback={<PageLoader />}><MasterData /></Suspense>} />
