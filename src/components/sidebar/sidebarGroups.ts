@@ -24,6 +24,7 @@ export const GROUP_BY_TITLE: Record<string, string> = {
   'Skill Factory': 'Overview',
   'Patient Dashboard': 'Overview',
   'Patient Overview': 'Overview',
+  'Account Logs': 'Overview',
   'IPD Dashboard': 'Overview',
   "Today's OPD": 'Overview',
 

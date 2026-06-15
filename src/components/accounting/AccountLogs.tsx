@@ -1,0 +1,594 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { format, startOfMonth, endOfMonth, addMonths, subMonths } from 'date-fns';
+import { ChevronLeft, ChevronRight, CheckCircle2, Clock, XCircle, FileSpreadsheet, FileText } from 'lucide-react';
+import { SearchableSelect, type SearchableSelectOption } from '@/components/ui/searchable-select';
+import { supabaseData } from '@/integrations/supabase/data-client';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+
+// ── Types ──────────────────────────────────────────────────────────────────
+
+type LogType = 'account-log' | 'all-hms' | 'billing' | 'pharmacy' | 'vouchers' | 'tally-sync';
+type TallyStatus = 'synced' | 'pending' | 'failed';
+
+interface LedgerEntry { ledger: string; amount: number; is_debit: boolean }
+
+interface LogEntry {
+  id: string;
+  created_at: string;
+  type: string;
+  description: string;
+  amount?: number;
+  tally_status?: TallyStatus;
+  party_ledger?: string;
+  ledger_entries?: LedgerEntry[];
+}
+
+interface TallyLedger {
+  id: string;
+  name: string;
+  parent_group: string | null;
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+const INR = (n: number) =>
+  `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+
+const BADGE_COLORS: Record<string, string> = {
+  'Payment':         'bg-blue-100 text-blue-700',
+  'Payment Voucher': 'bg-blue-100 text-blue-700',
+  'Receipt':         'bg-cyan-100 text-cyan-700',
+  'Journal':         'bg-purple-100 text-purple-700',
+  'Contra':          'bg-slate-100 text-slate-600',
+  'Pharmacy Sale':   'bg-orange-100 text-orange-700',
+  'Pharmacy Return': 'bg-amber-100 text-amber-700',
+  'Advance Payment': 'bg-green-100 text-green-700',
+  'Final Payment':   'bg-teal-100 text-teal-700',
+  'Bill':            'bg-indigo-100 text-indigo-700',
+  'Insurance Bill':  'bg-violet-100 text-violet-700',
+  'ESIC Bill':       'bg-rose-100 text-rose-700',
+  'Tally Sync':      'bg-gray-100 text-gray-600',
+};
+
+const badgeColor = (type: string) =>
+  BADGE_COLORS[type] ?? 'bg-slate-100 text-slate-700';
+
+const TallyStatusIcon = ({ status }: { status?: TallyStatus }) => {
+  if (status === 'synced') return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+  if (status === 'pending') return <Clock className="h-4 w-4 text-amber-500" />;
+  if (status === 'failed')  return <XCircle className="h-4 w-4 text-red-500" />;
+  return null;
+};
+
+const mapPushType = (t: string): string =>
+  ({ bill: 'Bill', payment: 'Payment Voucher', pharmacy: 'Pharmacy Sale',
+     esic_bill: 'ESIC Bill', insurance_bill: 'Insurance Bill',
+     insurance_payment: 'Payment Voucher' }[t] ?? t);
+
+const mapQueueStatus   = (s: string): TallyStatus =>
+  s === 'completed' ? 'synced' : s === 'failed_permanent' ? 'failed' : 'pending';
+const mapVoucherStatus = (s: string): TallyStatus =>
+  s === 'synced' ? 'synced' : (s === 'failed' || s === 'conflict') ? 'failed' : 'pending';
+
+const groupByDay = (entries: LogEntry[]) => {
+  const sorted = [...entries].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  );
+  const map = new Map<string, { label: string; entries: LogEntry[] }>();
+  for (const e of sorted) {
+    const key = format(new Date(e.created_at), 'yyyy-MM-dd');
+    if (!map.has(key))
+      map.set(key, { label: format(new Date(e.created_at), 'EEEE, d MMMM'), entries: [] });
+    map.get(key)!.entries.push(e);
+  }
+  return [...map.entries()].map(([date, g]) => ({ date, ...g }));
+};
+
+// ── Data fetchers ──────────────────────────────────────────────────────────
+
+async function fetchAccountLog(start: string, end: string): Promise<LogEntry[]> {
+  const [tvRes, pqRes] = await Promise.all([
+    supabaseData
+      .from('tally_vouchers')
+      .select('id, voucher_type, party_ledger, amount, narration, sync_status, created_at, adamrit_payment_id, ledger_entries')
+      .eq('sync_direction', 'to_tally')
+      .gte('created_at', start)
+      .lte('created_at', end),
+    supabaseData
+      .from('tally_push_queue')
+      .select('id, push_type, reference_id, status, payload, created_at')
+      .in('status', ['completed', 'pending', 'failed_permanent'])
+      .gte('created_at', start)
+      .lte('created_at', end),
+  ]);
+
+  const fromVouchers: LogEntry[] = (tvRes.data ?? []).map((r: any) => ({
+    id: `tv-${r.id}`,
+    created_at: r.created_at,
+    type: r.voucher_type ?? 'Payment Voucher',
+    description: r.narration || r.party_ledger || r.adamrit_payment_id || '—',
+    amount: r.amount ?? undefined,
+    tally_status: mapVoucherStatus(r.sync_status ?? 'pending'),
+    party_ledger: r.party_ledger ?? undefined,
+    ledger_entries: Array.isArray(r.ledger_entries) ? r.ledger_entries : undefined,
+  }));
+
+  const coveredRefs = new Set(
+    (tvRes.data ?? []).map((r: any) => r.adamrit_payment_id).filter(Boolean)
+  );
+
+  const fromQueue: LogEntry[] = (pqRes.data ?? [])
+    .filter((r: any) => !coveredRefs.has(r.reference_id))
+    .map((r: any) => ({
+      id: `pq-${r.id}`,
+      created_at: r.created_at,
+      type: mapPushType(r.push_type ?? ''),
+      description: r.reference_id || r.payload?.patientName || r.payload?.narration || '—',
+      amount: r.payload?.amount ?? undefined,
+      tally_status: mapQueueStatus(r.status),
+    }));
+
+  return [...fromVouchers, ...fromQueue];
+}
+
+async function fetchVouchers(start: string, end: string): Promise<LogEntry[]> {
+  const { data } = await supabaseData
+    .from('payment_vouchers')
+    .select('id, voucher_no, person_name, amount, purpose, created_at')
+    .gte('created_at', start)
+    .lte('created_at', end);
+  return (data ?? []).map((r: any) => ({
+    id: `pv-${r.id}`,
+    created_at: r.created_at,
+    type: 'Payment Voucher',
+    description: [r.voucher_no, r.person_name, r.purpose].filter(Boolean).join(' – '),
+    amount: r.amount ?? undefined,
+  }));
+}
+
+async function fetchPharmacy(start: string, end: string): Promise<LogEntry[]> {
+  const { data } = await supabaseData
+    .from('pharmacy_sales')
+    .select('id, bill_no, patient_name, total, created_at')
+    .gte('created_at', start)
+    .lte('created_at', end);
+  return (data ?? []).map((r: any) => ({
+    id: `ps-${r.id}`,
+    created_at: r.created_at,
+    type: 'Pharmacy Sale',
+    description: [r.bill_no ? `Rx #${r.bill_no}` : 'Sale', r.patient_name].filter(Boolean).join(' – '),
+    amount: r.total ?? undefined,
+  }));
+}
+
+async function fetchBilling(start: string, end: string): Promise<LogEntry[]> {
+  const [apRes, fpRes] = await Promise.all([
+    supabaseData
+      .from('advance_payment')
+      .select('id, advance_amount, payment_mode, created_at')
+      .gte('created_at', start)
+      .lte('created_at', end),
+    supabaseData
+      .from('final_payments')
+      .select('id, amount, payment_mode, created_at')
+      .gte('created_at', start)
+      .lte('created_at', end),
+  ]);
+  const ap: LogEntry[] = (apRes.data ?? []).map((r: any) => ({
+    id: `ap-${r.id}`,
+    created_at: r.created_at,
+    type: 'Advance Payment',
+    description: r.payment_mode ? `via ${r.payment_mode}` : 'Advance',
+    amount: r.advance_amount ?? undefined,
+  }));
+  const fp: LogEntry[] = (fpRes.data ?? []).map((r: any) => ({
+    id: `fp-${r.id}`,
+    created_at: r.created_at,
+    type: 'Final Payment',
+    description: r.payment_mode ? `via ${r.payment_mode}` : 'Final Payment',
+    amount: r.amount ?? undefined,
+  }));
+  return [...ap, ...fp];
+}
+
+async function fetchTallySync(start: string, end: string): Promise<LogEntry[]> {
+  const { data } = await supabaseData
+    .from('tally_sync_log')
+    .select('id, sync_type, direction, status, records_synced, company_name, created_at')
+    .gte('created_at', start)
+    .lte('created_at', end);
+  return (data ?? []).map((r: any) => ({
+    id: `tsl-${r.id}`,
+    created_at: r.created_at,
+    type: 'Tally Sync',
+    description: [r.sync_type, r.direction, r.company_name,
+      r.records_synced != null ? `${r.records_synced} records` : null]
+      .filter(Boolean).join(' / '),
+    tally_status:
+      r.status === 'completed' ? 'synced' : r.status === 'failed' ? 'failed' : 'pending',
+  }));
+}
+
+async function fetchAllHMS(start: string, end: string): Promise<LogEntry[]> {
+  const [pv, ps, billing, ts] = await Promise.all([
+    fetchVouchers(start, end),
+    fetchPharmacy(start, end),
+    fetchBilling(start, end),
+    fetchTallySync(start, end),
+  ]);
+  return [...pv, ...ps, ...billing, ...ts];
+}
+
+function queryFn(log: LogType, start: string, end: string): Promise<LogEntry[]> {
+  switch (log) {
+    case 'account-log': return fetchAccountLog(start, end);
+    case 'vouchers':    return fetchVouchers(start, end);
+    case 'pharmacy':    return fetchPharmacy(start, end);
+    case 'billing':     return fetchBilling(start, end);
+    case 'tally-sync':  return fetchTallySync(start, end);
+    case 'all-hms':     return fetchAllHMS(start, end);
+  }
+}
+
+// ── Static options ────────────────────────────────────────────────────────
+
+const LOG_OPTIONS: SearchableSelectOption[] = [
+  { value: 'account-log', label: '⭐ Account Log' },
+  { value: 'all-hms',     label: 'All HMS Entries' },
+  { value: 'billing',     label: 'Billing & Payments' },
+  { value: 'pharmacy',    label: 'Pharmacy' },
+  { value: 'vouchers',    label: 'Vouchers' },
+  { value: 'tally-sync',  label: 'Tally Sync History' },
+];
+
+// ── Export helpers ────────────────────────────────────────────────────────
+
+function exportToExcel(
+  groups: { label: string; entries: LogEntry[] }[],
+  monthLabel: string,
+  ledgerLabel: string,
+) {
+  const rows: any[] = [];
+  for (const group of groups) {
+    // Day heading row
+    rows.push({ Date: group.label, Time: '', Type: '', Description: '', Amount: '', 'Tally Status': '' });
+    for (const e of group.entries) {
+      rows.push({
+        Date: format(new Date(e.created_at), 'dd/MM/yyyy'),
+        Time: format(new Date(e.created_at), 'HH:mm'),
+        Type: e.type,
+        Description: e.description,
+        Amount: e.amount ?? '',
+        'Tally Status': e.tally_status ?? '',
+      });
+    }
+    // blank separator
+    rows.push({ Date: '', Time: '', Type: '', Description: '', Amount: '', 'Tally Status': '' });
+  }
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [
+    { wch: 20 }, { wch: 8 }, { wch: 18 }, { wch: 45 }, { wch: 14 }, { wch: 14 },
+  ];
+  const wb = XLSX.utils.book_new();
+  const sheetName = monthLabel.replace(' ', '-');
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  const filename = `Account-Logs_${monthLabel.replace(' ', '-')}${ledgerLabel ? `_${ledgerLabel}` : ''}.xlsx`;
+  XLSX.writeFile(wb, filename);
+}
+
+function exportToPDF(
+  groups: { label: string; entries: LogEntry[] }[],
+  monthLabel: string,
+  ledgerLabel: string,
+  showTallyStatus: boolean,
+) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+  const title = `Account Logs — ${monthLabel}${ledgerLabel ? ` — ${ledgerLabel}` : ''}`;
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.text(title, 14, 16);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Exported: ${format(new Date(), 'dd MMM yyyy, HH:mm')}`, 14, 22);
+
+  let startY = 28;
+
+  for (const group of groups) {
+    const head = showTallyStatus
+      ? [['Time', 'Type', 'Description', 'Amount (₹)', 'Tally Status']]
+      : [['Time', 'Type', 'Description', 'Amount (₹)']];
+
+    const body = group.entries.map(e => {
+      const row = [
+        format(new Date(e.created_at), 'HH:mm'),
+        e.type,
+        e.description,
+        e.amount != null && e.amount > 0
+          ? e.amount.toLocaleString('en-IN', { maximumFractionDigits: 0 })
+          : '—',
+      ];
+      if (showTallyStatus) row.push(e.tally_status ?? '—');
+      return row;
+    });
+
+    autoTable(doc, {
+      head,
+      body,
+      startY,
+      didDrawPage: () => { startY = 20; },
+      headStyles: { fillColor: [59, 130, 246], fontSize: 8, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 7.5 },
+      columnStyles: { 2: { cellWidth: 90 } },
+      margin: { left: 14, right: 14 },
+      didDrawCell: () => {},
+      // Day label above table
+    });
+
+    // Day heading drawn before table
+    const prevY = startY;
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(100, 100, 100);
+    doc.text(group.label.toUpperCase(), 14, prevY - 2);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(0, 0, 0);
+
+    startY = (doc as any).lastAutoTable.finalY + 10;
+  }
+
+  const filename = `Account-Logs_${monthLabel.replace(' ', '-')}${ledgerLabel ? `_${ledgerLabel}` : ''}.pdf`;
+  doc.save(filename);
+}
+
+// ── Component ──────────────────────────────────────────────────────────────
+
+const AccountLogs: React.FC = () => {
+  const [selectedLog, setSelectedLog]       = useState<LogType>('account-log');
+  const [selectedLedger, setSelectedLedger] = useState<string>('all');
+  const [currentMonth, setCurrentMonth]     = useState(new Date());
+
+  // Reset ledger filter when switching away from account-log
+  useEffect(() => {
+    if (selectedLog !== 'account-log') setSelectedLedger('all');
+  }, [selectedLog]);
+
+  const monthStart = startOfMonth(currentMonth).toISOString();
+  const monthEnd   = endOfMonth(currentMonth).toISOString();
+
+  // Main entries query
+  const { data: entries = [], isLoading } = useQuery({
+    queryKey: ['account-logs', selectedLog, monthStart],
+    queryFn: () => queryFn(selectedLog, monthStart, monthEnd),
+  });
+
+  // Ledgers query — only runs when Account Log is selected
+  const { data: ledgers = [] } = useQuery<TallyLedger[]>({
+    queryKey: ['tally-ledgers-list'],
+    queryFn: async () => {
+      const { data } = await supabaseData
+        .from('tally_ledgers')
+        .select('id, name, parent_group')
+        .order('name');
+      return (data ?? []) as TallyLedger[];
+    },
+    enabled: selectedLog === 'account-log',
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const ledgerOptions = useMemo<SearchableSelectOption[]>(() => [
+    { value: 'all', label: 'All Accounts' },
+    ...ledgers.map(l => ({
+      value: l.name,
+      // searchable by both name and group; selectedLabel shows just the name in trigger
+      label: l.parent_group ? `${l.name}  (${l.parent_group})` : l.name,
+      selectedLabel: l.name,
+    })),
+  ], [ledgers]);
+
+  // Filter entries by selected ledger (client-side, only for account-log)
+  const filteredEntries = useMemo(() => {
+    if (selectedLog !== 'account-log' || selectedLedger === 'all') return entries;
+    return entries.filter(e =>
+      e.party_ledger === selectedLedger ||
+      e.ledger_entries?.some(le => le.ledger === selectedLedger)
+    );
+  }, [entries, selectedLedger, selectedLog]);
+
+  const groups = useMemo(() => groupByDay(filteredEntries), [filteredEntries]);
+  const showTallyStatus = selectedLog === 'account-log' || selectedLog === 'tally-sync';
+
+  const monthLabel  = format(currentMonth, 'MMMM yyyy');
+  const ledgerLabel = selectedLedger !== 'all' ? selectedLedger : '';
+
+  const handleExcelExport = () => exportToExcel(groups, monthLabel, ledgerLabel);
+  const handlePDFExport   = () => exportToPDF(groups, monthLabel, ledgerLabel, showTallyStatus);
+
+  return (
+    <div className="p-6 max-w-5xl mx-auto">
+      <h1 className="text-2xl font-semibold text-gray-900 mb-6">Account Logs</h1>
+
+      {/* Controls row */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
+
+        {/* Left: Log dropdown + Ledger dropdown */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Log type selector — searchable */}
+          <SearchableSelect
+            options={LOG_OPTIONS}
+            value={selectedLog}
+            onValueChange={(v) => setSelectedLog(v as LogType)}
+            placeholder="Select a Log"
+            searchPlaceholder="Search log type…"
+            className="w-52"
+          />
+
+          {/* Account / Ledger selector — searchable, only for Account Log */}
+          {selectedLog === 'account-log' && (
+            <SearchableSelect
+              options={ledgerOptions}
+              value={selectedLedger}
+              onValueChange={setSelectedLedger}
+              placeholder="All Accounts"
+              searchPlaceholder="Search account or ledger…"
+              emptyText="No matching account found"
+              className="w-64"
+            />
+          )}
+        </div>
+
+        {/* Right: Month navigator + Export */}
+        <div className="flex items-center gap-2">
+          {/* Export buttons — only when there's data */}
+          {groups.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={handleExcelExport}
+                title="Export to Excel"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors"
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5" />
+                Excel
+              </button>
+              <button
+                onClick={handlePDFExport}
+                title="Export to PDF"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                PDF
+              </button>
+            </div>
+          )}
+
+          {/* Month navigator */}
+          <div className="flex items-center gap-1 border rounded-lg px-1 py-0.5 bg-white">
+            <button
+              onClick={() => setCurrentMonth(m => subMonths(m, 1))}
+              className="p-1.5 rounded hover:bg-gray-100 transition-colors"
+              aria-label="Previous month"
+            >
+              <ChevronLeft className="h-4 w-4 text-gray-600" />
+            </button>
+            <span className="text-sm font-medium w-32 text-center text-gray-700">
+              {monthLabel}
+            </span>
+            <button
+              onClick={() => setCurrentMonth(m => addMonths(m, 1))}
+              className="p-1.5 rounded hover:bg-gray-100 transition-colors"
+              aria-label="Next month"
+            >
+              <ChevronRight className="h-4 w-4 text-gray-600" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Active ledger filter pill */}
+      {selectedLog === 'account-log' && selectedLedger !== 'all' && (
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-xs text-gray-500">Showing entries for:</span>
+          <span className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 text-xs font-medium px-3 py-1 rounded-full border border-blue-200">
+            {selectedLedger}
+            <button
+              onClick={() => setSelectedLedger('all')}
+              className="hover:text-blue-900 font-bold leading-none"
+              aria-label="Clear filter"
+            >
+              ×
+            </button>
+          </span>
+        </div>
+      )}
+
+      {/* Body */}
+      {isLoading ? (
+        <div className="space-y-6">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="animate-pulse">
+              <div className="h-3.5 bg-gray-200 rounded w-44 mb-3" />
+              <div className="bg-white border rounded-lg overflow-hidden">
+                {[1, 2, 3].map(j => (
+                  <div key={j} className="h-12 border-b last:border-0 flex items-center px-4 gap-3">
+                    <div className="h-3 bg-gray-100 rounded w-10" />
+                    <div className="h-5 bg-gray-100 rounded w-24" />
+                    <div className="h-3 bg-gray-100 rounded flex-1" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : groups.length === 0 ? (
+        <div className="text-center py-20 text-gray-400">
+          <p className="text-base">
+            {selectedLedger !== 'all'
+              ? `No entries for "${selectedLedger}" in ${monthLabel}`
+              : `No entries for ${monthLabel}`}
+          </p>
+          <p className="text-sm mt-1">Try a different month or account</p>
+        </div>
+      ) : (
+        <div className="space-y-8">
+          {groups.map(group => {
+            const dayTotal = group.entries.reduce((s, e) => s + (e.amount ?? 0), 0);
+            return (
+              <div key={group.date}>
+                <div className="flex items-center justify-between mb-2 px-1">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
+                    {group.label}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {group.entries.length} {group.entries.length === 1 ? 'entry' : 'entries'}
+                    {dayTotal > 0 && <> &middot; {INR(dayTotal)}</>}
+                  </p>
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                  {group.entries.map((entry, idx) => (
+                    <div
+                      key={entry.id}
+                      className={`flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors ${
+                        idx !== 0 ? 'border-t border-gray-100' : ''
+                      }`}
+                    >
+                      <span className="text-xs text-gray-400 w-10 shrink-0 tabular-nums">
+                        {format(new Date(entry.created_at), 'HH:mm')}
+                      </span>
+
+                      <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full shrink-0 ${badgeColor(entry.type)}`}>
+                        {entry.type}
+                      </span>
+
+                      <span className="text-sm text-gray-700 flex-1 truncate min-w-0">
+                        {entry.description}
+                      </span>
+
+                      {entry.amount != null && entry.amount > 0 && (
+                        <span className="text-sm font-medium text-gray-800 shrink-0 tabular-nums">
+                          {INR(entry.amount)}
+                        </span>
+                      )}
+
+                      {showTallyStatus && (
+                        <span className="shrink-0 ml-1">
+                          <TallyStatusIcon status={entry.tally_status} />
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default AccountLogs;
