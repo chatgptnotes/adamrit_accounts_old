@@ -11,6 +11,16 @@ export interface CheckMailResult {
   skipped: number;
 }
 
+export interface InboxMail {
+  id: string;
+  fromName: string;
+  fromEmail: string;
+  subject: string;
+  snippet: string;
+  unread: boolean;
+  receivedAt: string | null;
+}
+
 async function getGmailAccessToken(): Promise<string> {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -193,7 +203,45 @@ export function useGmailChecker() {
     return token;
   };
 
-  const checkMail = async (): Promise<CheckMailResult> => {
+  const fetchInbox = async (maxResults = 25): Promise<InboxMail[]> => {
+    const token = await getToken();
+
+    const listRes = await fetch(
+      `${GMAIL_API}/users/me/messages?maxResults=${maxResults}&labelIds=INBOX`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!listRes.ok) {
+      if (listRes.status === 401) setCachedToken(null);
+      throw new Error(`Gmail fetch failed (${listRes.status})`);
+    }
+    const listData = await listRes.json();
+    const messages: Array<{ id: string }> = listData.messages ?? [];
+
+    const mails: InboxMail[] = [];
+    for (const msg of messages) {
+      const msgRes = await fetch(
+        `${GMAIL_API}/users/me/messages/${msg.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!msgRes.ok) continue;
+      const msgData = await msgRes.json() as Record<string, unknown>;
+
+      const headers = ((msgData.payload as Record<string, unknown>)?.headers ?? []) as Array<{ name: string; value: string }>;
+      const fromHeader = getHeader(headers, 'From');
+      const fromEmail  = fromHeader.match(/<(.+)>/)?.[1] ?? fromHeader.trim();
+      const fromName   = fromHeader.match(/^([^<]+)/)?.[1]?.trim() ?? fromEmail;
+      const subject    = getHeader(headers, 'Subject') || '(no subject)';
+      const dateStr    = getHeader(headers, 'Date');
+      const receivedAt = dateStr ? new Date(dateStr).toISOString() : null;
+      const unread     = ((msgData.labelIds as string[]) ?? []).includes('UNREAD');
+      const snippet    = (msgData.snippet as string) ?? '';
+
+      mails.push({ id: msg.id, fromName, fromEmail, subject, snippet, unread, receivedAt });
+    }
+    return mails;
+  };
+
+  const checkMail = async (onProgress?: (done: number, total: number) => void): Promise<CheckMailResult> => {
     const token = await getToken();
 
     const listRes = await fetch(
@@ -275,6 +323,7 @@ export function useGmailChecker() {
       }
 
       saved++;
+      onProgress?.(saved + skipped, messages.length);
     }
 
     return { saved, skipped };
@@ -346,5 +395,5 @@ Rephrased reply (${styleInstructions[style]}):`;
     return newDraft;
   };
 
-  return { checkMail, regenerateDraft, rephraseDraft };
+  return { fetchInbox, checkMail, regenerateDraft, rephraseDraft };
 }
