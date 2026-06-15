@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { supabaseAdmin } from '@/integrations/supabase/adminClient';
+import { supabaseData } from '@/integrations/supabase/data-client';
 import { geminiFetch, geminiGenerateContentUrl, GEMINI_MODEL } from '@/lib/gemini';
 import { LLM_BACKEND, callVpsClaude } from '@/lib/vpsClaude';
 
@@ -280,7 +280,7 @@ export function useGmailChecker() {
       const body       = extractTextBody(msgData.payload as Record<string, unknown>);
 
       // Check if this Gmail message was already saved (using gmail message ID stored in approved_by)
-      const { data: existing } = await supabaseAdmin
+      const { data: existing } = await supabaseData
         .from('email_inbox')
         .select('id, body_preview')
         .eq('approved_by', `gmailid:${gmailMsgId}`)
@@ -289,7 +289,7 @@ export function useGmailChecker() {
       if (existing) {
         // Already saved — update body if it was previously truncated
         if (!existing.body_preview || existing.body_preview.length < body.length) {
-          await supabaseAdmin
+          await supabaseData
             .from('email_inbox')
             .update({ body_preview: body })
             .eq('id', existing.id);
@@ -305,7 +305,7 @@ export function useGmailChecker() {
       await createGmailDraft(token, fromEmail, subject, draftReply, threadId, messageId);
 
       // 2. Save to Supabase (approved_by stores gmail message ID for permanent dedup)
-      const { error: insertError } = await supabaseAdmin.from('email_inbox').insert({
+      const { error: insertError } = await supabaseData.from('email_inbox').insert({
         from_email:   fromEmail,
         from_name:    fromName,
         subject,
@@ -341,12 +341,12 @@ export function useGmailChecker() {
     let newDraft = buildDraftReply(email.from_name ?? email.from_email, email.subject ?? '', email.category ?? 'general');
     if (feedback?.trim()) newDraft = `[Note: ${feedback.trim()}]\n\n${newDraft}`;
 
-    await supabaseAdmin.from('email_inbox').update({ draft_reply: newDraft }).eq('id', emailId);
+    await supabaseData.from('email_inbox').update({ draft_reply: newDraft }).eq('id', emailId);
     return newDraft;
   };
 
   const rephraseDraft = async (emailId: string, style: ReplyStyle): Promise<string> => {
-    const { data: email } = await supabaseAdmin
+    const { data: email } = await supabaseData
       .from('email_inbox')
       .select('from_name, from_email, subject, category, draft_reply')
       .eq('id', emailId)
@@ -391,7 +391,7 @@ Rephrased reply (${styleInstructions[style]}):`;
     }
     if (!newDraft) throw new Error('AI returned empty response');
 
-    await supabaseAdmin.from('email_inbox').update({ draft_reply: newDraft }).eq('id', emailId);
+    await supabaseData.from('email_inbox').update({ draft_reply: newDraft }).eq('id', emailId);
     return newDraft;
   };
 

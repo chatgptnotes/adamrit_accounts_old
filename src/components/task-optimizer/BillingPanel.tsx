@@ -4,7 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { supabaseAdmin } from '@/integrations/supabase/adminClient';
+import { supabaseData } from '@/integrations/supabase/data-client';
 import { useState, useEffect, useRef } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
@@ -358,7 +358,7 @@ export default function BillingPanel() {
       // is the import time: a bulk import writes old mails with new created_at,
       // pushing months-old mail to the top and cutting recent mail off at the
       // row limit. Rows with no received_at sort last.
-      let q = supabaseAdmin
+      let q = supabaseData
         .from('email_inbox')
         .select('*')
         .order('received_at', { ascending: false, nullsFirst: false })
@@ -380,7 +380,7 @@ export default function BillingPanel() {
 
   const approveMutation = useMutation({
     mutationFn: async ({ id, reply }: { id: string; reply: string }) => {
-      const { error } = await supabaseAdmin
+      const { error } = await supabaseData
         .from('email_inbox')
         // NOTE: do NOT overwrite approved_by here — it holds the `gmailid:<id>`
         // dedup key. Clobbering it makes checkMail re-import this same email as a
@@ -406,7 +406,7 @@ export default function BillingPanel() {
 
   const rejectMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabaseAdmin
+      const { error } = await supabaseData
         .from('email_inbox')
         .update({ status: 'rejected' })
         .eq('id', id);
