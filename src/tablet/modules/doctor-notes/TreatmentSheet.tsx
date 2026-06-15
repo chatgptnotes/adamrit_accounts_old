@@ -10,6 +10,7 @@ import {
   Plus,
   Printer,
   Search,
+  Send,
   Trash2,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -291,9 +292,15 @@ export function TreatmentSheet({
 
           {/* Active medicines — today's chart, each can be changed or stopped */}
           <section>
-            <h4 className="mb-2 font-semibold">
-              Active medicines ({activeMeds.length})
-            </h4>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h4 className="font-semibold">
+                Active medicines ({activeMeds.length})
+              </h4>
+              <BulkApproveBar
+                pending={activeMeds.filter((m) => !m.isApproved)}
+                onDone={invalidateSheet}
+              />
+            </div>
             {activeMeds.length === 0 ? (
               <p className="rounded-xl border px-3 py-8 text-center text-muted-foreground">
                 No active medicines — add one below.
@@ -398,6 +405,38 @@ export function TreatmentSheet({
 }
 
 /**
+ * One-tap "Approve all" for the pending medicines on this sheet. Hidden when
+ * nothing is pending. Approves them in a single batch so they land on one
+ * pharmacy card and fire one notification (see approveMedications).
+ */
+function BulkApproveBar({
+  pending,
+  onDone,
+}: {
+  pending: MedRow[];
+  onDone: () => void;
+}) {
+  const { approveMedications, isApprovingMedications } =
+    useMedicalDataMutations();
+  if (pending.length === 0) return null;
+  return (
+    <button
+      type="button"
+      disabled={isApprovingMedications}
+      onClick={() =>
+        approveMedications(
+          { rowIds: pending.map((m) => m.id) },
+          { onSuccess: onDone },
+        )
+      }
+      className="tablet-no-print inline-flex shrink-0 items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+    >
+      <Check className="h-3.5 w-3.5" /> Approve all ({pending.length})
+    </button>
+  );
+}
+
+/**
  * One active medicine in the chart — shows the order + pharmacy substitution,
  * with one-tap Change (ends the order today, starts a new one) and Stop.
  */
@@ -414,10 +453,12 @@ function ActiveMedCard({
     changeMedication,
     discontinueMedication,
     approveMedication,
+    resendMedication,
     deleteMedication,
     isChangingMedication,
     isDiscontinuingMedication,
     isApprovingMedication,
+    isResendingMedication,
     isDeletingMedication,
   } = useMedicalDataMutations();
   const [editing, setEditing] = useState(false);
@@ -564,7 +605,16 @@ function ActiveMedCard({
             >
               <Check className="h-3.5 w-3.5" /> Approve
             </button>
-          ) : null}
+          ) : (
+            <button
+              type="button"
+              disabled={isResendingMedication}
+              onClick={() => resendMedication({ rowId: med.id })}
+              className={cn(ACTION, "bg-emerald-50 text-emerald-700")}
+            >
+              <Send className="h-3.5 w-3.5" /> Resend to pharmacy
+            </button>
+          )}
           <button
             type="button"
             disabled={isDeletingMedication}

@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 // Use the anon data client: the shared OAuth-aware client returns 0 rows under
 // an authenticated Google session, so the bell would silently show "0".
 import { supabaseData as supabaseAnon } from '@/integrations/supabase/data-client';
+import { buildPendingFilter } from '@/lib/ward-bridge-logic';
 
 export interface PendingPrescription {
   id: string;
@@ -26,10 +27,10 @@ export const usePendingPrescriptions = (): UsePendingPrescriptionsResult => {
   const { hospitalType } = useAuth();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Pending camera/manual prescriptions (any hospital, unchanged) PLUS ward
-  // orders bridged from the tablet — scoped to THIS hospital so Hope and
-  // Ayushman pharmacists only see their own ward orders.
-  const pendingFilter = `status.eq.PENDING,and(status.eq.APPROVED,source.eq.ward,hospital_name.eq.${hospitalType})`;
+  // Pending camera/manual prescriptions (any hospital) PLUS ward orders bridged
+  // from the tablet — scoped to THIS hospital, with NULL-hospital ward orders
+  // shown to everyone. See buildPendingFilter for the full rationale.
+  const pendingFilter = buildPendingFilter(hospitalType);
   const COUNT_KEY = ['pending-prescriptions', 'count', hospitalType] as const;
   const RECENT_KEY = ['pending-prescriptions', 'recent', hospitalType] as const;
 
@@ -80,13 +81,20 @@ export const usePendingPrescriptions = (): UsePendingPrescriptionsResult => {
         { event: '*', schema: 'public', table: 'prescriptions' },
         (payload: any) => {
           if (debounceRef.current) clearTimeout(debounceRef.current);
+          const evt = payload?.eventType;
+          const row = payload?.new || {};
+          // Announce when new medicine reaches the pharmacy: either a brand-new
+          // prescription card (INSERT), or a same-day ward re-send that bumps an
+          // existing open card (UPDATE while still APPROVED). Dispense updates flip
+          // the status away from APPROVED, so they don't fire a toast.
+          const isNewCard = evt === 'INSERT';
+          const isWardResend =
+            evt === 'UPDATE' && row.source === 'ward' && row.status === 'APPROVED';
+          const num = row.prescription_number;
           debounceRef.current = setTimeout(() => {
             queryClient.invalidateQueries({ queryKey: ['pending-prescriptions'] });
-            // Only fire a toast for brand-new prescriptions, not for
-            // updates (e.g. dispense) or deletes.
-            if (payload?.eventType === 'INSERT') {
-              const num = payload?.new?.prescription_number;
-              toast.success(num ? `New prescription #${num}` : 'New prescription received');
+            if (isNewCard || isWardResend) {
+              toast.success(num ? `New medicine order #${num}` : 'New medicine sent to pharmacy');
             }
           }, 500);
         }

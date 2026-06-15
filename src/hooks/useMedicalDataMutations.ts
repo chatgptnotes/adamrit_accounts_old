@@ -257,14 +257,27 @@ export const useMedicalDataMutations = () => {
 
       // Approving a med "sends it to the pharmacy": create a normal ward
       // prescription so it flows through the existing desktop pharmacy queue +
-      // billing. Best-effort — never let a bridge hiccup fail the approval.
-      await bridgeApprovedMedicationToPharmacy(rowId);
+      // billing. Best-effort — never let a bridge hiccup fail the approval, but
+      // return its result so we can warn the nurse if it did not reach pharmacy.
+      return await bridgeApprovedMedicationToPharmacy(rowId);
     },
-    onSuccess: () => {
+    onSuccess: (bridge) => {
       queryClient.invalidateQueries({ queryKey: ['visit-medications-custom'] });
+      if (bridge && !bridge.ok) {
+        // Approval saved, but the order never made it to the pharmacy queue.
+        // Surface it so the nurse can retry instead of silently re-sending.
+        toast({
+          title: "Approved — not sent to pharmacy",
+          description: bridge.reason
+            ? `Could not send to pharmacy: ${bridge.reason}. Please retry.`
+            : "Could not send to pharmacy. Please retry.",
+          variant: "destructive",
+        });
+        return;
+      }
       toast({
         title: "Approved",
-        description: "Medication approved",
+        description: "Medication approved and sent to pharmacy",
       });
     },
     onError: (error) => {
@@ -273,6 +286,83 @@ export const useMedicalDataMutations = () => {
         title: "Error",
         description: "Failed to approve medication",
         variant: "destructive"
+      });
+    }
+  });
+
+  // Re-run the bridge for an already-approved med. Used when the first send did
+  // not reach the pharmacy queue (the approve toast told the nurse to retry).
+  // Idempotent: the unique index on visit_medication_id makes a re-send a no-op
+  // once the order has already arrived, so it is safe to offer at any time.
+  const resendMedicationMutation = useMutation({
+    mutationFn: async ({ rowId }: { rowId: string }) => {
+      return await bridgeApprovedMedicationToPharmacy(rowId);
+    },
+    onSuccess: (bridge) => {
+      if (bridge && !bridge.ok) {
+        toast({
+          title: "Still not sent to pharmacy",
+          description: bridge.reason
+            ? `Could not send to pharmacy: ${bridge.reason}. Please retry.`
+            : "Could not send to pharmacy. Please retry.",
+          variant: "destructive",
+        });
+        return;
+      }
+      toast({
+        title: "Sent to pharmacy",
+        description: "Medication sent to the pharmacy queue",
+      });
+    },
+    onError: (error) => {
+      console.error('Error resending medication:', error);
+      toast({
+        title: "Error",
+        description: "Failed to send medication to pharmacy",
+        variant: "destructive",
+      });
+    }
+  });
+
+  // Approve several pending meds in one tap. Sequential so the per-visit/day
+  // unique card guard collapses them onto a single pharmacy card (and one
+  // debounced bell toast) instead of racing into duplicates. One summary toast.
+  const approveMedicationsMutation = useMutation({
+    mutationFn: async ({ rowIds }: { rowIds: string[] }) => {
+      const results = [];
+      for (const rowId of rowIds) {
+        const { error } = await supabase
+          .from('visit_medications')
+          .update({ is_approved: true, approved_at: new Date().toISOString() })
+          .eq('id', rowId);
+        if (error) throw error;
+        results.push(await bridgeApprovedMedicationToPharmacy(rowId));
+      }
+      return results;
+    },
+    onSuccess: (results) => {
+      queryClient.invalidateQueries({ queryKey: ['visit-medications-custom'] });
+      const failed = results.filter((r) => r && !r.ok).length;
+      const sent = results.length - failed;
+      if (failed > 0) {
+        toast({
+          title: `Approved ${results.length} medicines`,
+          description: `${sent} sent to pharmacy, ${failed} not sent — use Resend on those.`,
+          variant: "destructive",
+        });
+        return;
+      }
+      toast({
+        title: `Approved ${results.length} medicines`,
+        description: "All sent to the pharmacy queue",
+      });
+    },
+    onError: (error) => {
+      console.error('Error approving medications:', error);
+      toast({
+        title: "Error",
+        description: "Failed to approve medications",
+        variant: "destructive",
       });
     }
   });
@@ -387,6 +477,8 @@ export const useMedicalDataMutations = () => {
     discontinueMedication: discontinueMedicationMutation.mutate,
     changeMedication: changeMedicationMutation.mutate,
     approveMedication: approveMedicationMutation.mutate,
+    approveMedications: approveMedicationsMutation.mutate,
+    resendMedication: resendMedicationMutation.mutate,
     updateLabStatus: updateLabStatusMutation.mutate,
     updateRadiologyStatus: updateRadiologyStatusMutation.mutate,
     isAddingLabs: addLabsMutation.isPending,
@@ -396,5 +488,7 @@ export const useMedicalDataMutations = () => {
     isDiscontinuingMedication: discontinueMedicationMutation.isPending,
     isChangingMedication: changeMedicationMutation.isPending,
     isApprovingMedication: approveMedicationMutation.isPending,
+    isApprovingMedications: approveMedicationsMutation.isPending,
+    isResendingMedication: resendMedicationMutation.isPending,
   };
 };

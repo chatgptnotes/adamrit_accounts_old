@@ -1,41 +1,32 @@
 import { supabase } from "@/integrations/supabase/client";
+import { deriveQuantity } from "@/lib/ward-bridge-logic";
 
 // Some bridge columns (source, visit_id, visit_medication_id) and several
 // visit_medications columns are absent from the stale generated types.
 const db = supabase as any;
 
-/** Doses-per-day for the common frequency codes; anything else falls back to 1. */
-const FREQ_PER_DAY: Record<string, number> = {
-  OD: 1, HS: 1, SOS: 1, STAT: 1,
-  BD: 2, BID: 2, Q12H: 2,
-  TDS: 3, TID: 3, Q8H: 3,
-  QID: 4, QDS: 4, Q6H: 4,
-};
-
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** Total units to prescribe ≈ doses/day × days. Always ≥ 1 (column is NOT NULL). */
-function deriveQuantity(frequency?: string | null, duration?: string | null): number {
-  const key = (frequency || "").trim().toUpperCase().split(/[\s/]/)[0];
-  const perDay = FREQ_PER_DAY[key] || 1;
-  const days = parseInt(String(duration ?? ""), 10);
-  const d = Number.isFinite(days) && days > 0 ? days : 1;
-  return Math.max(1, perDay * d);
-}
 
 /**
  * Bridge an APPROVED tablet medicine (visit_medications) into the desktop
  * pharmacy by creating/append­ing a normal `prescriptions` + `prescription_items`
- * record (status APPROVED, source 'ward'). One open ward prescription per visit;
- * items are deduped by the unique index on `visit_medication_id`, so re-approving
- * is a no-op. Resolves the patient via `visits.patient_id` (= patients.id, the
+ * record (status APPROVED, source 'ward'). One open ward prescription per visit
+ * PER DAY — a re-send on a new day starts a fresh pharmacy card; same-day re-sends
+ * append to today's card and re-float it (bumping `updated_at` so the bell rings).
+ * Items are deduped by the unique index on `visit_medication_id`, so re-approving
+ * the same med is a no-op. Resolves the patient via `visits.patient_id` (= patients.id, the
  * same key the whole desktop uses). Best-effort: never throws — approval must not
  * fail because the bridge had a problem.
  */
+export interface BridgeResult {
+  ok: boolean;
+  reason?: string;
+}
+
 export async function bridgeApprovedMedicationToPharmacy(
   visitMedicationId: string,
-): Promise<void> {
+): Promise<BridgeResult> {
   try {
     // 1. Load the source row; only bridge an approved, not-yet-dispensed med.
     const { data: vm } = await db
@@ -45,7 +36,9 @@ export async function bridgeApprovedMedicationToPharmacy(
       )
       .eq("id", visitMedicationId)
       .maybeSingle();
-    if (!vm || !vm.is_approved || vm.status === "dispensed") return;
+    if (!vm || !vm.is_approved || vm.status === "dispensed") {
+      return { ok: false, reason: "medication not approved or already dispensed" };
+    }
 
     // 2. Resolve the medicine name (the doctor typed it; pharmacy may substitute).
     let name: string =
@@ -63,7 +56,7 @@ export async function bridgeApprovedMedicationToPharmacy(
     // 3. Resolve visit -> patient -> doctor. visit_id may hold the UUID or the
     //    text visit code, so query the right column (avoids a uuid parse error).
     const v = String(vm.visit_id || "");
-    if (!v) return;
+    if (!v) return { ok: false, reason: "no visit linked to this medication" };
     const visitQuery = db
       .from("visits")
       .select("id, patient_id, appointment_with, patients(hospital_name)")
@@ -71,28 +64,41 @@ export async function bridgeApprovedMedicationToPharmacy(
     const { data: visit } = await (
       UUID_RE.test(v) ? visitQuery.eq("id", v) : visitQuery.eq("visit_id", v)
     ).maybeSingle();
-    if (!visit || !visit.patient_id) return; // can't bridge without a patient
+    // can't bridge without a patient
+    if (!visit || !visit.patient_id) {
+      return { ok: false, reason: "could not resolve the patient for this visit" };
+    }
 
     const visitUuid = visit.id;
     const patientId = visit.patient_id;
     const doctorName = visit.appointment_with || "Ward";
     // Stamp the patient's hospital so each hospital's pharmacist sees only
     // their own ward orders (Hope and Ayushman run separate pharmacies).
-    const hospitalName = visit.patients?.hospital_name || null;
+    // Normalize to lowercase so a 'Hope'/'hope' casing mismatch can't silently
+    // hide the order from the pharmacy bell; a genuinely-missing value stays
+    // null (the bell shows null-hospital ward orders to everyone).
+    const hospitalName =
+      (visit.patients?.hospital_name || "").trim().toLowerCase() || null;
 
-    // 4. Find-or-create the OPEN ward prescription for this visit.
+    // 4. Find-or-create the OPEN ward prescription for this visit *for today*.
+    //    Scoping the reuse to today's date gives each day its own pharmacy card,
+    //    so a re-send on a new day always surfaces as a new prescription + alert.
+    const today = new Date().toISOString().slice(0, 10);
     let prescriptionId: string | undefined;
+    let reusedExisting = false;
     const { data: openRx } = await db
       .from("prescriptions")
       .select("id")
       .eq("visit_id", visitUuid)
       .eq("source", "ward")
+      .eq("prescription_date", today)
       .in("status", ["APPROVED", "PARTIALLY_DISPENSED"])
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
     if (openRx?.id) {
       prescriptionId = openRx.id;
+      reusedExisting = true;
     } else {
       const { data: newRx, error: rxErr } = await db
         .from("prescriptions")
@@ -101,7 +107,7 @@ export async function bridgeApprovedMedicationToPharmacy(
           patient_id: patientId,
           visit_id: visitUuid,
           doctor_name: doctorName,
-          prescription_date: new Date().toISOString().slice(0, 10),
+          prescription_date: today,
           status: "APPROVED", // doctor already approved on the tablet
           source: "ward",
           hospital_name: hospitalName,
@@ -109,8 +115,37 @@ export async function bridgeApprovedMedicationToPharmacy(
         })
         .select("id")
         .single();
-      if (rxErr || !newRx) return;
-      prescriptionId = newRx.id;
+      if (rxErr || !newRx) {
+        // A concurrent approval for the same visit/day can win the race and
+        // trip the (visit_id, prescription_date) WHERE source='ward' unique
+        // index. Recover by reusing the card the other approval just created
+        // instead of failing — both meds belong on the same daily card.
+        const isDuplicateCard =
+          !!rxErr &&
+          (rxErr.code === "23505" ||
+            /duplicate key/i.test(rxErr.message || ""));
+        if (isDuplicateCard) {
+          const { data: raced } = await db
+            .from("prescriptions")
+            .select("id")
+            .eq("visit_id", visitUuid)
+            .eq("source", "ward")
+            .eq("prescription_date", today)
+            .in("status", ["APPROVED", "PARTIALLY_DISPENSED"])
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (raced?.id) {
+            prescriptionId = raced.id;
+            reusedExisting = true;
+          }
+        }
+        if (!prescriptionId) {
+          return { ok: false, reason: "could not create the pharmacy order" };
+        }
+      } else {
+        prescriptionId = newRx.id;
+      }
     }
 
     // 5. Append the item. The partial unique index on visit_medication_id makes
@@ -128,15 +163,33 @@ export async function bridgeApprovedMedicationToPharmacy(
       special_instructions:
         [vm.dosage, vm.notes].filter(Boolean).join(" · ") || null,
     });
-    if (
-      itemErr &&
-      itemErr.code !== "23505" &&
-      !/duplicate key/i.test(itemErr.message || "")
-    ) {
+    const isDuplicate =
+      !!itemErr &&
+      (itemErr.code === "23505" || /duplicate key/i.test(itemErr.message || ""));
+    if (itemErr && !isDuplicate) {
       console.warn("ward-bridge: item insert failed:", itemErr.message);
+      return { ok: false, reason: "could not add the medicine to the pharmacy order" };
     }
+
+    // 6. A same-day re-send appends to an existing card, so no new `prescriptions`
+    //    row fires for the notification bell. When a genuinely new item was added,
+    //    bump the card so it re-floats and emits a realtime UPDATE the bell hears.
+    if (reusedExisting && !itemErr) {
+      await db
+        .from("prescriptions")
+        .update({
+          prescription_date: today,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", prescriptionId);
+    }
+
+    // Reaching here means the order exists in the pharmacy queue (a duplicate
+    // item just means it was already bridged — still a success for the user).
+    return { ok: true };
   } catch (e) {
     console.warn("ward-bridge: skipped:", (e as Error)?.message);
+    return { ok: false, reason: (e as Error)?.message || "unexpected error" };
   }
 }
 
