@@ -203,7 +203,11 @@ app.post('/claude', (req, res) => {
     while (tmpFiles.length) { try { fs.unlinkSync(tmpFiles.pop()); } catch { /* best effort */ } }
   };
 
-  const cp = spawn('claude', cliArgs, { timeout: 120_000 });
+  // stdin must be /dev/null, not the default open pipe. Recent Claude CLI
+  // versions wait ~3s for stdin to append to the -p prompt; an open-but-unwritten
+  // pipe makes them warn ("no stdin data received in 3s") and exit non-zero.
+  // 'ignore' gives the child an immediate EOF so it uses the -p arg and proceeds.
+  const cp = spawn('claude', cliArgs, { timeout: 120_000, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   let err = '';
   cp.stdout.on('data', (d) => { out += d; });
