@@ -425,7 +425,7 @@ export default function BillingPanel() {
       const { saved, skipped } = await checkMail((done, total) => {
         setCheckProgress({ done, total });
         // Stream newly imported mails into the list while the check runs.
-        if (done % 50 === 0) queryClient.invalidateQueries({ queryKey: ['billing-email-inbox'] });
+        if (done % 5 === 0) queryClient.invalidateQueries({ queryKey: ['billing-email-inbox'] });
       });
       toast({
         title: saved > 0 ? `Imported ${saved} new email${saved !== 1 ? 's' : ''}` : 'No new emails',
