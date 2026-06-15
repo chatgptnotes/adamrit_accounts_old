@@ -51,6 +51,13 @@ function buildQrImageUrl(upiString: string): string {
   return `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(upiString)}`;
 }
 
+// Hospital's live UPI account, decoded from the PhonePe merchant QR.
+const HOSPITAL_UPI_ID = '9373111709-3@ybl';
+const HOSPITAL_PAYEE = 'Murali B. Kasiammal';
+/** Exact UPI string from the hospital's PhonePe QR — scan to pay any amount. */
+const STATIC_UPI_STRING =
+  'upi://pay?pa=9373111709-3@ybl&pn=MURALI%20%20BALASUNDARAM%20KASIAMMAL&mc=0000&mode=02&purpose=00';
+
 /** Format seconds into MM:SS countdown display */
 function formatCountdown(seconds: number): string {
   if (seconds <= 0) return '00:00';
@@ -100,7 +107,7 @@ export default function PaymentQR() {
     patient_name: '',
     visit_id: '',
     amount: '',
-    upi_id: 'hope@upi',
+    upi_id: HOSPITAL_UPI_ID,
     notes: '',
   });
 
@@ -139,13 +146,13 @@ export default function PaymentQR() {
       if (!form.patient_name.trim()) throw new Error('Patient name is required');
       if (isNaN(amount) || amount < 1) throw new Error('Amount must be at least ₹1');
 
-      const upiString = buildUpiString(form.upi_id.trim() || 'hope@upi', amount);
+      const upiString = buildUpiString(form.upi_id.trim() || HOSPITAL_UPI_ID, amount);
       const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString(); // 30 min from now
 
       const insertPayload: Record<string, unknown> = {
         patient_name: form.patient_name.trim(),
         amount,
-        upi_id: form.upi_id.trim() || 'hope@upi',
+        upi_id: form.upi_id.trim() || HOSPITAL_UPI_ID,
         qr_data: upiString,
         status: 'pending',
         expires_at: expiresAt,
@@ -330,7 +337,7 @@ export default function PaymentQR() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">UPI ID</label>
               <Input
-                placeholder="hope@upi"
+                placeholder={HOSPITAL_UPI_ID}
                 value={form.upi_id}
                 onChange={(e) => handleFormChange('upi_id', e.target.value)}
               />
@@ -377,9 +384,21 @@ export default function PaymentQR() {
           </CardHeader>
           <CardContent>
             {!activeRequest ? (
-              <div className="flex flex-col items-center justify-center h-64 text-gray-400">
-                <QrCode className="h-16 w-16 mb-3 opacity-30" />
-                <p className="text-sm">Generate a payment request to see the QR code</p>
+              <div className="flex flex-col items-center justify-center gap-3 py-4">
+                <div className="border border-gray-200 rounded-lg p-3 bg-white shadow-sm">
+                  <img
+                    src={buildQrImageUrl(STATIC_UPI_STRING)}
+                    alt="Hospital PhonePe UPI QR"
+                    width={250}
+                    height={250}
+                    className="rounded"
+                  />
+                </div>
+                <p className="text-sm font-semibold text-gray-700">Scan to Pay · PhonePe / UPI</p>
+                <p className="text-xs text-gray-500">{HOSPITAL_PAYEE} · {HOSPITAL_UPI_ID}</p>
+                <p className="text-xs text-gray-400 text-center max-w-[260px]">
+                  Scan with any UPI app to pay directly, or generate a request on the left to lock in a specific amount.
+                </p>
               </div>
             ) : (
               <div className="flex flex-col items-center gap-4">
