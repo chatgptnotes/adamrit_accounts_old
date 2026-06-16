@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from 'date-fns';
-import { ChevronLeft, ChevronRight, CheckCircle2, Clock, XCircle, FileSpreadsheet, FileText } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, CheckCircle2, Clock, XCircle, FileSpreadsheet, FileText } from 'lucide-react';
 import { SearchableSelect, type SearchableSelectOption } from '@/components/ui/searchable-select';
 import { supabaseData } from '@/integrations/supabase/data-client';
 import * as XLSX from 'xlsx';
@@ -350,20 +350,47 @@ function exportToPDF(
 const AccountLogs: React.FC = () => {
   const [selectedLog, setSelectedLog]       = useState<LogType>('account-log');
   const [selectedLedger, setSelectedLedger] = useState<string>('all');
-  const [currentMonth, setCurrentMonth]     = useState(new Date());
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [fromDate, setFromDate] = useState(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [toDate, setToDate]     = useState(() => format(new Date(), 'yyyy-MM-dd'));
+
+  // When month navigator is used, snap the date range to that full month
+  const goPrevMonth = () => {
+    const m = subMonths(currentMonth, 1);
+    setCurrentMonth(m);
+    setFromDate(format(startOfMonth(m), 'yyyy-MM-dd'));
+    setToDate(format(endOfMonth(m), 'yyyy-MM-dd'));
+  };
+  const goNextMonth = () => {
+    const m = addMonths(currentMonth, 1);
+    setCurrentMonth(m);
+    setFromDate(format(startOfMonth(m), 'yyyy-MM-dd'));
+    setToDate(format(endOfMonth(m), 'yyyy-MM-dd'));
+  };
 
   // Reset ledger filter when switching away from account-log
   useEffect(() => {
     if (selectedLog !== 'account-log') setSelectedLedger('all');
   }, [selectedLog]);
 
-  const monthStart = startOfMonth(currentMonth).toISOString();
-  const monthEnd   = endOfMonth(currentMonth).toISOString();
+  const rangeStart = useMemo(() => new Date(`${fromDate}T00:00:00`).toISOString(), [fromDate]);
+  const rangeEnd   = useMemo(() => new Date(`${toDate}T23:59:59.999`).toISOString(), [toDate]);
 
   // Main entries query
   const { data: entries = [], isLoading } = useQuery({
-    queryKey: ['account-logs', selectedLog, monthStart],
-    queryFn: () => queryFn(selectedLog, monthStart, monthEnd),
+    queryKey: ['account-logs', selectedLog, rangeStart, rangeEnd],
+    queryFn: () => queryFn(selectedLog, rangeStart, rangeEnd),
+  });
+
+  // Opening balance = entries from the start of fromDate's month up to (not including) fromDate
+  const monthOfFrom = useMemo(
+    () => new Date(startOfMonth(new Date(`${fromDate}T00:00:00`))).toISOString(),
+    [fromDate]
+  );
+  const { data: priorEntries = [] } = useQuery({
+    queryKey: ['account-logs-opening', selectedLog, monthOfFrom, rangeStart],
+    queryFn: () => queryFn(selectedLog, monthOfFrom, rangeStart),
+    staleTime: 5 * 60 * 1000,
   });
 
   // Ledgers query — only runs when Account Log is selected
@@ -399,14 +426,37 @@ const AccountLogs: React.FC = () => {
     );
   }, [entries, selectedLedger, selectedLog]);
 
+  // Prior entries filtered by ledger (same logic as filteredEntries)
+  const filteredPrior = useMemo(() => {
+    if (selectedLog !== 'account-log' || selectedLedger === 'all') return priorEntries;
+    return priorEntries.filter(e =>
+      e.party_ledger === selectedLedger ||
+      e.ledger_entries?.some(le => le.ledger === selectedLedger)
+    );
+  }, [priorEntries, selectedLog, selectedLedger]);
+
+  // Payment types = money going OUT (Credit/outflow); everything else = money coming IN (Debit/inflow)
+  const isCreditType = (type: string) => {
+    const t = type.toLowerCase();
+    return t === 'payment' || t === 'payment voucher';
+  };
+
+  const priorDebit    = useMemo(() => filteredPrior.filter(e => !isCreditType(e.type)).reduce((s, e) => s + (e.amount ?? 0), 0), [filteredPrior]);
+  const priorCredit   = useMemo(() => filteredPrior.filter(e =>  isCreditType(e.type)).reduce((s, e) => s + (e.amount ?? 0), 0), [filteredPrior]);
+  const openingNet    = priorDebit - priorCredit;
+
+  const currentDebit  = useMemo(() => filteredEntries.filter(e => !isCreditType(e.type)).reduce((s, e) => s + (e.amount ?? 0), 0), [filteredEntries]);
+  const currentCredit = useMemo(() => filteredEntries.filter(e =>  isCreditType(e.type)).reduce((s, e) => s + (e.amount ?? 0), 0), [filteredEntries]);
+  const closingNet    = openingNet + currentDebit - currentCredit;
+
   const groups = useMemo(() => groupByDay(filteredEntries), [filteredEntries]);
   const showTallyStatus = selectedLog === 'account-log' || selectedLog === 'tally-sync';
 
-  const monthLabel  = format(currentMonth, 'MMMM yyyy');
+  const periodLabel = `${format(new Date(`${fromDate}T00:00:00`), 'dd MMM yyyy')} – ${format(new Date(`${toDate}T00:00:00`), 'dd MMM yyyy')}`;
   const ledgerLabel = selectedLedger !== 'all' ? selectedLedger : '';
 
-  const handleExcelExport = () => exportToExcel(groups, monthLabel, ledgerLabel);
-  const handlePDFExport   = () => exportToPDF(groups, monthLabel, ledgerLabel, showTallyStatus);
+  const handleExcelExport = () => exportToExcel(groups, periodLabel, ledgerLabel);
+  const handlePDFExport   = () => exportToPDF(groups, periodLabel, ledgerLabel, showTallyStatus);
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -468,22 +518,42 @@ const AccountLogs: React.FC = () => {
           {/* Month navigator */}
           <div className="flex items-center gap-1 border rounded-lg px-1 py-0.5 bg-white">
             <button
-              onClick={() => setCurrentMonth(m => subMonths(m, 1))}
+              onClick={goPrevMonth}
               className="p-1.5 rounded hover:bg-gray-100 transition-colors"
               aria-label="Previous month"
             >
               <ChevronLeft className="h-4 w-4 text-gray-600" />
             </button>
             <span className="text-sm font-medium w-32 text-center text-gray-700">
-              {monthLabel}
+              {format(currentMonth, 'MMMM yyyy')}
             </span>
             <button
-              onClick={() => setCurrentMonth(m => addMonths(m, 1))}
+              onClick={goNextMonth}
               className="p-1.5 rounded hover:bg-gray-100 transition-colors"
               aria-label="Next month"
             >
               <ChevronRight className="h-4 w-4 text-gray-600" />
             </button>
+          </div>
+
+          {/* Custom date range picker */}
+          <div className="flex items-center gap-2 border rounded-lg px-3 py-1.5 bg-white">
+            <Calendar className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+            <input
+              type="date"
+              value={fromDate}
+              onChange={e => setFromDate(e.target.value)}
+              className="text-sm text-gray-700 border-none outline-none bg-transparent"
+              aria-label="From date"
+            />
+            <span className="text-gray-400 text-xs font-medium">to</span>
+            <input
+              type="date"
+              value={toDate}
+              onChange={e => setToDate(e.target.value)}
+              className="text-sm text-gray-700 border-none outline-none bg-transparent"
+              aria-label="To date"
+            />
           </div>
         </div>
       </div>
@@ -527,10 +597,10 @@ const AccountLogs: React.FC = () => {
         <div className="text-center py-20 text-gray-400">
           <p className="text-base">
             {selectedLedger !== 'all'
-              ? `No entries for "${selectedLedger}" in ${monthLabel}`
-              : `No entries for ${monthLabel}`}
+              ? `No entries for "${selectedLedger}" in this period`
+              : `No entries for ${periodLabel}`}
           </p>
-          <p className="text-sm mt-1">Try a different month or account</p>
+          <p className="text-sm mt-1">Try a different date range or account</p>
         </div>
       ) : (
         <div className="space-y-8">
@@ -585,6 +655,50 @@ const AccountLogs: React.FC = () => {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Balance summary — TallyPrime style, always visible once not loading */}
+      {!isLoading && (
+        <div className="mt-6 flex justify-end">
+          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm text-sm">
+            {/* Header row */}
+            <div className="grid grid-cols-[200px_160px_160px] border-b border-gray-100 bg-gray-50">
+              <div />
+              <div className="px-5 py-2 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Debit</div>
+              <div className="px-5 py-2 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Credit</div>
+            </div>
+            {/* Opening Balance */}
+            <div className="grid grid-cols-[200px_160px_160px] border-b border-gray-100">
+              <div className="px-5 py-2.5 text-gray-500 text-xs">Opening Balance :</div>
+              <div className="px-5 py-2.5 text-right font-medium text-gray-700 tabular-nums">
+                {openingNet >= 0 ? INR(openingNet) : ''}
+              </div>
+              <div className="px-5 py-2.5 text-right font-medium text-gray-700 tabular-nums">
+                {openingNet < 0 ? INR(Math.abs(openingNet)) : ''}
+              </div>
+            </div>
+            {/* Current Total */}
+            <div className="grid grid-cols-[200px_160px_160px] border-b border-gray-100">
+              <div className="px-5 py-2.5 text-gray-500 text-xs">Current Total :</div>
+              <div className="px-5 py-2.5 text-right font-medium text-blue-600 tabular-nums">
+                {currentDebit > 0 ? INR(currentDebit) : '—'}
+              </div>
+              <div className="px-5 py-2.5 text-right font-medium text-orange-600 tabular-nums">
+                {currentCredit > 0 ? INR(currentCredit) : '—'}
+              </div>
+            </div>
+            {/* Closing Balance */}
+            <div className="grid grid-cols-[200px_160px_160px] bg-gray-50">
+              <div className="px-5 py-2.5 text-gray-800 text-xs font-bold">Closing Balance :</div>
+              <div className="px-5 py-2.5 text-right font-bold text-gray-900 tabular-nums">
+                {closingNet >= 0 ? INR(closingNet) : ''}
+              </div>
+              <div className="px-5 py-2.5 text-right font-bold text-gray-900 tabular-nums">
+                {closingNet < 0 ? INR(Math.abs(closingNet)) : ''}
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

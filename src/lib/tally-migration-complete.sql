@@ -8,7 +8,7 @@
 
 -- Tally Integration Configuration
 CREATE TABLE IF NOT EXISTS tally_config (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  id UUD DEFAULT gen_random_uuid() PRIMARY KEY,
   company_name TEXT NOT NULL,
   server_url TEXT NOT NULL DEFAULT 'http://localhost:9000',
   is_active BOOLEAN DEFAULT true,
