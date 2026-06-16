@@ -2080,6 +2080,111 @@ const LabOrders = () => {
       const hospitalFilter = getHospitalFilter();
       console.log('🔍 Patient status filter:', patientStatusFilter);
 
+      // When searchTerm is active: use 3-step FinalBill pattern to avoid inner join drops
+      if (searchTerm) {
+        console.log('🔍 Search mode: using 3-step query for', searchTerm);
+
+        // Step 1: Find matching visits filtered by hospital and patient name
+        const { data: matchingVisits, error: visitsError } = await supabase
+          .from('visits')
+          .select(`
+            id,
+            visit_id,
+            patient_id,
+            visit_date,
+            admission_date,
+            discharge_date,
+            appointment_with,
+            reason_for_visit,
+            patients!inner(
+              id,
+              patients_id,
+              name,
+              age,
+              gender,
+              phone,
+              corporate
+            )
+          `)
+          .ilike('patients.name', `%${searchTerm}%`)
+          .eq('patients.hospital_name', hospitalFilter);
+
+        if (visitsError) {
+          console.error('❌ Error fetching visits:', visitsError);
+          throw visitsError;
+        }
+
+        const visitUUIDs = (matchingVisits || []).map(v => v.id);
+        console.log('🔍 Search found', visitUUIDs.length, 'matching visits');
+
+        if (!visitUUIDs.length) return [];
+
+        // Step 2: Get ALL visit_labs for those visits — no join restrictions
+        const { data: labData, error: labDataError } = await supabase
+          .from('visit_labs')
+          .select('id, visit_id, lab_id, status, printed_at, ordered_date, collected_date, completed_date, result_value, normal_range, notes, created_at, updated_at')
+          .in('visit_id', visitUUIDs)
+          .order('ordered_date', { ascending: false });
+
+        if (labDataError) {
+          console.error('❌ Error fetching visit_labs:', labDataError);
+          throw labDataError;
+        }
+
+        console.log('🔍 visit_labs found:', labData?.length || 0);
+
+        // Step 3: Get lab details for all lab_ids
+        const labIds = [...new Set((labData || []).map(r => r.lab_id).filter(Boolean))];
+        const { data: labDetails, error: labDetailsError } = labIds.length
+          ? await supabase.from('lab').select('id, name, category, sample_type, test_method').in('id', labIds)
+          : { data: [], error: null };
+
+        if (labDetailsError) {
+          console.error('❌ Error fetching lab details:', labDetailsError);
+          throw labDetailsError;
+        }
+
+        const labMap = new Map((labDetails || []).map(l => [l.id, l]));
+        const visitMap = new Map((matchingVisits || []).map(v => [v.id, v]));
+
+        const searchTestRows: LabTestRow[] = (labData || []).map((entry) => {
+          const visit = visitMap.get(entry.visit_id);
+          const lab = labMap.get(entry.lab_id);
+          return {
+            id: entry.id,
+            order_id: entry.visit_id,
+            test_id: entry.lab_id,
+            patient_name: visit?.patients?.name || 'Unknown Patient',
+            patient_phone: visit?.patients?.phone,
+            patient_age: visit?.patients?.age,
+            patient_gender: visit?.patients?.gender,
+            order_number: entry.visit_id,
+            test_name: lab?.name || 'Unknown Test',
+            test_category: lab?.category || 'LAB',
+            test_method: lab?.test_method || '',
+            order_date: entry.ordered_date || entry.created_at,
+            order_status: entry.status || 'ordered',
+            ordering_doctor: visit?.appointment_with || 'Dr. Unknown',
+            clinical_history: visit?.reason_for_visit,
+            sample_status: entry.collected_date ? 'taken' : 'not_taken' as const,
+            visit_id: visit?.visit_id,
+            visit_uuid: entry.visit_id,
+            lab_uuid: entry.lab_id,
+            patient_id: visit?.patient_id,
+            corporate: visit?.patients?.corporate || 'OPD',
+            printed_at: entry.printed_at,
+            collected_date: entry.collected_date,
+            result_value: entry.result_value,
+            normal_range: entry.normal_range,
+            notes: entry.notes,
+            ordered_date: entry.ordered_date,
+          };
+        });
+
+        return searchTestRows;
+      }
+
+      // No searchTerm: use existing date-filtered query
       // Fetch from visit_labs table with JOINs
       let query = supabase
         .from('visit_labs')

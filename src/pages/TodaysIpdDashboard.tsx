@@ -235,7 +235,7 @@ const LabReportsPanel = ({ visitId }: { visitId: string }) => {
           status,
           ordered_date,
           result_value,
-          lab!inner(name, category, sub_specialty)
+          lab(name, category, sub_specialty)
         `)
         .eq('visit_id', visitId)
         .order('ordered_date', { ascending: false });
@@ -3512,7 +3512,7 @@ const TodaysIpdDashboard = () => {
                          variant="ghost"
                          size="sm"
                          className="h-8 w-8 p-0 hover:bg-orange-50"
-                         onClick={() => setLabReportVisit({ visitId: visit.visit_id, patientName: visit.patients?.name || '' })}
+                         onClick={() => setLabReportVisit({ visitId: visit.id, patientName: visit.patients?.name || '' })}
                          title="View Lab Reports"
                        >
                          <FlaskConical className="h-4 w-4 text-orange-600" />
