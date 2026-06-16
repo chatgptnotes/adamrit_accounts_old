@@ -162,6 +162,120 @@ function tallyProxyPlugin(): Plugin {
   };
 }
 
+// Dev-only Gmail proxy. Handles /api/get-emails, /api/reply-email, /api/send-email
+// locally using Gmail App Password — same as the Vercel functions in api/.
+function gmailProxyPlugin(env: Record<string, string>): Plugin {
+  const userEmail = env.GMAIL_USER_EMAIL ?? '';
+  const appPassword = env.GMAIL_APP_PASSWORD ?? '';
+
+  function readBody(req: any): Promise<string> {
+    return new Promise((resolve) => {
+      let raw = '';
+      req.on('data', (c: any) => (raw += c));
+      req.on('end', () => resolve(raw));
+    });
+  }
+
+  function send(res: any, status: number, body: unknown) {
+    res.statusCode = status;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify(body));
+  }
+
+  function getTransporter() {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const nodemailer = require('nodemailer') as typeof import('nodemailer');
+    return nodemailer.createTransport({ service: 'gmail', auth: { user: userEmail, pass: appPassword } });
+  }
+
+  return {
+    name: 'gmail-proxy-dev',
+    apply: 'serve',
+    configureServer(server) {
+      // GET /api/get-emails — IMAP read
+      server.middlewares.use('/api/get-emails', (req: any, res: any) => {
+        if (req.method !== 'GET') { res.statusCode = 405; res.end(); return; }
+        if (!userEmail || !appPassword) {
+          send(res, 500, { error: 'Set GMAIL_USER_EMAIL and GMAIL_APP_PASSWORD in .env' });
+          return;
+        }
+        (async () => {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { ImapFlow } = require('imapflow') as typeof import('imapflow');
+          const client = new ImapFlow({ host: 'imap.gmail.com', port: 993, secure: true,
+            auth: { user: userEmail, pass: appPassword }, logger: false });
+          try {
+            await client.connect();
+            await client.mailboxOpen('INBOX');
+            const uids = (await client.search({ all: true })).slice(-30).reverse();
+            const emails: unknown[] = [];
+            for await (const msg of client.fetch(uids.length ? uids : ['1:1'],
+              { uid: true, flags: true, envelope: true })) {
+              const env2 = msg.envelope;
+              const fr = env2?.from?.[0];
+              const fromRaw = fr ? `${fr.name ?? ''} <${fr.mailbox}@${fr.host}>` : '';
+              const nm = fromRaw.match(/^"?([^"<]+?)"?\s*<(.+)>$/);
+              let body = '';
+              try {
+                const bp = await client.download(String(msg.uid), '1', { uid: true });
+                if (bp?.content) {
+                  const chunks: Buffer[] = [];
+                  for await (const c of bp.content) chunks.push(c as Buffer);
+                  body = Buffer.concat(chunks).toString('utf-8').slice(0, 4000);
+                }
+              } catch { /* no body */ }
+              emails.push({
+                id: String(msg.uid), threadId: String(msg.uid),
+                messageId: env2?.messageId ?? '',
+                from: nm ? nm[2].trim() : fromRaw.trim(),
+                fromName: nm ? nm[1].trim() : fromRaw.trim(),
+                subject: env2?.subject ?? '(no subject)',
+                date: env2?.date?.toISOString() ?? '',
+                snippet: body.slice(0, 120).replace(/\s+/g, ' '),
+                body,
+                isUnread: !msg.flags?.has('\\Seen'),
+              });
+            }
+            await client.logout();
+            send(res, 200, { emails });
+          } catch (e: any) {
+            try { await client.logout(); } catch { /* ignore */ }
+            send(res, 500, { error: e.message });
+          }
+        })();
+      });
+
+      // POST /api/reply-email — SMTP send
+      server.middlewares.use('/api/reply-email', (req: any, res: any) => {
+        if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
+        readBody(req).then(async (raw) => {
+          try {
+            const { to, subject, body, messageId } = JSON.parse(raw || '{}');
+            const replySubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
+            await getTransporter().sendMail({
+              from: userEmail, to, subject: replySubject, text: body,
+              ...(messageId ? { inReplyTo: messageId, references: messageId } : {}),
+            });
+            send(res, 200, { ok: true });
+          } catch (e: any) { send(res, 500, { ok: false, error: e.message }); }
+        });
+      });
+
+      // POST /api/send-email — SMTP send
+      server.middlewares.use('/api/send-email', (req: any, res: any) => {
+        if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
+        readBody(req).then(async (raw) => {
+          try {
+            const { to, subject, body } = JSON.parse(raw || '{}');
+            await getTransporter().sendMail({ from: userEmail, to, subject, text: body ?? subject });
+            send(res, 200, { ok: true });
+          } catch (e: any) { send(res, 500, { ok: false, error: e.message }); }
+        });
+      });
+    },
+  };
+}
+
 // Dev-only Slack relay. The browser can't POST to a Slack webhook directly
 // (no CORS), so the page POSTs { text } to same-origin /api/slack and this
 // middleware forwards it server-side to SLACK_WEBHOOK_URL (kept in .env.local,
@@ -220,7 +334,7 @@ export default defineConfig(({ mode }) => {
     port: 8080,
   },
   plugins: [
-    ...(mode === 'development' ? [basicSsl(), slackProxyPlugin(env), tallyProxyPlugin()] : []),
+    ...(mode === 'development' ? [basicSsl(), slackProxyPlugin(env), tallyProxyPlugin(), gmailProxyPlugin(env)] : []),
     react(),
     // Service worker for installability + instant app-shell launch. We keep the
     // hand-written public/manifest.webmanifest (manifest: false) and only let the

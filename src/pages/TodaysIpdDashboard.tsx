@@ -10,7 +10,7 @@ import { EnhancedDatePicker } from '@/components/ui/enhanced-date-picker';
 import { Input } from '@/components/ui/input';
 import { useDebounce } from 'use-debounce';
 import { Badge } from '@/components/ui/badge';
-import { Eye, FileText, Search, Calendar, DollarSign, Trash2, FolderOpen, FolderX, CheckCircle, XCircle, Clock, MinusCircle, RotateCcw, Printer, Filter, MessageSquare, ClipboardList, ArrowUpDown, Circle, ChevronLeft, ChevronRight, Upload, Bell, Download, Loader2, Brain } from 'lucide-react';
+import { Eye, FileText, Search, Calendar, DollarSign, Trash2, FolderOpen, FolderX, CheckCircle, XCircle, Clock, MinusCircle, RotateCcw, Printer, Filter, MessageSquare, ClipboardList, ArrowUpDown, Circle, ChevronLeft, ChevronRight, Upload, Bell, Download, Loader2, Brain, FlaskConical } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -222,6 +222,77 @@ const IpdRefereeAmountCell = ({
   );
 };
 
+// Lab Reports panel shown inside the IPD dashboard dialog
+const LabReportsPanel = ({ visitId }: { visitId: string }) => {
+  const { data: labTests = [], isLoading } = useQuery({
+    queryKey: ['ipd-lab-reports', visitId],
+    queryFn: async () => {
+      if (!visitId) return [];
+      const { data, error } = await supabase
+        .from('visit_labs')
+        .select(`
+          id,
+          status,
+          ordered_date,
+          result_value,
+          lab!inner(name, category, sub_specialty)
+        `)
+        .eq('visit_id', visitId)
+        .order('ordered_date', { ascending: false });
+      if (error) { console.error('Lab reports fetch error:', error); return []; }
+      return data || [];
+    },
+    enabled: !!visitId,
+  });
+
+  const getStatusColor = (status: string) => {
+    switch ((status || '').toLowerCase()) {
+      case 'completed': case 'done': case 'result_entered': return 'bg-green-100 text-green-800';
+      case 'collected': case 'in_progress': return 'bg-yellow-100 text-yellow-800';
+      case 'cancelled': return 'bg-red-100 text-red-800';
+      default: return 'bg-gray-100 text-gray-700';
+    }
+  };
+
+  if (isLoading) return <div className="py-8 text-center text-muted-foreground">Loading lab reports…</div>;
+  if (labTests.length === 0) return <div className="py-8 text-center text-muted-foreground">No lab tests found for this visit.</div>;
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm border-collapse">
+        <thead>
+          <tr className="border-b bg-gray-50">
+            <th className="text-left py-2 px-3 font-medium">#</th>
+            <th className="text-left py-2 px-3 font-medium">Test Name</th>
+            <th className="text-left py-2 px-3 font-medium">Category</th>
+            <th className="text-left py-2 px-3 font-medium">Status</th>
+            <th className="text-left py-2 px-3 font-medium">Result</th>
+            <th className="text-left py-2 px-3 font-medium">Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {labTests.map((row: any, idx: number) => (
+            <tr key={row.id} className="border-b hover:bg-gray-50">
+              <td className="py-2 px-3 text-muted-foreground">{idx + 1}</td>
+              <td className="py-2 px-3 font-medium">{row.lab?.name || '—'}</td>
+              <td className="py-2 px-3 text-muted-foreground">{row.lab?.category || row.lab?.sub_specialty || '—'}</td>
+              <td className="py-2 px-3">
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(row.status)}`}>
+                  {row.status || 'Pending'}
+                </span>
+              </td>
+              <td className="py-2 px-3">{row.result_value ? String(row.result_value).substring(0, 60) : '—'}</td>
+              <td className="py-2 px-3 text-muted-foreground">
+                {row.ordered_date ? new Date(row.ordered_date).toLocaleDateString('en-GB') : '—'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
 const TodaysIpdDashboard = () => {
   const { isAdmin, hospitalConfig, user } = useAuth();
   const navigate = useNavigate();
@@ -328,6 +399,8 @@ const TodaysIpdDashboard = () => {
       page: '1'
     });
   };
+
+  const [labReportVisit, setLabReportVisit] = useState<{ visitId: string; patientName: string } | null>(null);
 
   // Non-persisted state (UI state that shouldn't persist)
   const [showEditPatientDialog, setShowEditPatientDialog] = useState(false);
@@ -3435,6 +3508,15 @@ const TodaysIpdDashboard = () => {
                        >
                          <Upload className="h-4 w-4 text-purple-600" />
                        </Button>
+                       <Button
+                         variant="ghost"
+                         size="sm"
+                         className="h-8 w-8 p-0 hover:bg-orange-50"
+                         onClick={() => setLabReportVisit({ visitId: visit.visit_id, patientName: visit.patients?.name || '' })}
+                         title="View Lab Reports"
+                       >
+                         <FlaskConical className="h-4 w-4 text-orange-600" />
+                       </Button>
                        {/* Show Revoke Discharge button only for discharged patients */}
                        {visit.discharge_date && (
                          <AlertDialog>
@@ -4174,6 +4256,22 @@ const TodaysIpdDashboard = () => {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Lab Reports Dialog */}
+      <Dialog open={!!labReportVisit} onOpenChange={() => setLabReportVisit(null)}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FlaskConical className="h-5 w-5 text-orange-600" />
+              Lab Reports — {labReportVisit?.patientName}
+            </DialogTitle>
+            <DialogDescription>
+              All lab tests ordered for visit {labReportVisit?.visitId}
+            </DialogDescription>
+          </DialogHeader>
+          {labReportVisit && <LabReportsPanel visitId={labReportVisit.visitId} />}
         </DialogContent>
       </Dialog>
     </div>

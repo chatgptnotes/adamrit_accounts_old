@@ -2116,7 +2116,7 @@ const LabOrders = () => {
               corporate
             )
           ),
-          lab!inner(
+          lab(
             id,
             name,
             category,

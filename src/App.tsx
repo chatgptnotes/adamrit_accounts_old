@@ -206,7 +206,7 @@ class ErrorBoundary extends React.Component<
       }
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50">
-          <div className="text-center p-8">
+          <div className="text-center p-8 max-w-2xl w-full">
             <h1 className="text-2xl font-bold text-red-600 mb-4">Something went wrong</h1>
             <p className="text-gray-600 mb-4">The application encountered an error. Please refresh the page.</p>
             <button
@@ -215,6 +215,11 @@ class ErrorBoundary extends React.Component<
             >
               Refresh Page
             </button>
+            {import.meta.env.DEV && this.state.error && (
+              <pre style={{ textAlign: 'left', overflow: 'auto', maxHeight: 300, background: '#fee2e2', padding: 12, fontSize: 12, marginTop: 16, borderRadius: 6, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {this.state.error.message}{'\n\n'}{this.state.error.stack}
+              </pre>
+            )}
           </div>
         </div>
       );
