@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchAllRows, fetchAllByIn } from '@/utils/fetchAllRows';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -189,25 +190,25 @@ const PatientOverview = () => {
   const { data: allPatients = [], isLoading: loadingAll } = useQuery({
     queryKey: ['patient-overview-all', selectedHospital],
     queryFn: async () => {
-      let query = supabase
-        .from('patients')
-        .select(`
-          *,
-          visits!inner (
-            id,
-            visit_id,
-            discharge_date,
-            created_at
-          )
-        `)
-        .order('created_at', { ascending: false });
+      const data = await fetchAllRows<any>(() => {
+        let query = supabase
+          .from('patients')
+          .select(`
+            *,
+            visits!inner (
+              id,
+              visit_id,
+              discharge_date,
+              created_at
+            )
+          `)
+          .order('created_at', { ascending: false });
 
-      if (selectedHospital && selectedHospital !== 'all') {
-        query = query.eq('hospital_name', selectedHospital);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
+        if (selectedHospital && selectedHospital !== 'all') {
+          query = query.eq('hospital_name', selectedHospital);
+        }
+        return query;
+      });
 
       if (!data || data.length === 0) return [];
 
@@ -215,10 +216,10 @@ const PatientOverview = () => {
       const visitIds = data.flatMap(p => p.visits?.map((v: any) => v.visit_id) || []);
 
       // Fetch final_payments data for these visits
-      const { data: finalPayments } = await supabase
-        .from('final_payments')
-        .select('visit_id, reason_of_discharge')
-        .in('visit_id', visitIds);
+      const finalPayments = await fetchAllByIn<{ visit_id: string; reason_of_discharge: string | null }>(
+        visitIds,
+        (chunk) => supabase.from('final_payments').select('visit_id, reason_of_discharge').in('visit_id', chunk)
+      );
 
       // Map reason_of_discharge to patients
       const patientsWithReasons = data.map(patient => {
@@ -243,12 +244,10 @@ const PatientOverview = () => {
   const { data: hospitals = [] } = useQuery({
     queryKey: ['hospitals-list'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const data = await fetchAllRows<{ hospital_name: string }>(() => supabase
         .from('patients')
         .select('hospital_name')
-        .not('hospital_name', 'is', null);
-
-      if (error) throw error;
+        .not('hospital_name', 'is', null));
 
       // Get unique hospital names
       const uniqueHospitals = [...new Set(data?.map(p => p.hospital_name))];

@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchAllRows, fetchAllByIn } from '@/utils/fetchAllRows';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import PatientSearchWithVisit from './PatientSearchWithVisit';
 import HistoCytologyEntryForm from './HistoCytologyEntryForm';
@@ -304,6 +305,8 @@ const LabOrders = () => {
   const [pendingPrint, setPendingPrint] = useState<LabTestRow[] | null>(null); // Track pending print requests waiting for sub-tests to load
 
   // Helper function to get patient key for a test
+  // Key is per-visit (patient + visit) so each visit shows as its own card, matching the
+  // per-visit IPD / billing view.
   const getPatientKey = (test: LabTestRow) => `${test.patient_name}_${test.order_number}`;
 
   // Category priority for sorting tests (lower number = higher priority)
@@ -2085,7 +2088,7 @@ const LabOrders = () => {
         console.log('🔍 Search mode: using 3-step query for', searchTerm);
 
         // Step 1: Find matching visits filtered by hospital and patient name
-        const { data: matchingVisits, error: visitsError } = await supabase
+        const matchingVisits = await fetchAllRows(() => supabase
           .from('visits')
           .select(`
             id,
@@ -2107,29 +2110,19 @@ const LabOrders = () => {
             )
           `)
           .ilike('patients.name', `%${searchTerm}%`)
-          .eq('patients.hospital_name', hospitalFilter);
-
-        if (visitsError) {
-          console.error('❌ Error fetching visits:', visitsError);
-          throw visitsError;
-        }
+          .eq('patients.hospital_name', hospitalFilter));
 
         const visitUUIDs = (matchingVisits || []).map(v => v.id);
         console.log('🔍 Search found', visitUUIDs.length, 'matching visits');
 
         if (!visitUUIDs.length) return [];
 
-        // Step 2: Get ALL visit_labs for those visits — no join restrictions
-        const { data: labData, error: labDataError } = await supabase
+        // Step 2: Get ALL visit_labs for those visits — paged so >1000 are never truncated
+        const labData = await fetchAllRows(() => supabase
           .from('visit_labs')
           .select('id, visit_id, lab_id, status, printed_at, ordered_date, collected_date, completed_date, result_value, normal_range, notes, created_at, updated_at')
           .in('visit_id', visitUUIDs)
-          .order('ordered_date', { ascending: false });
-
-        if (labDataError) {
-          console.error('❌ Error fetching visit_labs:', labDataError);
-          throw labDataError;
-        }
+          .order('ordered_date', { ascending: false }));
 
         console.log('🔍 visit_labs found:', labData?.length || 0);
 
@@ -2184,62 +2177,7 @@ const LabOrders = () => {
         return searchTestRows;
       }
 
-      // No searchTerm: use existing date-filtered query
-      // Fetch from visit_labs table with JOINs
-      let query = supabase
-        .from('visit_labs')
-        .select(`
-          id,
-          visit_id,
-          lab_id,
-          status,
-          printed_at,
-          ordered_date,
-          collected_date,
-          completed_date,
-          result_value,
-          normal_range,
-          notes,
-          created_at,
-          updated_at,
-          visits!inner(
-            id,
-            visit_id,
-            patient_id,
-            visit_date,
-            admission_date,
-            discharge_date,
-            appointment_with,
-            reason_for_visit,
-            patients!inner(
-              id,
-              patients_id,
-              name,
-              age,
-              gender,
-              phone,
-              corporate
-            )
-          ),
-          lab(
-            id,
-            name,
-            category,
-            sample_type,
-            test_method
-          )
-        `)
-        .eq('visits.patients.hospital_name', hospitalFilter);
-
-      // Apply patient status filter
-      if (patientStatusFilter === 'Currently Admitted') {
-        query = query.is('visits.discharge_date', null);
-        console.log('🔍 Filtering for currently admitted patients (no discharge date)');
-      } else if (patientStatusFilter === 'Discharged') {
-        query = query.not('visits.discharge_date', 'is', null);
-        console.log('🔍 Filtering for discharged patients (has discharge date)');
-      }
-      // If 'All', no additional filter is applied
+      // No searchTerm: use existing date-filtered query (paged so >1000 rows aren't truncated)
 
       // Default to today's date if no date selected
       let fromDate: Date;
@@ -2275,23 +2213,74 @@ const LabOrders = () => {
         toDateISO: toDate.toISOString()
       });
 
-      if (!searchTerm) {
-        query = query
-          .gte('ordered_date', fromDate.toISOString())
-          .lte('ordered_date', toDate.toISOString());
-      }
+      // Build a FRESH query for each page (Supabase builders are single-use)
+      const buildVisitLabsQuery = () => {
+        let query = supabase
+          .from('visit_labs')
+          .select(`
+            id,
+            visit_id,
+            lab_id,
+            status,
+            printed_at,
+            ordered_date,
+            collected_date,
+            completed_date,
+            result_value,
+            normal_range,
+            notes,
+            created_at,
+            updated_at,
+            visits!inner(
+              id,
+              visit_id,
+              patient_id,
+              visit_date,
+              admission_date,
+              discharge_date,
+              appointment_with,
+              reason_for_visit,
+              patients!inner(
+                id,
+                patients_id,
+                name,
+                age,
+                gender,
+                phone,
+                corporate
+              )
+            ),
+            lab(
+              id,
+              name,
+              category,
+              sample_type,
+              test_method
+            )
+          `)
+          .eq('visits.patients.hospital_name', hospitalFilter);
 
-      const { data, error } = await query
-        .order('ordered_date', { ascending: false });
+        // Apply patient status filter
+        if (patientStatusFilter === 'Currently Admitted') {
+          query = query.is('visits.discharge_date', null);
+        } else if (patientStatusFilter === 'Discharged') {
+          query = query.not('visits.discharge_date', 'is', null);
+        }
+        // If 'All', no additional filter is applied
+
+        if (!searchTerm) {
+          query = query
+            .gte('ordered_date', fromDate.toISOString())
+            .lte('ordered_date', toDate.toISOString());
+        }
+
+        return query.order('ordered_date', { ascending: false });
+      };
 
       // 🏥 Only filter by patient hospital, lab tests are shared
+      const data = await fetchAllRows(buildVisitLabsQuery);
 
-      if (error) {
-        console.error('❌ Error fetching visit labs:', error);
-        throw error;
-      }
-
-      console.log('🔍 DEBUG QUERY RESULT:', { dataCount: data?.length || 0, error: error });
+      console.log('🔍 DEBUG QUERY RESULT:', { dataCount: data?.length || 0 });
 
       // Debug: Check visit_id data
       console.log('🔍 DEBUG - First 3 entries:');
@@ -2386,12 +2375,11 @@ const LabOrders = () => {
           const patientNames = [...new Set(labTestRows.map(t => t.patient_name))];
           console.log(`🔍 Batch fetching lab_results for ${patientNames.length} patients...`);
 
-          const { data: allLabResults, error: labResultsError } = await supabase
-            .from('lab_results')
-            .select('*')
-            .in('patient_name', patientNames);
-
-          if (labResultsError) {
+          let allLabResults: any[] = [];
+          try {
+            allLabResults = await fetchAllByIn(patientNames, (chunk) =>
+              supabase.from('lab_results').select('*').in('patient_name', chunk));
+          } catch (labResultsError) {
             console.error('❌ Error batch fetching lab_results:', labResultsError);
           }
 
@@ -2738,12 +2726,13 @@ const LabOrders = () => {
 
   // Group filtered tests by patient
   const filteredGroupedTests = filteredTestRows.reduce((groups, test) => {
-    const patientKey = `${test.patient_name}_${test.order_number}`;
+    const patientKey = getPatientKey(test);
     if (!groups[patientKey]) {
       groups[patientKey] = {
         patient: {
           name: test.patient_name,
           order_number: test.order_number,
+          visit_id: test.visit_id,
           patient_age: test.patient_age,
           patient_gender: test.patient_gender,
           order_date: test.order_date
@@ -4704,6 +4693,9 @@ const LabOrders = () => {
                       <TableCell className="font-bold">{startIndex + patientIndex + 1}</TableCell>
                       <TableCell colSpan={9} className="font-bold text-blue-900">
                         {patientGroup.patient.name}
+                        {(patientGroup.patient.visit_id || patientGroup.patient.order_number) &&
+                          ` - ${patientGroup.patient.visit_id || patientGroup.patient.order_number}`}
+                        {` (${patientGroup.tests.length})`}
                       </TableCell>
                     </TableRow>
 

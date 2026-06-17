@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchAllRows } from '@/utils/fetchAllRows';
 
 // Hook to fetch all visits with comprehensive data
 export const useVisitsData = () => {
@@ -8,7 +9,7 @@ export const useVisitsData = () => {
     queryFn: async () => {
       console.log('🔍 Fetching all visits data...');
       
-      const { data, error } = await supabase
+      const data = await fetchAllRows(() => supabase
         .from('visits')
         .select(`
           id,
@@ -114,14 +115,8 @@ export const useVisitsData = () => {
             institution
           )
         `)
-        .order('created_at', { ascending: false });
-      
-      if (error) {
-        console.error('❌ Error fetching visits data:', error);
-        console.error('Error details:', error.message, error.details, error.hint);
-        throw error;
-      }
-      
+        .order('created_at', { ascending: false }));
+
       return data || [];
     },
   });

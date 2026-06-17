@@ -1,6 +1,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows, fetchAllByIn } from '@/utils/fetchAllRows';
 import type { Patient } from '../types/patient';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -8,23 +9,18 @@ import { useAuth } from '@/contexts/AuthContext';
 async function fetchPatients(hospitalName: string): Promise<Patient[]> {
   
   // First get patient IDs for the hospital
-  const { data: patientsData, error: patientsError } = await supabase
+  const patientsData = await fetchAllRows<{ patients_id: string }>(() => supabase
     .from('patients')
     .select('patients_id')
-    .eq('hospital_name', hospitalName);
-    
-  if (patientsError) {
-    console.error('Error fetching patients for hospital filtering:', patientsError);
-    throw patientsError;
-  }
-  
+    .eq('hospital_name', hospitalName));
+
   const patientIds = patientsData?.map(p => p.patients_id) || [];
   
   if (patientIds.length === 0) {
     return [];
   }
   
-  const { data, error } = await supabase
+  const data = await fetchAllByIn<any>(patientIds, (chunk) => supabase
     .from('patient_data')
     .select(`
       sr_no,
@@ -43,15 +39,9 @@ async function fetchPatients(hospitalName: string): Promise<Patient[]> {
       date_of_admission,
       date_of_discharge
     `)
-    .in('patient_id', patientIds)
-    .order('sr_no', { ascending: false });
-  
-  if (error) {
-    console.error('Error in fetchPatients:', error);
-    throw error;
-  }
-  
-  
+    .in('patient_id', chunk)
+    .order('sr_no', { ascending: false }));
+
   if (!data) {
     return [];
   }
@@ -109,25 +99,23 @@ export async function fetchPatientsWithFilters(filters: {
   mrn?: string;
   patientId?: string;
 }) {
-  let query = supabase.from('patient_data').select('*');
+  const data = await fetchAllRows<any>(() => {
+    let query = supabase.from('patient_data').select('*');
 
-  if (filters.name) {
-    query = query.ilike('patient_name', `%${filters.name}%`);
-  }
+    if (filters.name) {
+      query = query.ilike('patient_name', `%${filters.name}%`);
+    }
 
-  if (filters.mrn) {
-    query = query.eq('mrn', filters.mrn);
-  }
+    if (filters.mrn) {
+      query = query.eq('mrn', filters.mrn);
+    }
 
-  if (filters.patientId) {
-    query = query.eq('patient_id', filters.patientId);
-  }
+    if (filters.patientId) {
+      query = query.eq('patient_id', filters.patientId);
+    }
 
-  const { data, error } = await query;
-  
-  if (error) {
-    throw error;
-  }
-  
+    return query;
+  });
+
   return data;
 }

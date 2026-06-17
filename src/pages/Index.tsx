@@ -12,6 +12,7 @@ import { usePatients } from '@/hooks/usePatients';
 import { useToast } from '@/hooks/use-toast';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchAllRows, fetchAllByIn } from '@/utils/fetchAllRows';
 import { useAuth } from '@/contexts/AuthContext';
 import { QuickCaptureCard } from '@/components/CameraUpload';
 
@@ -45,32 +46,27 @@ const Index = () => {
     queryFn: async () => {
       // Get patient IDs for this hospital. Abort after 8s so a slow/unreachable
       // DB fails fast instead of hanging ~20s+.
-      const { data: patientsData, error: patientsError } = await supabase
-        .from('patients')
-        .select('patients_id')
-        .eq('hospital_name', currentHospital)
-        .abortSignal(AbortSignal.timeout(8000));
-
-      if (patientsError) {
+      let patientIds: string[] = [];
+      try {
+        const patientsData = await fetchAllRows<{ patients_id: string }>(() => supabase
+          .from('patients')
+          .select('patients_id')
+          .eq('hospital_name', currentHospital)
+          .abortSignal(AbortSignal.timeout(8000)));
+        patientIds = patientsData?.map(p => p.patients_id) || [];
+      } catch (patientsError) {
         console.error('Error fetching patients for hospital filtering:', patientsError);
         return [];
       }
 
-      const patientIds = patientsData?.map(p => p.patients_id) || [];
-
       if (patientIds.length === 0) return [];
 
-      const { data, error } = await supabase
+      const data = await fetchAllByIn<any>(patientIds, (chunk) => supabase
         .from('patient_data')
         .select('*')
-        .in('patient_id', patientIds)
+        .in('patient_id', chunk)
         .order('sr_no', { ascending: false })
-        .abortSignal(AbortSignal.timeout(8000));
-
-      if (error) {
-        console.error('Error fetching patient_data:', error);
-        throw error;
-      }
+        .abortSignal(AbortSignal.timeout(8000)));
 
       return data || [];
     },

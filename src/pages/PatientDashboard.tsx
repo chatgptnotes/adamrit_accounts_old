@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchAllRows } from '@/utils/fetchAllRows';
 import { useAuth } from '@/contexts/AuthContext';
 import { PatientRegistrationForm } from '@/components/PatientRegistrationForm';
 import { EditPatientRegistrationDialog } from '@/components/EditPatientRegistrationDialog';
@@ -100,32 +101,31 @@ const PatientDashboardInner = () => {
     queryKey: ['dashboard-patients', hospitalConfig?.name || 'default'],
     queryFn: async () => {
       try {
-        let query = supabase
-          .from('patients')
-          .select('*, patients_id, corporate')
-          .order('created_at', { ascending: false });
-
-        if (hospitalConfig?.name) {
-          query = query.eq('hospital_name', hospitalConfig.name);
-        }
-
-        const { data, error } = await query;
-
-        if (error) {
+        let patientsData: any[] = [];
+        try {
+          patientsData = await fetchAllRows<any>(() => {
+            let query = supabase
+              .from('patients')
+              .select('*, patients_id, corporate')
+              .order('created_at', { ascending: false });
+            if (hospitalConfig?.name) {
+              query = query.eq('hospital_name', hospitalConfig.name);
+            }
+            return query;
+          });
+        } catch (error) {
           console.error('Error fetching patients:', error);
           return [];
         }
 
-        const patientsData = data || [];
-
         // The RM is recorded either on the patient record OR on a visit. Build
         // a patient -> RM-code map from visits so patients whose RM lives on a
         // visit show the real manager instead of "Direct".
-        const [{ data: visitRms }, { data: rms }] = await Promise.all([
-          supabase
+        const [visitRms, { data: rms }] = await Promise.all([
+          fetchAllRows<any>(() => supabase
             .from('visits')
             .select('patient_id, relationship_manager_id, visit_date, created_at')
-            .not('relationship_manager_id', 'is', null),
+            .not('relationship_manager_id', 'is', null)),
           supabase.from('relationship_managers').select('id, code, name'),
         ]);
 

@@ -4,6 +4,7 @@ import { ExtensionDaysCell } from '@/components/ipd/ExtensionDaysCell';
 import { useAuth } from '@/contexts/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchAllRows, fetchAllByIn } from '@/utils/fetchAllRows';
 import { toast } from "@/hooks/use-toast";
 import { Button } from '@/components/ui/button';
 import { EnhancedDatePicker } from '@/components/ui/enhanced-date-picker';
@@ -1576,64 +1577,61 @@ const TodaysIpdDashboard = () => {
     queryFn: async () => {
       console.log('🏥 TodaysIpdDashboard: Fetching visits for hospital:', hospitalConfig?.name);
 
-      let query = supabase
-        .from('visits')
-        .select(`
-          *,
-          discharge_date,
-          patients!inner(
-            id,
-            name,
-            patients_id,
-            insurance_person_no,
-            hospital_name,
-            corporate,
-            age,
-            gender,
-            phone,
-            emergency_contact_name,
-            emergency_contact_mobile
-          ),
-          referees!referring_doctor_id (
-            id,
-            name
-          ),
-          relationship_managers (
-            id,
-            name,
-            code
-          ),
-          diagnoses!diagnosis_id (
-            id,
-            name
-          )
-        `)
-        .eq('patient_type', 'IPD')
-        .order('sr_no', { ascending: true, nullsFirst: false })
-        .order('visit_date', { ascending: true });
+      // Build a FRESH query for each page (Supabase builders are single-use) so a hospital
+      // with >1000 IPD visits is never silently truncated.
+      const buildVisitsQuery = () => {
+        let query = supabase
+          .from('visits')
+          .select(`
+            *,
+            discharge_date,
+            patients!inner(
+              id,
+              name,
+              patients_id,
+              insurance_person_no,
+              hospital_name,
+              corporate,
+              age,
+              gender,
+              phone,
+              emergency_contact_name,
+              emergency_contact_mobile
+            ),
+            referees!referring_doctor_id (
+              id,
+              name
+            ),
+            relationship_managers (
+              id,
+              name,
+              code
+            ),
+            diagnoses!diagnosis_id (
+              id,
+              name
+            )
+          `)
+          .eq('patient_type', 'IPD')
+          .order('sr_no', { ascending: true, nullsFirst: false })
+          .order('visit_date', { ascending: true });
 
-      // Apply hospital filter if hospitalConfig exists
-      if (hospitalConfig?.name) {
-        query = query.eq('patients.hospital_name', hospitalConfig.name);
-        console.log('🏥 TodaysIpdDashboard: Applied hospital filter for:', hospitalConfig.name);
-      }
+        // Apply hospital filter if hospitalConfig exists
+        if (hospitalConfig?.name) {
+          query = query.eq('patients.hospital_name', hospitalConfig.name);
+        }
 
-      // Apply date range filter (with time component for proper timestamp comparison)
-      if (startDate) {
-        query = query.gte('visit_date', `${startDate}T00:00:00`);
-        console.log('📅 TodaysIpdDashboard: Applied start date filter:', `${startDate}T00:00:00`);
-      }
-      if (endDate) {
-        query = query.lte('visit_date', `${endDate}T23:59:59`);
-        console.log('📅 TodaysIpdDashboard: Applied end date filter:', `${endDate}T23:59:59`);
-      }
+        // Apply date range filter (with time component for proper timestamp comparison)
+        if (startDate) {
+          query = query.gte('visit_date', `${startDate}T00:00:00`);
+        }
+        if (endDate) {
+          query = query.lte('visit_date', `${endDate}T23:59:59`);
+        }
+        return query;
+      };
 
-      const { data, error } = await query;
-
-      if (error) {
-        console.error('Error fetching today\'s visits:', error);
-        throw error;
-      }
+      const data = await fetchAllRows(buildVisitsQuery);
 
 
       // Debug: Check comments and discharge_date in fetched data
@@ -1657,12 +1655,12 @@ const TodaysIpdDashboard = () => {
         })));
       }
 
-      // Fetch final_payments for these visits
+      // Fetch final_payments for these visits (chunked + paged so a long visit list is safe)
       const visitIds = data?.map(v => v.visit_id) || [];
-      const { data: finalPayments } = await supabase
-        .from('final_payments')
-        .select('visit_id, id')
-        .in('visit_id', visitIds);
+      const finalPayments = await fetchAllByIn<{ visit_id: string; id: string }>(
+        visitIds,
+        (chunk) => supabase.from('final_payments').select('visit_id, id').in('visit_id', chunk)
+      );
 
       // Add final_payment status to each visit
       const visitsWithPaymentStatus = (data || []).map(visit => ({
@@ -1704,11 +1702,11 @@ const TodaysIpdDashboard = () => {
     queryKey: ['advance-payment-total', 'dashboard', dashboardVisitIds],
     queryFn: async () => {
       if (dashboardVisitIds.length === 0) return {};
-      const { data, error } = await supabase
-        .from('advance_payment')
-        .select('visit_id, advance_amount')
-        .in('visit_id', dashboardVisitIds);
-      if (error) {
+      let data: { visit_id: string; advance_amount: number }[] = [];
+      try {
+        data = await fetchAllByIn(dashboardVisitIds, (chunk) =>
+          supabase.from('advance_payment').select('visit_id, advance_amount').in('visit_id', chunk));
+      } catch (error) {
         console.error('Error fetching advance payments:', error);
         return {};
       }
@@ -1735,16 +1733,13 @@ const TodaysIpdDashboard = () => {
 
       try {
         // Fetch bill totals
-        const { data: billData, error: billError } = await supabase
-          .from('bills')
-          .select('patient_id, total_amount')
-          .in('patient_id', patientIds);
-
-        if (billError) {
-          console.error('Error fetching bills:', billError);
-        } else if (billData) {
+        try {
+          const billData = await fetchAllByIn<{ patient_id: string; total_amount: number | null }>(
+            patientIds,
+            (chunk) => supabase.from('bills').select('patient_id, total_amount').in('patient_id', chunk)
+          );
           const billMap: Record<string, number> = {};
-          billData.forEach((bill: { patient_id: string; total_amount: number | null }) => {
+          billData.forEach((bill) => {
             if (bill.patient_id) {
               billMap[bill.patient_id] = (billMap[bill.patient_id] || 0) + (bill.total_amount || 0);
             }
@@ -1758,36 +1753,39 @@ const TodaysIpdDashboard = () => {
             }
           });
           setBillTotals(billByVisit);
+        } catch (billError) {
+          console.error('Error fetching bills:', billError);
         }
 
         // Fetch intimation dates from bill_preparation
-        const { data: intimationData, error: intimationError } = await supabase
-          .from('bill_preparation')
-          .select('visit_id, intimation_date')
-          .in('visit_id', visitIds);
-
-        if (!intimationError && intimationData) {
+        try {
+          const intimationData = await fetchAllByIn<{ visit_id: string; intimation_date: string | null }>(
+            visitIds,
+            (chunk) => supabase.from('bill_preparation').select('visit_id, intimation_date').in('visit_id', chunk)
+          );
           const intimationMap: Record<string, string | null> = {};
-          (intimationData as { visit_id: string; intimation_date: string | null }[]).forEach(item => {
+          intimationData.forEach(item => {
             if (item.visit_id) {
               intimationMap[item.visit_id] = item.intimation_date || null;
             }
           });
           setIntimationDates(intimationMap);
+        } catch (intimationError) {
+          console.error('Error fetching intimation dates:', intimationError);
         }
 
         // Fetch DOA payments for referral report (with dates for detailed display)
         const visitUuids = todaysVisits.map(v => v.id).filter(Boolean) as string[];
         if (visitUuids.length > 0) {
-          const { data: doaData, error: doaError } = await supabase
-            .from('referee_doa_payments')
-            .select('visit_id, amount, payment_date, notes, referral_payment_status')
-            .in('visit_id', visitUuids)
-            .order('payment_date', { ascending: false });
-
-          if (doaError) {
-            console.error('Error fetching DOA payments:', doaError);
-          } else if (doaData) {
+          try {
+            const doaData = await fetchAllByIn<any>(
+              visitUuids,
+              (chunk) => supabase
+                .from('referee_doa_payments')
+                .select('visit_id, amount, payment_date, notes, referral_payment_status')
+                .in('visit_id', chunk)
+                .order('payment_date', { ascending: false })
+            );
             const doaByVisit: Record<string, Array<{
               amount: number;
               payment_date: string;
@@ -1808,6 +1806,8 @@ const TodaysIpdDashboard = () => {
               }
             });
             setDoaPayments(doaByVisit);
+          } catch (doaError) {
+            console.error('Error fetching DOA payments:', doaError);
           }
         }
       } catch (error) {
