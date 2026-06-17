@@ -435,18 +435,24 @@ const AccountLogs: React.FC = () => {
     );
   }, [priorEntries, selectedLog, selectedLedger]);
 
-  // Payment types = money going OUT (Credit/outflow); everything else = money coming IN (Debit/inflow)
-  const isCreditType = (type: string) => {
+  // Cash inflows: money actually received by the hospital
+  const isInflowType = (type: string) => {
+    const t = type.toLowerCase();
+    return ['receipt', 'advance payment', 'final payment', 'pharmacy sale'].includes(t);
+  };
+  // Cash outflows: money paid out by the hospital
+  const isOutflowType = (type: string) => {
     const t = type.toLowerCase();
     return t === 'payment' || t === 'payment voucher';
   };
+  // Bills, invoices, tally-sync etc. are not cash movements — excluded from balance
 
-  const priorDebit    = useMemo(() => filteredPrior.filter(e => !isCreditType(e.type)).reduce((s, e) => s + (e.amount ?? 0), 0), [filteredPrior]);
-  const priorCredit   = useMemo(() => filteredPrior.filter(e =>  isCreditType(e.type)).reduce((s, e) => s + (e.amount ?? 0), 0), [filteredPrior]);
+  const priorDebit    = useMemo(() => filteredPrior.filter(e => isInflowType(e.type)).reduce((s, e) => s + (e.amount ?? 0), 0), [filteredPrior]);
+  const priorCredit   = useMemo(() => filteredPrior.filter(e => isOutflowType(e.type)).reduce((s, e) => s + (e.amount ?? 0), 0), [filteredPrior]);
   const openingNet    = priorDebit - priorCredit;
 
-  const currentDebit  = useMemo(() => filteredEntries.filter(e => !isCreditType(e.type)).reduce((s, e) => s + (e.amount ?? 0), 0), [filteredEntries]);
-  const currentCredit = useMemo(() => filteredEntries.filter(e =>  isCreditType(e.type)).reduce((s, e) => s + (e.amount ?? 0), 0), [filteredEntries]);
+  const currentDebit  = useMemo(() => filteredEntries.filter(e => isInflowType(e.type)).reduce((s, e) => s + (e.amount ?? 0), 0), [filteredEntries]);
+  const currentCredit = useMemo(() => filteredEntries.filter(e => isOutflowType(e.type)).reduce((s, e) => s + (e.amount ?? 0), 0), [filteredEntries]);
   const closingNet    = openingNet + currentDebit - currentCredit;
 
   const groups = useMemo(() => groupByDay(filteredEntries), [filteredEntries]);
