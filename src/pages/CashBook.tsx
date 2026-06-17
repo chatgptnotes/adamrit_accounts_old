@@ -18,6 +18,14 @@ const CashBook: React.FC = () => {
   const { data: companies = [] } = useCompanies();
   const [selectedCompanyId, setSelectedCompanyId] = useState('');
 
+  // Derive effective hospital name from selected company (company_key = "hope"/"ayushman"),
+  // falling back to the logged-in hospital when no company is selected.
+  const effectiveHospitalName = useMemo(() => {
+    if (!selectedCompanyId) return hospitalConfig.name;
+    const company = companies.find(c => c.id === selectedCompanyId);
+    return company?.company_key ?? hospitalConfig.name;
+  }, [selectedCompanyId, companies, hospitalConfig.name]);
+
   // URL-persisted state
   const fromDate = searchParams.get('from') || today;
   const toDate = searchParams.get('to') || today;
@@ -73,7 +81,7 @@ const CashBook: React.FC = () => {
     voucher_type: selectedType || undefined,
     search_narration: searchNarration || undefined,
     payment_mode: selectedPaymentMode || undefined
-  }, hospitalConfig.name);
+  }, effectiveHospitalName);
 
   // Fetch old voucher data for Opening Balance only
   const { data: cashBookData } = useCashBookEntries({
@@ -82,7 +90,7 @@ const CashBook: React.FC = () => {
   });
 
   // Payment vouchers (cash paid out) for this hospital → shown as Credit rows
-  const { data: paymentVouchers } = usePaymentVouchers(fromDate, toDate, hospitalConfig.name);
+  const { data: paymentVouchers } = usePaymentVouchers(fromDate, toDate, effectiveHospitalName);
 
   // State for pharmacy credit payments (only for Hope hospital)
   const [pharmacyCreditPayments, setPharmacyCreditPayments] = useState<any[]>([]);
@@ -94,7 +102,7 @@ const CashBook: React.FC = () => {
   useEffect(() => {
     const fetchPharmacyCreditPayments = async () => {
       // Only fetch for Hope hospital (check if name contains 'hope', exclude Ayushman)
-      if (!hospitalConfig?.name || !hospitalConfig.name.toLowerCase().includes('hope')) {
+      if (!effectiveHospitalName || !effectiveHospitalName.toLowerCase().includes('hope')) {
         setPharmacyCreditPayments([]);
         return;
       }
@@ -116,13 +124,13 @@ const CashBook: React.FC = () => {
     };
 
     fetchPharmacyCreditPayments();
-  }, [fromDate, toDate, hospitalConfig?.name]);
+  }, [fromDate, toDate, effectiveHospitalName]);
 
   // Fetch pharmacy CASH refunds (medicine_returns) for Hope hospital only
   useEffect(() => {
     const fetchPharmacyRefunds = async () => {
       // Only fetch for Hope hospital (check if name contains 'hope', exclude Ayushman)
-      if (!hospitalConfig?.name || !hospitalConfig.name.toLowerCase().includes('hope')) {
+      if (!effectiveHospitalName || !effectiveHospitalName.toLowerCase().includes('hope')) {
         setPharmacyRefunds([]);
         return;
       }
@@ -163,7 +171,7 @@ const CashBook: React.FC = () => {
     };
 
     fetchPharmacyRefunds();
-  }, [fromDate, toDate, hospitalConfig?.name]);
+  }, [fromDate, toDate, effectiveHospitalName]);
 
   // Fetch users and voucher types for dropdowns
   const { data: users = [] } = useCashBookUsers();
@@ -470,7 +478,17 @@ const CashBook: React.FC = () => {
       paymentVouchers.forEach((v) => entries.push(voucherToEntry(v)));
     }
 
-    return entries;
+    // Separate opening balance (always first) from the rest, sort the rest by date.
+    const openingRow = entries.filter(e => e.type === 'opening-balance');
+    const transactionRows = entries
+      .filter(e => e.type !== 'opening-balance')
+      .sort((a, b) => {
+        const da = a.transactionDate ? new Date(a.transactionDate).getTime() : 0;
+        const db = b.transactionDate ? new Date(b.transactionDate).getTime() : 0;
+        return da - db;
+      });
+
+    return [...openingRow, ...transactionRows];
   }, [dailyTransactions, cashBookData, fromDate, pharmacyCreditPayments, pharmacyRefunds, paymentVouchers]);
 
   // Calculate totals for footer
