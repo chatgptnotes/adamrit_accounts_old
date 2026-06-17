@@ -350,20 +350,20 @@ function exportToPDF(
 const AccountLogs: React.FC = () => {
   const [selectedLog, setSelectedLog]       = useState<LogType>('account-log');
   const [selectedLedger, setSelectedLedger] = useState<string>('all');
-  const [currentMonth, setCurrentMonth] = useState(new Date());
   const [fromDate, setFromDate] = useState(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [toDate, setToDate]     = useState(() => format(new Date(), 'yyyy-MM-dd'));
+
+  // Derived from fromDate so the label always matches what the date inputs show
+  const currentMonth = useMemo(() => new Date(`${fromDate}T00:00:00`), [fromDate]);
 
   // When month navigator is used, snap the date range to that full month
   const goPrevMonth = () => {
     const m = subMonths(currentMonth, 1);
-    setCurrentMonth(m);
     setFromDate(format(startOfMonth(m), 'yyyy-MM-dd'));
     setToDate(format(endOfMonth(m), 'yyyy-MM-dd'));
   };
   const goNextMonth = () => {
     const m = addMonths(currentMonth, 1);
-    setCurrentMonth(m);
     setFromDate(format(startOfMonth(m), 'yyyy-MM-dd'));
     setToDate(format(endOfMonth(m), 'yyyy-MM-dd'));
   };
