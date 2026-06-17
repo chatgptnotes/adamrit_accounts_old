@@ -375,7 +375,7 @@ const CashBook: React.FC = () => {
       const allowedTransactionTypes = ['ADVANCE_PAYMENT', 'FINAL_BILL'];
       
       // Add pharmacy only for Hope hospital (case-insensitive check)
-      if (hospitalConfig?.name?.toLowerCase() === 'hope') {
+      if (effectiveHospitalName?.toLowerCase().includes('hope')) {
         allowedTransactionTypes.push('PHARMACY');
       }
 
