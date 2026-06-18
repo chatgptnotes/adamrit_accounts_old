@@ -9,6 +9,37 @@ import { supabase } from '@/integrations/supabase/client';
 import * as XLSX from 'xlsx';
 import { useCompanies } from '@/hooks/useCompanies';
 
+// Sum a single hospital's cash-book Debit/Credit from its raw sources, mirroring the
+// displayEntries logic. Debits = CASH advance/final (+ pharmacy for Hope) + Hope pharmacy
+// credit payments. Credits = payment vouchers (+ Hope pharmacy refunds). Opening balance is
+// global and intentionally excluded so Hope + Ayushman == Total.
+const computeHospitalTotals = (
+  dailyTransactions: any[] | undefined,
+  paymentVouchers: any[] | undefined,
+  pharmacyCredits: any[] | undefined,
+  pharmacyRefunds: any[] | undefined,
+  includePharmacy: boolean
+) => {
+  const allowed = includePharmacy
+    ? ['ADVANCE_PAYMENT', 'FINAL_BILL', 'PHARMACY']
+    : ['ADVANCE_PAYMENT', 'FINAL_BILL'];
+
+  let debit = (dailyTransactions || [])
+    .filter((t: any) => allowed.includes(t.transaction_type) && t.payment_mode === 'CASH')
+    .reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0);
+
+  let credit = (paymentVouchers || [])
+    .reduce((s: number, v: any) => s + (Number(v.amount) || 0), 0);
+
+  if (includePharmacy) {
+    debit += (pharmacyCredits || []).reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0);
+    credit += (pharmacyRefunds || []).reduce(
+      (s: number, r: any) => s + (Number(r.net_refund ?? r.refund_amount ?? 0) || 0), 0);
+  }
+
+  return { debit, credit, closing: debit - credit };
+};
+
 const CashBook: React.FC = () => {
   // Get today's date in YYYY-MM-DD format
   const today = new Date().toISOString().split('T')[0];
@@ -74,14 +105,17 @@ const CashBook: React.FC = () => {
     transactionDate?: string;
   } | null>(null);
 
-  // Fetch ALL daily transactions from all billing tables (filtered by hospital)
-  const { data: dailyTransactions, isLoading, error } = useAllDailyTransactions({
+  // Filters shared by the main (selected-hospital) query and the per-hospital total queries
+  const dailyFilters = useMemo(() => ({
     from_date: fromDate,
     to_date: toDate,
     voucher_type: selectedType || undefined,
     search_narration: searchNarration || undefined,
-    payment_mode: selectedPaymentMode || undefined
-  }, effectiveHospitalName);
+    payment_mode: selectedPaymentMode || undefined,
+  }), [fromDate, toDate, selectedType, searchNarration, selectedPaymentMode]);
+
+  // Fetch ALL daily transactions from all billing tables (filtered by hospital)
+  const { data: dailyTransactions, isLoading, error } = useAllDailyTransactions(dailyFilters, effectiveHospitalName);
 
   // Fetch old voucher data for Opening Balance only
   const { data: cashBookData } = useCashBookEntries({
@@ -92,11 +126,25 @@ const CashBook: React.FC = () => {
   // Payment vouchers (cash paid out) for this hospital → shown as Credit rows
   const { data: paymentVouchers } = usePaymentVouchers(fromDate, toDate, effectiveHospitalName);
 
+  // --- Per-hospital data for the TOP summary breakdown (Hope / Ayushman / Total) ---
+  // Fetched for BOTH hospitals regardless of the selected company, so the top bar can
+  // always show Hope + Ayushman + combined. These feed ONLY the top summary, not the list.
+  const { data: hopeDailyTransactions } = useAllDailyTransactions(dailyFilters, 'hope');
+  const { data: ayushmanDailyTransactions } = useAllDailyTransactions(dailyFilters, 'ayushman');
+  const { data: hopeVouchers } = usePaymentVouchers(fromDate, toDate, 'hope');
+  const { data: ayushmanVouchers } = usePaymentVouchers(fromDate, toDate, 'ayushman');
+
   // State for pharmacy credit payments (only for Hope hospital)
   const [pharmacyCreditPayments, setPharmacyCreditPayments] = useState<any[]>([]);
 
   // State for pharmacy CASH refunds / returns (only for Hope hospital)
   const [pharmacyRefunds, setPharmacyRefunds] = useState<any[]>([]);
+
+  // Hope pharmacy cash credits + refunds for the TOP per-hospital totals only.
+  // Always Hope-scoped (separate from the list state above) so the Hope total stays
+  // accurate even when Ayushman / a different company is selected.
+  const [hopePharmacyCredits, setHopePharmacyCredits] = useState<any[]>([]);
+  const [hopePharmacyRefunds, setHopePharmacyRefunds] = useState<any[]>([]);
 
   // Fetch pharmacy credit payments for Hope hospital only (CASH payments)
   useEffect(() => {
@@ -172,6 +220,33 @@ const CashBook: React.FC = () => {
 
     fetchPharmacyRefunds();
   }, [fromDate, toDate, effectiveHospitalName]);
+
+  // Always fetch Hope pharmacy cash credits + refunds (amounts only) for the TOP per-hospital
+  // totals — independent of the selected company. Does not affect the entry list.
+  useEffect(() => {
+    const fetchHopePharmacyForTotals = async () => {
+      const { data: credits } = await supabase
+        .from('pharmacy_credit_payments')
+        .select('amount')
+        .eq('payment_method', 'CASH')
+        .ilike('hospital_name', '%hope%')
+        .gte('payment_date', `${fromDate}T00:00:00`)
+        .lte('payment_date', `${toDate}T23:59:59`);
+      setHopePharmacyCredits(credits || []);
+
+      const { data: refunds } = await supabase
+        .from('medicine_returns')
+        .select('net_refund, refund_amount')
+        .eq('refund_method', 'CASH')
+        .eq('status', 'PROCESSED')
+        .neq('is_hidden', true)
+        .ilike('hospital_name', '%hope%')
+        .gte('return_date', `${fromDate}T00:00:00`)
+        .lte('return_date', `${toDate}T23:59:59`);
+      setHopePharmacyRefunds(refunds || []);
+    };
+    fetchHopePharmacyForTotals();
+  }, [fromDate, toDate]);
 
   // Fetch users and voucher types for dropdowns
   const { data: users = [] } = useCashBookUsers();
@@ -504,6 +579,22 @@ const CashBook: React.FC = () => {
     };
   }, [displayEntries]);
 
+  // Per-hospital totals for the TOP summary (Hope / Ayushman / combined). Independent of the
+  // selected company. Hope includes pharmacy; Ayushman does not.
+  const hopeTotals = useMemo(
+    () => computeHospitalTotals(hopeDailyTransactions, hopeVouchers, hopePharmacyCredits, hopePharmacyRefunds, true),
+    [hopeDailyTransactions, hopeVouchers, hopePharmacyCredits, hopePharmacyRefunds]
+  );
+  const ayushmanTotals = useMemo(
+    () => computeHospitalTotals(ayushmanDailyTransactions, ayushmanVouchers, undefined, undefined, false),
+    [ayushmanDailyTransactions, ayushmanVouchers]
+  );
+  const combinedTotals = useMemo(() => ({
+    debit: hopeTotals.debit + ayushmanTotals.debit,
+    credit: hopeTotals.credit + ayushmanTotals.credit,
+    closing: hopeTotals.closing + ayushmanTotals.closing,
+  }), [hopeTotals, ayushmanTotals]);
+
   const formatCurrency = (amount: number) => {
     if (amount === 0) return '';
     return `Rs ${amount.toLocaleString('en-IN')}`;
@@ -641,23 +732,29 @@ const CashBook: React.FC = () => {
         {formatDateForInput(fromDate)} To {formatDateForInput(toDate)}
       </div>
 
-      {/* Top Summary Bar (mirrors the bottom footer) */}
-      {!isLoading && !error && displayEntries.length > 0 && (
-        <div className="mx-4 mb-2 flex flex-wrap items-center justify-end gap-x-8 gap-y-1 border-t-2 border-b-2 border-gray-400 bg-gray-50 px-3 py-2">
-          <div className="flex items-center gap-2 text-sm font-bold text-blue-900">
-            <span className="text-gray-700">Total:</span>
-            <span>Dr {formatCurrencyTotal(totals.totalDebit)}</span>
-            <span>Cr {formatCurrencyTotal(totals.totalCredit)}</span>
-          </div>
-          <div className="flex items-center gap-2 text-sm font-bold text-red-700">
-            <span>Closing Balance:</span>
-            <span>
-              {formatCurrencyTotal(Math.abs(totals.closingBalance))}
-              <span className="ml-2 text-xs">
-                {totals.closingBalance >= 0 ? '(DR)' : '(CR)'}
+      {/* Top Summary Bar — per-hospital totals + combined (Hope + Ayushman = Total) */}
+      {!isLoading && !error && (
+        <div className="mx-4 mb-2 border-t-2 border-b-2 border-gray-400 bg-gray-50 px-3 py-2 text-sm">
+          {[
+            { label: 'Hope', t: hopeTotals, strong: false },
+            { label: 'Ayushman', t: ayushmanTotals, strong: false },
+            { label: 'Total', t: combinedTotals, strong: true },
+          ].map((row) => (
+            <div
+              key={row.label}
+              className={`flex flex-wrap items-center justify-end gap-x-6 gap-y-1 py-0.5 ${
+                row.strong ? 'mt-0.5 border-t border-gray-400 font-bold text-red-700' : 'font-semibold text-blue-900'
+              }`}
+            >
+              <span className="mr-auto">{row.label}:</span>
+              <span>Dr {formatCurrencyTotal(row.t.debit)}</span>
+              <span>Cr {formatCurrencyTotal(row.t.credit)}</span>
+              <span>
+                Closing {formatCurrencyTotal(Math.abs(row.t.closing))}
+                <span className="ml-1 text-xs">{row.t.closing >= 0 ? '(DR)' : '(CR)'}</span>
               </span>
-            </span>
-          </div>
+            </div>
+          ))}
         </div>
       )}
 
