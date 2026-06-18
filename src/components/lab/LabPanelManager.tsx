@@ -53,6 +53,10 @@ import * as XLSX from 'xlsx';
 import { useTestPanels, useLabSubspecialties } from '@/hooks/useLabData';
 import { useToast } from '@/hooks/use-toast';
 import { usePermissions } from '@/hooks/usePermissions';
+import { useAuth } from '@/contexts/AuthContext';
+
+// Only this superadmin email may edit lab panels on the Add Panel screen
+const PANEL_EDIT_EMAIL = 'superadmin@ayushman.com';
 import LabTestFormBuilder from './LabTestFormBuilder';
 import TestConfigurationSection, { SubTest } from './TestConfigurationSection';
 import { supabase } from '@/integrations/supabase/client';
@@ -600,6 +604,8 @@ const LabPanelManager: React.FC = () => {
   const [showFormBuilder, setShowFormBuilder] = useState(false);
   const { toast } = useToast();
   const { canEditMasters } = usePermissions();
+  const { user } = useAuth();
+  const canEditPanels = user?.email?.trim().toLowerCase() === PANEL_EDIT_EMAIL;
 
   // Use real database data with fallback to local storage
   const { panels: dbPanels, loading, error, refetch, createPanel, updatePanel, deletePanel } = useTestPanels();
@@ -1727,7 +1733,7 @@ const LabPanelManager: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        {canEditMasters && (
+                        {canEditPanels && (
                           <Button
                             variant="outline"
                             size="sm"
