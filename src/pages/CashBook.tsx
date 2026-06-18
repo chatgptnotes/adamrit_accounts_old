@@ -641,6 +641,26 @@ const CashBook: React.FC = () => {
         {formatDateForInput(fromDate)} To {formatDateForInput(toDate)}
       </div>
 
+      {/* Top Summary Bar (mirrors the bottom footer) */}
+      {!isLoading && !error && displayEntries.length > 0 && (
+        <div className="mx-4 mb-2 flex flex-wrap items-center justify-end gap-x-8 gap-y-1 border-t-2 border-b-2 border-gray-400 bg-gray-50 px-3 py-2">
+          <div className="flex items-center gap-2 text-sm font-bold text-blue-900">
+            <span className="text-gray-700">Total:</span>
+            <span>Dr {formatCurrencyTotal(totals.totalDebit)}</span>
+            <span>Cr {formatCurrencyTotal(totals.totalCredit)}</span>
+          </div>
+          <div className="flex items-center gap-2 text-sm font-bold text-red-700">
+            <span>Closing Balance:</span>
+            <span>
+              {formatCurrencyTotal(Math.abs(totals.closingBalance))}
+              <span className="ml-2 text-xs">
+                {totals.closingBalance >= 0 ? '(DR)' : '(CR)'}
+              </span>
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Cash Book Table */}
       <div className="flex-1 overflow-auto px-4 bg-white">
         {isLoading ? (
