@@ -55,8 +55,6 @@ import { useToast } from '@/hooks/use-toast';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useAuth } from '@/contexts/AuthContext';
 
-// Only this superadmin email may edit lab panels on the Add Panel screen
-const PANEL_EDIT_EMAIL = 'superadmin@ayushman.com';
 import LabTestFormBuilder from './LabTestFormBuilder';
 import TestConfigurationSection, { SubTest } from './TestConfigurationSection';
 import { supabase } from '@/integrations/supabase/client';
@@ -605,7 +603,8 @@ const LabPanelManager: React.FC = () => {
   const { toast } = useToast();
   const { canEditMasters } = usePermissions();
   const { user } = useAuth();
-  const canEditPanels = user?.email?.trim().toLowerCase() === PANEL_EDIT_EMAIL;
+  // Any superadmin account may edit lab panels on the Add Panel screen
+  const canEditPanels = user?.role === 'superadmin' || user?.role === 'super_admin';
 
   // Use real database data with fallback to local storage
   const { panels: dbPanels, loading, error, refetch, createPanel, updatePanel, deletePanel } = useTestPanels();
@@ -990,6 +989,8 @@ const LabPanelManager: React.FC = () => {
           return {
             name: nst.name,
             unit: nst.unit || null,
+            type: nst.type || 'Numeric', // Numeric/Text type for nested sub-test
+            text_value: nst.type === 'Text' ? (nst.textValue || null) : null, // Text value when type is Text
             is_mandatory: nst.isMandatory !== false, // Individual mandatory status
             display_order: nestedIndex,
             age_ranges: nst.ageRanges?.map(ar => {
@@ -2718,6 +2719,8 @@ const EditPanelForm: React.FC<EditPanelFormProps> = ({ panel, onSubmit }) => {
               id: `nested_${subTestKey}_${index}_${Date.now()}`,
               name: nst.name || '',
               unit: nst.unit || '',
+              type: nst.type || 'Numeric', // Load Numeric/Text type for nested sub-test
+              textValue: nst.text_value || '', // Load text value for nested sub-test
               formula: nestedFormulaData?.formula || '', // Load formula for nested sub-test
               isMandatory: nst.is_mandatory !== false, // Load individual mandatory status
               ageRanges: (nst.age_ranges || []).map((ar: any, arIndex: number) => ({

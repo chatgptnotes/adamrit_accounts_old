@@ -977,7 +977,7 @@ const TestConfigurationSection: React.FC<TestConfigurationSectionProps> = ({
                   </Button>
 
                   {/* Nested Sub-Test Header */}
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-4 gap-3">
                     <div>
                       <Label className="text-xs font-medium text-gray-700 mb-1 block">Nested Sub Test Name</Label>
                       <Input
@@ -996,6 +996,23 @@ const TestConfigurationSection: React.FC<TestConfigurationSectionProps> = ({
                         className="h-8 text-sm"
                       />
                     </div>
+                    <div>
+                      <Label className="text-xs font-medium text-gray-700 mb-1 block">Type</Label>
+                      <Select
+                        value={nestedSubTest.type || 'Numeric'}
+                        onValueChange={(value: 'Numeric' | 'Text') =>
+                          updateNestedSubTest(subTest.id, nestedSubTest.id, { type: value })
+                        }
+                      >
+                        <SelectTrigger className="h-8 text-sm">
+                          <SelectValue placeholder="Select type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Numeric">Numeric</SelectItem>
+                          <SelectItem value="Text">Text</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <div className="flex items-center gap-2 pt-5">
                       <Checkbox
                         id={`nested-mandatory-${nestedSubTest.id}`}
@@ -1013,6 +1030,19 @@ const TestConfigurationSection: React.FC<TestConfigurationSectionProps> = ({
                     </div>
                   </div>
 
+                  {/* Conditional: Text type shows a text value box; Numeric shows ranges */}
+                  {nestedSubTest.type === 'Text' ? (
+                    <div>
+                      <Label className="text-xs font-medium text-gray-700 mb-1 block">Text Value</Label>
+                      <Textarea
+                        placeholder="Enter text value..."
+                        value={nestedSubTest.textValue || ''}
+                        onChange={(e) => updateNestedSubTest(subTest.id, nestedSubTest.id, { textValue: e.target.value })}
+                        className="min-h-[80px] text-sm"
+                      />
+                    </div>
+                  ) : (
+                  <>
                   {/* Nested Age Ranges */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
@@ -1197,6 +1227,8 @@ const TestConfigurationSection: React.FC<TestConfigurationSectionProps> = ({
                       </div>
                     ))}
                   </div>
+                  </>
+                  )}
                 </div>
               ))}
             </div>
