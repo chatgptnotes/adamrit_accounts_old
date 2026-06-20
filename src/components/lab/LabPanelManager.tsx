@@ -2719,7 +2719,10 @@ const EditPanelForm: React.FC<EditPanelFormProps> = ({ panel, onSubmit }) => {
               id: `nested_${subTestKey}_${index}_${Date.now()}`,
               name: nst.name || '',
               unit: nst.unit || '',
-              type: nst.type || 'Numeric', // Load Numeric/Text type for nested sub-test
+              // Infer Text type when a default text_value exists but type is null (legacy/imported
+              // configs stored text_value with test_type=null) — otherwise the Text Value editing box
+              // stays hidden and re-saving would wipe the default. Keeps existing explicit types intact.
+              type: nst.type || (nst.text_value ? 'Text' : 'Numeric'), // Load Numeric/Text type for nested sub-test
               textValue: nst.text_value || '', // Load text value for nested sub-test
               formula: nestedFormulaData?.formula || '', // Load formula for nested sub-test
               isMandatory: nst.is_mandatory !== false, // Load individual mandatory status

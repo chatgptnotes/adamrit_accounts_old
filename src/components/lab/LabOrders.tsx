@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1412,11 +1412,11 @@ const LabOrders = () => {
           // ========== SIMPLIFIED LAB RESULTS LOADING (IGNORES main_test_name) ==========
           // This approach directly matches results by test_name to sub-tests
           // It does NOT rely on main_test_name which may be corrupted in the database
+          const loadedFormData: Record<string, any> = {};
+
           if (existingResults && existingResults.length > 0) {
             console.log('📊 Found existing results:', existingResults.length);
             console.log('📊 All existing results:', existingResults);
-
-            const loadedFormData: Record<string, any> = {};
 
             // Normalize function for fuzzy matching (handles British/American spelling differences)
             const normalizeTestName = (str: string) => str
@@ -1531,17 +1531,52 @@ const LabOrders = () => {
               console.log('🔐 Found authenticated results - setting authentication to true');
             }
 
-            if (Object.keys(loadedFormData).length > 0) {
-              // FIXED: Replace state instead of merge to prevent old values from persisting
-              setLabResultsForm(loadedFormData);
-              setSavedLabResults(loadedFormData);
-              setIsFormSaved(true);
+          }
+
+          // AUTO-FILL PANEL DEFAULTS: for any sub-test / nested sub-test that has a configured
+          // default value (text_value) in the panel but no saved result yet, pre-fill it AND
+          // auto-save it into the order — so the panel's configured info flows into the report even
+          // when the technician never touches the field. Never overwrite an already-saved value.
+          // (Defaults are stored in lab_test_config.nested_sub_tests with test_type=null, so they are
+          // keyed off text_value here rather than test_type.)
+          const defaultsToAutoSave: Array<{ key: string; value: string }> = [];
+          selectedTestsForEntry.forEach(testRow => {
+            const subTests = testSubTests[testRow.test_name] || [];
+            subTests.forEach((subTest: any) => {
+              if (subTest.isParent) return; // section headers carry no value
+              const key = `${testRow.id}_subtest_${subTest.id}`;
+              const defaultVal = (subTest.text_value || '').toString().trim();
+              if (!defaultVal) return;                        // no configured default
+              if (loadedFormData[key]?.result_value) return;  // already has a saved value — don't touch
+              loadedFormData[key] = {
+                result_value: defaultVal,
+                result_unit: subTest.unit && subTest.unit.toLowerCase() !== 'unit' ? subTest.unit : '',
+                reference_range: '',
+                comments: '',
+                is_abnormal: false,
+                result_status: 'Preliminary'
+              };
+              defaultsToAutoSave.push({ key, value: defaultVal });
+            });
+          });
+
+          if (Object.keys(loadedFormData).length > 0) {
+            // FIXED: Replace state instead of merge to prevent old values from persisting
+            setLabResultsForm(loadedFormData);
+            setSavedLabResults(loadedFormData);
+            setIsFormSaved(true);
+            if (existingResults && existingResults.length > 0) {
               toast({
                 title: "Loaded Existing Results",
                 description: `Found and loaded ${Object.keys(loadedFormData).length} existing test results.`,
                 variant: "default"
               });
             }
+          }
+
+          // Persist the freshly pre-filled defaults to the order (silent per-field inserts).
+          for (const d of defaultsToAutoSave) {
+            await autoSaveField(d.key, d.value);
           }
           // ========== END SIMPLIFIED LOADING ==========
         } catch (error) {
@@ -3159,9 +3194,15 @@ const LabOrders = () => {
         const subTestFormData = labResultsForm[subTestKey];
         console.log(`🔍 Sub-test ${subTestKey} form data:`, subTestFormData);
 
-        if (subTestFormData && (subTestFormData.result_value?.trim() || subTestFormData.comments?.trim())) {
-          console.log(`🔍 ✅ Adding sub-test result: ${subTestFormData.result_value}`);
-          const referenceRange = calculatedRanges[subTestKey] || subTestFormData.reference_range || '';
+        // For Text-type sub-tests (including nested) with a configured default text value,
+        // fall back to that default so they always save even if the user didn't edit the field
+        // (the default is only shown via an input fallback, so the form state can be empty).
+        const defaultTextValue = (subTest.test_type === 'Text' && subTest.text_value) ? subTest.text_value : '';
+        const effectiveResultValue = (subTestFormData?.result_value?.trim() ? subTestFormData.result_value : '') || defaultTextValue;
+
+        if (effectiveResultValue?.trim() || subTestFormData?.comments?.trim()) {
+          console.log(`🔍 ✅ Adding sub-test result: ${effectiveResultValue}`);
+          const referenceRange = calculatedRanges[subTestKey] || subTestFormData?.reference_range || '';
 
           resultsData.push({
             order_id: testRow.order_id || testRow.id,
@@ -3169,11 +3210,11 @@ const LabOrders = () => {
             visit_lab_id: testRow.id,  // Direct visit_labs ID for correct linking
             test_name: subTest.name,
             test_category: testRow.test_category || 'GENERAL',
-            result_value: subTestFormData.result_value || '',
-            result_unit: subTestFormData.result_unit || (subTest.unit && subTest.unit.toLowerCase() !== 'unit' ? subTest.unit : ''),
+            result_value: effectiveResultValue || '',
+            result_unit: subTestFormData?.result_unit || (subTest.unit && subTest.unit.toLowerCase() !== 'unit' ? subTest.unit : ''),
             reference_range: referenceRange,
-            comments: subTestFormData.comments || '',
-            is_abnormal: subTestFormData.is_abnormal || false,
+            comments: subTestFormData?.comments || '',
+            is_abnormal: subTestFormData?.is_abnormal || false,
             result_status: authenticatedResult ? 'Final' : 'Preliminary'
           });
         }
@@ -3260,6 +3301,95 @@ const LabOrders = () => {
     return true;
   };
 
+  // Tracks the last value auto-saved per field, to avoid duplicate inserts on repeated blurs.
+  const lastAutoSavedRef = useRef<Record<string, string>>({});
+
+  // Auto-save a single field's value to lab_results the moment the user leaves the field (on blur).
+  // Mirrors the row mapping used by saveLabResultsMutation, but inserts ONLY the one edited field and
+  // stays silent (no toast, no query invalidation) so it can fire on every field exit without UI churn.
+  // lab_results is insert-only and loadExistingLabResults dedupes on read (latest row per test_name wins),
+  // so re-inserting a changed value is consistent with the existing manual-save behaviour.
+  const autoSaveField = async (fieldKey: string, rawValue: string) => {
+    const value = (rawValue ?? '').trim();
+    if (!value) return;
+
+    // Skip if this exact value is already persisted (loaded from DB or previously auto-saved).
+    const alreadySaved = lastAutoSavedRef.current[fieldKey] ?? savedLabResults[fieldKey]?.result_value;
+    if (alreadySaved === value) {
+      lastAutoSavedRef.current[fieldKey] = value;
+      return;
+    }
+
+    const formData = labResultsForm[fieldKey] || {};
+
+    // Resolve which test row + (optional) sub-test this field belongs to.
+    // Main test key === testRow.id; sub-test key === `${testRow.id}_subtest_${subTest.id}`.
+    let testRow = selectedTestsForEntry.find(t => t.id === fieldKey);
+    let testName = '';
+    let unit = '';
+
+    if (testRow) {
+      testName = testRow.test_name;
+      unit = formData.result_unit && formData.result_unit.toLowerCase() !== 'unit' ? formData.result_unit : '';
+    } else {
+      const sepIdx = fieldKey.indexOf('_subtest_');
+      if (sepIdx === -1) return;
+      const parentId = fieldKey.substring(0, sepIdx);
+      testRow = selectedTestsForEntry.find(t => t.id === parentId);
+      if (!testRow) return;
+      const subTests = testSubTests[testRow.test_name] || [];
+      const subTestObj = subTests.find(st => `${testRow!.id}_subtest_${st.id}` === fieldKey);
+      if (!subTestObj) return;
+      testName = subTestObj.name;
+      unit = formData.result_unit || (subTestObj.unit && subTestObj.unit.toLowerCase() !== 'unit' ? subTestObj.unit : '');
+    }
+
+    const referenceRange = calculatedRanges[fieldKey] || formData.reference_range || '';
+
+    try {
+      const { error } = await supabase.from('lab_results').insert({
+        main_test_name: testRow.test_name || 'Unknown Test',
+        test_name: testName || 'Unknown Sub-Test',
+        test_category: testRow.test_category || 'GENERAL',
+        result_value: value,
+        result_unit: unit,
+        reference_range: referenceRange,
+        comments: formData.comments || '',
+        is_abnormal: formData.is_abnormal || false,
+        result_status: authenticatedResult ? 'Final' : 'Preliminary',
+        authenticated_result: authenticatedResult || false,
+        patient_name: testRow.patient_name || 'Unknown Patient',
+        patient_age: testRow.patient_age || null,
+        patient_gender: testRow.patient_gender || 'Unknown',
+        visit_lab_id: testRow.id,
+        visit_id: testRow.visit_uuid || testRow.order_id || null,
+        lab_id: testRow.lab_uuid || testRow.test_id || null,
+      });
+
+      if (error) {
+        console.error('⚠️ Auto-save failed for', fieldKey, error);
+        return;
+      }
+
+      lastAutoSavedRef.current[fieldKey] = value;
+
+      // Reflect the saved value locally so print data stays ready and the order row shows a saved tick.
+      setSavedLabResults(prev => ({
+        ...prev,
+        [fieldKey]: {
+          ...formData,
+          result_value: value,
+          result_status: authenticatedResult ? 'Final' : 'Preliminary',
+          saved_at: new Date().toISOString(),
+          authenticated: authenticatedResult,
+        },
+      }));
+      setTestsWithSavedResults(prev => [...new Set([...prev, testRow!.id])]);
+    } catch (err) {
+      console.error('⚠️ Auto-save error for', fieldKey, err);
+    }
+  };
+
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files) {
@@ -3298,17 +3428,32 @@ const LabOrders = () => {
         return;
       }
 
-      // Fetch lab results for this patient
+      // Fetch saved results by visit_lab_id — the reliable key set by every save (manual + auto-save),
+      // matching how loadExistingLabResults reads them back. (The old query used a non-existent
+      // patient_id column and then relied on an exact patient_name match, which silently failed —
+      // so reports were blank whenever the entry form wasn't still populated in memory.)
+      const visitLabIds = testsForPrint.map(t => t.id);
       const { data: fetchedLabResults, error: fetchError } = await supabase
         .from('lab_results')
         .select('*')
-        .eq('patient_id', patientId)
-        .eq('main_test_name', patientInfo.test_name);
+        .in('visit_lab_id', visitLabIds)
+        .order('created_at', { ascending: false });
 
-      // Try alternative query by patient name if no results found
-      let resultsToUse = fetchedLabResults;
-      if (!fetchedLabResults || fetchedLabResults.length === 0) {
-        const { data: altResults, error: altError } = await supabase
+      if (fetchError) console.error('⚠️ Print: failed to fetch lab_results by visit_lab_id:', fetchError);
+
+      // Dedupe to the most recent row per test_name (rows are ordered newest-first).
+      let resultsToUse = fetchedLabResults || [];
+      if (resultsToUse.length > 0) {
+        const uniqueByTestName: Record<string, any> = {};
+        resultsToUse.forEach(r => {
+          if (!uniqueByTestName[r.test_name]) uniqueByTestName[r.test_name] = r;
+        });
+        resultsToUse = Object.values(uniqueByTestName);
+      }
+
+      // Fallback for legacy rows where visit_lab_id is NULL: match by patient name.
+      if (resultsToUse.length === 0) {
+        const { data: altResults } = await supabase
           .from('lab_results')
           .select('*')
           .eq('patient_name', patientInfo.patient_name);
@@ -3620,7 +3765,7 @@ const LabOrders = () => {
 
           .header-row {
             display: grid;
-            grid-template-columns: 38% 31% 31%;
+            grid-template-columns: 50% 50%;
             align-items: center;
             border-bottom: 1px solid #ccc;
             padding: 8px 0;
@@ -3632,6 +3777,11 @@ const LabOrders = () => {
 
           .header-col-1, .header-col-2, .header-col-3 {
             padding: 0 8px;
+          }
+
+          /* NORMAL RANGE column hidden */
+          .header-col-3, .test-range {
+            display: none;
           }
 
           .header-col-2, .header-col-3 {
@@ -3652,7 +3802,7 @@ const LabOrders = () => {
 
           .test-row {
             display: grid;
-            grid-template-columns: 38% 31% 31%;
+            grid-template-columns: 50% 50%;
             align-items: center;
             padding: 2px 0;
             font-size: 14px;
@@ -5503,24 +5653,20 @@ const LabOrders = () => {
                           {/* Table Header - Show only once before first Numeric test */}
                           {index === 0 && hasNumericType && (
                             <div className="bg-gray-50 border-b border-gray-300">
-                              <div className="grid grid-cols-3 gap-0 items-center font-semibold text-sm text-gray-800">
+                              <div className="grid grid-cols-2 gap-0 items-center font-semibold text-sm text-gray-800">
                                 <div className="p-3 border-r border-gray-300 text-center">INVESTIGATION</div>
                                 <div className="p-3 border-r border-gray-300 text-center">OBSERVED VALUE</div>
-                                <div className="p-3 text-center">NORMAL RANGE</div>
                               </div>
                             </div>
                           )}
                           <div className="bg-white">
-                            <div className="grid grid-cols-3 gap-0 items-center">
+                            <div className="grid grid-cols-2 gap-0 items-center">
                               <div className="p-3 border-r border-gray-300">
                                 <div className="font-bold text-sm text-blue-900">
                                   {testRow.test_name}
                                 </div>
                               </div>
                               <div className="p-3 border-r border-gray-300 text-center text-gray-500 text-sm font-medium">
-                                {/* Empty for main test header */}
-                              </div>
-                              <div className="p-3 text-center text-gray-500 text-sm font-medium">
                                 {/* Empty for main test header */}
                               </div>
                             </div>
@@ -5540,7 +5686,7 @@ const LabOrders = () => {
                       {/* Handle main tests without sub-tests */}
                       {subTests.length === 0 && (
                         <div className="bg-white border-t border-gray-100">
-                          <div className="grid grid-cols-3 gap-0 items-center min-h-[40px]">
+                          <div className="grid grid-cols-2 gap-0 items-center min-h-[40px]">
                             <div className="p-2 border-r border-gray-300 flex items-center">
                               <span className="text-sm ml-4">{testRow.test_name}</span>
                             </div>
@@ -5638,6 +5784,7 @@ const LabOrders = () => {
                                       placeholder="Enter value"
                                       value={displayValue}
                                       onChange={(e) => handleLabResultChange(mainTestKey, 'result_value', e.target.value)}
+                                      onBlur={(e) => autoSaveField(mainTestKey, e.target.value)}
                                       data-observed-value="true"
                                       onKeyDown={(e) => {
                                         const currentInputIndex = Array.from(
@@ -5652,11 +5799,6 @@ const LabOrders = () => {
                                   </div>
                                 );
                               })()}
-                            </div>
-                            <div className="p-2 text-center">
-                              <div className="text-sm text-gray-700">
-                                {calculatedRanges[testRow.id] || mainTestFormData.reference_range || '-'}
-                              </div>
                             </div>
                           </div>
                         </div>
@@ -5763,6 +5905,7 @@ const LabOrders = () => {
                                   placeholder="Enter text value"
                                   value={subTestDisplayValue || subTest.text_value || ''}
                                   onChange={(e) => handleLabResultChange(subTestKey, 'result_value', e.target.value)}
+                                  onBlur={(e) => autoSaveField(subTestKey, e.target.value || subTest.text_value || '')}
                                 />
                                 {isFormSaved && subTestFormData.result_value && (
                                   <span className="text-green-600 text-sm">✓</span>
@@ -5778,7 +5921,7 @@ const LabOrders = () => {
                         ) : (
                           /* NUMERIC TYPE FORMAT - Table with columns */
                           <div key={subTestKey} className="bg-white border-t border-gray-100">
-                            <div className="grid grid-cols-3 gap-0 items-center min-h-[40px]">
+                            <div className="grid grid-cols-2 gap-0 items-center min-h-[40px]">
                               <div className="p-2 border-r border-gray-300 flex items-center">
                                 <span
                                   className={`text-sm cursor-help ${isNestedSubTest ? 'ml-8 text-gray-700' : 'ml-4'}`}
@@ -5807,6 +5950,7 @@ const LabOrders = () => {
                                       placeholder="Enter value"
                                       value={subTestDisplayValue}
                                       onChange={(e) => handleLabResultChange(subTestKey, 'result_value', e.target.value)}
+                                      onBlur={(e) => autoSaveField(subTestKey, e.target.value)}
                                       data-observed-value="true"
                                       onKeyDown={(e) => {
                                         const currentInputIndex = Array.from(
@@ -5828,24 +5972,6 @@ const LabOrders = () => {
                                   </div>
                                 )}
                               </div>
-                              <div className="p-2 flex items-center justify-center">
-                                {subTest.isParent ? (
-                                  <span className="text-gray-400 text-sm"></span>
-                                ) : (
-                                  <div className="text-sm text-gray-700">
-                                    {(() => {
-                                      const range = subTest.range || subTestFormData.reference_range || '-';
-                                      const unit = (subTest.unit && subTest.unit.toLowerCase() !== 'unit' ? subTest.unit : '') ||
-                                                   (subTestFormData.result_unit && subTestFormData.result_unit.toLowerCase() !== 'unit' ? subTestFormData.result_unit : '');
-                                      // If range doesn't already contain the unit, append it
-                                      if (unit && range !== '-' && !range.includes(unit)) {
-                                        return `${range} ${unit}`;
-                                      }
-                                      return range;
-                                    })()}
-                                  </div>
-                                )}
-                              </div>
                             </div>
                           </div>
                         );
@@ -5853,7 +5979,7 @@ const LabOrders = () => {
 
                       {/* Comments Section */}
                       <div className="bg-gray-50 border-t border-gray-200">
-                        <div className="grid grid-cols-3 gap-0 items-center">
+                        <div className="grid grid-cols-2 gap-0 items-center">
                           <div className="p-2 border-r border-gray-300 flex items-center gap-2">
                             <input
                               type="checkbox"
@@ -5870,6 +5996,12 @@ const LabOrders = () => {
                             <label htmlFor={`comment-${testRow.id}`} className="text-xs text-gray-600 cursor-pointer">
                               Comments
                             </label>
+                            <input
+                              type="checkbox"
+                              id={`opinion-${testRow.id}`}
+                              className="w-3 h-3 ml-4"
+                            />
+                            <label htmlFor={`opinion-${testRow.id}`} className="text-xs text-gray-600 ml-1 cursor-pointer">P.S. for Opinion</label>
                           </div>
                           <div className="p-2 border-r border-gray-300 flex items-center">
                             {showCommentBoxes[testRow.id] && (
@@ -5902,14 +6034,6 @@ const LabOrders = () => {
                                 }}
                               />
                             )}
-                          </div>
-                          <div className="p-2 flex items-center">
-                            <input
-                              type="checkbox"
-                              id={`opinion-${testRow.id}`}
-                              className="w-3 h-3"
-                            />
-                            <label htmlFor={`opinion-${testRow.id}`} className="text-xs text-gray-600 ml-1">P.S. for Opinion</label>
                           </div>
                         </div>
                       </div>
