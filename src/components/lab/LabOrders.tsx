@@ -3815,13 +3815,14 @@ const LabOrders = () => {
             align-items: center;
           }
 
-          .test-value, .test-range {
+          .test-value {
             text-align: left;
             font-weight: 500;
             display: flex;
             align-items: center;
             justify-content: flex-start;
           }
+          /* .test-range intentionally excluded — NORMAL RANGE stays hidden (see rule above) */
           
           .abnormal {
             color: #d32f2f;
