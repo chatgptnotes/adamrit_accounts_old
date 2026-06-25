@@ -28,6 +28,13 @@ const formatTimeAgo = (iso: string | null) => {
   }
 };
 
+const LOCATION_BADGE: Record<string, string> = {
+  ICU:  'bg-red-100 text-red-700',
+  Ward: 'bg-blue-100 text-blue-700',
+  Room: 'bg-green-100 text-green-700',
+  OT:   'bg-orange-100 text-orange-700',
+};
+
 const PrescriptionNotificationBell: React.FC<Props> = ({ count, recent, onViewAll, onRowClick }) => {
   const displayCount = count > 99 ? '99+' : String(count);
 
@@ -70,9 +77,14 @@ const PrescriptionNotificationBell: React.FC<Props> = ({ count, recent, onViewAl
               >
                 <FileText className="h-4 w-4 mt-0.5 text-orange-600 shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">
+                  <div className="flex items-center gap-1.5 font-medium truncate">
                     {p.prescription_number || p.id.slice(0, 8)}
                     <span className="text-muted-foreground font-normal"> · {p.patient_name}</span>
+                    {p.patient_location && LOCATION_BADGE[p.patient_location] ? (
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${LOCATION_BADGE[p.patient_location]}`}>
+                        {p.patient_location}
+                      </span>
+                    ) : null}
                   </div>
                   <div className="text-xs text-muted-foreground truncate">
                     {p.doctor_name || 'Unknown doctor'} · {formatTimeAgo(p.created_at)}

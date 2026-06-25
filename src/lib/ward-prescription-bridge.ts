@@ -26,6 +26,7 @@ export interface BridgeResult {
 
 export async function bridgeApprovedMedicationToPharmacy(
   visitMedicationId: string,
+  patientLocation?: string | null,
 ): Promise<BridgeResult> {
   try {
     // 1. Load the source row; only bridge an approved, not-yet-dispensed med.
@@ -112,6 +113,7 @@ export async function bridgeApprovedMedicationToPharmacy(
           source: "ward",
           hospital_name: hospitalName,
           notes: "Ward order — auto-bridged from Treatment Sheet",
+          ...(patientLocation ? { patient_location: patientLocation } : {}),
         })
         .select("id")
         .single();
@@ -174,12 +176,14 @@ export async function bridgeApprovedMedicationToPharmacy(
     // 6. A same-day re-send appends to an existing card, so no new `prescriptions`
     //    row fires for the notification bell. When a genuinely new item was added,
     //    bump the card so it re-floats and emits a realtime UPDATE the bell hears.
+    //    Also update patient_location if provided (doctor may have changed it).
     if (reusedExisting && !itemErr) {
       await db
         .from("prescriptions")
         .update({
           prescription_date: today,
           updated_at: new Date().toISOString(),
+          ...(patientLocation ? { patient_location: patientLocation } : {}),
         })
         .eq("id", prescriptionId);
     }

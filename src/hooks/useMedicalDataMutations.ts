@@ -247,7 +247,7 @@ export const useMedicalDataMutations = () => {
   });
 
   const approveMedicationMutation = useMutation({
-    mutationFn: async ({ rowId }: { rowId: string }) => {
+    mutationFn: async ({ rowId, patientLocation }: { rowId: string; patientLocation?: string | null }) => {
       const { error } = await supabase
         .from('visit_medications')
         .update({ is_approved: true, approved_at: new Date().toISOString() })
@@ -259,7 +259,7 @@ export const useMedicalDataMutations = () => {
       // prescription so it flows through the existing desktop pharmacy queue +
       // billing. Best-effort — never let a bridge hiccup fail the approval, but
       // return its result so we can warn the nurse if it did not reach pharmacy.
-      return await bridgeApprovedMedicationToPharmacy(rowId);
+      return await bridgeApprovedMedicationToPharmacy(rowId, patientLocation);
     },
     onSuccess: (bridge) => {
       queryClient.invalidateQueries({ queryKey: ['visit-medications-custom'] });
@@ -295,8 +295,8 @@ export const useMedicalDataMutations = () => {
   // Idempotent: the unique index on visit_medication_id makes a re-send a no-op
   // once the order has already arrived, so it is safe to offer at any time.
   const resendMedicationMutation = useMutation({
-    mutationFn: async ({ rowId }: { rowId: string }) => {
-      return await bridgeApprovedMedicationToPharmacy(rowId);
+    mutationFn: async ({ rowId, patientLocation }: { rowId: string; patientLocation?: string | null }) => {
+      return await bridgeApprovedMedicationToPharmacy(rowId, patientLocation);
     },
     onSuccess: (bridge) => {
       if (bridge && !bridge.ok) {
@@ -328,7 +328,7 @@ export const useMedicalDataMutations = () => {
   // unique card guard collapses them onto a single pharmacy card (and one
   // debounced bell toast) instead of racing into duplicates. One summary toast.
   const approveMedicationsMutation = useMutation({
-    mutationFn: async ({ rowIds }: { rowIds: string[] }) => {
+    mutationFn: async ({ rowIds, patientLocation }: { rowIds: string[]; patientLocation?: string | null }) => {
       const results = [];
       for (const rowId of rowIds) {
         const { error } = await supabase
@@ -336,7 +336,7 @@ export const useMedicalDataMutations = () => {
           .update({ is_approved: true, approved_at: new Date().toISOString() })
           .eq('id', rowId);
         if (error) throw error;
-        results.push(await bridgeApprovedMedicationToPharmacy(rowId));
+        results.push(await bridgeApprovedMedicationToPharmacy(rowId, patientLocation));
       }
       return results;
     },

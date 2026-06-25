@@ -90,6 +90,7 @@ interface Prescription {
   drug_interaction_report?: InteractionReport | null;
   drug_interaction_signature?: string | null;
   drug_interaction_checked_at?: string | null;
+  patient_location?: string | null;
   prescription_items: PrescriptionItem[];
 }
 
@@ -1166,6 +1167,19 @@ const DetailModal: React.FC<DetailModalProps> = ({ prescription, onClose }) => {
               <p className="font-medium">{prescription.patient_name}</p>
             </div>
             <div>
+              <p className="text-xs text-muted-foreground">Location</p>
+              {prescription.patient_location ? (
+                <span className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${
+                  prescription.patient_location === 'ICU'  ? 'bg-red-100 text-red-700' :
+                  prescription.patient_location === 'Ward' ? 'bg-blue-100 text-blue-700' :
+                  prescription.patient_location === 'Room' ? 'bg-green-100 text-green-700' :
+                  prescription.patient_location === 'OT'   ? 'bg-orange-100 text-orange-700' : ''
+                }`}>
+                  {prescription.patient_location}
+                </span>
+              ) : <p className="font-medium text-muted-foreground">—</p>}
+            </div>
+            <div>
               <p className="text-xs text-muted-foreground">Doctor</p>
               <p className="font-medium">{prescription.doctor_name || 'N/A'}</p>
             </div>
@@ -1677,6 +1691,7 @@ const PrescriptionQueue: React.FC<PrescriptionQueueProps> = ({ autoOpenPrescript
                   <TableRow>
                     <TableHead>Prescription #</TableHead>
                     <TableHead>Patient</TableHead>
+                    <TableHead>Location</TableHead>
                     <TableHead>Doctor</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Status</TableHead>
@@ -1687,7 +1702,7 @@ const PrescriptionQueue: React.FC<PrescriptionQueueProps> = ({ autoOpenPrescript
                 <TableBody>
                   {filtered.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-10">
+                      <TableCell colSpan={8} className="text-center py-10">
                         <div className="flex flex-col items-center gap-2 text-muted-foreground">
                           <FileText className="h-8 w-8" />
                           <p>
@@ -1717,6 +1732,19 @@ const PrescriptionQueue: React.FC<PrescriptionQueueProps> = ({ autoOpenPrescript
                             <User className="h-3 w-3 text-muted-foreground flex-shrink-0" />
                             <span className="text-sm">{prescription.patient_name}</span>
                           </div>
+                        </TableCell>
+
+                        <TableCell>
+                          {prescription.patient_location ? (
+                            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              prescription.patient_location === 'ICU'  ? 'bg-red-100 text-red-700' :
+                              prescription.patient_location === 'Ward' ? 'bg-blue-100 text-blue-700' :
+                              prescription.patient_location === 'Room' ? 'bg-green-100 text-green-700' :
+                              prescription.patient_location === 'OT'   ? 'bg-orange-100 text-orange-700' : ''
+                            }`}>
+                              {prescription.patient_location}
+                            </span>
+                          ) : <span className="text-muted-foreground text-xs">—</span>}
                         </TableCell>
 
                         <TableCell>

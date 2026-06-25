@@ -64,6 +64,15 @@ const FREQUENCIES = ["OD", "BD", "TDS", "QID", "HS", "SOS"];
 const ROUTES = ["Oral", "IV", "IM", "S/C", "Topical"];
 const DURATIONS = ["3 days", "5 days", "7 days", "10 days"];
 const DOSES = ["250 mg", "500 mg", "650 mg", "1 g"];
+const PATIENT_LOCATIONS = ["ICU", "Ward", "Room", "OT"] as const;
+type PatientLocation = (typeof PATIENT_LOCATIONS)[number];
+
+const LOCATION_COLORS: Record<PatientLocation, string> = {
+  ICU:  "bg-red-600 text-white",
+  Ward: "bg-blue-600 text-white",
+  Room: "bg-emerald-600 text-white",
+  OT:   "bg-orange-500 text-white",
+};
 
 // Sentinel id for the doctor-typed custom medicine (not in the catalogue).
 const CUSTOM_ID = "__custom__";
@@ -171,6 +180,16 @@ export function TreatmentSheet({
 }) {
   const qc = useQueryClient();
   const [showPast, setShowPast] = useState(false);
+  const locationKey = `patientLocation_${visit.id}`;
+  const [patientLocation, setPatientLocation] = useState<PatientLocation | null>(
+    () => (localStorage.getItem(locationKey) as PatientLocation | null) ?? null,
+  );
+  const handleLocationSelect = (loc: PatientLocation) => {
+    const next = patientLocation === loc ? null : loc;
+    setPatientLocation(next);
+    if (next) localStorage.setItem(locationKey, next);
+    else localStorage.removeItem(locationKey);
+  };
   const invalidateSheet = () =>
     qc.invalidateQueries({
       queryKey: ["tablet-treatment-sheet", visit.id, visit.visitId],
@@ -290,6 +309,30 @@ export function TreatmentSheet({
             </p>
           ) : null}
 
+          {/* Patient location selector — sent to pharmacy with every approval */}
+          <section className="tablet-no-print">
+            <p className="mb-2 text-sm font-medium text-muted-foreground">
+              Patient location (sent to pharmacy)
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {PATIENT_LOCATIONS.map((loc) => (
+                <button
+                  key={loc}
+                  type="button"
+                  onClick={() => handleLocationSelect(loc)}
+                  className={cn(
+                    CHIP_BASE,
+                    patientLocation === loc
+                      ? LOCATION_COLORS[loc]
+                      : "bg-muted text-foreground",
+                  )}
+                >
+                  {loc}
+                </button>
+              ))}
+            </div>
+          </section>
+
           {/* Active medicines — today's chart, each can be changed or stopped */}
           <section>
             <div className="mb-2 flex items-center justify-between gap-2">
@@ -298,6 +341,7 @@ export function TreatmentSheet({
               </h4>
               <BulkApproveBar
                 pending={activeMeds.filter((m) => !m.isApproved)}
+                patientLocation={patientLocation}
                 onDone={invalidateSheet}
               />
             </div>
@@ -312,6 +356,7 @@ export function TreatmentSheet({
                     key={m.id}
                     med={m}
                     visitId={visit.id}
+                    patientLocation={patientLocation}
                     onChanged={invalidateSheet}
                   />
                 ))}
@@ -411,9 +456,11 @@ export function TreatmentSheet({
  */
 function BulkApproveBar({
   pending,
+  patientLocation,
   onDone,
 }: {
   pending: MedRow[];
+  patientLocation: PatientLocation | null;
   onDone: () => void;
 }) {
   const { approveMedications, isApprovingMedications } =
@@ -425,7 +472,7 @@ function BulkApproveBar({
       disabled={isApprovingMedications}
       onClick={() =>
         approveMedications(
-          { rowIds: pending.map((m) => m.id) },
+          { rowIds: pending.map((m) => m.id), patientLocation },
           { onSuccess: onDone },
         )
       }
@@ -443,10 +490,12 @@ function BulkApproveBar({
 function ActiveMedCard({
   med,
   visitId,
+  patientLocation,
   onChanged,
 }: {
   med: MedRow;
   visitId: string;
+  patientLocation: PatientLocation | null;
   onChanged: () => void;
 }) {
   const {
@@ -599,7 +648,7 @@ function ActiveMedCard({
               type="button"
               disabled={isApprovingMedication}
               onClick={() =>
-                approveMedication({ rowId: med.id }, { onSuccess: onChanged })
+                approveMedication({ rowId: med.id, patientLocation }, { onSuccess: onChanged })
               }
               className={cn(ACTION, "bg-emerald-600 text-white")}
             >
@@ -609,7 +658,7 @@ function ActiveMedCard({
             <button
               type="button"
               disabled={isResendingMedication}
-              onClick={() => resendMedication({ rowId: med.id })}
+              onClick={() => resendMedication({ rowId: med.id, patientLocation })}
               className={cn(ACTION, "bg-emerald-50 text-emerald-700")}
             >
               <Send className="h-3.5 w-3.5" /> Resend to pharmacy

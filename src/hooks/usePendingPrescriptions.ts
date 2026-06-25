@@ -14,6 +14,7 @@ export interface PendingPrescription {
   prescription_date: string | null;
   created_at: string | null;
   patient_name: string;
+  patient_location: string | null;
 }
 
 interface UsePendingPrescriptionsResult {
@@ -53,7 +54,7 @@ export const usePendingPrescriptions = (): UsePendingPrescriptionsResult => {
     queryFn: async () => {
       const { data, error } = await (supabaseAnon as any)
         .from('prescriptions')
-        .select('id, prescription_number, doctor_name, prescription_date, created_at, patients(name)')
+        .select('id, prescription_number, doctor_name, prescription_date, created_at, patient_location, patients(name)')
         .or(pendingFilter)
         .order('created_at', { ascending: false })
         .limit(5);
@@ -67,6 +68,7 @@ export const usePendingPrescriptions = (): UsePendingPrescriptionsResult => {
         prescription_date: r.prescription_date,
         created_at: r.created_at,
         patient_name: r.patients?.name || 'Unknown',
+        patient_location: r.patient_location || null,
       })) as PendingPrescription[];
     },
     refetchInterval: 60_000,
