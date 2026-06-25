@@ -18,6 +18,7 @@ import { FloatingCameraFAB } from "@/components/CameraUpload";
 import ChatWidget from '@/components/ChatWidget';
 import { ReloadPrompt } from "@/pwa/ReloadPrompt";
 import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { HospitalType, getHospitalConfig } from "@/types/hospital";
 import { Tablet } from "lucide-react";
 import { shouldUseTabletEdition, setOverride } from "@/lib/device-class";
@@ -416,6 +417,17 @@ const AppContent = () => {
 const PUBLIC_ROUTES = ['/patient-portal', '/queue-tv'];
 
 const App = () => {
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing) return;
+      refreshing = true;
+      toast.success('Updating to latest version…');
+      setTimeout(() => window.location.reload(), 800);
+    });
+  }, []);
+
   const isPublicRoute = PUBLIC_ROUTES.includes(window.location.pathname);
 
   if (isPublicRoute) {
