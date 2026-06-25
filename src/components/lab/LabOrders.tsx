@@ -2111,7 +2111,7 @@ const LabOrders = () => {
 
   // Fetch lab test rows from visit_labs table (JOIN with visits and lab tables)
   const { data: labTestRows = [], isLoading: testRowsLoading, isFetching: testRowsFetching } = useQuery({
-    queryKey: ['visit-lab-orders', getHospitalFilter(), patientStatusFilter, dateRange.from, dateRange.to, searchTerm],
+    queryKey: ['visit-lab-orders', getHospitalFilter(), patientStatusFilter, dateRange.from, dateRange.to, searchTerm, categorySearch, serviceSearch],
     queryFn: async () => {
       console.log('🔍 Fetching lab test data from visit_labs...');
 
@@ -2210,6 +2210,107 @@ const LabOrders = () => {
         });
 
         return searchTestRows;
+      }
+
+      // When Category or Service is active: scan ALL dates (hospital-scoped) so matches aren't
+      // hidden by the date range. Find labs by category/name, then their visit_labs across time.
+      if (categorySearch || serviceSearch) {
+        console.log('🔍 Category/Service mode (all dates) for', { categorySearch, serviceSearch });
+
+        const visitLabSelect = 'id, visit_id, lab_id, status, printed_at, ordered_date, collected_date, completed_date, result_value, normal_range, notes, created_at, updated_at';
+        const visitSelect = `
+            id,
+            visit_id,
+            patient_id,
+            visit_date,
+            admission_date,
+            discharge_date,
+            appointment_with,
+            reason_for_visit,
+            patients!inner(
+              id,
+              patients_id,
+              name,
+              age,
+              gender,
+              phone,
+              corporate
+            )
+          `;
+
+        // Find matching labs (category AND/OR service-name, whichever is provided)
+        let labQuery = supabase
+          .from('lab')
+          .select('id, name, category, sample_type, test_method');
+        if (categorySearch) labQuery = labQuery.ilike('category', `%${categorySearch}%`);
+        if (serviceSearch) labQuery = labQuery.ilike('name', `%${serviceSearch}%`);
+        const { data: matchingLabs, error: matchingLabsError } = await labQuery;
+        if (matchingLabsError) {
+          console.error('❌ Error fetching matching labs:', matchingLabsError);
+          throw matchingLabsError;
+        }
+
+        const matchingLabIds = (matchingLabs || []).map(l => l.id);
+        if (!matchingLabIds.length) return [];
+
+        // All visit_labs for those labs — no date filter, paged + chunked
+        const labDataRaw = await fetchAllByIn(matchingLabIds, (chunk) => supabase
+          .from('visit_labs')
+          .select(visitLabSelect)
+          .in('lab_id', chunk)
+          .order('ordered_date', { ascending: false }));
+
+        // Scope to the current hospital by loading the visits (patients!inner + hospital filter)
+        const visitUUIDs = [...new Set(labDataRaw.map((r: any) => r.visit_id).filter(Boolean))];
+        const matchingVisits = visitUUIDs.length
+          ? await fetchAllByIn(visitUUIDs, (chunk) => supabase
+              .from('visits')
+              .select(visitSelect)
+              .eq('patients.hospital_name', hospitalFilter)
+              .in('id', chunk))
+          : [];
+        const visitMap = new Map((matchingVisits || []).map((v: any) => [v.id, v]));
+        const labData = labDataRaw.filter((r: any) => visitMap.has(r.visit_id));
+
+        console.log('🔍 Category/Service matched', labData.length, 'rows across all dates');
+
+        const labMap = new Map((matchingLabs || []).map((l: any) => [l.id, l]));
+
+        const catTestRows: LabTestRow[] = labData.map((entry: any) => {
+          const visit = visitMap.get(entry.visit_id);
+          const lab = labMap.get(entry.lab_id);
+          return {
+            id: entry.id,
+            order_id: entry.visit_id,
+            test_id: entry.lab_id,
+            patient_name: visit?.patients?.name || 'Unknown Patient',
+            patient_phone: visit?.patients?.phone,
+            patient_age: visit?.patients?.age,
+            patient_gender: visit?.patients?.gender,
+            order_number: entry.visit_id,
+            test_name: lab?.name || 'Unknown Test',
+            test_category: lab?.category || 'LAB',
+            test_method: lab?.test_method || '',
+            order_date: entry.ordered_date || entry.created_at,
+            order_status: entry.status || 'ordered',
+            ordering_doctor: visit?.appointment_with || 'Dr. Unknown',
+            clinical_history: visit?.reason_for_visit,
+            sample_status: entry.collected_date ? 'taken' : 'not_taken' as const,
+            visit_id: visit?.visit_id,
+            visit_uuid: entry.visit_id,
+            lab_uuid: entry.lab_id,
+            patient_id: visit?.patient_id,
+            corporate: visit?.patients?.corporate || 'OPD',
+            printed_at: entry.printed_at,
+            collected_date: entry.collected_date,
+            result_value: entry.result_value,
+            normal_range: entry.normal_range,
+            notes: entry.notes,
+            ordered_date: entry.ordered_date,
+          };
+        });
+
+        return catTestRows;
       }
 
       // No searchTerm: use existing date-filtered query (paged so >1000 rows aren't truncated)
@@ -2715,7 +2816,8 @@ const LabOrders = () => {
     let matchesDateFrom = true;
     let matchesDateTo = true;
 
-    if (dateRange.from || dateRange.to) {
+    // Skip the date-range narrowing when Category/Service is active so all-dates results show.
+    if ((dateRange.from || dateRange.to) && !categorySearch && !serviceSearch) {
       const testDate = new Date(testRow.order_date);
       testDate.setHours(0, 0, 0, 0); // Reset time to midnight
 
