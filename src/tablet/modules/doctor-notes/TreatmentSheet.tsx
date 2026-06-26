@@ -64,7 +64,7 @@ const FREQUENCIES = ["OD", "BD", "TDS", "QID", "HS", "SOS"];
 const ROUTES = ["Oral", "IV", "IM", "S/C", "Topical"];
 const DURATIONS = ["3 days", "5 days", "7 days", "10 days"];
 const DOSES = ["250 mg", "500 mg", "650 mg", "1 g"];
-const DEFAULT_PATIENT_LOCATIONS = ["ICU Ward Room H", "ICU", "Ward", "Room", "OT"];
+const PATIENT_STAY_OPTIONS = ["Room", "ICU", "Ward"];
 type PatientLocation = string;
 
 function getLocationColor(location: string): string {
@@ -74,29 +74,6 @@ function getLocationColor(location: string): string {
   if (key.includes("room")) return "bg-emerald-600 text-white";
   if (key.includes("ot")) return "bg-orange-500 text-white";
   return "bg-primary text-primary-foreground";
-}
-
-function formatVisitLocation(visit: TabletVisit): string | null {
-  const ward = visit.ward?.trim();
-  const room = visit.room?.trim();
-  if (ward && room) {
-    const roomLabel = /^room\b/i.test(room) ? room : `Room ${room}`;
-    return `${ward} ${roomLabel}`;
-  }
-  return ward || (room ? `Room ${room}` : null);
-}
-
-function uniqueLocations(locations: Array<string | null | undefined>): string[] {
-  const seen = new Set<string>();
-  return locations
-    .map((loc) => loc?.trim())
-    .filter((loc): loc is string => !!loc)
-    .filter((loc) => {
-      const key = loc.toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
 }
 
 // Sentinel id for the doctor-typed custom medicine (not in the catalogue).
@@ -206,12 +183,8 @@ export function TreatmentSheet({
   const qc = useQueryClient();
   const [showPast, setShowPast] = useState(false);
   const locationKey = `patientLocation_${visit.id}`;
-  const locationOptions = uniqueLocations([
-    formatVisitLocation(visit),
-    ...DEFAULT_PATIENT_LOCATIONS,
-  ]);
   const [patientLocation, setPatientLocation] = useState<PatientLocation | null>(
-    () => localStorage.getItem(locationKey) || formatVisitLocation(visit),
+    () => localStorage.getItem(locationKey),
   );
   const handleLocationSelect = (loc: string) => {
     const next = loc.trim() || null;
@@ -340,15 +313,15 @@ export function TreatmentSheet({
 
           {/* Patient location selector — sent to pharmacy with every approval */}
           <section className="tablet-no-print">
-            <TabletLabel>Patient location (sent to pharmacy)</TabletLabel>
+            <TabletLabel>Patient stay (sent to pharmacy)</TabletLabel>
             <div className="relative">
               <select
                 value={patientLocation || ""}
                 onChange={(e) => handleLocationSelect(e.target.value)}
                 className="h-12 w-full appearance-none rounded-xl border bg-background px-4 pr-11 text-base font-semibold outline-none focus:ring-2 focus:ring-primary"
               >
-                <option value="">Select patient location</option>
-                {locationOptions.map((loc) => (
+                <option value="">Select where patient is staying</option>
+                {PATIENT_STAY_OPTIONS.map((loc) => (
                   <option key={loc} value={loc}>
                     {loc}
                   </option>

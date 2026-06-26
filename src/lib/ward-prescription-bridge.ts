@@ -8,17 +8,16 @@ const db = supabase as any;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function formatVisitLocation(visit: {
+function deriveStayType(visit: {
   ward_allotted?: string | null;
   room_allotted?: string | null;
 }): string | null {
-  const ward = visit.ward_allotted?.trim();
+  const ward = visit.ward_allotted?.trim().toLowerCase() || "";
   const room = visit.room_allotted?.trim();
-  if (ward && room) {
-    const roomLabel = /^room\b/i.test(room) ? room : `Room ${room}`;
-    return `${ward} ${roomLabel}`;
-  }
-  return ward || (room ? `Room ${room}` : null);
+  if (ward.includes("icu")) return "ICU";
+  if (room) return "Room";
+  if (ward) return "Ward";
+  return null;
 }
 
 /**
@@ -87,7 +86,7 @@ export async function bridgeApprovedMedicationToPharmacy(
     const patientId = visit.patient_id;
     const doctorName = visit.appointment_with || "Ward";
     const resolvedPatientLocation =
-      patientLocation?.trim() || formatVisitLocation(visit);
+      patientLocation?.trim() || deriveStayType(visit);
     // Stamp the patient's hospital so each hospital's pharmacist sees only
     // their own ward orders (Hope and Ayushman run separate pharmacies).
     // Normalize to lowercase so a 'Hope'/'hope' casing mismatch can't silently
