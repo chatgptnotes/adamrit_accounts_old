@@ -135,6 +135,15 @@ function formatStatusLabel(status: string) {
   return status.replace(/_/g, ' ');
 }
 
+function getLocationBadgeClass(location: string): string {
+  const key = location.toLowerCase();
+  if (key.includes('icu')) return 'bg-red-100 text-red-700';
+  if (key.includes('ward')) return 'bg-blue-100 text-blue-700';
+  if (key.includes('room')) return 'bg-green-100 text-green-700';
+  if (key.includes('ot')) return 'bg-orange-100 text-orange-700';
+  return 'bg-gray-100 text-gray-700';
+}
+
 // ─── Data fetching ─────────────────────────────────────────────────────────────
 
 async function fetchPrescriptions(): Promise<Prescription[]> {
@@ -1169,12 +1178,7 @@ const DetailModal: React.FC<DetailModalProps> = ({ prescription, onClose }) => {
             <div>
               <p className="text-xs text-muted-foreground">Location</p>
               {prescription.patient_location ? (
-                <span className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${
-                  prescription.patient_location === 'ICU'  ? 'bg-red-100 text-red-700' :
-                  prescription.patient_location === 'Ward' ? 'bg-blue-100 text-blue-700' :
-                  prescription.patient_location === 'Room' ? 'bg-green-100 text-green-700' :
-                  prescription.patient_location === 'OT'   ? 'bg-orange-100 text-orange-700' : ''
-                }`}>
+                <span className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${getLocationBadgeClass(prescription.patient_location)}`}>
                   {prescription.patient_location}
                 </span>
               ) : <p className="font-medium text-muted-foreground">—</p>}
@@ -1736,12 +1740,7 @@ const PrescriptionQueue: React.FC<PrescriptionQueueProps> = ({ autoOpenPrescript
 
                         <TableCell>
                           {prescription.patient_location ? (
-                            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                              prescription.patient_location === 'ICU'  ? 'bg-red-100 text-red-700' :
-                              prescription.patient_location === 'Ward' ? 'bg-blue-100 text-blue-700' :
-                              prescription.patient_location === 'Room' ? 'bg-green-100 text-green-700' :
-                              prescription.patient_location === 'OT'   ? 'bg-orange-100 text-orange-700' : ''
-                            }`}>
+                            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getLocationBadgeClass(prescription.patient_location)}`}>
                               {prescription.patient_location}
                             </span>
                           ) : <span className="text-muted-foreground text-xs">—</span>}

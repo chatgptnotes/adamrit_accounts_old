@@ -8,6 +8,19 @@ const db = supabase as any;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+function formatVisitLocation(visit: {
+  ward_allotted?: string | null;
+  room_allotted?: string | null;
+}): string | null {
+  const ward = visit.ward_allotted?.trim();
+  const room = visit.room_allotted?.trim();
+  if (ward && room) {
+    const roomLabel = /^room\b/i.test(room) ? room : `Room ${room}`;
+    return `${ward} ${roomLabel}`;
+  }
+  return ward || (room ? `Room ${room}` : null);
+}
+
 /**
  * Bridge an APPROVED tablet medicine (visit_medications) into the desktop
  * pharmacy by creating/append­ing a normal `prescriptions` + `prescription_items`
@@ -60,7 +73,7 @@ export async function bridgeApprovedMedicationToPharmacy(
     if (!v) return { ok: false, reason: "no visit linked to this medication" };
     const visitQuery = db
       .from("visits")
-      .select("id, patient_id, appointment_with, patients(hospital_name)")
+      .select("id, patient_id, appointment_with, ward_allotted, room_allotted, patients(hospital_name)")
       .limit(1);
     const { data: visit } = await (
       UUID_RE.test(v) ? visitQuery.eq("id", v) : visitQuery.eq("visit_id", v)
@@ -73,6 +86,8 @@ export async function bridgeApprovedMedicationToPharmacy(
     const visitUuid = visit.id;
     const patientId = visit.patient_id;
     const doctorName = visit.appointment_with || "Ward";
+    const resolvedPatientLocation =
+      patientLocation?.trim() || formatVisitLocation(visit);
     // Stamp the patient's hospital so each hospital's pharmacist sees only
     // their own ward orders (Hope and Ayushman run separate pharmacies).
     // Normalize to lowercase so a 'Hope'/'hope' casing mismatch can't silently
@@ -113,7 +128,7 @@ export async function bridgeApprovedMedicationToPharmacy(
           source: "ward",
           hospital_name: hospitalName,
           notes: "Ward order — auto-bridged from Treatment Sheet",
-          ...(patientLocation ? { patient_location: patientLocation } : {}),
+          ...(resolvedPatientLocation ? { patient_location: resolvedPatientLocation } : {}),
         })
         .select("id")
         .single();
@@ -177,13 +192,13 @@ export async function bridgeApprovedMedicationToPharmacy(
     //    row fires for the notification bell. When a genuinely new item was added,
     //    bump the card so it re-floats and emits a realtime UPDATE the bell hears.
     //    Also update patient_location if provided (doctor may have changed it).
-    if (reusedExisting && !itemErr) {
+    if (reusedExisting || isDuplicate) {
       await db
         .from("prescriptions")
         .update({
           prescription_date: today,
           updated_at: new Date().toISOString(),
-          ...(patientLocation ? { patient_location: patientLocation } : {}),
+          ...(resolvedPatientLocation ? { patient_location: resolvedPatientLocation } : {}),
         })
         .eq("id", prescriptionId);
     }

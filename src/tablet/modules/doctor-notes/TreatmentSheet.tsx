@@ -64,15 +64,40 @@ const FREQUENCIES = ["OD", "BD", "TDS", "QID", "HS", "SOS"];
 const ROUTES = ["Oral", "IV", "IM", "S/C", "Topical"];
 const DURATIONS = ["3 days", "5 days", "7 days", "10 days"];
 const DOSES = ["250 mg", "500 mg", "650 mg", "1 g"];
-const PATIENT_LOCATIONS = ["ICU", "Ward", "Room", "OT"] as const;
-type PatientLocation = (typeof PATIENT_LOCATIONS)[number];
+const DEFAULT_PATIENT_LOCATIONS = ["ICU Ward Room H", "ICU", "Ward", "Room", "OT"];
+type PatientLocation = string;
 
-const LOCATION_COLORS: Record<PatientLocation, string> = {
-  ICU:  "bg-red-600 text-white",
-  Ward: "bg-blue-600 text-white",
-  Room: "bg-emerald-600 text-white",
-  OT:   "bg-orange-500 text-white",
-};
+function getLocationColor(location: string): string {
+  const key = location.toLowerCase();
+  if (key.includes("icu")) return "bg-red-600 text-white";
+  if (key.includes("ward")) return "bg-blue-600 text-white";
+  if (key.includes("room")) return "bg-emerald-600 text-white";
+  if (key.includes("ot")) return "bg-orange-500 text-white";
+  return "bg-primary text-primary-foreground";
+}
+
+function formatVisitLocation(visit: TabletVisit): string | null {
+  const ward = visit.ward?.trim();
+  const room = visit.room?.trim();
+  if (ward && room) {
+    const roomLabel = /^room\b/i.test(room) ? room : `Room ${room}`;
+    return `${ward} ${roomLabel}`;
+  }
+  return ward || (room ? `Room ${room}` : null);
+}
+
+function uniqueLocations(locations: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  return locations
+    .map((loc) => loc?.trim())
+    .filter((loc): loc is string => !!loc)
+    .filter((loc) => {
+      const key = loc.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
 
 // Sentinel id for the doctor-typed custom medicine (not in the catalogue).
 const CUSTOM_ID = "__custom__";
@@ -181,11 +206,15 @@ export function TreatmentSheet({
   const qc = useQueryClient();
   const [showPast, setShowPast] = useState(false);
   const locationKey = `patientLocation_${visit.id}`;
+  const locationOptions = uniqueLocations([
+    formatVisitLocation(visit),
+    ...DEFAULT_PATIENT_LOCATIONS,
+  ]);
   const [patientLocation, setPatientLocation] = useState<PatientLocation | null>(
-    () => (localStorage.getItem(locationKey) as PatientLocation | null) ?? null,
+    () => localStorage.getItem(locationKey) || formatVisitLocation(visit),
   );
-  const handleLocationSelect = (loc: PatientLocation) => {
-    const next = patientLocation === loc ? null : loc;
+  const handleLocationSelect = (loc: string) => {
+    const next = loc.trim() || null;
     setPatientLocation(next);
     if (next) localStorage.setItem(locationKey, next);
     else localStorage.removeItem(locationKey);
@@ -311,26 +340,32 @@ export function TreatmentSheet({
 
           {/* Patient location selector — sent to pharmacy with every approval */}
           <section className="tablet-no-print">
-            <p className="mb-2 text-sm font-medium text-muted-foreground">
-              Patient location (sent to pharmacy)
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {PATIENT_LOCATIONS.map((loc) => (
-                <button
-                  key={loc}
-                  type="button"
-                  onClick={() => handleLocationSelect(loc)}
-                  className={cn(
-                    CHIP_BASE,
-                    patientLocation === loc
-                      ? LOCATION_COLORS[loc]
-                      : "bg-muted text-foreground",
-                  )}
-                >
-                  {loc}
-                </button>
-              ))}
+            <TabletLabel>Patient location (sent to pharmacy)</TabletLabel>
+            <div className="relative">
+              <select
+                value={patientLocation || ""}
+                onChange={(e) => handleLocationSelect(e.target.value)}
+                className="h-12 w-full appearance-none rounded-xl border bg-background px-4 pr-11 text-base font-semibold outline-none focus:ring-2 focus:ring-primary"
+              >
+                <option value="">Select patient location</option>
+                {locationOptions.map((loc) => (
+                  <option key={loc} value={loc}>
+                    {loc}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
             </div>
+            {patientLocation ? (
+              <span
+                className={cn(
+                  "mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold",
+                  getLocationColor(patientLocation),
+                )}
+              >
+                {patientLocation}
+              </span>
+            ) : null}
           </section>
 
           {/* Active medicines — today's chart, each can be changed or stopped */}
