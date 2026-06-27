@@ -130,15 +130,14 @@ const normalizeSheet = (raw: unknown): SheetData => {
   };
 };
 
-// Open a new day from the previous day's closing sheet: keep vendor names plus
-// their outstanding Ledger Balance / Balance This Month and the bank balances;
-// blank out the per-day amounts (Paid This Month, Payable Today, collections,
-// expenses) so the new day starts fresh.
+// Open a new day from the previous day's closing sheet: keep vendor names,
+// monthly paid totals, outstanding balances, and bank balances. Payable Today
+// and other per-day amounts start fresh for the new date.
 const carryForwardSheet = (prev: SheetData): SheetData => ({
   vendors: prev.vendors.map((v) => ({
     id: newId(),
     vendor: v.vendor,
-    paidThisMonth: null,
+    paidThisMonth: v.paidThisMonth,
     balanceThisMonth: v.balanceThisMonth,
     ledgerBalance: v.ledgerBalance,
     payableToday: null,
