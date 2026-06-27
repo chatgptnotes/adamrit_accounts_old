@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -403,6 +403,9 @@ export function DailyAllocationSheet({ hospital = 'hope' }: DailyAllocationSheet
   const [sheet, setSheet] = useState<SheetData>(makeEmptySheet);
   const [savedDates, setSavedDates] = useState<ReadonlyArray<string>>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [loadedSheetKey, setLoadedSheetKey] = useState<string>('');
+  const skipNextAutoSaveRef = useRef<boolean>(true);
 
   const refreshSavedDates = useCallback(async (): Promise<void> => {
     const { data, error } = await (supabase as any)
@@ -436,8 +439,10 @@ export function DailyAllocationSheet({ hospital = 'hope' }: DailyAllocationSheet
           .maybeSingle();
         if (error) throw error;
         if (cancelled) return;
+        skipNextAutoSaveRef.current = true;
         if (exact?.data) {
           setSheet(normalizeSheet(exact.data));
+          setLoadedSheetKey(`${hospital}:${date}`);
           return;
         }
         const { data: prev, error: prevError } = await (supabase as any)
@@ -450,12 +455,16 @@ export function DailyAllocationSheet({ hospital = 'hope' }: DailyAllocationSheet
           .maybeSingle();
         if (prevError) throw prevError;
         if (cancelled) return;
+        skipNextAutoSaveRef.current = true;
         setSheet(prev?.data ? carryForwardSheet(normalizeSheet(prev.data)) : makeEmptySheet());
+        setLoadedSheetKey(`${hospital}:${date}`);
       } catch (err) {
         console.error('Failed to load daily allocation sheet:', err);
         if (!cancelled) {
           toast.error('Could not load the sheet from the database');
+          skipNextAutoSaveRef.current = true;
           setSheet(makeEmptySheet());
+          setLoadedSheetKey(`${hospital}:${date}`);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -467,23 +476,55 @@ export function DailyAllocationSheet({ hospital = 'hope' }: DailyAllocationSheet
     };
   }, [date, hospital]);
 
-  const handleSave = async (): Promise<void> => {
+  const saveSheet = useCallback(async (sheetToSave: SheetData, dateToSave: string): Promise<void> => {
     const { error } = await (supabase as any)
       .from('daily_allocation_sheets')
       .upsert(
         {
           hospital_type: hospital,
-          sheet_date: date,
-          data: sheet,
+          sheet_date: dateToSave,
+          data: sheetToSave,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'hospital_type,sheet_date' },
       );
-    if (error) {
+    if (error) throw error;
+  }, [hospital]);
+
+  useEffect(() => {
+    if (loading) return;
+    if (loadedSheetKey !== `${hospital}:${date}`) return;
+    if (skipNextAutoSaveRef.current) {
+      skipNextAutoSaveRef.current = false;
+      return;
+    }
+
+    setAutoSaveStatus('saving');
+    const sheetToSave = sheet;
+    const dateToSave = date;
+    const timer = window.setTimeout(async () => {
+      try {
+        await saveSheet(sheetToSave, dateToSave);
+        setAutoSaveStatus('saved');
+        refreshSavedDates();
+      } catch (error) {
+        console.error('Failed to auto-save daily allocation sheet:', error);
+        setAutoSaveStatus('error');
+      }
+    }, 1200);
+
+    return () => window.clearTimeout(timer);
+  }, [date, hospital, loadedSheetKey, loading, refreshSavedDates, saveSheet, sheet]);
+
+  const handleSave = async (): Promise<void> => {
+    try {
+      await saveSheet(sheet, date);
+    } catch (error) {
       console.error('Failed to save daily allocation sheet:', error);
       toast.error('Failed to save — please try again');
       return;
     }
+    setAutoSaveStatus('saved');
     toast.success(`Daily allocation saved for ${date}`);
     refreshSavedDates();
   };
@@ -501,7 +542,9 @@ export function DailyAllocationSheet({ hospital = 'hope' }: DailyAllocationSheet
       toast.error('Failed to reset — please try again');
       return;
     }
+    skipNextAutoSaveRef.current = true;
     setSheet(makeEmptySheet());
+    setAutoSaveStatus('idle');
     refreshSavedDates();
     toast.info('Sheet reset to defaults');
   };
@@ -548,7 +591,9 @@ export function DailyAllocationSheet({ hospital = 'hope' }: DailyAllocationSheet
     }
     refreshSavedDates();
     if (d === date) {
+      skipNextAutoSaveRef.current = true;
       setSheet(makeEmptySheet());
+      setAutoSaveStatus('idle');
     }
     toast.info(`Deleted sheet for ${d}`);
   };
@@ -662,6 +707,9 @@ export function DailyAllocationSheet({ hospital = 'hope' }: DailyAllocationSheet
           <FileSpreadsheet className="h-5 w-5 text-blue-600" />
           <CardTitle>Daily Allocation — Today's Expenses Sheet</CardTitle>
           {loading && <span className="text-xs text-gray-400">Loading…</span>}
+          {!loading && autoSaveStatus === 'saving' && <span className="text-xs text-gray-400">Auto-saving…</span>}
+          {!loading && autoSaveStatus === 'saved' && <span className="text-xs text-green-600">Saved</span>}
+          {!loading && autoSaveStatus === 'error' && <span className="text-xs text-red-600">Auto-save failed</span>}
         </div>
         <div className="flex items-center gap-2">
           <Label htmlFor="da-date" className="text-sm">Date</Label>
