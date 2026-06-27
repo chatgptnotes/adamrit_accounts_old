@@ -1,7 +1,6 @@
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/integrations/supabase/client'
-import { useAuth } from '@/contexts/AuthContext'
 import {
   LayoutDashboard, BookOpen, FileText, Package,
   BarChart3, ArrowUpFromLine, Link2, Banknote, Landmark,
@@ -36,52 +35,44 @@ const tabs = [
 ]
 
 export default function TallyPage() {
-  const { hospitalType } = useAuth()
   const [activeTab, setActiveTab] = useState('dashboard')
-  const [serverUrl, setServerUrl] = useState('http://localhost:9000')
+  const [serverUrl, setServerUrl] = useState('')
   const [companyName, setCompanyName] = useState('')
   const [companyId, setCompanyId] = useState('')
   const [configs, setConfigs] = useState<{ id: string; server_url: string; company_name: string }[]>([])
 
-  async function loadConfigs(selectId?: string) {
-    // Try with hospital filter first
-    let query = supabase
+  const loadConfigs = useCallback(async (selectId?: string) => {
+    const query = supabase
       .from('tally_config')
       .select('id, server_url, company_name')
       .eq('is_active', true)
 
-    if (hospitalType) {
-      query = query.eq('hospital_id', hospitalType)
-    }
-
-    let { data } = await query.order('company_name')
-
-    // Fallback: if no results with hospital filter, load all active configs
-    if ((!data || data.length === 0) && hospitalType) {
-      const fallback = await supabase
-        .from('tally_config')
-        .select('id, server_url, company_name')
-        .eq('is_active', true)
-        .order('company_name')
-      data = fallback.data
-    }
+    const { data } = await query.order('company_name')
 
     if (data && data.length > 0) {
-      setConfigs(data)
+      const unique = data.filter((config, index, list) =>
+        list.findIndex((item) => item.company_name === config.company_name) === index
+      )
+      setConfigs(unique)
       const target = selectId
-        ? data.find(c => c.id === selectId) || data[0]
-        : data[0]
-      setServerUrl(target.server_url || 'http://localhost:9000')
-      setCompanyName(target.company_name || '')
-      setCompanyId(target.id)
+        ? unique.find(c => c.id === selectId) || unique[0]
+        : unique.find(c => c.id === companyId) || unique[0]
+      if (target) {
+        setServerUrl(target.server_url || '')
+        setCompanyName(target.company_name || '')
+        setCompanyId(target.id)
+      }
     } else {
       setConfigs([])
+      setCompanyId('')
+      setCompanyName('')
+      setServerUrl('')
     }
-  }
+  }, [companyId])
 
   useEffect(() => {
     loadConfigs()
-  }, [])
+  }, [loadConfigs])
 
   return (
     <div className="space-y-4">
@@ -93,7 +84,7 @@ export default function TallyPage() {
             TallyPrime Server two-way sync for Adamrit HMS
           </p>
         </div>
-        {configs.length > 1 ? (
+        {configs.length > 0 ? (
           <div className="flex items-center gap-2 text-sm text-gray-600 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
             <span>Company:</span>
             <select
@@ -103,11 +94,12 @@ export default function TallyPage() {
                 if (config) {
                   setCompanyId(config.id)
                   setCompanyName(config.company_name)
-                  setServerUrl(config.server_url || 'http://localhost:9000')
+                  setServerUrl(config.server_url || '')
                 }
               }}
               className="font-medium text-blue-700 bg-transparent border-none outline-none cursor-pointer"
             >
+              {!companyId && <option value="">Select company</option>}
               {configs.map(c => (
                 <option key={c.id} value={c.id}>{c.company_name}</option>
               ))}

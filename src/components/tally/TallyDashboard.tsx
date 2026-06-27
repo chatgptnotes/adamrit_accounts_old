@@ -20,7 +20,7 @@ interface TallyDashboardProps {
 
 export default function TallyDashboard({ serverUrl: propServerUrl, companyName: propCompanyName, companyId: propCompanyId, configs = [], onConfigChange }: TallyDashboardProps) {
   const { hospitalType } = useAuth()
-  const [serverUrl, setServerUrl] = useState(propServerUrl || 'http://localhost:9000')
+  const [serverUrl, setServerUrl] = useState(propServerUrl ?? '')
   const [isAddingCompany, setIsAddingCompany] = useState(false)
   const [companyName, setCompanyName] = useState(propCompanyName || '')
   const [isConnected, setIsConnected] = useState(false)
@@ -48,6 +48,7 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
 
   // Auto-sync scheduler state
   const autoSyncTimerRef = useRef(null)
+  const companyInputRef = useRef<HTMLInputElement | null>(null)
   const [nextSyncAt, setNextSyncAt] = useState(null)
   const [lastSyncAt, setLastSyncAt] = useState(null)
   const [autoSyncQueue, setAutoSyncQueue] = useState([])
@@ -76,7 +77,7 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
       .single()
 
     if (data) {
-      setServerUrl(data.server_url || 'http://localhost:9000')
+      setServerUrl(data.server_url || '')
       setCompanyName(data.company_name || '')
       setAutoSync(data.auto_sync_enabled || false)
       setSyncInterval(data.sync_interval_minutes || 30)
@@ -162,6 +163,9 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
       if (result.connected) {
         setIsConnected(true)
         setConnectionInfo(result)
+        if (!companyName.trim() && result.companies?.[0]) {
+          setCompanyName(result.companies[0])
+        }
         toast.success(`Connected to TallyPrime! Found ${result.companies.length} company(ies)`)
       } else {
         setIsConnected(false)
@@ -179,7 +183,7 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
     setIsSaving(true)
     try {
       const payload = {
-        company_name: companyName,
+        company_name: companyName.trim(),
         server_url: serverUrl,
         is_active: true,
         auto_sync_enabled: autoSync,
@@ -215,6 +219,7 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
     setConnectionInfo(null)
     setAutoSync(false)
     toast.info('Enter the new company name and click Save Configuration')
+    setTimeout(() => companyInputRef.current?.focus(), 0)
   }
 
   async function handleDeleteCompany() {
@@ -400,6 +405,13 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
     return new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
   }
 
+  const companyOptions = Array.from(
+    new Set([
+      ...(configs || []).map((c) => c.company_name).filter(Boolean),
+      ...(((connectionInfo as any)?.companies || []) as string[]),
+    ])
+  )
+
   return (
     <div className="space-y-6">
       {/* Connection Panel */}
@@ -435,33 +447,48 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Company Name</label>
-            {isAddingCompany || configs.length === 0 ? (
-              <input
-                type="text"
+            {companyOptions.length > 0 ? (
+              <select
                 value={companyName}
                 onChange={e => setCompanyName(e.target.value)}
-                placeholder="Enter company name from Tally"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+              >
+                <option value="">Select a company</option>
+                {companyOptions.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                ref={companyInputRef}
+                type="text"
+                value={companyName}
+                onChange={e => {
+                  setCompanyName(e.target.value)
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && companyName.trim()) saveConfig()
+                }}
+                placeholder="Enter exact company name from Tally"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 autoFocus
               />
-            ) : (
-              <select
-                value={configId || ''}
-                onChange={e => {
-                  const selected = configs.find(c => c.id === e.target.value)
-                  if (selected) {
-                    setConfigId(selected.id)
-                    setCompanyName(selected.company_name)
-                    setServerUrl(selected.server_url || 'http://localhost:9000')
-                    onConfigChange?.(selected.id)
-                  }
-                }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                {configs.map(c => (
-                  <option key={c.id} value={c.id}>{c.company_name}</option>
+            )}
+            {isConnected && connectionInfo?.companies?.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {connectionInfo.companies.map((name: string) => (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => setCompanyName(name)}
+                    className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                  >
+                    {name}
+                  </button>
                 ))}
-              </select>
+              </div>
             )}
           </div>
         </div>
@@ -552,7 +579,7 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
           </button>
           <button
             onClick={saveConfig}
-            disabled={isSaving || !companyName}
+            disabled={isSaving || !companyName.trim()}
             className="px-4 py-2 bg-gray-800 text-white rounded-lg text-sm font-medium hover:bg-gray-900 disabled:opacity-50 flex items-center gap-2"
           >
             {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}

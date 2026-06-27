@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from 'date-fns';
 import { ChevronLeft, ChevronRight, Calendar, CheckCircle2, Clock, XCircle, FileSpreadsheet, FileText } from 'lucide-react';
@@ -18,6 +18,7 @@ interface LedgerEntry { ledger: string; amount: number; is_debit: boolean }
 interface LogEntry {
   id: string;
   created_at: string;
+  accounting_date?: string;
   type: string;
   description: string;
   amount?: number;
@@ -35,7 +36,10 @@ interface TallyLedger {
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 const INR = (n: number) =>
-  `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+  `₹${n.toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 
 const BADGE_COLORS: Record<string, string> = {
   'Payment':         'bg-blue-100 text-blue-700',
@@ -73,15 +77,42 @@ const mapQueueStatus   = (s: string): TallyStatus =>
 const mapVoucherStatus = (s: string): TallyStatus =>
   s === 'synced' ? 'synced' : (s === 'failed' || s === 'conflict') ? 'failed' : 'pending';
 
+const dateOnly = (isoDate: string) => format(new Date(isoDate), 'yyyy-MM-dd');
+
+const getEntryDate = (entry: LogEntry) => entry.accounting_date ?? entry.created_at;
+
+const PAGE_SIZE = 1000;
+
+async function fetchAllPages<T>(buildQuery: () => any): Promise<T[]> {
+  const rows: T[] = [];
+
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const to = from + PAGE_SIZE - 1;
+    const { data, error } = await buildQuery().range(from, to);
+
+    if (error) throw error;
+
+    const page = (data ?? []) as T[];
+    rows.push(...page);
+
+    if (page.length < PAGE_SIZE) break;
+  }
+
+  return rows;
+}
+
 const groupByDay = (entries: LogEntry[]) => {
   const sorted = [...entries].sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    (a, b) =>
+      new Date(getEntryDate(a)).getTime() - new Date(getEntryDate(b)).getTime() ||
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
   );
   const map = new Map<string, { label: string; entries: LogEntry[] }>();
   for (const e of sorted) {
-    const key = format(new Date(e.created_at), 'yyyy-MM-dd');
+    const entryDate = new Date(getEntryDate(e));
+    const key = format(entryDate, 'yyyy-MM-dd');
     if (!map.has(key))
-      map.set(key, { label: format(new Date(e.created_at), 'EEEE, d MMMM'), entries: [] });
+      map.set(key, { label: format(entryDate, 'EEEE, d MMMM'), entries: [] });
     map.get(key)!.entries.push(e);
   }
   return [...map.entries()].map(([date, g]) => ({ date, ...g }));
@@ -90,24 +121,34 @@ const groupByDay = (entries: LogEntry[]) => {
 // ── Data fetchers ──────────────────────────────────────────────────────────
 
 async function fetchAccountLog(start: string, end: string): Promise<LogEntry[]> {
-  const [tvRes, pqRes] = await Promise.all([
-    supabaseData
-      .from('tally_vouchers')
-      .select('id, voucher_type, party_ledger, amount, narration, sync_status, created_at, adamrit_payment_id, ledger_entries')
-      .eq('sync_direction', 'to_tally')
-      .gte('created_at', start)
-      .lte('created_at', end),
-    supabaseData
-      .from('tally_push_queue')
-      .select('id, push_type, reference_id, status, payload, created_at')
-      .in('status', ['completed', 'pending', 'failed_permanent'])
-      .gte('created_at', start)
-      .lte('created_at', end),
+  const startDate = dateOnly(start);
+  const endDate = dateOnly(end);
+
+  const [voucherRows, queueRows] = await Promise.all([
+    fetchAllPages<any>(() =>
+      supabaseData
+        .from('tally_vouchers')
+        .select('id, voucher_type, party_ledger, amount, narration, sync_status, date, created_at, adamrit_payment_id, ledger_entries')
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .order('date', { ascending: true })
+        .order('created_at', { ascending: true })
+    ),
+    fetchAllPages<any>(() =>
+      supabaseData
+        .from('tally_push_queue')
+        .select('id, push_type, reference_id, status, payload, created_at')
+        .in('status', ['completed', 'pending', 'failed_permanent'])
+        .gte('created_at', start)
+        .lte('created_at', end)
+        .order('created_at', { ascending: true })
+    ),
   ]);
 
-  const fromVouchers: LogEntry[] = (tvRes.data ?? []).map((r: any) => ({
+  const fromVouchers: LogEntry[] = voucherRows.map((r: any) => ({
     id: `tv-${r.id}`,
     created_at: r.created_at,
+    accounting_date: r.date ? `${r.date}T00:00:00` : undefined,
     type: r.voucher_type ?? 'Payment Voucher',
     description: r.narration || r.party_ledger || r.adamrit_payment_id || '—',
     amount: r.amount ?? undefined,
@@ -117,10 +158,10 @@ async function fetchAccountLog(start: string, end: string): Promise<LogEntry[]> 
   }));
 
   const coveredRefs = new Set(
-    (tvRes.data ?? []).map((r: any) => r.adamrit_payment_id).filter(Boolean)
+    voucherRows.map((r: any) => r.adamrit_payment_id).filter(Boolean)
   );
 
-  const fromQueue: LogEntry[] = (pqRes.data ?? [])
+  const fromQueue: LogEntry[] = queueRows
     .filter((r: any) => !coveredRefs.has(r.reference_id))
     .map((r: any) => ({
       id: `pq-${r.id}`,
@@ -233,6 +274,17 @@ function queryFn(log: LogType, start: string, end: string): Promise<LogEntry[]> 
   }
 }
 
+// Cash inflows/outflows used when no ledger-side debit/credit is available.
+const isInflowType = (type: string) => {
+  const t = type.toLowerCase();
+  return ['receipt', 'advance payment', 'final payment', 'pharmacy sale'].includes(t);
+};
+
+const isOutflowType = (type: string) => {
+  const t = type.toLowerCase();
+  return t === 'payment' || t === 'payment voucher';
+};
+
 // ── Static options ────────────────────────────────────────────────────────
 
 const LOG_OPTIONS: SearchableSelectOption[] = [
@@ -257,7 +309,7 @@ function exportToExcel(
     rows.push({ Date: group.label, Time: '', Type: '', Description: '', Amount: '', 'Tally Status': '' });
     for (const e of group.entries) {
       rows.push({
-        Date: format(new Date(e.created_at), 'dd/MM/yyyy'),
+        Date: format(new Date(getEntryDate(e)), 'dd/MM/yyyy'),
         Time: format(new Date(e.created_at), 'HH:mm'),
         Type: e.type,
         Description: e.description,
@@ -375,6 +427,10 @@ const AccountLogs: React.FC = () => {
 
   const rangeStart = useMemo(() => new Date(`${fromDate}T00:00:00`).toISOString(), [fromDate]);
   const rangeEnd   = useMemo(() => new Date(`${toDate}T23:59:59.999`).toISOString(), [toDate]);
+  const priorRangeEnd = useMemo(
+    () => new Date(new Date(`${fromDate}T00:00:00`).getTime() - 1).toISOString(),
+    [fromDate]
+  );
 
   // Main entries query
   const { data: entries = [], isLoading } = useQuery({
@@ -388,8 +444,9 @@ const AccountLogs: React.FC = () => {
     [fromDate]
   );
   const { data: priorEntries = [] } = useQuery({
-    queryKey: ['account-logs-opening', selectedLog, monthOfFrom, rangeStart],
-    queryFn: () => queryFn(selectedLog, monthOfFrom, rangeStart),
+    queryKey: ['account-logs-opening', selectedLog, monthOfFrom, priorRangeEnd],
+    queryFn: () => queryFn(selectedLog, monthOfFrom, priorRangeEnd),
+    enabled: new Date(priorRangeEnd).getTime() >= new Date(monthOfFrom).getTime(),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -435,24 +492,33 @@ const AccountLogs: React.FC = () => {
     );
   }, [priorEntries, selectedLog, selectedLedger]);
 
-  // Cash inflows: money actually received by the hospital
-  const isInflowType = (type: string) => {
-    const t = type.toLowerCase();
-    return ['receipt', 'advance payment', 'final payment', 'pharmacy sale'].includes(t);
-  };
-  // Cash outflows: money paid out by the hospital
-  const isOutflowType = (type: string) => {
-    const t = type.toLowerCase();
-    return t === 'payment' || t === 'payment voucher';
-  };
   // Bills, invoices, tally-sync etc. are not cash movements — excluded from balance
 
-  const priorDebit    = useMemo(() => filteredPrior.filter(e => isInflowType(e.type)).reduce((s, e) => s + (e.amount ?? 0), 0), [filteredPrior]);
-  const priorCredit   = useMemo(() => filteredPrior.filter(e => isOutflowType(e.type)).reduce((s, e) => s + (e.amount ?? 0), 0), [filteredPrior]);
+  const getLedgerAmounts = useCallback((entry: LogEntry) => {
+    if (selectedLog === 'account-log' && selectedLedger !== 'all' && entry.ledger_entries?.length) {
+      return entry.ledger_entries
+        .filter(le => le.ledger === selectedLedger)
+        .reduce(
+          (totals, le) => ({
+            debit: totals.debit + (le.is_debit ? le.amount : 0),
+            credit: totals.credit + (!le.is_debit ? le.amount : 0),
+          }),
+          { debit: 0, credit: 0 }
+        );
+    }
+
+    return {
+      debit: isInflowType(entry.type) ? (entry.amount ?? 0) : 0,
+      credit: isOutflowType(entry.type) ? (entry.amount ?? 0) : 0,
+    };
+  }, [selectedLedger, selectedLog]);
+
+  const priorDebit    = useMemo(() => filteredPrior.reduce((s, e) => s + getLedgerAmounts(e).debit, 0), [filteredPrior, getLedgerAmounts]);
+  const priorCredit   = useMemo(() => filteredPrior.reduce((s, e) => s + getLedgerAmounts(e).credit, 0), [filteredPrior, getLedgerAmounts]);
   const openingNet    = priorDebit - priorCredit;
 
-  const currentDebit  = useMemo(() => filteredEntries.filter(e => isInflowType(e.type)).reduce((s, e) => s + (e.amount ?? 0), 0), [filteredEntries]);
-  const currentCredit = useMemo(() => filteredEntries.filter(e => isOutflowType(e.type)).reduce((s, e) => s + (e.amount ?? 0), 0), [filteredEntries]);
+  const currentDebit  = useMemo(() => filteredEntries.reduce((s, e) => s + getLedgerAmounts(e).debit, 0), [filteredEntries, getLedgerAmounts]);
+  const currentCredit = useMemo(() => filteredEntries.reduce((s, e) => s + getLedgerAmounts(e).credit, 0), [filteredEntries, getLedgerAmounts]);
   const closingNet    = openingNet + currentDebit - currentCredit;
 
   const groups = useMemo(() => groupByDay(filteredEntries), [filteredEntries]);
