@@ -152,11 +152,6 @@ export const menuItems: MenuItemDef[] = [
     icon: Receipt,
   },
   {
-    title: "Empanelment Hospital",
-    url: "/empanelment-hospital",
-    icon: Building2,
-  },
-  {
     title: "Intimation + Bill Submissions",
     url: "/bill-submission",
     icon: Receipt,
