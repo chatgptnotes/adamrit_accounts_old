@@ -1222,7 +1222,7 @@ const LabOrders = () => {
               initialFormData[subTestKey] = {
                 result_value: subTest.text_value,
                 result_unit: '',
-                reference_range: '',
+                reference_range: subTest.range || subTest.text_value || '',
                 comments: '',
                 is_abnormal: false,
                 result_status: 'Preliminary'
@@ -5779,11 +5779,30 @@ const LabOrders = () => {
 
                       {/* Text Type Test - Show as simple section with heading */}
                       {allTextType && (
-                        <div className="bg-white p-4">
-                          <div className="font-bold text-sm text-blue-900 mb-3">
-                            {testRow.test_name}
+                        <>
+                          <div className="bg-gray-50 border-b border-gray-300">
+                            <div className="grid grid-cols-3 gap-0 items-center font-semibold text-sm text-gray-800">
+                              <div className="p-3 border-r border-gray-300 text-center">INVESTIGATION</div>
+                              <div className="p-3 border-r border-gray-300 text-center">OBSERVED VALUE</div>
+                              <div className="p-3 text-center">NORMAL RANGE</div>
+                            </div>
                           </div>
-                        </div>
+                          <div className="bg-white">
+                            <div className="grid grid-cols-3 gap-0 items-center">
+                              <div className="p-3 border-r border-gray-300">
+                                <div className="font-bold text-sm text-blue-900">
+                                  {testRow.test_name}
+                                </div>
+                              </div>
+                              <div className="p-3 border-r border-gray-300 text-center text-gray-500 text-sm font-medium">
+                                {/* Empty for main test header */}
+                              </div>
+                              <div className="p-3 text-center text-gray-500 text-sm font-medium">
+                                {/* Empty for main test header */}
+                              </div>
+                            </div>
+                          </div>
+                        </>
                       )}
 
                       {/* Handle main tests without sub-tests */}
@@ -6013,6 +6032,13 @@ const LabOrders = () => {
                                 {isFormSaved && subTestFormData.result_value && (
                                   <span className="text-green-600 text-sm">✓</span>
                                 )}
+                              </div>
+                              <div className="grid grid-cols-3 gap-0 text-sm">
+                                <div></div>
+                                <div></div>
+                                <div className="text-center text-gray-700">
+                                  {subTest.range || subTestFormData.reference_range || subTest.text_value || '-'}
+                                </div>
                               </div>
                               {testRow.test_method && (
                                 <div className="ml-0 text-xs text-gray-600">
