@@ -3867,7 +3867,7 @@ const LabOrders = () => {
 
           .header-row {
             display: grid;
-            grid-template-columns: 50% 50%;
+            grid-template-columns: 45% 25% 30%;
             align-items: center;
             border-bottom: 1px solid #ccc;
             padding: 8px 0;
@@ -3879,11 +3879,6 @@ const LabOrders = () => {
 
           .header-col-1, .header-col-2, .header-col-3 {
             padding: 0 8px;
-          }
-
-          /* NORMAL RANGE column hidden */
-          .header-col-3, .test-range {
-            display: none;
           }
 
           .header-col-2, .header-col-3 {
@@ -3904,7 +3899,7 @@ const LabOrders = () => {
 
           .test-row {
             display: grid;
-            grid-template-columns: 50% 50%;
+            grid-template-columns: 45% 25% 30%;
             align-items: center;
             padding: 2px 0;
             font-size: 14px;
@@ -3924,8 +3919,12 @@ const LabOrders = () => {
             align-items: center;
             justify-content: flex-start;
           }
-          /* .test-range intentionally excluded — NORMAL RANGE stays hidden (see rule above) */
-          
+          .test-range {
+            text-align: left;
+            color: #333;
+            padding: 0 8px;
+          }
+
           .abnormal {
             color: #d32f2f;
             font-weight: bold;
