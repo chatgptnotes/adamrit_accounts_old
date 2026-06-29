@@ -5756,20 +5756,24 @@ const LabOrders = () => {
                           {/* Table Header - Show only once before first Numeric test */}
                           {index === 0 && hasNumericType && (
                             <div className="bg-gray-50 border-b border-gray-300">
-                              <div className="grid grid-cols-2 gap-0 items-center font-semibold text-sm text-gray-800">
+                              <div className="grid grid-cols-3 gap-0 items-center font-semibold text-sm text-gray-800">
                                 <div className="p-3 border-r border-gray-300 text-center">INVESTIGATION</div>
                                 <div className="p-3 border-r border-gray-300 text-center">OBSERVED VALUE</div>
+                                <div className="p-3 text-center">NORMAL RANGE</div>
                               </div>
                             </div>
                           )}
                           <div className="bg-white">
-                            <div className="grid grid-cols-2 gap-0 items-center">
+                            <div className="grid grid-cols-3 gap-0 items-center">
                               <div className="p-3 border-r border-gray-300">
                                 <div className="font-bold text-sm text-blue-900">
                                   {testRow.test_name}
                                 </div>
                               </div>
                               <div className="p-3 border-r border-gray-300 text-center text-gray-500 text-sm font-medium">
+                                {/* Empty for main test header */}
+                              </div>
+                              <div className="p-3 text-center text-gray-500 text-sm font-medium">
                                 {/* Empty for main test header */}
                               </div>
                             </div>
@@ -5808,7 +5812,7 @@ const LabOrders = () => {
                       {/* Handle main tests without sub-tests */}
                       {subTests.length === 0 && (
                         <div className="bg-white border-t border-gray-100">
-                          <div className="grid grid-cols-2 gap-0 items-center min-h-[40px]">
+                          <div className="grid grid-cols-3 gap-0 items-center min-h-[40px]">
                             <div className="p-2 border-r border-gray-300 flex items-center">
                               <span className="text-sm ml-4">{testRow.test_name}</span>
                             </div>
@@ -5921,6 +5925,11 @@ const LabOrders = () => {
                                   </div>
                                 );
                               })()}
+                            </div>
+                            <div className="p-2 text-center">
+                              <div className="text-sm text-gray-700">
+                                {calculatedRanges[testRow.id] || formData.reference_range || '-'}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -6050,7 +6059,7 @@ const LabOrders = () => {
                         ) : (
                           /* NUMERIC TYPE FORMAT - Table with columns */
                           <div key={subTestKey} className="bg-white border-t border-gray-100">
-                            <div className="grid grid-cols-2 gap-0 items-center min-h-[40px]">
+                            <div className="grid grid-cols-3 gap-0 items-center min-h-[40px]">
                               <div className="p-2 border-r border-gray-300 flex items-center">
                                 <span
                                   className={`text-sm cursor-help ${isNestedSubTest ? 'ml-8 text-gray-700' : 'ml-4'}`}
@@ -6101,6 +6110,23 @@ const LabOrders = () => {
                                   </div>
                                 )}
                               </div>
+                              <div className="p-2 flex items-center justify-center">
+                                {subTest.isParent ? (
+                                  <span className="text-gray-400 text-sm"></span>
+                                ) : (
+                                  <div className="text-sm text-gray-700">
+                                    {(() => {
+                                      const range = subTest.range || subTestFormData.reference_range || '-';
+                                      const unit = (subTest.unit && subTest.unit.toLowerCase() !== 'unit' ? subTest.unit : '') ||
+                                                   (subTestFormData.result_unit && subTestFormData.result_unit.toLowerCase() !== 'unit' ? subTestFormData.result_unit : '');
+                                      if (unit && range !== '-' && !range.includes(unit)) {
+                                        return `${range} ${unit}`;
+                                      }
+                                      return range;
+                                    })()}
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
                         );
@@ -6108,7 +6134,7 @@ const LabOrders = () => {
 
                       {/* Comments Section */}
                       <div className="bg-gray-50 border-t border-gray-200">
-                        <div className="grid grid-cols-2 gap-0 items-center">
+                        <div className="grid grid-cols-3 gap-0 items-center">
                           <div className="p-2 border-r border-gray-300 flex items-center gap-2">
                             <input
                               type="checkbox"
@@ -6164,6 +6190,7 @@ const LabOrders = () => {
                               />
                             )}
                           </div>
+                          <div className="p-2"></div>
                         </div>
                       </div>
                     </div>
