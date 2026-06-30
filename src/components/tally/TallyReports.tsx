@@ -56,6 +56,67 @@ function fyStartStr(): string {
   return `${year}-04-01`
 }
 
+function isRecord(value: unknown): value is Record<string, any> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isRawReport(value: unknown): boolean {
+  return isRecord(value) && typeof value.raw === 'string'
+}
+
+function asTrialBalance(value: unknown): TrialBalanceEntry[] | null {
+  if (!Array.isArray(value)) return null
+  return value
+    .filter(isRecord)
+    .map((entry) => ({
+      ledgerName: String(entry.ledgerName || entry.name || ''),
+      group: String(entry.group || entry.parentGroup || ''),
+      debit: Number(entry.debit) || 0,
+      credit: Number(entry.credit) || 0,
+      closingBalance: Number(entry.closingBalance) || 0,
+    }))
+}
+
+function asBalanceSheet(value: unknown): BalanceSheetData | null {
+  if (!isRecord(value) || isRawReport(value)) return null
+  if (!Array.isArray(value.assets) || !Array.isArray(value.liabilities)) return null
+  return {
+    assets: value.assets,
+    liabilities: value.liabilities,
+    totalAssets: Number(value.totalAssets) || 0,
+    totalLiabilities: Number(value.totalLiabilities) || 0,
+  }
+}
+
+function asPnL(value: unknown): PnLData | null {
+  if (!isRecord(value) || isRawReport(value)) return null
+  if (!Array.isArray(value.income) || !Array.isArray(value.expenses)) return null
+  return {
+    income: value.income,
+    expenses: value.expenses,
+    grossProfit: Number(value.grossProfit) || 0,
+    netProfit: Number(value.netProfit) || 0,
+    totalIncome: Number(value.totalIncome) || 0,
+    totalExpenses: Number(value.totalExpenses) || 0,
+  }
+}
+
+function asOutstanding(value: unknown): OutstandingEntry[] | null {
+  if (!Array.isArray(value)) return null
+  return value.filter(isRecord).map((entry) => ({
+    partyName: String(entry.partyName || entry.name || ''),
+    totalAmount: Number(entry.totalAmount) || 0,
+    billDetails: Array.isArray(entry.billDetails) ? entry.billDetails : [],
+    aging: {
+      current: Number(entry.aging?.current) || 0,
+      days30: Number(entry.aging?.days30) || 0,
+      days60: Number(entry.aging?.days60) || 0,
+      days90: Number(entry.aging?.days90) || 0,
+      above90: Number(entry.aging?.above90) || 0,
+    },
+  }))
+}
+
 export default function TallyReports({ serverUrl, companyName, companyId }: { serverUrl: string; companyName: string; companyId: string }) {
   const [activeTab, setActiveTab] = useState<TabKey>('trial-balance')
   const [loading, setLoading] = useState(false)
@@ -80,10 +141,20 @@ export default function TallyReports({ serverUrl, companyName, companyId }: { se
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
+    setLastFetched({
+      'trial-balance': null, 'balance-sheet': null, 'pnl': null, 'receivables': null, 'payables': null,
+    })
+    setTrialBalance([])
+    setBalanceSheet(null)
+    setPnlData(null)
+    setReceivables([])
+    setPayables([])
+    setExpanded({})
     loadCachedReports()
   }, [companyId])
 
   async function loadCachedReports() {
+    if (!companyId) return
     const { data } = await supabase
       .from('tally_reports')
       .select('*')
@@ -93,37 +164,68 @@ export default function TallyReports({ serverUrl, companyName, companyId }: { se
 
     if (!data || data.length === 0) return
 
+    const loaded: Record<TabKey, boolean> = {
+      'trial-balance': false,
+      'balance-sheet': false,
+      pnl: false,
+      receivables: false,
+      payables: false,
+    }
+
     for (const report of data) {
       const ts = report.fetched_at
       switch (report.report_type) {
         case 'trial_balance':
-          if (trialBalance.length === 0) {
-            setTrialBalance(report.data as TrialBalanceEntry[])
-            setLastFetched(prev => ({ ...prev, 'trial-balance': ts }))
+          if (!loaded['trial-balance']) {
+            const parsed = asTrialBalance(report.data)
+            if (parsed) {
+              loaded['trial-balance'] = true
+              setTrialBalance(parsed)
+              setLastFetched(prev => ({ ...prev, 'trial-balance': ts }))
+            }
           }
           break
         case 'balance_sheet':
-          if (!balanceSheet) {
-            setBalanceSheet(report.data as BalanceSheetData)
-            setLastFetched(prev => ({ ...prev, 'balance-sheet': ts }))
+          if (!loaded['balance-sheet']) {
+            const parsed = asBalanceSheet(report.data)
+            if (parsed) {
+              loaded['balance-sheet'] = true
+              setBalanceSheet(parsed)
+              setLastFetched(prev => ({ ...prev, 'balance-sheet': ts }))
+            }
           }
           break
+        case 'pnl':
         case 'profit_and_loss':
-          if (!pnlData) {
-            setPnlData(report.data as PnLData)
-            setLastFetched(prev => ({ ...prev, 'pnl': ts }))
+          if (!loaded.pnl) {
+            const parsed = asPnL(report.data)
+            if (parsed) {
+              loaded.pnl = true
+              setPnlData(parsed)
+              setLastFetched(prev => ({ ...prev, 'pnl': ts }))
+            }
           }
           break
+        case 'outstanding_receivables':
         case 'receivables':
-          if (receivables.length === 0) {
-            setReceivables(report.data as OutstandingEntry[])
-            setLastFetched(prev => ({ ...prev, 'receivables': ts }))
+          if (!loaded.receivables) {
+            const parsed = asOutstanding(report.data)
+            if (parsed) {
+              loaded.receivables = true
+              setReceivables(parsed)
+              setLastFetched(prev => ({ ...prev, 'receivables': ts }))
+            }
           }
           break
+        case 'outstanding_payables':
         case 'payables':
-          if (payables.length === 0) {
-            setPayables(report.data as OutstandingEntry[])
-            setLastFetched(prev => ({ ...prev, 'payables': ts }))
+          if (!loaded.payables) {
+            const parsed = asOutstanding(report.data)
+            if (parsed) {
+              loaded.payables = true
+              setPayables(parsed)
+              setLastFetched(prev => ({ ...prev, 'payables': ts }))
+            }
           }
           break
       }
@@ -132,6 +234,7 @@ export default function TallyReports({ serverUrl, companyName, companyId }: { se
 
   async function cacheReport(reportType: string, periodFrom: string, periodTo: string, data: any) {
     await ( supabase as any).from('tally_reports').insert({
+      company_id: companyId,
       report_type: reportType,
       report_date: todayStr(),
       period_from: periodFrom,

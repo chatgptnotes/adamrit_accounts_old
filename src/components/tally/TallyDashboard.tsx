@@ -25,6 +25,7 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
   const [companyName, setCompanyName] = useState(propCompanyName || '')
   const [isConnected, setIsConnected] = useState(false)
   const [connectionInfo, setConnectionInfo] = useState(null)
+  const [connectionError, setConnectionError] = useState('')
   const [isTesting, setIsTesting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [autoSync, setAutoSync] = useState(false)
@@ -152,17 +153,24 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
 
   async function testConnection() {
     setIsTesting(true)
+    const normalizedServerUrl = serverUrl.trim()
+    const normalizedCompanyName = companyName.trim()
     try {
       const res = await fetch('/api/tally-proxy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ endpoint: 'test-connection', serverUrl, companyName }),
+        body: JSON.stringify({
+          endpoint: 'test-connection',
+          serverUrl: normalizedServerUrl,
+          companyName: normalizedCompanyName,
+        }),
       })
       const result = await res.json()
 
       if (result.connected) {
         setIsConnected(true)
         setConnectionInfo(result)
+        setConnectionError('')
         if (!companyName.trim() && result.companies?.[0]) {
           setCompanyName(result.companies[0])
         }
@@ -170,11 +178,16 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
       } else {
         setIsConnected(false)
         setConnectionInfo(null)
-        toast.error(result.error || 'Cannot connect to Tally server')
+        const errorMessage = result.error || 'Cannot connect to Tally server'
+        setConnectionError(errorMessage)
+        setAutoSync(false)
+        toast.error(errorMessage)
       }
     } catch (err) {
       setIsConnected(false)
-      toast.error('Failed to test connection')
+      setConnectionError('Failed to test connection. Check that the Tally proxy API is deployed and reachable.')
+      setAutoSync(false)
+      toast.error('Failed to test connection. Check that the Tally proxy API is deployed and reachable.')
     }
     setIsTesting(false)
   }
@@ -217,6 +230,7 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
     setConfigId(null)
     setIsConnected(false)
     setConnectionInfo(null)
+    setConnectionError('')
     setAutoSync(false)
     toast.info('Enter the new company name and click Save Configuration')
     setTimeout(() => companyInputRef.current?.focus(), 0)
@@ -501,6 +515,16 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
                 Companies: {connectionInfo.companies.join(', ')}
               </p>
             )}
+          </div>
+        )}
+
+        {connectionError && !isConnected && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            <p className="font-medium">Tally server is not reachable</p>
+            <p className="mt-1">{connectionError}</p>
+            <p className="mt-2 text-red-700">
+              Verify TallyPrime is open on the server PC, the HTTP port is enabled, and firewall/router forwarding allows the deployed Adamrit server to reach this URL.
+            </p>
           </div>
         )}
 

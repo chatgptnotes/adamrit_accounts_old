@@ -21,6 +21,31 @@ function formatDate(dateStr: string): string {
   return (dateStr || '').replace(/-/g, '')
 }
 
+function normalizeServerUrl(serverUrl: string): string {
+  const trimmed = (serverUrl || '').trim()
+  if (!trimmed) throw new Error('Missing serverUrl')
+
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    throw new Error('Invalid Tally server URL. Use a full URL like http://public-ip:9000')
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('Invalid Tally server URL. Use http:// or https://')
+  }
+
+  return parsed.toString()
+}
+
+function buildTallyReachabilityError(serverUrl: string, details?: string): Error {
+  const suffix = details ? ` Details: ${details}.` : ''
+  return new Error(
+    `Cannot reach Tally server at ${serverUrl}. Make sure TallyPrime is running, the HTTP server port is enabled, and firewall/router forwarding allows the deployed Adamrit server to reach this IP:port.${suffix}`
+  )
+}
+
 function getVal(xml: string, tag: string): string {
   const m = xml.match(new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`, 'i'))
   return m ? m[1].trim() : ''
@@ -72,21 +97,29 @@ function parseResponse(xml: string) {
 }
 
 async function fetchFromTally(serverUrl: string, xmlBody: string, timeoutMs = 30000): Promise<string> {
+  const targetUrl = normalizeServerUrl(serverUrl)
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const res = await fetch(serverUrl, {
+    const res = await fetch(targetUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/xml' },
       body: xmlBody,
       signal: controller.signal,
     })
     clearTimeout(timeout)
+    if (!res.ok) {
+      throw new Error(`Tally server responded with HTTP ${res.status}`)
+    }
     return await res.text()
   } catch (err: any) {
     clearTimeout(timeout)
     if (err.name === 'AbortError') throw new Error(`Connection to Tally timed out (${timeoutMs / 1000}s)`)
-    throw new Error(`Cannot connect to Tally at ${serverUrl}: ${err.message}`)
+    const message = err?.cause?.code || err?.cause?.message || err?.message || 'connection failed'
+    if (err?.message === 'Tally server responded with HTTP 404' || err?.message?.startsWith('Tally server responded')) {
+      throw err
+    }
+    throw buildTallyReachabilityError(targetUrl, message)
   }
 }
 

@@ -282,10 +282,10 @@ function getXmlAttr(xml: string, attr: string): string {
 
 // Send XML request via our API proxy
 async function sendRequest(serverUrl: string, xmlBody: string): Promise<string> {
-  const response = await fetch('/api/tally/proxy', {
+  const response = await fetch('/api/tally-proxy', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ serverUrl, xmlBody }),
+    body: JSON.stringify({ endpoint: 'proxy', serverUrl, xmlBody }),
   });
 
   if (!response.ok) {
