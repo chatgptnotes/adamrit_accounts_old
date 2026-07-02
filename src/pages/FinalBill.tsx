@@ -2020,7 +2020,7 @@ const FinalBill = () => {
   const [isLoadingSavedImplants, setIsLoadingSavedImplants] = useState(false);
 
   // Collapsible sections state
-  const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState(false);
+  const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState(true);
   const [isMiddleSectionCollapsed, setIsMiddleSectionCollapsed] = useState(false);
 
   // State for Bill Preparation, NMI Tracking, and Bill Link sections

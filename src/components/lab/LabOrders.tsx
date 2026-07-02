@@ -24,6 +24,10 @@ import { safeArrayAccess } from '@/utils/arrayHelpers';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const isUuid = (value?: unknown): value is string =>
+  typeof value === 'string' && UUID_PATTERN.test(value);
+
 interface LabTest {
   id: string;
   name: string;
@@ -1711,18 +1715,25 @@ const LabOrders = () => {
           }
 
 
-          // Get visit ID and patient ID from the original data
-          let visitId = originalTestRow.visit_id;
+          // Keep the database UUID separate from the display visit_id (for example IH25...).
+          let visitId = isUuid(originalTestRow.visit_uuid)
+            ? originalTestRow.visit_uuid
+            : isUuid(originalTestRow.order_id)
+              ? originalTestRow.order_id
+              : null;
           let patientId = originalTestRow.patient_id;
+          const visitIdText = !isUuid(originalTestRow.visit_id)
+            ? originalTestRow.visit_id
+            : originalTestRow.visit_id_text;
 
 
-          // If we don't have direct visit_id, try to get it from visit_id field
-          if (!visitId && originalTestRow.visit_id_text) {
+          // If we don't have a visit UUID, try the human-readable visit_id field.
+          if (!visitId && visitIdText) {
             // Look up visit by visit_id text
             const { data: visitData, error: visitError } = await supabase
               .from('visits')
               .select('id, patient_id')
-              .eq('visit_id', originalTestRow.visit_id_text)
+              .eq('visit_id', visitIdText)
               .maybeSingle();
 
             if (visitData) {
@@ -1863,14 +1874,14 @@ const LabOrders = () => {
             }
           }
 
-          // Get visit data for additional info
+          // Get visit data for additional info. Query visits.id only with a UUID.
           if (visitId) {
             console.log('🔍 Fetching enhanced visit data for visit_id:', visitId);
             const { data: visitData, error: currentVisitError } = await supabase
               .from('visits')
               .select('id, visit_id, appointment_with, reason_for_visit')
               .eq('id', visitId)
-              .single();
+              .maybeSingle();
 
             if (currentVisitError) {
               console.error('❌ Error fetching visit data:', currentVisitError);
@@ -3718,8 +3729,12 @@ const LabOrders = () => {
       }
     }
 
-    // Try to get visit UUID for querying visits table if we still need data
-    let visitIdToQuery = firstTest?.order_id;
+    // Try to get visit UUID for querying visits.id if we still need data.
+    let visitIdToQuery = isUuid(firstTest?.order_id)
+      ? firstTest.order_id
+      : isUuid(firstTest?.visit_uuid)
+        ? firstTest.visit_uuid
+        : null;
 
     console.log('🔍 DEBUG: Will query with visitIdToQuery (UUID):', visitIdToQuery);
 
