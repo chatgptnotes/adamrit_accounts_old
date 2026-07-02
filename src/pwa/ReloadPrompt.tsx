@@ -11,7 +11,18 @@ export function ReloadPrompt() {
   const {
     needRefresh: [needRefresh],
     updateServiceWorker,
-  } = useRegisterSW();
+  } = useRegisterSW({
+    onRegisteredSW(_swUrl, registration) {
+      if (!registration) return;
+      // Idle tabs may not check for a new service worker for up to ~24h after
+      // a deploy, leaving them running stale code (and stale bugs) all day.
+      // Check every hour and whenever the tab becomes visible again.
+      setInterval(() => registration.update(), 60 * 60 * 1000);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') registration.update();
+      });
+    },
+  });
 
   useEffect(() => {
     if (!needRefresh) return;
