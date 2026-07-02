@@ -16,4 +16,6 @@ coverage
 *.sql
 *.md
 docs
-scripts
+scripts/*
+!scripts/check-finalbill-locked.cjs
+!scripts/finalbill-baseline.sha256
