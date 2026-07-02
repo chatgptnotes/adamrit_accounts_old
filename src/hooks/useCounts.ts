@@ -4,6 +4,43 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
 /**
+ * Hospital-scoped total patients count. Standalone so screens that only need
+ * this number (e.g. the dashboard's Total Patients stat) share the app-level
+ * cached query instead of mounting all sidebar counts.
+ */
+export const usePatientsCount = (enabled: boolean = true) => {
+  const { hospitalConfig } = useAuth();
+  return useQuery({
+    queryKey: ['patients-count', hospitalConfig.name],
+    queryFn: async () => {
+      try {
+        // Use hospital_name column for filtering
+        let countQuery = supabase
+          .from('patients')
+          .select('*', { count: 'exact', head: true })
+          .eq('hospital_name', hospitalConfig.name);
+
+        const { count, error } = await countQuery;
+
+        if (error) {
+          console.error('Error fetching patients count:', error);
+          return 0;
+        }
+
+        return count || 0;
+      } catch (error) {
+        console.error('Error in patients count query:', error);
+        return 0;
+      }
+    },
+    retry: 0,
+    refetchOnWindowFocus: false,
+    staleTime: 5 * 60 * 1000,
+    enabled,
+  });
+};
+
+/**
  * Sidebar count badges. Pass `enabled: false` to suppress all the count queries
  * until they're actually needed — critically, while unauthenticated, so they
  * don't flood the network and starve the login `User` lookup. App.tsx gates
@@ -36,36 +73,7 @@ export const useCounts = (enabled: boolean = true) => {
     enabled,
   });
 
-  const { data: patientsCount = 0 } = useQuery({
-    queryKey: ['patients-count', hospitalConfig.name],
-    queryFn: async () => {
-      try {
-        // Use hospital_name column for filtering
-        let countQuery = supabase
-          .from('patients')
-          .select('*', { count: 'exact', head: true })
-          .eq('hospital_name', hospitalConfig.name);
-        
-        console.log('🏥 Counting patients for hospital:', hospitalConfig.name);
-        
-        const { count, error } = await countQuery;
-        
-        if (error) {
-          console.error('Error fetching patients count:', error);
-          return 0;
-        }
-        
-        return count || 0;
-      } catch (error) {
-        console.error('Error in patients count query:', error);
-        return 0;
-      }
-    },
-    retry: 0,
-    refetchOnWindowFocus: false,
-    staleTime: 5 * 60 * 1000,
-    enabled,
-  });
+  const { data: patientsCount = 0 } = usePatientsCount(enabled);
 
   const { data: usersCount = 0 } = useQuery({
     queryKey: ['users-count'],

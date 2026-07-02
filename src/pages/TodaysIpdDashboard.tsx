@@ -485,7 +485,9 @@ const TodaysIpdDashboard = () => {
     });
   };
 
-  const { diagnoses, updatePatient } = usePatients();
+  // Only diagnoses + the update mutation are used here — skip the full
+  // patients list query (this page has its own todays-visits query).
+  const { diagnoses, updatePatient } = usePatients({ listEnabled: false });
 
   // Advance payment status tracking
   const [billTotals, setBillTotals] = useState<Record<string, number>>({});

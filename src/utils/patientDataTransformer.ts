@@ -70,6 +70,23 @@ interface TransformedPatient {
   visitStatus: string | null;
 }
 
+// Reshape visits-first rows (visits.select(...) with a patients!inner embed)
+// into the patients -> visits[] shape transformPatientsData expects, so the
+// date-scoped dashboard query reuses the exact same card pipeline.
+export const groupVisitRowsByPatient = (visitRows: any[]): Patient[] => {
+  const byPatient = new Map<string, any>();
+  for (const row of visitRows || []) {
+    const { patients: patient, ...visit } = row;
+    if (!patient?.id) continue;
+    const entry = byPatient.get(patient.id) ?? { ...patient, visits: [] };
+    entry.visits.push(visit);
+    byPatient.set(patient.id, entry);
+  }
+  // Parity with the patients-first query's .order('name')
+  return Array.from(byPatient.values()).sort((a, b) =>
+    (a.name || '').localeCompare(b.name || ''));
+};
+
 export const transformPatientsData = (patients: Patient[]) => {
   const groupedPatients: { [surgery: string]: TransformedPatient[] } = {};
 
