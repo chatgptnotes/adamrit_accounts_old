@@ -1832,19 +1832,6 @@ const TodaysIpdDashboard = () => {
 
       if (data) return true;
 
-      // Fallback: Check by patient_name for documents with 'Not assigned' visit_id
-      if (patientName) {
-        const { data: fallbackData } = await supabase
-          .from('patient_documents')
-          .select('is_uploaded')
-          .eq('patient_name', patientName)
-          .eq('document_type_id', 1)
-          .eq('is_uploaded', true)
-          .maybeSingle();
-
-        if (fallbackData) return true;
-      }
-
       return false;
     } catch (error) {
       console.error('Error checking referral letter:', error);
@@ -2294,7 +2281,7 @@ const TodaysIpdDashboard = () => {
       const originalText = originalComments[visitId] || '';
       const hasChanged = text !== originalText;
 
-      if (commentDialogs[visitId] && text !== undefined && hasChanged) {
+      if (commentDialogs[visitId] && visitId && visitId !== 'undefined' && text !== undefined && hasChanged) {
         console.log('🔄 Attempting to save comment for visit:', visitId, 'Text:', text, 'Original:', originalText);
         setSavingComments(prev => ({ ...prev, [visitId]: true }));
 

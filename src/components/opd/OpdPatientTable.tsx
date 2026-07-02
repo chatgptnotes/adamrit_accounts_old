@@ -436,7 +436,7 @@ export const OpdPatientTable = ({ patients, refetch, isMarketingManager = false 
       const originalText = originalComments[visitId] || '';
       const hasChanged = text !== originalText;
 
-      if (commentDialogs[visitId] && text !== undefined && hasChanged) {
+      if (commentDialogs[visitId] && visitId && visitId !== 'undefined' && text !== undefined && hasChanged) {
         console.log('🔄 Attempting to save comment for visit:', visitId, 'Text:', text, 'Original:', originalText);
         setSavingComments(prev => ({ ...prev, [visitId]: true }));
 
