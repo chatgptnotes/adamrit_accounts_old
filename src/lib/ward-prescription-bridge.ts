@@ -1,12 +1,10 @@
 import { supabase } from "@/integrations/supabase/client";
 import { deriveQuantity } from "@/lib/ward-bridge-logic";
+import { isUuid } from "@/utils/visitId";
 
 // Some bridge columns (source, visit_id, visit_medication_id) and several
 // visit_medications columns are absent from the stale generated types.
 const db = supabase as any;
-
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function deriveStayType(visit: {
   ward_allotted?: string | null;
@@ -75,7 +73,7 @@ export async function bridgeApprovedMedicationToPharmacy(
       .select("id, patient_id, appointment_with, ward_allotted, room_allotted, patients(hospital_name)")
       .limit(1);
     const { data: visit } = await (
-      UUID_RE.test(v) ? visitQuery.eq("id", v) : visitQuery.eq("visit_id", v)
+      isUuid(v) ? visitQuery.eq("id", v) : visitQuery.eq("visit_id", v)
     ).maybeSingle();
     // can't bridge without a patient
     if (!visit || !visit.patient_id) {

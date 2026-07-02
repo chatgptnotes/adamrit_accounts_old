@@ -24,14 +24,14 @@ import { safeArrayAccess } from '@/utils/arrayHelpers';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useDebounce } from 'use-debounce';
+import { isUuid as isUuidString } from '@/utils/visitId';
 
 // Budget for the all-dates Category/Service search: newest rows first, so this
 // covers recent orders while preventing a broad term from paging the whole table.
 const CATEGORY_SEARCH_MAX_ROWS = 2000;
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const isUuid = (value?: unknown): value is string =>
-  typeof value === 'string' && UUID_PATTERN.test(value);
+  typeof value === 'string' && isUuidString(value);
 
 interface LabTest {
   id: string;

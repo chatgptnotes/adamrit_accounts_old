@@ -6,6 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import * as XLSX from 'xlsx';
 import { useAuth } from '@/contexts/AuthContext';
+import { isUuid } from '@/utils/visitId';
 
 const DetailedInvoice = () => {
   const { visitId } = useParams();
@@ -1134,10 +1135,7 @@ const DetailedInvoice = () => {
       console.log('🔍 Fetching visit details for visitId:', visitId);
 
       // Function to check if string is valid UUID format
-      const isValidUUID = (str) => {
-        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-        return uuidRegex.test(str);
-      };
+      const isValidUUID = isUuid;
 
       let visit = null;
       let visitError = null;

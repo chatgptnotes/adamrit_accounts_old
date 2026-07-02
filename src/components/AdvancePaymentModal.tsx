@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { EnhancedDatePicker } from '@/components/ui/enhanced-date-picker';
 import { supabase } from '@/integrations/supabase/client';
 import { supabaseData } from '@/integrations/supabase/data-client';
+import { isUuid } from '@/utils/visitId';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Printer } from 'lucide-react';
@@ -98,11 +99,7 @@ const isJunkExecutiveName = (name: string): boolean => {
 };
 
 // UUID validation helper function
-const isValidUUID = (uuid: string | undefined): boolean => {
-  if (!uuid) return false;
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  return uuidRegex.test(uuid);
-};
+const isValidUUID = isUuid;
 
 // Date parsing helper function
 const parseDisplayDate = (displayDate: string): string | null => {

@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
+import { isUuid } from '@/utils/visitId';
 
 const CorporateBill = () => {
   const { hospitalConfig } = useAuth();
@@ -21,7 +22,7 @@ const CorporateBill = () => {
   const fetchBillData = async () => {
     try {
       setLoading(true);
-      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(visitId || '');
+      const isUUID = isUuid(visitId);
       let visit: any = null;
 
       if (isUUID) {

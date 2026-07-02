@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { toast } from 'sonner'
 import { PlusCircle, RefreshCw, Loader2, CheckCircle2, WifiOff } from 'lucide-react'
 import { SearchableSelect, type SearchableSelectOption } from '@/components/ui/searchable-select'
+import { isUuid } from '@/utils/visitId'
 
 interface Ledger {
   name: string
@@ -97,7 +98,7 @@ function isReceivedPaymentVoucher(voucher: VoucherHistory): boolean {
 }
 
 function looksLikeUuid(value: string | null | undefined): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value || '')
+  return isUuid(value)
 }
 
 function getDisplayVoucherNumber(voucher: VoucherHistory): string {

@@ -14,6 +14,7 @@ import { MedicalDataForm } from './MedicalDataForm';
 import { EnhancedDatePicker } from '@/components/ui/enhanced-date-picker';
 import { Patient } from '@/types/patient';
 import { saveVisitMedicalData, getVisitMedicalData, MedicalJunctionData } from '@/utils/medicalJunctionHelpers';
+import { isUuid } from '@/utils/visitId';
 
 interface EditPatientDialogProps {
   isOpen: boolean;
@@ -26,19 +27,16 @@ interface EditPatientDialogProps {
 const extractPatientUUID = (id: string): string | null => {
   if (!id) return null;
   
-  // UUID regex pattern
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  
   // If it's already a valid UUID, return it
-  if (uuidRegex.test(id)) {
+  if (isUuid(id)) {
     return id;
   }
-  
+
   // If it contains underscores, extract the first UUID part
   if (id.includes('_')) {
     const parts = id.split('_');
     for (const part of parts) {
-      if (uuidRegex.test(part)) {
+      if (isUuid(part)) {
         return part;
       }
     }
