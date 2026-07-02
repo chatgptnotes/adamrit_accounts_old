@@ -435,8 +435,12 @@ const App = () => {
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (refreshing) return;
       refreshing = true;
-      toast.success('Updating to latest version…');
-      setTimeout(() => window.location.reload(), 800);
+      toast.success('Updating to latest version shortly…');
+      // Random 3-60s delay so a deploy doesn't reload every open device in the
+      // same second (each boot re-fires the sidebar counts etc. — a
+      // synchronized stampede on the tiny DB).
+      const jitterMs = 3000 + Math.random() * 57000;
+      setTimeout(() => window.location.reload(), jitterMs);
     });
   }, []);
 
