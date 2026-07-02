@@ -124,9 +124,21 @@ if (typeof window !== 'undefined') {
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: 1,
+      // Tier 0 — do NOT retry failed reads. At a low DB success rate, a retry
+      // just doubles load precisely when the database is collapsing (retry
+      // death-spiral). A failed read shows stale/empty and self-heals on the
+      // next natural fetch; no data is corrupted. Queries that genuinely need a
+      // retry can still set their own `retry` (per-query overrides this default),
+      // and mutations are unaffected (React Query defaults mutations to retry 0).
+      retry: 0,
       refetchOnWindowFocus: false,
+      // Tier 1 — stop background/reconnect refetch storms and keep cache longer
+      // so navigation reuses it instead of re-hitting the DB. Interval polling
+      // (refetchInterval) pauses on hidden tabs via refetchIntervalInBackground.
+      refetchOnReconnect: false,
+      refetchIntervalInBackground: false,
       staleTime: 1000 * 60 * 5, // 5 minutes - prevent rapid refetching
+      gcTime: 1000 * 60 * 30, // keep cached data 30 min after last use
     },
   },
 });

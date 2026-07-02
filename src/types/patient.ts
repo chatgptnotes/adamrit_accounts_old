@@ -17,6 +17,21 @@ export interface Patient {
   relationshipManager?: string;
   visitId?: string;
   visitIdDisplay?: string;
+  // Surgeries for the displayed visit, preloaded by the patients list query
+  // (usePatients embed) so cards don't fetch per-visit.
+  visitSurgeries?: Array<{
+    id: string;
+    status?: string;
+    sanction_status?: string;
+    surgeryName?: string;
+    cghs_surgery?: {
+      id: string;
+      name?: string;
+      code?: string;
+      description?: string;
+      category?: string;
+    } | null;
+  }>;
   
   // Date fields
   admissionDate?: string;

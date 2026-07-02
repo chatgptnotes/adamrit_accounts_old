@@ -11,7 +11,6 @@ import { EditPatientDialog } from './EditPatientDialog';
 import { DocumentUploadDialog } from './DocumentUploadDialog';
 import { format } from 'date-fns';
 import { Patient } from '@/types/patient';
-import { useVisitSurgeriesByCustomId } from '@/hooks/useVisitSurgeriesByCustomId';
 import { getSanctionStatusColor } from '@/types/surgery';
 
 interface PatientCardProps {
@@ -24,8 +23,9 @@ export const PatientCard: React.FC<PatientCardProps> = ({ patient, onEdit, onDel
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDocumentUploadOpen, setIsDocumentUploadOpen] = useState(false);
 
-  // Fetch surgeries for this visit
-  const { data: visitSurgeries, isLoading: surgeriesLoading } = useVisitSurgeriesByCustomId(patient.visitIdDisplay);
+  // Surgeries for this visit are preloaded by the patients list query
+  // (usePatients embeds visit_surgeries) — no per-card DB query needed.
+  const visitSurgeries = patient.visitSurgeries || [];
 
   // Visit ID is now included in the patient data
   const getVisitID = () => {
@@ -393,11 +393,7 @@ export const PatientCard: React.FC<PatientCardProps> = ({ patient, onEdit, onDel
                     <Scissors className="h-4 w-4 text-blue-600 mt-1 flex-shrink-0" />
                     <div className="w-full">
                       <p className="text-sm font-medium text-muted-foreground mb-2">Surgeries & Procedures</p>
-                      {surgeriesLoading ? (
-                        <div className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                          <span className="text-sm">Loading surgeries...</span>
-                        </div>
-                      ) : visitSurgeries && visitSurgeries.length > 0 ? (
+                      {visitSurgeries && visitSurgeries.length > 0 ? (
                         <div className="space-y-2">
                           {visitSurgeries.map((surgery, index) => (
                             <div key={surgery.id || index} className="flex items-center justify-between p-2 bg-gray-50 rounded">

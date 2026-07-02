@@ -68,7 +68,7 @@ export const useMasterCounts = (enabled: boolean = true): Record<string, number>
       });
       return result;
     },
-    retry: 1,
+    retry: 0,
     refetchOnWindowFocus: false,
     staleTime: 5 * 60 * 1000,
     enabled,

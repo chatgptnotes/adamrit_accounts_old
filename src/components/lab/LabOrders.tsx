@@ -23,6 +23,11 @@ import HistoCytologyEntryForm from './HistoCytologyEntryForm';
 import { safeArrayAccess } from '@/utils/arrayHelpers';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useDebounce } from 'use-debounce';
+
+// Budget for the all-dates Category/Service search: newest rows first, so this
+// covers recent orders while preventing a broad term from paging the whole table.
+const CATEGORY_SEARCH_MAX_ROWS = 2000;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const isUuid = (value?: unknown): value is string =>
@@ -270,6 +275,11 @@ const LabOrders = () => {
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [showPatientDropdown, setShowPatientDropdown] = useState(false);
   const [serviceSearch, setServiceSearch] = useState('');
+  // Debounced copies drive the DB query so the all-dates scan fires once after
+  // typing stops, not on every keystroke. Raw values still drive the dropdown UI
+  // and client-side display filters (no DB cost there).
+  const [debouncedCategorySearch] = useDebounce(categorySearch, 500);
+  const [debouncedServiceSearch] = useDebounce(serviceSearch, 500);
   const [reqNoSearch, setReqNoSearch] = useState('');
   const [consultantFilter, setConsultantFilter] = useState('All');
   const [visitFilter, setVisitFilter] = useState('All');
@@ -2122,8 +2132,8 @@ const LabOrders = () => {
 
   // Fetch lab test rows from visit_labs table (JOIN with visits and lab tables)
   const { data: labTestRows = [], isLoading: testRowsLoading, isFetching: testRowsFetching } = useQuery({
-    queryKey: ['visit-lab-orders', getHospitalFilter(), patientStatusFilter, dateRange.from, dateRange.to, searchTerm, categorySearch, serviceSearch],
-    queryFn: async () => {
+    queryKey: ['visit-lab-orders', getHospitalFilter(), patientStatusFilter, dateRange.from, dateRange.to, searchTerm, debouncedCategorySearch, debouncedServiceSearch],
+    queryFn: async ({ signal }) => {
       console.log('🔍 Fetching lab test data from visit_labs...');
 
       const hospitalFilter = getHospitalFilter();
@@ -2166,8 +2176,9 @@ const LabOrders = () => {
         // Step 2: Get ALL visit_labs for those visits — paged so >1000 are never truncated
         const labData = await fetchAllRows(() => supabase
           .from('visit_labs')
-          .select('id, visit_id, lab_id, status, printed_at, ordered_date, collected_date, completed_date, result_value, normal_range, notes, created_at, updated_at')
+          .select('id, visit_id, lab_id, status, printed_at, ordered_date, collected_date, completed_date, result_value, normal_range, notes, is_hidden, created_at, updated_at')
           .in('visit_id', visitUUIDs)
+          .or('is_hidden.is.null,is_hidden.eq.false')
           .order('ordered_date', { ascending: false }));
 
         console.log('🔍 visit_labs found:', labData?.length || 0);
@@ -2225,10 +2236,15 @@ const LabOrders = () => {
 
       // When Category or Service is active: scan ALL dates (hospital-scoped) so matches aren't
       // hidden by the date range. Find labs by category/name, then their visit_labs across time.
-      if (categorySearch || serviceSearch) {
-        console.log('🔍 Category/Service mode (all dates) for', { categorySearch, serviceSearch });
+      const catTerm = debouncedCategorySearch.trim();
+      const svcTerm = debouncedServiceSearch.trim();
+      // Require ≥2 chars before the all-dates scan: a 1-char term matches most of the
+      // catalog. Shorter terms fall through to the date-filtered path below, where the
+      // client-side category/service filters still narrow what's displayed.
+      if (catTerm.length >= 2 || svcTerm.length >= 2) {
+        console.log('🔍 Category/Service mode (all dates) for', { catTerm, svcTerm });
 
-        const visitLabSelect = 'id, visit_id, lab_id, status, printed_at, ordered_date, collected_date, completed_date, result_value, normal_range, notes, created_at, updated_at';
+        const visitLabSelect = 'id, visit_id, lab_id, status, printed_at, ordered_date, collected_date, completed_date, result_value, normal_range, notes, is_hidden, created_at, updated_at';
         const visitSelect = `
             id,
             visit_id,
@@ -2252,9 +2268,10 @@ const LabOrders = () => {
         // Find matching labs (category AND/OR service-name, whichever is provided)
         let labQuery = supabase
           .from('lab')
-          .select('id, name, category, sample_type, test_method');
-        if (categorySearch) labQuery = labQuery.ilike('category', `%${categorySearch}%`);
-        if (serviceSearch) labQuery = labQuery.ilike('name', `%${serviceSearch}%`);
+          .select('id, name, category, sample_type, test_method')
+          .abortSignal(signal);
+        if (catTerm.length >= 2) labQuery = labQuery.ilike('category', `%${catTerm}%`);
+        if (svcTerm.length >= 2) labQuery = labQuery.ilike('name', `%${svcTerm}%`);
         const { data: matchingLabs, error: matchingLabsError } = await labQuery;
         if (matchingLabsError) {
           console.error('❌ Error fetching matching labs:', matchingLabsError);
@@ -2264,12 +2281,23 @@ const LabOrders = () => {
         const matchingLabIds = (matchingLabs || []).map(l => l.id);
         if (!matchingLabIds.length) return [];
 
-        // All visit_labs for those labs — no date filter, paged + chunked
+        // Latest visit_labs for those labs — no date filter, paged + chunked, but
+        // capped at the newest CATEGORY_SEARCH_MAX_ROWS so one broad search cannot
+        // page through the entire table. Aborts if a newer keystroke supersedes it.
         const labDataRaw = await fetchAllByIn(matchingLabIds, (chunk) => supabase
           .from('visit_labs')
           .select(visitLabSelect)
           .in('lab_id', chunk)
-          .order('ordered_date', { ascending: false }));
+          .or('is_hidden.is.null,is_hidden.eq.false')
+          .order('ordered_date', { ascending: false })
+          .abortSignal(signal), 200, { maxRows: CATEGORY_SEARCH_MAX_ROWS, signal });
+
+        if (labDataRaw.length >= CATEGORY_SEARCH_MAX_ROWS) {
+          toast({
+            title: `Showing the latest ${CATEGORY_SEARCH_MAX_ROWS} matching orders`,
+            description: 'Narrow the Category/Service search to find older records.',
+          });
+        }
 
         // Scope to the current hospital by loading the visits (patients!inner + hospital filter)
         const visitUUIDs = [...new Set(labDataRaw.map((r: any) => r.visit_id).filter(Boolean))];
@@ -2278,7 +2306,8 @@ const LabOrders = () => {
               .from('visits')
               .select(visitSelect)
               .eq('patients.hospital_name', hospitalFilter)
-              .in('id', chunk))
+              .in('id', chunk)
+              .abortSignal(signal), 200, { signal })
           : [];
         const visitMap = new Map((matchingVisits || []).map((v: any) => [v.id, v]));
         const labData = labDataRaw.filter((r: any) => visitMap.has(r.visit_id));
@@ -2376,6 +2405,7 @@ const LabOrders = () => {
             result_value,
             normal_range,
             notes,
+            is_hidden,
             created_at,
             updated_at,
             visits!inner(
@@ -2405,7 +2435,8 @@ const LabOrders = () => {
               test_method
             )
           `)
-          .eq('visits.patients.hospital_name', hospitalFilter);
+          .eq('visits.patients.hospital_name', hospitalFilter)
+          .or('is_hidden.is.null,is_hidden.eq.false');
 
         // Apply patient status filter
         if (patientStatusFilter === 'Currently Admitted') {

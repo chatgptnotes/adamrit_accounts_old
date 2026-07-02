@@ -10,19 +10,32 @@
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 500; // safety backstop (= up to 500k rows) so a bug can't loop forever
 
+// Optional per-call limits: maxRows stops paging once that many rows are collected
+// (rows arrive in the builder's ORDER BY, so callers get the first/newest maxRows);
+// signal aborts between pages when the caller (e.g. React Query) cancels the fetch.
+export interface FetchAllOptions {
+  maxRows?: number;
+  signal?: AbortSignal;
+}
+
 export async function fetchAllRows<T = any>(
   buildQuery: () => any,
-  pageSize = PAGE_SIZE
+  pageSize = PAGE_SIZE,
+  opts?: FetchAllOptions
 ): Promise<T[]> {
   const all: T[] = [];
   let from = 0;
   for (let page = 0; page < MAX_PAGES; page++) {
-    const { data, error } = await buildQuery().range(from, from + pageSize - 1);
+    if (opts?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    const remaining = opts?.maxRows != null ? opts.maxRows - all.length : Infinity;
+    if (remaining <= 0) break;
+    const take = Math.min(pageSize, remaining);
+    const { data, error } = await buildQuery().range(from, from + take - 1);
     if (error) throw error;
     if (!data || data.length === 0) break;
     all.push(...(data as T[]));
-    if (data.length < pageSize) break;
-    from += pageSize;
+    if (data.length < take) break;
+    from += take;
   }
   return all;
 }
@@ -32,14 +45,21 @@ export async function fetchAllRows<T = any>(
 export async function fetchAllByIn<T = any>(
   values: (string | number)[],
   buildQuery: (chunk: (string | number)[]) => any,
-  chunkSize = 200
+  chunkSize = 200,
+  opts?: FetchAllOptions
 ): Promise<T[]> {
   const unique = Array.from(new Set(values.filter(v => v !== null && v !== undefined)));
   if (unique.length === 0) return [];
   const all: T[] = [];
   for (let i = 0; i < unique.length; i += chunkSize) {
+    if (opts?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    const remaining = opts?.maxRows != null ? opts.maxRows - all.length : undefined;
+    if (remaining != null && remaining <= 0) break;
     const chunk = unique.slice(i, i + chunkSize);
-    const rows = await fetchAllRows<T>(() => buildQuery(chunk));
+    const rows = await fetchAllRows<T>(() => buildQuery(chunk), PAGE_SIZE, {
+      ...opts,
+      maxRows: remaining,
+    });
     all.push(...rows);
   }
   return all;
