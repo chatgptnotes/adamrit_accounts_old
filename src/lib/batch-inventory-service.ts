@@ -144,14 +144,19 @@ export async function getAllBatchInventory(
       const batchIds = data.map(d => d.id).filter(Boolean);
       let piecesPerPackMap = new Map<string, number>();
 
-      if (batchIds.length > 0) {
+      // Chunk the id list: a single .in() with ~1000 uuids exceeds the
+      // PostgREST URL length limit and the whole request 400s.
+      const CHUNK_SIZE = 200;
+      for (let i = 0; i < batchIds.length; i += CHUNK_SIZE) {
         const { data: batchDetails } = await supabase
           .from('medicine_batch_inventory')
           .select('id, pieces_per_pack')
-          .in('id', batchIds);
+          .in('id', batchIds.slice(i, i + CHUNK_SIZE));
 
         if (batchDetails) {
-          piecesPerPackMap = new Map(batchDetails.map(b => [b.id, b.pieces_per_pack || 1]));
+          for (const b of batchDetails) {
+            piecesPerPackMap.set(b.id, b.pieces_per_pack || 1);
+          }
         }
       }
 
@@ -162,18 +167,18 @@ export async function getAllBatchInventory(
         const medicineIds = [...new Set(data.map(b => b.medicine_id).filter(Boolean))];
 
         if (medicineIds.length > 0) {
-          // Try direct query for each medicine (to avoid .in() issues)
+          // Chunked .in() — one request per 200 ids instead of a .single()
+          // per id, which 406s on every medicine_id missing from the master.
           const medicineMap = new Map();
 
-          for (const medId of medicineIds) {
-            const { data: medicine, error: medError } = await supabase
+          for (let i = 0; i < medicineIds.length; i += CHUNK_SIZE) {
+            const { data: medicines } = await supabase
               .from('medicine_master')
               .select('id, medicine_name, generic_name, type')
-              .eq('id', medId)
-              .single();
+              .in('id', medicineIds.slice(i, i + CHUNK_SIZE));
 
-            if (medicine) {
-              medicineMap.set(medId, medicine);
+            for (const medicine of medicines || []) {
+              medicineMap.set(medicine.id, medicine);
             }
           }
 
