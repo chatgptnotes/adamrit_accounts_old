@@ -179,6 +179,12 @@ export const transformPatientsData = (patients: Patient[]) => {
         surgery: surgeryName,
         surgeryCode: surgeryCode,
         sanctionStatus: sanctionStatus,
+        // Full surgery list for this visit — same shape useVisitSurgeriesByCustomId
+        // returned, so PatientCard renders it without its own per-card DB query.
+        visitSurgeries: (visit.visit_surgeries || []).map(s => ({
+          ...s,
+          surgeryName: s.cghs_surgery?.name || 'Unknown Surgery'
+        })),
         // Medical data now comes from junction tables only
         labs: '',
         radiology: '',
