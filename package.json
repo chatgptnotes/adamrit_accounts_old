@@ -22,7 +22,8 @@
     "generate-types": "ts-node scripts/generate-types.ts",
     "tally:sync": "node scripts/sync-tally-export.js",
     "tally:direct-sync": "node scripts/tally-direct-sync.js",
-    "check:emails": "cd scripts/email-automation && node run.js"
+    "check:emails": "cd scripts/email-automation && node run.js",
+    "typecheck": "node scripts/typecheck-ratchet.cjs"
   },
   "dependencies": {
     "@ckeditor/ckeditor5-build-classic": "^41.4.2",
