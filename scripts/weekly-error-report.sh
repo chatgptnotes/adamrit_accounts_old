@@ -3,6 +3,15 @@
 # Aggregates the last 7 days of ERROR/FATAL/PANIC log events by message and
 # writes a dated markdown report + macOS notification.
 # Config: ~/.config/adamrit-error-report/env  (created by the installer)
+#
+# Hardening notes (2026-07-02, first real run):
+# - `python3 - <<heredoc` takes stdin for the program text, so the JSON must
+#   go through a temp file, never a pipe.
+# - The analytics endpoint intermittently returns {"error":"Backend error!"}
+#   and spurious {"message":"Unauthorized"} — retry with backoff and only
+#   accept a body whose .result is a list.
+# - iso_timestamp_start alone proved unreliable; the timestamp filter is also
+#   embedded in the SQL as belt and braces.
 set -euo pipefail
 
 PROJECT_REF="xvkxccqaopbnkvwgyfjv"
@@ -13,18 +22,41 @@ mkdir -p "$OUT_DIR"
 # shellcheck disable=SC1090
 source "$CONFIG"   # provides SUPABASE_ACCESS_TOKEN
 
-SQL="select event_message, parsed.error_severity, count(*) as cnt from postgres_logs cross join unnest(metadata) as m cross join unnest(m.parsed) as parsed where parsed.error_severity in ('ERROR','FATAL','PANIC') group by event_message, parsed.error_severity order by cnt desc limit 25"
+SQL="select event_message, parsed.error_severity, count(*) as cnt from postgres_logs cross join unnest(metadata) as m cross join unnest(m.parsed) as parsed where parsed.error_severity in ('ERROR','FATAL','PANIC') and timestamp > timestamp_sub(current_timestamp(), interval 7 day) group by event_message, parsed.error_severity order by cnt desc limit 25"
 ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$SQL")
 START=$(date -u -v-7d +"%Y-%m-%dT%H:%M:%SZ")
+URL="https://api.supabase.com/v1/projects/$PROJECT_REF/analytics/endpoints/logs.all?sql=$ENC&iso_timestamp_start=$START"
 
 REPORT="$OUT_DIR/$(date +%Y-%m-%d).md"
+TMP=$(mktemp)
+trap 'rm -f "$TMP"' EXIT
 
-curl -sf "https://api.supabase.com/v1/projects/$PROJECT_REF/analytics/endpoints/logs.all?sql=$ENC&iso_timestamp_start=$START" \
-  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-  | python3 - "$REPORT" <<'PY'
+ok=""
+for attempt in 1 2 3 4 5; do
+  http=$(curl -s -o "$TMP" -w "%{http_code}" "$URL" \
+    -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN") || http="000"
+  if [ "$http" = "200" ] && python3 -c "
+import json,sys
+d=json.load(open(sys.argv[1]))
+sys.exit(0 if isinstance(d.get('result'), list) else 1)
+" "$TMP" 2>/dev/null; then
+    ok=1
+    break
+  fi
+  echo "attempt $attempt failed (HTTP $http): $(head -c 120 "$TMP")" >&2
+  sleep $((attempt * 15))
+done
+
+if [ -z "$ok" ]; then
+  osascript -e "display notification \"Logs API kept failing — no report generated. See /tmp/adamrit-error-report.log\" with title \"Adamrit weekly error report\"" || true
+  echo "ERROR: logs API failed after 5 attempts" >&2
+  exit 1
+fi
+
+python3 - "$REPORT" "$TMP" <<'PY'
 import json, sys
-resp = json.load(sys.stdin)
-rows = resp.get("result", [])
+resp = json.load(open(sys.argv[2]))
+rows = resp.get("result") or []
 total = sum(r.get("cnt", 0) for r in rows)
 lines = ["# Postgres error report — last 7 days", "",
          f"Total errors (top 25 messages): **{total}**", "",
