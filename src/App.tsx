@@ -387,7 +387,7 @@ const AppContent = () => {
           v7_relativeSplatPath: true
         }}
       >
-        <SidebarProvider defaultOpen={false}>
+        <SidebarProvider defaultOpen={true}>
           {user && <RoleRedirect user={user} />}
           <div className="min-h-screen flex w-full">
             <AppSidebar {...counts} />
