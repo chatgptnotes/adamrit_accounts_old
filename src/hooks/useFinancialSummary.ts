@@ -900,20 +900,6 @@ const fetchAnesthetistTotal = async (): Promise<number> => {
     setIsStateLocked(true);
     console.log('🔒 [STATE LOCK] State locked during database load');
 
-    // STEP 1: Check if any financial_summary records exist at all
-    console.log('🔍 [DATABASE DEBUG] Checking all financial_summary records...');
-    const { data: allRecords, error: allRecordsError } = await supabase
-      .from('financial_summary')
-      .select('id, bill_id, created_at, discount_laboratory_services, discount_radiology, discount_pharmacy')
-      .order('created_at', { ascending: false })
-      .limit(5);
-
-    console.log('📊 [DATABASE DEBUG] All financial_summary records:', {
-      count: allRecords?.length || 0,
-      records: allRecords,
-      error: allRecordsError
-    });
-
     setIsLoading(true);
     try {
       console.log('🔍 [DATABASE DEBUG] Querying financial_summary for billId:', billId);
@@ -921,7 +907,7 @@ const fetchAnesthetistTotal = async (): Promise<number> => {
         .from('financial_summary')
         .select('*')
         .eq('bill_id', billId)
-        .single();
+        .maybeSingle();
 
       console.log('📋 [DATABASE DEBUG] Raw query result:', {
         data: data,
@@ -1073,7 +1059,7 @@ const fetchAnesthetistTotal = async (): Promise<number> => {
               .from('visits')
               .select('id, visit_id')
               .eq('visit_id', lookupId)
-              .single();
+              .maybeSingle();
 
             console.log('🔍 [DISCOUNT INTEGRATION] Visit query result:', { visitData, visitError });
 
@@ -1092,7 +1078,7 @@ const fetchAnesthetistTotal = async (): Promise<number> => {
                 .from('visit_discounts')
                 .select('*')
                 .eq('visit_id', visitData.id)
-                .single();
+                .maybeSingle();
 
               console.log('🔍 [DISCOUNT INTEGRATION] Discount query result:', { discountData, discountError });
 
@@ -1193,7 +1179,7 @@ const fetchAnesthetistTotal = async (): Promise<number> => {
               .from('visits')
               .select('id, visit_id')
               .eq('visit_id', lookupId)
-              .single();
+              .maybeSingle();
 
             console.log('🔍 [DISCOUNT INTEGRATION - NO RECORD] Visit query result:', { visitData, visitError });
 
@@ -1204,7 +1190,7 @@ const fetchAnesthetistTotal = async (): Promise<number> => {
                 .from('visit_discounts')
                 .select('*')
                 .eq('visit_id', visitData.id)
-                .single();
+                .maybeSingle();
 
               console.log('🔍 [DISCOUNT INTEGRATION - NO RECORD] Discount query result:', { discountData, discountError });
 
@@ -1846,41 +1832,6 @@ const fetchAnesthetistTotal = async (): Promise<number> => {
     }
   }, [billId]);
 
-  // CRITICAL: Force load on component mount regardless of useEffect timing
-  useEffect(() => {
-    console.log('🚀 [FINANCIAL SUMMARY] Component mounted - force loading mechanism activated');
-
-    const forceLoadWithRetry = () => {
-
-      if (billId && billId.trim()) {
-        loadFinancialSummary();
-        return;
-      }
-
-      // If billId not available, set up polling mechanism
-      let attempts = 0;
-      const maxAttempts = 10; // Try for up to 5 seconds
-
-      const pollForBillId = setInterval(() => {
-        attempts++;
-        console.log(`🔍 [FORCE LOAD] Polling attempt ${attempts}/${maxAttempts} for billId:`, billId);
-
-        if (billId && billId.trim()) {
-          clearInterval(pollForBillId);
-          loadFinancialSummary();
-        } else if (attempts >= maxAttempts) {
-          clearInterval(pollForBillId);
-        }
-      }, 500); // Check every 500ms
-
-      // Cleanup function
-      return () => clearInterval(pollForBillId);
-    };
-
-    const cleanup = forceLoadWithRetry();
-    return cleanup;
-  }, []); // Empty dependency array - runs only on mount
-
   // Cleanup function for timeouts
   useEffect(() => {
     return () => {
@@ -1993,7 +1944,7 @@ const fetchAnesthetistTotal = async (): Promise<number> => {
         .from('financial_summary')
         .select('discount_total, discount_clinical_services, discount_laboratory_services, discount_radiology, discount_pharmacy, discount_implant, discount_blood, discount_surgery, discount_mandatory_services, discount_physiotherapy, discount_consultation, discount_surgery_internal_report, discount_implant_cost, discount_private, discount_accommodation_charges')
         .eq('bill_id', billId)
-        .single();
+        .maybeSingle();
 
       if (savedError && savedError.code !== 'PGRST116') {
         console.error('❌ [DISCOUNT LOAD] Error loading saved discount values:', savedError);
