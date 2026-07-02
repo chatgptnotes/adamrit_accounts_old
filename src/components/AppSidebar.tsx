@@ -20,7 +20,9 @@ import { GROUP_ORDER } from './sidebar/sidebarGroups';
 export function AppSidebar(props: AppSidebarProps) {
   const { mainItems, masterItems } = useMenuItems(props);
   const [search, setSearch] = useState('');
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // Track which groups are expanded. Header tab groups are collapsed by
+  // default (an unset entry means closed); the user opens them on demand.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const q = search.trim().toLowerCase();
   const searching = q.length > 0;
@@ -47,11 +49,12 @@ export function AppSidebar(props: AppSidebarProps) {
     .filter(g => g.items.length > 0);
 
   const toggle = (name: string) =>
-    setCollapsed(prev => ({ ...prev, [name]: !prev[name] }));
+    setExpanded(prev => ({ ...prev, [name]: !prev[name] }));
 
   const renderGroup = (name: string, items: MenuItem[]) => {
-    // While searching, force-expand so matches are always visible.
-    const isOpen = searching || !collapsed[name];
+    // Groups are collapsed by default; while searching, force-expand so
+    // matches are always visible.
+    const isOpen = searching || !!expanded[name];
     return (
       <SidebarGroup key={name}>
         <SidebarGroupLabel
