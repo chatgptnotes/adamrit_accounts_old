@@ -31,7 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { format } from 'date-fns';
+import { format, subDays } from 'date-fns';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { EditPatientDialog } from '@/components/EditPatientDialog';
 import { VisitRegistrationForm } from '@/components/VisitRegistrationForm';
@@ -59,60 +59,22 @@ import { calculateReferralAmount, formatIndianCurrency } from '@/utils/referralC
 const IpdRefereeAmountCell = ({
   visit,
   onUpdate,
-  billTotal = 0
+  billTotal = 0,
+  totalPaid = 0,
+  advanceTotal = 0
 }: {
   visit: any;
   onUpdate?: () => void;
   billTotal?: number;
+  // Both totals come pre-batched from the dashboard (doaPaidTotals /
+  // advancePaymentData.activeTotals) instead of two queries per rendered row.
+  totalPaid?: number;
+  advanceTotal?: number;
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Fetch total payments for this visit
-  const { data: payments = [], isLoading } = useQuery({
-    queryKey: ['referee-doa-payments-total', visit.id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('referee_doa_payments')
-        .select('amount')
-        .eq('visit_id', visit.id);
-
-      if (error) {
-        console.error('Error fetching payments:', error);
-        return [];
-      }
-      return data || [];
-    },
-    staleTime: 30000
-  });
-
-  // Fetch Amount Paid Total from advance_payment table
-  const { data: advancePayments } = useQuery({
-    queryKey: ['advance-payment-total', visit.visit_id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('advance_payment')
-        .select('advance_amount')
-        .eq('visit_id', visit.visit_id)
-        .eq('status', 'ACTIVE')
-        .eq('is_refund', false);
-
-      if (error) {
-        console.error('Error fetching advance payments:', error);
-        return [];
-      }
-      console.log('💰 Advance payments for visit:', visit.visit_id, '=', data);
-      return data || [];
-    },
-    enabled: !!visit.visit_id,
-    staleTime: 60000
-  });
-
-  // Calculate totals
-  const totalPaid = payments.reduce((sum: number, p: any) => sum + Number(p.amount), 0);
-
-  // Total Bill = Sum of advance payments
-  const totalBillAmount = advancePayments?.reduce((sum: number, p: any) =>
-    sum + (parseFloat(p.advance_amount?.toString() || '0') || 0), 0) || 0;
+  // Total Bill = Sum of ACTIVE non-refund advance payments
+  const totalBillAmount = advanceTotal;
 
   // Empty bill items (no financial_summary needed)
   const billItems: Array<{ description: string; amount: number }> = [];
@@ -136,11 +98,8 @@ const IpdRefereeAmountCell = ({
               size="sm"
               className={`h-6 px-2 text-xs ${totalPaid > 0 ? 'bg-green-600 hover:bg-green-700' : ''}`}
               onClick={() => setIsModalOpen(true)}
-              disabled={isLoading}
             >
-              {isLoading ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : totalPaid > 0 ? (
+              {totalPaid > 0 ? (
                 `₹${totalPaid.toLocaleString()}`
               ) : (
                 'Pay'
@@ -335,8 +294,11 @@ const TodaysIpdDashboard = () => {
   const paymentStatusFilter = searchParams.get('payStatus')?.split(',').filter(Boolean) || [];
   const extensionOfStayFilter = searchParams.get('extStay')?.split(',').filter(Boolean) || [];
   const additionalApprovalsFilter = searchParams.get('addApproval')?.split(',').filter(Boolean) || [];
-  const startDate = searchParams.get('startDate') || '';
-  const endDate = searchParams.get('endDate') || '';
+  // Default window: last 10 days (typical IPD stay). An explicit range from the
+  // picker overrides it; searching (2+ chars) looks across ALL dates regardless.
+  const hasExplicitRange = searchParams.has('startDate') || searchParams.has('endDate');
+  const startDate = searchParams.get('startDate') || (hasExplicitRange ? '' : format(subDays(new Date(), 10), 'yyyy-MM-dd'));
+  const endDate = searchParams.get('endDate') || (hasExplicitRange ? '' : format(new Date(), 'yyyy-MM-dd'));
 
   // Helper to update URL params
   const updateParams = (updates: Record<string, string | null>) => {
@@ -485,7 +447,9 @@ const TodaysIpdDashboard = () => {
     });
   };
 
-  const { diagnoses, updatePatient } = usePatients();
+  // Only diagnoses + the update mutation are used here — skip the full
+  // patients list query (this page has its own todays-visits query).
+  const { diagnoses, updatePatient } = usePatients({ listEnabled: false });
 
   // Advance payment status tracking
   const [billTotals, setBillTotals] = useState<Record<string, number>>({});
@@ -1572,10 +1536,39 @@ const TodaysIpdDashboard = () => {
     }
   });
 
+  // Search of 2+ chars widens the fetch to ALL dates so the 10-day default
+  // window never hides a searched patient (searchTerm is already URL-debounced).
+  const activeSearch = searchTerm.trim().length >= 2 ? searchTerm.trim() : '';
+
   const { data: todaysVisits = [], isLoading, refetch } = useQuery({
-    queryKey: ['todays-visits', hospitalConfig?.name, startDate, endDate],
+    queryKey: ['todays-visits', hospitalConfig?.name, startDate, endDate, activeSearch],
     queryFn: async () => {
       console.log('🏥 TodaysIpdDashboard: Fetching visits for hospital:', hospitalConfig?.name);
+
+      // All-time search: resolve matching patients hospital-wide (name/ID/phone),
+      // then fetch their IPD visits plus any visit whose ID matches, undated.
+      let searchOr: string | null = null;
+      if (activeSearch) {
+        // Strip PostgREST .or() delimiters so typed commas/parens can't break the filter
+        const safeSearch = activeSearch.replace(/[,()]/g, '');
+        let patientQuery = supabase
+          .from('patients')
+          .select('id')
+          .or(`name.ilike.%${safeSearch}%,patients_id.ilike.%${safeSearch}%,phone.ilike.%${safeSearch}%`)
+          .limit(50);
+        if (hospitalConfig?.name) {
+          patientQuery = patientQuery.eq('hospital_name', hospitalConfig.name);
+        }
+        const { data: matchedPatients, error: searchError } = await patientQuery;
+        if (searchError) {
+          console.error('Error searching patients for IPD dashboard:', searchError);
+        }
+        const orParts = [`visit_id.ilike.%${safeSearch}%`];
+        if (matchedPatients?.length) {
+          orParts.push(`patient_id.in.(${matchedPatients.map(p => p.id).join(',')})`);
+        }
+        searchOr = orParts.join(',');
+      }
 
       // Build a FRESH query for each page (Supabase builders are single-use) so a hospital
       // with >1000 IPD visits is never silently truncated.
@@ -1621,17 +1614,23 @@ const TodaysIpdDashboard = () => {
           query = query.eq('patients.hospital_name', hospitalConfig.name);
         }
 
-        // Apply date range filter (with time component for proper timestamp comparison)
-        if (startDate) {
-          query = query.gte('visit_date', `${startDate}T00:00:00`);
-        }
-        if (endDate) {
-          query = query.lte('visit_date', `${endDate}T23:59:59`);
+        if (searchOr) {
+          // Search mode: all dates, matched patients/visit-IDs only
+          query = query.or(searchOr);
+        } else {
+          // Apply date range filter (with time component for proper timestamp comparison)
+          if (startDate) {
+            query = query.gte('visit_date', `${startDate}T00:00:00`);
+          }
+          if (endDate) {
+            query = query.lte('visit_date', `${endDate}T23:59:59`);
+          }
         }
         return query;
       };
 
-      const data = await fetchAllRows(buildVisitsQuery);
+      // Cap search-mode fetches: a short term could match many historical visits
+      const data = await fetchAllRows(buildVisitsQuery, 1000, searchOr ? { maxRows: 2000 } : undefined);
 
 
       // Debug: Check comments and discharge_date in fetched data
@@ -1698,28 +1697,39 @@ const TodaysIpdDashboard = () => {
     [todaysVisits]
   );
 
-  const { data: advancePayments = {} } = useQuery<Record<string, number>>({
+  const { data: advancePaymentData = { totals: {}, activeTotals: {} } } = useQuery<{
+    totals: Record<string, number>;
+    activeTotals: Record<string, number>;
+  }>({
     queryKey: ['advance-payment-total', 'dashboard', dashboardVisitIds],
     queryFn: async () => {
-      if (dashboardVisitIds.length === 0) return {};
-      let data: { visit_id: string; advance_amount: number }[] = [];
+      if (dashboardVisitIds.length === 0) return { totals: {}, activeTotals: {} };
+      let data: { visit_id: string; advance_amount: number; status: string | null; is_refund: boolean | null }[] = [];
       try {
         data = await fetchAllByIn(dashboardVisitIds, (chunk) =>
-          supabase.from('advance_payment').select('visit_id, advance_amount').in('visit_id', chunk));
+          supabase.from('advance_payment').select('visit_id, advance_amount, status, is_refund').in('visit_id', chunk));
       } catch (error) {
         console.error('Error fetching advance payments:', error);
-        return {};
+        return { totals: {}, activeTotals: {} };
       }
-      const sums: Record<string, number> = {};
-      (data || []).forEach((payment: { visit_id: string; advance_amount: number }) => {
-        if (payment.visit_id) {
-          sums[payment.visit_id] = (sums[payment.visit_id] || 0) + (payment.advance_amount || 0);
+      // totals: every row (drives the payment-status dots, as before).
+      // activeTotals: ACTIVE non-refund rows only (what IpdRefereeAmountCell
+      // previously fetched per displayed row).
+      const totals: Record<string, number> = {};
+      const activeTotals: Record<string, number> = {};
+      (data || []).forEach((payment) => {
+        if (!payment.visit_id) return;
+        totals[payment.visit_id] = (totals[payment.visit_id] || 0) + (payment.advance_amount || 0);
+        if (payment.status === 'ACTIVE' && payment.is_refund === false) {
+          activeTotals[payment.visit_id] = (activeTotals[payment.visit_id] || 0) +
+            (parseFloat(payment.advance_amount?.toString() || '0') || 0);
         }
       });
-      return sums;
+      return { totals, activeTotals };
     },
     enabled: dashboardVisitIds.length > 0,
   });
+  const advancePayments = advancePaymentData.totals;
 
   // Fetch bill totals, intimation dates, and DOA payments for status columns
   useEffect(() => {
@@ -1817,6 +1827,16 @@ const TodaysIpdDashboard = () => {
 
     fetchPaymentData();
   }, [todaysVisits]);
+
+  // Per-visit paid totals derived from the batched DOA payments — replaces the
+  // per-row referee_doa_payments query IpdRefereeAmountCell used to fire.
+  const doaPaidTotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    Object.entries(doaPayments).forEach(([visitUuid, payments]) => {
+      totals[visitUuid] = (payments || []).reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    });
+    return totals;
+  }, [doaPayments]);
 
   // Function to check if referral letter is uploaded for a visit
   const checkReferralLetterUploaded = async (visitId: string, patientName?: string) => {
@@ -1985,24 +2005,46 @@ const TodaysIpdDashboard = () => {
 
   const renderIntimationStatus = (visit: any) => <IntimationDateToggle visit={visit} />;
 
-  // Load referral letter status for all visits
+  // Load referral letter status for all visits — batched (one query per 200
+  // visits instead of 1-2 per visit), same semantics as checkReferralLetterUploaded.
   useEffect(() => {
     const loadReferralLetterStatus = async () => {
       if (!todaysVisits || todaysVisits.length === 0) return;
 
-      const statusPromises = todaysVisits.map(async (visit) => {
-        const isUploaded = await checkReferralLetterUploaded(visit.visit_id, visit.patients?.name);
-        return { visitId: visit.visit_id, isUploaded };
-      });
+      try {
+        const visitIds = todaysVisits.map(v => v.visit_id).filter(Boolean) as string[];
+        const uploadedDocs = await fetchAllByIn<{ visit_id: string }>(visitIds, (chunk) => supabase
+          .from('patient_documents')
+          .select('visit_id')
+          .in('visit_id', chunk)
+          .eq('document_type_id', 1)
+          .eq('is_uploaded', true));
+        const uploadedByVisit = new Set(uploadedDocs.map(d => d.visit_id));
 
-      const results = await Promise.all(statusPromises);
-      const statusMap: Record<string, boolean> = {};
-      
-      results.forEach(({ visitId, isUploaded }) => {
-        statusMap[visitId] = isUploaded;
-      });
+        // Fallback for documents saved without a visit_id: match by patient name
+        const missingNames = todaysVisits
+          .filter(v => !uploadedByVisit.has(v.visit_id))
+          .map(v => v.patients?.name)
+          .filter(Boolean) as string[];
+        const fallbackDocs = missingNames.length > 0
+          ? await fetchAllByIn<{ patient_name: string }>(missingNames, (chunk) => supabase
+              .from('patient_documents')
+              .select('patient_name')
+              .in('patient_name', chunk)
+              .eq('document_type_id', 1)
+              .eq('is_uploaded', true))
+          : [];
+        const uploadedByName = new Set(fallbackDocs.map(d => d.patient_name));
 
-      setReferralLetterStatus(statusMap);
+        const statusMap: Record<string, boolean> = {};
+        todaysVisits.forEach(visit => {
+          statusMap[visit.visit_id] = uploadedByVisit.has(visit.visit_id) ||
+            (!!visit.patients?.name && uploadedByName.has(visit.patients.name));
+        });
+        setReferralLetterStatus(statusMap);
+      } catch (error) {
+        console.error('Error loading referral letter status:', error);
+      }
     };
 
     loadReferralLetterStatus();
@@ -3328,7 +3370,13 @@ const TodaysIpdDashboard = () => {
                   {/* Only show referral-related cells for marketing managers */}
                   {isMarketingManager && (
                     <TableCell>
-                      <IpdRefereeAmountCell visit={visit} onUpdate={refetch} billTotal={billTotals[visit.visit_id] || 0} />
+                      <IpdRefereeAmountCell
+                        visit={visit}
+                        onUpdate={refetch}
+                        billTotal={billTotals[visit.visit_id] || 0}
+                        totalPaid={doaPaidTotals[visit.id] || 0}
+                        advanceTotal={advancePaymentData.activeTotals[visit.visit_id] || 0}
+                      />
                     </TableCell>
                   )}
                   {isMarketingManager && (

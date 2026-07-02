@@ -1,4 +1,9 @@
 import { useState, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { format } from 'date-fns';
+import { DateRange } from 'react-day-picker';
+import { DateRangePicker } from '@/components/ui/date-range-picker';
+import { usePatientsCount } from '@/hooks/useCounts';
 import { SearchAndControls } from '@/components/SearchAndControls';
 import { DiagnosisCard } from '@/components/DiagnosisCard';
 import { StatisticsCards } from '@/components/StatisticsCards';
@@ -23,7 +28,30 @@ const Index = () => {
   const [isAddDiagnosisDialogOpen, setIsAddDiagnosisDialogOpen] = useState(false);
   const [selectedSurgery, setSelectedSurgery] = useState<string>();
   const [expandedSurgeries, setExpandedSurgeries] = useState<Record<string, boolean>>({});
-  
+
+  // Default view = today's patients only; an explicit range (URL params, so
+  // refresh/share keeps it) loads history on demand. Search still finds any
+  // patient across all dates via the server-side search inside usePatients.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const hasExplicitRange = searchParams.has('startDate');
+  const startDate = searchParams.get('startDate') || todayStr;
+  const endDate = hasExplicitRange ? (searchParams.get('endDate') || '') : todayStr;
+
+  const pickerRange: DateRange | undefined = useMemo(() => ({
+    from: new Date(`${startDate}T00:00:00`),
+    to: endDate ? new Date(`${endDate}T00:00:00`) : undefined,
+  }), [startDate, endDate]);
+
+  const handleDateRangeChange = (range: DateRange | undefined) => {
+    const next = new URLSearchParams(searchParams);
+    if (range?.from) next.set('startDate', format(range.from, 'yyyy-MM-dd'));
+    else next.delete('startDate');
+    if (range?.to) next.set('endDate', format(range.to, 'yyyy-MM-dd'));
+    else next.delete('endDate');
+    setSearchParams(next, { replace: true });
+  };
+
   const {
     diagnoses,
     patients,
@@ -34,15 +62,22 @@ const Index = () => {
     addDiagnosis,
     isUpdatingPatient,
     isDeletingPatient
-  } = usePatients();
+  } = usePatients({
+    dateRange: { from: startDate, to: endDate || undefined },
+    searchTerm,
+  });
 
   const { toast } = useToast();
 
   const currentHospital = hospitalConfig.name === 'ayushman' ? 'ayushman' : 'hope';
 
-  // Fetch patient_data table data with hospital filtering
+  // Fetch patient_data table data with hospital filtering.
+  // Legacy records have free-text dates, so they can't be date-scoped; instead
+  // this only loads when the user explicitly picks a range (0 requests on the
+  // default today view, identical results once a range is chosen).
   const { data: patientDataRecords = [] } = useQuery({
     queryKey: ['patient-data-records', currentHospital],
+    enabled: hasExplicitRange,
     queryFn: async () => {
       // Get patient IDs for this hospital. Abort after 8s so a slow/unreachable
       // DB fails fast instead of hanging ~20s+.
@@ -267,11 +302,9 @@ const Index = () => {
     }
   }, [filteredPatients, expandedSurgeries]);
 
-  // Calculate statistics from combined patients
-  const totalPatients: number = Object.values(combinedPatients).reduce<number>((sum: number, patientList) => {
-    const patientArray = Array.isArray(patientList) ? patientList : [];
-    return sum + patientArray.length;
-  }, 0);
+  // All-time hospital total from the app-wide cached count query — independent
+  // of the date-scoped list, so the number matches the pre-date-filter value.
+  const { data: totalPatients = 0 } = usePatientsCount();
   
   const handleAddPatient = (surgery: string, patient: any) => {
     addPatient({ diagnosisName: surgery, patient });
@@ -371,6 +404,20 @@ const Index = () => {
         <StatisticsCards
           totalPatients={totalPatients}
         />
+
+        <div className="mb-4 flex items-center gap-2 flex-wrap">
+          <DateRangePicker date={pickerRange} onDateChange={handleDateRangeChange} />
+          {hasExplicitRange && (
+            <Button variant="ghost" size="sm" onClick={() => handleDateRangeChange(undefined)}>
+              Today
+            </Button>
+          )}
+          <span className="text-xs text-muted-foreground">
+            {hasExplicitRange
+              ? 'Showing selected date range'
+              : "Showing today's patients — pick a date range or search by name/ID/phone for older records"}
+          </span>
+        </div>
 
         <SearchAndControls
           searchTerm={searchTerm}

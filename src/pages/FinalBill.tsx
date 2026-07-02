@@ -2713,16 +2713,26 @@ const FinalBill = () => {
     calculateBalanceWithDiscount
   } = useFinancialSummary(billData?.id, visitId, savedMedicationData);
 
-  // Auto-load Financial Summary once when page opens
+  // Auto-load Financial Summary once when page opens.
+  // Gated by a ref: autoPopulateFinancialData is re-created every render, so
+  // depending on it alone re-fires this effect on every render and each run's
+  // setState triggers the next render — an infinite fetch loop (~20 REST calls
+  // per cycle). The ref guarantees exactly one run per visit, and the
+  // isInitializing/isLoading/isStateLocked gate defers that run until the
+  // hook's initial database load has finished (otherwise the guards inside
+  // autoPopulateFinancialData would queue-and-skip it).
+  const autoPopulatedVisitRef = useRef<string | null>(null);
   useEffect(() => {
-    if (visitId && autoPopulateFinancialData) {
-      autoPopulateFinancialData().then(() => {
-        if (calculateBalanceWithDiscount) {
-          calculateBalanceWithDiscount();
-        }
-      });
-    }
-  }, [visitId, autoPopulateFinancialData]);
+    if (!visitId || !autoPopulateFinancialData) return;
+    if (isInitializing || isFinancialSummaryLoading || isStateLocked) return;
+    if (autoPopulatedVisitRef.current === visitId) return;
+    autoPopulatedVisitRef.current = visitId;
+    autoPopulateFinancialData().then(() => {
+      if (calculateBalanceWithDiscount) {
+        calculateBalanceWithDiscount();
+      }
+    });
+  }, [visitId, isInitializing, isFinancialSummaryLoading, isStateLocked, autoPopulateFinancialData, calculateBalanceWithDiscount]);
 
   // Sync implant totals to Financial Summary
   useEffect(() => {
