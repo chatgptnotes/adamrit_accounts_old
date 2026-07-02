@@ -98,51 +98,9 @@ const Invoice = () => {
     queryKey: ['invoice-payments', visitId],
     queryFn: async () => {
 
-      if (!visitId) {
-        return [];
-      }
-
-      // First get the UUID from visits table using visit_id string
-      const { data: visitData, error: visitError } = await supabase
-        .from('visits')
-        .select('id')
-        .eq('visit_id', visitId)
-        .single();
-
-
-      if (visitError || !visitData?.id) {
-        console.error('Could not find visit UUID for payments:', visitError);
-        return [];
-      }
-
-      const visitUUID = visitData.id;
-
-      // Try querying accounting_transactions with UUID first
-      let { data, error } = await supabase
-        .from('accounting_transactions')
-        .select('*')
-        .eq('visit_id', visitUUID)
-        .eq('transaction_type', 'payment');
-
-
-      // If UUID query returns empty, try with string visit_id
-      if ((!data || data.length === 0) && !error) {
-        const result = await supabase
-          .from('accounting_transactions')
-          .select('*')
-          .eq('visit_id', visitId)
-          .eq('transaction_type', 'payment');
-
-        data = result.data;
-        error = result.error;
-      }
-
-      if (error) {
-        console.error('Error fetching payment data:', error);
-        return [];
-      }
-
-      return data || [];
+      // accounting_transactions table does not exist in this project's schema;
+      // payment totals come from advance_payment below.
+      return [];
     },
     enabled: !!visitId
   });
@@ -152,51 +110,9 @@ const Invoice = () => {
     queryKey: ['invoice-advances', visitId],
     queryFn: async () => {
 
-      if (!visitId) {
-        return [];
-      }
-
-      // First get the UUID from visits table using visit_id string
-      const { data: visitData, error: visitError } = await supabase
-        .from('visits')
-        .select('id')
-        .eq('visit_id', visitId)
-        .single();
-
-
-      if (visitError || !visitData?.id) {
-        console.error('Could not find visit UUID for advances:', visitError);
-        return [];
-      }
-
-      const visitUUID = visitData.id;
-
-      // Try querying accounting_transactions with UUID first
-      let { data, error } = await supabase
-        .from('accounting_transactions')
-        .select('*')
-        .eq('visit_id', visitUUID)
-        .eq('transaction_type', 'advance');
-
-
-      // If UUID query returns empty, try with string visit_id
-      if ((!data || data.length === 0) && !error) {
-        const result = await supabase
-          .from('accounting_transactions')
-          .select('*')
-          .eq('visit_id', visitId)
-          .eq('transaction_type', 'advance');
-
-        data = result.data;
-        error = result.error;
-      }
-
-      if (error) {
-        console.error('Error fetching advance data:', error);
-        return [];
-      }
-
-      return data || [];
+      // accounting_transactions table does not exist in this project's schema;
+      // advance totals come from advance_payment below.
+      return [];
     },
     enabled: !!visitId
   });
