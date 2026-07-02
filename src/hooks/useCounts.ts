@@ -30,7 +30,7 @@ export const useCounts = (enabled: boolean = true) => {
         return 0;
       }
     },
-    retry: 1,
+    retry: 0,
     refetchOnWindowFocus: false,
     staleTime: 5 * 60 * 1000,
     enabled,
@@ -61,7 +61,7 @@ export const useCounts = (enabled: boolean = true) => {
         return 0;
       }
     },
-    retry: 1,
+    retry: 0,
     refetchOnWindowFocus: false,
     staleTime: 5 * 60 * 1000,
     enabled,
@@ -86,7 +86,7 @@ export const useCounts = (enabled: boolean = true) => {
         return 0;
       }
     },
-    retry: 1,
+    retry: 0,
     refetchOnWindowFocus: false,
     staleTime: 5 * 60 * 1000,
     enabled,
@@ -111,7 +111,7 @@ export const useCounts = (enabled: boolean = true) => {
         return 0;
       }
     },
-    retry: 1,
+    retry: 0,
     refetchOnWindowFocus: false,
     staleTime: 5 * 60 * 1000,
     enabled,
@@ -136,7 +136,7 @@ export const useCounts = (enabled: boolean = true) => {
         return 0;
       }
     },
-    retry: 1,
+    retry: 0,
     refetchOnWindowFocus: false,
     staleTime: 5 * 60 * 1000,
     enabled,
@@ -161,7 +161,7 @@ export const useCounts = (enabled: boolean = true) => {
         return 0;
       }
     },
-    retry: 1,
+    retry: 0,
     refetchOnWindowFocus: false,
     staleTime: 5 * 60 * 1000,
     enabled,
@@ -186,7 +186,7 @@ export const useCounts = (enabled: boolean = true) => {
         return 0;
       }
     },
-    retry: 1,
+    retry: 0,
     refetchOnWindowFocus: false,
     staleTime: 5 * 60 * 1000,
     enabled,
@@ -211,7 +211,7 @@ export const useCounts = (enabled: boolean = true) => {
         return 0;
       }
     },
-    retry: 1,
+    retry: 0,
     refetchOnWindowFocus: false,
     staleTime: 5 * 60 * 1000,
     enabled,
@@ -236,7 +236,7 @@ export const useCounts = (enabled: boolean = true) => {
         return 0;
       }
     },
-    retry: 1,
+    retry: 0,
     refetchOnWindowFocus: false,
     staleTime: 5 * 60 * 1000,
     enabled,
@@ -261,7 +261,7 @@ export const useCounts = (enabled: boolean = true) => {
         return 0;
       }
     },
-    retry: 1,
+    retry: 0,
     refetchOnWindowFocus: false,
     staleTime: 5 * 60 * 1000,
     enabled,
@@ -286,7 +286,7 @@ export const useCounts = (enabled: boolean = true) => {
         return 0;
       }
     },
-    retry: 1,
+    retry: 0,
     refetchOnWindowFocus: false,
     staleTime: 5 * 60 * 1000,
     enabled,
@@ -311,7 +311,7 @@ export const useCounts = (enabled: boolean = true) => {
         return 0;
       }
     },
-    retry: 1,
+    retry: 0,
     refetchOnWindowFocus: false,
     staleTime: 5 * 60 * 1000,
     enabled,
@@ -336,7 +336,7 @@ export const useCounts = (enabled: boolean = true) => {
         return 0;
       }
     },
-    retry: 1,
+    retry: 0,
     refetchOnWindowFocus: false,
     staleTime: 5 * 60 * 1000,
     enabled,
@@ -361,7 +361,7 @@ export const useCounts = (enabled: boolean = true) => {
         return 0;
       }
     },
-    retry: 1,
+    retry: 0,
     refetchOnWindowFocus: false,
     staleTime: 5 * 60 * 1000,
     enabled,
@@ -386,7 +386,7 @@ export const useCounts = (enabled: boolean = true) => {
         return 0;
       }
     },
-    retry: 1,
+    retry: 0,
     refetchOnWindowFocus: false,
     staleTime: 5 * 60 * 1000,
     enabled,
@@ -411,7 +411,7 @@ export const useCounts = (enabled: boolean = true) => {
         return 0;
       }
     },
-    retry: 1,
+    retry: 0,
     refetchOnWindowFocus: false,
     staleTime: 5 * 60 * 1000,
     enabled,
@@ -431,7 +431,7 @@ export const useCounts = (enabled: boolean = true) => {
         return 0;
       }
     },
-    retry: 1,
+    retry: 0,
     refetchInterval: enabled ? 60_000 : false,
     staleTime: 30_000,
     enabled,

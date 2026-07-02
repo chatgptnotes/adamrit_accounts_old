@@ -92,7 +92,7 @@ export const useDepartmentActivity = (enabled: boolean = true) => {
 
       return departments;
     },
-    retry: 1,
+    retry: 0,
     refetchOnWindowFocus: false,
     refetchInterval: 60_000,
     staleTime: 60_000,
