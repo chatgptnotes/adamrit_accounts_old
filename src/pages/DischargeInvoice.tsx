@@ -91,7 +91,7 @@ const DischargeInvoice = () => {
         supabase.from('visit_clinical_services').select('*').eq('visit_id', visitUUID.id),
         supabase.from('visit_mandatory_services').select('*').eq('visit_id', visitUUID.id),
         supabase.from('visit_accommodations').select('*').eq('visit_id', visitUUID.id),
-        supabase.from('advance_payment').select('amount').eq('visit_id', visitId),
+        supabase.from('advance_payment').select('advance_amount').eq('visit_id', visitId),
         supabase.from('financial_summary').select('discount_total').eq('visit_id', visitId).maybeSingle()
       ]);
 
@@ -104,7 +104,7 @@ const DischargeInvoice = () => {
       const accommodationTotal = accommodationData.data?.reduce((sum, item) => sum + (parseFloat(item.amount || '0') || 0), 0) || 0;
 
       const totalAmount = labTotal + radiologyTotal + medicationTotal + clinicalTotal + mandatoryTotal + accommodationTotal;
-      const amountPaid = advancePaymentData.data?.reduce((sum, item) => sum + (parseFloat(item.amount || '0') || 0), 0) || 0;
+      const amountPaid = advancePaymentData.data?.reduce((sum, item) => sum + (parseFloat(item.advance_amount || '0') || 0), 0) || 0;
       const discount = parseFloat(discountData.data?.discount_total || '0') || 0;
 
       console.log('💰 Calculated totals:', {

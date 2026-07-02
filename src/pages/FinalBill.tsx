@@ -4206,8 +4206,7 @@ const FinalBill = () => {
         .select(`
           *,
           radiology:radiology_id (
-            name,
-            cost
+            name
           )
         `)
         .eq('visit_id', visitData.id);
@@ -4219,7 +4218,7 @@ const FinalBill = () => {
             itemCount++;
             investigationText += `${itemCount}. ${radiologyInfo.name}\n`;
             investigationText += `   CODE: N/A\n`;
-            investigationText += `   APPROXIMATE COST: ₹${radiologyInfo.cost || 'N/A'}\n\n`;
+            investigationText += `   APPROXIMATE COST: ₹${radiologyItem.cost || 'N/A'}\n\n`;
           }
         });
       }
