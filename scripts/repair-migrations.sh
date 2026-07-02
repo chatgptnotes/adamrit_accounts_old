@@ -20,4 +20,19 @@ while read -r v; do
   fi
 done < /tmp/local-only-migrations.txt
 echo "repaired=$ok failed=$fail"
-echo "Verify with: supabase migration list --linked"
+
+# Remove remote-history rows that no longer correspond to any local file
+# (e.g. old 8-digit versions superseded by padded 14-digit renames).
+supabase migration list --linked 2>/dev/null \
+  | awk -F'|' 'NR>2 {gsub(/ /,"",$1); gsub(/ /,"",$2); if ($1 == "" && $2 != "") print $2}' \
+  | sort -u > /tmp/remote-only-migrations.txt
+
+while read -r v; do
+  if supabase migration repair --status reverted "$v" >/dev/null 2>&1; then
+    echo "reverted orphan: $v"
+  else
+    echo "REVERT FAILED: $v"
+  fi
+done < /tmp/remote-only-migrations.txt
+
+echo "Verify with: supabase db push --dry-run --linked"
