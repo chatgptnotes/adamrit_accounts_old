@@ -36,7 +36,8 @@ const normalizedSchema = z.object({
   user_email: z.string().optional().nullable(),
 });
 
-type NormalizedSubmission = z.infer<typeof normalizedSchema>;
+// Input shape of the schema: `tasks` may still be a newline/comma string here.
+type NormalizedSubmission = z.input<typeof normalizedSchema>;
 
 // Pull a value from a JotForm rawRequest object by matching key fragments.
 function pickByFragment(obj: Record<string, unknown>, fragments: string[]): string | undefined {
