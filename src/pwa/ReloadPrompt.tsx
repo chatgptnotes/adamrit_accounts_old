@@ -16,8 +16,8 @@ export function ReloadPrompt() {
       if (!registration) return;
       // Idle tabs may not check for a new service worker for up to ~24h after
       // a deploy, leaving them running stale code (and stale bugs) all day.
-      // Check every 15 minutes and whenever the tab becomes visible again.
-      setInterval(() => registration.update(), 15 * 60 * 1000);
+      // Check every hour and whenever the tab becomes visible again.
+      setInterval(() => registration.update(), 60 * 60 * 1000);
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') registration.update();
       });
