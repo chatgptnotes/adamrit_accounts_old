@@ -18,6 +18,7 @@ export const SidebarMenuItem = ({ item }: SidebarMenuItemProps) => {
       event.preventDefault();
       window.open(route, '_blank');
     } else {
+      event.preventDefault();
       // Preserve query params if navigating to same base path
       const currentPath = location.pathname;
       const currentSearch = location.search;
