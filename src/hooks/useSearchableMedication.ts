@@ -8,16 +8,16 @@ export const useSearchableMedication = () => {
   const { data: medications = [], isLoading } = useQuery({
     queryKey: ['medications', searchTerm],
     queryFn: async () => {
-      let query = supabase
+      // Results are only shown while a term is typed; don't fetch the
+      // whole 23k-row table for a hidden dropdown.
+      if (!searchTerm) return [];
+
+      const { data, error } = await supabase
         .from('medication')
         .select('*')
-        .order('name');
-
-      if (searchTerm) {
-        query = query.or(`name.ilike.%${searchTerm}%,generic_name.ilike.%${searchTerm}%,category.ilike.%${searchTerm}%`);
-      }
-
-      const { data, error } = await query;
+        .or(`name.ilike.%${searchTerm}%,generic_name.ilike.%${searchTerm}%,category.ilike.%${searchTerm}%`)
+        .order('name')
+        .limit(50);
       
       
       if (error) {

@@ -19,12 +19,20 @@ const Medications = () => {
   const queryClient = useQueryClient();
 
   const { data: medications = [], isLoading } = useQuery({
-    queryKey: ['medication'],
+    queryKey: ['medication', searchTerm],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from('medication')
         .select('*')
-        .order('name');
+        .order('name')
+        .limit(100);
+      if (searchTerm) {
+        const t = `%${searchTerm}%`;
+        query = query.or(
+          `name.ilike.${t},description.ilike.${t},generic_name.ilike.${t},category.ilike.${t},manufacturer.ilike.${t},medicine_code.ilike.${t},item_code.ilike.${t},barcode.ilike.${t},supplier_name.ilike.${t}`
+        );
+      }
+      const { data, error } = await query;
       
       if (error) {
         console.error('Error fetching medications:', error);

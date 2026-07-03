@@ -69,9 +69,16 @@ const MedicineInventory: React.FC = () => {
   useEffect(() => {
     const fetchMedicines = async () => {
       setLoading(true);
-      const { data, error } = await supabase
+      let query = supabase
         .from('medication')
-        .select('*');
+        .select('*')
+        .order('name')
+        .limit(100);
+      if (searchTerm) {
+        const t = `%${searchTerm}%`;
+        query = query.or(`name.ilike.${t},generic_name.ilike.${t},medicine_code.ilike.${t}`);
+      }
+      const { data, error } = await query;
       if (error) {
         console.error('Error fetching medicines:', error);
         setMedicines([]);
@@ -80,8 +87,10 @@ const MedicineInventory: React.FC = () => {
       }
       setLoading(false);
     };
-    fetchMedicines();
-  }, []);
+    // Debounce so each keystroke doesn't fire a query
+    const timer = setTimeout(fetchMedicines, searchTerm ? 300 : 0);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   const categories = ['All', 'Analgesics', 'Antibiotics', 'Anti-inflammatory', 'Vitamins', 'Cardiovascular'];
 

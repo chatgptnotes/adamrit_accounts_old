@@ -32,12 +32,17 @@ const MedicationsTab = ({ patient, visitId }: MedicationsTabProps) => {
 
   // Fetch medications from database
   const { data: medications = [] } = useQuery({
-    queryKey: ['medications'],
+    queryKey: ['medications', searchTerm],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from('medication')
         .select('*')
-        .order('name');
+        .order('name')
+        .limit(100);
+      if (searchTerm) {
+        query = query.ilike('name', `%${searchTerm}%`);
+      }
+      const { data, error } = await query;
       
       if (error) {
         console.error('Error fetching medications:', error);
