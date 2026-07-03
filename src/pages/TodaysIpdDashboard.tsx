@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { ExtensionDaysCell } from '@/components/ipd/ExtensionDaysCell';
 import { useAuth } from '@/contexts/AuthContext';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows, fetchAllByIn } from '@/utils/fetchAllRows';
 import { toast } from "@/hooks/use-toast";
@@ -1542,6 +1542,10 @@ const TodaysIpdDashboard = () => {
 
   const { data: todaysVisits = [], isLoading, refetch } = useQuery({
     queryKey: ['todays-visits', hospitalConfig?.name, startDate, endDate, activeSearch],
+    // Keep prior results rendered while a new search/date-range key fetches,
+    // so the isLoading early-return doesn't unmount the page (and the search
+    // input doesn't lose focus) on every keystroke.
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       console.log('🏥 TodaysIpdDashboard: Fetching visits for hospital:', hospitalConfig?.name);
 
