@@ -31,6 +31,7 @@ interface PurchaseOrderItem {
   tax_amount: number;
   order_quantity: number;
   received_quantity?: number;
+  free_quantity?: number;
   amount: number;
   gst?: number;
   sgst?: number;
@@ -116,6 +117,7 @@ const EditPurchaseOrder: React.FC<EditPurchaseOrderProps> = ({ purchaseOrderId, 
           tax_amount: grnItem.tax_amount || 0,
           order_quantity: grnItem.ordered_quantity,
           received_quantity: grnItem.received_quantity,
+          free_quantity: grnItem.free_quantity || 0,
           amount: grnItem.amount || 0,
           gst: grnItem.gst,
           sgst: grnItem.sgst,
@@ -258,7 +260,7 @@ const EditPurchaseOrder: React.FC<EditPurchaseOrderProps> = ({ purchaseOrderId, 
         received_quantity: item.received_quantity || item.order_quantity,
         accepted_quantity: item.received_quantity || item.order_quantity,
         rejected_quantity: 0,
-        free_quantity: 0,
+        free_quantity: item.free_quantity || 0,
         purchase_price: item.purchase_price,
         sale_price: item.sale_price,
         mrp: item.mrp,
@@ -772,7 +774,15 @@ const EditPurchaseOrder: React.FC<EditPurchaseOrderProps> = ({ purchaseOrderId, 
                           onChange={(e) => handleItemChange(index, 'received_quantity', parseInt(e.target.value) || 0)}
                         />
                       </td>
-                      <td className="px-4 py-2 text-center text-xs text-gray-500">-</td>
+                      <td className="px-4 py-2">
+                        <Input
+                          type="number"
+                          min="0"
+                          className="w-16 h-8 px-2 text-xs text-center border-gray-300"
+                          value={item.free_quantity || 0}
+                          onChange={(e) => handleItemChange(index, 'free_quantity', parseInt(e.target.value) || 0)}
+                        />
+                      </td>
                       <td className="px-4 py-2 text-right text-xs font-semibold text-gray-900">
                         ₹{item.amount?.toFixed(2)}
                       </td>
