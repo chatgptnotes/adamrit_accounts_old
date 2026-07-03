@@ -24,7 +24,7 @@ import { DirectorKpiCards } from '@/components/DirectorKpiCards';
 import { DepartmentActivityMonitor } from '@/components/DepartmentActivityMonitor';
 import { DirectorProjectLauncher } from '@/components/DirectorProjectLauncher';
 import { DailyRevenueReportSection } from '@/components/DailyRevenueReportSection';
-import { ExpenseReportSection } from '@/components/ExpenseReportSection';
+import { DirectorFinancialStatements } from '@/components/DirectorFinancialStatements';
 import { usePaymentDeadlines, type PaymentDeadline } from '@/hooks/usePaymentDeadlines';
 
 const DIRECTOR_EMAILS = ['cmd@hopehospital.com', 'finance@hopehospital.com'];
@@ -694,8 +694,8 @@ export default function DirectorDashboard() {
       {/* Daily Revenue Report Section */}
       <DailyRevenueReportSection />
 
-      {/* Monthly Expense Report Section */}
-      <ExpenseReportSection />
+      {/* Monthly Financial Statements: income, expenses, receivables, payables, marketing revenue */}
+      <DirectorFinancialStatements />
 
       {/* Navigation Cards Section */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
