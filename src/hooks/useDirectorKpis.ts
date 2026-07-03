@@ -123,7 +123,7 @@ async function fetchCollection(range: DateRange, hospitalVisitIds: Set<string>) 
   const [advance, finalPay] = await Promise.all([
     sb
       .from('advance_payment')
-      .select('advance_amount, amount, visit_id')
+      .select('advance_amount, visit_id')
       .eq('status', 'ACTIVE')
       .eq('is_refund', false)
       .gte('created_at', range.startISO)
@@ -137,11 +137,11 @@ async function fetchCollection(range: DateRange, hospitalVisitIds: Set<string>) 
   if (advance.error) throw advance.error;
   if (finalPay.error) throw finalPay.error;
 
-  // advance_payment is queried as `amount` in some files and `advance_amount` in
-  // others — prefer the explicit advance_amount, fall back to amount.
+  // The column is advance_amount — selecting a nonexistent `amount` fallback
+  // 400s the whole request (42703) and blanks the Collection KPI.
   const advanceTotal = (advance.data || [])
     .filter((r: any) => hospitalVisitIds.has(r.visit_id))
-    .reduce((s: number, r: any) => s + (Number(r.advance_amount ?? r.amount) || 0), 0);
+    .reduce((s: number, r: any) => s + (Number(r.advance_amount) || 0), 0);
   const finalTotal = (finalPay.data || [])
     .filter((r: any) => hospitalVisitIds.has(r.visit_id))
     .reduce((s: number, r: any) => s + (Number(r.amount) || 0), 0);
