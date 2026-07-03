@@ -76,11 +76,14 @@ const BASE_BILLING_EXECUTIVES = [
   'Nisha',
   'Diksha',
   'Pragati',
-  'Jagruti',
   'Abhishekh',
-  'Priyanka Tandekar',
-  'Sailesh'
+  'Sailesh',
+  'Abuzar'
 ];
+
+// Former executives removed from the dropdown. Their (possibly seeded) User
+// rows would otherwise re-add them via the DB merge below.
+const REMOVED_BILLING_EXECUTIVES = new Set(['jagruti', 'priyanka tandekar']);
 
 // Filter out non-staff / system accounts and raw login usernames so they never
 // appear in the Billing Executive dropdown (e.g. admin, test, superadmin,
@@ -179,7 +182,7 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
       }
       const dbNames = (data || [])
         .map((u: any) => (u.full_name?.trim() || u.email?.split('@')[0] || '').trim())
-        .filter((n: string) => n && !isJunkExecutiveName(n));
+        .filter((n: string) => n && !isJunkExecutiveName(n) && !REMOVED_BILLING_EXECUTIVES.has(n.toLowerCase()));
 
       // Merge base + DB names, de-duplicated case-insensitively (first spelling wins).
       const seen = new Set<string>();
