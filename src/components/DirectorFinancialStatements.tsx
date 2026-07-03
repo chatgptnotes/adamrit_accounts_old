@@ -43,6 +43,7 @@ export function DirectorFinancialStatements() {
     <>
       <MonthlyMatrixCard
         title="Income Statement"
+        statementKey="income"
         icon={<TrendingUp className="h-5 w-5 text-blue-600" />}
         accentClass="border-l-blue-500"
         rows={INCOME_ROWS}
@@ -50,12 +51,14 @@ export function DirectorFinancialStatements() {
       />
       <MonthlyMatrixCard
         title="Expense Report"
+        statementKey="expense"
         icon={<Receipt className="h-5 w-5 text-emerald-600" />}
         accentClass="border-l-emerald-500"
         rows={EXPENSE_ROWS}
       />
       <MonthlyMatrixCard
         title="Receivables"
+        statementKey="receivables"
         subtitle="Position as on the 1st of each month"
         icon={<ArrowDownToLine className="h-5 w-5 text-amber-600" />}
         accentClass="border-l-amber-500"
@@ -64,6 +67,7 @@ export function DirectorFinancialStatements() {
       />
       <MonthlyMatrixCard
         title="Payables"
+        statementKey="payables"
         subtitle="Position as on the 1st of each month"
         icon={<ArrowUpFromLine className="h-5 w-5 text-rose-600" />}
         accentClass="border-l-rose-500"
@@ -71,6 +75,7 @@ export function DirectorFinancialStatements() {
       />
       <MonthlyMatrixCard
         title="Marketing Executive Revenue"
+        statementKey="marketing_revenue"
         subtitle="Rows pulled live from the marketing executives master"
         icon={<Megaphone className="h-5 w-5 text-violet-600" />}
         accentClass="border-l-violet-500"
