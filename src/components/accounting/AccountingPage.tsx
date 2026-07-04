@@ -34,6 +34,7 @@ import BankReconciliation from './BankReconciliation';
 import CashBankSummary from './CashBankSummary';
 import CashBankBook from './CashBankBook';
 import BillsReceivable from './BillsReceivable';
+import BillsPayable from './BillsPayable';
 import { TallyTopBar } from './tally/TallyChrome';
 
 /** Navigation item definition for the accounting sidebar. */
@@ -61,6 +62,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'cash-flow', label: 'Cash Flow', icon: ArrowLeftRight },
   { id: 'bank-reconciliation', label: 'Bank Reconciliation', icon: Building2 },
   { id: 'bills-receivable', label: 'Bills Receivable', icon: Landmark },
+  { id: 'bills-payable', label: 'Bills Payable', icon: Landmark },
   { id: 'bill-aging', label: 'Bill Aging Statement', icon: Calendar, route: '/bill-aging-statement' },
   { id: 'expected-payments', label: 'Expected Payments', icon: Calendar, route: '/expected-payment-date-report' },
   { id: 'director-receivables', label: 'Receivables Matrix', icon: TrendingUp, route: '/director-dashboard' },
@@ -99,6 +101,8 @@ const renderContent = (activeTab: string, goTo: (id: string) => void): React.Rea
       return <BankReconciliation />;
     case 'bills-receivable':
       return <BillsReceivable />;
+    case 'bills-payable':
+      return <BillsPayable />;
     case 'tally-import-export':
       return <TallyImportExport />;
     default:
