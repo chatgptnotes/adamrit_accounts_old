@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   BookOpen,
@@ -32,6 +33,7 @@ import CashFlow from './CashFlow';
 import BankReconciliation from './BankReconciliation';
 import CashBankSummary from './CashBankSummary';
 import CashBankBook from './CashBankBook';
+import BillsReceivable from './BillsReceivable';
 import { TallyTopBar } from './tally/TallyChrome';
 
 /** Navigation item definition for the accounting sidebar. */
@@ -39,6 +41,8 @@ interface NavItem {
   id: string;
   label: string;
   icon: React.ElementType;
+  /** When set, the item opens this app route instead of an accounting tab */
+  route?: string;
 }
 
 /** All available navigation items in the sidebar. */
@@ -56,6 +60,11 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'profit-loss', label: 'Profit & Loss', icon: TrendingUp },
   { id: 'cash-flow', label: 'Cash Flow', icon: ArrowLeftRight },
   { id: 'bank-reconciliation', label: 'Bank Reconciliation', icon: Building2 },
+  { id: 'bills-receivable', label: 'Bills Receivable', icon: Landmark },
+  { id: 'bill-aging', label: 'Bill Aging Statement', icon: Calendar, route: '/bill-aging-statement' },
+  { id: 'expected-payments', label: 'Expected Payments', icon: Calendar, route: '/expected-payment-date-report' },
+  { id: 'director-receivables', label: 'Receivables Matrix', icon: TrendingUp, route: '/director-dashboard' },
+  { id: 'tally-live', label: 'Tally Live (Outstanding)', icon: ArrowLeftRight, route: '/tally' },
   { id: 'tally-import-export', label: 'Tally Import/Export', icon: ArrowDownUp },
 ];
 
@@ -88,6 +97,8 @@ const renderContent = (activeTab: string, goTo: (id: string) => void): React.Rea
       return <CashFlow />;
     case 'bank-reconciliation':
       return <BankReconciliation />;
+    case 'bills-receivable':
+      return <BillsReceivable />;
     case 'tally-import-export':
       return <TallyImportExport />;
     default:
@@ -101,6 +112,7 @@ const renderContent = (activeTab: string, goTo: (id: string) => void): React.Rea
  * that renders the selected section.
  */
 const AccountingPage: React.FC = () => {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   // Collapsed icon rail by default — Tally-style full-width canvas.
   const [navExpanded, setNavExpanded] = useState(false);
@@ -139,7 +151,7 @@ const AccountingPage: React.FC = () => {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id)}
+                  onClick={() => (item.route ? navigate(item.route) : setActiveTab(item.id))}
                   title={item.label}
                   className={`
                     w-full flex items-center gap-3 py-2.5 text-sm transition-colors
@@ -164,7 +176,11 @@ const AccountingPage: React.FC = () => {
       <main className="flex-1 flex flex-col overflow-y-auto">
         <TallyTopBar
           sections={NAV_ITEMS.map(({ id, label }) => ({ id, label }))}
-          onGoTo={setActiveTab}
+          onGoTo={(id) => {
+            const item = NAV_ITEMS.find((n) => n.id === id);
+            if (item?.route) navigate(item.route);
+            else setActiveTab(id);
+          }}
         />
         <div className="flex-1 p-1">{renderContent(activeTab, setActiveTab)}</div>
       </main>
