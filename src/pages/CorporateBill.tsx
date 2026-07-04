@@ -5,6 +5,7 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
 import { isUuid } from '@/utils/visitId';
+import { BillDocumentsSection } from '@/pages/corporate-bill/BillDocumentsSection';
 
 const CorporateBill = () => {
   const { hospitalConfig } = useAuth();
@@ -12,6 +13,7 @@ const CorporateBill = () => {
   const { visitId } = useParams<{ visitId: string }>();
   const [loading, setLoading] = useState(true);
   const [patientInfo, setPatientInfo] = useState<any>({});
+  const [patientId, setPatientId] = useState<string | undefined>();
   const [diagnosis, setDiagnosis] = useState('');
   const [rows, setRows] = useState([{ item: '', procedure: '', rate: '', qty: '', amount: '' }]);
 
@@ -35,6 +37,7 @@ const CorporateBill = () => {
 
       if (!visit) { setLoading(false); return; }
       const patient = visit.patients;
+      setPatientId(patient?.id);
       const actualVisitId = visit.visit_id || visitId;
 
       // Fetch bill number from bills table
@@ -167,8 +170,10 @@ const CorporateBill = () => {
         <span className="text-sm text-gray-300 ml-2">All fields are editable</span>
       </div>
 
+      {/* Bill + Documents side panel */}
+      <div className="flex flex-wrap items-start justify-center gap-4 print:block xl:flex-nowrap">
       {/* Bill */}
-      <div className="max-w-[210mm] mx-auto bg-white shadow-lg print:shadow-none print:m-0">
+      <div className="w-[210mm] max-w-full shrink-0 bg-white shadow-lg print:shadow-none print:m-0 print:mx-auto">
         <div className="p-6 print:p-4" style={{ fontFamily: 'Arial, sans-serif' }}>
 
           <div className="text-center border-b-2 border-black pb-2 mb-0">
@@ -312,6 +317,12 @@ const CorporateBill = () => {
             <p className="font-semibold">Authorized Signatory</p>
           </div>
         </div>
+      </div>
+
+        {/* Documents side panel (hidden on print) */}
+        <aside className="print:hidden w-full max-w-full shrink-0 xl:w-[340px]">
+          <BillDocumentsSection patientId={patientId} patientName={patientInfo.patientName} />
+        </aside>
       </div>
     </div>
   );
