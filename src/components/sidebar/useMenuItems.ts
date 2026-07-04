@@ -86,7 +86,9 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
           ];
           const userEmail = user?.email?.toLowerCase() || '';
           const userRole = user?.role;
-          if (userRole !== 'superadmin' && !MASTER_ADMIN_EMAILS.includes(userEmail)) {
+          // Lab Master is open to the admin role too; the other masters stay superadmin-only
+          const allowedRoles = item.title === "Lab Master" ? ['superadmin', 'admin'] : ['superadmin'];
+          if (!allowedRoles.includes(userRole || '') && !MASTER_ADMIN_EMAILS.includes(userEmail)) {
             return false;
           }
         }

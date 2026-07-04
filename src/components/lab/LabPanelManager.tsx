@@ -603,8 +603,8 @@ const LabPanelManager: React.FC = () => {
   const { toast } = useToast();
   const { canEditMasters } = usePermissions();
   const { user } = useAuth();
-  // Any superadmin account may edit lab panels on the Add Panel screen
-  const canEditPanels = user?.role === 'superadmin' || user?.role === 'super_admin';
+  // Superadmin and admin accounts may edit lab panels on the Add Panel screen
+  const canEditPanels = user?.role === 'superadmin' || user?.role === 'super_admin' || user?.role === 'admin';
 
   // Use real database data with fallback to local storage
   const { panels: dbPanels, loading, error, refetch, createPanel, updatePanel, deletePanel } = useTestPanels();

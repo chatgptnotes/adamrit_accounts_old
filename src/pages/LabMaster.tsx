@@ -13,7 +13,7 @@ const LabMaster = () => {
   const userEmail = user?.email?.toLowerCase() || '';
   const userRole = user?.role;
 
-  if (userRole !== 'superadmin' && !MASTER_ADMIN_EMAILS.includes(userEmail)) {
+  if (userRole !== 'superadmin' && userRole !== 'admin' && !MASTER_ADMIN_EMAILS.includes(userEmail)) {
     return <Navigate to="/" replace />;
   }
 
