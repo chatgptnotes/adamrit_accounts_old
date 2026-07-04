@@ -1,227 +1,234 @@
-import React from 'react';
-import { X } from 'lucide-react';
-import TallyHeader from './TallyHeader';
-import TallyFooter from './TallyFooter';
+import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { accountMovements, type Movement } from '@/lib/accountMovements';
+import { TallyScreen } from './tally/TallyChrome';
 
-interface FundsFlowProps {
-  onClose: () => void;
+interface Account {
+  id: string;
+  account_code: string;
+  account_name: string;
+  account_type: string;
 }
 
-const FundsFlow: React.FC<FundsFlowProps> = ({ onClose }) => {
-  const months = [
-    'April', 'May', 'June', 'July', 'August', 'September', 
-    'October', 'November', 'December', 'January', 'February', 'March'
-  ];
+const fmt = (n: number): string =>
+  new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+
+const currentFyStartYear = (): number => {
+  const now = new Date();
+  return now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+};
+
+const fyMonths = (fyStartYear: number): { label: string; from: string; upto: string }[] => {
+  const out: { label: string; from: string; upto: string }[] = [];
+  for (let i = 0; i < 12; i++) {
+    const m = 3 + i;
+    const year = fyStartYear + (m > 11 ? 1 : 0);
+    const month = (m % 12) + 1;
+    const first = new Date(year, month - 1, 1);
+    const last = new Date(year, month, 0);
+    const iso = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    out.push({
+      label: first.toLocaleDateString('en-GB', { month: 'long', year: '2-digit' }).replace(' ', '-'),
+      from: iso(first),
+      upto: iso(last),
+    });
+  }
+  return out;
+};
+
+interface FlowLine {
+  name: string;
+  amount: number;
+}
+
+interface MonthFlow {
+  label: string;
+  from: string;
+  upto: string;
+  sources: FlowLine[];
+  applications: FlowLine[];
+  total: number;
+}
+
+// Classify a period's movements into funds-flow sources/applications.
+// Working capital (current assets/liabilities incl. cash) is the balancing
+// figure; non-current items and operating profit are the flows — Tally's method.
+const computeFlow = (
+  accounts: Account[],
+  mov: Map<string, Movement>,
+): { sources: FlowLine[]; applications: FlowLine[] } => {
+  const sources: FlowLine[] = [];
+  const applications: FlowLine[] = [];
+  let income = 0;
+  let expense = 0;
+  let wcDelta = 0; // Δ current assets − Δ current liabilities (both as dr−cr)
+
+  for (const a of accounts) {
+    const m = mov.get(a.id);
+    if (!m) continue;
+    const net = m.debit - m.credit;
+    if (Math.abs(net) < 0.005) continue;
+    const t = a.account_type?.toUpperCase() ?? '';
+    if (t.includes('INCOME')) income += -net;
+    else if (t.includes('EXPENSE')) expense += net;
+    else if (t === 'FIXED_ASSETS') {
+      if (net > 0) applications.push({ name: a.account_name, amount: net });
+      else sources.push({ name: a.account_name, amount: -net });
+    } else if (t === 'LONG_TERM_LIABILITIES' || t === 'EQUITY') {
+      if (net < 0) sources.push({ name: a.account_name, amount: -net });
+      else applications.push({ name: a.account_name, amount: net });
+    } else {
+      wcDelta += net;
+    }
+  }
+
+  const profit = income - expense;
+  if (profit > 0.005) sources.push({ name: 'Funds from Operations (Nett Profit)', amount: profit });
+  else if (profit < -0.005) applications.push({ name: 'Loss from Operations', amount: -profit });
+
+  if (wcDelta > 0.005) applications.push({ name: 'Increase in Working Capital', amount: wcDelta });
+  else if (wcDelta < -0.005) sources.push({ name: 'Decrease in Working Capital', amount: -wcDelta });
+
+  sources.sort((a, b) => b.amount - a.amount);
+  applications.sort((a, b) => b.amount - a.amount);
+  return { sources, applications };
+};
+
+/**
+ * Funds Flow — Tally Prime replica: Apr–Mar months with Sources /
+ * Applications totals; drill into a month for the two-panel statement
+ * (funds from operations, non-current movements, working-capital change).
+ */
+const FundsFlow: React.FC = () => {
+  const [fyYear, setFyYear] = useState(currentFyStartYear);
+  const [openMonth, setOpenMonth] = useState<MonthFlow | null>(null);
+
+  const { data: accounts = [] } = useQuery({
+    queryKey: ['ff_accounts'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('chart_of_accounts')
+        .select('id, account_code, account_name, account_type')
+        .eq('is_active', true);
+      if (error) throw error;
+      return data as Account[];
+    },
+  });
+
+  const { data: months = [], isLoading } = useQuery({
+    queryKey: ['funds_flow', fyYear, accounts.length],
+    enabled: accounts.length > 0,
+    queryFn: async () => {
+      const defs = fyMonths(fyYear);
+      const movs = await Promise.all(defs.map((d) => accountMovements({ from: d.from, upto: d.upto })));
+      return defs.map((d, i): MonthFlow => {
+        const { sources, applications } = computeFlow(accounts, movs[i]);
+        return {
+          ...d,
+          sources,
+          applications,
+          total: sources.reduce((s, l) => s + l.amount, 0),
+        };
+      });
+    },
+  });
+
+  const grand = months.reduce((s, m) => s + m.total, 0);
 
   return (
-    <div className="fixed inset-0 bg-gray-100 z-50 flex flex-col">
-      <TallyHeader />
-      
-      <div className="flex flex-1" style={{ height: "calc(100vh - 180px)" }}>
-        <div className="flex-1 bg-white flex flex-col">
-          {/* Header */}
-          <div className="bg-blue-100 px-4 py-2 border-b">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-bold text-blue-700">Funds Flow</div>
-              <div className="flex items-center space-x-4">
-                <div className="text-sm font-medium text-gray-700">AARTI PVT LMT</div>
-              </div>
-            </div>
-          </div>
-
-          <button 
-            onClick={onClose}
-            className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 z-10"
-          >
-            <X className="h-5 w-5" />
-          </button>
-
-          {/* Funds Flow Content */}
-          <div className="flex-1 flex flex-col p-4" style={{ height: "calc(100vh - 240px)" }}>
-            
-            {/* Company Info Header */}
-            <div className="text-right mb-4">
-              <div className="text-sm font-bold">AARTI PVT LMT</div>
-              <div className="text-xs">1-Apr-24 to 31-Mar-25</div>
-              <div className="flex justify-end space-x-8 text-xs font-medium mt-2">
-                <div className="text-center">
-                  <div>Working Capital</div>
-                  <div className="flex space-x-4 mt-1">
-                    <span>Opening</span>
-                    <span>Closing</span>
-                  </div>
-                </div>
-                <div className="text-center">
-                  <div>Funds</div>
-                  <div>Flow</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Funds Flow Table */}
-            <div className="flex-1 overflow-y-auto">
-              <div className="space-y-1">
-                {/* Header Row */}
-                <div className="flex bg-gray-100 py-2 px-4 font-medium text-sm border-b">
-                  <div className="flex-1">Particulars</div>
-                  <div className="w-32 text-right">Opening</div>
-                  <div className="w-32 text-right">Closing</div>
-                  <div className="w-32 text-right">Funds Flow</div>
-                </div>
-
-                {/* Monthly Data */}
-                {months.map((month, index) => (
-                  <div 
-                    key={month} 
-                    className={`flex py-1 px-4 text-sm ${
-                      month === 'October' ? 'bg-yellow-300 font-medium' : 'hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="flex-1">{month}</div>
-                    <div className="w-32 text-right">
-                      {month === 'March' ? '(20,000.00)' : ''}
-                    </div>
-                    <div className="w-32 text-right">
-                      {month === 'March' ? '(20,000.00)' : ''}
-                    </div>
-                    <div className="w-32 text-right">
-                      {month === 'March' ? '' : ''}
-                    </div>
+    <TallyScreen
+      title={openMonth ? `Funds Flow — ${openMonth.label}` : 'Funds Flow'}
+      onClose={openMonth ? () => setOpenMonth(null) : undefined}
+      rail={[
+        {
+          hotkey: 'F2',
+          label: `FY ${fyYear}-${String(fyYear + 1).slice(2)}`,
+          onClick: () => {
+            setOpenMonth(null);
+            setFyYear((y) => (y === currentFyStartYear() ? y - 1 : currentFyStartYear()));
+          },
+        },
+        { hotkey: 'F3', label: 'Company', disabled: true },
+        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
+      ]}
+    >
+      <div className="px-3 pb-4 pt-1 text-[13px]">
+        {openMonth ? (
+          <div className="flex">
+            <div className="min-w-0 flex-1 border-r border-gray-400 pr-3">
+              <div className="border-b border-black pb-0.5 font-semibold tracking-[0.3em]">Sources</div>
+              <div className="mt-1 space-y-0.5">
+                {openMonth.sources.map((l) => (
+                  <div key={l.name} className="flex justify-between border-b border-dashed border-gray-200">
+                    <span className="min-w-0 flex-1 truncate">{l.name}</span>
+                    <span className="font-mono">{fmt(l.amount)}</span>
                   </div>
                 ))}
-
-                {/* Grand Total */}
-                <div className="flex bg-gray-100 py-2 px-4 text-sm font-bold border-t border-gray-300 mt-4">
-                  <div className="flex-1">Grand Total</div>
-                  <div className="w-32 text-right">(20,000.00)</div>
-                  <div className="w-32 text-right">(20,000.00)</div>
-                  <div className="w-32 text-right"></div>
-                </div>
-
-                {/* Chart Section */}
-                <div className="mt-8 bg-gray-50 p-4 border rounded">
-                  <div className="text-center text-sm font-medium mb-4">Funds Flow Chart</div>
-                  
-                  {/* Y-axis labels */}
-                  <div className="flex items-end justify-center space-x-2 h-32">
-                    <div className="text-xs text-gray-600 mr-2 flex flex-col justify-between h-full">
-                      <span>20000</span>
-                      <span>0</span>
-                      <span>(-20000)</span>
-                    </div>
-                    
-                    {/* Chart bars */}
-                    <div className="flex items-end space-x-1 h-full">
-                      {['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'].map((month, index) => (
-                        <div key={month} className="flex flex-col items-center">
-                          <div className="w-6 bg-gray-300 mb-1" style={{ 
-                            height: month === 'Mar' ? '80px' : '2px' 
-                          }}>
-                            {month === 'Mar' && (
-                              <div className="w-full h-full bg-red-600"></div>
-                            )}
-                          </div>
-                          <span className="text-xs text-gray-600 transform -rotate-45 origin-center mt-2">
-                            {month}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
+              </div>
+              <div className="mt-8 flex justify-between border-t border-black pt-1 font-bold">
+                <span className="tracking-[0.3em]">Total</span>
+                <span className="font-mono">{fmt(openMonth.sources.reduce((s, l) => s + l.amount, 0))}</span>
+              </div>
+            </div>
+            <div className="min-w-0 flex-1 pl-3">
+              <div className="border-b border-black pb-0.5 font-semibold tracking-[0.3em]">Applications</div>
+              <div className="mt-1 space-y-0.5">
+                {openMonth.applications.map((l) => (
+                  <div key={l.name} className="flex justify-between border-b border-dashed border-gray-200">
+                    <span className="min-w-0 flex-1 truncate">{l.name}</span>
+                    <span className="font-mono">{fmt(l.amount)}</span>
                   </div>
+                ))}
+              </div>
+              <div className="mt-8 flex justify-between border-t border-black pt-1 font-bold">
+                <span className="tracking-[0.3em]">Total</span>
+                <span className="font-mono">{fmt(openMonth.applications.reduce((s, l) => s + l.amount, 0))}</span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="text-center text-[11px]">
+              1-Apr-{String(fyYear).slice(2)} to 31-Mar-{String(fyYear + 1).slice(2)}
+            </div>
+            <div className="mt-1 flex border-y border-black bg-[#f0f4fa] font-semibold">
+              <div className="min-w-0 flex-1 px-1">Particulars</div>
+              <div className="w-40 px-1 text-right">Sources</div>
+              <div className="w-40 px-1 text-right">Applications</div>
+            </div>
+            {isLoading ? (
+              <div className="py-10 text-center text-gray-400">Computing monthly flows…</div>
+            ) : (
+              <>
+                {months.map((m) => (
+                  <button
+                    key={m.label}
+                    type="button"
+                    onClick={() => m.total > 0 && setOpenMonth(m)}
+                    className={`flex w-full border-b border-dashed border-gray-200 text-left ${
+                      m.total > 0 ? 'hover:bg-[#fdf6d8]' : 'text-gray-400'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1 px-1">{m.label}</div>
+                    <div className="w-40 px-1 text-right font-mono">{m.total > 0 ? fmt(m.total) : ''}</div>
+                    <div className="w-40 px-1 text-right font-mono">
+                      {m.total > 0 ? fmt(m.applications.reduce((s, l) => s + l.amount, 0)) : ''}
+                    </div>
+                  </button>
+                ))}
+                <div className="mt-1 flex border-t border-black pt-0.5 font-bold">
+                  <div className="min-w-0 flex-1 px-1 tracking-[0.2em]">Grand Total</div>
+                  <div className="w-40 px-1 text-right font-mono">{fmt(grand)}</div>
+                  <div className="w-40 px-1 text-right font-mono">{fmt(grand)}</div>
                 </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Sidebar */}
-        <div className="w-48 bg-blue-50 border-l border-gray-300 h-full overflow-y-auto">
-          {/* F2: Period */}
-          <div className="border-b border-gray-300 p-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-gray-700">F2: Period</span>
-            </div>
-          </div>
-
-          {/* F3: Company */}
-          <div className="border-b border-gray-300 p-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-gray-700">F3: Company</span>
-            </div>
-          </div>
-
-          {/* F4 - F10 (Disabled) */}
-          {[4, 5, 6, 7, 8, 9, 10].map(num => (
-            <div key={num} className="border-b border-gray-300 p-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-400">F{num}</span>
-              </div>
-            </div>
-          ))}
-
-          {/* F6: Monthly */}
-          <div className="border-b border-gray-300 p-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-blue-600 underline cursor-pointer hover:text-blue-800">F6: Monthly</span>
-            </div>
-          </div>
-
-          {/* Empty space */}
-          <div className="border-b border-gray-300 p-4"></div>
-
-          {/* Funds Flow Options */}
-          {[
-            'B: Basis of Values',
-            'H: Change View',
-            'J: Exception Reports',
-            'L: Save View'
-          ].map(option => (
-            <div key={option} className="border-b border-gray-300 p-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-blue-600 underline cursor-pointer hover:text-blue-800">{option}</span>
-              </div>
-            </div>
-          ))}
-
-          {/* Empty space */}
-          <div className="p-2"></div>
-
-          {/* Filter Options */}
-          {[
-            'E: Apply Filter',
-            'F: Filter Details'
-          ].map(option => (
-            <div key={option} className="border-b border-gray-300 p-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-blue-600 underline cursor-pointer hover:text-blue-800">{option}</span>
-              </div>
-            </div>
-          ))}
-
-          {/* Empty space */}
-          <div className="p-2"></div>
-
-          {/* Column Options */}
-          {[
-            'C: New Column',
-            'A: Alter Column',
-            'D: Delete Column',
-            'N: Auto Column'
-          ].map(option => (
-            <div key={option} className="border-b border-gray-300 p-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-blue-600 underline cursor-pointer hover:text-blue-800">{option}</span>
-              </div>
-            </div>
-          ))}
-        </div>
+              </>
+            )}
+          </>
+        )}
       </div>
-
-      {/* Footer - Always Visible and Complete */}
-      <div className="flex-shrink-0 h-16">
-        <TallyFooter onQuit={onClose} />
-      </div>
-    </div>
+    </TallyScreen>
   );
 };
 

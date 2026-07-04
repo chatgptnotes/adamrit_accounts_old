@@ -42,6 +42,8 @@ import ReceiptsPayments from './ReceiptsPayments';
 import CostCentres from './CostCentres';
 import GatewayOfTally from './GatewayOfTally';
 import EditLog from './EditLog';
+import FundsFlow from './FundsFlow';
+import StatisticsScreen from './StatisticsScreen';
 
 // Live Tally-gateway suite is heavy (12 sub-screens) — load on demand
 const TallyLivePage = lazy(() => import('@/components/tally/TallyPage'));
@@ -77,6 +79,8 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'balance-sheet', label: 'Balance Sheet', icon: Landmark },
   { id: 'profit-loss', label: 'Profit & Loss', icon: TrendingUp },
   { id: 'cash-flow', label: 'Cash Flow', icon: ArrowLeftRight },
+  { id: 'funds-flow', label: 'Funds Flow', icon: ArrowLeftRight },
+  { id: 'statistics', label: 'Statistics', icon: Scale },
   { id: 'bank-reconciliation', label: 'Bank Reconciliation', icon: Building2 },
   { id: 'bills-receivable', label: 'Bills Receivable', icon: Landmark },
   { id: 'bills-payable', label: 'Bills Payable', icon: Landmark },
@@ -140,6 +144,10 @@ const renderContent = (
       return <ProfitLoss />;
     case 'cash-flow':
       return <CashFlow />;
+    case 'funds-flow':
+      return <FundsFlow />;
+    case 'statistics':
+      return <StatisticsScreen />;
     case 'bank-reconciliation':
       return <BankReconciliation />;
     case 'bills-receivable':
