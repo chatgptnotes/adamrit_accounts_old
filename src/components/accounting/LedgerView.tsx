@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchAllRows } from '@/lib/fetchAllRows';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -137,17 +138,24 @@ const LedgerView: React.FC = () => {
     queryKey: ['ledger_entries', selectedAccountId, fromDate, toDate],
     enabled: !!selectedAccountId,
     queryFn: async () => {
-      const { data, error: fetchError } = await supabase
-        .from('voucher_entries')
-        .select(`
-          id, debit_amount, credit_amount, narration,
-          voucher:vouchers(id, voucher_number, voucher_date, narration, status,
-            voucher_type:voucher_types(voucher_type_name)
-          )
-        `)
-        .eq('account_id', selectedAccountId);
-      if (fetchError) throw fetchError;
-      return data as VoucherEntryRow[];
+      // Filter server-side and paginate: accounts like Cash in Hand have
+      // thousands of entries and a single request truncates at 1000 rows.
+      const data = await fetchAllRows((from, to) =>
+        supabase
+          .from('voucher_entries')
+          .select(`
+            id, debit_amount, credit_amount, narration,
+            voucher:vouchers!inner(id, voucher_number, voucher_date, narration, status,
+              voucher_type:voucher_types(voucher_type_name)
+            )
+          `)
+          .eq('account_id', selectedAccountId)
+          .eq('voucher.status', 'AUTHORISED')
+          .gte('voucher.voucher_date', fromDate)
+          .lte('voucher.voucher_date', toDate)
+          .range(from, to),
+      );
+      return data as unknown as VoucherEntryRow[];
     },
   });
 
@@ -159,7 +167,7 @@ const LedgerView: React.FC = () => {
     const filtered = rawEntries
       .filter((e) => {
         const v = e.voucher;
-        if (!v || v.status !== 'posted') return false;
+        if (!v || v.status !== 'AUTHORISED') return false;
         return v.voucher_date >= fromDate && v.voucher_date <= toDate;
       })
       .sort((a, b) =>

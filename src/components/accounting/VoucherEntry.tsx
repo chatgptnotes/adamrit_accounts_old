@@ -210,7 +210,7 @@ const useAccountBalance = (accountId: string | undefined) => {
           .from('voucher_entries')
           .select('debit_amount, credit_amount, vouchers!inner(status)')
           .eq('account_id', accountId!)
-          .eq('vouchers.status', 'posted'),
+          .eq('vouchers.status', 'AUTHORISED'),
       ]);
       const opening = (Number(acc?.opening_balance) || 0) * (acc?.opening_balance_type === 'CR' ? -1 : 1);
       const movement = (entries ?? []).reduce(
@@ -461,13 +461,14 @@ const VoucherEntry: React.FC = () => {
           voucher_number: generatedNumber,
           voucher_type_id: selectedVoucherType,
           voucher_date: voucherDate,
-          reference_number: referenceNumber || '',
-          reference_date: referenceDate || '',
+          reference_number: referenceNumber || null,
+          reference_date: referenceDate || null,
           narration: narration || '',
           total_amount: debitSum,
           patient_id: patientId || null,
           company_id: selectedCompanyId || null,
-          status,
+          // vouchers.status CHECK constraint allows PENDING / AUTHORISED / CANCELLED
+          status: status === 'posted' ? 'AUTHORISED' : 'PENDING',
           created_by: 'system',
         })
         .select()

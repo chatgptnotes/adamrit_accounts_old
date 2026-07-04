@@ -1,6 +1,7 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchAllRows } from '@/lib/fetchAllRows';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -56,11 +57,11 @@ const statusBadgeClass = (
   status: string
 ): string => {
   switch (status) {
-    case 'posted':
+    case 'AUTHORISED':
       return 'bg-green-100 text-green-700 border-green-200';
-    case 'draft':
+    case 'PENDING':
       return 'bg-yellow-100 text-yellow-700 border-yellow-200';
-    case 'cancelled':
+    case 'CANCELLED':
       return 'bg-red-100 text-red-700 border-red-200';
     default:
       return 'bg-gray-100 text-gray-700 border-gray-200';
@@ -113,18 +114,21 @@ const useVoucherEntries = () =>
   useQuery({
     queryKey: ['dashboard-voucher-entries'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('voucher_entries')
-        .select(
+      // Filter server-side and paginate — an unfiltered fetch truncates at 1000 rows.
+      const data = await fetchAllRows((from, to) =>
+        supabase
+          .from('voucher_entries')
+          .select(
+            `
+            debit_amount, credit_amount,
+            account:chart_of_accounts(id, account_type, account_name, account_group),
+            voucher:vouchers!inner(id, status, voucher_date)
           `
-          debit_amount, credit_amount,
-          account:chart_of_accounts(id, account_type, account_name, account_group),
-          voucher:vouchers(id, status, voucher_date)
-        `
-        );
-
-      if (error) throw error;
-      return (data ?? []) as unknown as VoucherEntryRow[];
+          )
+          .eq('voucher.status', 'AUTHORISED')
+          .range(from, to),
+      );
+      return data as unknown as VoucherEntryRow[];
     },
   });
 
@@ -181,22 +185,22 @@ const computeSummary = (
   accounts: AccountRow[]
 ): SummaryTotals => {
   // Only consider entries tied to posted vouchers
-  const posted = entries.filter((e) => e.voucher?.status === 'posted');
+  const posted = entries.filter((e) => e.voucher?.status === 'AUTHORISED');
 
   // Income = sum(credit) - sum(debit) for Income-type accounts
   const totalIncome = posted
-    .filter((e) => (e.account as AccountRow | null)?.account_type === 'Income')
+    .filter((e) => (e.account as AccountRow | null)?.account_type?.includes('INCOME'))
     .reduce((sum, e) => sum + (e.credit_amount ?? 0) - (e.debit_amount ?? 0), 0);
 
   // Expenses = sum(debit) - sum(credit) for Expense-type accounts
   const totalExpenses = posted
-    .filter((e) => (e.account as AccountRow | null)?.account_type === 'Expense')
+    .filter((e) => (e.account as AccountRow | null)?.account_type?.includes('EXPENSE'))
     .reduce((sum, e) => sum + (e.debit_amount ?? 0) - (e.credit_amount ?? 0), 0);
 
   // Receivables from opening balances of relevant asset accounts
   const receivables = accounts
     .filter((a) => {
-      if (a.account_type !== 'Asset') return false;
+      if (!a.account_type?.includes('ASSET')) return false;
       const group = (a.account_group ?? '').toLowerCase();
       return group.includes('receivab') || group.includes('sundry debtors');
     })
@@ -226,8 +230,8 @@ const buildMonthlyRevenue = (entries: VoucherEntryRow[]) => {
 
   return months.map((m) => {
     const monthEntries = entries.filter((e) => {
-      if (e.voucher?.status !== 'posted') return false;
-      if ((e.account as AccountRow | null)?.account_type !== 'Income') return false;
+      if (e.voucher?.status !== 'AUTHORISED') return false;
+      if ((e.account as AccountRow | null)?.account_type?.includes('INCOME') !== true) return false;
       const vDate = new Date(e.voucher?.voucher_date ?? '');
       return vDate >= m.start && vDate <= m.end;
     });
@@ -245,8 +249,8 @@ const buildMonthlyRevenue = (entries: VoucherEntryRow[]) => {
 const buildExpenseBreakdown = (entries: VoucherEntryRow[]) => {
   const posted = entries.filter(
     (e) =>
-      e.voucher?.status === 'posted' &&
-      (e.account as AccountRow | null)?.account_type === 'Expense'
+      e.voucher?.status === 'AUTHORISED' &&
+      (e.account as AccountRow | null)?.account_type?.includes('EXPENSE')
   );
 
   const map = new Map<string, number>();

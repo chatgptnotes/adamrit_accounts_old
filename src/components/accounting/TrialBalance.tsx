@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchAllRows } from '@/lib/fetchAllRows';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -139,22 +140,25 @@ const TrialBalance: React.FC = () => {
     isError: entriesError,
     error,
   } = useQuery({
-    queryKey: ['tb_entries', selectedCompanyId],
+    queryKey: ['tb_entries', selectedCompanyId, asOfDate],
     queryFn: async () => {
-      let query = supabase
-        .from('voucher_entries')
-        .select(`
-          account_id, debit_amount, credit_amount,
-          voucher:vouchers(voucher_date, status, company_id)
-        `);
-      const { data, error: fetchError } = await query;
-      if (fetchError) throw fetchError;
-      // Filter by company if selected
-      let filtered = data as any[];
-      if (selectedCompanyId) {
-        filtered = filtered.filter((e: any) => e.voucher?.company_id === selectedCompanyId);
-      }
-      return filtered as EntryRow[];
+      // Filter server-side and paginate — an unfiltered fetch truncates at
+      // 1000 rows and produces a silently wrong trial balance.
+      const data = await fetchAllRows((from, to) => {
+        let query = supabase
+          .from('voucher_entries')
+          .select(`
+            account_id, debit_amount, credit_amount,
+            voucher:vouchers!inner(voucher_date, status, company_id)
+          `)
+          .eq('voucher.status', 'AUTHORISED')
+          .lte('voucher.voucher_date', asOfDate);
+        if (selectedCompanyId) {
+          query = query.eq('voucher.company_id', selectedCompanyId);
+        }
+        return query.range(from, to);
+      });
+      return data as unknown as EntryRow[];
     },
   });
 
@@ -170,7 +174,7 @@ const TrialBalance: React.FC = () => {
     // Filter entries: posted vouchers up to asOfDate
     const filteredEntries = entries.filter((e) => {
       const v = e.voucher;
-      if (!v || v.status !== 'posted') return false;
+      if (!v || v.status !== 'AUTHORISED') return false;
       return v.voucher_date <= asOfDate;
     });
 

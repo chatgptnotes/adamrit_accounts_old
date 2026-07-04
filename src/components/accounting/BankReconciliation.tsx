@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchAllRows } from '@/lib/fetchAllRows';
 import { toast } from 'sonner';
 import {
   Printer,
@@ -67,7 +68,7 @@ interface Voucher {
   id: string;
   voucher_number: string;
   voucher_date: string;
-  status: 'draft' | 'posted' | 'cancelled';
+  status: 'PENDING' | 'AUTHORISED' | 'CANCELLED';
 }
 
 /** Combined entry with voucher details for display. */
@@ -173,36 +174,26 @@ const BankReconciliation: React.FC = () => {
     queryFn: async () => {
       if (!selectedAccountId) return [];
 
-      // Fetch posted vouchers in the date range
-      const { data: vouchers, error: vErr } = await supabase
-        .from('vouchers')
-        .select('id, voucher_number, voucher_date, status')
-        .eq('status', 'posted')
-        .gte('voucher_date', fromDate)
-        .lte('voucher_date', toDate);
-      if (vErr) throw vErr;
-      if (!vouchers || vouchers.length === 0) return [];
-
-      const voucherMap = new Map<string, Voucher>();
-      (vouchers as Voucher[]).forEach((v) => voucherMap.set(v.id, v));
-      const voucherIds = [...voucherMap.keys()];
-
-      // Fetch entries for the selected bank account
-      const { data: entryData, error: eErr } = await supabase
-        .from('voucher_entries')
-        .select('*')
-        .eq('account_id', selectedAccountId)
-        .in('voucher_id', voucherIds)
-        .order('created_at', { ascending: true });
-      if (eErr) throw eErr;
+      // Single join-filtered query, paginated — the previous two-step fetch
+      // truncated at 1000 vouchers and dropped bank transactions.
+      const entryData = await fetchAllRows((from, to) =>
+        supabase
+          .from('voucher_entries')
+          .select('*, voucher:vouchers!inner(id, voucher_number, voucher_date, status)')
+          .eq('account_id', selectedAccountId)
+          .eq('voucher.status', 'AUTHORISED')
+          .gte('voucher.voucher_date', fromDate)
+          .lte('voucher.voucher_date', toDate)
+          .order('created_at', { ascending: true })
+          .range(from, to),
+      );
 
       // Combine entry with voucher info
-      return ((entryData || []) as VoucherEntry[]).map((entry): TransactionRow => {
-        const voucher = voucherMap.get(entry.voucher_id);
+      return (entryData as any[]).map((entry): TransactionRow => {
         return {
           entryId: entry.id,
-          voucherDate: voucher?.voucher_date || '',
-          voucherNumber: voucher?.voucher_number || '',
+          voucherDate: entry.voucher?.voucher_date || '',
+          voucherNumber: entry.voucher?.voucher_number || '',
           narration: entry.narration || '',
           debit: Number(entry.debit_amount || 0),
           credit: Number(entry.credit_amount || 0),

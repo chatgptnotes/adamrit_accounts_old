@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchAllRows } from '@/lib/fetchAllRows';
 import { toast } from 'sonner';
 import { Printer, Download, Loader2, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -40,7 +41,7 @@ interface Voucher {
   id: string;
   voucher_number: string;
   voucher_date: string;
-  status: 'draft' | 'posted' | 'cancelled';
+  status: 'PENDING' | 'AUTHORISED' | 'CANCELLED';
 }
 
 interface CashFlowItem {
@@ -211,23 +212,18 @@ const CashFlow: React.FC = () => {
   } = useQuery({
     queryKey: ['cash_flow_entries', fromDate, toDate],
     queryFn: async () => {
-      const { data: vouchers, error: vErr } = await supabase
-        .from('vouchers')
-        .select('id, voucher_number, voucher_date, status')
-        .eq('status', 'posted')
-        .gte('voucher_date', fromDate)
-        .lte('voucher_date', toDate);
-      if (vErr) throw vErr;
-      if (!vouchers || vouchers.length === 0) return [];
-
-      const voucherIds = (vouchers as Voucher[]).map((v) => v.id);
-
-      const { data: entryData, error: eErr } = await supabase
-        .from('voucher_entries')
-        .select('*')
-        .in('voucher_id', voucherIds);
-      if (eErr) throw eErr;
-      return (entryData || []) as VoucherEntry[];
+      // Single join-filtered query, paginated — the previous two-step fetch
+      // truncated at 1000 vouchers and produced a silently wrong cash flow.
+      const data = await fetchAllRows((from, to) =>
+        supabase
+          .from('voucher_entries')
+          .select('*, voucher:vouchers!inner(id, voucher_date, status)')
+          .eq('voucher.status', 'AUTHORISED')
+          .gte('voucher.voucher_date', fromDate)
+          .lte('voucher.voucher_date', toDate)
+          .range(from, to),
+      );
+      return data as unknown as VoucherEntry[];
     },
   });
 

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchAllRows } from '@/lib/fetchAllRows';
 import { toast } from 'sonner';
 import { Printer, Download, Loader2, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -49,7 +50,7 @@ interface Voucher {
   id: string;
   voucher_number: string;
   voucher_date: string;
-  status: 'draft' | 'posted' | 'cancelled';
+  status: 'PENDING' | 'AUTHORISED' | 'CANCELLED';
 }
 
 interface AccountBalance {
@@ -173,27 +174,21 @@ const ProfitLoss: React.FC = () => {
   } = useQuery({
     queryKey: ['profit_loss_entries', fromDate, toDate, selectedCompanyId],
     queryFn: async () => {
-      let query = supabase
-        .from('vouchers')
-        .select('id, voucher_number, voucher_date, status')
-        .eq('status', 'posted')
-        .gte('voucher_date', fromDate)
-        .lte('voucher_date', toDate);
-      if (selectedCompanyId) {
-        query = query.eq('company_id', selectedCompanyId);
-      }
-      const { data: vouchers, error: vErr } = await query;
-      if (vErr) throw vErr;
-      if (!vouchers || vouchers.length === 0) return [];
-
-      const voucherIds = (vouchers as Voucher[]).map((v) => v.id);
-
-      const { data: entryData, error: eErr } = await supabase
-        .from('voucher_entries')
-        .select('*')
-        .in('voucher_id', voucherIds);
-      if (eErr) throw eErr;
-      return (entryData || []) as VoucherEntry[];
+      // Single join-filtered query, paginated — the previous two-step fetch
+      // truncated at 1000 vouchers and produced a silently wrong P&L.
+      const data = await fetchAllRows((from, to) => {
+        let query = supabase
+          .from('voucher_entries')
+          .select('*, voucher:vouchers!inner(id, voucher_date, status, company_id)')
+          .eq('voucher.status', 'AUTHORISED')
+          .gte('voucher.voucher_date', fromDate)
+          .lte('voucher.voucher_date', toDate);
+        if (selectedCompanyId) {
+          query = query.eq('voucher.company_id', selectedCompanyId);
+        }
+        return query.range(from, to);
+      });
+      return data as unknown as VoucherEntry[];
     },
   });
 

@@ -300,7 +300,7 @@ const TallyImportExport: React.FC = () => {
         .select(
           'voucher_number, voucher_date, narration, status, voucher_types(voucher_category), voucher_entries(debit_amount, credit_amount, entry_order, chart_of_accounts(account_name))',
         )
-        .eq('status', 'posted')
+        .eq('status', 'AUTHORISED')
         .gte('voucher_date', fromDate)
         .lte('voucher_date', toDate)
         .order('voucher_date');

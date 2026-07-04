@@ -72,11 +72,11 @@ const formatCurrency = (val: number): string =>
 /** Return a badge variant class based on voucher status. */
 const statusBadgeClass = (status: string): string => {
   switch (status) {
-    case 'posted':
+    case 'AUTHORISED':
       return 'bg-green-100 text-green-700 border-green-200';
-    case 'draft':
+    case 'PENDING':
       return 'bg-yellow-100 text-yellow-700 border-yellow-200';
-    case 'cancelled':
+    case 'CANCELLED':
       return 'bg-red-100 text-red-700 border-red-200';
     default:
       return 'bg-gray-100 text-gray-700 border-gray-200';
@@ -287,9 +287,9 @@ const DayBook: React.FC = () => {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All</SelectItem>
-                <SelectItem value="draft">Draft</SelectItem>
-                <SelectItem value="posted">Posted</SelectItem>
-                <SelectItem value="cancelled">Cancelled</SelectItem>
+                <SelectItem value="PENDING">Pending</SelectItem>
+                <SelectItem value="AUTHORISED">Authorised</SelectItem>
+                <SelectItem value="CANCELLED">Cancelled</SelectItem>
               </SelectContent>
             </Select>
           </div>
