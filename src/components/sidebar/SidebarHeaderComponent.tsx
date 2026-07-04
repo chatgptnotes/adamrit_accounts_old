@@ -31,22 +31,24 @@ export const SidebarHeaderComponent = () => {
 
   return (
     <SidebarHeader className="p-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/dashboard')}>
-          <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
-               style={{ backgroundColor: hospitalConfig.primaryColor }}>
-            {hospitalConfig.name.charAt(0)}
-          </div>
-          <h2 className="font-semibold text-lg truncate" style={{ color: hospitalConfig.primaryColor }}>
-            {hospitalConfig.name} HMIS
-          </h2>
+      {/* Two stacked rows so the buttons never overflow the sidebar's width
+          and cover the sidebar trigger in the main header. */}
+      <div className="flex items-center gap-2 cursor-pointer overflow-hidden" onClick={() => navigate('/dashboard')}>
+        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
+             style={{ backgroundColor: hospitalConfig.primaryColor }}>
+          {hospitalConfig.name.charAt(0)}
         </div>
-        <div className="flex items-center gap-2">
-          {user && (
-            <span className="text-sm text-muted-foreground">
-              {user.username}
-            </span>
-          )}
+        <h2 className="font-semibold text-lg truncate" style={{ color: hospitalConfig.primaryColor }}>
+          {hospitalConfig.name} HMIS
+        </h2>
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-2 overflow-hidden">
+        {user && (
+          <span className="min-w-0 truncate text-sm text-muted-foreground">
+            {user.username}
+          </span>
+        )}
+        <div className="flex flex-shrink-0 items-center gap-2">
           {(isSuperAdmin || isAdmin) && otherHospitalName && (
             <Button
               variant="outline"
