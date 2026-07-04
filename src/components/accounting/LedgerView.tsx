@@ -49,7 +49,7 @@ const fy = (): { from: string; to: string } => {
  * Tally's List of Ledger Accounts), see Date / Particulars / Vch Type /
  * Vch No. / Debit / Credit rows with Opening + Closing balance and totals.
  */
-const LedgerView: React.FC = () => {
+const LedgerView: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVoucher }) => {
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
   const [fromDate, setFromDate] = useState(fy().from);
   const [toDate, setToDate] = useState(fy().to);
@@ -128,6 +128,7 @@ const LedgerView: React.FC = () => {
       totalCr += cr;
       return {
         id: e.id,
+        voucherId: e.voucher?.id || '',
         date: e.voucher?.voucher_date || '',
         particulars: e.narration || e.voucher?.narration || '',
         type: e.voucher?.voucher_type?.voucher_type_name?.replace(' Voucher', '') || '',
@@ -259,7 +260,12 @@ const LedgerView: React.FC = () => {
             ) : (
               <>
                 {rows.map((r) => (
-                  <div key={r.id} className="flex border-b border-dashed border-gray-200 hover:bg-[#fdf6d8]">
+                  <div
+                    key={r.id}
+                    onClick={() => r.voucherId && onOpenVoucher?.(r.voucherId)}
+                    title="Open voucher (alter)"
+                    className="flex cursor-pointer border-b border-dashed border-gray-200 hover:bg-[#fdf6d8]"
+                  >
                     <div className="w-20 px-1">{tallyDateLabel(r.date)}</div>
                     <div className="min-w-0 flex-1 truncate px-1">{r.particulars}</div>
                     <div className="w-28 px-1">{r.type}</div>

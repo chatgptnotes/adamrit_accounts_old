@@ -211,8 +211,16 @@ const AccountSearch = ({ accounts, selected, onSelect, placeholder, className, i
   );
 };
 
-const VoucherEntry: React.FC = () => {
+interface VoucherEntryProps {
+  /** When set, opens this voucher in Tally-style Alteration mode */
+  voucherId?: string;
+  /** Called after Accept / Cancel Vch / Delete / Quit in alteration mode */
+  onDone?: () => void;
+}
+
+const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
   const queryClient = useQueryClient();
+  const alterMode = !!voucherId;
 
   // Form state
   const [selectedVoucherType, setSelectedVoucherType] = useState('');
@@ -223,6 +231,10 @@ const VoucherEntry: React.FC = () => {
   const [patientId, setPatientId] = useState('');
   const [selectedCompanyId, setSelectedCompanyId] = useState('');
   const [saving, setSaving] = useState(false);
+  // Alteration mode: keep the original number/status; force journal layout
+  // when an old voucher's entries don't fit the single-account shape.
+  const [loadedNumber, setLoadedNumber] = useState('');
+  const [forceJournal, setForceJournal] = useState(false);
 
   // Entry rows
   const lineKey = useRef(0);
@@ -297,6 +309,73 @@ const VoucherEntry: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companies]);
 
+  // ------ Alteration mode: load the voucher and populate the form ------
+  const { data: loadedVoucher } = useQuery({
+    queryKey: ['alter_voucher', voucherId],
+    enabled: alterMode,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('vouchers')
+        .select('*, voucher_entries(id, account_id, debit_amount, credit_amount, entry_order)')
+        .eq('id', voucherId!)
+        .single();
+      if (error) throw error;
+      return data as any;
+    },
+  });
+
+  useEffect(() => {
+    if (!loadedVoucher || accounts.length === 0 || voucherTypes.length === 0) return;
+    const vt = voucherTypes.find((t) => t.id === loadedVoucher.voucher_type_id);
+    setSelectedVoucherType(loadedVoucher.voucher_type_id || '');
+    setLoadedNumber(loadedVoucher.voucher_number || '');
+    setVoucherDate(loadedVoucher.voucher_date || format(new Date(), 'yyyy-MM-dd'));
+    setReferenceNumber(loadedVoucher.reference_number || '');
+    setReferenceDate(loadedVoucher.reference_date || '');
+    setNarration(loadedVoucher.narration || '');
+    setPatientId(loadedVoucher.patient_id || '');
+    if (loadedVoucher.company_id) setSelectedCompanyId(loadedVoucher.company_id);
+
+    const byId = new Map(accounts.map((a) => [a.id, a]));
+    const entries = [...(loadedVoucher.voucher_entries ?? [])].sort(
+      (a: any, b: any) => (a.entry_order || 0) - (b.entry_order || 0),
+    );
+    const cat = (vt?.voucher_category || '').toUpperCase();
+    const mode = SINGLE_ACCOUNT_MODES[cat];
+    const accSide = mode
+      ? entries.filter((e: any) => (mode.accountIsDebit ? Number(e.debit_amount) > 0 : Number(e.credit_amount) > 0))
+      : [];
+    if (mode && accSide.length === 1 && byId.has(accSide[0].account_id)) {
+      setForceJournal(false);
+      setAccount(byId.get(accSide[0].account_id) ?? null);
+      const partSide = entries.filter((e: any) =>
+        mode.accountIsDebit ? Number(e.credit_amount) > 0 : Number(e.debit_amount) > 0,
+      );
+      setPartLines(
+        partSide.length > 0
+          ? partSide.map((e: any) => ({
+              key: ++lineKey.current,
+              account: byId.get(e.account_id) ?? null,
+              amount: String(mode.accountIsDebit ? Number(e.credit_amount) : Number(e.debit_amount)),
+            }))
+          : [newParticularsLine()],
+      );
+    } else {
+      // Journal types, or a single-mode voucher whose shape doesn't fit
+      setForceJournal(!!mode);
+      const rows = entries
+        .filter((e: any) => Number(e.debit_amount) > 0 || Number(e.credit_amount) > 0)
+        .map((e: any) => ({
+          key: ++lineKey.current,
+          drcr: (Number(e.debit_amount) > 0 ? 'Dr' : 'Cr') as 'Dr' | 'Cr',
+          account: byId.get(e.account_id) ?? null,
+          amount: String(Number(e.debit_amount) > 0 ? Number(e.debit_amount) : Number(e.credit_amount)),
+        }));
+      setJournalLines(rows.length >= 2 ? rows : [newJournalLine('Dr'), newJournalLine('Cr')]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadedVoucher, accounts, voucherTypes]);
+
   // ------ Derive the auto-generated voucher number ------
   const selectedType = useMemo(
     () => voucherTypes.find((vt) => vt.id === selectedVoucherType),
@@ -304,13 +383,14 @@ const VoucherEntry: React.FC = () => {
   );
 
   const voucherNumber = useMemo(() => {
+    if (alterMode) return loadedNumber;
     if (!selectedType) return '';
     const nextNum = (selectedType.current_number || 0) + 1;
     return generateVoucherNumber(selectedType.prefix || '', nextNum);
-  }, [selectedType]);
+  }, [selectedType, alterMode, loadedNumber]);
 
   const category = (selectedType?.voucher_category || '').toUpperCase();
-  const singleMode = SINGLE_ACCOUNT_MODES[category];
+  const singleMode = forceJournal ? undefined : SINGLE_ACCOUNT_MODES[category];
 
   // ------ Computed totals ------
   const partTotal = useMemo(
@@ -454,6 +534,53 @@ const VoucherEntry: React.FC = () => {
     setSaving(true);
     try {
       const voucherType = voucherTypes.find((vt) => vt.id === selectedVoucherType);
+
+      if (alterMode) {
+        // ------ Alteration: update header, replace entries, keep the number ------
+        const { error: uErr } = await supabase
+          .from('vouchers')
+          .update({
+            voucher_date: voucherDate,
+            reference_number: referenceNumber || null,
+            reference_date: referenceDate || null,
+            narration: narration || '',
+            total_amount: debitSum,
+            patient_id: patientId || null,
+            status: status === 'posted' ? 'AUTHORISED' : 'PENDING',
+          })
+          .eq('id', voucherId!);
+        if (uErr) {
+          toast.error('Failed to update voucher: ' + uErr.message);
+          throw uErr;
+        }
+        const { error: dErr } = await supabase.from('voucher_entries').delete().eq('voucher_id', voucherId!);
+        if (dErr) {
+          toast.error('Failed to replace entries: ' + dErr.message);
+          throw dErr;
+        }
+        const { error: iErr } = await supabase.from('voucher_entries').insert(
+          validEntries.map((e, i) => ({
+            voucher_id: voucherId!,
+            account_id: e.account_id,
+            debit_amount: e.debit_amount || 0,
+            credit_amount: e.credit_amount || 0,
+            narration: e.narration || '',
+            entry_order: i + 1,
+          })),
+        );
+        if (iErr) {
+          toast.error('Failed to save entries: ' + iErr.message);
+          throw iErr;
+        }
+        toast.success(`Voucher ${loadedNumber} altered.`);
+        queryClient.invalidateQueries({ queryKey: ['vouchers'] });
+        queryClient.invalidateQueries({ queryKey: ['daybook_vouchers'] });
+        queryClient.invalidateQueries({ queryKey: ['ledger_entries'] });
+        setBalances({});
+        onDone?.();
+        return;
+      }
+
       const nextNum = (voucherType?.current_number || 0) + 1;
       const generatedNumber = generateVoucherNumber(voucherType?.prefix || '', nextNum);
 
@@ -525,8 +652,56 @@ const VoucherEntry: React.FC = () => {
     }
   };
 
+  // ------ Alteration actions: Cancel Vch (soft) and Delete (hard) ------
+  const cancelVoucher = async (): Promise<void> => {
+    if (!alterMode) return;
+    if (!window.confirm(`Cancel voucher ${loadedNumber}? It will stop affecting all reports.`)) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('vouchers').update({ status: 'CANCELLED' }).eq('id', voucherId!);
+      if (error) throw error;
+      toast.info(`Voucher ${loadedNumber} cancelled`);
+      queryClient.invalidateQueries({ queryKey: ['vouchers'] });
+      queryClient.invalidateQueries({ queryKey: ['daybook_vouchers'] });
+      onDone?.();
+    } catch (err) {
+      console.error('Cancel failed:', err);
+      toast.error('Failed to cancel — please try again');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteVoucher = async (): Promise<void> => {
+    if (!alterMode) return;
+    if (!window.confirm(`Permanently DELETE voucher ${loadedNumber} and its entries? This cannot be undone.`)) return;
+    setSaving(true);
+    try {
+      const { error: eErr } = await supabase.from('voucher_entries').delete().eq('voucher_id', voucherId!);
+      if (eErr) throw eErr;
+      const { error: vErr } = await supabase.from('vouchers').delete().eq('id', voucherId!);
+      if (vErr) throw vErr;
+      toast.info(`Voucher ${loadedNumber} deleted`);
+      queryClient.invalidateQueries({ queryKey: ['vouchers'] });
+      queryClient.invalidateQueries({ queryKey: ['daybook_vouchers'] });
+      onDone?.();
+    } catch (err) {
+      console.error('Delete failed:', err);
+      toast.error('Failed to delete — it may be referenced elsewhere');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // ------ Tally right rail: F2 Date + F4–F9 voucher types + other types ------
   const rail = useMemo<RailItem[]>(() => {
+    if (alterMode) {
+      return [
+        { hotkey: 'F2', label: 'Date', onClick: () => dateRef.current?.showPicker?.() ?? dateRef.current?.focus() },
+        { hotkey: 'X', label: 'Cancel Vch', gapBefore: true, onClick: cancelVoucher },
+        { hotkey: 'D', label: 'Delete', onClick: deleteVoucher },
+      ];
+    }
     const byCategory = (cat: string) => voucherTypes.find((vt) => vt.voucher_category?.toUpperCase() === cat);
     const mainIds = new Set<string>();
     const items: RailItem[] = [
@@ -556,7 +731,8 @@ const VoucherEntry: React.FC = () => {
       });
     });
     return items;
-  }, [voucherTypes, selectedVoucherType]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voucherTypes, selectedVoucherType, alterMode]);
 
   const accountBalance = account ? balances[account.id] : undefined;
 
@@ -564,7 +740,7 @@ const VoucherEntry: React.FC = () => {
     'h-7 w-36 rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-right font-mono text-[13px] shadow-none focus-visible:ring-0 focus-visible:border-blue-600 focus-visible:border-solid disabled:border-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none';
 
   return (
-    <TallyScreen title="Accounting Voucher Creation" rail={rail}>
+    <TallyScreen title={alterMode ? "Accounting Voucher Alteration" : "Accounting Voucher Creation"} rail={rail} onClose={onDone}>
       {/* Voucher type / No. / Ref / Date strip */}
       <div className="flex items-start justify-between border-b border-[#9db8d8] bg-[#eef3fa] px-2 py-1 text-[13px]">
         <div>
@@ -858,7 +1034,13 @@ const VoucherEntry: React.FC = () => {
                 {saving && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
                 <span className="underline">A</span>: Accept
               </Button>
-              <Button variant="secondary" size="sm" className="h-7 rounded-none text-xs" onClick={handleClear} disabled={saving}>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-7 rounded-none text-xs"
+                onClick={() => (alterMode ? onDone?.() : handleClear())}
+                disabled={saving}
+              >
                 <span className="underline">Q</span>: Quit
               </Button>
             </div>

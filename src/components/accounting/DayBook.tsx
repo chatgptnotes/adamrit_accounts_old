@@ -44,7 +44,7 @@ const tallyDateLabel = (iso: string): string => {
  * lead ledger, Vch Type, Vch No., Debit/Credit amount), click expands to
  * show all ledger lines like Tally's detailed mode.
  */
-const DayBook: React.FC = () => {
+const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVoucher }) => {
   const today = format(new Date(), 'yyyy-MM-dd');
   const [fromDate, setFromDate] = useState(today);
   const [toDate, setToDate] = useState(today);
@@ -184,7 +184,8 @@ const DayBook: React.FC = () => {
                 <React.Fragment key={v.id}>
                   <button
                     type="button"
-                    onClick={() => toggleExpanded(v.id)}
+                    onClick={() => (onOpenVoucher ? onOpenVoucher(v.id) : toggleExpanded(v.id))}
+                    title="Open voucher (alter)"
                     className="flex w-full border-b border-dashed border-gray-300 text-left hover:bg-[#fdf6d8]"
                   >
                     <div className="w-20 px-1">{tallyDateLabel(v.voucher_date)}</div>

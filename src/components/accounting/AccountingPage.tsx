@@ -71,7 +71,11 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 /** Renders the active section component based on the current tab selection. */
-const renderContent = (activeTab: string, goTo: (id: string) => void): React.ReactNode => {
+const renderContent = (
+  activeTab: string,
+  goTo: (id: string) => void,
+  openVoucher: (id: string) => void,
+): React.ReactNode => {
   switch (activeTab) {
     case 'dashboard':
       return <Dashboard />;
@@ -82,13 +86,13 @@ const renderContent = (activeTab: string, goTo: (id: string) => void): React.Rea
     case 'voucher-entry':
       return <VoucherEntry />;
     case 'day-book':
-      return <DayBook />;
+      return <DayBook onOpenVoucher={openVoucher} />;
     case 'cash-bank-book':
-      return <CashBankBook />;
+      return <CashBankBook onOpenVoucher={openVoucher} />;
     case 'cash-bank-summary':
       return <CashBankSummary onClose={() => goTo('dashboard')} />;
     case 'ledger-view':
-      return <LedgerView />;
+      return <LedgerView onOpenVoucher={openVoucher} />;
     case 'trial-balance':
       return <TrialBalance />;
     case 'balance-sheet':
@@ -118,6 +122,8 @@ const renderContent = (activeTab: string, goTo: (id: string) => void): React.Rea
 const AccountingPage: React.FC = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<string>('dashboard');
+  // Drill-down: voucher opened for Tally-style alteration from any report
+  const [alterVoucherId, setAlterVoucherId] = useState<string | null>(null);
   // Collapsed icon rail by default — Tally-style full-width canvas.
   const [navExpanded, setNavExpanded] = useState(false);
 
@@ -186,7 +192,13 @@ const AccountingPage: React.FC = () => {
             else setActiveTab(id);
           }}
         />
-        <div className="flex-1 p-1">{renderContent(activeTab, setActiveTab)}</div>
+        <div className="flex-1 p-1">
+          {alterVoucherId ? (
+            <VoucherEntry voucherId={alterVoucherId} onDone={() => setAlterVoucherId(null)} />
+          ) : (
+            renderContent(activeTab, setActiveTab, setAlterVoucherId)
+          )}
+        </div>
       </main>
     </div>
   );

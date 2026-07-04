@@ -18,6 +18,7 @@ interface EntryRow {
   credit_amount: number | null;
   narration: string | null;
   voucher: {
+    id: string;
     voucher_number: string;
     voucher_date: string;
     narration: string | null;
@@ -60,7 +61,7 @@ const currentFyStartYear = (): number => {
  * monthly summary (Debit/Credit totals + running Closing Balance per month,
  * Apr–Mar), and drill into any month for its daily vouchers.
  */
-const CashBankBook: React.FC = () => {
+const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVoucher }) => {
   const [fyYear, setFyYear] = useState(currentFyStartYear);
   const [selectedId, setSelectedId] = useState('');
   const [openMonth, setOpenMonth] = useState<string | null>(null); // 'YYYY-MM'
@@ -93,7 +94,7 @@ const CashBankBook: React.FC = () => {
           .from('voucher_entries')
           .select(`
             id, debit_amount, credit_amount, narration,
-            voucher:vouchers!inner(voucher_number, voucher_date, narration, status,
+            voucher:vouchers!inner(id, voucher_number, voucher_date, narration, status,
               voucher_type:voucher_types(voucher_type_name)
             )
           `)
@@ -197,7 +198,12 @@ const CashBankBook: React.FC = () => {
               <div className="w-32 px-1 text-right font-mono">{monthOpening < 0 ? fmt(-monthOpening) : ''}</div>
             </div>
             {monthEntries.map((e) => (
-              <div key={e.id} className="flex border-b border-dashed border-gray-200 hover:bg-[#fdf6d8]">
+              <div
+                key={e.id}
+                onClick={() => e.voucher?.id && onOpenVoucher?.(e.voucher.id)}
+                title="Open voucher (alter)"
+                className="flex cursor-pointer border-b border-dashed border-gray-200 hover:bg-[#fdf6d8]"
+              >
                 <div className="w-20 px-1">{tallyDateLabel(e.voucher?.voucher_date || '')}</div>
                 <div className="min-w-0 flex-1 truncate px-1">{e.narration || e.voucher?.narration || ''}</div>
                 <div className="w-28 px-1">{e.voucher?.voucher_type?.voucher_type_name?.replace(' Voucher', '') || ''}</div>
