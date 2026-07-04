@@ -40,6 +40,7 @@ import VoucherRegister from './VoucherRegister';
 import RatioAnalysis from './RatioAnalysis';
 import ReceiptsPayments from './ReceiptsPayments';
 import CostCentres from './CostCentres';
+import GatewayOfTally from './GatewayOfTally';
 import { TallyTopBar } from './tally/TallyChrome';
 
 /** Navigation item definition for the accounting sidebar. */
@@ -53,6 +54,7 @@ interface NavItem {
 
 /** All available navigation items in the sidebar. */
 const NAV_ITEMS: NavItem[] = [
+  { id: 'gateway', label: 'Gateway of Tally', icon: LayoutDashboard },
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'chart-of-accounts', label: 'Chart of Accounts', icon: BookOpen },
   { id: 'masters', label: 'Masters', icon: FolderCog },
@@ -89,6 +91,8 @@ const renderContent = (
   openLedger: (accountId: string) => void,
 ): React.ReactNode => {
   switch (activeTab) {
+    case 'gateway':
+      return <GatewayOfTally onNavigate={goTo} />;
     case 'dashboard':
       return <Dashboard />;
     case 'chart-of-accounts':
@@ -132,7 +136,7 @@ const renderContent = (
     case 'tally-import-export':
       return <TallyImportExport />;
     default:
-      return <Dashboard />;
+      return <GatewayOfTally onNavigate={goTo} />;
   }
 };
 
@@ -143,7 +147,7 @@ const renderContent = (
  */
 const AccountingPage: React.FC = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [activeTab, setActiveTab] = useState<string>('gateway');
   // Drill-down stack: group -> ledger -> voucher, each layer closable back
   const [alterVoucherId, setAlterVoucherId] = useState<string | null>(null);
   const [drillLedgerId, setDrillLedgerId] = useState<string | null>(null);
