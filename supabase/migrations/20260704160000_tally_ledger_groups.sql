@@ -13,6 +13,11 @@ ALTER TABLE public.ledger_groups
   ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now(),
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
 
+-- The table was created out-of-band with CHECK constraints on nature/group_type
+-- that reject Tally's values — drop them; the seeded values define the domain.
+ALTER TABLE public.ledger_groups DROP CONSTRAINT IF EXISTS ledger_groups_nature_check;
+ALTER TABLE public.ledger_groups DROP CONSTRAINT IF EXISTS ledger_groups_group_type_check;
+
 -- Group names must be unique (needed for the seed upserts below too).
 DO $$
 BEGIN
