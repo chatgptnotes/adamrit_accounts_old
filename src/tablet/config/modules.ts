@@ -190,6 +190,18 @@ const ADMIN_ROLES = ["admin", "superadmin", "super_admin"];
 const DIRECTOR_ROLES = ["superadmin", "super_admin"];
 const DIRECTOR_EMAILS = ["cmd@hopehospital.com", "finance@hopehospital.com"];
 
+/** Tiles hidden from the tablet edition for all users. */
+const HIDDEN_MODULE_IDS = new Set([
+  "occupancy",
+  "icu-admission",
+  "advance",
+  "requisition",
+  "gate-pass",
+  "discharge-summary",
+  "dama",
+  "billing",
+]);
+
 /**
  * Modules visible to a given user. Admins (and unknown roles) see all except
  * the Director tile, which is restricted to superadmin role or director emails.
@@ -204,6 +216,7 @@ export function modulesForUser(
   const isAdmin = !!role && ADMIN_ROLES.includes(role);
 
   return TABLET_MODULES.filter((m) => {
+    if (HIDDEN_MODULE_IDS.has(m.id)) return false;
     if (m.id === "director") {
       return isDirectorRole || isDirectorEmail;
     }
