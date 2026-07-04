@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { TallyScreen } from './tally/TallyChrome';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { toast } from 'sonner';
 import { Printer, Download, Loader2, AlertCircle } from 'lucide-react';
@@ -409,6 +410,8 @@ const CashFlow: React.FC = () => {
   }
 
   return (
+    <TallyScreen title="Cash Flow" rail={[{ hotkey: 'P', label: 'Print', onClick: () => window.print() }]}>
+    
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -577,6 +580,7 @@ const CashFlow: React.FC = () => {
         </CardContent>
       </Card>
     </div>
+    </TallyScreen>
   );
 };
 

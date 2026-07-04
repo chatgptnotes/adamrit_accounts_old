@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import GroupCreation from './GroupCreation';
 import TallyLedgerCreation from './TallyLedgerCreation';
 import VoucherTypeCreation from './VoucherTypeCreation';
+import { TallyScreen } from './tally/TallyChrome';
 
 interface MasterItem {
   id: 'group' | 'ledger' | 'voucher-type';
@@ -35,20 +36,37 @@ const AccountMasters: React.FC = () => {
   }, [search]);
 
   if (active) {
+    const activeTitle = MASTERS.find((m) => m.id === active)?.label ?? '';
     return (
-      <div className="space-y-3">
-        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setActive(null)}>
-          <ArrowLeft className="mr-1 h-3.5 w-3.5" /> List of Masters
-        </Button>
-        {active === 'group' && <GroupCreation />}
-        {active === 'ledger' && <TallyLedgerCreation />}
-        {active === 'voucher-type' && <VoucherTypeCreation />}
-      </div>
+      <TallyScreen
+        title={`${activeTitle} Creation`}
+        onClose={() => setActive(null)}
+        rail={[
+          { hotkey: 'F3', label: 'Company', disabled: true },
+          { label: 'Other Masters', gapBefore: true, onClick: () => setActive(null) },
+        ]}
+      >
+        <div className="space-y-3 p-2">
+          <Button variant="outline" size="sm" className="h-7 rounded-none text-xs" onClick={() => setActive(null)}>
+            <ArrowLeft className="mr-1 h-3.5 w-3.5" /> List of Masters
+          </Button>
+          {active === 'group' && <GroupCreation />}
+          {active === 'ledger' && <TallyLedgerCreation />}
+          {active === 'voucher-type' && <VoucherTypeCreation />}
+        </div>
+      </TallyScreen>
     );
   }
 
   return (
-    <div className="mx-auto max-w-xl">
+    <TallyScreen
+      title="Master Alteration"
+      rail={[
+        { hotkey: 'F3', label: 'Company', disabled: true },
+        { hotkey: 'F10', label: 'Other Masters', disabled: true, gapBefore: true },
+      ]}
+    >
+    <div className="mx-auto max-w-xl pt-4">
       <div className="overflow-hidden rounded-md border shadow-sm">
         {/* Company + title, Tally style */}
         <div className="border-b bg-[#dce6f2] px-3 py-2 text-center">
@@ -106,6 +124,7 @@ const AccountMasters: React.FC = () => {
         </div>
       </div>
     </div>
+    </TallyScreen>
   );
 };
 

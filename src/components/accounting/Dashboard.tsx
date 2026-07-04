@@ -1,6 +1,7 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { TallyScreen } from './tally/TallyChrome';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -389,6 +390,8 @@ const Dashboard: React.FC = () => {
   }
 
   return (
+    <TallyScreen title="Gateway — Accounts Dashboard" rail={[{ hotkey: 'P', label: 'Print', onClick: () => window.print() }]}>
+    
     <div className="space-y-6">
       {/* Page heading */}
       <div>
@@ -639,6 +642,7 @@ const Dashboard: React.FC = () => {
         </CardContent>
       </Card>
     </div>
+    </TallyScreen>
   );
 };
 

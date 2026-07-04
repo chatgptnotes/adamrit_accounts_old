@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { TallyScreen } from './tally/TallyChrome';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -405,6 +406,8 @@ const TallyImportExport: React.FC = () => {
   };
 
   return (
+    <TallyScreen title="Import / Export — Tally Data" rail={[]}>
+    <div className="p-2">
     <div className="space-y-6">
       {/* ----- Masters ----- */}
       <div className="overflow-hidden rounded-md border shadow-sm">
@@ -511,6 +514,8 @@ const TallyImportExport: React.FC = () => {
         </div>
       </div>
     </div>
+    </div>
+    </TallyScreen>
   );
 };
 

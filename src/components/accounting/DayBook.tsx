@@ -1,47 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { Download, ChevronDown, ChevronRight, AlertCircle } from 'lucide-react';
-import { format, parseISO, startOfMonth, endOfMonth } from 'date-fns';
-import { toast } from 'sonner';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface VoucherEntry {
-  id: string;
-  debit_amount: number | null;
-  credit_amount: number | null;
-  narration: string | null;
-  entry_order: number | null;
-  account: {
-    id: string;
-    account_name: string;
-    account_code: string;
-  } | null;
-}
+import { format } from 'date-fns';
+import { TallyScreen } from './tally/TallyChrome';
 
 interface VoucherType {
   id: string;
@@ -49,59 +10,50 @@ interface VoucherType {
   voucher_category: string;
 }
 
+interface EntryRow {
+  id: string;
+  debit_amount: number;
+  credit_amount: number;
+  narration: string | null;
+  entry_order: number;
+  account: { id: string; account_name: string; account_code: string } | null;
+}
+
 interface Voucher {
   id: string;
   voucher_number: string;
   voucher_date: string;
-  reference_number: string | null;
   narration: string | null;
-  total_amount: number | null;
+  total_amount: number;
   status: string;
   voucher_type: VoucherType | null;
-  voucher_entries: VoucherEntry[];
+  voucher_entries: EntryRow[];
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+const fmt = (n: number): string =>
+  new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
-/** Format a number as Indian Rupees. */
-const formatCurrency = (val: number): string =>
-  `\u20B9${Number(val).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-
-/** Return a badge variant class based on voucher status. */
-const statusBadgeClass = (status: string): string => {
-  switch (status) {
-    case 'AUTHORISED':
-      return 'bg-green-100 text-green-700 border-green-200';
-    case 'PENDING':
-      return 'bg-yellow-100 text-yellow-700 border-yellow-200';
-    case 'CANCELLED':
-      return 'bg-red-100 text-red-700 border-red-200';
-    default:
-      return 'bg-gray-100 text-gray-700 border-gray-200';
-  }
+const tallyDateLabel = (iso: string): string => {
+  const d = new Date(iso + 'T00:00:00');
+  const month = d.toLocaleDateString('en-GB', { month: 'short' });
+  return `${d.getDate()}-${month}-${String(d.getFullYear()).slice(2)}`;
 };
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
+/**
+ * Day Book — Tally Prime replica: one row per voucher (Date, Particulars =
+ * lead ledger, Vch Type, Vch No., Debit/Credit amount), click expands to
+ * show all ledger lines like Tally's detailed mode.
+ */
 const DayBook: React.FC = () => {
-  // Default date range: current month
-  const now = new Date();
-  const [fromDate, setFromDate] = useState(
-    format(startOfMonth(now), 'yyyy-MM-dd')
-  );
-  const [toDate, setToDate] = useState(
-    format(endOfMonth(now), 'yyyy-MM-dd')
-  );
-  const [typeFilter, setTypeFilter] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
+  const today = format(new Date(), 'yyyy-MM-dd');
+  const [fromDate, setFromDate] = useState(today);
+  const [toDate, setToDate] = useState(today);
+  const [showPeriod, setShowPeriod] = useState(false);
+  const [typeFilter, setTypeFilter] = useState('');
+  const [detailed, setDetailed] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
-  // Fetch voucher types for the filter dropdown
-  const { data: voucherTypes } = useQuery({
+  const { data: voucherTypes = [] } = useQuery({
     queryKey: ['voucher_types'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -114,360 +66,172 @@ const DayBook: React.FC = () => {
     },
   });
 
-  // Fetch vouchers within the selected date range with entries and accounts
-  const {
-    data: vouchers,
-    isLoading,
-    isError,
-    error,
-  } = useQuery({
-    queryKey: ['daybook_vouchers', fromDate, toDate, typeFilter, statusFilter],
+  const { data: vouchers = [], isLoading } = useQuery({
+    queryKey: ['daybook_vouchers', fromDate, toDate, typeFilter],
     queryFn: async () => {
       let query = supabase
         .from('vouchers')
         .select(`
-          *,
+          id, voucher_number, voucher_date, narration, total_amount, status,
           voucher_type:voucher_types(id, voucher_type_name, voucher_category),
           voucher_entries(
             id, debit_amount, credit_amount, narration, entry_order,
             account:chart_of_accounts(id, account_name, account_code)
           )
         `)
+        .eq('status', 'AUTHORISED')
         .gte('voucher_date', fromDate)
         .lte('voucher_date', toDate)
-        .order('voucher_date', { ascending: false });
-
-      if (typeFilter && typeFilter !== 'all') {
-        query = query.eq('voucher_type_id', typeFilter);
-      }
-      if (statusFilter && statusFilter !== 'all') {
-        query = query.eq('status', statusFilter);
-      }
-
-      const { data, error: fetchError } = await query;
-      if (fetchError) throw fetchError;
-      return data as Voucher[];
+        .order('voucher_date', { ascending: true })
+        .order('created_at', { ascending: true })
+        .limit(1000);
+      if (typeFilter) query = query.eq('voucher_type_id', typeFilter);
+      const { data, error } = await query;
+      if (error) throw error;
+      return data as unknown as Voucher[];
     },
   });
 
-  // Toggle expanded state for a voucher row
   const toggleExpanded = (id: string) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
 
-  // Calculate grand totals across all displayed vouchers
-  const grandTotals = useMemo(() => {
-    if (!vouchers) return { debit: 0, credit: 0 };
-    return vouchers.reduce(
-      (acc, v) => {
-        const debit =
-          v.voucher_entries?.reduce(
-            (s, e) => s + (e.debit_amount || 0),
-            0
-          ) || 0;
-        const credit =
-          v.voucher_entries?.reduce(
-            (s, e) => s + (e.credit_amount || 0),
-            0
-          ) || 0;
-        return { debit: acc.debit + debit, credit: acc.credit + credit };
-      },
-      { debit: 0, credit: 0 }
-    );
-  }, [vouchers]);
-
-  // Export displayed vouchers as CSV
-  const exportCSV = () => {
-    if (!vouchers?.length) return;
-    const headers = [
-      'Date',
-      'Voucher No',
-      'Type',
-      'Narration',
-      'Debit',
-      'Credit',
-      'Status',
-    ];
-    const rows = vouchers.map((v) => [
-      v.voucher_date,
-      v.voucher_number,
-      v.voucher_type?.voucher_type_name || '',
-      v.narration || '',
-      v.voucher_entries?.reduce((s, e) => s + (e.debit_amount || 0), 0) || 0,
-      v.voucher_entries?.reduce((s, e) => s + (e.credit_amount || 0), 0) || 0,
-      v.status,
-    ]);
-    const csv = [headers, ...rows]
-      .map((r) => r.map((c) => `"${c}"`).join(','))
-      .join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `daybook_${fromDate}_${toDate}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success('CSV exported successfully');
+  // Lead ledger = first debit entry (Tally shows the debited party on Day Book rows)
+  const leadLedger = (v: Voucher): string => {
+    const sorted = [...(v.voucher_entries ?? [])].sort((a, b) => (a.entry_order || 0) - (b.entry_order || 0));
+    const lead = sorted.find((e) => Number(e.debit_amount) > 0) ?? sorted[0];
+    return lead?.account?.account_name ?? '';
   };
 
+  const totals = useMemo(
+    () => vouchers.reduce((s, v) => s + (Number(v.total_amount) || 0), 0),
+    [vouchers],
+  );
+
+  const typeName = voucherTypes.find((t) => t.id === typeFilter)?.voucher_type_name;
+
   return (
-    <Card className="w-full">
-      <CardHeader className="pb-4">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle className="text-xl font-bold text-blue-700">
-            Day Book
-          </CardTitle>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={exportCSV}
-            disabled={!vouchers?.length}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Export CSV
-          </Button>
+    <TallyScreen
+      title={`Day Book${typeName ? ` — ${typeName}` : ''}`}
+      rail={[
+        { hotkey: 'F2', label: 'Period', onClick: () => setShowPeriod((v) => !v) },
+        { hotkey: 'F3', label: 'Company', disabled: true },
+        {
+          hotkey: 'F4',
+          label: 'Voucher Type',
+          gapBefore: true,
+          onClick: () =>
+            setTypeFilter((cur) => {
+              const ids = ['', ...voucherTypes.map((t) => t.id)];
+              return ids[(ids.indexOf(cur) + 1) % ids.length];
+            }),
+        },
+        { hotkey: 'H', label: detailed ? 'Condensed' : 'Detailed', gapBefore: true, onClick: () => setDetailed((v) => !v) },
+        { label: 'Save View', disabled: true },
+        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
+      ]}
+    >
+      <div className="px-3 pb-4 pt-1 text-[13px]">
+        {/* Period line, like Tally's "For x-Jul-26" subtitle */}
+        <div className="mb-1 text-center">
+          <span className="font-semibold">
+            {fromDate === toDate ? `For ${tallyDateLabel(fromDate)}` : `${tallyDateLabel(fromDate)} to ${tallyDateLabel(toDate)}`}
+          </span>
         </div>
-
-        {/* Filters */}
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {/* From Date */}
-          <div className="space-y-1">
-            <Label htmlFor="from-date">From Date</Label>
-            <Input
-              id="from-date"
-              type="date"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-            />
-          </div>
-
-          {/* To Date */}
-          <div className="space-y-1">
-            <Label htmlFor="to-date">To Date</Label>
-            <Input
-              id="to-date"
-              type="date"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-            />
-          </div>
-
-          {/* Voucher Type Filter */}
-          <div className="space-y-1">
-            <Label>Voucher Type</Label>
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger>
-                <SelectValue placeholder="All Types" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                {voucherTypes?.map((vt) => (
-                  <SelectItem key={vt.id} value={vt.id}>
-                    {vt.voucher_type_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Status Filter */}
-          <div className="space-y-1">
-            <Label>Status</Label>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger>
-                <SelectValue placeholder="All" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All</SelectItem>
-                <SelectItem value="PENDING">Pending</SelectItem>
-                <SelectItem value="AUTHORISED">Authorised</SelectItem>
-                <SelectItem value="CANCELLED">Cancelled</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      </CardHeader>
-
-      <CardContent>
-        {/* Error State */}
-        {isError && (
-          <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            <AlertCircle className="h-4 w-4" />
-            <span>Failed to load vouchers: {(error as Error)?.message}</span>
+        {showPeriod && (
+          <div className="mb-2 flex items-center gap-2 border border-[#9db8d8] bg-[#fdf6d8] px-2 py-1">
+            <span>Period:</span>
+            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="border bg-white px-1" />
+            <span>to</span>
+            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="border bg-white px-1" />
+            <span className="ml-4">Type:</span>
+            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="border bg-white px-1">
+              <option value="">All Vouchers</option>
+              {voucherTypes.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.voucher_type_name}
+                </option>
+              ))}
+            </select>
           </div>
         )}
 
-        {/* Loading State */}
-        {isLoading && (
-          <div className="space-y-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-10 animate-pulse rounded bg-gray-100"
-              />
-            ))}
-          </div>
-        )}
+        {/* Header row */}
+        <div className="flex border-y border-black bg-[#f0f4fa] font-semibold">
+          <div className="w-20 px-1">Date</div>
+          <div className="min-w-0 flex-1 px-1">Particulars</div>
+          <div className="w-32 px-1">Vch Type</div>
+          <div className="w-28 px-1">Vch No.</div>
+          <div className="w-32 px-1 text-right">Debit Amount</div>
+          <div className="w-32 px-1 text-right">Credit Amount</div>
+        </div>
 
-        {/* Voucher Table */}
-        {!isLoading && !isError && (
-          <ScrollArea className="w-full">
-            <div className="min-w-[800px]">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-10" />
-                    <TableHead>Date</TableHead>
-                    <TableHead>Voucher #</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Narration</TableHead>
-                    <TableHead className="text-right">Debit Total</TableHead>
-                    <TableHead className="text-right">Credit Total</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {vouchers && vouchers.length > 0 ? (
-                    <>
-                      {vouchers.map((v) => {
-                        const isExpanded = expandedIds.has(v.id);
-                        const debitTotal =
-                          v.voucher_entries?.reduce(
-                            (s, e) => s + (e.debit_amount || 0),
-                            0
-                          ) || 0;
-                        const creditTotal =
-                          v.voucher_entries?.reduce(
-                            (s, e) => s + (e.credit_amount || 0),
-                            0
-                          ) || 0;
-
-                        return (
-                          <React.Fragment key={v.id}>
-                            {/* Voucher summary row */}
-                            <TableRow
-                              className="cursor-pointer hover:bg-blue-50"
-                              onClick={() => toggleExpanded(v.id)}
-                            >
-                              <TableCell>
-                                {isExpanded ? (
-                                  <ChevronDown className="h-4 w-4 text-gray-500" />
-                                ) : (
-                                  <ChevronRight className="h-4 w-4 text-gray-500" />
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                {format(parseISO(v.voucher_date), 'dd MMM yyyy')}
-                              </TableCell>
-                              <TableCell className="font-medium">
-                                {v.voucher_number}
-                              </TableCell>
-                              <TableCell>
-                                {v.voucher_type?.voucher_type_name || '-'}
-                              </TableCell>
-                              <TableCell className="max-w-[200px] truncate">
-                                {v.narration || '-'}
-                              </TableCell>
-                              <TableCell className="text-right font-mono">
-                                {formatCurrency(debitTotal)}
-                              </TableCell>
-                              <TableCell className="text-right font-mono">
-                                {formatCurrency(creditTotal)}
-                              </TableCell>
-                              <TableCell>
-                                <Badge
-                                  variant="outline"
-                                  className={statusBadgeClass(v.status)}
-                                >
-                                  {v.status}
-                                </Badge>
-                              </TableCell>
-                            </TableRow>
-
-                            {/* Expanded entry rows */}
-                            {isExpanded &&
-                              v.voucher_entries
-                                ?.sort(
-                                  (a, b) =>
-                                    (a.entry_order || 0) - (b.entry_order || 0)
-                                )
-                                .map((entry, idx) => (
-                                  <TableRow
-                                    key={entry.id}
-                                    className="bg-gray-50"
-                                  >
-                                    <TableCell />
-                                    <TableCell className="pl-8 text-sm text-gray-500">
-                                      {idx + 1}
-                                    </TableCell>
-                                    <TableCell
-                                      colSpan={2}
-                                      className="pl-8 text-sm"
-                                    >
-                                      {entry.account
-                                        ? `${entry.account.account_code} - ${entry.account.account_name}`
-                                        : '-'}
-                                    </TableCell>
-                                    <TableCell className="text-sm text-gray-500">
-                                      {entry.narration || '-'}
-                                    </TableCell>
-                                    <TableCell className="text-right font-mono text-sm">
-                                      {entry.debit_amount
-                                        ? formatCurrency(entry.debit_amount)
-                                        : '-'}
-                                    </TableCell>
-                                    <TableCell className="text-right font-mono text-sm">
-                                      {entry.credit_amount
-                                        ? formatCurrency(entry.credit_amount)
-                                        : '-'}
-                                    </TableCell>
-                                    <TableCell />
-                                  </TableRow>
-                                ))}
-                          </React.Fragment>
-                        );
-                      })}
-
-                      {/* Grand Totals Row */}
-                      <TableRow className="border-t-2 font-bold">
-                        <TableCell />
-                        <TableCell colSpan={4} className="text-right">
-                          Grand Total
-                        </TableCell>
-                        <TableCell className="text-right font-mono">
-                          {formatCurrency(grandTotals.debit)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono">
-                          {formatCurrency(grandTotals.credit)}
-                        </TableCell>
-                        <TableCell />
-                      </TableRow>
-                    </>
-                  ) : (
-                    <TableRow>
-                      <TableCell
-                        colSpan={8}
-                        className="py-8 text-center text-gray-500"
-                      >
-                        No vouchers found for the selected date range.
-                      </TableCell>
-                    </TableRow>
+        {isLoading ? (
+          <div className="py-10 text-center text-gray-400">Loading…</div>
+        ) : vouchers.length === 0 ? (
+          <div className="py-10 text-center text-gray-400">No vouchers in this period.</div>
+        ) : (
+          <>
+            {vouchers.map((v) => {
+              const expanded = detailed || expandedIds.has(v.id);
+              const entries = [...(v.voucher_entries ?? [])].sort((a, b) => (a.entry_order || 0) - (b.entry_order || 0));
+              return (
+                <React.Fragment key={v.id}>
+                  <button
+                    type="button"
+                    onClick={() => toggleExpanded(v.id)}
+                    className="flex w-full border-b border-dashed border-gray-300 text-left hover:bg-[#fdf6d8]"
+                  >
+                    <div className="w-20 px-1">{tallyDateLabel(v.voucher_date)}</div>
+                    <div className="min-w-0 flex-1 truncate px-1 font-semibold">{leadLedger(v)}</div>
+                    <div className="w-32 px-1">{v.voucher_type?.voucher_type_name?.replace(' Voucher', '') ?? ''}</div>
+                    <div className="w-28 px-1 font-mono text-[12px]">{v.voucher_number}</div>
+                    <div className="w-32 px-1 text-right font-mono">{fmt(Number(v.total_amount) || 0)}</div>
+                    <div className="w-32 px-1 text-right font-mono">{fmt(Number(v.total_amount) || 0)}</div>
+                  </button>
+                  {expanded && (
+                    <div className="border-b border-dashed border-gray-300 bg-[#fffdf2] py-0.5">
+                      {entries.map((e) => (
+                        <div key={e.id} className="flex text-[12px] italic text-gray-700">
+                          <div className="w-20" />
+                          <div className="min-w-0 flex-1 truncate px-1">
+                            {Number(e.debit_amount) > 0 ? 'Dr' : 'Cr'} {e.account?.account_name ?? ''}
+                          </div>
+                          <div className="w-32" />
+                          <div className="w-28" />
+                          <div className="w-32 px-1 text-right font-mono">
+                            {Number(e.debit_amount) > 0 ? fmt(Number(e.debit_amount)) : ''}
+                          </div>
+                          <div className="w-32 px-1 text-right font-mono">
+                            {Number(e.credit_amount) > 0 ? fmt(Number(e.credit_amount)) : ''}
+                          </div>
+                        </div>
+                      ))}
+                      {v.narration && (
+                        <div className="px-24 text-[11px] italic text-gray-500">({v.narration})</div>
+                      )}
+                    </div>
                   )}
-                </TableBody>
-              </Table>
+                </React.Fragment>
+              );
+            })}
+            <div className="mt-2 flex border-t border-black pt-0.5 font-bold">
+              <div className="w-20 px-1" />
+              <div className="min-w-0 flex-1 px-1 tracking-[0.2em]">Total — {vouchers.length} voucher(s)</div>
+              <div className="w-32 px-1" />
+              <div className="w-28 px-1" />
+              <div className="w-32 px-1 text-right font-mono">{fmt(totals)}</div>
+              <div className="w-32 px-1 text-right font-mono">{fmt(totals)}</div>
             </div>
-          </ScrollArea>
+          </>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </TallyScreen>
   );
 };
 

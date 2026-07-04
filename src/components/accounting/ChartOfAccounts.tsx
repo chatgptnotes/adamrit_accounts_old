@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { TallyScreen } from './tally/TallyChrome';
 import { toast } from 'sonner';
 import { Plus, Edit, Trash2, Search, ChevronRight, ChevronDown, Loader2, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -469,6 +470,8 @@ const ChartOfAccounts: React.FC = () => {
   }
 
   return (
+    <TallyScreen title="Chart of Accounts" rail={[{ hotkey: 'P', label: 'Print', onClick: () => window.print() }]}>
+    
     <Card className="w-full">
       {/* Header with search, filter, and add button */}
       <CardHeader className="pb-4">
@@ -717,6 +720,7 @@ const ChartOfAccounts: React.FC = () => {
         </DialogContent>
       </Dialog>
     </Card>
+    </TallyScreen>
   );
 };
 

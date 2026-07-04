@@ -1,59 +1,16 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows } from '@/lib/fetchAllRows';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { Download, BookOpen, AlertCircle } from 'lucide-react';
-import { format, parseISO } from 'date-fns';
-import { toast } from 'sonner';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import { TallyScreen } from './tally/TallyChrome';
 
 interface Account {
   id: string;
   account_code: string;
   account_name: string;
   account_type: string;
-  account_group: string | null;
-  is_active: boolean;
   opening_balance: number | null;
   opening_balance_type: string | null;
-}
-
-interface VoucherTypeInfo {
-  voucher_type_name: string;
-}
-
-interface VoucherInfo {
-  id: string;
-  voucher_number: string;
-  voucher_date: string;
-  narration: string | null;
-  status: string;
-  voucher_type: VoucherTypeInfo | null;
 }
 
 interface VoucherEntryRow {
@@ -61,60 +18,53 @@ interface VoucherEntryRow {
   debit_amount: number | null;
   credit_amount: number | null;
   narration: string | null;
-  voucher: VoucherInfo | null;
+  voucher: {
+    id: string;
+    voucher_number: string;
+    voucher_date: string;
+    narration: string | null;
+    status: string;
+    voucher_type: { voucher_type_name: string } | null;
+  } | null;
 }
 
-/** A processed ledger row ready for display. */
-interface LedgerRow {
-  id: string;
-  date: string;
-  voucherNumber: string;
-  type: string;
-  particulars: string;
-  debit: number;
-  credit: number;
-  balance: number;
-  balanceType: 'Dr' | 'Cr';
-}
+const fmt = (n: number): string =>
+  new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Format a number as Indian Rupees. */
-const formatCurrency = (val: number): string =>
-  `\u20B9${Number(val).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-
-/**
- * Compute the default financial year dates.
- * Indian financial year: April 1 to March 31.
- */
-const getFinancialYearDates = (): { from: string; to: string } => {
-  const now = new Date();
-  const year = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-  return {
-    from: `${year}-04-01`,
-    to: `${year + 1}-03-31`,
-  };
+const tallyDateLabel = (iso: string): string => {
+  const d = new Date(iso + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return iso;
+  const month = d.toLocaleDateString('en-GB', { month: 'short' });
+  return `${d.getDate()}-${month}-${String(d.getFullYear()).slice(2)}`;
 };
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+const fy = (): { from: string; to: string } => {
+  const now = new Date();
+  const year = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  return { from: `${year}-04-01`, to: `${year + 1}-03-31` };
+};
 
+/**
+ * Ledger Vouchers — Tally Prime replica: pick a ledger (type-to-search like
+ * Tally's List of Ledger Accounts), see Date / Particulars / Vch Type /
+ * Vch No. / Debit / Credit rows with Opening + Closing balance and totals.
+ */
 const LedgerView: React.FC = () => {
-  const fy = getFinancialYearDates();
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
-  const [fromDate, setFromDate] = useState(fy.from);
-  const [toDate, setToDate] = useState(fy.to);
+  const [fromDate, setFromDate] = useState(fy().from);
+  const [toDate, setToDate] = useState(fy().to);
+  const [showPeriod, setShowPeriod] = useState(false);
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
-  // Fetch all active accounts for the dropdown
-  const { data: accounts } = useQuery({
-    queryKey: ['chart_of_accounts_active'],
+  const { data: accounts = [] } = useQuery({
+    queryKey: ['ledger_accounts'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('chart_of_accounts')
-        .select('*')
+        .select('id, account_code, account_name, account_type, opening_balance, opening_balance_type')
         .eq('is_active', true)
         .order('account_code');
       if (error) throw error;
@@ -122,24 +72,27 @@ const LedgerView: React.FC = () => {
     },
   });
 
-  // The currently selected account object
   const selectedAccount = useMemo(
-    () => accounts?.find((a) => a.id === selectedAccountId) || null,
-    [accounts, selectedAccountId]
+    () => accounts.find((a) => a.id === selectedAccountId) || null,
+    [accounts, selectedAccountId],
   );
 
-  // Fetch voucher entries for the selected account
-  const {
-    data: rawEntries,
-    isLoading,
-    isError,
-    error,
-  } = useQuery({
+  useEffect(() => {
+    setSearch(selectedAccount ? selectedAccount.account_name : '');
+  }, [selectedAccount]);
+
+  const options = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = q
+      ? accounts.filter((a) => a.account_name.toLowerCase().includes(q) || a.account_code.includes(q))
+      : accounts;
+    return list.slice(0, 15);
+  }, [accounts, search]);
+
+  const { data: rawEntries = [], isLoading } = useQuery({
     queryKey: ['ledger_entries', selectedAccountId, fromDate, toDate],
     enabled: !!selectedAccountId,
     queryFn: async () => {
-      // Filter server-side and paginate: accounts like Cash in Hand have
-      // thousands of entries and a single request truncates at 1000 rows.
       const data = await fetchAllRows((from, to) =>
         supabase
           .from('voucher_entries')
@@ -159,314 +112,192 @@ const LedgerView: React.FC = () => {
     },
   });
 
-  // Filter and sort entries client-side, then compute running balance
-  const ledgerRows = useMemo<LedgerRow[]>(() => {
-    if (!selectedAccount || !rawEntries) return [];
-
-    // Filter by posted status and date range
-    const filtered = rawEntries
-      .filter((e) => {
-        const v = e.voucher;
-        if (!v || v.status !== 'AUTHORISED') return false;
-        return v.voucher_date >= fromDate && v.voucher_date <= toDate;
-      })
-      .sort((a, b) =>
-        (a.voucher?.voucher_date || '').localeCompare(
-          b.voucher?.voucher_date || ''
-        )
-      );
-
-    // Opening balance: positive = Dr side, negative = Cr side
-    let balance =
-      selectedAccount.opening_balance_type === 'Dr'
-        ? selectedAccount.opening_balance || 0
-        : -(selectedAccount.opening_balance || 0);
-
-    const rows: LedgerRow[] = [];
-
-    // Opening balance row
-    rows.push({
-      id: 'opening',
-      date: fromDate,
-      voucherNumber: '',
-      type: '',
-      particulars: 'Opening Balance',
-      debit:
-        selectedAccount.opening_balance_type === 'Dr'
-          ? selectedAccount.opening_balance || 0
-          : 0,
-      credit:
-        selectedAccount.opening_balance_type === 'Cr'
-          ? selectedAccount.opening_balance || 0
-          : 0,
-      balance: Math.abs(balance),
-      balanceType: balance >= 0 ? 'Dr' : 'Cr',
+  const { rows, opening, totalDr, totalCr, closing } = useMemo(() => {
+    const sorted = [...rawEntries].sort((a, b) =>
+      (a.voucher?.voucher_date || '').localeCompare(b.voucher?.voucher_date || ''),
+    );
+    const opening = selectedAccount
+      ? (Number(selectedAccount.opening_balance) || 0) * (selectedAccount.opening_balance_type === 'Cr' ? -1 : 1)
+      : 0;
+    let totalDr = 0;
+    let totalCr = 0;
+    const rows = sorted.map((e) => {
+      const dr = Number(e.debit_amount) || 0;
+      const cr = Number(e.credit_amount) || 0;
+      totalDr += dr;
+      totalCr += cr;
+      return {
+        id: e.id,
+        date: e.voucher?.voucher_date || '',
+        particulars: e.narration || e.voucher?.narration || '',
+        type: e.voucher?.voucher_type?.voucher_type_name?.replace(' Voucher', '') || '',
+        number: e.voucher?.voucher_number || '',
+        dr,
+        cr,
+      };
     });
-
-    // Transaction rows
-    filtered.forEach((entry) => {
-      const v = entry.voucher!;
-      const debit = entry.debit_amount || 0;
-      const credit = entry.credit_amount || 0;
-      balance += debit - credit;
-
-      rows.push({
-        id: entry.id,
-        date: v.voucher_date,
-        voucherNumber: v.voucher_number,
-        type: v.voucher_type?.voucher_type_name || '-',
-        particulars: entry.narration || v.narration || '-',
-        debit,
-        credit,
-        balance: Math.abs(balance),
-        balanceType: balance >= 0 ? 'Dr' : 'Cr',
-      });
-    });
-
-    // Closing balance row
-    rows.push({
-      id: 'closing',
-      date: toDate,
-      voucherNumber: '',
-      type: '',
-      particulars: 'Closing Balance',
-      debit: 0,
-      credit: 0,
-      balance: Math.abs(balance),
-      balanceType: balance >= 0 ? 'Dr' : 'Cr',
-    });
-
-    return rows;
-  }, [rawEntries, selectedAccount, fromDate, toDate]);
-
-  // Export ledger as CSV
-  const exportCSV = () => {
-    if (!ledgerRows.length || !selectedAccount) return;
-    const headers = [
-      'Date',
-      'Voucher #',
-      'Type',
-      'Particulars',
-      'Debit',
-      'Credit',
-      'Balance',
-    ];
-    const rows = ledgerRows.map((r) => [
-      r.date,
-      r.voucherNumber,
-      r.type,
-      r.particulars,
-      r.debit || '',
-      r.credit || '',
-      `${r.balance} ${r.balanceType}`,
-    ]);
-    const csv = [headers, ...rows]
-      .map((r) => r.map((c) => `"${c}"`).join(','))
-      .join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `ledger_${selectedAccount.account_code}_${fromDate}_${toDate}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success('CSV exported successfully');
-  };
+    return { rows, opening, totalDr, totalCr, closing: opening + totalDr - totalCr };
+  }, [rawEntries, selectedAccount]);
 
   return (
-    <Card className="w-full">
-      <CardHeader className="pb-4">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle className="text-xl font-bold text-blue-700">
-            Ledger View
-          </CardTitle>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={exportCSV}
-            disabled={!ledgerRows.length}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Export CSV
-          </Button>
-        </div>
-
-        {/* Filters */}
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {/* Account Selector */}
-          <div className="space-y-1 sm:col-span-2 lg:col-span-1">
-            <Label>Account</Label>
-            <Select
-              value={selectedAccountId}
-              onValueChange={setSelectedAccountId}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select an account" />
-              </SelectTrigger>
-              <SelectContent>
-                {accounts?.map((acc) => (
-                  <SelectItem key={acc.id} value={acc.id}>
-                    {acc.account_code} - {acc.account_name}
-                  </SelectItem>
+    <TallyScreen
+      title="Ledger Vouchers"
+      rail={[
+        { hotkey: 'F2', label: 'Period', onClick: () => setShowPeriod((v) => !v) },
+        { hotkey: 'F3', label: 'Company', disabled: true },
+        {
+          hotkey: 'F4',
+          label: 'Ledger',
+          gapBefore: true,
+          onClick: () => {
+            setSelectedAccountId('');
+            setSearch('');
+            setTimeout(() => inputRef.current?.focus(), 0);
+          },
+        },
+        { label: 'Save View', disabled: true, gapBefore: true },
+        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
+      ]}
+    >
+      <div className="px-3 pb-4 pt-1 text-[13px]">
+        {/* Ledger picker */}
+        <div className="flex items-center gap-2">
+          <span className="w-24 shrink-0 font-semibold">Ledger</span>
+          <span>:</span>
+          <div className="relative w-full max-w-md">
+            <input
+              ref={inputRef}
+              value={search}
+              placeholder="Type to search ledger…"
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setOpen(true);
+                setHighlight(0);
+                if (selectedAccountId) setSelectedAccountId('');
+              }}
+              onFocus={() => setOpen(true)}
+              onBlur={() => setTimeout(() => setOpen(false), 150)}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  setHighlight((h) => Math.min(h + 1, options.length - 1));
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  setHighlight((h) => Math.max(h - 1, 0));
+                } else if (e.key === 'Enter' && options[highlight]) {
+                  e.preventDefault();
+                  setSelectedAccountId(options[highlight].id);
+                  setOpen(false);
+                }
+              }}
+              className="h-7 w-full border-0 border-b border-dashed border-gray-400 bg-transparent px-1 font-semibold focus:border-solid focus:border-blue-600 focus:outline-none"
+            />
+            {open && options.length > 0 && (
+              <div className="absolute z-30 mt-1 max-h-72 w-full min-w-[320px] overflow-y-auto border bg-[#eef3fa] shadow-lg">
+                <div className="border-b bg-[#16437e] px-3 py-1 text-xs font-semibold text-white">List of Ledger Accounts</div>
+                {options.map((a, i) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setSelectedAccountId(a.id);
+                      setOpen(false);
+                    }}
+                    onMouseEnter={() => setHighlight(i)}
+                    className={`block w-full px-3 py-1 text-left ${i === highlight ? 'bg-[#fdf6d8]' : ''}`}
+                  >
+                    {a.account_name}
+                    <span className="ml-2 text-xs text-muted-foreground">({a.account_code})</span>
+                  </button>
                 ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* From Date */}
-          <div className="space-y-1">
-            <Label htmlFor="ledger-from">From Date</Label>
-            <Input
-              id="ledger-from"
-              type="date"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-            />
-          </div>
-
-          {/* To Date */}
-          <div className="space-y-1">
-            <Label htmlFor="ledger-to">To Date</Label>
-            <Input
-              id="ledger-to"
-              type="date"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-            />
+              </div>
+            )}
           </div>
         </div>
-      </CardHeader>
-
-      <CardContent>
-        {/* No account selected */}
-        {!selectedAccountId && (
-          <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-            <BookOpen className="mb-4 h-12 w-12" />
-            <p className="text-lg">Select an account to view its ledger</p>
+        {showPeriod && (
+          <div className="mt-2 flex items-center gap-2 border border-[#9db8d8] bg-[#fdf6d8] px-2 py-1">
+            <span>Period:</span>
+            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="border bg-white px-1" />
+            <span>to</span>
+            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="border bg-white px-1" />
           </div>
         )}
 
-        {/* Error State */}
-        {selectedAccountId && isError && (
-          <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            <AlertCircle className="h-4 w-4" />
-            <span>
-              Failed to load ledger entries: {(error as Error)?.message}
-            </span>
-          </div>
-        )}
-
-        {/* Loading State */}
-        {selectedAccountId && isLoading && (
-          <div className="space-y-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-10 animate-pulse rounded bg-gray-100"
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Account Info Bar and Transactions */}
-        {selectedAccountId && selectedAccount && !isLoading && !isError && (
+        {selectedAccount && (
           <>
-            {/* Account Info Bar */}
-            <div className="mb-4 flex flex-wrap items-center gap-4 rounded-md border bg-blue-50 p-4">
-              <div>
-                <span className="text-sm font-semibold text-gray-700">
-                  {selectedAccount.account_name}
-                </span>
-                <span className="ml-2 text-sm text-gray-500">
-                  ({selectedAccount.account_code})
-                </span>
+            {/* Ledger header, Tally style */}
+            <div className="mt-2 text-center">
+              <div className="font-bold">{selectedAccount.account_name}</div>
+              <div className="text-[11px]">
+                {tallyDateLabel(fromDate)} to {tallyDateLabel(toDate)}
               </div>
-              <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200">
-                {selectedAccount.account_type}
-              </Badge>
-              {selectedAccount.account_group && (
-                <span className="text-sm text-gray-500">
-                  Group: {selectedAccount.account_group}
-                </span>
-              )}
-              <Separator orientation="vertical" className="hidden h-6 sm:block" />
-              <span className="text-sm text-gray-600">
-                Opening Balance:{' '}
-                <span className="font-medium">
-                  {formatCurrency(selectedAccount.opening_balance || 0)}{' '}
-                  {selectedAccount.opening_balance_type || '-'}
-                </span>
-              </span>
             </div>
 
-            {/* Ledger Transactions Table */}
-            <ScrollArea className="w-full">
-              <div className="min-w-[750px]">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Voucher #</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Particulars</TableHead>
-                      <TableHead className="text-right">Debit</TableHead>
-                      <TableHead className="text-right">Credit</TableHead>
-                      <TableHead className="text-right">Balance</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {ledgerRows.map((row) => {
-                      const isSpecialRow =
-                        row.id === 'opening' || row.id === 'closing';
-                      return (
-                        <TableRow
-                          key={row.id}
-                          className={
-                            isSpecialRow ? 'bg-gray-50 font-bold' : ''
-                          }
-                        >
-                          <TableCell>
-                            {row.id === 'opening' || row.id === 'closing'
-                              ? ''
-                              : format(parseISO(row.date), 'dd MMM yyyy')}
-                          </TableCell>
-                          <TableCell>{row.voucherNumber || ''}</TableCell>
-                          <TableCell>{row.type || ''}</TableCell>
-                          <TableCell>{row.particulars}</TableCell>
-                          <TableCell className="text-right font-mono">
-                            {row.debit ? formatCurrency(row.debit) : '-'}
-                          </TableCell>
-                          <TableCell className="text-right font-mono">
-                            {row.credit ? formatCurrency(row.credit) : '-'}
-                          </TableCell>
-                          <TableCell className="text-right font-mono">
-                            {formatCurrency(row.balance)}{' '}
-                            <span className="text-xs text-gray-500">
-                              {row.balanceType}
-                            </span>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                    {ledgerRows.length === 0 && (
-                      <TableRow>
-                        <TableCell
-                          colSpan={7}
-                          className="py-8 text-center text-gray-500"
-                        >
-                          No posted transactions found for this account in the
-                          selected date range.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </ScrollArea>
+            {/* Column header */}
+            <div className="mt-1 flex border-y border-black bg-[#f0f4fa] font-semibold">
+              <div className="w-20 px-1">Date</div>
+              <div className="min-w-0 flex-1 px-1">Particulars</div>
+              <div className="w-28 px-1">Vch Type</div>
+              <div className="w-28 px-1">Vch No.</div>
+              <div className="w-32 px-1 text-right">Debit</div>
+              <div className="w-32 px-1 text-right">Credit</div>
+            </div>
+
+            {/* Opening balance */}
+            <div className="flex border-b border-dashed border-gray-300 italic">
+              <div className="w-20 px-1" />
+              <div className="min-w-0 flex-1 px-1 font-semibold">Opening Balance</div>
+              <div className="w-28 px-1" />
+              <div className="w-28 px-1" />
+              <div className="w-32 px-1 text-right font-mono">{opening > 0 ? fmt(opening) : ''}</div>
+              <div className="w-32 px-1 text-right font-mono">{opening < 0 ? fmt(-opening) : ''}</div>
+            </div>
+
+            {isLoading ? (
+              <div className="py-10 text-center text-gray-400">Loading…</div>
+            ) : (
+              <>
+                {rows.map((r) => (
+                  <div key={r.id} className="flex border-b border-dashed border-gray-200 hover:bg-[#fdf6d8]">
+                    <div className="w-20 px-1">{tallyDateLabel(r.date)}</div>
+                    <div className="min-w-0 flex-1 truncate px-1">{r.particulars}</div>
+                    <div className="w-28 px-1">{r.type}</div>
+                    <div className="w-28 px-1 font-mono text-[12px]">{r.number}</div>
+                    <div className="w-32 px-1 text-right font-mono">{r.dr > 0 ? fmt(r.dr) : ''}</div>
+                    <div className="w-32 px-1 text-right font-mono">{r.cr > 0 ? fmt(r.cr) : ''}</div>
+                  </div>
+                ))}
+
+                {/* Totals + closing, Tally style */}
+                <div className="mt-1 flex border-t border-gray-400 pt-0.5 font-semibold">
+                  <div className="w-20 px-1" />
+                  <div className="min-w-0 flex-1 px-1" />
+                  <div className="w-28 px-1" />
+                  <div className="w-28 px-1" />
+                  <div className="w-32 px-1 text-right font-mono">{fmt(totalDr + Math.max(0, opening))}</div>
+                  <div className="w-32 px-1 text-right font-mono">{fmt(totalCr + Math.max(0, -opening))}</div>
+                </div>
+                <div className="flex italic">
+                  <div className="w-20 px-1" />
+                  <div className="min-w-0 flex-1 px-1 font-semibold">Closing Balance</div>
+                  <div className="w-28 px-1" />
+                  <div className="w-28 px-1" />
+                  <div className="w-32 px-1 text-right font-mono">{closing < 0 ? fmt(-closing) : ''}</div>
+                  <div className="w-32 px-1 text-right font-mono">{closing > 0 ? fmt(closing) : ''}</div>
+                </div>
+                <div className="mt-1 text-right text-[12px] text-gray-600">
+                  {rows.length} voucher(s) · Closing: <span className="font-mono font-semibold">{fmt(Math.abs(closing))} {closing >= 0 ? 'Dr' : 'Cr'}</span>
+                </div>
+              </>
+            )}
           </>
         )}
-      </CardContent>
-    </Card>
+        {!selectedAccount && (
+          <div className="py-16 text-center text-gray-400">Select a ledger to view its vouchers (F4).</div>
+        )}
+      </div>
+    </TallyScreen>
   );
 };
 
