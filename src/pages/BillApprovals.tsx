@@ -26,14 +26,18 @@ const enrichBillsWithPatients = async (bills: any[]) => {
 
   const patientMap = new Map<string, { name?: string; registration_number?: string }>();
   if (patientIds.length > 0) {
+    // patients has no registration_number column — the readable
+    // registration code lives in patients_id (42703 otherwise).
     const { data: patients, error } = await supabase
       .from('patients')
-      .select('id, name, registration_number')
+      .select('id, name, patients_id')
       .in('id', patientIds);
     if (error) {
       console.warn('[BillApprovals] batch patients lookup failed:', error.message);
     }
-    (patients || []).forEach((p: any) => patientMap.set(p.id, p));
+    (patients || []).forEach((p: any) =>
+      patientMap.set(p.id, { name: p.name, registration_number: p.patients_id })
+    );
   }
 
   return bills.map((bill: any) => {
@@ -132,11 +136,11 @@ const BillApprovals = () => {
       if (!data || data.length === 0) return [];
       // Batch fetch all visits in one query instead of N individual queries
       const visitIds = data.map((d: any) => d.visit_id).filter(Boolean);
-      const visitMap = new Map<string, { visit_id: string; patients?: { name?: string; registration_number?: string } }>();
+      const visitMap = new Map<string, { visit_id: string; patients?: { name?: string; patients_id?: string } }>();
       if (visitIds.length > 0) {
         const { data: visits } = await supabase
           .from('visits')
-          .select('id, visit_id, patients(name, registration_number)')
+          .select('id, visit_id, patients(name, patients_id)')
           .in('id', visitIds) as { data: any };
         (visits || []).forEach((v: any) => visitMap.set(v.id, v));
       }
@@ -146,7 +150,7 @@ const BillApprovals = () => {
           ...disc,
           patientName: visit?.patients?.name || 'Unknown',
           visitIdStr: visit?.visit_id || '',
-          registrationNumber: visit?.patients?.registration_number || '',
+          registrationNumber: visit?.patients?.patients_id || '',
         };
       });
     },
@@ -178,14 +182,14 @@ const BillApprovals = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('visits')
-        .select('id, visit_id, patient_id, package_amount, package_includes_medicine, package_status, visit_date, patients(name, registration_number)')
+        .select('id, visit_id, patient_id, package_amount, package_includes_medicine, package_status, visit_date, patients(name, patients_id)')
         .eq('package_status', 'pending_approval')
         .order('created_at', { ascending: false }) as { data: any; error: any };
       if (error) return [];
       return (data || []).map((v: any) => ({
         ...v,
         patientName: v.patients?.name || 'Unknown',
-        registrationNumber: v.patients?.registration_number || '',
+        registrationNumber: v.patients?.patients_id || '',
       }));
     },
     enabled: isAdmin,

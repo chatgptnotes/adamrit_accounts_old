@@ -25,6 +25,22 @@ const PAYABLE_ROWS = [
 ];
 
 export function DirectorFinancialStatements() {
+  const year = new Date().getFullYear();
+
+  // Sys values for the Expense Report's "Lab charges" row: monthly
+  // visit_labs cost totals via the director_lab_charges_by_month RPC.
+  const { data: labCharges } = useQuery({
+    queryKey: ['director-lab-charges', year],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .rpc('director_lab_charges_by_month', { p_year: year });
+      if (error) throw error;
+      const byMonth: Record<number, number> = {};
+      for (const r of data ?? []) byMonth[r.month - 1] = Number(r.total);
+      return byMonth;
+    },
+  });
+
   // Rows come from the marketing executives master, so new hires appear automatically
   const { data: marketingRows = [] } = useQuery({
     queryKey: ['marketing-users-names'],
@@ -55,6 +71,7 @@ export function DirectorFinancialStatements() {
         icon={<Receipt className="h-5 w-5 text-emerald-600" />}
         accentClass="border-l-emerald-500"
         rows={EXPENSE_ROWS}
+        systemValues={labCharges ? { 'Lab charges': labCharges } : undefined}
       />
       <MonthlyMatrixCard
         title="Receivables"

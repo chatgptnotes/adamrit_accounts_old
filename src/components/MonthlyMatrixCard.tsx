@@ -19,6 +19,8 @@ interface MonthlyMatrixCardProps {
   rows: string[];
   subtitle?: string;
   footnote?: string;
+  /** Database-pulled values per row label, keyed by month index (0-11). */
+  systemValues?: Record<string, Record<number, number>>;
 }
 
 /**
@@ -27,7 +29,7 @@ interface MonthlyMatrixCardProps {
  * value that will be pulled from the database once the matching source
  * (billing, payroll, vendor ledger...) is wired.
  */
-export function MonthlyMatrixCard({ title, statementKey, icon, accentClass, rows, subtitle, footnote }: MonthlyMatrixCardProps) {
+export function MonthlyMatrixCard({ title, statementKey, icon, accentClass, rows, subtitle, footnote, systemValues }: MonthlyMatrixCardProps) {
   const year = new Date().getFullYear();
   const [manualValues, setManualValues] = useState<CellValues>({});
 
@@ -57,7 +59,10 @@ export function MonthlyMatrixCard({ title, statementKey, icon, accentClass, rows
     setManualValues(seeded);
   }, [savedEntries]);
 
-  const systemValue = (_row: string, _monthIndex: number): string | null => null;
+  const systemValue = (row: string, monthIndex: number): string | null => {
+    const v = systemValues?.[row]?.[monthIndex];
+    return v === undefined || v === null ? null : Math.round(v).toLocaleString('en-IN');
+  };
 
   const handleChange = (row: string, monthIndex: number, value: string) => {
     // Allow digits and one decimal point only
@@ -134,7 +139,7 @@ export function MonthlyMatrixCard({ title, statementKey, icon, accentClass, rows
                       />
                       <div
                         className="mt-1 px-2 text-right text-xs text-gray-400"
-                        title="Pulled from the software database (not yet connected)"
+                        title="Pulled from the software database"
                       >
                         Sys: {systemValue(row, monthIndex) ?? '—'}
                       </div>
