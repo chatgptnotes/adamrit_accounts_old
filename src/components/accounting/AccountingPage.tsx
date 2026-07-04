@@ -31,6 +31,7 @@ import ProfitLoss from './ProfitLoss';
 import CashFlow from './CashFlow';
 import BankReconciliation from './BankReconciliation';
 import CashBankSummary from './CashBankSummary';
+import CashBankBook from './CashBankBook';
 import { TallyTopBar } from './tally/TallyChrome';
 
 /** Navigation item definition for the accounting sidebar. */
@@ -47,6 +48,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'masters', label: 'Masters', icon: FolderCog },
   { id: 'voucher-entry', label: 'Voucher Entry', icon: FileText },
   { id: 'day-book', label: 'Day Book', icon: Calendar },
+  { id: 'cash-bank-book', label: 'Cash/Bank Book', icon: BookOpen },
   { id: 'cash-bank-summary', label: 'Cash/Bank Summary', icon: Landmark },
   { id: 'ledger-view', label: 'Ledger View', icon: BookMarked },
   { id: 'trial-balance', label: 'Trial Balance', icon: Scale },
@@ -70,6 +72,8 @@ const renderContent = (activeTab: string, goTo: (id: string) => void): React.Rea
       return <VoucherEntry />;
     case 'day-book':
       return <DayBook />;
+    case 'cash-bank-book':
+      return <CashBankBook />;
     case 'cash-bank-summary':
       return <CashBankSummary onClose={() => goTo('dashboard')} />;
     case 'ledger-view':
