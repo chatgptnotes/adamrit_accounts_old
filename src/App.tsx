@@ -5,7 +5,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, useNavigate, useLocation } from "react-router-dom";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { AppRoutes } from "@/components/AppRoutes";
 import { useCounts } from "@/hooks/useCounts";
@@ -89,6 +89,26 @@ const FloatingFabs: React.FC = () => {
       <ChatWidget />
     </>
   );
+};
+
+// Auto-collapse the main sidebar on accounting/Tally screens for a
+// full-width Tally look; restore it when navigating elsewhere. The
+// SidebarTrigger still lets the user re-open it manually at any time.
+const TALLY_LOOK_ROUTES = ['/accounting', '/tally'];
+const AutoCollapseSidebar: React.FC = () => {
+  const { setOpen } = useSidebar();
+  const location = useLocation();
+  const wasTallyLook = useRef(false);
+
+  useEffect(() => {
+    const isTallyLook = TALLY_LOOK_ROUTES.some((r) => location.pathname.startsWith(r));
+    if (isTallyLook !== wasTallyLook.current) {
+      setOpen(!isTallyLook);
+      wasTallyLook.current = isTallyLook;
+    }
+  }, [location.pathname, setOpen]);
+
+  return null;
 };
 
 // Role-based redirect component — lives inside BrowserRouter so it can use useNavigate
@@ -400,6 +420,7 @@ const AppContent = () => {
         }}
       >
         <SidebarProvider defaultOpen={true}>
+          <AutoCollapseSidebar />
           {user && <RoleRedirect user={user} />}
           <div className="min-h-screen flex w-full">
             <AppSidebar {...counts} />

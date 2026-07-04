@@ -14,6 +14,8 @@ import {
   Loader2,
   FolderCog,
   ArrowDownUp,
+  PanelLeftOpen,
+  PanelLeftClose,
 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import Dashboard from './Dashboard';
@@ -91,15 +93,31 @@ const renderContent = (activeTab: string): React.ReactNode => {
  */
 const AccountingPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
+  // Collapsed icon rail by default — Tally-style full-width canvas.
+  const [navExpanded, setNavExpanded] = useState(false);
 
   return (
     <div className="min-h-screen flex bg-gray-50">
-      {/* ---- Left Sidebar ---- */}
-      <aside className="w-56 bg-white border-r shadow-sm flex flex-col flex-shrink-0">
-        {/* Sidebar header */}
-        <div className="flex items-center gap-2 px-5 py-4 border-b">
-          <Calculator className="h-5 w-5 text-blue-600" />
-          <h1 className="text-lg font-semibold text-blue-600">Accounting</h1>
+      {/* ---- Left Sidebar (icon rail when collapsed) ---- */}
+      <aside
+        className={`${navExpanded ? 'w-56' : 'w-12'} bg-white border-r shadow-sm flex flex-col flex-shrink-0 transition-all`}
+      >
+        {/* Sidebar header / collapse toggle */}
+        <div className={`flex items-center gap-2 border-b py-4 ${navExpanded ? 'px-5' : 'justify-center px-0'}`}>
+          {navExpanded && (
+            <>
+              <Calculator className="h-5 w-5 text-blue-600" />
+              <h1 className="flex-1 text-lg font-semibold text-blue-600">Accounting</h1>
+            </>
+          )}
+          <button
+            onClick={() => setNavExpanded((v) => !v)}
+            title={navExpanded ? 'Collapse menu' : 'Expand menu'}
+            aria-label={navExpanded ? 'Collapse menu' : 'Expand menu'}
+            className="text-gray-500 hover:text-blue-600"
+          >
+            {navExpanded ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+          </button>
         </div>
 
         {/* Navigation list */}
@@ -113,8 +131,10 @@ const AccountingPage: React.FC = () => {
                 <button
                   key={item.id}
                   onClick={() => setActiveTab(item.id)}
+                  title={item.label}
                   className={`
-                    w-full flex items-center gap-3 px-5 py-2.5 text-sm transition-colors
+                    w-full flex items-center gap-3 py-2.5 text-sm transition-colors
+                    ${navExpanded ? 'px-5' : 'justify-center px-0'}
                     ${
                       isActive
                         ? 'bg-blue-50 text-blue-700 font-medium'
@@ -123,7 +143,7 @@ const AccountingPage: React.FC = () => {
                   `}
                 >
                   <Icon className="h-4 w-4 flex-shrink-0" />
-                  <span>{item.label}</span>
+                  {navExpanded && <span>{item.label}</span>}
                 </button>
               );
             })}
