@@ -42,6 +42,101 @@ async function downloadDoc(doc: PatientDoc) {
   window.URL.revokeObjectURL(url);
 }
 
+/** Load an image via fetch->blob->objectURL so the canvas stays un-tainted. */
+function loadImage(objectUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Could not load image"));
+    img.src = objectUrl;
+  });
+}
+
+/** Build a single A4 PDF (one image per page) from the given image docs. */
+async function buildImagesPdf(
+  images: PatientDoc[],
+  quality: number,
+  maxDim: number,
+): Promise<Blob> {
+  const { default: jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const pageW = 210;
+  const pageH = 297;
+  const margin = 10;
+  const availW = pageW - margin * 2;
+  const availH = pageH - margin * 2;
+
+  let first = true;
+  for (const d of images) {
+    const response = await fetch(d.fileUrl);
+    const blob = await response.blob();
+    const objectUrl = window.URL.createObjectURL(blob);
+    try {
+      const img = await loadImage(objectUrl);
+      const scale = Math.min(maxDim / img.width, maxDim / img.height, 1);
+      const cw = Math.max(1, Math.round(img.width * scale));
+      const ch = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = cw;
+      canvas.height = ch;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas not supported");
+      ctx.fillStyle = "#ffffff"; // flatten any transparency to white
+      ctx.fillRect(0, 0, cw, ch);
+      ctx.drawImage(img, 0, 0, cw, ch);
+      const jpeg = canvas.toDataURL("image/jpeg", quality);
+
+      if (!first) doc.addPage();
+      first = false;
+
+      // Fit the image into the printable area, preserving aspect ratio.
+      const ar = cw / ch;
+      let w = availW;
+      let h = availW / ar;
+      if (h > availH) {
+        h = availH;
+        w = availH * ar;
+      }
+      const x = margin + (availW - w) / 2;
+      const y = margin + (availH - h) / 2;
+      doc.addImage(jpeg, "JPEG", x, y, w, h);
+    } finally {
+      window.URL.revokeObjectURL(objectUrl);
+    }
+  }
+  return doc.output("blob");
+}
+
+const ONE_MB = 1024 * 1024;
+
+/**
+ * Combine all image docs of a category into one PDF, stepping quality/size down
+ * until the file is under 1 MB, then trigger a download.
+ */
+async function downloadImagesAsPdf(images: PatientDoc[], baseName: string) {
+  const attempts: Array<[number, number]> = [
+    [0.7, 1600],
+    [0.6, 1400],
+    [0.5, 1200],
+    [0.4, 1000],
+    [0.3, 800],
+  ];
+  let blob: Blob | null = null;
+  for (const [quality, maxDim] of attempts) {
+    blob = await buildImagesPdf(images, quality, maxDim);
+    if (blob.size <= ONE_MB) break;
+  }
+  if (!blob) return;
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${baseName}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
+
 interface CategorizedDoc extends PatientDoc {
   category: string;
 }
@@ -86,9 +181,17 @@ function usePatientAllDocs(patientId: string | undefined) {
 function CategoryGallery({
   items,
   onView,
+  onDownloadPdf,
+  generating,
+  onDownloadOne,
+  busyDocId,
 }: {
   items: PatientDoc[];
   onView: (doc: PatientDoc) => void;
+  onDownloadPdf: () => void;
+  generating: boolean;
+  onDownloadOne: (doc: PatientDoc) => void;
+  busyDocId: string | null;
 }) {
   if (items.length === 0) {
     return (
@@ -97,8 +200,28 @@ function CategoryGallery({
       </p>
     );
   }
+  const imageCount = items.filter((d) => isImage(d.fileType)).length;
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <>
+      <div className="mb-3 flex justify-end">
+        <button
+          type="button"
+          onClick={onDownloadPdf}
+          disabled={imageCount === 0 || generating}
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+        >
+          {generating ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Preparing PDF…
+            </>
+          ) : (
+            <>
+              <Download className="h-3.5 w-3.5" /> Download all as PDF
+            </>
+          )}
+        </button>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
       {items.map((doc) => (
         <div key={doc.id} className="rounded-lg border p-2">
           <button
@@ -126,16 +249,23 @@ function CategoryGallery({
             </span>
             <button
               type="button"
-              aria-label="Download"
-              className="rounded-md p-1.5 text-foreground/70 hover:bg-accent"
-              onClick={() => downloadDoc(doc)}
+              aria-label="Download as PDF"
+              title="Download as PDF"
+              disabled={busyDocId === doc.id}
+              className="rounded-md p-1.5 text-foreground/70 hover:bg-accent disabled:opacity-50"
+              onClick={() => onDownloadOne(doc)}
             >
-              <Download className="h-4 w-4" />
+              {busyDocId === doc.id ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
             </button>
           </div>
         </div>
       ))}
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -153,7 +283,47 @@ export function BillDocumentsSection({
     PATIENT_DOC_CATEGORIES[0].id,
   );
   const [viewing, setViewing] = useState<PatientDoc | null>(null);
+  const [pdfBusyCategory, setPdfBusyCategory] = useState<string | null>(null);
+  const [pdfBusyDocId, setPdfBusyDocId] = useState<string | null>(null);
   const docs = usePatientAllDocs(patientId);
+
+  const safeName = (patientName || "patient").replace(/[^a-zA-Z0-9._-]/g, "_");
+
+  const handleDownloadOne = async (doc: PatientDoc) => {
+    const base = (doc.fileName || "document")
+      .replace(/\.[^.]+$/, "")
+      .replace(/[^a-zA-Z0-9._-]/g, "_");
+    setPdfBusyDocId(doc.id);
+    try {
+      if (isImage(doc.fileType)) {
+        await downloadImagesAsPdf([doc], `${safeName}_${base}`);
+      } else {
+        // Already a PDF (or other document) — download as-is.
+        await downloadDoc(doc);
+      }
+    } catch (err) {
+      console.error("Download failed:", err);
+      alert("Could not download the file. Please try again.");
+    } finally {
+      setPdfBusyDocId(null);
+    }
+  };
+
+  const handleDownloadPdf = async (categoryId: string, label: string) => {
+    const images = (byCategory.get(categoryId) || []).filter((d) =>
+      isImage(d.fileType),
+    );
+    if (images.length === 0) return;
+    setPdfBusyCategory(categoryId);
+    try {
+      await downloadImagesAsPdf(images, `${safeName}_${label}`);
+    } catch (err) {
+      console.error("PDF generation failed:", err);
+      alert("Could not generate the PDF. Please try again.");
+    } finally {
+      setPdfBusyCategory(null);
+    }
+  };
 
   // Group all docs by category so every tab (even empty ones) can render.
   const byCategory = new Map<string, PatientDoc[]>();
@@ -224,6 +394,10 @@ export function BillDocumentsSection({
                   <CategoryGallery
                     items={byCategory.get(cat.id) || []}
                     onView={setViewing}
+                    onDownloadPdf={() => handleDownloadPdf(cat.id, cat.label)}
+                    generating={pdfBusyCategory === cat.id}
+                    onDownloadOne={handleDownloadOne}
+                    busyDocId={pdfBusyDocId}
                   />
                 </TabsContent>
               ))}
@@ -258,11 +432,19 @@ export function BillDocumentsSection({
           <div className="flex justify-end">
             <button
               type="button"
-              onClick={() => viewing && downloadDoc(viewing)}
-              disabled={!viewing}
+              onClick={() => viewing && handleDownloadOne(viewing)}
+              disabled={!viewing || (!!viewing && pdfBusyDocId === viewing.id)}
               className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
-              <Download className="h-4 w-4" /> Download
+              {viewing && pdfBusyDocId === viewing.id ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Preparing PDF…
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4" /> Download PDF
+                </>
+              )}
             </button>
           </div>
         </DialogContent>
