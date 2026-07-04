@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -53,6 +53,19 @@ const TallyLedgerCreation: React.FC = () => {
   const [under, setUnder] = useState('');
   const [openingBalance, setOpeningBalance] = useState('');
   const [openingType, setOpeningType] = useState<'Dr' | 'Cr'>('Dr');
+  // Mailing / Banking / Tax details (Tally Ledger Creation right panel)
+  const [mailingName, setMailingName] = useState('');
+  const [address, setAddress] = useState('');
+  const [stateName, setStateName] = useState('Maharashtra');
+  const [country, setCountry] = useState('India');
+  const [pincode, setPincode] = useState('');
+  const [provideBank, setProvideBank] = useState(false);
+  const [bankName, setBankName] = useState('');
+  const [bankBranch, setBankBranch] = useState('');
+  const [accountNumber, setAccountNumber] = useState('');
+  const [ifsc, setIfsc] = useState('');
+  const [pan, setPan] = useState('');
+  const [gstin, setGstin] = useState('');
   const [saving, setSaving] = useState(false);
 
   const { data: groups = [] } = useQuery({
@@ -76,12 +89,41 @@ const TallyLedgerCreation: React.FC = () => {
     },
   });
 
+  // Tally's Total Opening Balance panel (top-right): Dr vs Cr across ledgers
+  const totalOpening = useMemo(() => {
+    let dr = 0;
+    let cr = 0;
+    for (const l of ledgers) {
+      const v = Number(l.opening_balance) || 0;
+      if (v > 0) dr += v;
+      else cr += -v;
+    }
+    const pending = Number(openingBalance) || 0;
+    if (pending > 0) {
+      if (openingType === 'Dr') dr += pending;
+      else cr += pending;
+    }
+    return { dr, cr };
+  }, [ledgers, openingBalance, openingType]);
+
   const handleClear = (): void => {
     setName('');
     setAlias('');
     setUnder('');
     setOpeningBalance('');
     setOpeningType('Dr');
+    setMailingName('');
+    setAddress('');
+    setStateName('Maharashtra');
+    setCountry('India');
+    setPincode('');
+    setProvideBank(false);
+    setBankName('');
+    setBankBranch('');
+    setAccountNumber('');
+    setIfsc('');
+    setPan('');
+    setGstin('');
   };
 
   const handleAccept = async (): Promise<void> => {
@@ -113,6 +155,17 @@ const TallyLedgerCreation: React.FC = () => {
         opening_balance: opening,
         current_balance: opening,
         is_active: true,
+        mailing_name: mailingName.trim() || trimmed,
+        address: address.trim() || null,
+        state: stateName.trim() || null,
+        country: country.trim() || null,
+        pincode: pincode.trim() || null,
+        bank_name: provideBank ? bankName.trim() || null : null,
+        bank_branch: provideBank ? bankBranch.trim() || null : null,
+        account_number: provideBank ? accountNumber.trim() || null : null,
+        ifsc_code: provideBank ? ifsc.trim() || null : null,
+        pan: pan.trim() || null,
+        gstin: gstin.trim() || null,
       });
       if (error) throw error;
       toast.success(`Ledger "${trimmed}" created`);
@@ -149,8 +202,15 @@ const TallyLedgerCreation: React.FC = () => {
         <div className="bg-[#16437e] px-3 py-1.5 text-sm font-semibold text-white">Ledger Creation</div>
 
         <div className="bg-[#fffefb] px-4 pb-3 pt-3">
+          {/* Total Opening Balance panel, Tally top-right */}
+          <div className="float-right w-64 border border-gray-400 bg-white px-3 py-2 text-right text-sm">
+            <div className="border-b border-gray-300 pb-1 font-bold">Total Opening Balance</div>
+            <div className="mt-1 font-mono">{new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2 }).format(totalOpening.dr)} Dr</div>
+            <div className="font-mono">{new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2 }).format(totalOpening.cr)} Cr</div>
+          </div>
+
           <div className="flex items-center gap-2">
-            <span className="w-56 shrink-0 text-sm">Name</span>
+            <span className="w-40 shrink-0 text-sm">Name</span>
             <span className="text-sm">:</span>
             <Input
               value={name}
@@ -160,7 +220,7 @@ const TallyLedgerCreation: React.FC = () => {
             />
           </div>
           <div className="mt-1 flex items-center gap-2">
-            <span className="w-56 shrink-0 text-sm italic text-gray-600">(alias)</span>
+            <span className="w-40 shrink-0 text-sm italic text-gray-600">(alias)</span>
             <span className="text-sm">:</span>
             <Input
               value={alias}
@@ -170,32 +230,114 @@ const TallyLedgerCreation: React.FC = () => {
             />
           </div>
 
-          <div className="mt-6 flex items-center gap-2">
-            <span className="w-56 shrink-0 text-sm">Under</span>
-            <span className="text-sm">:</span>
-            <GroupSearch groups={groups} value={under} onSelect={setUnder} includePrimary={false} />
-          </div>
+          <div className="mt-4 clear-none flex gap-8">
+            {/* Left column: Under + Opening */}
+            <div className="w-[46%] shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="w-40 shrink-0 text-sm">Under</span>
+                <span className="text-sm">:</span>
+                <GroupSearch groups={groups} value={under} onSelect={setUnder} includePrimary={false} />
+              </div>
 
-          <div className="mt-6 flex items-center gap-2 border-t border-gray-300 pt-3">
-            <span className="w-56 shrink-0 text-sm">Opening Balance</span>
-            <span className="text-sm">:</span>
-            <Input
-              type="number"
-              inputMode="decimal"
-              value={openingBalance}
-              onChange={(e) => setOpeningBalance(e.target.value)}
-              placeholder="0.00"
-              className="h-8 w-40 rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-right font-mono shadow-none focus-visible:ring-0 focus-visible:border-blue-600 focus-visible:border-solid [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-            />
-            <Select value={openingType} onValueChange={(v) => setOpeningType(v as 'Dr' | 'Cr')}>
-              <SelectTrigger className="h-8 w-16 rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-sm font-semibold shadow-none focus:ring-0">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Dr">Dr</SelectItem>
-                <SelectItem value="Cr">Cr</SelectItem>
-              </SelectContent>
-            </Select>
+              <div className="mt-6 flex items-center gap-2 border-t border-gray-300 pt-3">
+                <span className="w-40 shrink-0 text-sm">Opening Balance</span>
+                <span className="text-sm">:</span>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  value={openingBalance}
+                  onChange={(e) => setOpeningBalance(e.target.value)}
+                  placeholder="0.00"
+                  className="h-8 w-40 rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-right font-mono shadow-none focus-visible:ring-0 focus-visible:border-blue-600 focus-visible:border-solid [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                <Select value={openingType} onValueChange={(v) => setOpeningType(v as 'Dr' | 'Cr')}>
+                  <SelectTrigger className="h-8 w-16 rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-sm font-semibold shadow-none focus:ring-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Dr">Dr</SelectItem>
+                    <SelectItem value="Cr">Cr</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Right column: Mailing / Banking / Tax, like Tally's image */}
+            <div className="min-w-0 flex-1 text-sm">
+              <div className="border-b border-gray-400 font-semibold">Mailing Details</div>
+              {[
+                ['Name', mailingName, setMailingName, name || ''],
+                ['Address', address, setAddress, ''],
+                ['State', stateName, setStateName, ''],
+                ['Country', country, setCountry, ''],
+                ['Pincode', pincode, setPincode, ''],
+              ].map(([label, value, setter, ph]: any) => (
+                <div key={label} className="mt-0.5 flex items-center gap-2">
+                  <span className="w-24 shrink-0">{label}</span>
+                  <span>:</span>
+                  <Input
+                    value={value}
+                    onChange={(e) => setter(e.target.value)}
+                    placeholder={ph}
+                    autoComplete="off"
+                    className="h-7 w-full rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0 focus-visible:border-blue-600 focus-visible:border-solid"
+                  />
+                </div>
+              ))}
+
+              <div className="mt-3 border-b border-gray-400 font-semibold">Banking Details</div>
+              <div className="mt-0.5 flex items-center gap-2">
+                <span className="w-40 shrink-0">Provide bank details</span>
+                <span>:</span>
+                <button
+                  type="button"
+                  onClick={() => setProvideBank((v) => !v)}
+                  className="min-w-[44px] border-b border-dashed border-gray-400 px-2 text-left font-semibold hover:bg-[#fdf6d8]"
+                >
+                  {provideBank ? 'Yes' : 'No'}
+                </button>
+              </div>
+              {provideBank &&
+                [
+                  ['Bank name', bankName, setBankName],
+                  ['Branch', bankBranch, setBankBranch],
+                  ['A/c number', accountNumber, setAccountNumber],
+                  ['IFSC code', ifsc, setIfsc],
+                ].map(([label, value, setter]: any) => (
+                  <div key={label} className="mt-0.5 flex items-center gap-2">
+                    <span className="w-24 shrink-0">{label}</span>
+                    <span>:</span>
+                    <Input
+                      value={value}
+                      onChange={(e) => setter(e.target.value)}
+                      autoComplete="off"
+                      className="h-7 w-full rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0 focus-visible:border-blue-600 focus-visible:border-solid"
+                    />
+                  </div>
+                ))}
+
+              <div className="mt-3 border-b border-gray-400 font-semibold">Tax Registration Details</div>
+              <div className="mt-0.5 flex items-center gap-2">
+                <span className="w-24 shrink-0">PAN/IT No.</span>
+                <span>:</span>
+                <Input
+                  value={pan}
+                  onChange={(e) => setPan(e.target.value.toUpperCase())}
+                  autoComplete="off"
+                  className="h-7 w-full rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 font-mono text-sm uppercase shadow-none focus-visible:ring-0 focus-visible:border-blue-600 focus-visible:border-solid"
+                />
+              </div>
+              <div className="mt-0.5 flex items-center gap-2">
+                <span className="w-24 shrink-0">GSTIN/UIN</span>
+                <span>:</span>
+                <Input
+                  value={gstin}
+                  onChange={(e) => setGstin(e.target.value.toUpperCase())}
+                  autoComplete="off"
+                  className="h-7 w-full rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 font-mono text-sm uppercase shadow-none focus-visible:ring-0 focus-visible:border-blue-600 focus-visible:border-solid"
+                />
+              </div>
+            </div>
           </div>
         </div>
 

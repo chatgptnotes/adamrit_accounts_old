@@ -18,6 +18,13 @@ interface Account {
 const fmt = (n: number): string =>
   new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
+
+const shiftYear = (iso: string): string => {
+  const d = new Date(iso + 'T00:00:00');
+  d.setFullYear(d.getFullYear() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 const tallyDateLabel = (iso: string): string => {
   const d = new Date(iso + 'T00:00:00');
   const month = d.toLocaleDateString('en-GB', { month: 'short' });
@@ -36,6 +43,8 @@ const TrialBalance: React.FC<{ onOpenGroup?: (head: string) => void }> = ({ onOp
   const [asOfDate, setAsOfDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [showPeriod, setShowPeriod] = useState(false);
   const [detailed, setDetailed] = useState(true);
+  // C: New Column — comparison as-at date (defaults to same day last year)
+  const [compareAsOf, setCompareAsOf] = useState<string | null>(null);
 
   const { data: accounts = [], isLoading: accountsLoading } = useQuery({
     queryKey: ['tb_accounts'],
@@ -55,20 +64,21 @@ const TrialBalance: React.FC<{ onOpenGroup?: (head: string) => void }> = ({ onOp
     queryFn: () => accountMovements({ upto: asOfDate, companyId: selectedCompanyId }),
   });
 
-  const { groups, grandDr, grandCr } = useMemo(() => {
-    const debit = new Map<string, number>();
-    const credit = new Map<string, number>();
-    for (const [id, m] of movements) {
-      debit.set(id, m.debit);
-      credit.set(id, m.credit);
-    }
+  const { data: movements2 = new Map<string, Movement>() } = useQuery({
+    queryKey: ['tb_movements', selectedCompanyId, compareAsOf],
+    enabled: !!compareAsOf,
+    queryFn: () => accountMovements({ upto: compareAsOf!, companyId: selectedCompanyId }),
+  });
+
+  const computeGroups = (mov: Map<string, Movement>) => {
     const byHead = new Map<string, { dr: number; cr: number; ledgers: { name: string; bal: number }[] }>();
     for (const a of accounts) {
       const t = a.account_type?.toUpperCase() ?? '';
       const head = HEAD_OF.find((h) => h.match(t))?.head;
       if (!head) continue;
       const opening = (Number(a.opening_balance) || 0) * (a.opening_balance_type === 'Cr' ? -1 : 1);
-      const bal = opening + (debit.get(a.id) ?? 0) - (credit.get(a.id) ?? 0);
+      const m = mov.get(a.id);
+      const bal = opening + (m ? m.debit - m.credit : 0);
       if (Math.abs(bal) < 0.005) continue;
       const g = byHead.get(head) ?? { dr: 0, cr: 0, ledgers: [] };
       if (bal > 0) g.dr += bal;
@@ -82,9 +92,24 @@ const TrialBalance: React.FC<{ onOpenGroup?: (head: string) => void }> = ({ onOp
       grandDr += g.dr;
       grandCr += g.cr;
     }
-    const groups = HEAD_ORDER.filter((h) => byHead.has(h)).map((h) => ({ head: h, ...byHead.get(h)! }));
-    return { groups, grandDr, grandCr };
-  }, [accounts, movements]);
+    return { byHead, grandDr, grandCr };
+  };
+
+  const { groups, grandDr, grandCr, byHead2, grandDr2, grandCr2 } = useMemo(() => {
+    const cur = computeGroups(movements);
+    const cmp = compareAsOf ? computeGroups(movements2) : null;
+    const heads = HEAD_ORDER.filter((h) => cur.byHead.has(h) || cmp?.byHead.has(h));
+    const groups = heads.map((h) => ({ head: h, ...(cur.byHead.get(h) ?? { dr: 0, cr: 0, ledgers: [] }) }));
+    return {
+      groups,
+      grandDr: cur.grandDr,
+      grandCr: cur.grandCr,
+      byHead2: cmp?.byHead ?? null,
+      grandDr2: cmp?.grandDr ?? 0,
+      grandCr2: cmp?.grandCr ?? 0,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accounts, movements, movements2, compareAsOf]);
 
   const isLoading = accountsLoading || entriesLoading;
   const companyName = companies.find((c) => c.id === selectedCompanyId)?.company_name || 'All Companies';
@@ -104,6 +129,12 @@ const TrialBalance: React.FC<{ onOpenGroup?: (head: string) => void }> = ({ onOp
             }),
         },
         { hotkey: 'F5', label: 'Ledger-wise', gapBefore: true, onClick: () => setDetailed((v) => !v), active: detailed },
+        {
+          hotkey: 'C',
+          label: compareAsOf ? 'Del Column' : 'New Column',
+          onClick: () => setCompareAsOf((c) => (c ? null : shiftYear(asOfDate))),
+          active: !!compareAsOf,
+        },
         { label: 'Basis of Values', disabled: true, gapBefore: true },
         { label: 'Exception Reports', disabled: true },
         { label: 'Save View', disabled: true },
@@ -139,6 +170,25 @@ const TrialBalance: React.FC<{ onOpenGroup?: (head: string) => void }> = ({ onOp
               <div className="w-1/2">Credit</div>
             </div>
           </div>
+          {compareAsOf && (
+            <div className="w-72 border-l border-gray-400 text-center">
+              <div className="font-bold">{companyName}</div>
+              <div className="flex items-center justify-center gap-1 text-[11px]">
+                as at
+                <input
+                  type="date"
+                  value={compareAsOf}
+                  onChange={(e) => setCompareAsOf(e.target.value)}
+                  className="border bg-white px-0.5 text-[11px]"
+                />
+              </div>
+              <div className="font-bold">Closing Balance</div>
+              <div className="flex border-t border-gray-400 font-semibold">
+                <div className="w-1/2 border-r border-gray-400">Debit</div>
+                <div className="w-1/2">Credit</div>
+              </div>
+            </div>
+          )}
         </div>
 
         {isLoading ? (
@@ -158,8 +208,18 @@ const TrialBalance: React.FC<{ onOpenGroup?: (head: string) => void }> = ({ onOp
                     <div className="w-1/2 pr-2 text-right font-mono font-semibold">{g.dr > 0 ? fmt(g.dr) : ''}</div>
                     <div className="w-1/2 pr-2 text-right font-mono font-semibold">{g.cr > 0 ? fmt(g.cr) : ''}</div>
                   </div>
+                  {byHead2 && (
+                    <div className="flex w-72">
+                      <div className="w-1/2 pr-2 text-right font-mono font-semibold">
+                        {(byHead2.get(g.head)?.dr ?? 0) > 0 ? fmt(byHead2.get(g.head)!.dr) : ''}
+                      </div>
+                      <div className="w-1/2 pr-2 text-right font-mono font-semibold">
+                        {(byHead2.get(g.head)?.cr ?? 0) > 0 ? fmt(byHead2.get(g.head)!.cr) : ''}
+                      </div>
+                    </div>
+                  )}
                 </button>
-                {detailed &&
+                {detailed && !byHead2 &&
                   g.ledgers.map((l) => (
                     <div key={l.name} className="flex text-[12px] italic text-gray-700">
                       <div className="flex-1 pl-5">{l.name}</div>
@@ -178,6 +238,12 @@ const TrialBalance: React.FC<{ onOpenGroup?: (head: string) => void }> = ({ onOp
                 <div className="w-1/2 pr-2 text-right font-mono">{fmt(grandDr)}</div>
                 <div className="w-1/2 pr-2 text-right font-mono">{fmt(grandCr)}</div>
               </div>
+              {byHead2 && (
+                <div className="flex w-72">
+                  <div className="w-1/2 pr-2 text-right font-mono">{fmt(grandDr2)}</div>
+                  <div className="w-1/2 pr-2 text-right font-mono">{fmt(grandCr2)}</div>
+                </div>
+              )}
             </div>
             {Math.abs(grandDr - grandCr) > 0.01 && (
               <div className="mt-1 text-right text-[12px] font-semibold text-red-600">

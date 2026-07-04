@@ -24,6 +24,12 @@ interface Line {
 const fmt = (n: number): string =>
   new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
+const shiftYear = (iso: string): string => {
+  const d = new Date(iso + 'T00:00:00');
+  d.setFullYear(d.getFullYear() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 const tallyDateLabel = (iso: string): string => {
   const d = new Date(iso + 'T00:00:00');
   const month = d.toLocaleDateString('en-GB', { month: 'short' });
@@ -56,6 +62,7 @@ const BalanceSheet: React.FC = () => {
   const [asOfDate, setAsOfDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [showPeriod, setShowPeriod] = useState(false);
   const [detailed, setDetailed] = useState(true);
+  const [compareAsOf, setCompareAsOf] = useState<string | null>(null);
 
   const { data: accounts = [], isLoading: accountsLoading } = useQuery({
     queryKey: ['balance_sheet_accounts'],
@@ -75,10 +82,16 @@ const BalanceSheet: React.FC = () => {
     queryFn: () => accountMovements({ upto: asOfDate, companyId: selectedCompanyId }),
   });
 
-  const { liabilityLines, assetLines, pnl, totalLiab, totalAssets } = useMemo(() => {
+  const { data: movements2 = new Map<string, Movement>() } = useQuery({
+    queryKey: ['balance_sheet_movements', compareAsOf, selectedCompanyId],
+    enabled: !!compareAsOf,
+    queryFn: () => accountMovements({ upto: compareAsOf!, companyId: selectedCompanyId }),
+  });
+
+  const compute = (mov: Map<string, Movement>) => {
     const debit = new Map<string, number>();
     const credit = new Map<string, number>();
-    for (const [id, m] of movements) {
+    for (const [id, m] of mov) {
       debit.set(id, m.debit);
       credit.set(id, m.credit);
     }
@@ -124,26 +137,56 @@ const BalanceSheet: React.FC = () => {
     const totalLiab = liabilityLines.reduce((s, l) => s + l.amount, 0) + pnlAmount;
     const totalAssets = assetLines.reduce((s, l) => s + l.amount, 0);
     return { liabilityLines, assetLines, pnl: pnlAmount, totalLiab, totalAssets };
-  }, [accounts, movements]);
+  };
+
+  const { liabilityLines, assetLines, pnl, totalLiab, totalAssets, cmp } = useMemo(() => {
+    const cur = compute(movements);
+    const c = compareAsOf ? compute(movements2) : null;
+    return {
+      ...cur,
+      cmp: c
+        ? {
+            liab: new Map(c.liabilityLines.map((l) => [l.name, l.amount])),
+            assets: new Map(c.assetLines.map((l) => [l.name, l.amount])),
+            pnl: c.pnl,
+            totalLiab: c.totalLiab,
+            totalAssets: c.totalAssets,
+          }
+        : null,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accounts, movements, movements2, compareAsOf]);
 
   const isLoading = accountsLoading || entriesLoading;
   const companyName = companies.find((c) => c.id === selectedCompanyId)?.company_name || 'All Companies';
 
-  const panel = (title: string, lines: Line[], extra?: React.ReactNode, total?: number) => (
+  const panel = (
+    title: string,
+    lines: Line[],
+    cmpMap: Map<string, number> | null,
+    extra?: React.ReactNode,
+    total?: number,
+    cmpTotal?: number,
+  ) => (
     <div className="min-w-0 flex-1">
       <div className="border-b border-black text-right">
         <div className="font-bold">{companyName}</div>
-        <div className="text-[11px]">as at {tallyDateLabel(asOfDate)}</div>
+        <div className="text-[11px]">
+          as at {tallyDateLabel(asOfDate)}
+          {cmpMap && compareAsOf ? ` | ${tallyDateLabel(compareAsOf)}` : ''}
+        </div>
       </div>
       <div className="-mt-10 pb-8 font-semibold tracking-[0.3em]">{title}</div>
       <div className="mt-2 space-y-0.5">
         {lines.map((l) => (
           <React.Fragment key={l.name}>
             <div className="flex justify-between">
-              <span className="font-bold">{l.name}</span>
-              <span className="font-mono">{fmt(l.amount)}</span>
+              <span className="min-w-0 flex-1 font-bold">{l.name}</span>
+              <span className="w-36 text-right font-mono">{fmt(l.amount)}</span>
+              {cmpMap && <span className="w-36 text-right font-mono text-gray-600">{fmt(cmpMap.get(l.name) ?? 0)}</span>}
             </div>
             {detailed &&
+              !cmpMap &&
               l.ledgers.map((led) => (
                 <div key={led.name} className="flex justify-between text-[12px] italic text-gray-700">
                   <span className="pl-5">{led.name}</span>
@@ -156,8 +199,9 @@ const BalanceSheet: React.FC = () => {
       </div>
       {total !== undefined && (
         <div className="mt-10 flex justify-between border-t border-black pt-1 font-bold">
-          <span className="tracking-[0.3em]">Total</span>
-          <span className="font-mono">{fmt(total)}</span>
+          <span className="min-w-0 flex-1 tracking-[0.3em]">Total</span>
+          <span className="w-36 text-right font-mono">{fmt(total)}</span>
+          {cmpMap && cmpTotal !== undefined && <span className="w-36 text-right font-mono text-gray-600">{fmt(cmpTotal)}</span>}
         </div>
       )}
     </div>
@@ -179,6 +223,12 @@ const BalanceSheet: React.FC = () => {
         },
         { label: 'Basis of Values', disabled: true, gapBefore: true },
         { hotkey: 'H', label: detailed ? 'Condensed' : 'Detailed', onClick: () => setDetailed((v) => !v) },
+        {
+          hotkey: 'C',
+          label: compareAsOf ? 'Del Column' : 'New Column',
+          onClick: () => setCompareAsOf((c) => (c ? null : shiftYear(asOfDate))),
+          active: !!compareAsOf,
+        },
         { label: 'Exception Reports', disabled: true },
         { label: 'Save View', disabled: true },
         { label: 'Apply Filter', disabled: true, gapBefore: true },
@@ -213,14 +263,19 @@ const BalanceSheet: React.FC = () => {
               {panel(
                 'Liabilities',
                 liabilityLines,
+                cmp?.liab ?? null,
                 <div className="flex justify-between">
-                  <span className="font-bold">Profit &amp; Loss A/c</span>
-                  <span className="font-mono">{fmt(pnl)}</span>
+                  <span className="min-w-0 flex-1 font-bold">Profit &amp; Loss A/c</span>
+                  <span className="w-36 text-right font-mono">{fmt(pnl)}</span>
+                  {cmp && <span className="w-36 text-right font-mono text-gray-600">{fmt(cmp.pnl)}</span>}
                 </div>,
                 totalLiab,
+                cmp?.totalLiab,
               )}
             </div>
-            <div className="flex-1 pl-3">{panel('Assets', assetLines, undefined, totalAssets)}</div>
+            <div className="flex-1 pl-3">
+              {panel('Assets', assetLines, cmp?.assets ?? null, undefined, totalAssets, cmp?.totalAssets)}
+            </div>
           </div>
         )}
       </div>

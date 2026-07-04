@@ -7,6 +7,8 @@ import { X, Loader2 } from 'lucide-react';
 import { sendPaymentAlert } from '@/lib/payment-alert-service';
 import { accountMovements } from '@/lib/accountMovements';
 import { useCompanies } from '@/hooks/useCompanies';
+import { useAuth } from '@/contexts/AuthContext';
+import { amountInWords } from '@/lib/amountInWords';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -223,7 +225,9 @@ interface VoucherEntryProps {
 
 const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
   const queryClient = useQueryClient();
+  const { user, hospitalConfig } = useAuth();
   const alterMode = !!voucherId;
+  const username = user?.username || user?.email || 'system';
 
   // Form state
   const [selectedVoucherType, setSelectedVoucherType] = useState('');
@@ -556,6 +560,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
             total_amount: debitSum,
             patient_id: patientId || null,
             status: status === 'posted' ? 'AUTHORISED' : 'PENDING',
+            last_modified_by: username,
           })
           .eq('id', voucherId!);
         if (uErr) {
@@ -609,6 +614,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
           // vouchers.status CHECK constraint allows PENDING / AUTHORISED / CANCELLED
           status: status === 'posted' ? 'AUTHORISED' : 'PENDING',
           created_by: 'system',
+          last_modified_by: username,
         })
         .select()
         .single();
@@ -669,7 +675,10 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
     if (!window.confirm(`Cancel voucher ${loadedNumber}? It will stop affecting all reports.`)) return;
     setSaving(true);
     try {
-      const { error } = await supabase.from('vouchers').update({ status: 'CANCELLED' }).eq('id', voucherId!);
+      const { error } = await supabase
+        .from('vouchers')
+        .update({ status: 'CANCELLED', last_modified_by: username })
+        .eq('id', voucherId!);
       if (error) throw error;
       toast.info(`Voucher ${loadedNumber} cancelled`);
       queryClient.invalidateQueries({ queryKey: ['vouchers'] });
@@ -688,6 +697,8 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
     if (!window.confirm(`Permanently DELETE voucher ${loadedNumber} and its entries? This cannot be undone.`)) return;
     setSaving(true);
     try {
+      // Stamp who is deleting so the edit-log trigger records it
+      await supabase.from('vouchers').update({ last_modified_by: username }).eq('id', voucherId!);
       const { error: eErr } = await supabase.from('voucher_entries').delete().eq('voucher_id', voucherId!);
       if (eErr) throw eErr;
       const { error: vErr } = await supabase.from('vouchers').delete().eq('id', voucherId!);
@@ -704,11 +715,98 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
     }
   };
 
+  // ------ Formal A4 voucher print (Tally-style) ------
+  const printVoucher = (): void => {
+    const esc = (t: string) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const rows: { name: string; dr: number; cr: number }[] = [];
+    if (singleMode && account) {
+      const total = partLines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+      for (const l of partLines) {
+        if (!l.account || !(Number(l.amount) > 0)) continue;
+        rows.push({
+          name: l.account.account_name,
+          dr: singleMode.accountIsDebit ? 0 : Number(l.amount),
+          cr: singleMode.accountIsDebit ? Number(l.amount) : 0,
+        });
+      }
+      rows.push({
+        name: account.account_name,
+        dr: singleMode.accountIsDebit ? total : 0,
+        cr: singleMode.accountIsDebit ? 0 : total,
+      });
+    } else {
+      for (const l of journalLines) {
+        if (!l.account || !(Number(l.amount) > 0)) continue;
+        rows.push({
+          name: l.account.account_name,
+          dr: l.drcr === 'Dr' ? Number(l.amount) : 0,
+          cr: l.drcr === 'Cr' ? Number(l.amount) : 0,
+        });
+      }
+    }
+    if (rows.length === 0) {
+      toast.error('Nothing to print — fill the voucher first');
+      return;
+    }
+    const total = rows.reduce((s, r) => s + r.dr, 0);
+    const win = window.open('', '_blank', 'width=900,height=1100');
+    if (!win) {
+      toast.error('Popup blocked — allow popups to print');
+      return;
+    }
+    const body = rows
+      .map(
+        (r) => `<tr>
+          <td class="b">${r.dr > 0 ? 'Dr' : 'Cr'} ${esc(r.name)}</td>
+          <td class="b num">${r.dr > 0 ? fmtINR(r.dr) : ''}</td>
+          <td class="b num">${r.cr > 0 ? fmtINR(r.cr) : ''}</td>
+        </tr>`,
+      )
+      .join('');
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8" />
+<title>${esc(selectedType?.voucher_type_name || 'Voucher')} — ${esc(voucherNumber)}</title>
+<style>
+  body { font-family: Arial, Helvetica, sans-serif; margin: 14mm; color: #000; font-size: 13px; }
+  .org { text-align: center; font-size: 16px; font-weight: 700; }
+  .doc { text-align: center; text-transform: uppercase; letter-spacing: 2px; margin: 2px 0 12px; }
+  .head { display: flex; justify-content: space-between; margin-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { border: 1px solid #444; background: #eef; padding: 6px 8px; text-align: left; }
+  td.b { border: 1px solid #444; padding: 6px 8px; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; width: 20%; }
+  tr.total td { font-weight: 700; background: #eef; }
+  .words { margin-top: 8px; font-style: italic; }
+  .narr { margin-top: 6px; }
+  .sign { margin-top: 64px; display: flex; justify-content: space-between; font-size: 12px; }
+  .sign div { border-top: 1px solid #444; padding-top: 4px; width: 30%; text-align: center; }
+  @page { size: A4 portrait; margin: 14mm; }
+</style></head><body>
+  <div class="org">${esc(hospitalConfig.name)} Hospital</div>
+  <div class="doc">${esc(selectedType?.voucher_type_name || 'Voucher')}</div>
+  <div class="head">
+    <div>No.: <b>${esc(voucherNumber || '(unsaved)')}</b></div>
+    <div>Date: <b>${esc(tallyDateLabel(voucherDate))}</b></div>
+  </div>
+  <table>
+    <thead><tr><th>Particulars</th><th class="num">Debit (₹)</th><th class="num">Credit (₹)</th></tr></thead>
+    <tbody>${body}
+      <tr class="total"><td class="b num" style="text-align:right">Total</td><td class="b num">${fmtINR(total)}</td><td class="b num">${fmtINR(total)}</td></tr>
+    </tbody>
+  </table>
+  <div class="words">Amount (in words): <b>${esc(amountInWords(total))}</b></div>
+  <div class="narr">Narration: ${esc(narration || '-')}</div>
+  <div class="sign"><div>Prepared By</div><div>Checked By</div><div>Authorised Signatory</div></div>
+  <script>window.onload=function(){setTimeout(function(){window.print()},150)}</script>
+</body></html>`);
+    win.document.close();
+  };
+
   // ------ Tally right rail: F2 Date + F4–F9 voucher types + other types ------
   const rail = useMemo<RailItem[]>(() => {
     if (alterMode) {
       return [
         { hotkey: 'F2', label: 'Date', onClick: () => dateRef.current?.showPicker?.() ?? dateRef.current?.focus() },
+        { hotkey: 'P', label: 'Print Vch', gapBefore: true, onClick: printVoucher },
         { hotkey: 'X', label: 'Cancel Vch', gapBefore: true, onClick: cancelVoucher },
         { hotkey: 'D', label: 'Delete', onClick: deleteVoucher },
       ];
@@ -741,6 +839,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
         active: selectedVoucherType === vt.id,
       });
     });
+    items.push({ hotkey: 'P', label: 'Print Vch', gapBefore: true, onClick: printVoucher });
     return items;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [voucherTypes, selectedVoucherType, alterMode]);

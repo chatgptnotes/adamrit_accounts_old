@@ -28,6 +28,12 @@ const tallyDateLabel = (iso: string): string => {
   return `${d.getDate()}-${month}-${String(d.getFullYear()).slice(2)}`;
 };
 
+const shiftYear = (iso: string): string => {
+  const d = new Date(iso + 'T00:00:00');
+  d.setFullYear(d.getFullYear() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 const fyStart = (): string => {
   const now = new Date();
   const y = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
@@ -46,6 +52,7 @@ const ProfitLoss: React.FC = () => {
   const [toDate, setToDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [showPeriod, setShowPeriod] = useState(false);
   const [detailed, setDetailed] = useState(false);
+  const [compare, setCompare] = useState(false); // previous-year column
 
   const { data: accounts = [], isLoading: accountsLoading } = useQuery({
     queryKey: ['pnl_accounts'],
@@ -65,10 +72,17 @@ const ProfitLoss: React.FC = () => {
     queryFn: () => accountMovements({ from: fromDate, upto: toDate, companyId: selectedCompanyId }),
   });
 
-  const { purchase, directExpense, indirectExpense, directIncome, indirectIncome, grossProfit, nett } = useMemo(() => {
+  const { data: movements2 = new Map<string, Movement>() } = useQuery({
+    queryKey: ['profit_loss_movements', shiftYear(fromDate), shiftYear(toDate), selectedCompanyId],
+    enabled: compare,
+    queryFn: () =>
+      accountMovements({ from: shiftYear(fromDate), upto: shiftYear(toDate), companyId: selectedCompanyId }),
+  });
+
+  const compute = (mov: Map<string, Movement>) => {
     const debit = new Map<string, number>();
     const credit = new Map<string, number>();
-    for (const [id, m] of movements) {
+    for (const [id, m] of mov) {
       debit.set(id, m.debit);
       credit.set(id, m.credit);
     }
@@ -112,7 +126,14 @@ const ProfitLoss: React.FC = () => {
       grossProfit,
       nett,
     };
-  }, [accounts, movements]);
+  };
+
+  const { purchase, directExpense, indirectExpense, directIncome, indirectIncome, grossProfit, nett, prev } =
+    useMemo(() => {
+      const cur = compute(movements);
+      return { ...cur, prev: compare ? compute(movements2) : null };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [accounts, movements, movements2, compare]);
 
   const isLoading = accountsLoading || entriesLoading;
   const companyName = companies.find((c) => c.id === selectedCompanyId)?.company_name || 'All Companies';
@@ -169,6 +190,12 @@ const ProfitLoss: React.FC = () => {
         },
         { label: 'Basis of Values', disabled: true, gapBefore: true },
         { hotkey: 'H', label: detailed ? 'Condensed' : 'Detailed', onClick: () => setDetailed((v) => !v) },
+        {
+          hotkey: 'C',
+          label: compare ? 'Del Column' : 'New Column',
+          onClick: () => setCompare((v) => !v),
+          active: compare,
+        },
         { label: 'Exception Reports', disabled: true },
         { label: 'Save View', disabled: true },
         { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
@@ -194,6 +221,39 @@ const ProfitLoss: React.FC = () => {
         )}
         {isLoading ? (
           <div className="py-16 text-center text-gray-400">Loading…</div>
+        ) : compare && prev ? (
+          /* Comparative columnar P&L (Tally New Column) */
+          <div className="mx-auto max-w-3xl">
+            <div className="flex border-y border-black bg-[#f0f4fa] font-semibold">
+              <div className="min-w-0 flex-1 px-1">Particulars</div>
+              <div className="w-44 px-1 text-right">
+                {tallyDateLabel(fromDate)}–{tallyDateLabel(toDate)}
+              </div>
+              <div className="w-44 px-1 text-right text-gray-600">
+                {tallyDateLabel(shiftYear(fromDate))}–{tallyDateLabel(shiftYear(toDate))}
+              </div>
+            </div>
+            {[
+              ['Sales Accounts', directIncome.amount, prev.directIncome.amount],
+              ['Purchase Accounts', purchase.amount, prev.purchase.amount],
+              ['Direct Expenses', directExpense.amount, prev.directExpense.amount],
+              ['Gross Profit', grossProfit, prev.grossProfit],
+              ['Indirect Incomes', indirectIncome.amount, prev.indirectIncome.amount],
+              ['Indirect Expenses', indirectExpense.amount, prev.indirectExpense.amount],
+              ['Nett Profit', nett, prev.nett],
+            ].map(([label, cur, prv]) => (
+              <div
+                key={label as string}
+                className={`flex border-b border-dashed border-gray-200 ${
+                  label === 'Gross Profit' || label === 'Nett Profit' ? 'font-bold' : ''
+                }`}
+              >
+                <div className="min-w-0 flex-1 px-1">{label as string}</div>
+                <div className="w-44 px-1 text-right font-mono">{fmt(Number(cur))}</div>
+                <div className="w-44 px-1 text-right font-mono text-gray-600">{fmt(Number(prv))}</div>
+              </div>
+            ))}
+          </div>
         ) : (
           <div className="flex">
             {/* Left panel */}

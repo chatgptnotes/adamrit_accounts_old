@@ -82,6 +82,7 @@ const MORE_REPORTS: MenuSection[] = [
       { label: 'Cost Centres', target: 'cost-centres' },
       { label: 'Cash Flow', target: 'cash-flow' },
       { label: 'Receipts & Payments', target: 'receipts-payments' },
+      { label: 'Edit Log', target: 'edit-log' },
     ],
   },
 ];

@@ -83,7 +83,7 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
   );
 
   return (
-    <div style={TALLY_FONT} className="bg-[#16437e]">
+    <div style={TALLY_FONT} className="bg-[#16437e] print:hidden">
       {/* Row 1: logo + centred finder */}
       <div className="relative flex items-center px-3 pt-1">
         <div className="leading-none text-white">
@@ -217,7 +217,7 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail = [], bott
 
         {/* Right button rail */}
         {rail.length > 0 && (
-          <div className="w-44 shrink-0 border-l border-[#9db8d8] bg-[#e4eefa]">
+          <div className="w-44 shrink-0 border-l border-[#9db8d8] bg-[#e4eefa] print:hidden">
             {rail.map((item, i) => (
               <div key={`${item.label}-${i}`} className={item.gapBefore ? 'mt-4' : ''}>
                 <button
@@ -247,7 +247,7 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail = [], bott
 
       {/* Bottom action bar */}
       {bottomBar && bottomBar.length > 0 && (
-        <div className="flex items-stretch gap-px border-t border-[#9db8d8] bg-[#cfe0f1] px-1 py-0.5">
+        <div className="flex items-stretch gap-px border-t border-[#9db8d8] bg-[#cfe0f1] px-1 py-0.5 print:hidden">
           {bottomBar.map((b) => (
             <button
               key={b.hotkey}

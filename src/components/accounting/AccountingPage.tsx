@@ -41,6 +41,7 @@ import RatioAnalysis from './RatioAnalysis';
 import ReceiptsPayments from './ReceiptsPayments';
 import CostCentres from './CostCentres';
 import GatewayOfTally from './GatewayOfTally';
+import EditLog from './EditLog';
 import { TallyTopBar } from './tally/TallyChrome';
 
 /** Navigation item definition for the accounting sidebar. */
@@ -68,6 +69,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'ratio-analysis', label: 'Ratio Analysis', icon: Scale },
   { id: 'receipts-payments', label: 'Receipts & Payments', icon: ArrowLeftRight },
   { id: 'cost-centres', label: 'Cost Centres', icon: Building2 },
+  { id: 'edit-log', label: 'Edit Log', icon: FileText },
   { id: 'trial-balance', label: 'Trial Balance', icon: Scale },
   { id: 'balance-sheet', label: 'Balance Sheet', icon: Landmark },
   { id: 'profit-loss', label: 'Profit & Loss', icon: TrendingUp },
@@ -119,6 +121,8 @@ const renderContent = (
       return <ReceiptsPayments />;
     case 'cost-centres':
       return <CostCentres onOpenVoucher={openVoucher} />;
+    case 'edit-log':
+      return <EditLog onOpenVoucher={openVoucher} />;
     case 'trial-balance':
       return <TrialBalance onOpenGroup={openGroup} />;
     case 'balance-sheet':
@@ -159,7 +163,7 @@ const AccountingPage: React.FC = () => {
     <div className="min-h-screen flex bg-[#d5e3f0]">
       {/* ---- Left Sidebar (icon rail when collapsed) ---- */}
       <aside
-        className={`${navExpanded ? 'w-56' : 'w-12'} bg-white border-r shadow-sm flex flex-col flex-shrink-0 transition-all`}
+        className={`${navExpanded ? 'w-56' : 'w-12'} bg-white border-r shadow-sm flex flex-col flex-shrink-0 transition-all print:hidden`}
       >
         {/* Sidebar header / collapse toggle */}
         <div className={`flex items-center gap-2 border-b py-4 ${navExpanded ? 'px-5' : 'justify-center px-0'}`}>
