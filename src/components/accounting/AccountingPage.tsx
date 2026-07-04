@@ -30,6 +30,8 @@ import BalanceSheet from './BalanceSheet';
 import ProfitLoss from './ProfitLoss';
 import CashFlow from './CashFlow';
 import BankReconciliation from './BankReconciliation';
+import CashBankSummary from './CashBankSummary';
+import { TallyTopBar } from './tally/TallyChrome';
 
 /** Navigation item definition for the accounting sidebar. */
 interface NavItem {
@@ -45,6 +47,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'masters', label: 'Masters', icon: FolderCog },
   { id: 'voucher-entry', label: 'Voucher Entry', icon: FileText },
   { id: 'day-book', label: 'Day Book', icon: Calendar },
+  { id: 'cash-bank-summary', label: 'Cash/Bank Summary', icon: Landmark },
   { id: 'ledger-view', label: 'Ledger View', icon: BookMarked },
   { id: 'trial-balance', label: 'Trial Balance', icon: Scale },
   { id: 'balance-sheet', label: 'Balance Sheet', icon: Landmark },
@@ -55,7 +58,7 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 /** Renders the active section component based on the current tab selection. */
-const renderContent = (activeTab: string): React.ReactNode => {
+const renderContent = (activeTab: string, goTo: (id: string) => void): React.ReactNode => {
   switch (activeTab) {
     case 'dashboard':
       return <Dashboard />;
@@ -67,6 +70,8 @@ const renderContent = (activeTab: string): React.ReactNode => {
       return <VoucherEntry />;
     case 'day-book':
       return <DayBook />;
+    case 'cash-bank-summary':
+      return <CashBankSummary onClose={() => goTo('dashboard')} />;
     case 'ledger-view':
       return <LedgerView />;
     case 'trial-balance':
@@ -97,7 +102,7 @@ const AccountingPage: React.FC = () => {
   const [navExpanded, setNavExpanded] = useState(false);
 
   return (
-    <div className="min-h-screen flex bg-gray-50">
+    <div className="min-h-screen flex bg-[#d5e3f0]">
       {/* ---- Left Sidebar (icon rail when collapsed) ---- */}
       <aside
         className={`${navExpanded ? 'w-56' : 'w-12'} bg-white border-r shadow-sm flex flex-col flex-shrink-0 transition-all`}
@@ -151,9 +156,13 @@ const AccountingPage: React.FC = () => {
         </ScrollArea>
       </aside>
 
-      {/* ---- Content Area ---- */}
-      <main className="flex-1 p-6 overflow-y-auto">
-        {renderContent(activeTab)}
+      {/* ---- Content Area with Tally chrome ---- */}
+      <main className="flex-1 flex flex-col overflow-y-auto">
+        <TallyTopBar
+          sections={NAV_ITEMS.map(({ id, label }) => ({ id, label }))}
+          onGoTo={setActiveTab}
+        />
+        <div className="flex-1 p-1">{renderContent(activeTab, setActiveTab)}</div>
       </main>
     </div>
   );

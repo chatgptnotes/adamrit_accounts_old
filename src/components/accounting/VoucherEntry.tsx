@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { X, Loader2 } from 'lucide-react';
 import { sendPaymentAlert } from '@/lib/payment-alert-service';
+import { fetchAllRows } from '@/lib/fetchAllRows';
 import { useCompanies } from '@/hooks/useCompanies';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { TallyScreen, type RailItem } from './tally/TallyChrome';
 
 // Type definition for a voucher type record
 interface VoucherType {
@@ -44,7 +46,7 @@ interface ParticularsLine {
   amount: string;
 }
 
-// A journal-style row (Dr/Cr modes: Journal / Sales / Credit Note / Debit Note …)
+// A journal-style row (By/To modes: Journal / Sales / Credit Note / Debit Note …)
 interface JournalLine {
   key: number;
   drcr: 'Dr' | 'Cr';
@@ -78,11 +80,27 @@ const dayName = (iso: string): string => {
 };
 
 // Voucher categories that use Tally's single Account + Particulars layout.
-// The Account side of the double entry is implied by the category.
-const SINGLE_ACCOUNT_MODES: Record<string, { accountLabel: string; accountIsDebit: boolean }> = {
-  PAYMENT: { accountLabel: 'Account', accountIsDebit: false }, // cash/bank credited, particulars debited
-  RECEIPT: { accountLabel: 'Account', accountIsDebit: true },  // cash/bank debited, particulars credited
-  CONTRA: { accountLabel: 'Account', accountIsDebit: true },   // destination debited, particulars credited
+const SINGLE_ACCOUNT_MODES: Record<string, { accountIsDebit: boolean }> = {
+  PAYMENT: { accountIsDebit: false }, // cash/bank credited, particulars debited
+  RECEIPT: { accountIsDebit: true },  // cash/bank debited, particulars credited
+  CONTRA: { accountIsDebit: true },   // destination debited, particulars credited
+};
+
+// Tally's F4–F9 rail order
+const RAIL_KEYS: { hotkey: string; category: string; label: string }[] = [
+  { hotkey: 'F4', category: 'CONTRA', label: 'Contra' },
+  { hotkey: 'F5', category: 'PAYMENT', label: 'Payment' },
+  { hotkey: 'F6', category: 'RECEIPT', label: 'Receipt' },
+  { hotkey: 'F7', category: 'JOURNAL', label: 'Journal' },
+  { hotkey: 'F8', category: 'SALES', label: 'Sales' },
+  { hotkey: 'F9', category: 'PURCHASE', label: 'Purchase' },
+];
+
+// Current balance = opening + posted debits − credits, formatted "1,234.00 Dr".
+const balanceLabel = (bal: number | undefined): string => {
+  if (bal === undefined) return '';
+  if (bal === 0) return '0.00';
+  return `${fmtINR(Math.abs(bal))} ${bal >= 0 ? 'Dr' : 'Cr'}`;
 };
 
 // ---------------------------------------------------------------------------
@@ -165,10 +183,10 @@ const AccountSearch = ({ accounts, selected, onSelect, placeholder, className, i
           }, 150);
         }}
         onKeyDown={handleKeyDown}
-        className="h-8 border-0 border-b border-dashed border-gray-400 bg-transparent px-1 shadow-none focus-visible:ring-0 focus-visible:border-blue-600 focus-visible:border-solid rounded-none"
+        className="h-7 border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-[13px] shadow-none focus-visible:ring-0 focus-visible:border-blue-600 focus-visible:border-solid rounded-none"
       />
       {open && options.length > 0 && (
-        <div className="absolute z-30 mt-1 max-h-72 w-full min-w-[320px] overflow-y-auto rounded-md border bg-[#eef3fa] shadow-lg">
+        <div className="absolute z-30 mt-1 max-h-72 w-full min-w-[320px] overflow-y-auto rounded-none border bg-[#eef3fa] shadow-lg">
           <div className="border-b bg-[#16437e] px-3 py-1 text-xs font-semibold text-white">List of Ledger Accounts</div>
           {options.map((a, i) => (
             <button
@@ -177,13 +195,13 @@ const AccountSearch = ({ accounts, selected, onSelect, placeholder, className, i
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => pick(a)}
               onMouseEnter={() => setHighlight(i)}
-              className={`flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-sm ${
+              className={`flex w-full items-center justify-between gap-3 px-3 py-1 text-left text-[13px] ${
                 i === highlight ? 'bg-[#fdf6d8]' : ''
               }`}
             >
               <span>
                 {a.account_name}
-                <span className="ml-2 text-xs text-muted-foreground">({a.account_code} · {a.account_type})</span>
+                <span className="ml-2 text-xs text-muted-foreground">({a.account_code})</span>
               </span>
             </button>
           ))}
@@ -191,41 +209,6 @@ const AccountSearch = ({ accounts, selected, onSelect, placeholder, className, i
       )}
     </div>
   );
-};
-
-// Current balance of an account = opening balance + posted debits − posted credits.
-// Shown Tally-style as "1,234.00 Dr" / "1,234.00 Cr".
-const useAccountBalance = (accountId: string | undefined) => {
-  return useQuery({
-    queryKey: ['account_balance', accountId],
-    enabled: !!accountId,
-    queryFn: async () => {
-      const [{ data: acc }, { data: entries }] = await Promise.all([
-        supabase
-          .from('chart_of_accounts')
-          .select('opening_balance, opening_balance_type')
-          .eq('id', accountId!)
-          .single(),
-        supabase
-          .from('voucher_entries')
-          .select('debit_amount, credit_amount, vouchers!inner(status)')
-          .eq('account_id', accountId!)
-          .eq('vouchers.status', 'AUTHORISED'),
-      ]);
-      const opening = (Number(acc?.opening_balance) || 0) * (acc?.opening_balance_type === 'CR' ? -1 : 1);
-      const movement = (entries ?? []).reduce(
-        (sum, e: any) => sum + (Number(e.debit_amount) || 0) - (Number(e.credit_amount) || 0),
-        0,
-      );
-      return opening + movement;
-    },
-  });
-};
-
-const balanceLabel = (bal: number | undefined): string => {
-  if (bal === undefined) return '';
-  if (bal === 0) return '0.00';
-  return `${fmtINR(Math.abs(bal))} ${bal >= 0 ? 'Dr' : 'Cr'}`;
 };
 
 const VoucherEntry: React.FC = () => {
@@ -254,11 +237,43 @@ const VoucherEntry: React.FC = () => {
   const journalLedgerRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const journalAmountRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const narrationRef = useRef<HTMLTextAreaElement | null>(null);
+  const dateRef = useRef<HTMLInputElement | null>(null);
 
-  // ------ Fetch companies ------
+  // Current-balance cache per account id (opening + AUTHORISED debits − credits)
+  const [balances, setBalances] = useState<Record<string, number>>({});
+  const loadBalance = useCallback(async (accountId: string) => {
+    if (accountId in balances) return;
+    try {
+      const [{ data: acc }, entries] = await Promise.all([
+        supabase
+          .from('chart_of_accounts')
+          .select('opening_balance, opening_balance_type')
+          .eq('id', accountId)
+          .single(),
+        fetchAllRows((from, to) =>
+          (supabase as any)
+            .from('voucher_entries')
+            .select('debit_amount, credit_amount, voucher:vouchers!inner(status)')
+            .eq('account_id', accountId)
+            .eq('voucher.status', 'AUTHORISED')
+            .range(from, to),
+        ),
+      ]);
+      const opening = (Number(acc?.opening_balance) || 0) * (acc?.opening_balance_type === 'Cr' ? -1 : 1);
+      const movement = (entries as any[]).reduce(
+        (sum, e) => sum + (Number(e.debit_amount) || 0) - (Number(e.credit_amount) || 0),
+        0,
+      );
+      setBalances((prev) => ({ ...prev, [accountId]: opening + movement }));
+    } catch (err) {
+      console.error('Balance lookup failed:', err);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [balances]);
+
+  // ------ Data ------
   const { data: companies = [] } = useCompanies();
 
-  // ------ Fetch active voucher types ------
   const { data: voucherTypes = [] } = useQuery({
     queryKey: ['voucher_types'],
     queryFn: async () => {
@@ -267,13 +282,11 @@ const VoucherEntry: React.FC = () => {
         .select('*')
         .eq('is_active', true)
         .order('voucher_type_name');
-
       if (error) throw error;
       return (data || []) as VoucherType[];
     },
   });
 
-  // ------ Fetch active chart of accounts for the ledger search ------
   const { data: accounts = [] } = useQuery({
     queryKey: ['chart_of_accounts'],
     queryFn: async () => {
@@ -282,11 +295,16 @@ const VoucherEntry: React.FC = () => {
         .select('id, account_code, account_name, account_type')
         .eq('is_active', true)
         .order('account_code');
-
       if (error) throw error;
       return (data || []) as Account[];
     },
   });
+
+  // Default company: first one, so the screen is immediately usable like Tally
+  useEffect(() => {
+    if (!selectedCompanyId && companies.length > 0) setSelectedCompanyId(companies[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companies]);
 
   // ------ Derive the auto-generated voucher number ------
   const selectedType = useMemo(
@@ -302,8 +320,6 @@ const VoucherEntry: React.FC = () => {
 
   const category = (selectedType?.voucher_category || '').toUpperCase();
   const singleMode = SINGLE_ACCOUNT_MODES[category];
-
-  const { data: accountBalance } = useAccountBalance(singleMode ? account?.id : undefined);
 
   // ------ Computed totals ------
   const partTotal = useMemo(
@@ -357,7 +373,7 @@ const VoucherEntry: React.FC = () => {
     const line = journalLines[idx];
     if (!line.account || !(Number(line.amount) > 0)) return;
     if (idx === journalLines.length - 1) {
-      // Tally alternates: after a Dr line, the next defaults to Cr
+      // Tally alternates: after a By (Dr) line, the next defaults to To (Cr)
       const added = newJournalLine(line.drcr === 'Dr' ? 'Cr' : 'Dr');
       setJournalLines((prev) => [...prev, added]);
       setTimeout(() => journalLedgerRefs.current[added.key]?.focus(), 0);
@@ -379,7 +395,6 @@ const VoucherEntry: React.FC = () => {
   };
 
   // Build the double-entry rows for the current mode.
-  // Single-account modes imply the Account side: Payment credits it, Receipt/Contra debit it.
   const buildEntries = (): { account_id: string; debit_amount: number; credit_amount: number; narration: string }[] | null => {
     if (singleMode) {
       if (!account) {
@@ -440,21 +455,17 @@ const VoucherEntry: React.FC = () => {
       toast.error('Total debit amount must be greater than zero.');
       return;
     }
-
-    // Posting requires balanced entries
     if (status === 'posted' && Math.abs(debitSum - creditSum) > 0.01) {
       toast.error('Debit and Credit must be equal to post the voucher.');
       return;
     }
 
     setSaving(true);
-
     try {
       const voucherType = voucherTypes.find((vt) => vt.id === selectedVoucherType);
       const nextNum = (voucherType?.current_number || 0) + 1;
       const generatedNumber = generateVoucherNumber(voucherType?.prefix || '', nextNum);
 
-      // 1. Insert the voucher header
       const { data: voucher, error: vErr } = await supabase
         .from('vouchers')
         .insert({
@@ -479,7 +490,6 @@ const VoucherEntry: React.FC = () => {
         throw vErr;
       }
 
-      // 2. Insert all entry rows
       const entryRows = validEntries.map((e, i) => ({
         voucher_id: voucher.id,
         account_id: e.account_id,
@@ -495,15 +505,13 @@ const VoucherEntry: React.FC = () => {
         throw eErr;
       }
 
-      // 3. Increment the current_number on the voucher type
       await supabase
         .from('voucher_types')
         .update({ current_number: nextNum })
         .eq('id', selectedVoucherType);
 
-      toast.success(`Voucher ${generatedNumber} saved as ${status}.`);
+      toast.success(`Voucher ${generatedNumber} saved${status === 'posted' ? '' : ' as pending'}.`);
 
-      // WhatsApp alert for receipts > Rs. 10,000
       const voucherTypeName = (voucherType?.voucher_type_name || '').toLowerCase();
       if ((voucherTypeName.includes('receipt') || voucherTypeName.includes('receive')) && debitSum >= 10000) {
         sendPaymentAlert({
@@ -515,10 +523,9 @@ const VoucherEntry: React.FC = () => {
         });
       }
 
-      // Invalidate relevant queries and reset the form
       queryClient.invalidateQueries({ queryKey: ['vouchers'] });
       queryClient.invalidateQueries({ queryKey: ['voucher_types'] });
-      queryClient.invalidateQueries({ queryKey: ['account_balance'] });
+      setBalances({});
       handleClear();
     } catch {
       // Error toasts are already shown above
@@ -527,318 +534,347 @@ const VoucherEntry: React.FC = () => {
     }
   };
 
-  return (
-    <div className="flex w-full gap-0 overflow-hidden rounded-md border shadow-sm">
-      {/* ----- Main voucher area ----- */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        {/* Title bar */}
-        <div className="flex items-center justify-between bg-[#16437e] px-3 py-1.5">
-          <span className="text-sm font-semibold text-white">Accounting Voucher Creation</span>
-          <Select value={selectedCompanyId} onValueChange={setSelectedCompanyId}>
-            <SelectTrigger className="h-6 w-56 border-0 bg-[#16437e] text-xs font-semibold text-white shadow-none focus:ring-0 [&>svg]:text-white">
-              <SelectValue placeholder="Select company" />
-            </SelectTrigger>
-            <SelectContent>
-              {companies.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.company_name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+  // ------ Tally right rail: F2 Date + F4–F9 voucher types + other types ------
+  const rail = useMemo<RailItem[]>(() => {
+    const byCategory = (cat: string) => voucherTypes.find((vt) => vt.voucher_category?.toUpperCase() === cat);
+    const mainIds = new Set<string>();
+    const items: RailItem[] = [
+      { hotkey: 'F2', label: 'Date', onClick: () => dateRef.current?.showPicker?.() ?? dateRef.current?.focus() },
+      { hotkey: 'F3', label: 'Company', disabled: true },
+    ];
+    RAIL_KEYS.forEach(({ hotkey, category: cat, label }, i) => {
+      const vt = byCategory(cat);
+      if (vt) mainIds.add(vt.id);
+      items.push({
+        hotkey,
+        label,
+        gapBefore: i === 0,
+        onClick: vt ? () => setSelectedVoucherType(vt.id) : undefined,
+        disabled: !vt,
+        active: vt ? selectedVoucherType === vt.id : false,
+      });
+    });
+    // F10: Other Vouchers — remaining active types listed beneath, Tally style
+    const others = voucherTypes.filter((vt) => !mainIds.has(vt.id));
+    others.forEach((vt, i) => {
+      items.push({
+        label: vt.voucher_type_name,
+        gapBefore: i === 0,
+        onClick: () => setSelectedVoucherType(vt.id),
+        active: selectedVoucherType === vt.id,
+      });
+    });
+    return items;
+  }, [voucherTypes, selectedVoucherType]);
 
-        {/* Voucher type / No. / Ref / Date strip */}
-        <div className="flex items-start justify-between border-b bg-[#dce6f2] px-3 py-2">
-          <div>
-            <div className="flex items-center gap-3">
-              <span className="min-w-[100px] bg-[#16437e] px-5 py-1 text-center text-sm font-bold text-white">
-                {selectedType?.voucher_type_name || 'Voucher'}
-              </span>
-              <span className="text-sm font-medium">No.</span>
-              <span className="min-w-[110px] border border-gray-400 bg-[#fdf6d8] px-3 py-0.5 font-mono text-sm">
-                {voucherNumber || '…'}
-              </span>
-            </div>
-            <div className="mt-1.5 flex items-center gap-2">
-              <span className="text-xs text-gray-600">Ref:</span>
-              <Input
-                value={referenceNumber}
-                onChange={(e) => setReferenceNumber(e.target.value)}
-                placeholder="Reference no."
-                className="h-6 w-36 bg-white text-xs"
-              />
-              <Input
-                type="date"
-                value={referenceDate}
-                onChange={(e) => setReferenceDate(e.target.value)}
-                className="h-6 w-32 bg-white text-xs"
-              />
-            </div>
+  const accountBalance = account ? balances[account.id] : undefined;
+
+  const amountInputClass =
+    'h-7 w-36 rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-right font-mono text-[13px] shadow-none focus-visible:ring-0 focus-visible:border-blue-600 focus-visible:border-solid disabled:border-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none';
+
+  return (
+    <TallyScreen title="Accounting Voucher Creation" rail={rail}>
+      {/* Voucher type / No. / Ref / Date strip */}
+      <div className="flex items-start justify-between border-b border-[#9db8d8] bg-[#eef3fa] px-2 py-1 text-[13px]">
+        <div>
+          <div className="flex items-center gap-3">
+            <span className="min-w-[90px] bg-[#16437e] px-4 py-0.5 text-center font-bold text-white">
+              {selectedType?.voucher_type_name?.replace(' Voucher', '') || 'Voucher'}
+            </span>
+            <span className="font-medium">No.</span>
+            <span className="min-w-[100px] border border-gray-400 bg-[#fdf6d8] px-2 font-mono">
+              {voucherNumber || '…'}
+            </span>
+            <Select value={selectedCompanyId} onValueChange={setSelectedCompanyId}>
+              <SelectTrigger className="h-6 w-56 border-gray-300 bg-white text-xs shadow-none">
+                <SelectValue placeholder="Select company" />
+              </SelectTrigger>
+              <SelectContent>
+                {companies.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.company_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <div className="text-right">
+          <div className="mt-1 flex items-center gap-2">
+            <span className="text-xs text-gray-600">Ref:</span>
+            <Input
+              value={referenceNumber}
+              onChange={(e) => setReferenceNumber(e.target.value)}
+              placeholder="Reference no."
+              className="h-6 w-32 bg-white text-xs"
+            />
             <Input
               type="date"
-              value={voucherDate}
-              onChange={(e) => setVoucherDate(e.target.value)}
-              className="ml-auto h-7 w-36 bg-white text-right text-sm"
+              value={referenceDate}
+              onChange={(e) => setReferenceDate(e.target.value)}
+              className="h-6 w-32 bg-white text-xs"
             />
-            <div className="mt-0.5 text-sm font-bold leading-tight">{tallyDateLabel(voucherDate)}</div>
-            <div className="text-xs text-gray-600">{dayName(voucherDate)}</div>
           </div>
         </div>
+        <div className="text-right">
+          <Input
+            ref={dateRef}
+            type="date"
+            value={voucherDate}
+            onChange={(e) => setVoucherDate(e.target.value)}
+            className="ml-auto h-6 w-32 bg-white text-right text-xs"
+          />
+          <div className="mt-0.5 font-bold leading-tight">{tallyDateLabel(voucherDate)}</div>
+          <div className="text-xs text-gray-600">{dayName(voucherDate)}</div>
+        </div>
+      </div>
 
-        <div className="flex-1 bg-[#fffefb] px-4 pb-4 pt-3">
-          {!selectedType ? (
-            <div className="py-16 text-center text-sm text-gray-400">
-              Select a voucher type from the panel on the right to begin.
+      <div className="px-3 pb-4 pt-2 text-[13px]">
+        {!selectedType ? (
+          <div className="py-16 text-center text-gray-400">
+            Select a voucher type from the buttons on the right (F4–F9) to begin.
+          </div>
+        ) : singleMode ? (
+          <>
+            {/* Account (implied side of the double entry) */}
+            <div className="flex items-center gap-2">
+              <span className="w-28 shrink-0 font-semibold">Account</span>
+              <span>:</span>
+              <AccountSearch
+                accounts={accounts}
+                selected={account}
+                onSelect={(a) => {
+                  setAccount(a);
+                  if (a) loadBalance(a.id);
+                }}
+                placeholder="Cash / Bank ledger — type to search"
+                className="w-full max-w-md"
+              />
             </div>
-          ) : singleMode ? (
-            <>
-              {/* Account (implied side of the double entry) */}
-              <div className="flex items-center gap-2">
-                <span className="w-28 shrink-0 text-sm font-semibold">{singleMode.accountLabel}</span>
-                <span className="text-sm">:</span>
-                <AccountSearch
-                  accounts={accounts}
-                  selected={account}
-                  onSelect={setAccount}
-                  placeholder="Cash / Bank ledger — type to search"
-                  className="w-full max-w-md"
-                />
-              </div>
-              <div className="flex items-center gap-2 text-xs italic text-gray-500">
-                <span className="w-28 shrink-0">Current balance</span>
-                <span>:</span>
-                <span className="px-1 font-mono not-italic">{account ? balanceLabel(accountBalance) : ''}</span>
-              </div>
+            <div className="flex items-center gap-2 text-xs italic text-gray-500">
+              <span className="w-28 shrink-0">Current balance</span>
+              <span>:</span>
+              <span className="px-1 font-mono not-italic">{account ? balanceLabel(accountBalance) : ''}</span>
+            </div>
 
-              {/* Particulars */}
-              <div className="mt-4 flex items-center justify-between border-y border-gray-400 bg-[#f0f4fa] px-2 py-1">
-                <span className="text-sm font-bold">Particulars</span>
-                <span className="pr-9 text-sm font-bold">Amount</span>
-              </div>
-              <div className="divide-y divide-dashed divide-gray-200">
-                {partLines.map((line, idx) => (
-                  <div key={line.key} className="flex items-start gap-2 py-1">
+            {/* Particulars */}
+            <div className="mt-3 flex items-center justify-between border-y border-gray-400 bg-[#f0f4fa] px-2 py-0.5">
+              <span className="font-bold">Particulars</span>
+              <span className="pr-9 font-bold">Amount</span>
+            </div>
+            <div className="divide-y divide-dashed divide-gray-200">
+              {partLines.map((line, idx) => (
+                <div key={line.key} className="flex items-start gap-2 py-0.5">
+                  <div className="flex-1">
                     <AccountSearch
                       accounts={accounts}
                       selected={line.account}
                       onSelect={(a) => {
                         updatePartLine(line.key, { account: a });
-                        if (a) setTimeout(() => partAmountRefs.current[line.key]?.focus(), 0);
+                        if (a) {
+                          loadBalance(a.id);
+                          setTimeout(() => partAmountRefs.current[line.key]?.focus(), 0);
+                        }
                       }}
                       onEmptyEnter={() => narrationRef.current?.focus()}
                       placeholder={idx === 0 ? 'Type to search ledger…' : ''}
-                      className="flex-1"
                       inputRef={(el) => {
                         partLedgerRefs.current[line.key] = el;
                       }}
                     />
-                    <Input
-                      ref={(el) => {
-                        partAmountRefs.current[line.key] = el;
-                      }}
-                      type="number"
-                      inputMode="decimal"
-                      value={line.amount}
-                      onChange={(e) => updatePartLine(line.key, { amount: e.target.value })}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handlePartAmountEnter(idx);
-                        }
-                      }}
-                      className="h-8 w-40 rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-right font-mono shadow-none focus-visible:ring-0 focus-visible:border-blue-600 focus-visible:border-solid [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      tabIndex={-1}
-                      className="h-8 w-7 text-gray-400 hover:text-red-500"
-                      aria-label="Remove row"
-                      onClick={() => removePartLine(line.key)}
-                      disabled={partLines.length === 1}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </Button>
+                    {line.account && (
+                      <div className="px-1 text-xs italic text-gray-500">
+                        Cur Bal:{' '}
+                        <span className="font-mono not-italic">{balanceLabel(balances[line.account.id])}</span>
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
-              <div className="mt-1 flex justify-end border-t border-gray-400 pr-9 pt-1">
-                <span className="font-mono text-sm font-bold">{partTotal > 0 ? fmtINR(partTotal) : ''}</span>
-              </div>
-            </>
-          ) : (
-            <>
-              {/* Journal-style Dr/Cr entry */}
-              <div className="flex items-center border-y border-gray-400 bg-[#f0f4fa] px-2 py-1 text-sm font-bold">
-                <span className="w-16"></span>
-                <span className="flex-1">Particulars</span>
-                <span className="w-40 pr-1 text-right">Debit</span>
-                <span className="w-40 pr-1 text-right">Credit</span>
-                <span className="w-7"></span>
-              </div>
-              <div className="divide-y divide-dashed divide-gray-200">
-                {journalLines.map((line, idx) => (
-                  <div key={line.key} className="flex items-start gap-2 py-1">
-                    <Select
-                      value={line.drcr}
-                      onValueChange={(v) => updateJournalLine(line.key, { drcr: v as 'Dr' | 'Cr' })}
-                    >
-                      <SelectTrigger className="h-8 w-16 rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-sm font-semibold shadow-none focus:ring-0">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Dr">Dr</SelectItem>
-                        <SelectItem value="Cr">Cr</SelectItem>
-                      </SelectContent>
-                    </Select>
+                  <Input
+                    ref={(el) => {
+                      partAmountRefs.current[line.key] = el;
+                    }}
+                    type="number"
+                    inputMode="decimal"
+                    value={line.amount}
+                    onChange={(e) => updatePartLine(line.key, { amount: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handlePartAmountEnter(idx);
+                      }
+                    }}
+                    className={amountInputClass}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    tabIndex={-1}
+                    className="h-7 w-6 text-gray-400 hover:text-red-500"
+                    aria-label="Remove row"
+                    onClick={() => removePartLine(line.key)}
+                    disabled={partLines.length === 1}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <div className="mt-1 flex justify-end border-t border-gray-400 pr-8 pt-0.5">
+              <span className="font-mono font-bold">{partTotal > 0 ? fmtINR(partTotal) : ''}</span>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Journal-style By/To entry */}
+            <div className="flex items-center border-y border-gray-400 bg-[#f0f4fa] px-2 py-0.5 font-bold">
+              <span className="w-12"></span>
+              <span className="flex-1">Particulars</span>
+              <span className="w-36 pr-1 text-right">Debit</span>
+              <span className="w-36 pr-1 text-right">Credit</span>
+              <span className="w-6"></span>
+            </div>
+            <div className="divide-y divide-dashed divide-gray-200">
+              {journalLines.map((line, idx) => (
+                <div key={line.key} className="flex items-start gap-2 py-0.5">
+                  <Select
+                    value={line.drcr}
+                    onValueChange={(v) => updateJournalLine(line.key, { drcr: v as 'Dr' | 'Cr' })}
+                  >
+                    <SelectTrigger className="h-7 w-12 rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-[13px] font-semibold shadow-none focus:ring-0">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Dr">By</SelectItem>
+                      <SelectItem value="Cr">To</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <div className="flex-1">
                     <AccountSearch
                       accounts={accounts}
                       selected={line.account}
                       onSelect={(a) => {
                         updateJournalLine(line.key, { account: a });
-                        if (a) setTimeout(() => journalAmountRefs.current[line.key]?.focus(), 0);
+                        if (a) {
+                          loadBalance(a.id);
+                          setTimeout(() => journalAmountRefs.current[line.key]?.focus(), 0);
+                        }
                       }}
                       onEmptyEnter={() => narrationRef.current?.focus()}
                       placeholder={idx === 0 ? 'Type to search ledger…' : ''}
-                      className="flex-1"
                       inputRef={(el) => {
                         journalLedgerRefs.current[line.key] = el;
                       }}
                     />
-                    <Input
-                      ref={(el) => {
-                        journalAmountRefs.current[line.key] = el;
-                      }}
-                      type="number"
-                      inputMode="decimal"
-                      value={line.drcr === 'Dr' ? line.amount : ''}
-                      disabled={line.drcr !== 'Dr'}
-                      onChange={(e) => updateJournalLine(line.key, { amount: e.target.value })}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleJournalAmountEnter(idx);
-                        }
-                      }}
-                      className="h-8 w-40 rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-right font-mono shadow-none focus-visible:ring-0 focus-visible:border-blue-600 focus-visible:border-solid disabled:border-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                    <Input
-                      type="number"
-                      inputMode="decimal"
-                      value={line.drcr === 'Cr' ? line.amount : ''}
-                      disabled={line.drcr !== 'Cr'}
-                      onChange={(e) => updateJournalLine(line.key, { amount: e.target.value })}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleJournalAmountEnter(idx);
-                        }
-                      }}
-                      className="h-8 w-40 rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-right font-mono shadow-none focus-visible:ring-0 focus-visible:border-blue-600 focus-visible:border-solid disabled:border-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      tabIndex={-1}
-                      className="h-8 w-7 text-gray-400 hover:text-red-500"
-                      aria-label="Remove row"
-                      onClick={() => removeJournalLine(line.key)}
-                      disabled={journalLines.length <= 2}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </Button>
+                    {line.account && (
+                      <div className="px-1 text-xs italic text-gray-500">
+                        Cur Bal:{' '}
+                        <span className="font-mono not-italic">{balanceLabel(balances[line.account.id])}</span>
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
-              <div className="mt-1 flex items-center justify-end gap-0 border-t border-gray-400 pt-1">
-                <span className="w-40 pr-1 text-right font-mono text-sm font-bold">
-                  {totalDebit > 0 ? fmtINR(totalDebit) : ''}
-                </span>
-                <span className="w-40 pr-1 text-right font-mono text-sm font-bold">
-                  {totalCredit > 0 ? fmtINR(totalCredit) : ''}
-                </span>
-                <span className="w-7"></span>
-              </div>
-              <div className="mt-1 text-right text-xs">
-                {isBalanced ? (
-                  <span className="font-semibold text-green-600">Balanced</span>
-                ) : (
-                  <span className="font-semibold text-red-600">Difference: ₹{fmtINR(difference)}</span>
-                )}
-              </div>
-            </>
-          )}
-
-          {/* Narration + patient + actions */}
-          {selectedType && (
-            <div className="mt-6 flex items-end justify-between gap-4">
-              <div className="w-full max-w-2xl">
-                <Label htmlFor="voucher_narration" className="text-sm font-semibold">
-                  Narration:
-                </Label>
-                <Textarea
-                  id="voucher_narration"
-                  ref={narrationRef}
-                  value={narration}
-                  onChange={(e) => setNarration(e.target.value)}
-                  rows={2}
-                  className="mt-1 resize-none bg-white"
-                />
-                <div className="mt-2 flex items-center gap-2">
-                  <Label htmlFor="patient_id" className="shrink-0 text-xs text-gray-600">
-                    Patient (optional)
-                  </Label>
                   <Input
-                    id="patient_id"
-                    value={patientId}
-                    onChange={(e) => setPatientId(e.target.value)}
-                    placeholder="Enter patient ID"
-                    className="h-7 w-56 text-xs"
+                    ref={(el) => {
+                      journalAmountRefs.current[line.key] = el;
+                    }}
+                    type="number"
+                    inputMode="decimal"
+                    value={line.drcr === 'Dr' ? line.amount : ''}
+                    disabled={line.drcr !== 'Dr'}
+                    onChange={(e) => updateJournalLine(line.key, { amount: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleJournalAmountEnter(idx);
+                      }
+                    }}
+                    className={amountInputClass}
                   />
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    value={line.drcr === 'Cr' ? line.amount : ''}
+                    disabled={line.drcr !== 'Cr'}
+                    onChange={(e) => updateJournalLine(line.key, { amount: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleJournalAmountEnter(idx);
+                      }
+                    }}
+                    className={amountInputClass}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    tabIndex={-1}
+                    className="h-7 w-6 text-gray-400 hover:text-red-500"
+                    aria-label="Remove row"
+                    onClick={() => removeJournalLine(line.key)}
+                    disabled={journalLines.length <= 2}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
-              </div>
-              <div className="flex shrink-0 gap-2">
-                <Button variant="outline" onClick={() => saveVoucher('draft')} disabled={saving}>
-                  {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Save as Draft
-                </Button>
-                <Button onClick={() => saveVoucher('posted')} disabled={saving} className="bg-blue-600 hover:bg-blue-700">
-                  {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Post Voucher
-                </Button>
-                <Button variant="secondary" onClick={handleClear} disabled={saving}>
-                  Clear
-                </Button>
+              ))}
+            </div>
+            <div className="mt-1 flex items-center justify-end border-t border-gray-400 pt-0.5">
+              <span className="w-36 pr-1 text-right font-mono font-bold">{totalDebit > 0 ? fmtINR(totalDebit) : ''}</span>
+              <span className="w-36 pr-1 text-right font-mono font-bold">{totalCredit > 0 ? fmtINR(totalCredit) : ''}</span>
+              <span className="w-6"></span>
+            </div>
+            <div className="mt-1 text-right text-xs">
+              {isBalanced ? (
+                <span className="font-semibold text-green-600">Balanced</span>
+              ) : (
+                <span className="font-semibold text-red-600">Difference: ₹{fmtINR(difference)}</span>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Narration + patient + actions */}
+        {selectedType && (
+          <div className="mt-8 flex items-end justify-between gap-4">
+            <div className="w-full max-w-2xl">
+              <Label htmlFor="voucher_narration" className="text-[13px] font-semibold">
+                Narration:
+              </Label>
+              <Textarea
+                id="voucher_narration"
+                ref={narrationRef}
+                value={narration}
+                onChange={(e) => setNarration(e.target.value)}
+                rows={2}
+                className="mt-1 resize-none rounded-none border-gray-400 bg-white text-[13px]"
+              />
+              <div className="mt-2 flex items-center gap-2">
+                <Label htmlFor="patient_id" className="shrink-0 text-xs text-gray-600">
+                  Patient (optional)
+                </Label>
+                <Input
+                  id="patient_id"
+                  value={patientId}
+                  onChange={(e) => setPatientId(e.target.value)}
+                  placeholder="Enter patient ID"
+                  className="h-6 w-56 text-xs"
+                />
               </div>
             </div>
-          )}
-        </div>
+            <div className="flex shrink-0 gap-1">
+              <Button variant="outline" size="sm" className="h-7 rounded-none text-xs" onClick={() => saveVoucher('draft')} disabled={saving}>
+                {saving && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                Save as Pending
+              </Button>
+              <Button size="sm" className="h-7 rounded-none bg-[#16437e] text-xs hover:bg-[#0f3363]" onClick={() => saveVoucher('posted')} disabled={saving}>
+                {saving && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                <span className="underline">A</span>: Accept
+              </Button>
+              <Button variant="secondary" size="sm" className="h-7 rounded-none text-xs" onClick={handleClear} disabled={saving}>
+                <span className="underline">Q</span>: Quit
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
-
-      {/* ----- Tally-style voucher type rail ----- */}
-      <div className="w-44 shrink-0 border-l bg-[#eef3fa]">
-        <div className="border-b bg-[#16437e] px-2 py-1.5 text-xs font-semibold text-white">Change Voucher</div>
-        <div className="flex flex-col">
-          {voucherTypes.map((vt) => (
-            <button
-              key={vt.id}
-              type="button"
-              onClick={() => setSelectedVoucherType(vt.id)}
-              className={`border-b border-white px-3 py-1.5 text-left text-sm ${
-                vt.id === selectedVoucherType
-                  ? 'bg-[#16437e] font-semibold text-white'
-                  : 'text-[#16437e] hover:bg-[#fdf6d8]'
-              }`}
-            >
-              {vt.voucher_type_name}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
+    </TallyScreen>
   );
 };
 
