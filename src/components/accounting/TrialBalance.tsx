@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { fetchAllRows } from '@/lib/fetchAllRows';
+import { accountMovements, type Movement } from '@/lib/accountMovements';
 import { format } from 'date-fns';
 import { useCompanies } from '@/hooks/useCompanies';
 import { TallyScreen } from './tally/TallyChrome';
@@ -13,12 +13,6 @@ interface Account {
   account_type: string;
   opening_balance: number | null;
   opening_balance_type: string | null;
-}
-
-interface EntryRow {
-  account_id: string;
-  debit_amount: number;
-  credit_amount: number;
 }
 
 const fmt = (n: number): string =>
@@ -78,28 +72,17 @@ const TrialBalance: React.FC = () => {
     },
   });
 
-  const { data: entries = [], isLoading: entriesLoading } = useQuery({
-    queryKey: ['tb_entries', selectedCompanyId, asOfDate],
-    queryFn: async () => {
-      const data = await fetchAllRows((from, to) => {
-        let query = supabase
-          .from('voucher_entries')
-          .select('account_id, debit_amount, credit_amount, voucher:vouchers!inner(voucher_date, status, company_id)')
-          .eq('voucher.status', 'AUTHORISED')
-          .lte('voucher.voucher_date', asOfDate);
-        if (selectedCompanyId) query = query.eq('voucher.company_id', selectedCompanyId);
-        return query.range(from, to);
-      });
-      return data as unknown as EntryRow[];
-    },
+  const { data: movements = new Map<string, Movement>(), isLoading: entriesLoading } = useQuery({
+    queryKey: ['tb_movements', selectedCompanyId, asOfDate],
+    queryFn: () => accountMovements({ upto: asOfDate, companyId: selectedCompanyId }),
   });
 
   const { groups, grandDr, grandCr } = useMemo(() => {
     const debit = new Map<string, number>();
     const credit = new Map<string, number>();
-    for (const e of entries) {
-      debit.set(e.account_id, (debit.get(e.account_id) ?? 0) + (Number(e.debit_amount) || 0));
-      credit.set(e.account_id, (credit.get(e.account_id) ?? 0) + (Number(e.credit_amount) || 0));
+    for (const [id, m] of movements) {
+      debit.set(id, m.debit);
+      credit.set(id, m.credit);
     }
     const byHead = new Map<string, { dr: number; cr: number; ledgers: { name: string; bal: number }[] }>();
     for (const a of accounts) {
@@ -123,7 +106,7 @@ const TrialBalance: React.FC = () => {
     }
     const groups = HEAD_ORDER.filter((h) => byHead.has(h)).map((h) => ({ head: h, ...byHead.get(h)! }));
     return { groups, grandDr, grandCr };
-  }, [accounts, entries]);
+  }, [accounts, movements]);
 
   const isLoading = accountsLoading || entriesLoading;
   const companyName = companies.find((c) => c.id === selectedCompanyId)?.company_name || 'All Companies';

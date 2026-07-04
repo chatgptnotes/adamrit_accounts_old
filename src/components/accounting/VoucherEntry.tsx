@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { X, Loader2 } from 'lucide-react';
 import { sendPaymentAlert } from '@/lib/payment-alert-service';
-import { fetchAllRows } from '@/lib/fetchAllRows';
+import { accountMovements } from '@/lib/accountMovements';
 import { useCompanies } from '@/hooks/useCompanies';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -244,26 +244,17 @@ const VoucherEntry: React.FC = () => {
   const loadBalance = useCallback(async (accountId: string) => {
     if (accountId in balances) return;
     try {
-      const [{ data: acc }, entries] = await Promise.all([
+      const [{ data: acc }, movements] = await Promise.all([
         supabase
           .from('chart_of_accounts')
           .select('opening_balance, opening_balance_type')
           .eq('id', accountId)
           .single(),
-        fetchAllRows((from, to) =>
-          (supabase as any)
-            .from('voucher_entries')
-            .select('debit_amount, credit_amount, voucher:vouchers!inner(status)')
-            .eq('account_id', accountId)
-            .eq('voucher.status', 'AUTHORISED')
-            .range(from, to),
-        ),
+        accountMovements({}),
       ]);
       const opening = (Number(acc?.opening_balance) || 0) * (acc?.opening_balance_type === 'Cr' ? -1 : 1);
-      const movement = (entries as any[]).reduce(
-        (sum, e) => sum + (Number(e.debit_amount) || 0) - (Number(e.credit_amount) || 0),
-        0,
-      );
+      const m = movements.get(accountId);
+      const movement = m ? m.debit - m.credit : 0;
       setBalances((prev) => ({ ...prev, [accountId]: opening + movement }));
     } catch (err) {
       console.error('Balance lookup failed:', err);

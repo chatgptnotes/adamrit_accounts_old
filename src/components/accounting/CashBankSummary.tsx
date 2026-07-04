@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { fetchAllRows } from '@/lib/fetchAllRows';
+import { accountMovements } from '@/lib/accountMovements';
 import { format } from 'date-fns';
 import { TallyScreen } from './tally/TallyChrome';
 
@@ -57,19 +57,11 @@ const CashBankSummary: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
     queryKey: ['cash_bank_sums', accountIds.join(','), toDate],
     enabled: accountIds.length > 0,
     queryFn: async () => {
-      const rows = await fetchAllRows((from, to) =>
-        (supabase as any)
-          .from('voucher_entries')
-          .select('account_id, debit_amount, credit_amount, voucher:vouchers!inner(status, voucher_date)')
-          .in('account_id', accountIds)
-          .eq('voucher.status', 'AUTHORISED')
-          .lte('voucher.voucher_date', toDate)
-          .range(from, to),
-      );
+      const movements = await accountMovements({ upto: toDate });
       const byAccount: Record<string, number> = {};
-      for (const r of rows as any[]) {
-        byAccount[r.account_id] =
-          (byAccount[r.account_id] ?? 0) + (Number(r.debit_amount) || 0) - (Number(r.credit_amount) || 0);
+      for (const id of accountIds) {
+        const m = movements.get(id);
+        if (m) byAccount[id] = m.debit - m.credit;
       }
       return byAccount;
     },

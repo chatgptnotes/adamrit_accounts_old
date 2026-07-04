@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { fetchAllRows } from '@/lib/fetchAllRows';
+import { accountMovements, type Movement } from '@/lib/accountMovements';
 import { format } from 'date-fns';
 import { useCompanies } from '@/hooks/useCompanies';
 import { TallyScreen } from './tally/TallyChrome';
@@ -11,12 +11,6 @@ interface Account {
   account_code: string;
   account_name: string;
   account_type: string;
-}
-
-interface EntryRow {
-  account_id: string;
-  debit_amount: number;
-  credit_amount: number;
 }
 
 interface Line {
@@ -66,29 +60,17 @@ const ProfitLoss: React.FC = () => {
     },
   });
 
-  const { data: entries = [], isLoading: entriesLoading } = useQuery({
-    queryKey: ['profit_loss_entries', fromDate, toDate, selectedCompanyId],
-    queryFn: async () => {
-      const data = await fetchAllRows((from, to) => {
-        let query = supabase
-          .from('voucher_entries')
-          .select('account_id, debit_amount, credit_amount, voucher:vouchers!inner(voucher_date, status, company_id)')
-          .eq('voucher.status', 'AUTHORISED')
-          .gte('voucher.voucher_date', fromDate)
-          .lte('voucher.voucher_date', toDate);
-        if (selectedCompanyId) query = query.eq('voucher.company_id', selectedCompanyId);
-        return query.range(from, to);
-      });
-      return data as unknown as EntryRow[];
-    },
+  const { data: movements = new Map<string, Movement>(), isLoading: entriesLoading } = useQuery({
+    queryKey: ['profit_loss_movements', fromDate, toDate, selectedCompanyId],
+    queryFn: () => accountMovements({ from: fromDate, upto: toDate, companyId: selectedCompanyId }),
   });
 
   const { purchase, directExpense, indirectExpense, directIncome, indirectIncome, grossProfit, nett } = useMemo(() => {
     const debit = new Map<string, number>();
     const credit = new Map<string, number>();
-    for (const e of entries) {
-      debit.set(e.account_id, (debit.get(e.account_id) ?? 0) + (Number(e.debit_amount) || 0));
-      credit.set(e.account_id, (credit.get(e.account_id) ?? 0) + (Number(e.credit_amount) || 0));
+    for (const [id, m] of movements) {
+      debit.set(id, m.debit);
+      credit.set(id, m.credit);
     }
 
     const mk = (name: string): Line => ({ name, amount: 0, ledgers: [] });
@@ -130,7 +112,7 @@ const ProfitLoss: React.FC = () => {
       grossProfit,
       nett,
     };
-  }, [accounts, entries]);
+  }, [accounts, movements]);
 
   const isLoading = accountsLoading || entriesLoading;
   const companyName = companies.find((c) => c.id === selectedCompanyId)?.company_name || 'All Companies';
