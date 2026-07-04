@@ -8,6 +8,9 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   director: lazy(() => import("@/tablet/modules/director/DirectorFlow")),
   register: lazy(() => import("@/tablet/modules/register/RegisterPatientFlow")),
   occupancy: lazy(() => import("@/tablet/modules/occupancy/OccupancyBoard")),
+  "patient-profile": lazy(
+    () => import("@/tablet/modules/patient-profile/PatientProfileFlow"),
+  ),
   "icu-admission": lazy(() => import("@/tablet/modules/icu-admission/IcuAdmissionFlow")),
   advance: lazy(() => import("@/tablet/modules/advance/AdvanceFlow")),
   requisition: lazy(() => import("@/tablet/modules/requisition/RequisitionFlow")),

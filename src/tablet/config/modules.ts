@@ -14,6 +14,7 @@ import {
   Receipt,
   Stethoscope,
   UserPlus,
+  UserRound,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
@@ -68,6 +69,14 @@ export const TABLET_MODULES: TabletModule[] = [
     accent: "text-rose-600",
     tint: "from-rose-400 to-rose-600",
     roles: ["receptionist", "reception", "nurse", "doctor"],
+  },
+  {
+    id: "patient-profile",
+    label: "Patient Profile",
+    description: "View patient details",
+    icon: UserRound,
+    accent: "text-blue-600",
+    tint: "from-blue-400 to-blue-600",
   },
   {
     id: "advance",
