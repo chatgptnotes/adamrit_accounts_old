@@ -670,21 +670,35 @@ export async function pushPharmacySaleToTally(sale: {
   }
 }
 
-// Push a payment voucher (cash going OUT) to Tally as a Payment Voucher
+// Push a payment voucher (cash going OUT) to Tally as a Payment Voucher.
+// Tally-style entry: `accountLedger` is credited, each `lines` ledger is debited.
+// Legacy callers may still pass personName/purpose with no lines.
 export async function pushPaymentVoucherToTally(voucher: {
   voucherNo: string;
   date: string;
-  personName: string;
   amount: number;
+  personName?: string;
   purpose?: string;
+  accountLedger?: string;
+  lines?: { ledgerName: string; amount: number }[];
+  narration?: string;
 }) {
   const config = await isTallyActive();
   if (!config.active) return;
 
   const mapping = await getLedgerMapping(config.companyId);
-  const cashLedger = mapping.paymentModes?.["Cash"] || "Cash";
-  const expenseLedger = voucher.personName;
-  const narration = `Payment #${voucher.voucherNo} to ${voucher.personName}${voucher.purpose ? ` — ${voucher.purpose}` : ""}`;
+  const creditLedger = voucher.accountLedger || mapping.paymentModes?.["Cash"] || "Cash";
+  const debitLines = voucher.lines?.length
+    ? voucher.lines
+    : [{ ledgerName: voucher.personName || "Suspense", amount: voucher.amount }];
+  const partyLedger = debitLines[0].ledgerName;
+  const narration =
+    voucher.narration ||
+    `Payment #${voucher.voucherNo} to ${partyLedger}${voucher.purpose ? ` — ${voucher.purpose}` : ""}`;
+  const ledgerEntries = [
+    ...debitLines.map((l) => ({ ledgerName: l.ledgerName, amount: l.amount, isDeemedPositive: true })),
+    { ledgerName: creditLedger, amount: voucher.amount, isDeemedPositive: false },
+  ];
 
   try {
     const response = await fetch("/api/tally-proxy", {
@@ -699,11 +713,8 @@ export async function pushPaymentVoucherToTally(voucher: {
           voucherType: "Payment",
           date: voucher.date,
           narration,
-          partyLedger: expenseLedger,
-          ledgerEntries: [
-            { ledgerName: expenseLedger, amount: voucher.amount, isDeemedPositive: true },
-            { ledgerName: cashLedger, amount: voucher.amount, isDeemedPositive: false },
-          ],
+          partyLedger,
+          ledgerEntries,
         },
       }),
     });
@@ -714,12 +725,12 @@ export async function pushPaymentVoucherToTally(voucher: {
         voucherType: "Payment",
         voucherNumber: voucher.voucherNo,
         date: voucher.date,
-        partyLedger: expenseLedger,
+        partyLedger,
         amount: voucher.amount,
         narration,
         ledgerEntries: [
-          { ledger: expenseLedger, amount: voucher.amount, is_debit: true },
-          { ledger: cashLedger, amount: voucher.amount, is_debit: false },
+          ...debitLines.map((l) => ({ ledger: l.ledgerName, amount: l.amount, is_debit: true })),
+          { ledger: creditLedger, amount: voucher.amount, is_debit: false },
         ],
         adamritPaymentId: voucher.voucherNo,
         companyId: config.companyId,
@@ -727,11 +738,8 @@ export async function pushPaymentVoucherToTally(voucher: {
     } else {
       await enqueueForRetry("payment_voucher", "create-voucher", {
         voucherType: "Payment", date: voucher.date, narration,
-        partyLedger: expenseLedger,
-        ledgerEntries: [
-          { ledgerName: expenseLedger, amount: voucher.amount, isDeemedPositive: true },
-          { ledgerName: cashLedger, amount: voucher.amount, isDeemedPositive: false },
-        ],
+        partyLedger,
+        ledgerEntries,
       }, result.errors?.join("; ") || result.message || "Push failed", voucher.voucherNo, config.companyId);
     }
     return result;
@@ -740,11 +748,8 @@ export async function pushPaymentVoucherToTally(voucher: {
     await logPush("auto_push_payment_voucher", false, String(err), voucher.voucherNo, config.companyId);
     await enqueueForRetry("payment_voucher", "create-voucher", {
       voucherType: "Payment", date: voucher.date, narration,
-      partyLedger: expenseLedger,
-      ledgerEntries: [
-        { ledgerName: expenseLedger, amount: voucher.amount, isDeemedPositive: true },
-        { ledgerName: cashLedger, amount: voucher.amount, isDeemedPositive: false },
-      ],
+      partyLedger,
+      ledgerEntries,
     }, err.message || String(err), voucher.voucherNo, config.companyId);
   }
 }
