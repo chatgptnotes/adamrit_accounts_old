@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+import { HOSPITAL_CONFIGS, type HospitalType } from '@/types/hospital';
 
 /**
  * Shared Tally Prime chrome for the accounting module:
@@ -44,6 +46,7 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
+  const [helpOpen, setHelpOpen] = useState(false);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
   // Alt+F focuses the finder, like Tally
@@ -146,9 +149,9 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
       </div>
       {/* Row 2: menu */}
       <div className="flex items-center justify-center pb-0.5 pt-1">
-        {menu('K', 'Company')}
-        {menu('Y', 'Data')}
-        {menu('Z', 'Exchange')}
+        {menu('K', 'Company', () => onGoTo('gateway'))}
+        {menu('Y', 'Data', () => onGoTo('tally-import-export'))}
+        {menu('Z', 'Exchange', () => onGoTo('tally-live'))}
         <span className="mx-2 border border-[#0d2f5c] bg-[#e9f0fa] px-4 py-0.5 text-[13px] font-semibold text-[#16437e]">
           <button type="button" onClick={() => inputRef.current?.focus()}>
             <span className="underline">G</span>: Go To
@@ -156,11 +159,82 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
         </span>
         {menu('O', 'Import', () => onGoTo('tally-import-export'))}
         {menu('E', 'Export', () => onGoTo('tally-import-export'))}
-        {menu('M', 'Share')}
+        {menu('M', 'Share', () => {
+          navigator.clipboard
+            .writeText(window.location.href)
+            .then(() => toast.success('Link copied — share it with your team'))
+            .catch(() => toast.error('Could not copy the link'));
+        })}
         {menu('P', 'Print', () => window.print())}
-        {menu('F1', 'Help')}
+        {menu('F1', 'Help', () => setHelpOpen(true))}
+      </div>
+      {helpOpen && <TallyHelp onClose={() => setHelpOpen(false)} />}
+    </div>
+  );
+};
+
+/** F1 — the Tally shortcut reference. */
+const SHORTCUTS: [string, string][] = [
+  ['Alt+F', 'Go To — find and open any screen'],
+  ['Esc', 'Back one screen (or to the Gateway of Tally)'],
+  ['F2', 'Date / Period'],
+  ['F3', 'Switch company (Hope ↔ Ayushman)'],
+  ['F4', 'Contra voucher · or the screen\'s filter (party, type, ledger)'],
+  ['F5', 'Payment voucher · Ledger-wise / Status toggles'],
+  ['F6', 'Receipt voucher · Age wise analysis'],
+  ['F7', 'Journal voucher'],
+  ['F8', 'Sales voucher'],
+  ['F9', 'Purchase voucher'],
+  ['C', 'New Column — compare with another period'],
+  ['H', 'Detailed / Condensed toggle'],
+  ['A', 'Accept (save)'],
+  ['Q', 'Quit / clear the form'],
+  ['X', 'Cancel voucher (in alteration)'],
+  ['D', 'Delete voucher (in alteration)'],
+  ['E', 'Export (Excel, where available)'],
+  ['P', 'Print — clean report / formal A4 voucher'],
+];
+
+const TallyHelp: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  // Esc closes the overlay before any screen-level Esc handling runs
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+
+  return (
+  <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40" onClick={onClose}>
+    <div
+      style={TALLY_FONT}
+      className="max-h-[80vh] w-[520px] overflow-y-auto border border-[#9db8d8] bg-[#fffefb] shadow-xl"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center bg-[#16437e] px-3 py-1 text-[13px] font-semibold text-white">
+        Help — Tally Shortcuts
+        <button type="button" onClick={onClose} className="ml-auto px-1 font-bold hover:text-red-300">
+          ✕
+        </button>
+      </div>
+      <div className="p-3 text-[13px]">
+        {SHORTCUTS.map(([key, what]) => (
+          <div key={key} className="flex border-b border-dashed border-gray-200 py-0.5">
+            <div className="w-20 shrink-0 font-mono font-bold text-[#16437e]">{key}</div>
+            <div>{what}</div>
+          </div>
+        ))}
+        <div className="pt-2 text-[11px] italic text-gray-500">
+          Buttons on the right rail show their shortcut before the label — press the key or click.
+        </div>
       </div>
     </div>
+  </div>
   );
 };
 
@@ -173,8 +247,48 @@ interface TallyScreenProps {
   children: React.ReactNode;
 }
 
-export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail = [], bottomBar, onClose, children }) => {
-  const { hospitalConfig } = useAuth();
+export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp = [], bottomBar, onClose, children }) => {
+  const { hospitalConfig, user, switchHospital } = useAuth();
+
+  // Tally keeps every button live — give the common placeholders real actions.
+  const goto = (tab: string) => window.dispatchEvent(new CustomEvent('tally-goto', { detail: tab }));
+  const rail = useMemo(
+    () =>
+      railProp.map((item) => {
+        if (item.onClick || !item.disabled) return item;
+        const on = (onClick: () => void): RailItem => ({ ...item, disabled: false, onClick });
+        switch (item.label) {
+          case 'Company':
+            return on(() => {
+              const others = (Object.keys(HOSPITAL_CONFIGS) as HospitalType[]).filter((h) => h !== user?.hospitalType);
+              if (others.length === 1) {
+                switchHospital(others[0]);
+                toast.success(`Switched to ${HOSPITAL_CONFIGS[others[0]].fullName}`);
+              }
+            });
+          case 'Save View':
+            return on(() => window.dispatchEvent(new CustomEvent('tally-save-view')));
+          case 'Group':
+            return on(() => goto('group-summary'));
+          case 'Ledger-wise':
+            return on(() => goto('ledger-view'));
+          case 'Change View':
+            return on(() => goto('gateway'));
+          case 'Exception Reports':
+            return on(() => goto('edit-log'));
+          case 'Other Masters':
+            return on(() => goto('masters'));
+          case 'Basis of Values':
+            return on(() => toast.info('Values are shown on accrual basis, from the books of account'));
+          case 'Period':
+            return on(() => toast.info('This report always shows the position as of today'));
+          default:
+            return item;
+        }
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [railProp, user?.hospitalType],
+  );
 
   // Bind F-key / letter hotkeys declared by the rail + bottom bar
   useEffect(() => {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { Suspense, lazy, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -42,6 +42,9 @@ import ReceiptsPayments from './ReceiptsPayments';
 import CostCentres from './CostCentres';
 import GatewayOfTally from './GatewayOfTally';
 import EditLog from './EditLog';
+
+// Live Tally-gateway suite is heavy (12 sub-screens) — load on demand
+const TallyLivePage = lazy(() => import('@/components/tally/TallyPage'));
 import { TallyTopBar } from './tally/TallyChrome';
 
 /** Navigation item definition for the accounting sidebar. */
@@ -80,7 +83,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'bill-aging', label: 'Bill Aging Statement', icon: Calendar, route: '/bill-aging-statement' },
   { id: 'expected-payments', label: 'Expected Payments', icon: Calendar, route: '/expected-payment-date-report' },
   { id: 'director-receivables', label: 'Receivables Matrix', icon: TrendingUp, route: '/director-dashboard' },
-  { id: 'tally-live', label: 'Tally Live (Outstanding)', icon: ArrowLeftRight, route: '/tally' },
+  { id: 'tally-live', label: 'Tally Live (Gateway)', icon: ArrowLeftRight },
   { id: 'tally-import-export', label: 'Tally Import/Export', icon: ArrowDownUp },
 ];
 
@@ -123,6 +126,12 @@ const renderContent = (
       return <CostCentres onOpenVoucher={openVoucher} />;
     case 'edit-log':
       return <EditLog onOpenVoucher={openVoucher} />;
+    case 'tally-live':
+      return (
+        <Suspense fallback={<div className="py-16 text-center text-sm text-gray-400">Loading Tally Live…</div>}>
+          <TallyLivePage />
+        </Suspense>
+      );
     case 'trial-balance':
       return <TrialBalance onOpenGroup={openGroup} />;
     case 'balance-sheet':
@@ -149,14 +158,52 @@ const renderContent = (
  * Uses a fixed left sidebar for navigation and a scrollable content area
  * that renders the selected section.
  */
-const AccountingPage: React.FC = () => {
+const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<string>('gateway');
+  const [activeTab, setActiveTab] = useState<string>(
+    () => initialTab ?? localStorage.getItem('accounting-default-tab') ?? 'gateway',
+  );
+  const activeTabRef = React.useRef(activeTab);
+  activeTabRef.current = activeTab;
+
+  // Rail buttons broadcast navigation / save-view requests
+  React.useEffect(() => {
+    const onGoto = (e: Event) => setActiveTab((e as CustomEvent).detail as string);
+    const onSave = () => {
+      localStorage.setItem('accounting-default-tab', activeTabRef.current);
+      import('sonner').then(({ toast }) =>
+        toast.success('View saved — the accounting module will open here from now on'),
+      );
+    };
+    window.addEventListener('tally-goto', onGoto);
+    window.addEventListener('tally-save-view', onSave);
+    return () => {
+      window.removeEventListener('tally-goto', onGoto);
+      window.removeEventListener('tally-save-view', onSave);
+    };
+  }, []);
   // Tally's Esc from a screen with nothing to close returns to the Gateway
   React.useEffect(() => {
     const back = () => setActiveTab((t) => (t === 'gateway' ? t : 'gateway'));
+    // Fallback for content not wrapped in TallyScreen (e.g. the Tally Live
+    // suite): TallyScreen preventDefaults its own Esc handling, so only
+    // unhandled Esc presses land here.
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const typing =
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable);
+      if (e.key === 'Escape' && !typing && !e.defaultPrevented) back();
+    };
     window.addEventListener('tally-escape', back);
-    return () => window.removeEventListener('tally-escape', back);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('tally-escape', back);
+      window.removeEventListener('keydown', onKey);
+    };
   }, []);
 
   // Drill-down stack: group -> ledger -> voucher, each layer closable back

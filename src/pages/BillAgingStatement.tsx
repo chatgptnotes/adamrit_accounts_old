@@ -119,6 +119,7 @@ const BillAgingStatement: React.FC = () => {
           },
           { hotkey: 'F6', label: 'Age wise', gapBefore: true, onClick: () => setAgeWise((v) => !v), active: ageWise },
           { hotkey: 'E', label: 'Export', gapBefore: true, onClick: exportExcel },
+          { label: 'Classic View', onClick: () => navigate('/bill-aging-statement-classic') },
           { hotkey: 'P', label: 'Print', onClick: () => window.print() },
         ]}
       >

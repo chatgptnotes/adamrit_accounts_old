@@ -110,6 +110,7 @@ const CorporateBill = lazy(() => import("../pages/CorporateBill"));
 const CorporateBulkPayments = lazy(() => import("../pages/CorporateBulkPayments"));
 const BillSubmission = lazy(() => import("../pages/BillSubmission"));
 const BillAgingStatement = lazy(() => import("../pages/BillAgingStatement"));
+const BillAgingStatementClassic = lazy(() => import("../pages/BillAgingStatementClassic"));
 const ExpectedPaymentDateReport = lazy(() => import("../pages/ExpectedPaymentDateReport"));
 const Marketing = lazy(() => import("../pages/Marketing"));
 const RelationshipManager = lazy(() => import("../pages/RelationshipManager"));
@@ -294,6 +295,7 @@ export const AppRoutes = () => {
         <Route path="/death-certificate/:visitId" element={<Suspense fallback={<PageLoader />}><DeathCertificate /></Suspense>} />
         <Route path="/bill-submission" element={<Suspense fallback={<PageLoader />}><BillSubmission /></Suspense>} />
         <Route path="/bill-aging-statement" element={<Suspense fallback={<PageLoader />}><BillAgingStatement /></Suspense>} />
+        <Route path="/bill-aging-statement-classic" element={<Suspense fallback={<PageLoader />}><BillAgingStatementClassic /></Suspense>} />
         <Route path="/expected-payment-date-report" element={<Suspense fallback={<PageLoader />}><ExpectedPaymentDateReport /></Suspense>} />
         <Route path="/marketing" element={<Suspense fallback={<PageLoader />}><Marketing /></Suspense>} />
         <Route path="/it-transaction-register" element={<Suspense fallback={<PageLoader />}><ITTransactionRegister /></Suspense>} />
