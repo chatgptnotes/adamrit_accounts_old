@@ -36,6 +36,8 @@ import CashBankBook from './CashBankBook';
 import BillsReceivable from './BillsReceivable';
 import BillsPayable from './BillsPayable';
 import GroupSummary from './GroupSummary';
+import VoucherRegister from './VoucherRegister';
+import RatioAnalysis from './RatioAnalysis';
 import { TallyTopBar } from './tally/TallyChrome';
 
 /** Navigation item definition for the accounting sidebar. */
@@ -58,6 +60,8 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'cash-bank-summary', label: 'Cash/Bank Summary', icon: Landmark },
   { id: 'ledger-view', label: 'Ledger View', icon: BookMarked },
   { id: 'group-summary', label: 'Group Summary', icon: FolderCog },
+  { id: 'voucher-register', label: 'Registers', icon: BookMarked },
+  { id: 'ratio-analysis', label: 'Ratio Analysis', icon: Scale },
   { id: 'trial-balance', label: 'Trial Balance', icon: Scale },
   { id: 'balance-sheet', label: 'Balance Sheet', icon: Landmark },
   { id: 'profit-loss', label: 'Profit & Loss', icon: TrendingUp },
@@ -99,6 +103,10 @@ const renderContent = (
       return <LedgerView onOpenVoucher={openVoucher} />;
     case 'group-summary':
       return <GroupSummary onOpenLedger={openLedger} />;
+    case 'voucher-register':
+      return <VoucherRegister onOpenVoucher={openVoucher} />;
+    case 'ratio-analysis':
+      return <RatioAnalysis />;
     case 'trial-balance':
       return <TrialBalance onOpenGroup={openGroup} />;
     case 'balance-sheet':
