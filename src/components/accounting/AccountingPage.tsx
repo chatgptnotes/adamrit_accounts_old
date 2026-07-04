@@ -12,10 +12,12 @@ import {
   Building2,
   Calculator,
   Loader2,
+  FolderCog,
 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import Dashboard from './Dashboard';
 import ChartOfAccounts from './ChartOfAccounts';
+import AccountMasters from './AccountMasters';
 import VoucherEntry from './VoucherEntry';
 import DayBook from './DayBook';
 import LedgerView from './LedgerView';
@@ -36,6 +38,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'chart-of-accounts', label: 'Chart of Accounts', icon: BookOpen },
+  { id: 'masters', label: 'Masters', icon: FolderCog },
   { id: 'voucher-entry', label: 'Voucher Entry', icon: FileText },
   { id: 'day-book', label: 'Day Book', icon: Calendar },
   { id: 'ledger-view', label: 'Ledger View', icon: BookMarked },
@@ -53,6 +56,8 @@ const renderContent = (activeTab: string): React.ReactNode => {
       return <Dashboard />;
     case 'chart-of-accounts':
       return <ChartOfAccounts />;
+    case 'masters':
+      return <AccountMasters />;
     case 'voucher-entry':
       return <VoucherEntry />;
     case 'day-book':
