@@ -13,11 +13,13 @@ import {
   Calculator,
   Loader2,
   FolderCog,
+  ArrowDownUp,
 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import Dashboard from './Dashboard';
 import ChartOfAccounts from './ChartOfAccounts';
 import AccountMasters from './AccountMasters';
+import TallyImportExport from './TallyImportExport';
 import VoucherEntry from './VoucherEntry';
 import DayBook from './DayBook';
 import LedgerView from './LedgerView';
@@ -47,6 +49,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'profit-loss', label: 'Profit & Loss', icon: TrendingUp },
   { id: 'cash-flow', label: 'Cash Flow', icon: ArrowLeftRight },
   { id: 'bank-reconciliation', label: 'Bank Reconciliation', icon: Building2 },
+  { id: 'tally-import-export', label: 'Tally Import/Export', icon: ArrowDownUp },
 ];
 
 /** Renders the active section component based on the current tab selection. */
@@ -74,6 +77,8 @@ const renderContent = (activeTab: string): React.ReactNode => {
       return <CashFlow />;
     case 'bank-reconciliation':
       return <BankReconciliation />;
+    case 'tally-import-export':
+      return <TallyImportExport />;
     default:
       return <Dashboard />;
   }
