@@ -35,6 +35,7 @@ import CashBankSummary from './CashBankSummary';
 import CashBankBook from './CashBankBook';
 import BillsReceivable from './BillsReceivable';
 import BillsPayable from './BillsPayable';
+import GroupSummary from './GroupSummary';
 import { TallyTopBar } from './tally/TallyChrome';
 
 /** Navigation item definition for the accounting sidebar. */
@@ -56,6 +57,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'cash-bank-book', label: 'Cash/Bank Book', icon: BookOpen },
   { id: 'cash-bank-summary', label: 'Cash/Bank Summary', icon: Landmark },
   { id: 'ledger-view', label: 'Ledger View', icon: BookMarked },
+  { id: 'group-summary', label: 'Group Summary', icon: FolderCog },
   { id: 'trial-balance', label: 'Trial Balance', icon: Scale },
   { id: 'balance-sheet', label: 'Balance Sheet', icon: Landmark },
   { id: 'profit-loss', label: 'Profit & Loss', icon: TrendingUp },
@@ -75,6 +77,8 @@ const renderContent = (
   activeTab: string,
   goTo: (id: string) => void,
   openVoucher: (id: string) => void,
+  openGroup: (head: string) => void,
+  openLedger: (accountId: string) => void,
 ): React.ReactNode => {
   switch (activeTab) {
     case 'dashboard':
@@ -93,8 +97,10 @@ const renderContent = (
       return <CashBankSummary onClose={() => goTo('dashboard')} />;
     case 'ledger-view':
       return <LedgerView onOpenVoucher={openVoucher} />;
+    case 'group-summary':
+      return <GroupSummary onOpenLedger={openLedger} />;
     case 'trial-balance':
-      return <TrialBalance />;
+      return <TrialBalance onOpenGroup={openGroup} />;
     case 'balance-sheet':
       return <BalanceSheet />;
     case 'profit-loss':
@@ -122,8 +128,10 @@ const renderContent = (
 const AccountingPage: React.FC = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<string>('dashboard');
-  // Drill-down: voucher opened for Tally-style alteration from any report
+  // Drill-down stack: group -> ledger -> voucher, each layer closable back
   const [alterVoucherId, setAlterVoucherId] = useState<string | null>(null);
+  const [drillLedgerId, setDrillLedgerId] = useState<string | null>(null);
+  const [drillGroup, setDrillGroup] = useState<string | null>(null);
   // Collapsed icon rail by default — Tally-style full-width canvas.
   const [navExpanded, setNavExpanded] = useState(false);
 
@@ -195,8 +203,17 @@ const AccountingPage: React.FC = () => {
         <div className="flex-1 p-1">
           {alterVoucherId ? (
             <VoucherEntry voucherId={alterVoucherId} onDone={() => setAlterVoucherId(null)} />
+          ) : drillLedgerId ? (
+            <LedgerView
+              key={drillLedgerId}
+              initialAccountId={drillLedgerId}
+              onOpenVoucher={setAlterVoucherId}
+              onClose={() => setDrillLedgerId(null)}
+            />
+          ) : drillGroup ? (
+            <GroupSummary head={drillGroup} onOpenLedger={setDrillLedgerId} onClose={() => setDrillGroup(null)} />
           ) : (
-            renderContent(activeTab, setActiveTab, setAlterVoucherId)
+            renderContent(activeTab, setActiveTab, setAlterVoucherId, setDrillGroup, setDrillLedgerId)
           )}
         </div>
       </main>

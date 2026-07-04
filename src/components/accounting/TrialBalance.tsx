@@ -24,35 +24,13 @@ const tallyDateLabel = (iso: string): string => {
   return `${d.getDate()}-${month}-${String(d.getFullYear()).slice(2)}`;
 };
 
-// Tally groups the trial balance under its primary heads.
-const HEAD_OF: { match: (t: string) => boolean; head: string }[] = [
-  { match: (t) => t === 'EQUITY', head: 'Capital Account' },
-  { match: (t) => t === 'LONG_TERM_LIABILITIES', head: 'Loans (Liability)' },
-  { match: (t) => t.includes('LIABILIT'), head: 'Current Liabilities' },
-  { match: (t) => t === 'FIXED_ASSETS', head: 'Fixed Assets' },
-  { match: (t) => t.includes('ASSET'), head: 'Current Assets' },
-  { match: (t) => t === 'INDIRECT_INCOME', head: 'Indirect Incomes' },
-  { match: (t) => t.includes('INCOME'), head: 'Sales Accounts' },
-  { match: (t) => t === 'INDIRECT_EXPENSES', head: 'Indirect Expenses' },
-  { match: (t) => t.includes('EXPENSE'), head: 'Direct Expenses' },
-];
-const HEAD_ORDER = [
-  'Capital Account',
-  'Loans (Liability)',
-  'Current Liabilities',
-  'Fixed Assets',
-  'Current Assets',
-  'Sales Accounts',
-  'Indirect Incomes',
-  'Direct Expenses',
-  'Indirect Expenses',
-];
+import { HEAD_OF, HEAD_ORDER } from './tally/heads';
 
 /**
  * Trial Balance — Tally Prime replica: Particulars with grouped heads,
  * Debit/Credit closing-balance columns, ledger drill-down, Grand Total.
  */
-const TrialBalance: React.FC = () => {
+const TrialBalance: React.FC<{ onOpenGroup?: (head: string) => void }> = ({ onOpenGroup }) => {
   const { data: companies = [] } = useCompanies();
   const [selectedCompanyId, setSelectedCompanyId] = useState('');
   const [asOfDate, setAsOfDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -169,13 +147,18 @@ const TrialBalance: React.FC = () => {
           <>
             {groups.map((g) => (
               <React.Fragment key={g.head}>
-                <div className="mt-1.5 flex">
+                <button
+                  type="button"
+                  onClick={() => onOpenGroup?.(g.head)}
+                  title="Open Group Summary"
+                  className="mt-1.5 flex w-full text-left hover:bg-[#fdf6d8]"
+                >
                   <div className="flex-1 font-bold">{g.head}</div>
                   <div className="flex w-72">
                     <div className="w-1/2 pr-2 text-right font-mono font-semibold">{g.dr > 0 ? fmt(g.dr) : ''}</div>
                     <div className="w-1/2 pr-2 text-right font-mono font-semibold">{g.cr > 0 ? fmt(g.cr) : ''}</div>
                   </div>
-                </div>
+                </button>
                 {detailed &&
                   g.ledgers.map((l) => (
                     <div key={l.name} className="flex text-[12px] italic text-gray-700">

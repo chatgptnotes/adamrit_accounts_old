@@ -49,8 +49,15 @@ const fy = (): { from: string; to: string } => {
  * Tally's List of Ledger Accounts), see Date / Particulars / Vch Type /
  * Vch No. / Debit / Credit rows with Opening + Closing balance and totals.
  */
-const LedgerView: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVoucher }) => {
-  const [selectedAccountId, setSelectedAccountId] = useState<string>('');
+interface LedgerViewProps {
+  onOpenVoucher?: (id: string) => void;
+  /** Preselect a ledger (drill from Group Summary) */
+  initialAccountId?: string;
+  onClose?: () => void;
+}
+
+const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId, onClose }) => {
+  const [selectedAccountId, setSelectedAccountId] = useState<string>(initialAccountId ?? '');
   const [fromDate, setFromDate] = useState(fy().from);
   const [toDate, setToDate] = useState(fy().to);
   const [showPeriod, setShowPeriod] = useState(false);
@@ -143,6 +150,7 @@ const LedgerView: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpen
   return (
     <TallyScreen
       title="Ledger Vouchers"
+      onClose={onClose}
       rail={[
         { hotkey: 'F2', label: 'Period', onClick: () => setShowPeriod((v) => !v) },
         { hotkey: 'F3', label: 'Company', disabled: true },
