@@ -152,6 +152,13 @@ const renderContent = (
 const AccountingPage: React.FC = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<string>('gateway');
+  // Tally's Esc from a screen with nothing to close returns to the Gateway
+  React.useEffect(() => {
+    const back = () => setActiveTab((t) => (t === 'gateway' ? t : 'gateway'));
+    window.addEventListener('tally-escape', back);
+    return () => window.removeEventListener('tally-escape', back);
+  }, []);
+
   // Drill-down stack: group -> ledger -> voucher, each layer closable back
   const [alterVoucherId, setAlterVoucherId] = useState<string | null>(null);
   const [drillLedgerId, setDrillLedgerId] = useState<string | null>(null);

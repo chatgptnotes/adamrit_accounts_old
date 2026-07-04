@@ -173,6 +173,8 @@ const GroupCreation: React.FC = () => {
   const [netBalances, setNetBalances] = useState(false);
   const [usedForCalc, setUsedForCalc] = useState(false);
   const [allocationMethod, setAllocationMethod] = useState('Not Applicable');
+  // When set, the form is in Tally's Group Alteration mode for this group
+  const [editing, setEditing] = useState<LedgerGroup | null>(null);
   const [saving, setSaving] = useState(false);
 
   const { data: groups = [] } = useQuery({
@@ -190,6 +192,7 @@ const GroupCreation: React.FC = () => {
   const parentGroup = groups.find((g) => g.id === under);
 
   const handleClear = (): void => {
+    setEditing(null);
     setName('');
     setAlias('');
     setUnder('');
@@ -198,6 +201,20 @@ const GroupCreation: React.FC = () => {
     setNetBalances(false);
     setUsedForCalc(false);
     setAllocationMethod('Not Applicable');
+  };
+
+  // Load a group into the form (Tally's Group Alteration)
+  const startEdit = (g: LedgerGroup): void => {
+    setEditing(g);
+    setName(g.name);
+    setAlias(g.alias ?? '');
+    setUnder(g.parent_group_id ?? PRIMARY);
+    setNatureOfGroup(g.parent_group_id ? '' : g.group_type);
+    setSubLedger(g.behaves_like_subledger);
+    setNetBalances(g.net_debit_credit_balances);
+    setUsedForCalc(g.used_for_calculation);
+    setAllocationMethod(g.allocation_method || 'Not Applicable');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleAccept = async (): Promise<void> => {
@@ -220,6 +237,28 @@ const GroupCreation: React.FC = () => {
         : { group_type: parentGroup!.group_type, nature: parentGroup!.nature ?? 'Debit' };
     setSaving(true);
     try {
+      if (editing) {
+        // Alteration: predefined groups may change alias/behaviour only
+        const patch: Record<string, unknown> = {
+          alias: alias.trim() || null,
+          behaves_like_subledger: subLedger,
+          net_debit_credit_balances: netBalances,
+          used_for_calculation: usedForCalc,
+          allocation_method: allocationMethod,
+        };
+        if (!editing.is_predefined) {
+          patch.name = trimmed;
+          patch.parent_group_id = under === PRIMARY ? null : under;
+          patch.group_type = typing.group_type;
+          patch.nature = typing.nature;
+        }
+        const { error } = await (supabase as any).from('ledger_groups').update(patch).eq('id', editing.id);
+        if (error) throw error;
+        toast.success(`Group "${trimmed}" altered`);
+        queryClient.invalidateQueries({ queryKey: ['ledger_groups'] });
+        handleClear();
+        return;
+      }
       const { error } = await (supabase as any).from('ledger_groups').insert({
         name: trimmed,
         alias: alias.trim() || null,
@@ -269,7 +308,10 @@ const GroupCreation: React.FC = () => {
     <div className="space-y-6">
       {/* ----- Tally-style Group Creation panel ----- */}
       <div className="overflow-hidden rounded-md border shadow-sm">
-        <div className="bg-[#16437e] px-3 py-1.5 text-sm font-semibold text-white">Group Creation</div>
+        <div className="bg-[#16437e] px-3 py-1.5 text-sm font-semibold text-white">
+          {editing ? `Group Alteration — ${editing.name}` : 'Group Creation'}
+          {editing?.is_predefined ? ' (predefined: alias & behaviour only)' : ''}
+        </div>
 
         <div className="bg-[#fffefb] px-4 pb-3 pt-3">
           {/* Name / alias */}
@@ -280,7 +322,8 @@ const GroupCreation: React.FC = () => {
               value={name}
               onChange={(e) => setName(e.target.value)}
               autoComplete="off"
-              className="h-8 w-full max-w-md rounded-none border border-gray-400 bg-[#fdf6d8] px-2 shadow-none focus-visible:ring-0 focus-visible:border-blue-600"
+              disabled={!!editing?.is_predefined}
+              className="h-8 w-full max-w-md rounded-none border border-gray-400 bg-[#fdf6d8] px-2 shadow-none focus-visible:ring-0 focus-visible:border-blue-600 disabled:opacity-60"
             />
           </div>
           <div className="mt-1 flex items-center gap-2">
@@ -369,7 +412,7 @@ const GroupCreation: React.FC = () => {
             onClick={handleAccept}
             disabled={saving}
           >
-            <span className="mr-1 font-bold underline">A</span>: {saving ? 'Saving…' : 'Accept'}
+            <span className="mr-1 font-bold underline">A</span>: {saving ? 'Saving…' : editing ? 'Accept (Alter)' : 'Accept'}
           </Button>
         </div>
       </div>
@@ -396,7 +439,12 @@ const GroupCreation: React.FC = () => {
               </TableRow>
             ) : (
               groups.map((g) => (
-                <TableRow key={g.id}>
+                <TableRow
+                  key={g.id}
+                  onClick={() => startEdit(g)}
+                  title="Alter group"
+                  className={`cursor-pointer ${editing?.id === g.id ? 'bg-[#fdf6d8]' : ''}`}
+                >
                   <TableCell className={g.parent_group_id ? 'pl-8' : 'font-semibold'}>{g.name}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{g.alias || '-'}</TableCell>
                   <TableCell className="text-sm">{underLabel(g)}</TableCell>
@@ -411,7 +459,10 @@ const GroupCreation: React.FC = () => {
                         size="icon"
                         className="h-7 w-7"
                         aria-label="Delete group"
-                        onClick={() => handleDelete(g)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(g);
+                        }}
                       >
                         <Trash2 className="h-3.5 w-3.5 text-red-500" />
                       </Button>

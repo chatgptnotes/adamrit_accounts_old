@@ -182,6 +182,14 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail = [], bott
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       const typing = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      // Tally's Esc: step back one level — close this screen if it can close,
+      // otherwise let the page fall back to the Gateway.
+      if (e.key === 'Escape' && !typing) {
+        e.preventDefault();
+        if (onClose) onClose();
+        else window.dispatchEvent(new CustomEvent('tally-escape'));
+        return;
+      }
       for (const item of items) {
         if (!item.hotkey || item.disabled || !item.onClick) continue;
         const hk = item.hotkey.toUpperCase();
@@ -196,7 +204,8 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail = [], bott
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rail, bottomBar]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rail, bottomBar, onClose]);
 
   return (
     <div style={TALLY_FONT} className="flex min-h-[calc(100vh-64px)] flex-col border border-[#9db8d8] bg-[#fffefb]">
