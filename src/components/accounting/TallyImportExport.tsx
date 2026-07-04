@@ -21,6 +21,10 @@ const escapeXml = (s: string): string =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
 
+// ledgers.nature has a legacy CHECK constraint allowing only 'Dr'/'Cr'
+const toDrCr = (nature: string | null | undefined): string | null =>
+  nature === 'Debit' || nature === 'Dr' ? 'Dr' : nature === 'Credit' || nature === 'Cr' ? 'Cr' : null;
+
 const codeFromName = (name: string): string =>
   name
     .trim()
@@ -200,7 +204,7 @@ const TallyImportExport: React.FC = () => {
             name: l.name,
             group_id: (group as any)?.id ?? null,
             group_name: l.parent || null,
-            nature: (group as any)?.nature ?? null,
+            nature: toDrCr((group as any)?.nature),
             opening_balance: l.opening,
             current_balance: l.opening,
             is_active: true,

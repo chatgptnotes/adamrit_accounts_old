@@ -108,7 +108,8 @@ const TallyLedgerCreation: React.FC = () => {
         alias: alias.trim() || null,
         group_id: group.id,
         group_name: group.name,
-        nature: group.nature,
+        // ledgers.nature has a legacy CHECK constraint allowing only 'Dr'/'Cr'
+        nature: group.nature === 'Credit' ? 'Cr' : group.nature === 'Debit' ? 'Dr' : null,
         opening_balance: opening,
         current_balance: opening,
         is_active: true,
