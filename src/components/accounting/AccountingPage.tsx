@@ -38,6 +38,8 @@ import BillsPayable from './BillsPayable';
 import GroupSummary from './GroupSummary';
 import VoucherRegister from './VoucherRegister';
 import RatioAnalysis from './RatioAnalysis';
+import ReceiptsPayments from './ReceiptsPayments';
+import CostCentres from './CostCentres';
 import { TallyTopBar } from './tally/TallyChrome';
 
 /** Navigation item definition for the accounting sidebar. */
@@ -62,6 +64,8 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'group-summary', label: 'Group Summary', icon: FolderCog },
   { id: 'voucher-register', label: 'Registers', icon: BookMarked },
   { id: 'ratio-analysis', label: 'Ratio Analysis', icon: Scale },
+  { id: 'receipts-payments', label: 'Receipts & Payments', icon: ArrowLeftRight },
+  { id: 'cost-centres', label: 'Cost Centres', icon: Building2 },
   { id: 'trial-balance', label: 'Trial Balance', icon: Scale },
   { id: 'balance-sheet', label: 'Balance Sheet', icon: Landmark },
   { id: 'profit-loss', label: 'Profit & Loss', icon: TrendingUp },
@@ -107,6 +111,10 @@ const renderContent = (
       return <VoucherRegister onOpenVoucher={openVoucher} />;
     case 'ratio-analysis':
       return <RatioAnalysis />;
+    case 'receipts-payments':
+      return <ReceiptsPayments />;
+    case 'cost-centres':
+      return <CostCentres onOpenVoucher={openVoucher} />;
     case 'trial-balance':
       return <TrialBalance onOpenGroup={openGroup} />;
     case 'balance-sheet':

@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { TallyScreen, type RailItem } from './tally/TallyChrome';
+import { useCostCentres } from './CostCentres';
 
 // Type definition for a voucher type record
 interface VoucherType {
@@ -44,6 +45,7 @@ interface ParticularsLine {
   key: number;
   account: Account | null;
   amount: string;
+  costCentreId?: string;
 }
 
 // A journal-style row (By/To modes: Journal / Sales / Credit Note / Debit Note …)
@@ -52,6 +54,7 @@ interface JournalLine {
   drcr: 'Dr' | 'Cr';
   account: Account | null;
   amount: string;
+  costCentreId?: string;
 }
 
 /**
@@ -276,6 +279,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
 
   // ------ Data ------
   const { data: companies = [] } = useCompanies();
+  const { data: costCentres = [] } = useCostCentres();
 
   const { data: voucherTypes = [] } = useQuery({
     queryKey: ['voucher_types'],
@@ -316,7 +320,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('vouchers')
-        .select('*, voucher_entries(id, account_id, debit_amount, credit_amount, entry_order)')
+        .select('*, voucher_entries(*)')
         .eq('id', voucherId!)
         .single();
       if (error) throw error;
@@ -357,6 +361,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
               key: ++lineKey.current,
               account: byId.get(e.account_id) ?? null,
               amount: String(mode.accountIsDebit ? Number(e.credit_amount) : Number(e.debit_amount)),
+              costCentreId: e.cost_centre_id ?? undefined,
             }))
           : [newParticularsLine()],
       );
@@ -370,6 +375,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
           drcr: (Number(e.debit_amount) > 0 ? 'Dr' : 'Cr') as 'Dr' | 'Cr',
           account: byId.get(e.account_id) ?? null,
           amount: String(Number(e.debit_amount) > 0 ? Number(e.debit_amount) : Number(e.credit_amount)),
+          costCentreId: e.cost_centre_id ?? undefined,
         }));
       setJournalLines(rows.length >= 2 ? rows : [newJournalLine('Dr'), newJournalLine('Cr')]);
     }
@@ -483,12 +489,14 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
         debit_amount: singleMode.accountIsDebit ? total : 0,
         credit_amount: singleMode.accountIsDebit ? 0 : total,
         narration: '',
+        cost_centre_id: null as string | null,
       };
       const lineRows = filled.map((l) => ({
         account_id: l.account!.id,
         debit_amount: singleMode.accountIsDebit ? 0 : Number(l.amount),
         credit_amount: singleMode.accountIsDebit ? Number(l.amount) : 0,
         narration: '',
+        cost_centre_id: l.costCentreId || null,
       }));
       return [accountRow, ...lineRows];
     }
@@ -502,6 +510,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
       debit_amount: l.drcr === 'Dr' ? Number(l.amount) : 0,
       credit_amount: l.drcr === 'Cr' ? Number(l.amount) : 0,
       narration: '',
+      cost_centre_id: l.costCentreId || null,
     }));
   };
 
@@ -566,6 +575,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
             credit_amount: e.credit_amount || 0,
             narration: e.narration || '',
             entry_order: i + 1,
+            ...(costCentres.length > 0 ? { cost_centre_id: (e as any).cost_centre_id ?? null } : {}),
           })),
         );
         if (iErr) {
@@ -615,6 +625,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
         credit_amount: e.credit_amount || 0,
         narration: e.narration || '',
         entry_order: i + 1,
+        ...(costCentres.length > 0 ? { cost_centre_id: (e as any).cost_centre_id ?? null } : {}),
       }));
 
       const { error: eErr } = await supabase.from('voucher_entries').insert(entryRows);
@@ -870,6 +881,21 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
                     }}
                     className={amountInputClass}
                   />
+                  {costCentres.length > 0 && (
+                    <select
+                      value={line.costCentreId ?? ''}
+                      onChange={(e) => updatePartLine(line.key, { costCentreId: e.target.value || undefined })}
+                      title="Cost centre"
+                      className="h-7 w-28 border-0 border-b border-dashed border-gray-400 bg-transparent px-0.5 text-[11px] text-gray-600 focus:outline-none"
+                    >
+                      <option value="">— CC —</option>
+                      {costCentres.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -968,6 +994,21 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
                     }}
                     className={amountInputClass}
                   />
+                  {costCentres.length > 0 && (
+                    <select
+                      value={line.costCentreId ?? ''}
+                      onChange={(e) => updateJournalLine(line.key, { costCentreId: e.target.value || undefined })}
+                      title="Cost centre"
+                      className="h-7 w-28 border-0 border-b border-dashed border-gray-400 bg-transparent px-0.5 text-[11px] text-gray-600 focus:outline-none"
+                    >
+                      <option value="">— CC —</option>
+                      {costCentres.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"
