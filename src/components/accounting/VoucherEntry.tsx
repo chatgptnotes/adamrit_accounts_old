@@ -299,15 +299,17 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
   });
 
   const { data: accounts = [] } = useQuery({
-    queryKey: ['chart_of_accounts'],
+    queryKey: ['chart_of_accounts_leaves'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('chart_of_accounts')
-        .select('id, account_code, account_name, account_type')
+        .select('id, account_code, account_name, account_type, parent_account_id')
         .eq('is_active', true)
         .order('account_code');
       if (error) throw error;
-      return (data || []) as Account[];
+      // Tally never posts to group headers — offer leaf accounts only
+      const parents = new Set((data ?? []).map((a: any) => a.parent_account_id).filter(Boolean));
+      return ((data || []) as (Account & { parent_account_id: string | null })[]).filter((a) => !parents.has(a.id));
     },
   });
 
