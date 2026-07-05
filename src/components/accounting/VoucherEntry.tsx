@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/select';
 import { TallyScreen, type RailItem } from './tally/TallyChrome';
 import { useCostCentres } from './CostCentres';
+import { useAccountingRights } from './tally/rights';
 
 // Type definition for a voucher type record
 interface VoucherType {
@@ -49,6 +50,7 @@ interface ParticularsLine {
   amount: string;
   costCentreId?: string;
   billRef?: string;
+  tdsSection?: string;
 }
 
 // A journal-style row (By/To modes: Journal / Sales / Credit Note / Debit Note …)
@@ -92,6 +94,15 @@ const SINGLE_ACCOUNT_MODES: Record<string, { accountIsDebit: boolean }> = {
   RECEIPT: { accountIsDebit: true },  // cash/bank debited, particulars credited
   CONTRA: { accountIsDebit: true },   // destination debited, particulars credited
 };
+
+// TDS sections for deduction at payment (hospital: consultants 194J etc.)
+const TDS_SECTIONS = [
+  { code: '194J', label: '194J Prof. 10%', rate: 10 },
+  { code: '194C', label: '194C Contr. 2%', rate: 2 },
+  { code: '194C-I', label: '194C Indiv. 1%', rate: 1 },
+  { code: '194I', label: '194I Rent 10%', rate: 10 },
+  { code: '194H', label: '194H Comm. 5%', rate: 5 },
+];
 
 // Tally's F4–F9 rail order
 const RAIL_KEYS: { hotkey: string; category: string; label: string }[] = [
@@ -225,9 +236,77 @@ interface VoucherEntryProps {
   onDone?: () => void;
 }
 
+// Against-Ref picker: focus lists the ledger's pending bill refs with
+// amounts (Tally's Against Ref); typing anything else is a New Ref.
+const RefPicker: React.FC<{ accountId?: string; value: string; onChange: (v: string) => void }> = ({
+  accountId,
+  value,
+  onChange,
+}) => {
+  const [open, setOpen] = useState(false);
+  const { data: refs = [] } = useQuery({
+    queryKey: ['pending_refs', accountId],
+    enabled: !!accountId && open,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('voucher_entries')
+        .select('bill_ref, debit_amount, credit_amount, voucher:vouchers!inner(status)')
+        .eq('account_id', accountId!)
+        .eq('voucher.status', 'AUTHORISED')
+        .not('bill_ref', 'is', null)
+        .limit(1000);
+      if (error) return [];
+      const map = new Map<string, number>();
+      for (const e of data ?? []) {
+        map.set(e.bill_ref, (map.get(e.bill_ref) ?? 0) + (Number(e.debit_amount) || 0) - (Number(e.credit_amount) || 0));
+      }
+      return [...map.entries()]
+        .filter(([, v]) => Math.abs(v) > 0.005)
+        .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+        .slice(0, 10);
+    },
+  });
+  return (
+    <div className="relative">
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder="Ref"
+        title="Bill reference — pick a pending ref (Against) or type a new one"
+        className="h-7 w-24 border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-[11px] focus:outline-none"
+      />
+      {open && refs.length > 0 && (
+        <div className="absolute z-30 mt-0.5 min-w-[220px] border bg-[#eef3fa] shadow-lg">
+          <div className="bg-[#16437e] px-2 py-0.5 text-[10px] font-semibold text-white">Pending Refs (Against)</div>
+          {refs.map(([ref, pending]) => (
+            <button
+              key={ref}
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                onChange(ref);
+                setOpen(false);
+              }}
+              className="flex w-full justify-between gap-3 px-2 py-0.5 text-left text-[11px] hover:bg-[#fdf6d8]"
+            >
+              <span className="font-semibold">{ref}</span>
+              <span className="font-mono">
+                {fmtINR(Math.abs(pending))} {pending >= 0 ? 'Dr' : 'Cr'}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
   const queryClient = useQueryClient();
   const { user, hospitalConfig } = useAuth();
+  const { canAlter } = useAccountingRights();
   const alterMode = !!voucherId;
   const username = user?.username || user?.email || 'system';
 
@@ -505,10 +584,31 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
         return null;
       }
       const total = filled.reduce((s, l) => s + Number(l.amount), 0);
+      // TDS deducted at payment: Cr TDS Payable per section, cash credited net
+      const tdsAccount = accounts.find((a) => a.account_code === '2140');
+      const tdsRows: { account_id: string; debit_amount: number; credit_amount: number; narration: string; cost_centre_id: null; bill_ref: null }[] = [];
+      let tdsTotal = 0;
+      if (category === 'PAYMENT' && tdsAccount) {
+        for (const l of filled) {
+          const sec = TDS_SECTIONS.find((t) => t.code === l.tdsSection);
+          if (!sec) continue;
+          const amt = Math.round(Number(l.amount) * sec.rate) / 100;
+          if (amt <= 0) continue;
+          tdsTotal += amt;
+          tdsRows.push({
+            account_id: tdsAccount.id,
+            debit_amount: 0,
+            credit_amount: amt,
+            narration: `TDS ${sec.code} @${sec.rate}% on ${l.account!.account_name}`,
+            cost_centre_id: null,
+            bill_ref: null,
+          });
+        }
+      }
       const accountRow = {
         account_id: account.id,
         debit_amount: singleMode.accountIsDebit ? total : 0,
-        credit_amount: singleMode.accountIsDebit ? 0 : total,
+        credit_amount: singleMode.accountIsDebit ? 0 : total - tdsTotal,
         narration: '',
         cost_centre_id: null as string | null,
       };
@@ -520,7 +620,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
         cost_centre_id: l.costCentreId || null,
         bill_ref: l.billRef?.trim() || null,
       }));
-      return [accountRow, ...lineRows];
+      return [accountRow, ...lineRows, ...tdsRows];
     }
     const filled = journalLines.filter((l) => l.account && Number(l.amount) > 0);
     if (filled.length < 2) {
@@ -831,8 +931,12 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
         { hotkey: 'F2', label: 'Date', onClick: () => dateRef.current?.showPicker?.() ?? dateRef.current?.focus() },
         { hotkey: 'L', label: 'Optional', gapBefore: true, onClick: () => setIsOptional((v) => !v), active: isOptional },
         { hotkey: 'P', label: 'Print Vch', gapBefore: true, onClick: printVoucher },
-        { hotkey: 'X', label: 'Cancel Vch', gapBefore: true, onClick: cancelVoucher },
-        { hotkey: 'D', label: 'Delete', onClick: deleteVoucher },
+        ...(canAlter
+          ? [
+              { hotkey: 'X', label: 'Cancel Vch', gapBefore: true, onClick: cancelVoucher },
+              { hotkey: 'D', label: 'Delete', onClick: deleteVoucher },
+            ]
+          : []),
       ];
     }
     const byCategory = (cat: string) => voucherTypes.find((vt) => vt.voucher_category?.toUpperCase() === cat);
@@ -879,7 +983,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
     items.push({ hotkey: 'P', label: 'Print Vch', gapBefore: true, onClick: printVoucher });
     return items;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [voucherTypes, selectedVoucherType, alterMode, isOptional]);
+  }, [voucherTypes, selectedVoucherType, alterMode, isOptional, canAlter]);
 
   const accountBalance = account ? balances[account.id] : undefined;
 
@@ -1022,13 +1126,26 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
                     className={amountInputClass}
                   />
                   {billRefEnabled && (
-                    <input
+                    <RefPicker
+                      accountId={line.account?.id}
                       value={line.billRef ?? ''}
-                      onChange={(e) => updatePartLine(line.key, { billRef: e.target.value })}
-                      placeholder="Ref"
-                      title="Bill reference (bill-wise outstandings)"
-                      className="h-7 w-24 border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-[11px] focus:outline-none"
+                      onChange={(v) => updatePartLine(line.key, { billRef: v })}
                     />
+                  )}
+                  {category === 'PAYMENT' && (
+                    <select
+                      value={line.tdsSection ?? ''}
+                      onChange={(e) => updatePartLine(line.key, { tdsSection: e.target.value || undefined })}
+                      title="Deduct TDS at payment"
+                      className="h-7 w-28 border-0 border-b border-dashed border-gray-400 bg-transparent px-0.5 text-[11px] text-gray-600 focus:outline-none"
+                    >
+                      <option value="">— TDS —</option>
+                      {TDS_SECTIONS.map((t) => (
+                        <option key={t.code} value={t.code}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </select>
                   )}
                   {costCentres.length > 0 && (
                     <select
@@ -1062,6 +1179,21 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
             <div className="mt-1 flex justify-end border-t border-gray-400 pr-8 pt-0.5">
               <span className="font-mono font-bold">{partTotal > 0 ? fmtINR(partTotal) : ''}</span>
             </div>
+            {category === 'PAYMENT' &&
+              (() => {
+                const tds = partLines.reduce((s, l) => {
+                  const sec = TDS_SECTIONS.find((t) => t.code === l.tdsSection);
+                  return s + (sec ? Math.round((Number(l.amount) || 0) * sec.rate) / 100 : 0);
+                }, 0);
+                return tds > 0 ? (
+                  <div className="flex justify-end gap-4 pr-8 text-[11px] italic text-gray-600">
+                    <span>TDS deducted: <span className="font-mono not-italic">{fmtINR(tds)}</span></span>
+                    <span>
+                      Net {account?.account_name || 'payment'}: <span className="font-mono not-italic">{fmtINR(partTotal - tds)}</span>
+                    </span>
+                  </div>
+                ) : null;
+              })()}
           </>
         ) : (
           <>
@@ -1147,12 +1279,10 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
                     className={amountInputClass}
                   />
                   {billRefEnabled && (
-                    <input
+                    <RefPicker
+                      accountId={line.account?.id}
                       value={line.billRef ?? ''}
-                      onChange={(e) => updateJournalLine(line.key, { billRef: e.target.value })}
-                      placeholder="Ref"
-                      title="Bill reference (bill-wise outstandings)"
-                      className="h-7 w-24 border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-[11px] focus:outline-none"
+                      onChange={(v) => updateJournalLine(line.key, { billRef: v })}
                     />
                   )}
                   {costCentres.length > 0 && (
@@ -1228,6 +1358,11 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
               </div>
             </div>
             <div className="flex shrink-0 gap-1">
+              {!canAlter && (
+                <span className="self-center bg-gray-200 px-2 py-0.5 text-[11px] font-semibold text-gray-600">VIEW ONLY</span>
+              )}
+              {canAlter && (
+              <>
               <Button variant="outline" size="sm" className="h-7 rounded-none text-xs" onClick={() => saveVoucher('draft')} disabled={saving}>
                 {saving && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
                 Save as Pending
@@ -1236,6 +1371,8 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
                 {saving && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
                 <span className="underline">A</span>: Accept
               </Button>
+              </>
+              )}
               <Button
                 variant="secondary"
                 size="sm"

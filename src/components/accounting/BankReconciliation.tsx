@@ -133,6 +133,73 @@ const BankReconciliation: React.FC = () => {
     }
   }, [selectedAccountId, storageKey]);
 
+  // ---- Bank statement import (CSV) with auto-match ----
+  const fileRef = React.useRef<HTMLInputElement | null>(null);
+  const [unmatchedStmt, setUnmatchedStmt] = React.useState<{ date: string; desc: string; amount: number }[]>([]);
+
+  const parseCsv = (text: string): { date: string; desc: string; debit: number; credit: number }[] => {
+    const lines = text.split(/\r?\n/).filter((l) => l.trim());
+    if (lines.length < 2) return [];
+    const split = (l: string) => l.match(/("[^"]*"|[^,]+)/g)?.map((c) => c.replace(/^"|"$/g, '').trim()) ?? [];
+    const header = split(lines[0]).map((h) => h.toLowerCase());
+    const idx = (names: string[]) => header.findIndex((h) => names.some((n) => h.includes(n)));
+    const di = idx(['date']);
+    const wi = idx(['debit', 'withdraw']);
+    const ci = idx(['credit', 'deposit']);
+    const ai = idx(['amount']);
+    const descIdx = idx(['desc', 'narrat', 'particular', 'remark']);
+    const out: { date: string; desc: string; debit: number; credit: number }[] = [];
+    for (const line of lines.slice(1)) {
+      const c = split(line);
+      const num = (v?: string) => Math.abs(Number(String(v ?? '').replace(/[₹, ]/g, ''))) || 0;
+      let debit = wi >= 0 ? num(c[wi]) : 0;
+      let credit = ci >= 0 ? num(c[ci]) : 0;
+      if (!debit && !credit && ai >= 0) {
+        const raw = Number(String(c[ai] ?? '').replace(/[₹, ]/g, ''));
+        if (raw < 0) debit = -raw;
+        else credit = raw;
+      }
+      if (!debit && !credit) continue;
+      out.push({ date: c[di] ?? '', desc: c[descIdx] ?? '', debit, credit });
+    }
+    return out;
+  };
+
+  const importStatement = async (file: File): Promise<void> => {
+    try {
+      const rows = parseCsv(await file.text());
+      if (rows.length === 0) {
+        toast.error('No rows found — expected CSV columns like Date, Description, Debit, Credit');
+        return;
+      }
+      // Statement debit (money out) matches a book credit entry; statement
+      // credit (money in) matches a book debit. Amount match, each book
+      // entry used once, already-ticked entries skipped.
+      const used = new Set<string>(reconciledIds);
+      const matchedNow = new Set<string>();
+      const unmatched: { date: string; desc: string; amount: number }[] = [];
+      for (const r of rows) {
+        const amt = r.debit || r.credit;
+        const wantDebitSide = r.credit > 0;
+        const hit = transactions.find(
+          (t) => !used.has(t.entryId) && Math.abs((wantDebitSide ? t.debit : t.credit) - amt) < 0.01,
+        );
+        if (hit) {
+          used.add(hit.entryId);
+          matchedNow.add(hit.entryId);
+        } else {
+          unmatched.push({ date: r.date, desc: r.desc, amount: wantDebitSide ? amt : -amt });
+        }
+      }
+      if (matchedNow.size > 0) setReconciledIds((prev) => new Set([...prev, ...matchedNow]));
+      setUnmatchedStmt(unmatched);
+      toast.success(`${matchedNow.size} of ${rows.length} statement line(s) matched and ticked`);
+    } catch (err) {
+      console.error('Statement import failed:', err);
+      toast.error('Could not read this file');
+    }
+  };
+
   // Persist reconciled IDs to localStorage on change
   useEffect(() => {
     if (selectedAccountId) {
@@ -346,7 +413,51 @@ const BankReconciliation: React.FC = () => {
   }
 
   return (
-    <TallyScreen title="Bank Reconciliation" rail={[{ hotkey: 'P', label: 'Print', onClick: () => window.print() }]}>
+    <TallyScreen
+      title="Bank Reconciliation"
+      rail={[
+        {
+          hotkey: 'I',
+          label: 'Import Stmt',
+          onClick: () => {
+            if (!selectedAccountId) {
+              toast.error('Select a bank account first');
+              return;
+            }
+            fileRef.current?.click();
+          },
+        },
+        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
+      ]}
+    >
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".csv,text/csv"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) importStatement(f);
+          e.target.value = '';
+        }}
+      />
+      {unmatchedStmt.length > 0 && (
+        <div className="mx-3 mt-1 border border-orange-300 bg-orange-50 p-2 text-[12px]">
+          <div className="font-semibold text-orange-800">
+            {unmatchedStmt.length} statement line(s) had no matching book entry:
+          </div>
+          {unmatchedStmt.slice(0, 8).map((u, i) => (
+            <div key={i} className="flex gap-3">
+              <span className="w-24">{u.date}</span>
+              <span className="min-w-0 flex-1 truncate">{u.desc}</span>
+              <span className="font-mono">
+                {Math.abs(u.amount).toFixed(2)} {u.amount >= 0 ? 'In' : 'Out'}
+              </span>
+            </div>
+          ))}
+          {unmatchedStmt.length > 8 && <div className="italic">…and {unmatchedStmt.length - 8} more</div>}
+        </div>
+      )}
     
     <div className="space-y-6">
       {/* Header */}
