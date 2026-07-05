@@ -1064,7 +1064,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
                   </div>
                   <Input
                     ref={(el) => {
-                      journalAmountRefs.current[line.key] = el;
+                      if (line.drcr === 'Dr') journalAmountRefs.current[line.key] = el;
                     }}
                     type="number"
                     inputMode="decimal"
@@ -1080,6 +1080,9 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
                     className={amountInputClass}
                   />
                   <Input
+                    ref={(el) => {
+                      if (line.drcr === 'Cr') journalAmountRefs.current[line.key] = el;
+                    }}
                     type="number"
                     inputMode="decimal"
                     value={line.drcr === 'Cr' ? line.amount : ''}
