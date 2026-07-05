@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { HOSPITAL_CONFIGS, type HospitalType } from '@/types/hospital';
+import { useCompanies } from '@/hooks/useCompanies';
 
 /**
  * Shared Tally Prime chrome for the accounting module:
@@ -57,7 +58,12 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
   const [highlight, setHighlight] = useState(0);
   const [helpOpen, setHelpOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
+  const { user, switchHospital, hospitalConfig } = useAuth();
+  const { data: companies = [] } = useCompanies();
+
+  const otherHospital = (Object.keys(HOSPITAL_CONFIGS) as HospitalType[]).find((h) => h !== user?.hospitalType);
 
   // Alt+F focuses the finder, like Tally
   useEffect(() => {
@@ -92,30 +98,62 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
     inputRef.current?.blur();
   };
 
-  const menu = (key: string, label: string, action?: () => void) => (
-    <button
-      key={key}
-      type="button"
-      onClick={action}
-      disabled={!action}
-      className={`px-4 py-0.5 text-[13px] ${action ? 'text-white hover:bg-[#1d5aa8]' : 'cursor-default text-[#9db8d8]'}`}
-    >
-      <span className="underline">{key}</span>: {label}
-    </button>
+  // Tally Prime's top-bar buttons each drop a menu of destinations.
+  const menu = (key: string, label: string, action?: () => void, items?: { label: string; onClick?: () => void }[]) => (
+    <div key={key} className="relative">
+      <button
+        type="button"
+        onClick={() => {
+          if (items) setOpenMenu((m) => (m === key ? null : key));
+          else action?.();
+        }}
+        disabled={!action && !items}
+        className={`px-4 py-0.5 text-[13px] ${
+          action || items ? 'text-white hover:bg-[#1d5aa8]' : 'cursor-default text-[#9db8d8]'
+        } ${openMenu === key ? 'bg-[#1d5aa8]' : ''}`}
+      >
+        <span className="underline">{key}</span>: {label}
+      </button>
+      {items && openMenu === key && (
+        <div className="absolute left-0 z-50 min-w-[220px] border border-[#0d2f5c] bg-[#eef3fa] shadow-lg">
+          {items.map((it, i) => (
+            <button
+              key={i}
+              type="button"
+              disabled={!it.onClick}
+              onClick={() => {
+                setOpenMenu(null);
+                it.onClick?.();
+              }}
+              className={`block w-full px-3 py-1 text-left text-[13px] ${
+                it.onClick ? 'text-black hover:bg-[#fdd835]' : 'cursor-default text-gray-400'
+              }`}
+            >
+              {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 
   return (
     <div style={TALLY_FONT} className="bg-[#16437e] print:hidden">
       {/* Row 1: logo + centred finder */}
       <div className="relative flex items-center px-3 pt-1">
-        <div className="leading-none text-white">
+        <button
+          type="button"
+          onClick={() => onGoTo('gateway')}
+          title="Gateway of Tally"
+          className="text-left leading-none text-white"
+        >
           <div className="text-xl italic" style={{ fontFamily: '"Brush Script MT", "Snell Roundhand", cursive' }}>
             Adamrit
           </div>
           <div className="text-[11px] tracking-wide">
             Prime <span className="font-bold text-[#e8b923]">ACCOUNTS</span>
           </div>
-        </div>
+        </button>
         <div className="absolute left-1/2 top-1 w-[440px] -translate-x-1/2">
           <div className="relative">
             <input
@@ -167,10 +205,32 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
         <div className="ml-auto" />
       </div>
       {/* Row 2: menu */}
-      <div className="flex items-center justify-center pb-0.5 pt-1">
-        {menu('K', 'Company', () => onGoTo('gateway'))}
-        {menu('Y', 'Data', () => onGoTo('tally-import-export'))}
-        {menu('Z', 'Exchange', () => onGoTo('tally-live'))}
+      <div className="flex items-center justify-center pb-0.5 pt-1" onMouseLeave={() => setOpenMenu(null)}>
+        {menu('K', 'Company', undefined, [
+          {
+            label: otherHospital ? `Switch to ${HOSPITAL_CONFIGS[otherHospital].fullName}` : 'Switch hospital',
+            onClick: otherHospital
+              ? () => {
+                  switchHospital(otherHospital);
+                  toast.success(`Switched to ${HOSPITAL_CONFIGS[otherHospital].fullName}`);
+                }
+              : undefined,
+          },
+          { label: `Current: ${hospitalConfig.name} Hospital` },
+          ...companies.map((c: any) => ({ label: `· ${c.company_name}` })),
+          { label: 'Gateway of Tally', onClick: () => onGoTo('gateway') },
+        ])}
+        {menu('Y', 'Data', undefined, [
+          { label: 'Import / Export (Tally XML)', onClick: () => onGoTo('tally-import-export') },
+          { label: 'Statistics', onClick: () => onGoTo('statistics') },
+          { label: 'Edit Log (audit trail)', onClick: () => onGoTo('edit-log') },
+          { label: 'Exception Reports', onClick: () => onGoTo('exception-reports') },
+        ])}
+        {menu('Z', 'Exchange', undefined, [
+          { label: 'Tally Live (gateway sync)', onClick: () => onGoTo('tally-live') },
+          { label: 'Export vouchers to Tally', onClick: () => onGoTo('tally-import-export') },
+          { label: 'Import masters from Tally', onClick: () => onGoTo('tally-import-export') },
+        ])}
         <span className="mx-2 border border-[#0d2f5c] bg-[#e9f0fa] px-4 py-0.5 text-[13px] font-semibold text-[#16437e]">
           <button type="button" onClick={() => inputRef.current?.focus()}>
             <span className="underline">G</span>: Go To
