@@ -172,3 +172,44 @@
   scroll-behavior: smooth;
   overflow-y: auto !important;
 }
+
+
+/* ==== Tally Prime skin — scoped to the accounting module ==== */
+.tally-skin,
+.tally-skin * {
+  border-radius: 0 !important;
+  font-family: Verdana, 'Segoe UI', Tahoma, Arial, sans-serif !important;
+}
+.tally-skin {
+  font-size: 13px;
+}
+.tally-skin button,
+.tally-skin input,
+.tally-skin select,
+.tally-skin textarea {
+  box-shadow: none !important;
+}
+/* shadcn cards/tables flatten into Tally panels */
+.tally-skin [class*='card'],
+.tally-skin .border {
+  border-color: #9db8d8;
+}
+.tally-skin table thead tr,
+.tally-skin table thead th {
+  background: #f0f4fa;
+  color: #000;
+  border-bottom: 1px solid #000;
+  border-top: 1px solid #000;
+  height: auto;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  font-weight: 600;
+}
+.tally-skin table td {
+  padding-top: 2px;
+  padding-bottom: 2px;
+  border-bottom: 1px dashed #d4dbe6;
+}
+.tally-skin ::selection {
+  background: #ffd400;
+}

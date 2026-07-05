@@ -80,14 +80,37 @@ const getRoleDefaultRoute = (role: string, email?: string): string => {
 
 // Routes that suppress the global FAB pair (exact path match).
 const ROUTES_WITHOUT_FLOATERS = new Set<string>([]);
+const isTallyRoute = (pathname: string): boolean =>
+  pathname.startsWith('/accounting') || pathname.startsWith('/tally');
+
 const FloatingFabs: React.FC = () => {
   const { pathname } = useLocation();
-  if (ROUTES_WITHOUT_FLOATERS.has(pathname)) return null;
+  // The Tally replica is full-bleed — no floating HMIS widgets over it
+  if (ROUTES_WITHOUT_FLOATERS.has(pathname) || isTallyRoute(pathname)) return null;
   return (
     <>
       <FloatingCameraFAB />
       <ChatWidget />
     </>
+  );
+};
+
+// Slim HMIS header (sidebar trigger + tablet switch) — hidden on the
+// Tally replica so the accounting module is full-bleed like Tally Prime.
+const AppHeaderRow: React.FC = () => {
+  const { pathname } = useLocation();
+  if (isTallyRoute(pathname)) return null;
+  return (
+    <div className="p-2 ml-4 flex-shrink-0 flex items-center gap-3">
+      <SidebarTrigger />
+      <button
+        type="button"
+        onClick={() => { setOverride('tablet'); window.location.assign('/'); }}
+        className="ml-auto mr-2 flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800"
+      >
+        <Tablet className="h-4 w-4" /> Tablet view
+      </button>
+    </div>
   );
 };
 
@@ -425,16 +448,7 @@ const AppContent = () => {
           <div className="min-h-screen flex w-full">
             <AppSidebar {...counts} />
             <main className="flex-1 flex flex-col h-screen overflow-hidden">
-              <div className="p-2 ml-4 flex-shrink-0 flex items-center gap-3">
-                <SidebarTrigger />
-                <button
-                  type="button"
-                  onClick={() => { setOverride('tablet'); window.location.assign('/'); }}
-                  className="ml-auto mr-2 flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800"
-                >
-                  <Tablet className="h-4 w-4" /> Tablet view
-                </button>
-              </div>
+              <AppHeaderRow />
               <div className="flex-1 min-h-0 overflow-auto">
                 <AppRoutes />
               </div>

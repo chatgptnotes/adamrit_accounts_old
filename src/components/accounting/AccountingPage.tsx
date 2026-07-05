@@ -238,7 +238,7 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
   const [navExpanded, setNavExpanded] = useState(false);
 
   return (
-    <div className="min-h-screen flex bg-[#d5e3f0]">
+    <div className="tally-skin min-h-screen flex bg-[#d5e3f0]">
       {/* ---- Left Sidebar (icon rail when collapsed) ---- */}
       <aside
         className={`${navExpanded ? 'w-56' : 'w-12'} bg-white border-r shadow-sm flex flex-col flex-shrink-0 transition-all print:hidden`}
@@ -302,7 +302,7 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
             else setActiveTab(id);
           }}
         />
-        <div className="flex-1 p-1">
+        <div className="flex-1">
           {alterVoucherId ? (
             <VoucherEntry voucherId={alterVoucherId} onDone={() => setAlterVoucherId(null)} />
           ) : drillLedgerId ? (

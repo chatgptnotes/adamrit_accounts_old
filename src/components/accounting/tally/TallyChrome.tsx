@@ -61,6 +61,8 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
 
   // Alt+F focuses the finder, like Tally
   useEffect(() => {
+    const onHelp = () => setHelpOpen(true);
+    window.addEventListener('tally-help', onHelp);
     const onKey = (e: KeyboardEvent) => {
       if (e.altKey && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault();
@@ -72,7 +74,10 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
       }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('tally-help', onHelp);
+    };
   }, []);
 
   const matches = useMemo(() => {
@@ -441,7 +446,30 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
         )}
       </div>
 
-      {/* Bottom action bar */}
+      {/* Bottom action bar — Tally always shows the key bar */}
+      {(!bottomBar || bottomBar.length === 0) && (
+        <div className="flex items-stretch gap-px border-t border-[#9db8d8] bg-[#cfe0f1] px-1 py-0.5 print:hidden">
+          {[
+            { hotkey: 'Q', label: 'Quit', onClick: () => (onClose ? onClose() : window.dispatchEvent(new CustomEvent('tally-escape'))) },
+            { hotkey: 'Esc', label: 'Back', onClick: () => (onClose ? onClose() : window.dispatchEvent(new CustomEvent('tally-escape'))) },
+            { hotkey: 'F1', label: 'Help', onClick: () => window.dispatchEvent(new CustomEvent('tally-help')) },
+            { hotkey: 'P', label: 'Print', onClick: () => window.print() },
+          ].map((b) => (
+            <button
+              key={b.hotkey}
+              type="button"
+              onClick={b.onClick}
+              className="border border-[#9db8d8] bg-white px-3 py-0.5 text-[13px] text-black hover:bg-[#fdf6d8]"
+            >
+              <span className="font-semibold text-[#1d5aa8]">
+                <span className="underline">{b.hotkey}</span>:
+              </span>{' '}
+              {b.label}
+            </button>
+          ))}
+          <span className="ml-auto self-center pr-2 text-[11px] italic text-[#5b7aa0]">Alt+F: Go To · F12: Configure</span>
+        </div>
+      )}
       {bottomBar && bottomBar.length > 0 && (
         <div className="flex items-stretch gap-px border-t border-[#9db8d8] bg-[#cfe0f1] px-1 py-0.5 print:hidden">
           {bottomBar.map((b) => (
