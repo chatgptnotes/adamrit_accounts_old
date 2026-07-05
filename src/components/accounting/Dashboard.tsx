@@ -1,96 +1,17 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { accountMovements, type Movement } from '@/lib/accountMovements';
+import { format } from 'date-fns';
 import { TallyScreen } from './tally/TallyChrome';
-import { fetchAllRows } from '@/lib/fetchAllRows';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
-import {
-  IndianRupee,
-  TrendingUp,
-  TrendingDown,
-  Users,
-  FileText,
-  Scale,
-  Landmark,
-  BarChart3,
-  RefreshCcw,
-} from 'lucide-react';
-import {
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from 'recharts';
-import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Format a number as Indian Rupees (INR). */
-const formatINR = (amount: number): string =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(
-    amount
-  );
-
-/** Colour palette used for the expense breakdown pie chart. */
-const PIE_COLORS = [
-  '#2563eb',
-  '#3b82f6',
-  '#60a5fa',
-  '#93c5fd',
-  '#bfdbfe',
-  '#dbeafe',
-];
-
-/** Map voucher status to a badge variant colour class. */
-const statusBadgeClass = (
-  status: string
-): string => {
-  switch (status) {
-    case 'AUTHORISED':
-      return 'bg-green-100 text-green-700 border-green-200';
-    case 'PENDING':
-      return 'bg-yellow-100 text-yellow-700 border-yellow-200';
-    case 'CANCELLED':
-      return 'bg-red-100 text-red-700 border-red-200';
-    default:
-      return 'bg-gray-100 text-gray-700 border-gray-200';
-  }
-};
-
-// ---------------------------------------------------------------------------
-// Types for Supabase query results
-// ---------------------------------------------------------------------------
-
-interface AccountRow {
+interface Account {
   id: string;
-  account_type: string;
+  account_code: string;
   account_name: string;
-  account_group: string | null;
+  account_type: string;
   opening_balance: number | null;
   opening_balance_type: string | null;
-}
-
-interface VoucherEntryRow {
-  debit_amount: number;
-  credit_amount: number;
-  account: AccountRow | null;
-  voucher: {
-    id: string;
-    status: string;
-    voucher_date: string;
-  } | null;
 }
 
 interface VoucherRow {
@@ -99,549 +20,174 @@ interface VoucherRow {
   voucher_date: string;
   narration: string | null;
   total_amount: number;
-  status: string;
-  created_at: string;
-  voucher_type: {
-    voucher_type_name: string;
-  } | null;
+  voucher_type: { voucher_type_name: string } | null;
 }
 
-// ---------------------------------------------------------------------------
-// Data hooks
-// ---------------------------------------------------------------------------
+const fmt = (n: number): string =>
+  new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.abs(n));
 
-/** Fetch all voucher entries with joined account and voucher data. */
-const useVoucherEntries = () =>
-  useQuery({
-    queryKey: ['dashboard-voucher-entries'],
-    queryFn: async () => {
-      // Filter server-side and paginate — an unfiltered fetch truncates at 1000 rows.
-      const data = await fetchAllRows((from, to) =>
-        supabase
-          .from('voucher_entries')
-          .select(
-            `
-            debit_amount, credit_amount,
-            account:chart_of_accounts(id, account_type, account_name, account_group),
-            voucher:vouchers!inner(id, status, voucher_date)
-          `
-          )
-          .eq('voucher.status', 'AUTHORISED')
-          .range(from, to),
-      );
-      return data as unknown as VoucherEntryRow[];
-    },
-  });
+const fyStart = (): string => {
+  const now = new Date();
+  const y = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  return `${y}-04-01`;
+};
 
-/** Fetch chart_of_accounts for receivables calculation. */
-const useAccounts = () =>
-  useQuery({
-    queryKey: ['dashboard-accounts'],
+const tallyDateLabel = (iso: string): string => {
+  const d = new Date(iso + 'T00:00:00');
+  const month = d.toLocaleDateString('en-GB', { month: 'short' });
+  return `${d.getDate()}-${month}-${String(d.getFullYear()).slice(2)}`;
+};
+
+/**
+ * Dashboard — Tally-styled overview: cash & bank position, FY income vs
+ * expenses with Nett, top expense heads as inline bars, and the latest
+ * vouchers, all from the instant account_movements aggregate.
+ */
+const Dashboard: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVoucher }) => {
+  const today = format(new Date(), 'yyyy-MM-dd');
+  const from = fyStart();
+
+  const { data: accounts = [] } = useQuery({
+    queryKey: ['tb_accounts'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('chart_of_accounts')
-        .select('id, account_type, account_name, account_group, opening_balance, opening_balance_type');
-
+        .select('id, account_code, account_name, account_type, opening_balance, opening_balance_type')
+        .eq('is_active', true);
       if (error) throw error;
-      return (data ?? []) as unknown as AccountRow[];
+      return data as Account[];
     },
   });
 
-/** Fetch the 10 most recent vouchers for the recent activity table. */
-const useRecentVouchers = () =>
-  useQuery({
-    queryKey: ['dashboard-recent-vouchers'],
+  const { data: cumulative = new Map<string, Movement>() } = useQuery({
+    queryKey: ['dash_cumulative', today],
+    queryFn: () => accountMovements({ upto: today }),
+  });
+  const { data: period = new Map<string, Movement>() } = useQuery({
+    queryKey: ['dash_period', from, today],
+    queryFn: () => accountMovements({ from, upto: today }),
+  });
+
+  const { data: recent = [] } = useQuery({
+    queryKey: ['dash_recent'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('vouchers')
-        .select(
-          `
-          id, voucher_number, voucher_date, narration,
-          total_amount, status, created_at,
-          voucher_type:voucher_types(voucher_type_name)
-        `
-        )
+        .select('id, voucher_number, voucher_date, narration, total_amount, voucher_type:voucher_types(voucher_type_name)')
+        .eq('status', 'AUTHORISED')
         .order('created_at', { ascending: false })
-        .limit(10);
-
+        .limit(8);
       if (error) throw error;
-      return (data ?? []) as unknown as VoucherRow[];
+      return data as unknown as VoucherRow[];
     },
   });
 
-// ---------------------------------------------------------------------------
-// Derived calculations
-// ---------------------------------------------------------------------------
+  const S = useMemo(() => {
+    const bal = (a: Account): number => {
+      const opening = (Number(a.opening_balance) || 0) * (a.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1);
+      const m = cumulative.get(a.id);
+      return opening + (m ? m.debit - m.credit : 0);
+    };
+    let cash = 0;
+    let bank = 0;
+    let income = 0;
+    let expense = 0;
+    let advance = 0;
+    const expenseHeads: { name: string; amount: number }[] = [];
+    for (const a of accounts) {
+      const t = (a.account_type || '').toUpperCase();
+      if (a.account_code.startsWith('111')) cash += bal(a);
+      else if (a.account_code.startsWith('112')) bank += bal(a);
+      if (a.account_code === '2110') advance = -bal(a);
+      const m = period.get(a.id);
+      if (!m) continue;
+      if (t.includes('INCOME')) income += m.credit - m.debit;
+      else if (t.includes('EXPENSE')) {
+        const v = m.debit - m.credit;
+        expense += v;
+        if (v > 0.005) expenseHeads.push({ name: a.account_name, amount: v });
+      }
+    }
+    expenseHeads.sort((a, b) => b.amount - a.amount);
+    return { cash, bank, income, expense, nett: income - expense, advance, expenseHeads: expenseHeads.slice(0, 8) };
+  }, [accounts, cumulative, period]);
 
-interface SummaryTotals {
-  totalIncome: number;
-  totalExpenses: number;
-  netProfitLoss: number;
-  receivables: number;
-}
+  const maxExp = S.expenseHeads[0]?.amount || 1;
 
-/** Compute summary totals from raw query data. */
-const computeSummary = (
-  entries: VoucherEntryRow[],
-  accounts: AccountRow[]
-): SummaryTotals => {
-  // Only consider entries tied to posted vouchers
-  const posted = entries.filter((e) => e.voucher?.status === 'AUTHORISED');
-
-  // Income = sum(credit) - sum(debit) for Income-type accounts
-  const totalIncome = posted
-    .filter((e) => (e.account as AccountRow | null)?.account_type?.includes('INCOME'))
-    .reduce((sum, e) => sum + (e.credit_amount ?? 0) - (e.debit_amount ?? 0), 0);
-
-  // Expenses = sum(debit) - sum(credit) for Expense-type accounts
-  const totalExpenses = posted
-    .filter((e) => (e.account as AccountRow | null)?.account_type?.includes('EXPENSE'))
-    .reduce((sum, e) => sum + (e.debit_amount ?? 0) - (e.credit_amount ?? 0), 0);
-
-  // Receivables from opening balances of relevant asset accounts
-  const receivables = accounts
-    .filter((a) => {
-      if (!a.account_type?.includes('ASSET')) return false;
-      const group = (a.account_group ?? '').toLowerCase();
-      return group.includes('receivab') || group.includes('sundry debtors');
-    })
-    .reduce((sum, a) => sum + (a.opening_balance ?? 0), 0);
-
-  return {
-    totalIncome,
-    totalExpenses,
-    netProfitLoss: totalIncome - totalExpenses,
-    receivables,
-  };
-};
-
-/** Build monthly revenue data for the last 6 months. */
-const buildMonthlyRevenue = (entries: VoucherEntryRow[]) => {
-  const now = new Date();
-  const months: { label: string; start: Date; end: Date }[] = [];
-
-  for (let i = 5; i >= 0; i--) {
-    const d = subMonths(now, i);
-    months.push({
-      label: format(d, 'MMM yyyy'),
-      start: startOfMonth(d),
-      end: endOfMonth(d),
-    });
-  }
-
-  return months.map((m) => {
-    const monthEntries = entries.filter((e) => {
-      if (e.voucher?.status !== 'AUTHORISED') return false;
-      if ((e.account as AccountRow | null)?.account_type?.includes('INCOME') !== true) return false;
-      const vDate = new Date(e.voucher?.voucher_date ?? '');
-      return vDate >= m.start && vDate <= m.end;
-    });
-
-    const revenue = monthEntries.reduce(
-      (sum, e) => sum + (e.credit_amount ?? 0) - (e.debit_amount ?? 0),
-      0
-    );
-
-    return { month: m.label, revenue: Math.max(0, revenue) };
-  });
-};
-
-/** Build expense breakdown by account name for the pie chart. */
-const buildExpenseBreakdown = (entries: VoucherEntryRow[]) => {
-  const posted = entries.filter(
-    (e) =>
-      e.voucher?.status === 'AUTHORISED' &&
-      (e.account as AccountRow | null)?.account_type?.includes('EXPENSE')
+  const tile = (label: string, value: number, drCr = false) => (
+    <div className="border border-[#9db8d8] bg-white">
+      <div className="bg-[#eef3fa] px-2 py-0.5 text-[11px] font-semibold tracking-wide text-[#16437e]">{label}</div>
+      <div className="px-2 py-1.5 text-right font-mono text-[15px] font-bold">
+        ₹ {fmt(value)}
+        {drCr ? ` ${value >= 0 ? 'Dr' : 'Cr'}` : ''}
+      </div>
+    </div>
   );
 
-  const map = new Map<string, number>();
-  posted.forEach((e) => {
-    const name =
-      (e.account as AccountRow | null)?.account_group ||
-      (e.account as AccountRow | null)?.account_name ||
-      'Other';
-    const val = (e.debit_amount ?? 0) - (e.credit_amount ?? 0);
-    map.set(name, (map.get(name) ?? 0) + val);
-  });
-
-  return Array.from(map.entries())
-    .map(([name, value]) => ({ name, value: Math.max(0, value) }))
-    .filter((d) => d.value > 0)
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 6);
-};
-
-// ---------------------------------------------------------------------------
-// Skeleton components
-// ---------------------------------------------------------------------------
-
-/** Placeholder pulse block used while data is loading. */
-const Skeleton: React.FC<{ className?: string }> = ({ className = '' }) => (
-  <div className={`animate-pulse bg-gray-200 rounded ${className}`} />
-);
-
-const SummaryCardSkeleton: React.FC = () => (
-  <Card>
-    <CardHeader className="pb-2">
-      <Skeleton className="h-4 w-24" />
-    </CardHeader>
-    <CardContent>
-      <Skeleton className="h-8 w-32 mb-1" />
-      <Skeleton className="h-3 w-20" />
-    </CardContent>
-  </Card>
-);
-
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
-interface SummaryCardProps {
-  title: string;
-  value: number;
-  subtitle: string;
-  icon: React.ElementType;
-  colorClass: string;
-}
-
-/** Single summary metric card shown at the top of the dashboard. */
-const SummaryCard: React.FC<SummaryCardProps> = ({
-  title,
-  value,
-  subtitle,
-  icon: Icon,
-  colorClass,
-}) => (
-  <Card>
-    <CardHeader className="flex flex-row items-center justify-between pb-2">
-      <CardTitle className="text-sm font-medium text-gray-500">
-        {title}
-      </CardTitle>
-      <Icon className={`h-5 w-5 ${colorClass}`} />
-    </CardHeader>
-    <CardContent>
-      <div className={`text-2xl font-bold ${colorClass}`}>
-        {formatINR(value)}
-      </div>
-      <p className="text-xs text-gray-400 mt-1">{subtitle}</p>
-    </CardContent>
-  </Card>
-);
-
-// ---------------------------------------------------------------------------
-// Main Dashboard Component
-// ---------------------------------------------------------------------------
-
-/**
- * Dashboard -- accounting overview with summary cards, charts, recent
- * vouchers, and quick-action buttons. All data is fetched from Supabase
- * via React Query.
- */
-const Dashboard: React.FC = () => {
-  const {
-    data: entries = [],
-    isLoading: entriesLoading,
-    isError: entriesError,
-    refetch: refetchEntries,
-  } = useVoucherEntries();
-
-  const {
-    data: accounts = [],
-    isLoading: accountsLoading,
-    isError: accountsError,
-    refetch: refetchAccounts,
-  } = useAccounts();
-
-  const {
-    data: recentVouchers = [],
-    isLoading: vouchersLoading,
-    isError: vouchersError,
-    refetch: refetchVouchers,
-  } = useRecentVouchers();
-
-  const isLoading = entriesLoading || accountsLoading;
-  const isError = entriesError || accountsError;
-
-  // Derived data
-  const summary = computeSummary(entries, accounts);
-  const monthlyRevenue = buildMonthlyRevenue(entries);
-  const expenseBreakdown = buildExpenseBreakdown(entries);
-
-  // ------ Error state ------
-  if (isError) {
-    return (
-      <div className="flex flex-col items-center justify-center h-96 text-center">
-        <p className="text-red-600 font-medium mb-4">
-          Failed to load dashboard data. Please try again.
-        </p>
-        <Button
-          variant="outline"
-          onClick={() => {
-            refetchEntries();
-            refetchAccounts();
-            refetchVouchers();
-          }}
-        >
-          <RefreshCcw className="h-4 w-4 mr-2" />
-          Retry
-        </Button>
-      </div>
-    );
-  }
-
   return (
-    <TallyScreen title="Gateway — Accounts Dashboard" rail={[{ hotkey: 'P', label: 'Print', onClick: () => window.print() }]}>
-    
-    <div className="space-y-6">
-      {/* Page heading */}
-      <div>
-        <h2 className="text-2xl font-bold text-gray-800">
-          Accounting Dashboard
-        </h2>
-        <p className="text-sm text-gray-500 mt-1">
-          Overview of your financial performance
-        </p>
-      </div>
-
-      {/* ---- Summary Cards ---- */}
-      {isLoading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <SummaryCardSkeleton key={i} />
-          ))}
+    <TallyScreen title="Dashboard" rail={[{ hotkey: 'P', label: 'Print', onClick: () => window.print() }]}>
+      <div className="px-3 pb-4 pt-1 text-[13px]">
+        <div className="text-center text-[11px]">
+          {tallyDateLabel(from)} to {tallyDateLabel(today)}
         </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <SummaryCard
-            title="Total Income"
-            value={summary.totalIncome}
-            subtitle="From posted vouchers"
-            icon={TrendingUp}
-            colorClass="text-green-600"
-          />
-          <SummaryCard
-            title="Total Expenses"
-            value={summary.totalExpenses}
-            subtitle="From posted vouchers"
-            icon={TrendingDown}
-            colorClass="text-red-600"
-          />
-          <SummaryCard
-            title="Net Profit / Loss"
-            value={summary.netProfitLoss}
-            subtitle={summary.netProfitLoss >= 0 ? 'Profit' : 'Loss'}
-            icon={IndianRupee}
-            colorClass={
-              summary.netProfitLoss >= 0 ? 'text-green-600' : 'text-red-600'
-            }
-          />
-          <SummaryCard
-            title="Receivables"
-            value={summary.receivables}
-            subtitle="Outstanding balance"
-            icon={Users}
-            colorClass="text-blue-600"
-          />
+
+        {/* Tiles */}
+        <div className="mt-1 grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
+          {tile('Cash-in-Hand', S.cash)}
+          {tile('Bank Accounts', S.bank)}
+          {tile('Income (FY)', S.income)}
+          {tile('Expenses (FY)', S.expense)}
+          {tile(S.nett >= 0 ? 'Nett Profit (FY)' : 'Nett Loss (FY)', S.nett)}
+          {tile('Patient Advance', S.advance)}
         </div>
-      )}
 
-      {/* ---- Charts Row (2 columns) ---- */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Monthly Revenue Bar Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">
-              Monthly Revenue (Last 6 Months)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <Skeleton className="h-64 w-full" />
-            ) : monthlyRevenue.every((m) => m.revenue === 0) ? (
-              <div className="flex items-center justify-center h-64 text-gray-400 text-sm">
-                No revenue data available for the selected period
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={monthlyRevenue}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-                  <YAxis
-                    tick={{ fontSize: 12 }}
-                    tickFormatter={(v: number) =>
-                      new Intl.NumberFormat('en-IN', {
-                        notation: 'compact',
-                        compactDisplay: 'short',
-                      }).format(v)
-                    }
-                  />
-                  <Tooltip
-                    formatter={(value: number) => [formatINR(value), 'Revenue']}
-                  />
-                  <Legend />
-                  <Bar
-                    dataKey="revenue"
-                    name="Revenue"
-                    fill="#2563eb"
-                    radius={[4, 4, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
+        <div className="mt-3 flex gap-3">
+          {/* Top expense heads */}
+          <div className="min-w-0 flex-1 border border-[#9db8d8] bg-white">
+            <div className="bg-[#16437e] px-2 py-0.5 text-[12px] font-semibold text-white">Top Expense Heads (FY)</div>
+            <div className="p-2">
+              {S.expenseHeads.length === 0 ? (
+                <div className="py-6 text-center text-gray-400">No expenses recorded this year.</div>
+              ) : (
+                S.expenseHeads.map((e) => (
+                  <div key={e.name} className="mb-1">
+                    <div className="flex justify-between">
+                      <span className="min-w-0 flex-1 truncate">{e.name}</span>
+                      <span className="font-mono">{fmt(e.amount)}</span>
+                    </div>
+                    <div className="h-2 w-full bg-[#eef3fa]">
+                      <div className="h-2 bg-[#16437e]" style={{ width: `${Math.max(2, (e.amount / maxExp) * 100)}%` }} />
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
 
-        {/* Expense Breakdown Pie Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Expense Breakdown</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <Skeleton className="h-64 w-full" />
-            ) : expenseBreakdown.length === 0 ? (
-              <div className="flex items-center justify-center h-64 text-gray-400 text-sm">
-                No expense data available
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={280}>
-                <PieChart>
-                  <Pie
-                    data={expenseBreakdown}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={100}
-                    paddingAngle={3}
-                    dataKey="value"
-                    nameKey="name"
-                    label={({ name, percent }: { name: string; percent: number }) =>
-                      `${name} (${(percent * 100).toFixed(0)}%)`
-                    }
-                  >
-                    {expenseBreakdown.map((_, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={PIE_COLORS[index % PIE_COLORS.length]}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(value: number) => [formatINR(value), 'Amount']}
-                  />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* ---- Recent Vouchers Table ---- */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Recent Vouchers</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {vouchersLoading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className="h-10 w-full" />
+          {/* Recent vouchers */}
+          <div className="min-w-0 flex-1 border border-[#9db8d8] bg-white">
+            <div className="bg-[#16437e] px-2 py-0.5 text-[12px] font-semibold text-white">Latest Vouchers</div>
+            <div className="p-1">
+              {recent.map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => onOpenVoucher?.(v.id)}
+                  title="Open voucher"
+                  className="flex w-full border-b border-dashed border-gray-200 text-left hover:bg-[#fdf6d8]"
+                >
+                  <div className="w-20 shrink-0 px-1">{tallyDateLabel(v.voucher_date)}</div>
+                  <div className="w-24 shrink-0 truncate px-1 font-mono text-[11px]">{v.voucher_number}</div>
+                  <div className="min-w-0 flex-1 truncate px-1 text-gray-600">
+                    {v.voucher_type?.voucher_type_name?.replace(' Voucher', '')} — {v.narration || ''}
+                  </div>
+                  <div className="w-28 shrink-0 px-1 text-right font-mono">{fmt(Number(v.total_amount) || 0)}</div>
+                </button>
               ))}
             </div>
-          ) : vouchersError ? (
-            <div className="text-center py-8">
-              <p className="text-red-600 text-sm mb-3">
-                Failed to load recent vouchers.
-              </p>
-              <Button variant="outline" size="sm" onClick={() => refetchVouchers()}>
-                <RefreshCcw className="h-3 w-3 mr-1" />
-                Retry
-              </Button>
-            </div>
-          ) : recentVouchers.length === 0 ? (
-            <p className="text-center text-gray-400 text-sm py-8">
-              No vouchers found
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-gray-500">
-                    <th className="pb-2 pr-4 font-medium">Date</th>
-                    <th className="pb-2 pr-4 font-medium">Voucher #</th>
-                    <th className="pb-2 pr-4 font-medium">Type</th>
-                    <th className="pb-2 pr-4 font-medium">Narration</th>
-                    <th className="pb-2 pr-4 font-medium text-right">Amount</th>
-                    <th className="pb-2 font-medium text-center">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentVouchers.map((v) => (
-                    <tr key={v.id} className="border-b last:border-0 hover:bg-gray-50">
-                      <td className="py-2.5 pr-4 whitespace-nowrap">
-                        {format(new Date(v.voucher_date), 'dd MMM yyyy')}
-                      </td>
-                      <td className="py-2.5 pr-4 font-medium whitespace-nowrap">
-                        {v.voucher_number}
-                      </td>
-                      <td className="py-2.5 pr-4 whitespace-nowrap">
-                        {v.voucher_type?.voucher_type_name ?? '-'}
-                      </td>
-                      <td className="py-2.5 pr-4 max-w-xs truncate">
-                        {v.narration || '-'}
-                      </td>
-                      <td className="py-2.5 pr-4 text-right whitespace-nowrap">
-                        {formatINR(v.total_amount)}
-                      </td>
-                      <td className="py-2.5 text-center">
-                        <Badge
-                          variant="outline"
-                          className={`text-xs capitalize ${statusBadgeClass(v.status)}`}
-                        >
-                          {v.status}
-                        </Badge>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* ---- Quick Actions ---- */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Quick Actions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-3">
-            <Button variant="outline" size="sm">
-              <FileText className="h-4 w-4 mr-2" />
-              New Voucher
-            </Button>
-            <Button variant="outline" size="sm">
-              <BarChart3 className="h-4 w-4 mr-2" />
-              Day Book
-            </Button>
-            <Button variant="outline" size="sm">
-              <Scale className="h-4 w-4 mr-2" />
-              Trial Balance
-            </Button>
-            <Button variant="outline" size="sm">
-              <Landmark className="h-4 w-4 mr-2" />
-              Balance Sheet
-            </Button>
-            <Button variant="outline" size="sm">
-              <TrendingUp className="h-4 w-4 mr-2" />
-              P&L
-            </Button>
           </div>
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+      </div>
     </TallyScreen>
   );
 };

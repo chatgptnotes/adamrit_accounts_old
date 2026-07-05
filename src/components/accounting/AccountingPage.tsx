@@ -111,7 +111,7 @@ const renderContent = (
     case 'gateway':
       return <GatewayOfTally onNavigate={goTo} />;
     case 'dashboard':
-      return <Dashboard />;
+      return <Dashboard onOpenVoucher={openVoucher} />;
     case 'chart-of-accounts':
       return <ChartOfAccounts />;
     case 'masters':
