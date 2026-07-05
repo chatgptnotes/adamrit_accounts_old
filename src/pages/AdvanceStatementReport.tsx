@@ -673,6 +673,43 @@ const AdvanceStatementReport = () => {
     }
   };
 
+  // Additional diagnoses live in the visit_diagnoses junction table — the same
+  // table Final Bill reads/saves — so changes here reflect there too.
+  const handleAdditionalDiagnosisAdd = async (visitId: string, diagnosisId: string, existingIds: string[]) => {
+    if (!diagnosisId) return;
+    if (existingIds.includes(diagnosisId)) {
+      toast.info('This diagnosis is already added for this visit');
+      return;
+    }
+    const { error } = await supabase
+      .from('visit_diagnoses' as any)
+      .insert({ visit_id: visitId, diagnosis_id: diagnosisId, is_primary: false, notes: null });
+
+    if (error) {
+      console.error('Error adding additional diagnosis:', error);
+      toast.error('Failed to add diagnosis');
+    } else {
+      toast.success('Additional diagnosis added');
+      queryClient.invalidateQueries({ queryKey: ['advance-statement-report-currently-admitted'] });
+    }
+  };
+
+  const handleAdditionalDiagnosisRemove = async (visitId: string, diagnosisId: string) => {
+    const { error } = await supabase
+      .from('visit_diagnoses' as any)
+      .delete()
+      .eq('visit_id', visitId)
+      .eq('diagnosis_id', diagnosisId);
+
+    if (error) {
+      console.error('Error removing additional diagnosis:', error);
+      toast.error('Failed to remove diagnosis');
+    } else {
+      toast.success('Additional diagnosis removed');
+      queryClient.invalidateQueries({ queryKey: ['advance-statement-report-currently-admitted'] });
+    }
+  };
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
@@ -877,11 +914,14 @@ const AdvanceStatementReport = () => {
                 ${hospitalType === 'hope' ? '<th style="width: 5%;">Corporate</th>' : ''}
                 <th style="width: 5%;">Room/Bed</th>
                 <th style="width: 5%;">Admission</th>
+                <th style="width: 4%;">Intimation</th>
                 <th style="width: 6%;">Diagnosis</th>
                 <th style="width: 4%;">Treatment</th>
+                <th style="width: 5%;">Pkg Name</th>
                 <th style="width: 5%;">Pkg Details</th>
                 <th style="width: 3%;">Pkg Days</th>
                 <th style="width: 4%;">Pkg Amt</th>
+                <th style="width: 4%;">Submission</th>
                 <th style="width: 4%;">Lab Amt</th>
                 <th style="width: 4%;">Pharmacy</th>
                 <th style="width: 4%;">Pharma Paid</th>
@@ -971,6 +1011,14 @@ const AdvanceStatementReport = () => {
                   ? `₹${lastPayment.amount.toLocaleString('en-IN')}${lastPayment.date ? '<br/>' + format(new Date(lastPayment.date), 'dd/MM/yyyy') : ''}`
                   : '-';
 
+                const billPrep = (item as any).bill_prep;
+                const intimationDateText = billPrep?.intimation_date
+                  ? format(new Date(billPrep.intimation_date), 'dd/MM/yyyy')
+                  : '-';
+                const submissionDateText = billPrep?.date_of_submission
+                  ? format(new Date(billPrep.date_of_submission), 'dd/MM/yyyy')
+                  : '-';
+
                 return `
                   <tr>
                     <td style="text-align: center;">${index + 1}</td>
@@ -978,11 +1026,14 @@ const AdvanceStatementReport = () => {
                     ${hospitalType === 'hope' ? `<td style="text-align: center;" class="corporate-cell"><strong>${corporateText}</strong></td>` : ''}
                     <td>${roomBedText}</td>
                     <td style="text-align: center;">${admissionDateText}</td>
+                    <td style="text-align: center;">${intimationDateText}</td>
                     <td>${diagnosisText}</td>
                     <td style="text-align: center;">${(item as any).treatment_type || '-'}</td>
+                    <td style="text-align: center;">${(item as any).package_name || '-'}</td>
                     <td style="text-align: center;">${item.package_details || '-'}</td>
                     <td style="text-align: center;">${item.package_days || 0}</td>
                     <td style="text-align: right;">₹${(parseFloat(item.package_amount || '0') || 0).toLocaleString('en-IN')}</td>
+                    <td style="text-align: center;">${submissionDateText}</td>
                     <td style="text-align: right;">₹${(item.lab_total || 0).toLocaleString('en-IN')}</td>
                     <td style="text-align: right;">₹${(item.pharmacy_total || 0).toLocaleString('en-IN')}</td>
                     <td style="text-align: right;">₹${(item.pharmacy_paid || 0).toLocaleString('en-IN')}</td>
@@ -1294,10 +1345,7 @@ const AdvanceStatementReport = () => {
                       ...(admissionNotesDiagnosis ? [admissionNotesDiagnosis] : []),
                       ...(diagnoses.length === 0 && !admissionNotesDiagnosis && reasonForVisit ? [reasonForVisit] : []),
                     ];
-                    const otherDiagnoses = [
-                      ...junctionDiagnoses,
-                      ...(admissionNotesDiagnosis ? [admissionNotesDiagnosis] : []),
-                    ];
+                    const junctionDiagObjs = (item.visit_diagnoses?.map(vd => vd.diagnoses).filter(Boolean) || []) as Array<{ id: string; name: string }>;
 
                     // Admission date display
                     const admissionDateDisplay = item.admission_date ? (
@@ -1344,9 +1392,39 @@ const AdvanceStatementReport = () => {
                               searchPlaceholder="Type to search..."
                               className="w-full"
                             />
-                            {otherDiagnoses.length > 0 && (
-                              <div className="text-xs text-gray-500">{otherDiagnoses.join(', ')}</div>
+                            {junctionDiagObjs.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {junctionDiagObjs.map((d) => (
+                                  <span
+                                    key={d.id}
+                                    className="inline-flex items-center gap-1 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700"
+                                  >
+                                    {d.name}
+                                    <button
+                                      type="button"
+                                      className="text-gray-400 hover:text-red-600"
+                                      title="Remove this diagnosis"
+                                      onClick={() => handleAdditionalDiagnosisRemove(item.id, d.id)}
+                                    >
+                                      ×
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
                             )}
+                            {admissionNotesDiagnosis && (
+                              <div className="text-xs text-gray-500">{admissionNotesDiagnosis}</div>
+                            )}
+                            <SearchableSelect
+                              options={diagnosesList.map(d => ({ value: d.id, label: d.name }))}
+                              value=""
+                              onValueChange={(value) =>
+                                handleAdditionalDiagnosisAdd(item.id, value, junctionDiagObjs.map(d => d.id))
+                              }
+                              placeholder="+ Add additional..."
+                              searchPlaceholder="Type to search..."
+                              className="w-full"
+                            />
                           </div>
                         </TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}>
