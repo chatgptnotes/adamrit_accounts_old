@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -17,6 +17,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { toast } from 'sonner';
 import '@/styles/print.css';
 
 const AdvanceStatementReport = () => {
@@ -54,6 +56,8 @@ const AdvanceStatementReport = () => {
   const [advancePaymentsData, setAdvancePaymentsData] = useState<Record<string, { totalAdvance: number; lastPayment: { amount: number; date: string | null } }>>({});
   const [packageNames, setPackageNames] = useState<Record<string, string>>({});
   const [packages, setPackages] = useState<Array<{ id: string; name: string }>>([]);
+  const [diagnosesList, setDiagnosesList] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedRow, setSelectedRow] = useState<any | null>(null);
 
   // Debounce search term
   useEffect(() => {
@@ -80,6 +84,22 @@ const AdvanceStatementReport = () => {
     };
 
     fetchPackages();
+  }, []);
+
+  // Fetch diagnoses master for the editable diagnosis dropdown
+  useEffect(() => {
+    const fetchDiagnoses = async () => {
+      const { data, error } = await supabase
+        .from('diagnoses')
+        .select('id, name')
+        .order('name');
+
+      if (!error && data) {
+        setDiagnosesList(data);
+      }
+    };
+
+    fetchDiagnoses();
   }, []);
 
   // Fetch advance statement data
@@ -340,6 +360,33 @@ const AdvanceStatementReport = () => {
         }
       }
 
+      // Fetch intimation + bill submission data from bill_preparation
+      let billPrepMapping: Record<string, {
+        intimation_date: string | null;
+        date_of_submission: string | null;
+        bill_amount: number | null;
+        received_amount: number | null;
+        executive_who_submitted: string | null;
+        expected_payment_date: string | null;
+      }> = {};
+
+      if (uniqueVisitIds.length > 0) {
+        const { data: billPrepData, error: billPrepError } = await supabase
+          .from('bill_preparation' as any)
+          .select('visit_id, intimation_date, date_of_submission, bill_amount, received_amount, executive_who_submitted, expected_payment_date')
+          .in('visit_id', uniqueVisitIds);
+
+        if (billPrepError) {
+          console.error('Error fetching bill_preparation data:', billPrepError);
+        } else if (billPrepData) {
+          (billPrepData as any[]).forEach(bp => {
+            if (bp.visit_id) {
+              billPrepMapping[bp.visit_id] = bp;
+            }
+          });
+        }
+      }
+
       // Merge ward data, financial data, lab totals, and pharmacy totals with visits
       const visitsWithRoomInfo = data?.map(visit => ({
         ...visit,
@@ -352,7 +399,8 @@ const AdvanceStatementReport = () => {
         lab_total: labTotalMapping[visit.id] || 0,
         pharmacy_total: visit.visit_id ? (pharmacyTotalMapping[visit.visit_id] || 0) : 0,
         pharmacy_paid: visit.visit_id ? (pharmacyPaidMapping[visit.visit_id] || 0) : 0,
-        package_details: (visit as any).package_name || packageNameMapping[visit.visit_id || ''] || ''
+        package_details: (visit as any).package_name || packageNameMapping[visit.visit_id || ''] || '',
+        bill_prep: visit.visit_id ? (billPrepMapping[visit.visit_id] || null) : null
       })) || [];
 
       return visitsWithRoomInfo;
@@ -606,6 +654,21 @@ const AdvanceStatementReport = () => {
     if (error) {
       console.error('Error updating package name:', error);
     } else {
+      queryClient.invalidateQueries({ queryKey: ['advance-statement-report-currently-admitted'] });
+    }
+  };
+
+  const handleDiagnosisUpdate = async (visitId: string, diagnosisId: string) => {
+    const { error } = await supabase
+      .from('visits')
+      .update({ diagnosis_id: diagnosisId || null })
+      .eq('id', visitId);
+
+    if (error) {
+      console.error('Error updating diagnosis:', error);
+      toast.error('Failed to update diagnosis');
+    } else {
+      toast.success('Diagnosis updated');
       queryClient.invalidateQueries({ queryKey: ['advance-statement-report-currently-admitted'] });
     }
   };
@@ -1181,30 +1244,25 @@ const AdvanceStatementReport = () => {
                   {hospitalType === 'hope' && (
                     <TableHead className="min-w-[150px]">Corporate Type</TableHead>
                   )}
-                  <TableHead className="min-w-[150px]">Room/Bed</TableHead>
                   <TableHead className="min-w-[120px]">Admission Date</TableHead>
-                  <TableHead className="min-w-[200px]">Diagnosis</TableHead>
-                  <TableHead className="min-w-[140px]">Treatment Type</TableHead>
-                  <TableHead className="min-w-[150px]">Package Details</TableHead>
-                  <TableHead className="min-w-[100px]">Package Days</TableHead>
-                  <TableHead className="min-w-[100px]">Extension Days</TableHead>
+                  <TableHead className="min-w-[120px]">Intimation Date</TableHead>
+                  <TableHead className="min-w-[220px]">Diagnosis</TableHead>
+                  <TableHead className="min-w-[180px]">Package Name</TableHead>
                   <TableHead className="min-w-[120px]">Package Amount</TableHead>
-                  <TableHead className="min-w-[120px]">Lab Amount</TableHead>
-                  <TableHead className="min-w-[120px]">Pharmacy</TableHead>
-                  <TableHead className="min-w-[120px]">Pharmacy Paid</TableHead>
-                  <TableHead className="min-w-[300px]">Planned Surgery or Procedure and Cost</TableHead>
+                  <TableHead className="min-w-[120px]">Submission Date</TableHead>
+                  <TableHead className="min-w-[120px]">Bill Amount</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={hospitalType === 'hope' ? 14 : 13} className="text-center py-8">
+                    <TableCell colSpan={hospitalType === 'hope' ? 10 : 9} className="text-center py-8">
                       Loading...
                     </TableCell>
                   </TableRow>
                 ) : advanceData.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={hospitalType === 'hope' ? 14 : 13} className="text-center py-8 text-gray-500">
+                    <TableCell colSpan={hospitalType === 'hope' ? 10 : 9} className="text-center py-8 text-gray-500">
                       No data found
                     </TableCell>
                   </TableRow>
@@ -1236,56 +1294,10 @@ const AdvanceStatementReport = () => {
                       ...(admissionNotesDiagnosis ? [admissionNotesDiagnosis] : []),
                       ...(diagnoses.length === 0 && !admissionNotesDiagnosis && reasonForVisit ? [reasonForVisit] : []),
                     ];
-                    const diagnosisDisplay = allDiagnoses.length > 0 ? (
-                      <div className="space-y-1">
-                        {allDiagnoses.map((diagnosis, idx) => (
-                          <div key={idx} className="text-sm bg-blue-50 px-2 py-1 rounded">{diagnosis}</div>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="text-gray-500">No diagnosis recorded</span>
-                    );
-
-                    const surgeries = item.visit_surgeries?.map(vs => vs.cghs_surgery ? {
-                      name: vs.cghs_surgery.name,
-                      code: vs.cghs_surgery.code,
-                      category: vs.cghs_surgery.category,
-                      cost: vs.cghs_surgery.cost,
-                      NABH_NABL_Rate: vs.cghs_surgery.NABH_NABL_Rate,
-                      Non_NABH_NABL_Rate: vs.cghs_surgery.Non_NABH_NABL_Rate
-                    } : null).filter(Boolean) || [];
-
-                    const surgeryDisplay = surgeries.length > 0 ? (
-                      <div className="space-y-2">
-                        {surgeries.map((surgery, idx) => (
-                          <div key={idx} className="border-l-2 border-green-200 pl-3 bg-green-50 p-2 rounded">
-                            <div className="font-medium text-sm">{surgery.name}</div>
-                            <div className="text-xs text-gray-600">
-                              Code: {surgery.code} | Category: {surgery.category}
-                            </div>
-                            {(surgery.cost || surgery.NABH_NABL_Rate || surgery.Non_NABH_NABL_Rate) && (
-                              <div className="text-xs text-green-700 mt-1 space-y-0.5">
-                                {surgery.cost && <div>Cost: ₹{surgery.cost}</div>}
-                                {surgery.NABH_NABL_Rate && <div>NABH/NABL Rate: ₹{surgery.NABH_NABL_Rate}</div>}
-                                {surgery.Non_NABH_NABL_Rate && <div>Non-NABH/NABL Rate: ₹{surgery.Non_NABH_NABL_Rate}</div>}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="text-gray-500">No surgery planned</span>
-                    );
-
-                    // Room/Bed display
-                    const roomBedDisplay = item.room_management?.ward_type && item.room_allotted ? (
-                      <div className="space-y-1">
-                        <div className="font-semibold text-blue-700">{item.room_management.ward_type}</div>
-                        <div className="text-sm text-gray-600">Room {item.room_allotted}</div>
-                      </div>
-                    ) : (
-                      <span className="text-gray-500">Not Assigned</span>
-                    );
+                    const otherDiagnoses = [
+                      ...junctionDiagnoses,
+                      ...(admissionNotesDiagnosis ? [admissionNotesDiagnosis] : []),
+                    ];
 
                     // Admission date display
                     const admissionDateDisplay = item.admission_date ? (
@@ -1301,26 +1313,43 @@ const AdvanceStatementReport = () => {
                       <span className="text-gray-500">N/A</span>
                     );
 
+                    const billPrep = (item as any).bill_prep;
+
                     return (
-                      <TableRow key={item.id}>
+                      <TableRow
+                        key={item.id}
+                        onClick={() => setSelectedRow(item)}
+                        className="cursor-pointer hover:bg-gray-50"
+                      >
                         <TableCell className="text-center">{index + 1}</TableCell>
                         <TableCell>{patientDetails}</TableCell>
                         {hospitalType === 'hope' && (
                           <TableCell>{corporateDisplay}</TableCell>
                         )}
-                        <TableCell>{roomBedDisplay}</TableCell>
                         <TableCell>{admissionDateDisplay}</TableCell>
-                        <TableCell>{diagnosisDisplay}</TableCell>
                         <TableCell>
-                          {(item as any).treatment_type ? (
-                            <Badge variant="outline" className="capitalize">
-                              {(item as any).treatment_type}
-                            </Badge>
+                          {billPrep?.intimation_date ? (
+                            <span className="text-sm">{format(new Date(billPrep.intimation_date), 'dd/MM/yyyy')}</span>
                           ) : (
                             <span className="text-gray-400">-</span>
                           )}
                         </TableCell>
-                        <TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <div className="space-y-1">
+                            <SearchableSelect
+                              options={diagnosesList.map(d => ({ value: d.id, label: d.name }))}
+                              value={item.diagnoses?.id || ''}
+                              onValueChange={(value) => handleDiagnosisUpdate(item.id, value)}
+                              placeholder="Select diagnosis..."
+                              searchPlaceholder="Type to search..."
+                              className="w-full"
+                            />
+                            {otherDiagnoses.length > 0 && (
+                              <div className="text-xs text-gray-500">{otherDiagnoses.join(', ')}</div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
                           <SearchableSelect
                             options={packages.map(pkg => ({ value: pkg.name, label: pkg.name }))}
                             value={(item as any).package_name || ''}
@@ -1330,29 +1359,7 @@ const AdvanceStatementReport = () => {
                             className="w-full"
                           />
                         </TableCell>
-                        <TableCell className="text-center">
-                          <Input
-                            type="number"
-                            className="w-20 text-center h-8 text-sm"
-                            defaultValue={item.package_days || 0}
-                            min={0}
-                            onBlur={(e) => {
-                              const val = parseInt(e.target.value) || 0;
-                              if (val !== (item.package_days || 0)) {
-                                handlePackageDaysUpdate(item.id, val);
-                              }
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                (e.target as HTMLInputElement).blur();
-                              }
-                            }}
-                          />
-                        </TableCell>
-                        <TableCell className="text-center font-semibold">
-                          {(item as any).extension_days_count ?? 0}
-                        </TableCell>
-                        <TableCell className="text-center">
+                        <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
                           <Input
                             type="number"
                             className="w-24 text-center h-8 text-sm"
@@ -1371,34 +1378,20 @@ const AdvanceStatementReport = () => {
                             }}
                           />
                         </TableCell>
-                        <TableCell className="text-right">
-                          {item.lab_total > 0 ? (
-                            <span className="text-sm font-medium text-blue-700">
-                              ₹{item.lab_total.toLocaleString('en-IN')}
-                            </span>
+                        <TableCell>
+                          {billPrep?.date_of_submission ? (
+                            <span className="text-sm">{format(new Date(billPrep.date_of_submission), 'dd/MM/yyyy')}</span>
                           ) : (
-                            <span className="text-gray-500">₹0</span>
+                            <span className="text-gray-400">-</span>
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          {item.pharmacy_total > 0 ? (
-                            <span className="text-sm font-medium text-purple-700">
-                              ₹{item.pharmacy_total.toLocaleString('en-IN')}
-                            </span>
+                          {billPrep?.bill_amount ? (
+                            <span className="text-sm font-medium">₹{Number(billPrep.bill_amount).toLocaleString('en-IN')}</span>
                           ) : (
-                            <span className="text-gray-500">₹0</span>
+                            <span className="text-gray-400">-</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-right">
-                          {item.pharmacy_paid > 0 ? (
-                            <span className="text-sm font-medium text-green-700">
-                              ₹{item.pharmacy_paid.toLocaleString('en-IN')}
-                            </span>
-                          ) : (
-                            <span className="text-gray-500">₹0</span>
-                          )}
-                        </TableCell>
-                        <TableCell>{surgeryDisplay}</TableCell>
                       </TableRow>
                     );
                   })
@@ -1408,6 +1401,172 @@ const AdvanceStatementReport = () => {
           </div>
         </div>
       </div>
+
+      {/* Extended row details in a right sidebar */}
+      <Sheet open={!!selectedRow} onOpenChange={(open) => { if (!open) setSelectedRow(null); }}>
+        <SheetContent className="w-full sm:w-[480px] sm:max-w-[480px] overflow-y-auto">
+          {selectedRow && (() => {
+            const patient = selectedRow.patients;
+            const billPrep = selectedRow.bill_prep;
+            const patientId = patient?.id || '';
+            const visitId = selectedRow.visit_id || '';
+            const totalBill = billsData[patientId] || 0;
+            const advanceInfo = advancePaymentsData[visitId] || { totalAdvance: 0, lastPayment: { amount: 0, date: null } };
+            const balance = totalBill - advanceInfo.totalAdvance;
+
+            const directDiagnosis = selectedRow.diagnoses?.name;
+            const junctionDiagnoses = selectedRow.visit_diagnoses?.map((vd: any) => vd.diagnoses?.name).filter(Boolean) || [];
+            const admissionNotesDiagnosis = selectedRow.ipd_admission_notes?.provisional_diagnosis;
+            const allDiagnoses = [
+              ...(directDiagnosis ? [directDiagnosis] : []),
+              ...junctionDiagnoses,
+              ...(admissionNotesDiagnosis ? [admissionNotesDiagnosis] : []),
+            ];
+
+            const surgeries = selectedRow.visit_surgeries?.map((vs: any) => vs.cghs_surgery).filter(Boolean) || [];
+
+            const detailRow = (label: string, value: ReactNode) => (
+              <div className="flex justify-between gap-4 py-1.5 border-b border-gray-100 text-sm">
+                <span className="text-gray-500 shrink-0">{label}</span>
+                <span className="text-right font-medium">{value}</span>
+              </div>
+            );
+
+            const formatDateOrDash = (d: string | null | undefined) =>
+              d ? format(new Date(d), 'dd/MM/yyyy') : '-';
+
+            return (
+              <div className="space-y-6">
+                <SheetHeader>
+                  <SheetTitle>{patient?.name || 'N/A'}</SheetTitle>
+                  <div className="text-sm text-gray-500">
+                    Visit ID: {selectedRow.visit_id || 'N/A'} | Patient ID: {patient?.patients_id || 'N/A'}
+                  </div>
+                  <div className="text-sm text-gray-500">
+                    Age: {patient?.age || 'N/A'} | Sex: {patient?.gender || 'N/A'}
+                    {patient?.corporate && <> | {patient.corporate}</>}
+                  </div>
+                  {patient?.insurance_person_no && (
+                    <div className="text-sm text-blue-600">Insurance: {patient.insurance_person_no}</div>
+                  )}
+                </SheetHeader>
+
+                <div>
+                  <h3 className="text-sm font-semibold mb-2">Admission</h3>
+                  {detailRow('Admission Date', formatDateOrDash(selectedRow.admission_date))}
+                  {detailRow('Room/Bed', selectedRow.room_management?.ward_type && selectedRow.room_allotted
+                    ? `${selectedRow.room_management.ward_type} - Room ${selectedRow.room_allotted}`
+                    : 'Not Assigned')}
+                  {detailRow('Treatment Type', selectedRow.treatment_type
+                    ? <Badge variant="outline" className="capitalize">{selectedRow.treatment_type}</Badge>
+                    : '-')}
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold mb-2">Diagnosis</h3>
+                  {allDiagnoses.length > 0 ? (
+                    <div className="space-y-1">
+                      {allDiagnoses.map((diagnosis: string, idx: number) => (
+                        <div key={idx} className="text-sm bg-blue-50 px-2 py-1 rounded">{diagnosis}</div>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-sm text-gray-500">No diagnosis recorded</span>
+                  )}
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold mb-2">Package</h3>
+                  {detailRow('Package Name', selectedRow.package_name || selectedRow.package_details || '-')}
+                  {detailRow('Package Amount', selectedRow.package_amount
+                    ? `₹${(parseFloat(selectedRow.package_amount) || 0).toLocaleString('en-IN')}`
+                    : '-')}
+                  {detailRow('Package Days', (
+                    <Input
+                      type="number"
+                      className="w-20 text-center h-7 text-sm"
+                      defaultValue={selectedRow.package_days || 0}
+                      min={0}
+                      onBlur={(e) => {
+                        const val = parseInt(e.target.value) || 0;
+                        if (val !== (selectedRow.package_days || 0)) {
+                          handlePackageDaysUpdate(selectedRow.id, val);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          (e.target as HTMLInputElement).blur();
+                        }
+                      }}
+                    />
+                  ))}
+                  {detailRow('Extension Days', selectedRow.extension_days_count ?? 0)}
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold mb-2">Intimation + Bill Submission</h3>
+                  {detailRow('Intimation Date', formatDateOrDash(billPrep?.intimation_date))}
+                  {detailRow('Submission Date', formatDateOrDash(billPrep?.date_of_submission))}
+                  {detailRow('Bill Amount', billPrep?.bill_amount
+                    ? `₹${Number(billPrep.bill_amount).toLocaleString('en-IN')}`
+                    : '-')}
+                  {detailRow('Received Amount', billPrep?.received_amount
+                    ? `₹${Number(billPrep.received_amount).toLocaleString('en-IN')}`
+                    : '-')}
+                  {detailRow('Submitted By', billPrep?.executive_who_submitted || '-')}
+                  {detailRow('Expected Payment', formatDateOrDash(billPrep?.expected_payment_date))}
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold mb-2">Charges</h3>
+                  {detailRow('Lab Amount', `₹${(selectedRow.lab_total || 0).toLocaleString('en-IN')}`)}
+                  {detailRow('Pharmacy', `₹${(selectedRow.pharmacy_total || 0).toLocaleString('en-IN')}`)}
+                  {detailRow('Pharmacy Paid', `₹${(selectedRow.pharmacy_paid || 0).toLocaleString('en-IN')}`)}
+                  {detailRow('Total Bill', `₹${totalBill.toLocaleString('en-IN')}`)}
+                  {detailRow('Advance Till Date', `₹${advanceInfo.totalAdvance.toLocaleString('en-IN')}`)}
+                  {detailRow('Balance', (
+                    <span className={balance > 0 ? 'text-red-600' : 'text-green-600'}>
+                      ₹{balance.toLocaleString('en-IN')}
+                    </span>
+                  ))}
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold mb-2">Planned Surgery / Procedure</h3>
+                  {surgeries.length > 0 ? (
+                    <div className="space-y-2">
+                      {surgeries.map((surgery: any, idx: number) => (
+                        <div key={idx} className="border-l-2 border-green-200 pl-3 bg-green-50 p-2 rounded">
+                          <div className="font-medium text-sm">{surgery.name}</div>
+                          <div className="text-xs text-gray-600">
+                            Code: {surgery.code} | Category: {surgery.category}
+                          </div>
+                          {(surgery.cost || surgery.NABH_NABL_Rate || surgery.Non_NABH_NABL_Rate) && (
+                            <div className="text-xs text-green-700 mt-1 space-y-0.5">
+                              {surgery.cost && <div>Cost: ₹{surgery.cost}</div>}
+                              {surgery.NABH_NABL_Rate && <div>NABH/NABL Rate: ₹{surgery.NABH_NABL_Rate}</div>}
+                              {surgery.Non_NABH_NABL_Rate && <div>Non-NABH/NABL Rate: ₹{surgery.Non_NABH_NABL_Rate}</div>}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-sm text-gray-500">No surgery planned</span>
+                  )}
+                </div>
+
+                {selectedRow.comments && (
+                  <div>
+                    <h3 className="text-sm font-semibold mb-2">Remark</h3>
+                    <p className="text-sm text-gray-700">{selectedRow.comments}</p>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 };

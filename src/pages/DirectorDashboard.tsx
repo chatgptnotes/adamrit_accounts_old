@@ -698,7 +698,22 @@ export default function DirectorDashboard() {
       <DirectorFinancialStatements />
 
       {/* Navigation Cards Section */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="hover:shadow-lg transition-shadow border-l-4 border-l-blue-500">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <FileText className="h-5 w-5 text-blue-600" />
+              Advance Statement Report
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-sm text-gray-600">Yojana patients with intimation, package and bill submission details</p>
+            <Button variant="outline" className="w-full justify-between" onClick={() => navigate('/advance-statement-report')}>
+              View Details <ArrowRight className="h-4 w-4" />
+            </Button>
+          </CardContent>
+        </Card>
+
         <Card className="hover:shadow-lg transition-shadow border-l-4 border-l-purple-500">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg flex items-center gap-2">
