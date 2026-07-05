@@ -4,7 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { accountMovements, type Movement } from '@/lib/accountMovements';
 import { format } from 'date-fns';
 import { useCompanies } from '@/hooks/useCompanies';
-import { TallyScreen } from './tally/TallyChrome';
+import { TallyScreen, getTallyConfig } from './tally/TallyChrome';
 
 interface Account {
   id: string;
@@ -51,7 +51,7 @@ const ProfitLoss: React.FC = () => {
   const [fromDate, setFromDate] = useState(fyStart);
   const [toDate, setToDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [showPeriod, setShowPeriod] = useState(false);
-  const [detailed, setDetailed] = useState(false);
+  const [detailed, setDetailed] = useState(() => getTallyConfig().defaultDetailed);
   const [compare, setCompare] = useState(false); // previous-year column
 
   const { data: accounts = [], isLoading: accountsLoading } = useQuery({

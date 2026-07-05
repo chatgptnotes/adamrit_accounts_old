@@ -11,6 +11,12 @@ export interface CostCentre {
   name: string;
   alias: string | null;
   is_active: boolean;
+  category_id?: string | null;
+}
+
+export interface CostCategory {
+  id: string;
+  name: string;
 }
 
 interface CentreEntry {
@@ -49,7 +55,7 @@ export const useCostCentres = () =>
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from('cost_centres')
-        .select('id, name, alias, is_active')
+        .select('*')
         .eq('is_active', true)
         .order('name');
       if (error) return [] as CostCentre[]; // table not created yet
@@ -70,7 +76,21 @@ const CostCentres: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpe
   const [showPeriod, setShowPeriod] = useState(false);
   const [openCentre, setOpenCentre] = useState<CostCentre | null>(null);
   const [newName, setNewName] = useState('');
+  const [newCategoryId, setNewCategoryId] = useState('');
   const [saving, setSaving] = useState(false);
+
+  const { data: categories = [] } = useQuery({
+    queryKey: ['cost_categories'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('cost_categories')
+        .select('id, name')
+        .eq('is_active', true)
+        .order('name');
+      if (error) return [] as CostCategory[];
+      return (data ?? []) as CostCategory[];
+    },
+  });
 
   const { data: centres = [], isLoading: centresLoading } = useCostCentres();
 
@@ -121,7 +141,9 @@ const CostCentres: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpe
     if (!name) return;
     setSaving(true);
     try {
-      const { error } = await (supabase as any).from('cost_centres').insert({ name });
+      const { error } = await (supabase as any)
+        .from('cost_centres')
+        .insert({ name, category_id: newCategoryId || null });
       if (error) throw error;
       toast.success(`Cost centre "${name}" created`);
       setNewName('');
@@ -225,9 +247,24 @@ const CostCentres: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpe
                 No cost centres yet — run the cost centres migration, then add departments below.
               </div>
             ) : (
-              centres.map((c) => {
-                const s = summary.get(c.id);
-                return (
+              [...categories, { id: '__none__', name: 'Uncategorised' } as CostCategory]
+                .map((cat) => ({
+                  cat,
+                  list: centres.filter((c) =>
+                    cat.id === '__none__'
+                      ? !c.category_id || !categories.some((k) => k.id === c.category_id)
+                      : c.category_id === cat.id,
+                  ),
+                }))
+                .filter(({ list }) => list.length > 0)
+                .map(({ cat, list }) => (
+                  <React.Fragment key={cat.id}>
+                    {categories.length > 0 && (
+                      <div className="mt-1.5 bg-[#eef3fa] px-1 font-bold">{cat.name}</div>
+                    )}
+                    {list.map((c) => {
+                      const s = summary.get(c.id);
+                      return (
                   <div key={c.id} className="flex border-b border-dashed border-gray-200 hover:bg-[#fdf6d8]">
                     <button
                       type="button"
@@ -249,8 +286,10 @@ const CostCentres: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpe
                       hide
                     </button>
                   </div>
-                );
-              })
+                      );
+                    })}
+                  </React.Fragment>
+                ))
             )}
 
             {/* Tally-style quick creation */}
@@ -266,6 +305,21 @@ const CostCentres: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpe
                   className="w-full border border-gray-400 bg-[#fdf6d8] px-2 py-0.5 focus:outline-none"
                   placeholder="e.g. Physiotherapy"
                 />
+                {categories.length > 0 && (
+                  <select
+                    value={newCategoryId}
+                    onChange={(e) => setNewCategoryId(e.target.value)}
+                    title="Cost category"
+                    className="shrink-0 border border-gray-400 bg-white px-1 py-0.5 focus:outline-none"
+                  >
+                    <option value="">— Category —</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <button
                   type="button"
                   onClick={addCentre}

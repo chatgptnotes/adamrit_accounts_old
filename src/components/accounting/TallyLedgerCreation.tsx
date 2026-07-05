@@ -66,6 +66,8 @@ const TallyLedgerCreation: React.FC = () => {
   const [ifsc, setIfsc] = useState('');
   const [pan, setPan] = useState('');
   const [gstin, setGstin] = useState('');
+  // When set, the form is in Tally's Ledger Alteration mode
+  const [editing, setEditing] = useState<any | null>(null);
   const [saving, setSaving] = useState(false);
 
   const { data: groups = [] } = useQuery({
@@ -82,7 +84,7 @@ const TallyLedgerCreation: React.FC = () => {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from('ledgers')
-        .select('id, code, name, alias, group_id, group_name, opening_balance, is_active')
+        .select('*')
         .order('name');
       if (error) throw error;
       return (data ?? []) as Ledger[];
@@ -106,7 +108,32 @@ const TallyLedgerCreation: React.FC = () => {
     return { dr, cr };
   }, [ledgers, openingBalance, openingType]);
 
+  const startEdit = (l: any): void => {
+    setEditing(l);
+    setName(l.name ?? '');
+    setAlias(l.alias ?? '');
+    setUnder(l.group_id ?? '');
+    const ob = Number(l.opening_balance) || 0;
+    setOpeningBalance(ob ? String(Math.abs(ob)) : '');
+    setOpeningType(ob < 0 ? 'Cr' : 'Dr');
+    setMailingName(l.mailing_name ?? '');
+    setAddress(l.address ?? '');
+    setStateName(l.state ?? 'Maharashtra');
+    setCountry(l.country ?? 'India');
+    setPincode(l.pincode ?? '');
+    const hasBank = !!(l.bank_name || l.account_number || l.ifsc_code);
+    setProvideBank(hasBank);
+    setBankName(l.bank_name ?? '');
+    setBankBranch(l.bank_branch ?? '');
+    setAccountNumber(l.account_number ?? '');
+    setIfsc(l.ifsc_code ?? '');
+    setPan(l.pan ?? '');
+    setGstin(l.gstin ?? '');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const handleClear = (): void => {
+    setEditing(null);
     setName('');
     setAlias('');
     setUnder('');
@@ -144,6 +171,35 @@ const TallyLedgerCreation: React.FC = () => {
     const opening = (Number(openingBalance) || 0) * (openingType === 'Cr' ? -1 : 1);
     setSaving(true);
     try {
+      if (editing) {
+        const { error } = await (supabase as any)
+          .from('ledgers')
+          .update({
+            name: trimmed,
+            alias: alias.trim() || null,
+            group_id: group.id,
+            group_name: group.name,
+            nature: group.nature === 'Credit' ? 'Cr' : group.nature === 'Debit' ? 'Dr' : null,
+            opening_balance: opening,
+            mailing_name: mailingName.trim() || trimmed,
+            address: address.trim() || null,
+            state: stateName.trim() || null,
+            country: country.trim() || null,
+            pincode: pincode.trim() || null,
+            bank_name: provideBank ? bankName.trim() || null : null,
+            bank_branch: provideBank ? bankBranch.trim() || null : null,
+            account_number: provideBank ? accountNumber.trim() || null : null,
+            ifsc_code: provideBank ? ifsc.trim() || null : null,
+            pan: pan.trim() || null,
+            gstin: gstin.trim() || null,
+          })
+          .eq('id', editing.id);
+        if (error) throw error;
+        toast.success(`Ledger "${trimmed}" altered`);
+        queryClient.invalidateQueries({ queryKey: ['ledgers_master'] });
+        handleClear();
+        return;
+      }
       const { error } = await (supabase as any).from('ledgers').insert({
         code: codeFromName(trimmed),
         name: trimmed,
@@ -199,7 +255,9 @@ const TallyLedgerCreation: React.FC = () => {
     <div className="space-y-6">
       {/* ----- Tally-style Ledger Creation panel ----- */}
       <div className="overflow-hidden rounded-md border shadow-sm">
-        <div className="bg-[#16437e] px-3 py-1.5 text-sm font-semibold text-white">Ledger Creation</div>
+        <div className="bg-[#16437e] px-3 py-1.5 text-sm font-semibold text-white">
+          {editing ? `Ledger Alteration — ${editing.name}` : 'Ledger Creation'}
+        </div>
 
         <div className="bg-[#fffefb] px-4 pb-3 pt-3">
           {/* Total Opening Balance panel, Tally top-right */}
@@ -378,7 +436,12 @@ const TallyLedgerCreation: React.FC = () => {
               </TableRow>
             ) : (
               ledgers.map((l) => (
-                <TableRow key={l.id}>
+                <TableRow
+                  key={l.id}
+                  onClick={() => startEdit(l)}
+                  title="Alter ledger"
+                  className={`cursor-pointer ${editing?.id === l.id ? 'bg-[#fdf6d8]' : ''}`}
+                >
                   <TableCell className="font-medium">{l.name}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{l.alias || '-'}</TableCell>
                   <TableCell className="text-sm">{l.group_name || '-'}</TableCell>
@@ -393,7 +456,10 @@ const TallyLedgerCreation: React.FC = () => {
                       size="icon"
                       className="h-7 w-7"
                       aria-label="Delete ledger"
-                      onClick={() => handleDelete(l)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(l);
+                      }}
                     >
                       <Trash2 className="h-3.5 w-3.5 text-red-500" />
                     </Button>

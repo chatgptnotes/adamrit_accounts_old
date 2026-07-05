@@ -4,7 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { accountMovements, type Movement } from '@/lib/accountMovements';
 import { format } from 'date-fns';
 import { useCompanies } from '@/hooks/useCompanies';
-import { TallyScreen } from './tally/TallyChrome';
+import { TallyScreen, getTallyConfig } from './tally/TallyChrome';
 
 interface Account {
   id: string;
@@ -42,7 +42,7 @@ const TrialBalance: React.FC<{ onOpenGroup?: (head: string) => void }> = ({ onOp
   const [selectedCompanyId, setSelectedCompanyId] = useState('');
   const [asOfDate, setAsOfDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [showPeriod, setShowPeriod] = useState(false);
-  const [detailed, setDetailed] = useState(true);
+  const [detailed, setDetailed] = useState(() => getTallyConfig().defaultDetailed || true);
   // C: New Column — comparison as-at date (defaults to same day last year)
   const [compareAsOf, setCompareAsOf] = useState<string | null>(null);
 

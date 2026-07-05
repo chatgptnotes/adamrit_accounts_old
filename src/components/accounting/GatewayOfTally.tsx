@@ -47,7 +47,7 @@ const MAIN_MENU: MenuSection[] = [
   {
     heading: 'UTILITIES',
     items: [
-      { label: 'Banking', target: 'bank-reconciliation', hotIndex: 2 },
+      { label: 'Banking', target: 'banking', hotIndex: 2 },
       { label: 'Import/Export', target: 'tally-import-export' },
     ],
   },
@@ -86,6 +86,9 @@ const MORE_REPORTS: MenuSection[] = [
       { label: 'Statistics', target: 'statistics' },
       { label: 'Receipts & Payments', target: 'receipts-payments' },
       { label: 'Edit Log', target: 'edit-log' },
+      { label: 'Exception Reports', target: 'exception-reports' },
+      { label: 'Bill-wise Outstandings', target: 'billwise' },
+      { label: 'Bank Reconciliation', target: 'bank-reconciliation' },
     ],
   },
 ];

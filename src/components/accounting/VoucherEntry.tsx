@@ -48,6 +48,7 @@ interface ParticularsLine {
   account: Account | null;
   amount: string;
   costCentreId?: string;
+  billRef?: string;
 }
 
 // A journal-style row (By/To modes: Journal / Sales / Credit Note / Debit Note …)
@@ -57,6 +58,7 @@ interface JournalLine {
   account: Account | null;
   amount: string;
   costCentreId?: string;
+  billRef?: string;
 }
 
 /**
@@ -242,6 +244,8 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
   // when an old voucher's entries don't fit the single-account shape.
   const [loadedNumber, setLoadedNumber] = useState('');
   const [forceJournal, setForceJournal] = useState(false);
+  // Tally's L: Optional — saved outside the books until made regular
+  const [isOptional, setIsOptional] = useState(false);
 
   // Entry rows
   const lineKey = useRef(0);
@@ -284,6 +288,13 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
   // ------ Data ------
   const { data: companies = [] } = useCompanies();
   const { data: costCentres = [] } = useCostCentres();
+  const { data: billRefEnabled = false } = useQuery({
+    queryKey: ['billref_probe'],
+    queryFn: async () => {
+      const { error } = await (supabase as any).from('voucher_entries').select('bill_ref').limit(1);
+      return !error;
+    },
+  });
 
   const { data: voucherTypes = [] } = useQuery({
     queryKey: ['voucher_types'],
@@ -345,6 +356,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
     setNarration(loadedVoucher.narration || '');
     setPatientId(loadedVoucher.patient_id || '');
     if (loadedVoucher.company_id) setSelectedCompanyId(loadedVoucher.company_id);
+    setIsOptional(!!loadedVoucher.is_optional);
 
     const byId = new Map(accounts.map((a) => [a.id, a]));
     const entries = [...(loadedVoucher.voucher_entries ?? [])].sort(
@@ -368,6 +380,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
               account: byId.get(e.account_id) ?? null,
               amount: String(mode.accountIsDebit ? Number(e.credit_amount) : Number(e.debit_amount)),
               costCentreId: e.cost_centre_id ?? undefined,
+              billRef: e.bill_ref ?? undefined,
             }))
           : [newParticularsLine()],
       );
@@ -382,6 +395,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
           account: byId.get(e.account_id) ?? null,
           amount: String(Number(e.debit_amount) > 0 ? Number(e.debit_amount) : Number(e.credit_amount)),
           costCentreId: e.cost_centre_id ?? undefined,
+          billRef: e.bill_ref ?? undefined,
         }));
       setJournalLines(rows.length >= 2 ? rows : [newJournalLine('Dr'), newJournalLine('Cr')]);
     }
@@ -467,6 +481,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
 
   // ------ Clear / reset the entire form ------
   const handleClear = () => {
+    setIsOptional(false);
     setVoucherDate(format(new Date(), 'yyyy-MM-dd'));
     setReferenceNumber('');
     setReferenceDate('');
@@ -503,6 +518,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
         credit_amount: singleMode.accountIsDebit ? Number(l.amount) : 0,
         narration: '',
         cost_centre_id: l.costCentreId || null,
+        bill_ref: l.billRef?.trim() || null,
       }));
       return [accountRow, ...lineRows];
     }
@@ -517,6 +533,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
       credit_amount: l.drcr === 'Cr' ? Number(l.amount) : 0,
       narration: '',
       cost_centre_id: l.costCentreId || null,
+      bill_ref: l.billRef?.trim() || null,
     }));
   };
 
@@ -561,7 +578,8 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
             narration: narration || '',
             total_amount: debitSum,
             patient_id: patientId || null,
-            status: status === 'posted' ? 'AUTHORISED' : 'PENDING',
+            status: isOptional ? 'PENDING' : status === 'posted' ? 'AUTHORISED' : 'PENDING',
+            is_optional: isOptional,
             last_modified_by: username,
           })
           .eq('id', voucherId!);
@@ -583,6 +601,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
             narration: e.narration || '',
             entry_order: i + 1,
             ...(costCentres.length > 0 ? { cost_centre_id: (e as any).cost_centre_id ?? null } : {}),
+            ...(billRefEnabled ? { bill_ref: (e as any).bill_ref ?? null } : {}),
           })),
         );
         if (iErr) {
@@ -614,7 +633,8 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
           patient_id: patientId || null,
           company_id: selectedCompanyId || null,
           // vouchers.status CHECK constraint allows PENDING / AUTHORISED / CANCELLED
-          status: status === 'posted' ? 'AUTHORISED' : 'PENDING',
+          status: isOptional ? 'PENDING' : status === 'posted' ? 'AUTHORISED' : 'PENDING',
+          is_optional: isOptional,
           created_by: 'system',
           last_modified_by: username,
         })
@@ -634,6 +654,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
         narration: e.narration || '',
         entry_order: i + 1,
         ...(costCentres.length > 0 ? { cost_centre_id: (e as any).cost_centre_id ?? null } : {}),
+        ...(billRefEnabled ? { bill_ref: (e as any).bill_ref ?? null } : {}),
       }));
 
       const { error: eErr } = await supabase.from('voucher_entries').insert(entryRows);
@@ -808,6 +829,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
     if (alterMode) {
       return [
         { hotkey: 'F2', label: 'Date', onClick: () => dateRef.current?.showPicker?.() ?? dateRef.current?.focus() },
+        { hotkey: 'L', label: 'Optional', gapBefore: true, onClick: () => setIsOptional((v) => !v), active: isOptional },
         { hotkey: 'P', label: 'Print Vch', gapBefore: true, onClick: printVoucher },
         { hotkey: 'X', label: 'Cancel Vch', gapBefore: true, onClick: cancelVoucher },
         { hotkey: 'D', label: 'Delete', onClick: deleteVoucher },
@@ -841,10 +863,23 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
         active: selectedVoucherType === vt.id,
       });
     });
+    items.push({ hotkey: 'L', label: 'Optional', gapBefore: true, onClick: () => setIsOptional((v) => !v), active: isOptional });
+    items.push({
+      hotkey: 'T',
+      label: 'Post-Dated',
+      onClick: () => {
+        // Tally: a post-dated voucher simply carries a future date
+        const d = new Date();
+        d.setDate(d.getDate() + 30);
+        setVoucherDate(format(d, 'yyyy-MM-dd'));
+        toast.info('Date set 30 days ahead — adjust as needed. Post-dated vouchers stay out of reports until due.');
+        setTimeout(() => dateRef.current?.focus(), 0);
+      },
+    });
     items.push({ hotkey: 'P', label: 'Print Vch', gapBefore: true, onClick: printVoucher });
     return items;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [voucherTypes, selectedVoucherType, alterMode]);
+  }, [voucherTypes, selectedVoucherType, alterMode, isOptional]);
 
   const accountBalance = account ? balances[account.id] : undefined;
 
@@ -864,6 +899,10 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
             <span className="min-w-[100px] border border-gray-400 bg-[#fdf6d8] px-2 font-mono">
               {voucherNumber || '…'}
             </span>
+            {isOptional && <span className="bg-orange-600 px-2 py-0.5 text-[11px] font-bold text-white">OPTIONAL</span>}
+            {voucherDate > format(new Date(), 'yyyy-MM-dd') && (
+              <span className="bg-purple-700 px-2 py-0.5 text-[11px] font-bold text-white">POST-DATED</span>
+            )}
             <Select value={selectedCompanyId} onValueChange={setSelectedCompanyId}>
               <SelectTrigger className="h-6 w-56 border-gray-300 bg-white text-xs shadow-none">
                 <SelectValue placeholder="Select company" />
@@ -982,6 +1021,15 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
                     }}
                     className={amountInputClass}
                   />
+                  {billRefEnabled && (
+                    <input
+                      value={line.billRef ?? ''}
+                      onChange={(e) => updatePartLine(line.key, { billRef: e.target.value })}
+                      placeholder="Ref"
+                      title="Bill reference (bill-wise outstandings)"
+                      className="h-7 w-24 border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-[11px] focus:outline-none"
+                    />
+                  )}
                   {costCentres.length > 0 && (
                     <select
                       value={line.costCentreId ?? ''}
@@ -1098,6 +1146,15 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
                     }}
                     className={amountInputClass}
                   />
+                  {billRefEnabled && (
+                    <input
+                      value={line.billRef ?? ''}
+                      onChange={(e) => updateJournalLine(line.key, { billRef: e.target.value })}
+                      placeholder="Ref"
+                      title="Bill reference (bill-wise outstandings)"
+                      className="h-7 w-24 border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-[11px] focus:outline-none"
+                    />
+                  )}
                   {costCentres.length > 0 && (
                     <select
                       value={line.costCentreId ?? ''}

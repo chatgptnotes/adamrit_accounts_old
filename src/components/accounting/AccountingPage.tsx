@@ -45,6 +45,9 @@ import EditLog from './EditLog';
 import FundsFlow from './FundsFlow';
 import StatisticsScreen from './StatisticsScreen';
 import OpeningBalances from './OpeningBalances';
+import ExceptionReports from './ExceptionReports';
+import BillwiseOutstanding from './BillwiseOutstanding';
+import Banking from './Banking';
 
 // Live Tally-gateway suite is heavy (12 sub-screens) — load on demand
 const TallyLivePage = lazy(() => import('@/components/tally/TallyPage'));
@@ -77,6 +80,9 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'receipts-payments', label: 'Receipts & Payments', icon: ArrowLeftRight },
   { id: 'cost-centres', label: 'Cost Centres', icon: Building2 },
   { id: 'edit-log', label: 'Edit Log', icon: FileText },
+  { id: 'exception-reports', label: 'Exception Reports', icon: Scale },
+  { id: 'billwise', label: 'Bill-wise Outstandings', icon: Landmark },
+  { id: 'banking', label: 'Banking', icon: Building2 },
   { id: 'trial-balance', label: 'Trial Balance', icon: Scale },
   { id: 'balance-sheet', label: 'Balance Sheet', icon: Landmark },
   { id: 'profit-loss', label: 'Profit & Loss', icon: TrendingUp },
@@ -134,6 +140,12 @@ const renderContent = (
       return <CostCentres onOpenVoucher={openVoucher} />;
     case 'edit-log':
       return <EditLog onOpenVoucher={openVoucher} />;
+    case 'exception-reports':
+      return <ExceptionReports onOpenVoucher={openVoucher} />;
+    case 'billwise':
+      return <BillwiseOutstanding onOpenVoucher={openVoucher} />;
+    case 'banking':
+      return <Banking />;
     case 'tally-live':
       return (
         <Suspense fallback={<div className="py-16 text-center text-sm text-gray-400">Loading Tally Live…</div>}>

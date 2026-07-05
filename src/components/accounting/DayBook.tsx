@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
-import { TallyScreen } from './tally/TallyChrome';
+import { TallyScreen, getTallyConfig } from './tally/TallyChrome';
 
 interface VoucherType {
   id: string;
@@ -46,11 +46,15 @@ const tallyDateLabel = (iso: string): string => {
  */
 const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVoucher }) => {
   const today = format(new Date(), 'yyyy-MM-dd');
-  const [fromDate, setFromDate] = useState(today);
+  const [fromDate, setFromDate] = useState(() =>
+    getTallyConfig().dayBookMonth ? today.slice(0, 8) + '01' : today,
+  );
   const [toDate, setToDate] = useState(today);
   const [showPeriod, setShowPeriod] = useState(false);
   const [typeFilter, setTypeFilter] = useState('');
-  const [detailed, setDetailed] = useState(false);
+  const [detailed, setDetailed] = useState(() => getTallyConfig().defaultDetailed);
+  // Regular = authorised up to today; Optional = is_optional; Post-Dated = future-dated
+  const [scope, setScope] = useState<'Regular' | 'Optional' | 'Post-Dated'>('Regular');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const { data: voucherTypes = [] } = useQuery({
@@ -67,7 +71,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
   });
 
   const { data: vouchers = [], isLoading } = useQuery({
-    queryKey: ['daybook_vouchers', fromDate, toDate, typeFilter],
+    queryKey: ['daybook_vouchers', fromDate, toDate, typeFilter, scope],
     queryFn: async () => {
       let query = supabase
         .from('vouchers')
@@ -78,10 +82,17 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
             id, debit_amount, credit_amount, narration, entry_order,
             account:chart_of_accounts(id, account_name, account_code)
           )
-        `)
-        .eq('status', 'AUTHORISED')
-        .gte('voucher_date', fromDate)
-        .lte('voucher_date', toDate)
+        `);
+      if (scope === 'Optional') {
+        query = (query as any).eq('is_optional', true);
+      } else if (scope === 'Post-Dated') {
+        query = query.eq('status', 'AUTHORISED').gt('voucher_date', format(new Date(), 'yyyy-MM-dd'));
+      } else {
+        query = query.eq('status', 'AUTHORISED');
+      }
+      query = query
+        .gte('voucher_date', scope === 'Post-Dated' ? format(new Date(), 'yyyy-MM-dd') : fromDate)
+        .lte('voucher_date', scope === 'Post-Dated' ? '2099-12-31' : toDate)
         .order('voucher_date', { ascending: true })
         .order('created_at', { ascending: true })
         .limit(1000);
@@ -117,7 +128,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
 
   return (
     <TallyScreen
-      title={`Day Book${typeName ? ` — ${typeName}` : ''}`}
+      title={`Day Book${typeName ? ` — ${typeName}` : ''}${scope !== 'Regular' ? ` (${scope})` : ''}`}
       rail={[
         { hotkey: 'F2', label: 'Period', onClick: () => setShowPeriod((v) => !v) },
         { hotkey: 'F3', label: 'Company', disabled: true },
@@ -130,6 +141,16 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
               const ids = ['', ...voucherTypes.map((t) => t.id)];
               return ids[(ids.indexOf(cur) + 1) % ids.length];
             }),
+        },
+        {
+          hotkey: 'F5',
+          label: scope,
+          onClick: () =>
+            setScope((cur) => {
+              const order: ('Regular' | 'Optional' | 'Post-Dated')[] = ['Regular', 'Optional', 'Post-Dated'];
+              return order[(order.indexOf(cur) + 1) % order.length];
+            }),
+          active: scope !== 'Regular',
         },
         { hotkey: 'H', label: detailed ? 'Condensed' : 'Detailed', gapBefore: true, onClick: () => setDetailed((v) => !v) },
         { label: 'Save View', disabled: true },

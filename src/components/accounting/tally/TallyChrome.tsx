@@ -14,6 +14,15 @@ import { HOSPITAL_CONFIGS, type HospitalType } from '@/types/hospital';
  * Tally greys inapplicable actions.
  */
 
+// F12: Configure — persisted preferences applied across report screens
+export const getTallyConfig = (): { defaultDetailed: boolean; dayBookMonth: boolean } => {
+  try {
+    return { defaultDetailed: false, dayBookMonth: false, ...JSON.parse(localStorage.getItem('tally-config') || '{}') };
+  } catch {
+    return { defaultDetailed: false, dayBookMonth: false };
+  }
+};
+
 // Tally's classic UI is small, tight sans-serif.
 export const TALLY_FONT = { fontFamily: 'Verdana, "Segoe UI", Tahoma, Arial, sans-serif' } as const;
 
@@ -47,6 +56,7 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
   // Alt+F focuses the finder, like Tally
@@ -55,6 +65,10 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
       if (e.altKey && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault();
         inputRef.current?.focus();
+      }
+      if (e.key === 'F12') {
+        e.preventDefault();
+        setConfigOpen(true);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -167,8 +181,10 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
         })}
         {menu('P', 'Print', () => window.print())}
         {menu('F1', 'Help', () => setHelpOpen(true))}
+        {menu('F12', 'Configure', () => setConfigOpen(true))}
       </div>
       {helpOpen && <TallyHelp onClose={() => setHelpOpen(false)} />}
+      {configOpen && <TallyConfigure onClose={() => setConfigOpen(false)} />}
     </div>
   );
 };
@@ -238,6 +254,61 @@ const TallyHelp: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   );
 };
 
+const TallyConfigure: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const [cfg, setCfg] = useState(getTallyConfig());
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+
+  const set = (patch: Partial<typeof cfg>) => {
+    const next = { ...cfg, ...patch };
+    setCfg(next);
+    localStorage.setItem('tally-config', JSON.stringify(next));
+  };
+
+  const yn = (v: boolean, onToggle: () => void) => (
+    <button type="button" onClick={onToggle} className="min-w-[44px] border-b border-dashed border-gray-400 px-2 text-left font-semibold hover:bg-[#fdf6d8]">
+      {v ? 'Yes' : 'No'}
+    </button>
+  );
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        style={TALLY_FONT}
+        className="w-[440px] border border-[#9db8d8] bg-[#fffefb] shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center bg-[#16437e] px-3 py-1 text-[13px] font-semibold text-white">
+          F12: Configure
+          <button type="button" onClick={onClose} className="ml-auto px-1 font-bold hover:text-red-300">✕</button>
+        </div>
+        <div className="space-y-1 p-3 text-[13px]">
+          <div className="flex items-center justify-between gap-4">
+            <span>Open reports in Detailed mode</span>
+            {yn(cfg.defaultDetailed, () => set({ defaultDetailed: !cfg.defaultDetailed }))}
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span>Day Book shows the whole month (not just today)</span>
+            {yn(cfg.dayBookMonth, () => set({ dayBookMonth: !cfg.dayBookMonth }))}
+          </div>
+          <div className="pt-2 text-[11px] italic text-gray-500">
+            Applies when a report opens next. Settings are saved on this device.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 interface TallyScreenProps {
   /** Screen title in the light-blue strip, e.g. "Balance Sheet" */
   title: string;
@@ -275,7 +346,7 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
           case 'Change View':
             return on(() => goto('gateway'));
           case 'Exception Reports':
-            return on(() => goto('edit-log'));
+            return on(() => goto('exception-reports'));
           case 'Other Masters':
             return on(() => goto('masters'));
           case 'Basis of Values':
