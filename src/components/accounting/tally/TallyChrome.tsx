@@ -209,6 +209,8 @@ const SHORTCUTS: [string, string][] = [
   ['D', 'Delete voucher (in alteration)'],
   ['E', 'Export (Excel, where available)'],
   ['P', 'Print — clean report / formal A4 voucher'],
+  ['F12', 'Configure — detailed-by-default, Day Book month view'],
+  ['L / T', 'Optional / Post-Dated voucher (in voucher entry)'],
 ];
 
 const TallyHelp: React.FC<{ onClose: () => void }> = ({ onClose }) => {

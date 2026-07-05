@@ -63,6 +63,7 @@ const BalanceSheet: React.FC = () => {
   const [showPeriod, setShowPeriod] = useState(false);
   const [detailed, setDetailed] = useState(() => getTallyConfig().defaultDetailed || true);
   const [compareAsOf, setCompareAsOf] = useState<string | null>(null);
+  const [filterText, setFilterText] = useState('');
 
   const { data: accounts = [], isLoading: accountsLoading } = useQuery({
     queryKey: ['balance_sheet_accounts'],
@@ -178,7 +179,14 @@ const BalanceSheet: React.FC = () => {
       </div>
       <div className="-mt-10 pb-8 font-semibold tracking-[0.3em]">{title}</div>
       <div className="mt-2 space-y-0.5">
-        {lines.map((l) => (
+        {lines
+          .map((l) =>
+            filterText
+              ? { ...l, ledgers: l.ledgers.filter((led) => led.name.toLowerCase().includes(filterText.toLowerCase())) }
+              : l,
+          )
+          .filter((l) => !filterText || l.ledgers.length > 0)
+          .map((l) => (
           <React.Fragment key={l.name}>
             <div className="flex justify-between">
               <span className="min-w-0 flex-1 font-bold">{l.name}</span>
@@ -231,7 +239,16 @@ const BalanceSheet: React.FC = () => {
         },
         { label: 'Exception Reports', disabled: true },
         { label: 'Save View', disabled: true },
-        { label: 'Apply Filter', disabled: true, gapBefore: true },
+        {
+          hotkey: 'F',
+          label: filterText ? `Filter: ${filterText.slice(0, 10)}` : 'Apply Filter',
+          gapBefore: true,
+          active: !!filterText,
+          onClick: () => {
+            const v = window.prompt('Show only ledgers containing:', filterText);
+            if (v !== null) setFilterText(v.trim());
+          },
+        },
         { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
       ]}
     >

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { TallyScreen } from './tally/TallyChrome';
 
@@ -34,7 +34,7 @@ const MAIN_MENU: MenuSection[] = [
       { label: 'Create', target: 'masters' },
       { label: 'Alter', target: 'masters' },
       { label: 'Chart of Accounts', target: 'chart-of-accounts', hotIndex: 1 },
-      { label: 'Opening Balances', target: 'opening-balances', hotIndex: 8 },
+      { label: 'Opening Balances', target: 'opening-balances', hotIndex: 6 },
     ],
   },
   {
@@ -103,6 +103,30 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
   const [more, setMore] = useState(false);
   const sections = more ? MORE_REPORTS : MAIN_MENU;
   const today = new Date();
+
+  // Tally's red hot letters are live keys on the Gateway menu
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const typing =
+        target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      if (typing || e.metaKey || e.ctrlKey || e.altKey || e.key.length !== 1) return;
+      const key = e.key.toUpperCase();
+      for (const sec of sections) {
+        for (const item of sec.items) {
+          const hot = item.label[item.hotIndex ?? 0]?.toUpperCase();
+          if (hot === key) {
+            e.preventDefault();
+            if (item.target === 'more') setMore(true);
+            else onNavigate(item.target);
+            return;
+          }
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sections, onNavigate]);
 
   const hotLabel = (item: MenuItem) => {
     const i = item.hotIndex ?? 0;
