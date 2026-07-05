@@ -147,19 +147,15 @@ const BankReconciliation: React.FC = () => {
   } = useQuery({
     queryKey: ['bank_recon_accounts'],
     queryFn: async () => {
+      // Bank ledgers live under account codes 112x in this chart
       const { data, error } = await supabase
         .from('chart_of_accounts')
         .select('*')
         .eq('is_active', true)
-        .eq('account_type', 'Asset')
+        .like('account_code', '112%')
         .order('account_name');
       if (error) throw error;
-      // Filter for bank-related accounts
-      return ((data || []) as Account[]).filter(
-        (acc) =>
-          (acc.account_group || '').toLowerCase().includes('bank') ||
-          (acc.account_name || '').toLowerCase().includes('bank')
-      );
+      return (data || []) as Account[];
     },
   });
 

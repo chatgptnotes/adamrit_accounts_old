@@ -77,17 +77,9 @@ const getFYEnd = (date: Date): string => {
  * Determines whether an account is a cash or bank account based on its
  * account_group and account_name fields.
  */
-const isCashOrBankAccount = (acc: Account): boolean => {
-  const group = (acc.account_group || '').toLowerCase();
-  const name = (acc.account_name || '').toLowerCase();
-  return (
-    group.includes('cash') ||
-    group.includes('bank') ||
-    name.includes('cash in hand') ||
-    name.includes('cash-in-hand') ||
-    name.includes('petty cash')
-  );
-};
+const isCashOrBankAccount = (acc: Account): boolean =>
+  // Cash (111x) and bank (112x) ledgers form the cash pool in this chart
+  acc.account_code.startsWith('111') || acc.account_code.startsWith('112');
 
 /**
  * Classifies an account into Operating, Investing, or Financing activity
@@ -96,28 +88,23 @@ const isCashOrBankAccount = (acc: Account): boolean => {
 const classifyActivity = (acc: Account): 'operating' | 'investing' | 'financing' => {
   const group = (acc.account_group || '').toLowerCase();
 
-  // Operating: Income and Expense accounts
-  if (acc.account_type === 'Income' || acc.account_type === 'Expense') {
+  const t = (acc.account_type || '').toUpperCase();
+
+  // Operating: income and expense accounts (INCOME, DIRECT_INCOME, EXPENSES, ...)
+  if (t.includes('INCOME') || t.includes('EXPENSE')) {
     return 'operating';
   }
 
-  // Investing: Asset accounts with fixed asset, investment, or capital in group
-  if (acc.account_type === 'Asset') {
-    if (
-      group.includes('fixed asset') ||
-      group.includes('investment') ||
-      group.includes('capital asset')
-    ) {
-      return 'investing';
-    }
-    // All other non-cash/bank assets are investing activities
-    if (!isCashOrBankAccount(acc)) {
-      return 'investing';
-    }
+  // Investing: fixed assets always; other non-cash assets too
+  if (t === 'FIXED_ASSETS' || group.includes('investment')) {
+    return 'investing';
+  }
+  if (t.includes('ASSET') && !isCashOrBankAccount(acc)) {
+    return 'investing';
   }
 
-  // Financing: Liability and Equity accounts
-  if (acc.account_type === 'Liability' || acc.account_type === 'Equity') {
+  // Financing: liabilities and equity
+  if (t.includes('LIABILIT') || t === 'EQUITY') {
     return 'financing';
   }
 
@@ -269,16 +256,17 @@ const CashFlow: React.FC = () => {
       const activity = classifyActivity(acc);
       let amount = 0;
 
-      if (acc.account_type === 'Income') {
+      const t = (acc.account_type || '').toUpperCase();
+      if (t.includes('INCOME')) {
         // Cash inflow from income
         amount = totalCredit - totalDebit;
-      } else if (acc.account_type === 'Expense') {
+      } else if (t.includes('EXPENSE')) {
         // Cash outflow from expenses (shown as negative)
         amount = -(totalDebit - totalCredit);
-      } else if (acc.account_type === 'Asset') {
+      } else if (t.includes('ASSET')) {
         // Increase in assets = cash outflow, decrease = cash inflow
         amount = -(totalDebit - totalCredit);
-      } else if (acc.account_type === 'Liability' || acc.account_type === 'Equity') {
+      } else if (t.includes('LIABILIT') || t === 'EQUITY') {
         // Increase in liabilities/equity = cash inflow, decrease = outflow
         amount = totalCredit - totalDebit;
       }
