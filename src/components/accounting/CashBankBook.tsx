@@ -110,7 +110,7 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
   });
 
   const opening = account
-    ? (Number(account.opening_balance) || 0) * (account.opening_balance_type === 'Cr' ? -1 : 1)
+    ? (Number(account.opening_balance) || 0) * (account.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1)
     : 0;
 
   const months = useMemo(() => {

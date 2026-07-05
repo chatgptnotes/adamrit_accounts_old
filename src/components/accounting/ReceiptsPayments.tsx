@@ -97,7 +97,7 @@ const ReceiptsPayments: React.FC = () => {
     let openingCash = 0;
     for (const a of accounts) {
       if (!cashBankIds.has(a.id)) continue;
-      const opening = (Number(a.opening_balance) || 0) * (a.opening_balance_type === 'Cr' ? -1 : 1);
+      const opening = (Number(a.opening_balance) || 0) * (a.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1);
       const m: any = before.get(a.id);
       openingCash += opening + (m ? m.debit - m.credit : 0);
     }

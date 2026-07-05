@@ -76,7 +76,7 @@ const TrialBalance: React.FC<{ onOpenGroup?: (head: string) => void }> = ({ onOp
       const t = a.account_type?.toUpperCase() ?? '';
       const head = HEAD_OF.find((h) => h.match(t))?.head;
       if (!head) continue;
-      const opening = (Number(a.opening_balance) || 0) * (a.opening_balance_type === 'Cr' ? -1 : 1);
+      const opening = (Number(a.opening_balance) || 0) * (a.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1);
       const m = mov.get(a.id);
       const bal = opening + (m ? m.debit - m.credit : 0);
       if (Math.abs(bal) < 0.005) continue;

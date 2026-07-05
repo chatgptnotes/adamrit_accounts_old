@@ -68,7 +68,7 @@ const CashBankSummary: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
   });
 
   const closing = (a: Account): number => {
-    const opening = (Number(a.opening_balance) || 0) * (a.opening_balance_type === 'Cr' ? -1 : 1);
+    const opening = (Number(a.opening_balance) || 0) * (a.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1);
     return opening + (sums[a.id] ?? 0);
   };
 

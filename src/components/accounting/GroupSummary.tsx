@@ -66,7 +66,7 @@ const GroupSummary: React.FC<GroupSummaryProps> = ({ head: headProp, onOpenLedge
       .filter((a) => headOfType(a.account_type) === head)
       .map((a) => {
         const m = movements.get(a.id);
-        const opening = (Number(a.opening_balance) || 0) * (a.opening_balance_type === 'Cr' ? -1 : 1);
+        const opening = (Number(a.opening_balance) || 0) * (a.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1);
         const bal = opening + (m ? m.debit - m.credit : 0);
         return { account: a, bal };
       })

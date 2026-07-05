@@ -65,7 +65,7 @@ const RatioAnalysis: React.FC = () => {
 
   const R = useMemo(() => {
     const bal = (a: Account): number => {
-      const opening = (Number(a.opening_balance) || 0) * (a.opening_balance_type === 'Cr' ? -1 : 1);
+      const opening = (Number(a.opening_balance) || 0) * (a.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1);
       const m = cumulative.get(a.id);
       return opening + (m ? m.debit - m.credit : 0);
     };

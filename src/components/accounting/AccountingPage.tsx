@@ -44,6 +44,7 @@ import GatewayOfTally from './GatewayOfTally';
 import EditLog from './EditLog';
 import FundsFlow from './FundsFlow';
 import StatisticsScreen from './StatisticsScreen';
+import OpeningBalances from './OpeningBalances';
 
 // Live Tally-gateway suite is heavy (12 sub-screens) — load on demand
 const TallyLivePage = lazy(() => import('@/components/tally/TallyPage'));
@@ -64,6 +65,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'chart-of-accounts', label: 'Chart of Accounts', icon: BookOpen },
   { id: 'masters', label: 'Masters', icon: FolderCog },
+  { id: 'opening-balances', label: 'Opening Balances', icon: Scale },
   { id: 'voucher-entry', label: 'Voucher Entry', icon: FileText },
   { id: 'day-book', label: 'Day Book', icon: Calendar },
   { id: 'cash-bank-book', label: 'Cash/Bank Book', icon: BookOpen },
@@ -108,6 +110,8 @@ const renderContent = (
       return <ChartOfAccounts />;
     case 'masters':
       return <AccountMasters />;
+    case 'opening-balances':
+      return <OpeningBalances />;
     case 'voucher-entry':
       return <VoucherEntry />;
     case 'day-book':

@@ -300,7 +300,7 @@ const CashFlow: React.FC = () => {
     accounts.forEach((acc) => {
       if (isCashOrBankAccount(acc)) {
         const bal = Number(acc.opening_balance || 0);
-        if (acc.opening_balance_type === 'Dr') {
+        if (acc.opening_balance_type?.toUpperCase() === 'DR') {
           openingCash += bal;
         } else {
           openingCash -= bal;

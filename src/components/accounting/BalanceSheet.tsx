@@ -104,7 +104,7 @@ const BalanceSheet: React.FC = () => {
     for (const a of accounts) {
       const dr = debit.get(a.id) ?? 0;
       const cr = credit.get(a.id) ?? 0;
-      const opening = (Number(a.opening_balance) || 0) * (a.opening_balance_type === 'Cr' ? -1 : 1);
+      const opening = (Number(a.opening_balance) || 0) * (a.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1);
       const t = a.account_type?.toUpperCase() ?? '';
 
       if (t.includes('INCOME')) {

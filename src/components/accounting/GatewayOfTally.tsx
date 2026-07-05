@@ -34,6 +34,7 @@ const MAIN_MENU: MenuSection[] = [
       { label: 'Create', target: 'masters' },
       { label: 'Alter', target: 'masters' },
       { label: 'Chart of Accounts', target: 'chart-of-accounts', hotIndex: 1 },
+      { label: 'Opening Balances', target: 'opening-balances', hotIndex: 8 },
     ],
   },
   {

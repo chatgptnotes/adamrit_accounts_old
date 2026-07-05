@@ -124,7 +124,7 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
       (a.voucher?.voucher_date || '').localeCompare(b.voucher?.voucher_date || ''),
     );
     const opening = selectedAccount
-      ? (Number(selectedAccount.opening_balance) || 0) * (selectedAccount.opening_balance_type === 'Cr' ? -1 : 1)
+      ? (Number(selectedAccount.opening_balance) || 0) * (selectedAccount.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1)
       : 0;
     let totalDr = 0;
     let totalCr = 0;

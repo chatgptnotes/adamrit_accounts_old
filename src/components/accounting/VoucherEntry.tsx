@@ -271,7 +271,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
           .single(),
         accountMovements({}),
       ]);
-      const opening = (Number(acc?.opening_balance) || 0) * (acc?.opening_balance_type === 'Cr' ? -1 : 1);
+      const opening = (Number(acc?.opening_balance) || 0) * (acc?.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1);
       const m = movements.get(accountId);
       const movement = m ? m.debit - m.credit : 0;
       setBalances((prev) => ({ ...prev, [accountId]: opening + movement }));

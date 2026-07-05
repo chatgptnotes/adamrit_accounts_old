@@ -210,7 +210,7 @@ const BankReconciliation: React.FC = () => {
       let openingBal = 0;
       if (selectedAccount) {
         const bal = Number(selectedAccount.opening_balance || 0);
-        openingBal = selectedAccount.opening_balance_type === 'Dr' ? bal : -bal;
+        openingBal = selectedAccount.opening_balance_type?.toUpperCase() === 'DR' ? bal : -bal;
       }
 
       let totalDebits = 0;
