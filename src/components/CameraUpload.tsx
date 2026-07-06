@@ -9,10 +9,14 @@ import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Dialog,
   DialogContent,
@@ -68,7 +72,28 @@ interface FileUploadRecord {
   created_at: string;
 }
 
-type UploadCategory = 'report' | 'prescription' | 'treatment_sheet' | 'opd_summary' | 'xray' | 'mri_report' | 'ct_scan_report' | 'document' | 'photo' | 'id_proof';
+type BillDocumentCategory =
+  | 'treatment_sheet'
+  | 'monitor_chart'
+  | 'lab_investigation'
+  | 'radiology_investigation'
+  | 'ot_notes'
+  | 'ot_photos'
+  | 'implant_invoice'
+  | 'implant_sticker';
+
+type ClinicalUploadCategory =
+  | 'prescription'
+  | 'opd_summary'
+  | 'report'
+  | 'xray'
+  | 'mri_report'
+  | 'ct_scan_report'
+  | 'document'
+  | 'photo'
+  | 'id_proof';
+
+type UploadCategory = BillDocumentCategory | ClinicalUploadCategory;
 
 interface OpdExtractedData {
   patientName: string;
@@ -99,8 +124,18 @@ interface AiParseResult {
   notes: string | null;
 }
 
-const CATEGORY_OPTIONS: { value: UploadCategory; label: string }[] = [
+const BILL_DOCUMENT_OPTIONS: { value: BillDocumentCategory; label: string }[] = [
   { value: 'treatment_sheet', label: 'Treatment Sheet' },
+  { value: 'monitor_chart', label: 'Monitor Chart' },
+  { value: 'lab_investigation', label: 'Lab Investigation' },
+  { value: 'radiology_investigation', label: 'Radiology Investigation' },
+  { value: 'ot_notes', label: 'OT Notes' },
+  { value: 'ot_photos', label: 'OT Photos' },
+  { value: 'implant_invoice', label: 'Implant Invoice' },
+  { value: 'implant_sticker', label: 'Implant Sticker' },
+];
+
+const CLINICAL_UPLOAD_OPTIONS: { value: ClinicalUploadCategory; label: string }[] = [
   { value: 'prescription', label: 'Prescription' },
   { value: 'opd_summary', label: 'OPD Summary' },
   { value: 'report', label: 'Report' },
@@ -159,6 +194,7 @@ const CameraUpload: React.FC<CameraUploadProps> = ({
 }) => {
   const { toast } = useToast();
   const { hospitalConfig } = useAuth();
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
 
   // Camera state
@@ -456,11 +492,21 @@ Return ONLY valid JSON with these fields:
 {
   "patientName": string or null,
   "patientId": string or null,
-  "category": one of "report"|"prescription"|"xray"|"document"|"photo"|"id_proof" or null,
+  "category": one of "treatment_sheet"|"monitor_chart"|"lab_investigation"|"radiology_investigation"|"ot_notes"|"ot_photos"|"implant_invoice"|"implant_sticker"|"report"|"prescription"|"opd_summary"|"xray"|"mri_report"|"ct_scan_report"|"document"|"photo"|"id_proof" or null,
   "notes": string or null
 }
 
 Category mapping hints:
+- Monitor chart, vitals chart, ICU chart: "monitor_chart"
+- Lab investigation, blood test, pathology: "lab_investigation"
+- Radiology investigation, radiology file: "radiology_investigation"
+- OT notes: "ot_notes"
+- OT photos, operation theatre photos: "ot_photos"
+- Implant invoice: "implant_invoice"
+- Implant sticker: "implant_sticker"
+- MRI report: "mri_report"
+- CT scan report: "ct_scan_report"
+- OPD summary, OPD consultation: "opd_summary"
 - Aadhaar card, PAN card, voter ID, driving license, passport → "id_proof"
 - X-ray, CT scan, MRI → "xray"
 - Blood test, lab report, pathology → "report"
@@ -1259,6 +1305,11 @@ Rules:
         description: `${fileName} has been uploaded successfully.`,
       });
 
+      if (selectedPatient?.id) {
+        queryClient.invalidateQueries({ queryKey: ['bill-patient-docs', selectedPatient.id] });
+        queryClient.invalidateQueries({ queryKey: ['tablet-patient-docs', selectedPatient.id, category] });
+      }
+
       // If category is prescription or treatment_sheet and patient is selected, transcribe
       if ((category === 'prescription' || category === 'treatment_sheet') && selectedPatient) {
         // CRITICAL: Save patient info BEFORE clearCapture() wipes selectedPatient
@@ -1346,6 +1397,7 @@ Rules:
     transcribePrescription,
     transcribeTreatmentSheet,
     transcribeOpdSummary,
+    queryClient,
   ]);
 
   // -------------------------------------------------------------------------
@@ -1357,6 +1409,28 @@ Rules:
   // -------------------------------------------------------------------------
   // Render helpers
   // -------------------------------------------------------------------------
+
+  const renderCategorySelectOptions = () => (
+    <>
+      <SelectGroup>
+        <SelectLabel className="text-xs text-gray-500">Bill Documents</SelectLabel>
+        {BILL_DOCUMENT_OPTIONS.map((opt) => (
+          <SelectItem key={opt.value} value={opt.value}>
+            {opt.label}
+          </SelectItem>
+        ))}
+      </SelectGroup>
+      <SelectSeparator />
+      <SelectGroup>
+        <SelectLabel className="text-xs text-gray-500">Clinical Uploads</SelectLabel>
+        {CLINICAL_UPLOAD_OPTIONS.map((opt) => (
+          <SelectItem key={opt.value} value={opt.value}>
+            {opt.label}
+          </SelectItem>
+        ))}
+      </SelectGroup>
+    </>
+  );
 
   /** Camera section */
   const renderCamera = () => (
@@ -1535,11 +1609,7 @@ Rules:
               <SelectValue placeholder="Select type" />
             </SelectTrigger>
             <SelectContent>
-              {CATEGORY_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
+              {renderCategorySelectOptions()}
             </SelectContent>
           </Select>
         </div>
@@ -1672,11 +1742,7 @@ Rules:
               <SelectValue placeholder="Select category" />
             </SelectTrigger>
             <SelectContent>
-              {CATEGORY_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
+              {renderCategorySelectOptions()}
             </SelectContent>
           </Select>
         </div>
@@ -1769,11 +1835,7 @@ Rules:
               <SelectValue placeholder="Select category" />
             </SelectTrigger>
             <SelectContent>
-              {CATEGORY_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
+              {renderCategorySelectOptions()}
             </SelectContent>
           </Select>
         </div>
