@@ -68,8 +68,9 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
         setIsLoading(true);
         setError(null);
 
-        // Determine table based on hospital
-        const tableName = hospitalConfig?.name === 'ayushman'
+        // Determine table based on hospital. Use the stable config id; display names
+        // can change without changing the database table mapping.
+        const tableName = hospitalConfig?.id === 'ayushman'
           ? 'ayushman_consultants'
           : 'hope_consultants';
 
@@ -84,7 +85,22 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
           setError('Failed to load doctors');
           setDoctors([]);
         } else {
-          setDoctors(data || []);
+          if (hospitalConfig?.id === 'ayushman' && (!data || data.length === 0)) {
+            const { data: fallbackData, error: fallbackError } = await supabase
+              .from('hope_consultants')
+              .select('id, name, specialty')
+              .order('name');
+
+            if (fallbackError) {
+              console.error('Error fetching fallback doctors:', fallbackError);
+              setError('Failed to load doctors');
+              setDoctors([]);
+            } else {
+              setDoctors(fallbackData || []);
+            }
+          } else {
+            setDoctors(data || []);
+          }
         }
       } catch (error) {
         console.error('Exception while fetching doctors:', error);

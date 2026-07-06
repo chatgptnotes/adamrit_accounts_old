@@ -269,6 +269,8 @@ const OpdAdmissionNotes = () => {
     return phone.slice(0, -4) + 'XXXX';
   };
 
+  const consultantName = formData.doctor_signature?.trim() || patientData.appointment_with || 'N/A';
+
   return (
     <div className="container mx-auto p-6 max-w-7xl">
       {/* Header with Actions */}
@@ -371,7 +373,7 @@ const OpdAdmissionNotes = () => {
             </div>
             <div>
               <Label className="text-xs font-semibold text-gray-600">Name of Consultant</Label>
-              <p className="text-sm font-medium mt-1">{patientData.appointment_with || 'N/A'}</p>
+              <p className="text-sm font-medium mt-1">{consultantName}</p>
             </div>
             <div>
               <Label className="text-xs font-semibold text-gray-600">Corporate</Label>
