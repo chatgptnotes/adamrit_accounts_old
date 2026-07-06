@@ -44,7 +44,7 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
 }) => {
   const { hospitalConfig } = useAuth();
   const { diagnoses, isLoading: isLoadingDiagnoses, addDiagnosisAsync } = useDiagnoses();
-  const [doctors, setDoctors] = useState<Array<{ id: string; name: string; specialty: string }>>([]);
+  const [doctors, setDoctors] = useState<Array<{ id: string; name: string; specialty: string | null; is_active?: boolean | null }>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,7 +77,7 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
 
         const { data, error } = await supabase
           .from(tableName)
-          .select('id, name, specialty')
+          .select('id, name, specialty, is_active')
           .order('name');
 
         if (error) {
@@ -88,7 +88,7 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
           if (hospitalConfig?.id === 'ayushman' && (!data || data.length === 0)) {
             const { data: fallbackData, error: fallbackError } = await supabase
               .from('hope_consultants')
-              .select('id, name, specialty')
+              .select('id, name, specialty, is_active')
               .order('name');
 
             if (fallbackError) {
@@ -96,10 +96,14 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
               setError('Failed to load doctors');
               setDoctors([]);
             } else {
-              setDoctors(fallbackData || []);
+              setDoctors((fallbackData || []).filter((doctor) =>
+                doctor.is_active !== false || doctor.name === formData.appointmentWith
+              ));
             }
           } else {
-            setDoctors(data || []);
+            setDoctors((data || []).filter((doctor) =>
+              doctor.is_active !== false || doctor.name === formData.appointmentWith
+            ));
           }
         }
       } catch (error) {
@@ -112,7 +116,7 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
     };
 
     fetchDoctors();
-  }, [hospitalConfig?.name]);
+  }, [hospitalConfig?.id, formData.appointmentWith]);
 
   // Fetch referees from referees table
   useEffect(() => {

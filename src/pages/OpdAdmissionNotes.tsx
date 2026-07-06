@@ -6,9 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Save, Printer, Loader2, FileText } from 'lucide-react';
+import { SearchableSelect } from '@/components/ui/searchable-select';
+import { ArrowLeft, Save, Printer, Loader2, FileText, EyeOff } from 'lucide-react';
 import { useDebounce } from 'use-debounce';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface PatientData {
   id: string;
@@ -48,15 +50,25 @@ interface OpdAdmissionNotesData {
   review: string;
 }
 
+interface DoctorOption {
+  id: string;
+  name: string;
+  specialty?: string | null;
+  is_active?: boolean | null;
+}
+
 const OpdAdmissionNotes = () => {
   const { visitId } = useParams<{ visitId: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { hospitalConfig } = useAuth();
 
   const [patientData, setPatientData] = useState<PatientData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [doctors, setDoctors] = useState<DoctorOption[]>([]);
+  const [isLoadingDoctors, setIsLoadingDoctors] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState<OpdAdmissionNotesData>({
@@ -77,6 +89,49 @@ const OpdAdmissionNotes = () => {
 
   // Debounce form data for auto-save
   const [debouncedFormData] = useDebounce(formData, 1500);
+
+  const doctorTableName = hospitalConfig?.id === 'ayushman'
+    ? 'ayushman_consultants'
+    : 'hope_consultants';
+
+  const fetchDoctors = async (currentDoctorName = formData.doctor_signature) => {
+    try {
+      setIsLoadingDoctors(true);
+
+      const { data, error } = await supabase
+        .from(doctorTableName)
+        .select('id, name, specialty, is_active')
+        .order('name');
+
+      if (error) {
+        console.error('Error fetching doctors:', error);
+        setDoctors([]);
+        return;
+      }
+
+      let doctorRows = (data || []) as DoctorOption[];
+
+      if (doctorTableName === 'ayushman_consultants' && doctorRows.length === 0) {
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('hope_consultants')
+          .select('id, name, specialty, is_active')
+          .order('name');
+
+        if (fallbackError) {
+          console.error('Error fetching fallback doctors:', fallbackError);
+        } else {
+          doctorRows = (fallbackData || []) as DoctorOption[];
+        }
+      }
+
+      const currentName = currentDoctorName?.trim();
+      setDoctors(doctorRows.filter((doctor) =>
+        doctor.is_active !== false || doctor.name === currentName
+      ));
+    } finally {
+      setIsLoadingDoctors(false);
+    }
+  };
 
   // Fetch patient and visit data
   useEffect(() => {
@@ -138,6 +193,11 @@ const OpdAdmissionNotes = () => {
     fetchData();
   }, [visitId, navigate, toast]);
 
+  useEffect(() => {
+    fetchDoctors();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doctorTableName]);
+
   // Auto-save when debounced data changes
   useEffect(() => {
     const saveData = async () => {
@@ -180,6 +240,96 @@ const OpdAdmissionNotes = () => {
 
   const handleInputChange = (field: keyof OpdAdmissionNotesData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const saveDoctorToMaster = async (doctorName: string) => {
+    const cleanedName = doctorName.trim();
+    if (!cleanedName) return;
+
+    const { data: existingDoctors, error: findError } = await supabase
+      .from(doctorTableName)
+      .select('id, name, is_active')
+      .ilike('name', cleanedName)
+      .limit(1);
+
+    if (findError) {
+      toast({
+        title: "Doctor Save Failed",
+        description: findError.message,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const existingDoctor = existingDoctors?.[0] as DoctorOption | undefined;
+    if (existingDoctor) {
+      if (existingDoctor.is_active === false) {
+        const { error: reactivateError } = await supabase
+          .from(doctorTableName)
+          .update({ is_active: true })
+          .eq('id', existingDoctor.id);
+
+        if (reactivateError) {
+          toast({
+            title: "Doctor Save Failed",
+            description: reactivateError.message,
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+    } else {
+      const { error: insertError } = await supabase
+        .from(doctorTableName)
+        .insert({ name: cleanedName, is_active: true });
+
+      if (insertError) {
+        toast({
+          title: "Doctor Save Failed",
+          description: insertError.message,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    handleInputChange('doctor_signature', cleanedName);
+    await fetchDoctors(cleanedName);
+  };
+
+  const hideSelectedDoctor = async () => {
+    const selectedDoctorName = formData.doctor_signature?.trim();
+    if (!selectedDoctorName) return;
+
+    const matchedDoctor = doctors.find((doctor) =>
+      doctor.name.toLowerCase() === selectedDoctorName.toLowerCase()
+    );
+
+    if (!matchedDoctor) {
+      handleInputChange('doctor_signature', '');
+      return;
+    }
+
+    const { error } = await supabase
+      .from(doctorTableName)
+      .update({ is_active: false })
+      .eq('id', matchedDoctor.id);
+
+    if (error) {
+      toast({
+        title: "Hide Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    handleInputChange('doctor_signature', '');
+    await fetchDoctors('');
+    toast({
+      title: "Doctor Hidden",
+      description: "Doctor will not appear in future dropdowns.",
+    });
   };
 
   const handleManualSave = async () => {
@@ -524,12 +674,44 @@ const OpdAdmissionNotes = () => {
               <div className="space-y-1">
                 <div>
                   <Label className="text-xs font-semibold text-gray-600">Name of Doctor:</Label>
-                  <Input
-                    value={formData.doctor_signature}
-                    onChange={(e) => handleInputChange('doctor_signature', e.target.value)}
-                    placeholder="Enter doctor name..."
-                    className="print:border-none print:bg-transparent"
-                  />
+                  <div className="flex gap-2 print:block">
+                    <div className="flex-1 print:hidden">
+                      <SearchableSelect
+                        options={[
+                          ...doctors.map((doctor) => ({
+                            value: doctor.name,
+                            label: `${doctor.name}${doctor.specialty ? ` (${doctor.specialty})` : ''}`,
+                          })),
+                          ...(formData.doctor_signature &&
+                             !doctors.some((doctor) => doctor.name === formData.doctor_signature)
+                            ? [{ value: formData.doctor_signature, label: `${formData.doctor_signature} (Current)` }]
+                            : []),
+                        ]}
+                        value={formData.doctor_signature || ''}
+                        onValueChange={(value) => handleInputChange('doctor_signature', value)}
+                        onCreateOption={saveDoctorToMaster}
+                        placeholder={isLoadingDoctors ? "Loading doctors..." : "Enter doctor name..."}
+                        searchPlaceholder="Search or add doctor..."
+                        emptyText="No doctor found."
+                        createOptionLabel={(input) => `Add "${input}"`}
+                      />
+                    </div>
+                    <span className="hidden print:inline">
+                      {formData.doctor_signature || 'N/A'}
+                    </span>
+                    {formData.doctor_signature && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={hideSelectedDoctor}
+                        title="Hide doctor from future dropdowns"
+                        className="print:hidden"
+                      >
+                        <EyeOff className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <p className="text-xs font-semibold text-gray-600">Review:</p>
