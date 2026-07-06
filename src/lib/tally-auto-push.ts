@@ -176,6 +176,81 @@ async function enqueueForRetry(
   }
 }
 
+export async function pushLedgerToTally(ledger: {
+  name: string;
+  parentGroup: string;
+  openingBalance?: number;
+  address?: string;
+  phone?: string;
+  email?: string;
+  gstNumber?: string;
+  companyId?: string | null;
+}): Promise<{ status: "synced" | "queued" | "skipped"; message?: string; companyId?: string }> {
+  let config = await isTallyActive();
+
+  if (ledger.companyId) {
+    try {
+      const { data } = await supabase
+        .from("tally_config")
+        .select("*")
+        .eq("id", ledger.companyId)
+        .eq("is_active", true)
+        .limit(1)
+        .single();
+      if (data) {
+        config = { active: true, serverUrl: data.server_url, companyName: data.company_name, companyId: data.id };
+      }
+    } catch {
+      // Fall back to the active Tally config below.
+    }
+  }
+
+  const payload = {
+    name: ledger.name,
+    parentGroup: ledger.parentGroup,
+    openingBalance: ledger.openingBalance || 0,
+    address: ledger.address,
+    phone: ledger.phone,
+    email: ledger.email,
+    gstNumber: ledger.gstNumber,
+  };
+
+  if (!config.active) {
+    await enqueueForRetry("ledger", "create-ledger", payload, "No active Tally configuration", ledger.name, ledger.companyId || undefined);
+    return { status: "queued", message: "No active Tally configuration", companyId: ledger.companyId || undefined };
+  }
+
+  try {
+    const response = await fetch("/api/tally-proxy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        endpoint: "push",
+        action: "create-ledger",
+        serverUrl: config.serverUrl,
+        companyName: config.companyName,
+        data: payload,
+      }),
+    });
+    const result = await response.json();
+    await logPush("auto_push_ledger", !!result.success, result.errors || result.message, ledger.name, config.companyId);
+
+    if (result.success) {
+      return { status: "synced", message: result.message, companyId: config.companyId };
+    }
+
+    const message = result.errors?.join("; ") || result.message || "Tally ledger push failed";
+    await enqueueForRetry("ledger", "create-ledger", payload, message, ledger.name, config.companyId);
+    return { status: "queued", message, companyId: config.companyId };
+  } catch (err: any) {
+    const message = err?.message || String(err);
+    console.error("Tally ledger push failed:", err);
+    await logPush("auto_push_ledger", false, message, ledger.name, config.companyId);
+    await enqueueForRetry("ledger", "create-ledger", payload, message, ledger.name, config.companyId);
+    return { status: "queued", message, companyId: config.companyId };
+  }
+}
+
 // Push a bill to Tally as Sales Voucher
 export async function pushBillToTally(bill: {
   billNumber: string;

@@ -7,9 +7,17 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { Plus, Trash2, Printer, RotateCcw, X } from 'lucide-react';
-import { pushPaymentVoucherToTally } from '@/lib/tally-auto-push';
+import { pushLedgerToTally, pushPaymentVoucherToTally } from '@/lib/tally-auto-push';
 
 interface PaymentVoucher {
   id: string;
@@ -29,6 +37,12 @@ interface LedgerOption {
   name: string;
   parent_group: string | null;
   closing_balance: number | null;
+}
+
+interface TallyConfigRow {
+  id: string;
+  company_name: string;
+  server_url: string;
 }
 
 interface VoucherLine {
@@ -96,10 +110,21 @@ const LedgerSearch = ({ selected, onSelect, placeholder, className, inputRef, on
   const [options, setOptions] = useState<LedgerOption[]>([]);
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState('');
+  const [parentGroup, setParentGroup] = useState('');
+  const [openingBalance, setOpeningBalance] = useState('');
+  const [groupOptions, setGroupOptions] = useState<string[]>([]);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     setText(selected?.name ?? '');
   }, [selected]);
+
+  const trimmedText = text.trim();
+  const canCreate =
+    trimmedText.length > 0 &&
+    !options.some((o) => o.name.trim().toLowerCase() === trimmedText.toLowerCase());
 
   useEffect(() => {
     if (!open) return;
@@ -123,16 +148,159 @@ const LedgerSearch = ({ selected, onSelect, placeholder, className, inputRef, on
     return () => clearTimeout(t);
   }, [text, open]);
 
+  useEffect(() => {
+    if (!createOpen) return;
+    let cancelled = false;
+    const loadGroups = async (): Promise<void> => {
+      try {
+        const [{ data: tallyGroups }, { data: ledgers }] = await Promise.all([
+          (supabase as any).from('tally_groups').select('name').order('name').limit(300),
+          (supabase as any).from('tally_ledgers').select('parent_group').not('parent_group', 'is', null).limit(1000),
+        ]);
+        if (cancelled) return;
+        const names = new Set<string>();
+        for (const g of tallyGroups ?? []) {
+          if (g?.name) names.add(String(g.name));
+        }
+        for (const l of ledgers ?? []) {
+          if (l?.parent_group) names.add(String(l.parent_group));
+        }
+        setGroupOptions([...names].sort((a, b) => a.localeCompare(b)));
+      } catch (err) {
+        console.error('Failed to load ledger groups:', err);
+      }
+    };
+    loadGroups();
+    return () => {
+      cancelled = true;
+    };
+  }, [createOpen]);
+
   const pick = (l: LedgerOption): void => {
     onSelect(l);
     setOpen(false);
+  };
+
+  const openCreate = (): void => {
+    const name = trimmedText;
+    if (!name) return;
+    setCreateName(name);
+    setParentGroup('');
+    setOpeningBalance('');
+    setCreateOpen(true);
+    setOpen(false);
+  };
+
+  const getActiveTallyConfig = async (): Promise<TallyConfigRow | null> => {
+    try {
+      const { data } = await (supabase as any)
+        .from('tally_config')
+        .select('id, company_name, server_url')
+        .eq('is_active', true)
+        .limit(1)
+        .single();
+      return (data ?? null) as TallyConfigRow | null;
+    } catch {
+      return null;
+    }
+  };
+
+  const findLedgerByName = async (name: string, companyId?: string | null): Promise<LedgerOption | null> => {
+    let query = (supabase as any)
+      .from('tally_ledgers')
+      .select('id, name, parent_group, closing_balance')
+      .ilike('name', name)
+      .or('is_hidden.is.null,is_hidden.eq.false')
+      .order('name')
+      .limit(1);
+    if (companyId) query = query.eq('company_id', companyId);
+    const { data, error } = await query;
+    if (error) throw error;
+    return ((data ?? [])[0] ?? null) as LedgerOption | null;
+  };
+
+  const handleCreateLedger = async (): Promise<void> => {
+    const name = createName.trim();
+    const group = parentGroup.trim();
+    const opening = Number(openingBalance) || 0;
+    if (!name) {
+      toast.error('Enter the ledger name');
+      return;
+    }
+    if (!group) {
+      toast.error('Select or enter the Under group');
+      return;
+    }
+
+    setCreating(true);
+    try {
+      const tallyConfig = await getActiveTallyConfig();
+      const existing = await findLedgerByName(name, tallyConfig?.id);
+      if (existing) {
+        pick(existing);
+        setCreateOpen(false);
+        toast.info(`Ledger "${existing.name}" already exists`);
+        return;
+      }
+
+      const { data: inserted, error } = await (supabase as any)
+        .from('tally_ledgers')
+        .insert({
+          name,
+          parent_group: group,
+          opening_balance: opening,
+          closing_balance: opening,
+          is_hidden: false,
+          company_id: tallyConfig?.id ?? null,
+          last_synced_at: null,
+        })
+        .select('id, name, parent_group, closing_balance')
+        .single();
+
+      if (error) {
+        if (error.code === '23505') {
+          const duplicate = (await findLedgerByName(name, tallyConfig?.id)) || (await findLedgerByName(name, null));
+          if (duplicate) {
+            pick(duplicate);
+            setCreateOpen(false);
+            toast.info(`Ledger "${duplicate.name}" already exists`);
+            return;
+          }
+        }
+        throw error;
+      }
+
+      const created = inserted as LedgerOption;
+      pick(created);
+      setText(created.name);
+      setOptions((prev) => [created, ...prev.filter((l) => l.id !== created.id)]);
+      setCreateOpen(false);
+
+      const tallyResult = await pushLedgerToTally({
+        name,
+        parentGroup: group,
+        openingBalance: opening,
+        companyId: tallyConfig?.id ?? null,
+      });
+
+      if (tallyResult.status === 'synced') {
+        toast.success(`Ledger "${name}" created in Adamrit and Tally`);
+      } else {
+        toast.warning(`Ledger "${name}" saved in Adamrit; Tally creation queued`);
+      }
+    } catch (err: any) {
+      console.error('Failed to create ledger:', err);
+      toast.error(err?.message || 'Failed to create ledger');
+    } finally {
+      setCreating(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setOpen(true);
-      setHighlight((h) => Math.min(h + 1, options.length - 1));
+      setHighlight((h) => Math.min(h + 1, Math.max(options.length + (canCreate ? 1 : 0) - 1, 0)));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setHighlight((h) => Math.max(h - 1, 0));
@@ -143,6 +311,8 @@ const LedgerSearch = ({ selected, onSelect, placeholder, className, inputRef, on
         onEmptyEnter();
       } else if (open && options[highlight]) {
         pick(options[highlight]);
+      } else if (open && canCreate && highlight === options.length) {
+        openCreate();
       }
     } else if (e.key === 'Escape') {
       setOpen(false);
@@ -172,7 +342,7 @@ const LedgerSearch = ({ selected, onSelect, placeholder, className, inputRef, on
         onKeyDown={handleKeyDown}
         className="h-8 border-0 border-b border-dashed border-gray-400 bg-transparent px-1 shadow-none focus-visible:ring-0 focus-visible:border-blue-600 focus-visible:border-solid rounded-none"
       />
-      {open && options.length > 0 && (
+      {open && (options.length > 0 || canCreate) && (
         <div className="absolute z-30 mt-1 max-h-72 w-full min-w-[320px] overflow-y-auto rounded-md border bg-[#eef3fa] shadow-lg">
           <div className="border-b bg-[#16437e] px-3 py-1 text-xs font-semibold text-white">List of Ledger Accounts</div>
           {options.map((l, i) => (
@@ -195,8 +365,78 @@ const LedgerSearch = ({ selected, onSelect, placeholder, className, inputRef, on
               )}
             </button>
           ))}
+          {canCreate && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={openCreate}
+              onMouseEnter={() => setHighlight(options.length)}
+              className={`flex w-full items-center gap-2 border-t px-3 py-2 text-left text-sm font-semibold ${
+                highlight === options.length ? 'bg-[#fdf6d8]' : 'bg-white'
+              }`}
+            >
+              <Plus className="h-4 w-4 text-blue-700" />
+              <span>Create new ledger "{trimmedText}"</span>
+            </button>
+          )}
         </div>
       )}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create ledger</DialogTitle>
+            <DialogDescription>
+              This ledger will be saved in Adamrit and pushed to Tally. If Tally is offline, it will be queued.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="new-ledger-name" className="text-xs">Ledger name</Label>
+              <Input
+                id="new-ledger-name"
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="new-ledger-under" className="text-xs">Under</Label>
+              <Input
+                id="new-ledger-under"
+                list="tally-ledger-groups"
+                value={parentGroup}
+                onChange={(e) => setParentGroup(e.target.value)}
+                placeholder="Example: Sundry Creditors"
+                autoComplete="off"
+              />
+              <datalist id="tally-ledger-groups">
+                {groupOptions.map((g) => (
+                  <option key={g} value={g} />
+                ))}
+              </datalist>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="new-ledger-opening" className="text-xs">Opening balance</Label>
+              <Input
+                id="new-ledger-opening"
+                type="number"
+                inputMode="decimal"
+                value={openingBalance}
+                onChange={(e) => setOpeningBalance(e.target.value)}
+                placeholder="0"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={creating}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateLedger} disabled={creating}>
+              {creating ? 'Creating...' : 'Create Ledger'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
