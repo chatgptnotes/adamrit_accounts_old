@@ -25,6 +25,7 @@ import { DepartmentActivityMonitor } from '@/components/DepartmentActivityMonito
 import { DirectorProjectLauncher } from '@/components/DirectorProjectLauncher';
 import { DailyRevenueReportSection } from '@/components/DailyRevenueReportSection';
 import { DirectorFinancialStatements } from '@/components/DirectorFinancialStatements';
+import { GovernmentPortalGeneralMedicalSection } from '@/components/GovernmentPortalGeneralMedicalSection';
 import { usePaymentDeadlines, type PaymentDeadline } from '@/hooks/usePaymentDeadlines';
 
 const DIRECTOR_EMAILS = ['cmd@hopehospital.com', 'finance@hopehospital.com'];
@@ -529,6 +530,8 @@ export default function DirectorDashboard() {
       <DirectorKpiCards />
 
       <DepartmentActivityMonitor />
+
+      <GovernmentPortalGeneralMedicalSection />
 
       {(alertSummary.overdueCount > 0 || alertSummary.dueSoonCount > 0) && (
         <div

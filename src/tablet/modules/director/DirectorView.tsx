@@ -22,6 +22,7 @@ import { DeadlinesPreview } from "./DeadlinesPreview";
 import { KpiTile } from "./KpiTile";
 import { OccupancyCard } from "./OccupancyCard";
 import { PeriodPills } from "./PeriodPills";
+import { GovernmentPortalGeneralMedicalSection } from "@/components/GovernmentPortalGeneralMedicalSection";
 
 const PERIOD_SUBTITLE: Record<KpiPeriod, string> = {
   today: "Today",
@@ -115,6 +116,8 @@ export default function DirectorView() {
               onClick={() => navigate("/bill-approvals")}
             />
           </div>
+
+          <GovernmentPortalGeneralMedicalSection surface="tablet" maxRows={6} />
 
           <div className="grid gap-3 lg:grid-cols-2">
             <CashFundsCard hospital={hospital} />
