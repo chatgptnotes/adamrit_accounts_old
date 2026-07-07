@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import * as XLSX from 'xlsx';
-import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -54,6 +53,7 @@ import {
 import { usePaymentObligations, usePayeeSearch, useMultiPayeeSearch, useObligationDefaultPayees, useTallyLedgerSearch, useTallyCompanies, useSaveObligationLedgerLinks, useObligationSubCategories, type PaymentObligation, type DefaultPayee, type TallyCompany, type SubCategoryRow } from '@/hooks/usePaymentObligations';
 import { useCompanies } from '@/hooks/useCompanies';
 import { DailyAllocationSheet } from '@/components/DailyAllocationSheet';
+import { useAccountingRights } from '@/components/accounting/tally/rights';
 
 const formatINR = (n: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n);
@@ -388,8 +388,7 @@ const SortableObligationRow = ({
 };
 
 const DailyPaymentAllocation = () => {
-  const { user } = useAuth();
-  const isSuperAdmin = user?.role === 'superadmin' || user?.role === 'super_admin';
+  const { canAlter: canAccessPaymentAllocation } = useAccountingRights();
   const { data: companies = [] } = useCompanies();
   const companyNameMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -825,14 +824,14 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
     }
   };
 
-  if (!isSuperAdmin) {
+  if (!canAccessPaymentAllocation) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Card className="w-96">
           <CardContent className="p-8 text-center">
             <AlertTriangle className="mx-auto h-12 w-12 text-yellow-500 mb-4" />
             <h2 className="text-xl font-semibold mb-2">Access Denied</h2>
-            <p className="text-muted-foreground">Only super admins can access the Payment Allocation dashboard.</p>
+            <p className="text-muted-foreground">Only admins and billing/accounts staff can access the Payment Allocation dashboard.</p>
           </CardContent>
         </Card>
       </div>

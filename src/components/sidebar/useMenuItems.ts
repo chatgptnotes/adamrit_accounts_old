@@ -7,6 +7,7 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { isFeatureEnabled } from '@/types/hospital';
 import { useMasterCounts } from '@/hooks/useMasterCounts';
 import { groupForTitle } from './sidebarGroups';
+import { useAccountingRights } from '@/components/accounting/tally/rights';
 
 const ADMIN_ROLES = ['superadmin', 'super_admin', 'admin'];
 
@@ -38,6 +39,7 @@ const BADGE_ROLE_MAP: Record<string, string[]> = {
 export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; masterItems: MenuItem[] } => {
   const { hospitalType, user } = useAuth();
   const { canManageUsers } = usePermissions();
+  const { canAlter: canAccessAccounting } = useAccountingRights();
   const masterCounts = useMasterCounts(!!user);
   const {
     diagnosesCount = 0,
@@ -63,6 +65,10 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
       .filter(item => {
         // Hide Users tab for non-admins
         if (item.title === "Users" && !canManageUsers) {
+          return false;
+        }
+
+        if (item.title === "Payment Allocation" && !canAccessAccounting) {
           return false;
         }
 
@@ -169,7 +175,7 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
       masterItems: filtered.filter(item => item.section === 'masters'),
     };
   }, [
-    hospitalType, user, canManageUsers, masterCounts, diagnosesCount, patientsCount, usersCount, complicationsCount,
+    hospitalType, user, canManageUsers, canAccessAccounting, masterCounts, diagnosesCount, patientsCount, usersCount, complicationsCount,
     cghsSurgeryCount, labCount, radiologyCount, medicationCount,
     refereesCount, hopeSurgeonsCount, hopeConsultantsCount, hopeAnaesthetistsCount,
     ayushmanSurgeonsCount, ayushmanConsultantsCount, ayushmanAnaesthetistsCount,
