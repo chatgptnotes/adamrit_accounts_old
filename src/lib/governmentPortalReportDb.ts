@@ -1,9 +1,10 @@
 import { supabase } from '@/integrations/supabase/client';
-import type {
-  GovernmentPortalColumn,
-  GovernmentPortalReport,
-  GovernmentPortalRow,
-  GovernmentPortalSection,
+import {
+  GOVERNMENT_PORTAL_REQUIRED_COLUMNS,
+  type GovernmentPortalColumn,
+  type GovernmentPortalReport,
+  type GovernmentPortalRow,
+  type GovernmentPortalSection,
 } from '@/lib/governmentPortalReport';
 
 const db = supabase as any;
@@ -14,6 +15,27 @@ export interface SavedGovernmentPortalImport {
   reportDateLabel: string | null;
   createdAt: string;
   report: GovernmentPortalReport;
+}
+
+export interface GovernmentPortalExtensionAlertRow {
+  rowNumber: number;
+  registrationId: string;
+  beneficiaryName: string;
+  caseType: string;
+  preauthDateLabel: string;
+  daysSincePreauth: number | null;
+  procedureCode: string;
+  procedureDetails: string;
+  preauthApprovedAmount: string;
+}
+
+export interface GovernmentPortalExtensionAlertSummary {
+  importId: string;
+  fileName: string;
+  reportDateLabel: string | null;
+  createdAt: string;
+  count: number;
+  rows: GovernmentPortalExtensionAlertRow[];
 }
 
 type ImportRow = {
@@ -213,6 +235,65 @@ export async function fetchLatestGovernmentPortalReport(): Promise<SavedGovernme
     reportDateLabel: header.report_date_label,
     createdAt: header.created_at,
     report: importToReport(header as ImportRow, (rows || []) as DbReportRow[]),
+  };
+}
+
+export async function fetchLatestGovernmentPortalExtensionAlerts(
+  rowLimit = 100,
+): Promise<GovernmentPortalExtensionAlertSummary | null> {
+  const { data: header, error: headerError } = await db
+    .from('government_portal_report_imports')
+    .select('id, file_name, report_date_label, count_extension_needed, created_at')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (headerError) throw headerError;
+  if (!header) return null;
+
+  const importId = header.id as string;
+  const count = Number(header.count_extension_needed || 0);
+
+  const { data: rows, error: rowsError } = await db
+    .from('government_portal_report_rows')
+    .select(
+      [
+        'row_number',
+        'registration_id',
+        'beneficiary_name',
+        'case_type',
+        'preauth_date_label',
+        'days_since_preauth',
+        'procedure_code',
+        'procedure_details',
+        'preauth_approved_amount',
+      ].join(', '),
+    )
+    .eq('import_id', importId)
+    .eq('extension_needed', true)
+    .order('days_since_preauth', { ascending: false, nullsFirst: false })
+    .order('row_number', { ascending: true })
+    .limit(rowLimit);
+
+  if (rowsError) throw rowsError;
+
+  return {
+    importId,
+    fileName: header.file_name,
+    reportDateLabel: header.report_date_label,
+    createdAt: header.created_at,
+    count,
+    rows: (rows || []).map((row: DbReportRow) => ({
+      rowNumber: row.row_number,
+      registrationId: row.registration_id || '',
+      beneficiaryName: row.beneficiary_name || '',
+      caseType: row.case_type || '',
+      preauthDateLabel: row.preauth_date_label || '',
+      daysSincePreauth: row.days_since_preauth,
+      procedureCode: row.procedure_code || '',
+      procedureDetails: row.procedure_details || '',
+      preauthApprovedAmount: row.preauth_approved_amount || '',
+    })),
   };
 }
 

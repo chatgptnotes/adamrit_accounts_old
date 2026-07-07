@@ -7,6 +7,7 @@ import { setOverride } from "@/lib/device-class";
 import { useTabletTheme } from "@/tablet/theme/TabletTheme";
 import { SyncIndicator } from "./SyncIndicator";
 import { InstallButton } from "./InstallButton";
+import { GovernmentPortalExtensionBell } from "./GovernmentPortalExtensionBell";
 
 /** Tablet top bar: back, left-aligned hospital brand, role, sync, theme, full-site, exit. */
 export function TabletTopBar() {
@@ -91,6 +92,8 @@ export function TabletTopBar() {
               {user.role} console
             </span>
           ) : null}
+
+          <GovernmentPortalExtensionBell />
 
           <SyncIndicator />
 
