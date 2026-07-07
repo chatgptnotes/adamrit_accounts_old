@@ -95,7 +95,9 @@ export function TabletTopBar() {
 
           <GovernmentPortalExtensionBell />
 
-          <SyncIndicator />
+          <span className="hidden sm:inline-flex">
+            <SyncIndicator />
+          </span>
 
           <InstallButton />
 
@@ -140,10 +142,11 @@ export function TabletTopBar() {
           <button
             type="button"
             onClick={handleLogout}
-            className="flex h-11 items-center gap-2 rounded-xl border border-border bg-secondary px-4 text-sm font-semibold text-muted-foreground transition-all hover:text-foreground active:scale-95"
+            aria-label="Exit"
+            className="flex h-11 items-center gap-2 rounded-xl border border-border bg-secondary px-3 text-sm font-semibold text-muted-foreground transition-all hover:text-foreground active:scale-95 sm:px-4"
           >
             <LogOut className="h-4 w-4" />
-            EXIT
+            <span className="hidden sm:inline">EXIT</span>
           </button>
         </div>
       </div>
