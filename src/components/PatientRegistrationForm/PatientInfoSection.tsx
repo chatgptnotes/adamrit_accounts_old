@@ -425,6 +425,34 @@ export const PatientInfoSection: React.FC<PatientInfoSectionProps> = ({
           />
         </div>
 
+        {/* Ayushman ID */}
+        <div className="space-y-2">
+          <Label htmlFor="ayushmanId" className="text-sm font-medium">
+            Ayushman ID
+          </Label>
+          <Input
+            id="ayushmanId"
+            placeholder="Ayushman card ID"
+            value={formData.ayushmanId}
+            onChange={(e) => onInputChange('ayushmanId', e.target.value)}
+            className="w-full"
+          />
+        </div>
+
+        {/* Aadhar ID */}
+        <div className="space-y-2">
+          <Label htmlFor="aadharId" className="text-sm font-medium">
+            Aadhar ID
+          </Label>
+          <Input
+            id="aadharId"
+            placeholder="Aadhar number"
+            value={formData.aadharId}
+            onChange={(e) => onInputChange('aadharId', e.target.value)}
+            className="w-full"
+          />
+        </div>
+
         {/* Quarter/Plot No. */}
         <div className="space-y-2">
           <Label htmlFor="quarterPlotNo" className="text-sm font-medium">
