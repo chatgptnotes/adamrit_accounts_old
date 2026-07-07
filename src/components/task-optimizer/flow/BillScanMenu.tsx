@@ -15,6 +15,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useUtilityDeadlines, notifyBillScannedSlack } from '@/hooks/useUtilityDeadlines';
 import { extractUtilityBill } from '@/lib/extractUtilityBill';
 import { uploadBillAttachment } from '@/lib/uploadBillAttachment';
+import { captureInAppPhoto } from '@/lib/captureInAppPhoto';
 
 const inr = (n: number): string =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n);
@@ -108,30 +109,22 @@ export default function BillScanMenu({ onOpenDashboard }: Props) {
 
   const switchCamera = useCallback(() => setFacingMode((p) => (p === 'environment' ? 'user' : 'environment')), []);
 
-  const capturePhoto = useCallback(() => {
+  const capturePhoto = useCallback(async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas || !video.videoWidth || !video.videoHeight) {
+    if (!video || !canvas) {
       toast.error('Camera is still loading — try again in a moment.');
       return;
     }
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          toast.error('Could not capture the photo. Please try again.');
-          return;
-        }
-        setCameraOpen(false);
-        void scan(blob, `bill_capture_${Date.now()}.jpg`);
-      },
-      'image/jpeg',
-      0.9,
-    );
+
+    const result = await captureInAppPhoto(video, canvas);
+    if (!result) {
+      toast.error('Could not capture the photo. Please try again.');
+      return;
+    }
+
+    setCameraOpen(false);
+    void scan(result.blob, `bill_capture_${Date.now()}.jpg`);
   }, [scan]);
 
   return (
@@ -213,7 +206,7 @@ export default function BillScanMenu({ onOpenDashboard }: Props) {
             </div>
             <div className="flex gap-2">
               <button
-                onClick={capturePhoto}
+                onClick={() => void capturePhoto()}
                 className="inline-flex items-center gap-1.5 text-sm px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700"
               >
                 <Camera className="w-4 h-4" /> Capture &amp; scan

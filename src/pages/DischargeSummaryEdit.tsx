@@ -16,6 +16,9 @@ import { useVisitDiagnosis } from '@/hooks/useVisitDiagnosis';
 import { geminiGenerateContentUrl, geminiGenerateContent } from '@/lib/gemini';
 import { LLM_BACKEND, callVpsClaude } from '@/lib/vpsClaude';
 import { downscaleImageForVision } from '@/lib/downscaleImage';
+import { captureInAppPhoto, reapplyGeotagToBlob } from '@/lib/captureInAppPhoto';
+import { captureGeolocation, type GeoCapture } from '@/lib/geotag';
+import { GeotagStatus } from '@/components/GeotagStatus';
 import { useToast } from '@/hooks/use-toast';
 
 interface Patient {
@@ -276,6 +279,9 @@ export default function DischargeSummaryEdit() {
   const [isCapturing, setIsCapturing] = useState(false);
   const [isProcessingOCR, setIsProcessingOCR] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [capturedGeo, setCapturedGeo] = useState<GeoCapture | null>(null);
+  const [gpsRetryLoading, setGpsRetryLoading] = useState(false);
+  const capturedBlobRef = useRef<Blob | null>(null);
   const [extractedNotes, setExtractedNotes] = useState('');
   const [fetchedDataText, setFetchedDataText] = useState('');
   const [dataFetched, setDataFetched] = useState(false);
@@ -2189,13 +2195,11 @@ IMPORTANT: Output plain text only. Be professional and concise. Include ALL prov
     setIsCapturing(false);
   };
 
-  const capturePhoto = () => {
+  const capturePhoto = async () => {
     if (!videoRef.current || !canvasRef.current) return;
 
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-
-    if (!video.videoWidth || !video.videoHeight) {
+    const result = await captureInAppPhoto(videoRef.current, canvasRef.current);
+    if (!result) {
       toast({
         title: 'Camera loading',
         description: 'Camera is still loading. Please try again.',
@@ -2204,14 +2208,23 @@ IMPORTANT: Output plain text only. Be professional and concise. Include ALL prov
       return;
     }
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.drawImage(video, 0, 0);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-      setCapturedImage(dataUrl);
-      stopCamera();
+    capturedBlobRef.current = result.blob;
+    setCapturedGeo(result.geo);
+    setCapturedImage(URL.createObjectURL(result.blob));
+    stopCamera();
+  };
+
+  const retryCapturedGps = async () => {
+    if (!capturedBlobRef.current) return;
+    setGpsRetryLoading(true);
+    try {
+      const geo = await captureGeolocation();
+      const updatedBlob = await reapplyGeotagToBlob(capturedBlobRef.current, geo);
+      capturedBlobRef.current = updatedBlob;
+      setCapturedGeo(geo);
+      setCapturedImage(URL.createObjectURL(updatedBlob));
+    } finally {
+      setGpsRetryLoading(false);
     }
   };
 
@@ -2374,6 +2387,9 @@ IMPORTANT:
     stopCamera();
     setShowCameraDialog(false);
     setCapturedImage(null);
+    setCapturedGeo(null);
+    capturedBlobRef.current = null;
+    setGpsRetryLoading(false);
     setIsProcessingOCR(false);
   };
 
@@ -4046,7 +4062,7 @@ URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT: 7030974619, 937
                 <canvas ref={canvasRef} className="hidden" />
                 <div className="flex justify-center gap-3 mt-4">
                   <Button
-                    onClick={capturePhoto}
+                    onClick={() => void capturePhoto()}
                     className="flex items-center gap-2 bg-red-500 hover:bg-red-600 text-white rounded-full px-6"
                   >
                     <Camera className="h-5 w-5" />
@@ -4073,6 +4089,11 @@ URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT: 7030974619, 937
                     style={{ maxHeight: '400px' }}
                   />
                 </div>
+                <GeotagStatus
+                  geo={capturedGeo}
+                  loading={gpsRetryLoading}
+                  onRetry={() => void retryCapturedGps()}
+                />
                 <div className="flex justify-center gap-3">
                   <Button
                     onClick={() => processImageWithOCR(capturedImage)}
@@ -4090,6 +4111,8 @@ URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT: 7030974619, 937
                     variant="outline"
                     onClick={() => {
                       setCapturedImage(null);
+                      setCapturedGeo(null);
+                      capturedBlobRef.current = null;
                       startCamera();
                     }}
                     disabled={isProcessingOCR}

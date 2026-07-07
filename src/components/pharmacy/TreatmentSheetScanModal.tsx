@@ -4,6 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Camera, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { extractMedicationChart, type ExtractedMedicine } from '@/lib/extractMedicationChart';
+import { captureGeolocation, type GeoCapture } from '@/lib/geotag';
+import { geotagJpegFile } from '@/lib/embedGeotagExif';
+import { GeotagStatus } from '@/components/GeotagStatus';
 
 export type { ExtractedMedicine } from '@/lib/extractMedicationChart';
 
@@ -21,12 +24,14 @@ const TreatmentSheetScanModal: React.FC<TreatmentSheetScanModalProps> = ({
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [capturedGeo, setCapturedGeo] = useState<GeoCapture | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
 
   const reset = () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setFile(null);
+    setCapturedGeo(null);
     setPreviewUrl(null);
     setExtracting(false);
   };
@@ -36,16 +41,19 @@ const TreatmentSheetScanModal: React.FC<TreatmentSheetScanModalProps> = ({
     onOpenChange(next);
   };
 
-  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
     if (!selected) return;
     if (!selected.type.startsWith('image/')) {
       toast({ title: 'Unsupported file', description: 'Please capture or choose an image.', variant: 'destructive' });
       return;
     }
+    const geo = await captureGeolocation();
+    const tagged = await geotagJpegFile(selected, geo);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setFile(selected);
-    setPreviewUrl(URL.createObjectURL(selected));
+    setCapturedGeo(geo);
+    setFile(tagged);
+    setPreviewUrl(URL.createObjectURL(tagged));
   };
 
   const handleExtract = async () => {
@@ -85,6 +93,7 @@ const TreatmentSheetScanModal: React.FC<TreatmentSheetScanModalProps> = ({
                 alt="Captured medication chart"
                 className="max-h-72 w-full rounded-lg border object-contain bg-gray-50"
               />
+              <GeotagStatus geo={capturedGeo} />
               <div className="flex gap-2">
                 <Button
                   variant="outline"
@@ -125,7 +134,7 @@ const TreatmentSheetScanModal: React.FC<TreatmentSheetScanModalProps> = ({
             accept="image/*"
             capture="environment"
             className="hidden"
-            onChange={handleFileSelected}
+            onChange={(e) => void handleFileSelected(e)}
           />
         </div>
       </DialogContent>

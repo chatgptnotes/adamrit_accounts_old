@@ -20,7 +20,8 @@ import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import { shortDate } from "@/tablet/lib/format";
 import { compressImageToLimit } from "@/tablet/lib/image";
-import { MultiShotCamera } from "@/tablet/modules/patient-profile/MultiShotCamera";
+import { MultiShotCamera, type CapturedPhotoItem } from "@/tablet/modules/patient-profile/MultiShotCamera";
+import { googleMapsUrl } from "@/lib/geotag";
 
 /** Max size per file after (image) compression. */
 const MAX_FILE_BYTES = 1.5 * 1024 * 1024;
@@ -81,19 +82,22 @@ export function PatientDocsTab({
   const [cameraOpen, setCameraOpen] = useState(false);
   const [viewing, setViewing] = useState<PatientDoc | null>(null);
 
-  const handleFiles = async (files: File[]) => {
-    if (files.length === 0) return;
+  const handleFiles = async (items: File[] | CapturedPhotoItem[]) => {
+    if (items.length === 0) return;
     setUploading(true);
     try {
+      const normalized: CapturedPhotoItem[] = items.map((item) =>
+        item instanceof File ? { file: item, geo: null } : item,
+      );
       // Keep each file under 1.5 MB: shrink images, reject oversized PDFs.
-      const prepared: File[] = [];
+      const prepared: CapturedPhotoItem[] = [];
       const rejected: string[] = [];
-      for (const file of files) {
+      for (const { file, geo } of normalized) {
         const out = await compressImageToLimit(file, MAX_FILE_BYTES);
         if (out.size > MAX_FILE_BYTES) {
           rejected.push(out.name);
         } else {
-          prepared.push(out);
+          prepared.push({ file: out, geo });
         }
       }
       if (rejected.length > 0) {
@@ -107,12 +111,19 @@ export function PatientDocsTab({
         setUploading(false);
         return;
       }
-      await uploadPatientDocs(prepared, {
-        patientId,
-        patientName,
-        category,
-        uploadedBy: user?.id ?? null,
-      });
+      await uploadPatientDocs(
+        prepared.map((p) => ({
+          file: p.file,
+          geo: p.geo,
+          captureSource: p.geo ? "in_app_camera" : "file_picker",
+        })),
+        {
+          patientId,
+          patientName,
+          category,
+          uploadedBy: user?.id ?? null,
+        },
+      );
       await qc.invalidateQueries({
         queryKey: ["tablet-patient-docs", patientId, category],
       });
@@ -183,7 +194,7 @@ export function PatientDocsTab({
       <MultiShotCamera
         open={cameraOpen}
         onClose={() => setCameraOpen(false)}
-        onCapture={(files) => handleFiles(files)}
+        onCapture={(photos) => handleFiles(photos)}
       />
 
       {/* Gallery */}
@@ -225,9 +236,26 @@ export function PatientDocsTab({
                 )}
               </button>
               <div className="mt-2 flex items-center justify-between gap-1">
-                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                  {shortDate(doc.uploadedAt)}
-                </span>
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {shortDate(doc.uploadedAt)}
+                  </span>
+                  {doc.latitude != null && doc.longitude != null && (
+                    <a
+                      href={googleMapsUrl({
+                        latitude: doc.latitude,
+                        longitude: doc.longitude,
+                        accuracy: null,
+                        capturedAt: "",
+                      })}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block truncate text-[10px] text-emerald-700 hover:underline"
+                    >
+                      GPS: {doc.latitude.toFixed(4)}, {doc.longitude.toFixed(4)}
+                    </a>
+                  )}
+                </div>
                 <button
                   type="button"
                   aria-label="Download"

@@ -9,6 +9,10 @@ import { Loader2, Search, Camera, Upload, X, Circle, UserPlus, CheckCircle2, Eye
 import { VisitRegistrationForm } from '@/components/VisitRegistrationForm';
 import { extractTextFromImage, parsePatientData, ExtractedPatientData } from '@/lib/documentOcr';
 import { generatePatientId } from '@/utils/patientIdGenerator';
+import { captureInAppPhoto } from '@/lib/captureInAppPhoto';
+import { captureGeolocation, geoToDbFields, type GeoCapture } from '@/lib/geotag';
+import { geotagJpegFile } from '@/lib/embedGeotagExif';
+import { GeotagStatus } from '@/components/GeotagStatus';
 
 interface Patient {
   id: string;
@@ -47,6 +51,8 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
   const [backData, setBackData]       = useState<ExtractedPatientData | null>(null);
   const [frontFile, setFrontFile]     = useState<File | null>(null);
   const [backFile, setBackFile]       = useState<File | null>(null);
+  const [frontGeo, setFrontGeo]       = useState<GeoCapture | null>(null);
+  const [backGeo, setBackGeo]         = useState<GeoCapture | null>(null);
   const [frontPreview, setFrontPreview] = useState<string | null>(null);
   const [backPreview, setBackPreview]   = useState<string | null>(null);
   const [scanningSlot, setScanningSlot] = useState<'front' | 'back' | null>(null);
@@ -108,6 +114,7 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
   const startScan = () => {
     setFrontData(null); setBackData(null);
     setFrontFile(null); setBackFile(null);
+    setFrontGeo(null); setBackGeo(null);
     if (frontPreview) URL.revokeObjectURL(frontPreview);
     if (backPreview)  URL.revokeObjectURL(backPreview);
     setFrontPreview(null); setBackPreview(null);
@@ -121,6 +128,7 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
   const startUpload = () => {
     setFrontData(null); setBackData(null);
     setFrontFile(null); setBackFile(null);
+    setFrontGeo(null); setBackGeo(null);
     if (frontPreview) URL.revokeObjectURL(frontPreview);
     if (backPreview)  URL.revokeObjectURL(backPreview);
     setFrontPreview(null); setBackPreview(null);
@@ -162,28 +170,37 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
     setCameraActive(false);
   };
 
-  const captureDesktop = () => {
+  const captureDesktop = async () => {
     if (!videoRef.current || !canvasRef.current) return;
-    const video  = videoRef.current;
-    const canvas = canvasRef.current;
-    canvas.width  = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext('2d')?.drawImage(video, 0, 0);
-    canvas.toBlob(async (blob) => {
-      if (!blob) return;
-      stopCamera();
-      const file = new File([blob], `aadhaar_${slotRef.current}.jpg`, { type: 'image/jpeg' });
-      await runOcr(file, slotRef.current);
-    }, 'image/jpeg', 0.9);
+    const result = await captureInAppPhoto(videoRef.current, canvasRef.current);
+    if (!result) return;
+    stopCamera();
+    const file = new File([result.blob], `aadhaar_${slotRef.current}.jpg`, { type: 'image/jpeg' });
+    if (slotRef.current === 'front') setFrontGeo(result.geo);
+    else setBackGeo(result.geo);
+    await runOcr(file, slotRef.current, result.geo);
   };
 
-  const runOcr = async (file: File, slot: 'front' | 'back') => {
+  const handleCapturedFileInput = async (file: File, fromCamera: boolean) => {
+    const geo = fromCamera ? await captureGeolocation() : null;
+    await runOcr(file, slotRef.current, geo);
+  };
+
+  const runOcr = async (file: File, slot: 'front' | 'back', geo: GeoCapture | null = null) => {
     setScanningSlot(slot);
     setScanProgress(0);
 
-    const previewUrl = URL.createObjectURL(file);
-    if (slot === 'front') { setFrontFile(file); setFrontPreview(previewUrl); }
-    else                  { setBackFile(file);  setBackPreview(previewUrl); }
+    const taggedFile = await geotagJpegFile(file, geo);
+    const previewUrl = URL.createObjectURL(taggedFile);
+    if (slot === 'front') {
+      setFrontFile(taggedFile);
+      setFrontPreview(previewUrl);
+      if (geo) setFrontGeo(geo);
+    } else {
+      setBackFile(taggedFile);
+      setBackPreview(previewUrl);
+      if (geo) setBackGeo(geo);
+    }
 
     try {
       const { text, confidence } = await extractTextFromImage(file, setScanProgress, slot === 'back');
@@ -273,11 +290,11 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
   // Upload both aadhaar images to Supabase storage under the patient record
   const uploadAadhaarImages = async (patientId: string) => {
     const uploads = [
-      { file: frontFile, side: 'front' },
-      { file: backFile,  side: 'back'  },
+      { file: frontFile, side: 'front' as const, geo: frontGeo },
+      { file: backFile,  side: 'back' as const, geo: backGeo },
     ].filter((u) => u.file);
 
-    for (const { file, side } of uploads) {
+    for (const { file, side, geo } of uploads) {
       const ts       = Date.now();
       const filePath = `aadhaar/${patientId}/${side}_${ts}.jpg`;
       const { error: upErr } = await supabase.storage
@@ -300,6 +317,7 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
         storage_bucket:    'patient-documents',
         is_uploaded:       true,
         uploaded_at:       new Date().toISOString(),
+        ...geoToDbFields(geo, geo ? 'in_app_camera' : 'file_picker'),
       });
     }
   };
@@ -349,6 +367,7 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
     setSearch(''); setResults([]); setSelectedPatient(null);
     setFrontData(null); setBackData(null);
     setFrontFile(null); setBackFile(null);
+    setFrontGeo(null); setBackGeo(null);
     if (frontPreview) URL.revokeObjectURL(frontPreview);
     if (backPreview)  URL.revokeObjectURL(backPreview);
     setFrontPreview(null); setBackPreview(null);
@@ -392,7 +411,7 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
                   <Button size="sm" variant="destructive" onClick={() => { stopCamera(); setScanStep(null); }} className="gap-1">
                     <X className="h-4 w-4" /> Cancel
                   </Button>
-                  <Button size="sm" onClick={captureDesktop} disabled={isScanning}
+                  <Button size="sm" onClick={() => void captureDesktop()} disabled={isScanning}
                     className="gap-1 bg-white text-black hover:bg-gray-100">
                     <Circle className="h-4 w-4 fill-current" /> Capture
                   </Button>
@@ -403,11 +422,11 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
 
             {/* Hidden file inputs */}
             <input ref={desktopFileRef} type="file" accept="image/*" className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) runOcr(f, slotRef.current); }} />
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleCapturedFileInput(f, true); }} />
             <input ref={mobileFileRef} type="file" accept="image/*" capture="environment" className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) runOcr(f, slotRef.current); }} />
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleCapturedFileInput(f, true); }} />
             <input ref={uploadFileRef} type="file" accept="image/*" className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) runOcr(f, slotRef.current); }} />
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleCapturedFileInput(f, false); }} />
 
             {/* Single Scan Aadhaar button + step indicator */}
             {!cameraActive && (

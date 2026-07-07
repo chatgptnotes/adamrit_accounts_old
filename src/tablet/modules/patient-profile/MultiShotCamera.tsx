@@ -8,18 +8,26 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { TabletButton } from "@/tablet/ui/TabletButton";
+import { captureInAppPhoto } from "@/lib/captureInAppPhoto";
+import type { GeoCapture } from "@/lib/geotag";
 
 interface Shot {
   id: string;
   url: string;
   blob: Blob;
+  geo: GeoCapture | null;
+}
+
+export interface CapturedPhotoItem {
+  file: File;
+  geo: GeoCapture | null;
 }
 
 interface MultiShotCameraProps {
   open: boolean;
   onClose: () => void;
   /** Called with every captured photo when the user taps Done. */
-  onCapture: (files: File[]) => void;
+  onCapture: (photos: CapturedPhotoItem[]) => void;
 }
 
 /**
@@ -80,36 +88,29 @@ export function MultiShotCamera({
     [shots],
   );
 
-  const capture = useCallback(() => {
+  const capture = useCallback(async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas || !video.videoWidth || !video.videoHeight) {
+    if (!video || !canvas) {
       toast.error("Camera is still loading — try again in a moment.");
       return;
     }
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          toast.error("Could not capture the photo. Please try again.");
-          return;
-        }
-        setShots((prev) => [
-          ...prev,
-          {
-            id: `${prev.length}_${blob.size}`,
-            url: URL.createObjectURL(blob),
-            blob,
-          },
-        ]);
+
+    const result = await captureInAppPhoto(video, canvas);
+    if (!result) {
+      toast.error("Could not capture the photo. Please try again.");
+      return;
+    }
+
+    setShots((prev) => [
+      ...prev,
+      {
+        id: `${prev.length}_${result.blob.size}`,
+        url: URL.createObjectURL(result.blob),
+        blob: result.blob,
+        geo: result.geo,
       },
-      "image/jpeg",
-      0.9,
-    );
+    ]);
   }, []);
 
   const removeShot = (id: string) => {
@@ -125,13 +126,13 @@ export function MultiShotCamera({
       onClose();
       return;
     }
-    const files = shots.map(
-      (s, i) =>
-        new File([s.blob], `camera_${Date.now()}_${i + 1}.jpg`, {
-          type: "image/jpeg",
-        }),
-    );
-    onCapture(files);
+    const photos: CapturedPhotoItem[] = shots.map((s, i) => ({
+      file: new File([s.blob], `camera_${Date.now()}_${i + 1}.jpg`, {
+        type: "image/jpeg",
+      }),
+      geo: s.geo,
+    }));
+    onCapture(photos);
     setShots([]);
     onClose();
   };
@@ -179,6 +180,15 @@ export function MultiShotCamera({
                   alt="captured"
                   className="h-16 w-16 rounded-lg object-cover"
                 />
+                {s.geo ? (
+                  <span className="absolute bottom-0 left-0 right-0 rounded-b-lg bg-emerald-600/80 px-0.5 text-center text-[8px] text-white">
+                    GPS
+                  </span>
+                ) : (
+                  <span className="absolute bottom-0 left-0 right-0 rounded-b-lg bg-amber-600/80 px-0.5 text-center text-[8px] text-white">
+                    No GPS
+                  </span>
+                )}
                 <button
                   type="button"
                   aria-label="Remove"
@@ -196,7 +206,7 @@ export function MultiShotCamera({
           <TabletButton variant="outline" className="flex-1" onClick={cancel}>
             <Trash2 className="h-5 w-5" /> Cancel
           </TabletButton>
-          <TabletButton className="flex-1" onClick={capture}>
+          <TabletButton className="flex-1" onClick={() => void capture()}>
             <Camera className="h-5 w-5" /> Capture
           </TabletButton>
           <TabletButton

@@ -6,9 +6,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Camera, Upload, Loader2, X, SwitchCamera, Paperclip } from 'lucide-react';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { captureInAppPhoto } from '@/lib/captureInAppPhoto';
+import type { GeoCapture } from '@/lib/geotag';
 
 interface Props {
-  onFile: (file: Blob, fileName: string) => void;
+  onFile: (file: Blob, fileName: string, geo?: GeoCapture | null) => void;
   disabled?: boolean;
   busy?: boolean;
   title?: string;
@@ -58,30 +60,22 @@ export default function DocumentScanMenu({ onFile, disabled, busy, title = 'Scan
 
   const switchCamera = useCallback(() => setFacingMode((p) => (p === 'environment' ? 'user' : 'environment')), []);
 
-  const capturePhoto = useCallback(() => {
+  const capturePhoto = useCallback(async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas || !video.videoWidth || !video.videoHeight) {
+    if (!video || !canvas) {
       toast.error('Camera is still loading — try again in a moment.');
       return;
     }
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          toast.error('Could not capture the photo. Please try again.');
-          return;
-        }
-        setCameraOpen(false);
-        onFile(blob, `scan_${Date.now()}.jpg`);
-      },
-      'image/jpeg',
-      0.9,
-    );
+
+    const result = await captureInAppPhoto(video, canvas);
+    if (!result) {
+      toast.error('Could not capture the photo. Please try again.');
+      return;
+    }
+
+    setCameraOpen(false);
+    onFile(result.blob, `scan_${Date.now()}.jpg`, result.geo);
   }, [onFile]);
 
   return (
@@ -151,7 +145,7 @@ export default function DocumentScanMenu({ onFile, disabled, busy, title = 'Scan
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={capturePhoto}
+                onClick={() => void capturePhoto()}
                 className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
               >
                 <Camera className="h-4 w-4" /> Capture &amp; scan

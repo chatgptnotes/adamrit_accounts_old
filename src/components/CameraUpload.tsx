@@ -42,6 +42,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { geminiGenerateContentUrl, geminiFetch, GEMINI_MODEL_LITE } from '@/lib/gemini';
 import { LLM_BACKEND, callVpsClaude } from '@/lib/vpsClaude';
 import { downscaleImageForVision } from '@/lib/downscaleImage';
+import { captureInAppPhoto, reapplyGeotagToBlob } from '@/lib/captureInAppPhoto';
+import { captureGeolocation, geoToDbFields, googleMapsUrl, type GeoCapture } from '@/lib/geotag';
+import { GeotagStatus } from '@/components/GeotagStatus';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -70,6 +73,8 @@ interface FileUploadRecord {
   patient_name: string | null;
   notes: string | null;
   created_at: string;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 type BillDocumentCategory =
@@ -206,6 +211,8 @@ const CameraUpload: React.FC<CameraUploadProps> = ({
 
   // File / capture state
   const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
+  const [capturedGeo, setCapturedGeo] = useState<GeoCapture | null>(null);
+  const [gpsRetryLoading, setGpsRetryLoading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -363,44 +370,44 @@ const CameraUpload: React.FC<CameraUploadProps> = ({
     };
   }, []);
 
-  const capturePhoto = useCallback(() => {
+  const capturePhoto = useCallback(async () => {
     if (!videoRef.current || !canvasRef.current) {
       toast({ title: 'Camera not ready', description: 'Please wait for the camera to initialize.', variant: 'destructive' });
       return;
     }
 
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-
-    // Ensure video has loaded dimensions
-    if (!video.videoWidth || !video.videoHeight) {
-      toast({ title: 'Camera loading', description: 'Camera is still loading. Please try again in a moment.', variant: 'destructive' });
-      return;
+    const result = await captureInAppPhoto(videoRef.current, canvasRef.current);
+    if (result) {
+      setCapturedBlob(result.blob);
+      setCapturedGeo(result.geo);
+      setSelectedFile(null);
+      const url = URL.createObjectURL(result.blob);
+      setPreviewUrl(url);
+      stopCamera();
+    } else {
+      toast({ title: 'Capture failed', description: 'Could not capture photo. Please try again.', variant: 'destructive' });
     }
-
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    canvas.toBlob(
-      (blob) => {
-        if (blob) {
-          setCapturedBlob(blob);
-          setSelectedFile(null);
-          const url = URL.createObjectURL(blob);
-          setPreviewUrl(url);
-          stopCamera();
-        } else {
-          toast({ title: 'Capture failed', description: 'Could not capture photo. Please try again.', variant: 'destructive' });
-        }
-      },
-      'image/jpeg',
-      0.9
-    );
   }, [stopCamera, toast]);
+
+  const retryGps = useCallback(async () => {
+    if (!capturedBlob) return;
+    setGpsRetryLoading(true);
+    try {
+      const geo = await captureGeolocation();
+      const updatedBlob = await reapplyGeotagToBlob(capturedBlob, geo);
+      setCapturedGeo(geo);
+      setCapturedBlob(updatedBlob);
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(URL.createObjectURL(updatedBlob));
+      if (geo) {
+        toast({ title: 'GPS captured', description: 'Location attached to this photo.' });
+      } else {
+        toast({ title: 'GPS unavailable', description: 'Could not get location. Enable location permission and try again.', variant: 'destructive' });
+      }
+    } finally {
+      setGpsRetryLoading(false);
+    }
+  }, [capturedBlob, previewUrl, toast]);
 
   // -------------------------------------------------------------------------
   // File upload handling (drag & drop + click)
@@ -425,6 +432,7 @@ const CameraUpload: React.FC<CameraUploadProps> = ({
         return;
       }
       setCapturedBlob(null);
+      setCapturedGeo(null);
       setSelectedFile(file);
       if (file.type.startsWith('image/')) {
         setPreviewUrl(URL.createObjectURL(file));
@@ -634,6 +642,8 @@ Extract patient name if mentioned. Extract any ID/UHID if mentioned. Put the doc
   const clearCapture = useCallback(() => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setCapturedBlob(null);
+    setCapturedGeo(null);
+    setGpsRetryLoading(false);
     setSelectedFile(null);
     setPreviewUrl(null);
     setPatientSearch('');
@@ -1284,6 +1294,10 @@ Rules:
           patient_name: selectedPatient?.name || null,
           notes: notes || null,
           uploaded_by: user?.id || null,
+          ...geoToDbFields(
+            capturedBlob ? capturedGeo : null,
+            capturedBlob ? 'in_app_camera' : 'file_picker',
+          ),
         });
 
       if (insertError) {
@@ -1387,6 +1401,7 @@ Rules:
     }
   }, [
     capturedBlob,
+    capturedGeo,
     selectedFile,
     category,
     notes,
@@ -1548,6 +1563,13 @@ Rules:
           <span className="truncate">{displayName}</span>
           <span className="text-gray-400">({displaySize})</span>
         </div>
+        {capturedBlob && (
+          <GeotagStatus
+            geo={capturedGeo}
+            loading={gpsRetryLoading}
+            onRetry={retryGps}
+          />
+        )}
       </div>
     );
   };
@@ -1925,6 +1947,16 @@ Rules:
                       {timeAgo(upload.created_at)}
                     </span>
                   </div>
+                  {upload.latitude != null && upload.longitude != null && (
+                    <a
+                      href={googleMapsUrl({ latitude: upload.latitude, longitude: upload.longitude, accuracy: null, capturedAt: '' })}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] text-emerald-700 hover:underline mt-0.5 block truncate"
+                    >
+                      GPS: {upload.latitude.toFixed(4)}, {upload.longitude.toFixed(4)}
+                    </a>
+                  )}
                 </div>
               </div>
             );

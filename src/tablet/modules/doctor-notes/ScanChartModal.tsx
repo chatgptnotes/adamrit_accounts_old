@@ -11,6 +11,9 @@ import {
   extractMedicationChart,
   type ExtractedMedicine,
 } from "@/lib/extractMedicationChart";
+import { captureGeolocation, geoToDbFields, type GeoCapture } from "@/lib/geotag";
+import { geotagJpegFile } from "@/lib/embedGeotagExif";
+import { GeotagStatus } from "@/components/GeotagStatus";
 
 const db = supabase as any;
 
@@ -38,6 +41,7 @@ export function ScanChartModal({
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [capturedGeo, setCapturedGeo] = useState<GeoCapture | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [sending, setSending] = useState(false);
@@ -47,6 +51,7 @@ export function ScanChartModal({
   const reset = () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setFile(null);
+    setCapturedGeo(null);
     setPreviewUrl(null);
     setExtracting(false);
     setSending(false);
@@ -59,16 +64,19 @@ export function ScanChartModal({
     onOpenChange(next);
   };
 
-  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
     if (!selected) return;
     if (!selected.type.startsWith("image/")) {
       toast({ title: "Unsupported file", description: "Please capture or choose an image.", variant: "destructive" });
       return;
     }
+    const geo = await captureGeolocation();
+    const tagged = await geotagJpegFile(selected, geo);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setFile(selected);
-    setPreviewUrl(URL.createObjectURL(selected));
+    setCapturedGeo(geo);
+    setFile(tagged);
+    setPreviewUrl(URL.createObjectURL(tagged));
   };
 
   const handleExtract = async () => {
@@ -109,6 +117,17 @@ export function ScanChartModal({
           console.warn("Chart image upload failed (continuing without photo):", upErr.message);
         } else {
           imageUrl = db.storage.from("uploads").getPublicUrl(storagePath).data?.publicUrl || null;
+          await db.from("file_uploads").insert({
+            file_name: file.name,
+            file_url: imageUrl,
+            file_type: file.type || "image/jpeg",
+            file_size: file.size,
+            storage_path: storagePath,
+            category: "treatment_sheet",
+            patient_id: visit.patientUuid,
+            patient_name: visit.patientName,
+            ...geoToDbFields(capturedGeo, capturedGeo ? "in_app_camera" : "file_picker"),
+          });
         }
       }
 
@@ -210,6 +229,7 @@ export function ScanChartModal({
                     alt="Captured medication chart"
                     className="max-h-72 w-full rounded-lg border bg-muted/30 object-contain"
                   />
+                  <GeotagStatus geo={capturedGeo} compact />
                   <div className="flex gap-2">
                     <TabletButton variant="outline" className="flex-1" onClick={() => fileInputRef.current?.click()} disabled={extracting}>
                       <RefreshCw className="h-5 w-5" /> Retake
@@ -231,7 +251,7 @@ export function ScanChartModal({
                 </button>
               )}
 
-              <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileSelected} />
+              <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => void handleFileSelected(e)} />
             </>
           ) : (
             <>

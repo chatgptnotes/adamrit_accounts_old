@@ -48,6 +48,9 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { logActivity } from '@/lib/activity-logger';
+import { captureInAppPhoto } from '@/lib/captureInAppPhoto';
+import { geoToDbFields } from '@/lib/geotag';
+import { GeotagStatus } from '@/components/GeotagStatus';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 
@@ -120,6 +123,7 @@ const PACSViewer: React.FC<PACSViewerProps> = ({ patients, dicomStudies }) => {
   const [uploadDialog, setUploadDialog] = useState(false);
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadGeo, setUploadGeo] = useState(null);
   const [uploadBodyPart, setUploadBodyPart] = useState('');
   const [uploadDescription, setUploadDescription] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -249,6 +253,8 @@ const PACSViewer: React.FC<PACSViewerProps> = ({ patients, dicomStudies }) => {
           file_name: uploadFile.name,
           body_part: uploadBodyPart || null,
           description: uploadDescription || null,
+          mime_type: uploadFile.type || 'image/jpeg',
+          ...geoToDbFields(uploadGeo, uploadGeo ? 'in_app_camera' : 'file_picker'),
         });
       if (insertError) throw insertError;
 
@@ -282,6 +288,7 @@ const PACSViewer: React.FC<PACSViewerProps> = ({ patients, dicomStudies }) => {
   const resetUploadState = () => {
     setUploadFile(null);
     setUploadPreview(null);
+    setUploadGeo(null);
     setUploadBodyPart('');
     setUploadDescription('');
     stopCamera();
@@ -315,22 +322,15 @@ const PACSViewer: React.FC<PACSViewerProps> = ({ patients, dicomStudies }) => {
     setCameraActive(false);
   };
 
-  const capturePhoto = () => {
+  const capturePhoto = async () => {
     if (!videoRef.current || !canvasRef.current) return;
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0);
-    canvas.toBlob((blob) => {
-      if (!blob) return;
-      const file = new File([blob], `capture_${Date.now()}.png`, { type: 'image/png' });
-      setUploadFile(file);
-      setUploadPreview(canvas.toDataURL('image/png'));
-      stopCamera();
-    }, 'image/png');
+    const result = await captureInAppPhoto(videoRef.current, canvasRef.current);
+    if (!result) return;
+    const file = new File([result.blob], `capture_${Date.now()}.jpg`, { type: 'image/jpeg' });
+    setUploadFile(file);
+    setUploadGeo(result.geo);
+    setUploadPreview(URL.createObjectURL(result.blob));
+    stopCamera();
   };
 
   // Cleanup camera on unmount
@@ -1017,7 +1017,7 @@ const PACSViewer: React.FC<PACSViewerProps> = ({ patients, dicomStudies }) => {
                   />
                 </div>
                 <div className="flex gap-2 justify-center">
-                  <Button onClick={capturePhoto}>
+                  <Button onClick={() => void capturePhoto()}>
                     <Camera className="h-4 w-4 mr-2" />
                     Capture
                   </Button>
@@ -1047,11 +1047,15 @@ const PACSViewer: React.FC<PACSViewerProps> = ({ patients, dicomStudies }) => {
                   onClick={() => {
                     setUploadFile(null);
                     setUploadPreview(null);
+                    setUploadGeo(null);
                   }}
                 >
                   <X className="h-4 w-4 mr-1" />
                   Remove
                 </Button>
+                {uploadFile && (
+                  <GeotagStatus geo={uploadGeo} />
+                )}
               </div>
             )}
 

@@ -5545,6 +5545,7 @@ export type Database = {
       }
       file_uploads: {
         Row: {
+          capture_source: string | null
           category: string | null
           created_at: string | null
           error_message: string | null
@@ -5552,8 +5553,12 @@ export type Database = {
           file_size: number
           file_type: string
           file_url: string | null
+          gps_accuracy: number | null
+          gps_captured_at: string | null
           hospital_id: string | null
           id: string
+          latitude: number | null
+          longitude: number | null
           notes: string | null
           patient_id: string | null
           patient_name: string | null
@@ -5564,6 +5569,7 @@ export type Database = {
           uploaded_by: string | null
         }
         Insert: {
+          capture_source?: string | null
           category?: string | null
           created_at?: string | null
           error_message?: string | null
@@ -5571,8 +5577,12 @@ export type Database = {
           file_size: number
           file_type: string
           file_url?: string | null
+          gps_accuracy?: number | null
+          gps_captured_at?: string | null
           hospital_id?: string | null
           id?: string
+          latitude?: number | null
+          longitude?: number | null
           notes?: string | null
           patient_id?: string | null
           patient_name?: string | null
@@ -5583,6 +5593,7 @@ export type Database = {
           uploaded_by?: string | null
         }
         Update: {
+          capture_source?: string | null
           category?: string | null
           created_at?: string | null
           error_message?: string | null
@@ -5590,8 +5601,12 @@ export type Database = {
           file_size?: number
           file_type?: string
           file_url?: string | null
+          gps_accuracy?: number | null
+          gps_captured_at?: string | null
           hospital_id?: string | null
           id?: string
+          latitude?: number | null
+          longitude?: number | null
           notes?: string | null
           patient_id?: string | null
           patient_name?: string | null
@@ -10691,14 +10706,19 @@ export type Database = {
       pacs_images: {
         Row: {
           body_part: string | null
+          capture_source: string | null
           captured_at: string | null
           created_at: string | null
           description: string | null
           file_name: string
           file_path: string
           file_size_kb: number | null
+          gps_accuracy: number | null
+          gps_captured_at: string | null
           id: string
           image_type: string | null
+          latitude: number | null
+          longitude: number | null
           mime_type: string | null
           patient_id: string | null
           study_id: string | null
@@ -10706,14 +10726,19 @@ export type Database = {
         }
         Insert: {
           body_part?: string | null
+          capture_source?: string | null
           captured_at?: string | null
           created_at?: string | null
           description?: string | null
           file_name: string
           file_path: string
           file_size_kb?: number | null
+          gps_accuracy?: number | null
+          gps_captured_at?: string | null
           id?: string
           image_type?: string | null
+          latitude?: number | null
+          longitude?: number | null
           mime_type?: string | null
           patient_id?: string | null
           study_id?: string | null
@@ -10721,14 +10746,19 @@ export type Database = {
         }
         Update: {
           body_part?: string | null
+          capture_source?: string | null
           captured_at?: string | null
           created_at?: string | null
           description?: string | null
           file_name?: string
           file_path?: string
           file_size_kb?: number | null
+          gps_accuracy?: number | null
+          gps_captured_at?: string | null
           id?: string
           image_type?: string | null
+          latitude?: number | null
+          longitude?: number | null
           mime_type?: string | null
           patient_id?: string | null
           study_id?: string | null
@@ -11070,6 +11100,7 @@ export type Database = {
       }
       patient_documents: {
         Row: {
+          capture_source: string | null
           created_at: string | null
           document_name: string
           document_type_id: number
@@ -11077,8 +11108,12 @@ export type Database = {
           file_path: string | null
           file_size: number | null
           file_type: string | null
+          gps_accuracy: number | null
+          gps_captured_at: string | null
           id: string
           is_uploaded: boolean | null
+          latitude: number | null
+          longitude: number | null
           patient_id: string | null
           remark_reason: string | null
           remarks: string | null
@@ -11088,6 +11123,7 @@ export type Database = {
           visit_id: string
         }
         Insert: {
+          capture_source?: string | null
           created_at?: string | null
           document_name: string
           document_type_id: number
@@ -11095,8 +11131,12 @@ export type Database = {
           file_path?: string | null
           file_size?: number | null
           file_type?: string | null
+          gps_accuracy?: number | null
+          gps_captured_at?: string | null
           id?: string
           is_uploaded?: boolean | null
+          latitude?: number | null
+          longitude?: number | null
           patient_id?: string | null
           remark_reason?: string | null
           remarks?: string | null
@@ -11106,6 +11146,7 @@ export type Database = {
           visit_id: string
         }
         Update: {
+          capture_source?: string | null
           created_at?: string | null
           document_name?: string
           document_type_id?: number
@@ -11113,7 +11154,11 @@ export type Database = {
           file_path?: string | null
           file_size?: number | null
           file_type?: string | null
+          gps_accuracy?: number | null
+          gps_captured_at?: string | null
           id?: string
+          latitude?: number | null
+          longitude?: number | null
           is_uploaded?: boolean | null
           patient_id?: string | null
           remark_reason?: string | null

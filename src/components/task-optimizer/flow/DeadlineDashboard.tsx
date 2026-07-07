@@ -42,6 +42,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { dispatchFlowEventWithToasts } from '@/lib/flowDispatcher';
 import { extractUtilityBill } from '@/lib/extractUtilityBill';
+import { captureInAppPhoto } from '@/lib/captureInAppPhoto';
 import DeadlineNotificationBell from './DeadlineNotificationBell';
 import SlackRecipientsManager from './SlackRecipientsManager';
 
@@ -468,30 +469,22 @@ export default function DeadlineDashboard({ onBack }: Props) {
   // Stop the camera on unmount so the device light doesn't stay on.
   useEffect(() => () => stopCamera(), [stopCamera]);
 
-  const capturePhoto = useCallback(() => {
+  const capturePhoto = useCallback(async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas || !video.videoWidth || !video.videoHeight) {
+    if (!video || !canvas) {
       toast.error('Camera is still loading — try again in a moment.');
       return;
     }
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          toast.error('Could not capture the photo. Please try again.');
-          return;
-        }
-        stopCamera();
-        void handleScan(blob, `bill_capture_${Date.now()}.jpg`);
-      },
-      'image/jpeg',
-      0.9,
-    );
+
+    const result = await captureInAppPhoto(video, canvas);
+    if (!result) {
+      toast.error('Could not capture the photo. Please try again.');
+      return;
+    }
+
+    stopCamera();
+    void handleScan(result.blob, `bill_capture_${Date.now()}.jpg`);
   }, [stopCamera, handleScan]);
 
   const confirmDelete = async (d: UtilityDeadline) => {
@@ -609,7 +602,7 @@ export default function DeadlineDashboard({ onBack }: Props) {
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={capturePhoto}
+                      onClick={() => void capturePhoto()}
                       disabled={scanning}
                       className="inline-flex items-center gap-1.5 text-sm px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
                     >

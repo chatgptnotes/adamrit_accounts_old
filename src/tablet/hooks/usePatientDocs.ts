@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { geoToDbFields, type GeoCapture } from "@/lib/geotag";
 
 /** The document tabs shown under a patient profile, in display order. */
 export const PATIENT_DOC_CATEGORIES = [
@@ -23,6 +24,8 @@ export interface PatientDoc {
   fileType: string | null;
   storagePath: string | null;
   uploadedAt: string | null;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 const BUCKET = "uploads";
@@ -35,6 +38,8 @@ function mapDoc(r: any): PatientDoc {
     fileType: r.file_type ?? null,
     storagePath: r.storage_path ?? null,
     uploadedAt: r.created_at ?? null,
+    latitude: r.latitude ?? null,
+    longitude: r.longitude ?? null,
   };
 }
 
@@ -50,7 +55,7 @@ export function usePatientDocs(
     queryFn: async (): Promise<PatientDoc[]> => {
       const { data, error } = await supabase
         .from("file_uploads")
-        .select("id, file_name, file_url, file_type, storage_path, created_at")
+        .select("id, file_name, file_url, file_type, storage_path, created_at, latitude, longitude")
         .eq("patient_id", patientId)
         .eq("category", category)
         .order("created_at", { ascending: false });
@@ -58,6 +63,12 @@ export function usePatientDocs(
       return (data || []).map(mapDoc);
     },
   });
+}
+
+export interface PatientDocUploadItem {
+  file: File;
+  geo?: GeoCapture | null;
+  captureSource?: "in_app_camera" | "file_picker";
 }
 
 interface UploadMeta {
@@ -73,10 +84,14 @@ interface UploadMeta {
  * in src/components/CameraUpload.tsx. Throws on the first failure.
  */
 export async function uploadPatientDocs(
-  files: File[],
+  items: File[] | PatientDocUploadItem[],
   meta: UploadMeta,
 ): Promise<void> {
-  for (const file of files) {
+  const normalized: PatientDocUploadItem[] = items.map((item) =>
+    item instanceof File ? { file: item, captureSource: "file_picker" } : item,
+  );
+
+  for (const { file, geo = null, captureSource = geo ? "in_app_camera" : "file_picker" } of normalized) {
     const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
     const storagePath = `uploads/${Date.now()}_${Math.random()
       .toString(36)
@@ -101,6 +116,7 @@ export async function uploadPatientDocs(
       patient_id: meta.patientId,
       patient_name: meta.patientName,
       uploaded_by: meta.uploadedBy ?? null,
+      ...geoToDbFields(geo, captureSource),
     });
     if (insertError) throw insertError;
   }
