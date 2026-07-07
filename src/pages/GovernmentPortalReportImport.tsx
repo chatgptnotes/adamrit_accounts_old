@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import {
   Activity,
   AlertCircle,
@@ -35,6 +35,12 @@ import type {
   GovernmentPortalRow,
   GovernmentPortalSection,
 } from '@/lib/governmentPortalReport';
+import {
+  fetchGovernmentPortalImportHistory,
+  fetchGovernmentPortalReportById,
+  fetchLatestGovernmentPortalReport,
+  saveGovernmentPortalReport,
+} from '@/lib/governmentPortalReportDb';
 
 const sectionStyles: Record<GovernmentPortalSection, string> = {
   dialysis: 'bg-cyan-50 text-cyan-700 border-cyan-200',
@@ -172,8 +178,77 @@ export default function GovernmentPortalReportImport() {
   const [fileName, setFileName] = useState('');
   const [report, setReport] = useState<ReturnType<typeof parseGovernmentPortalReport> | null>(null);
   const [reportDateLabel, setReportDateLabel] = useState('');
+  const [savedImportId, setSavedImportId] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [importHistory, setImportHistory] = useState<
+    Array<{ id: string; fileName: string; createdAt: string; totalRows: number }>
+  >([]);
+  const [isLoadingSaved, setIsLoadingSaved] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [isReading, setIsReading] = useState(false);
   const [isSendingWhatsApp, setIsSendingWhatsApp] = useState(false);
+
+  const applySavedReport = (
+    saved: {
+      id: string;
+      fileName: string;
+      reportDateLabel: string | null;
+      createdAt: string;
+      report: ReturnType<typeof parseGovernmentPortalReport>;
+    },
+  ) => {
+    setSavedImportId(saved.id);
+    setSavedAt(saved.createdAt);
+    setFileName(saved.fileName);
+    setReportDateLabel(saved.reportDateLabel || new Date(saved.createdAt).toLocaleDateString('en-IN'));
+    setReport(saved.report);
+  };
+
+  const refreshImportHistory = async () => {
+    const history = await fetchGovernmentPortalImportHistory();
+    setImportHistory(history);
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadSaved = async () => {
+      setIsLoadingSaved(true);
+      try {
+        const [latest, history] = await Promise.all([
+          fetchLatestGovernmentPortalReport(),
+          fetchGovernmentPortalImportHistory(),
+        ]);
+        if (cancelled) return;
+        setImportHistory(history);
+        if (latest) applySavedReport(latest);
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Failed to load saved government portal report:', error);
+        }
+      } finally {
+        if (!cancelled) setIsLoadingSaved(false);
+      }
+    };
+
+    void loadSaved();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleSelectImport = async (importId: string) => {
+    if (!importId) return;
+    setIsLoadingSaved(true);
+    try {
+      const saved = await fetchGovernmentPortalReportById(importId);
+      if (saved) applySavedReport(saved);
+    } catch {
+      toast.error('Could not load the selected import');
+    } finally {
+      setIsLoadingSaved(false);
+    }
+  };
 
   const extensionNeededRows = useMemo(
     () => (report?.rows || []).filter((row) => row.extensionNeeded),
@@ -215,6 +290,8 @@ export default function GovernmentPortalReportImport() {
     setFileName('');
     setReport(null);
     setReportDateLabel('');
+    setSavedImportId(null);
+    setSavedAt(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -239,7 +316,8 @@ export default function GovernmentPortalReportImport() {
 
     setIsReading(true);
     setFileName(file.name);
-    setReportDateLabel(new Date().toLocaleDateString('en-IN'));
+    const dateLabel = new Date().toLocaleDateString('en-IN');
+    setReportDateLabel(dateLabel);
 
     try {
       const text = await file.text();
@@ -249,7 +327,19 @@ export default function GovernmentPortalReportImport() {
       if (parsed.fatalErrors.length > 0) {
         toast.error('Report validation failed');
       } else {
-        toast.success(`Parsed ${parsed.totalRows} rows`);
+        setIsSaving(true);
+        try {
+          const importId = await saveGovernmentPortalReport(file.name, parsed, dateLabel);
+          setSavedImportId(importId);
+          setSavedAt(new Date().toISOString());
+          await refreshImportHistory();
+          toast.success(`Parsed and saved ${parsed.totalRows} rows`);
+        } catch (saveError) {
+          console.error('Government portal report save failed:', saveError);
+          toast.error('Parsed report could not be saved to the database');
+        } finally {
+          setIsSaving(false);
+        }
       }
     } catch {
       setReport(null);
@@ -352,8 +442,14 @@ export default function GovernmentPortalReportImport() {
             Import Government Portal Report (MJPJY/PMJAY)
           </h1>
           <p className="mt-1 text-sm text-gray-500">
-            Single .csv or .txt document, caret-delimited with ^.
+            Single .csv or .txt document, caret-delimited with ^. Uploads are saved to the database.
           </p>
+          {savedAt && report && (
+            <p className="mt-1 text-xs text-emerald-700">
+              Saved import{savedImportId ? ` · ${savedImportId.slice(0, 8)}` : ''} ·{' '}
+              {new Date(savedAt).toLocaleString('en-IN')}
+            </p>
+          )}
         </div>
         {report && (
           <Button variant="outline" onClick={handleReset}>
@@ -368,6 +464,29 @@ export default function GovernmentPortalReportImport() {
           <CardTitle className="text-base">Upload Report</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {importHistory.length > 0 && (
+            <div className="space-y-2">
+              <Label htmlFor="saved-import-select">Load saved import</Label>
+              <select
+                id="saved-import-select"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={savedImportId || ''}
+                onChange={(e) => void handleSelectImport(e.target.value)}
+                disabled={isLoadingSaved || isReading || isSaving}
+              >
+                <option value="" disabled>
+                  Select a previous import
+                </option>
+                {importHistory.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.fileName} · {new Date(item.createdAt).toLocaleString('en-IN')} ·{' '}
+                    {item.totalRows} rows
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
             <div className="space-y-2">
               <Label htmlFor="government-portal-report">Import Government Portal Report (MJPJY/PMJAY)</Label>
@@ -377,11 +496,15 @@ export default function GovernmentPortalReportImport() {
                 type="file"
                 accept=".csv,.txt,text/csv,text/plain"
                 onChange={handleFileChange}
-                disabled={isReading}
+                disabled={isReading || isSaving}
               />
             </div>
             <div className="rounded-lg border bg-gray-50 px-4 py-3 text-sm text-gray-600">
-              {fileName || 'No file selected'}
+              {isLoadingSaved
+                ? 'Loading saved report…'
+                : isSaving
+                  ? 'Saving to database…'
+                  : fileName || 'No file selected'}
             </div>
           </div>
 

@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/table';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { BillDocumentsSection } from '@/pages/corporate-bill/BillDocumentsSection';
 import { toast } from 'sonner';
 import '@/styles/print.css';
 
@@ -69,18 +70,27 @@ const AdvanceStatementReport = () => {
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  // Fetch packages from cghs_surgery for the searchable dropdown
+  // Fetch packages for the searchable dropdown: MJPJAY/PMJAY package master
+  // (the table behind the Government Portal Report data) first, then CGHS surgeries.
   useEffect(() => {
     const fetchPackages = async () => {
-      const { data, error } = await supabase
-        .from('cghs_surgery')
-        .select('id, name')
-        .eq('is_active', true)
-        .order('name');
+      const [pmjayRes, cghsRes] = await Promise.all([
+        supabase
+          .from('pmjay_mjpjay_packages')
+          .select('id, treatment_code, treatment_plan')
+          .eq('is_active', true)
+          .order('treatment_plan'),
+        supabase.from('cghs_surgery').select('id, name').eq('is_active', true).order('name'),
+      ]);
 
-      if (!error && data) {
-        setPackages(data);
-      }
+      const pmjay = (pmjayRes.data || [])
+        .map((p: any) => ({
+          id: p.id,
+          name: [p.treatment_code, p.treatment_plan].filter(Boolean).join(' - '),
+        }))
+        .filter((p) => p.name);
+
+      setPackages([...pmjay, ...(cghsRes.data || [])]);
     };
 
     fetchPackages();
@@ -673,23 +683,20 @@ const AdvanceStatementReport = () => {
     }
   };
 
-  // Additional diagnoses live in the visit_diagnoses junction table — the same
-  // table Final Bill reads/saves — so changes here reflect there too.
-  const handleAdditionalDiagnosisAdd = async (visitId: string, diagnosisId: string, existingIds: string[]) => {
-    if (!diagnosisId) return;
-    if (existingIds.includes(diagnosisId)) {
-      toast.info('This diagnosis is already added for this visit');
-      return;
-    }
+  // The typed additional diagnosis lives in visits.ipd_admission_notes.provisional_diagnosis —
+  // the same field the Admission Notes page types into — so it syncs both ways.
+  const handleAdmissionDiagnosisUpdate = async (visitId: string, existingNotes: any, text: string) => {
+    const notes = { ...(existingNotes || {}), provisional_diagnosis: text };
     const { error } = await supabase
-      .from('visit_diagnoses' as any)
-      .insert({ visit_id: visitId, diagnosis_id: diagnosisId, is_primary: false, notes: null });
+      .from('visits')
+      .update({ ipd_admission_notes: notes })
+      .eq('id', visitId);
 
     if (error) {
-      console.error('Error adding additional diagnosis:', error);
-      toast.error('Failed to add diagnosis');
+      console.error('Error updating additional diagnosis:', error);
+      toast.error('Failed to save diagnosis');
     } else {
-      toast.success('Additional diagnosis added');
+      toast.success('Additional diagnosis saved');
       queryClient.invalidateQueries({ queryKey: ['advance-statement-report-currently-admitted'] });
     }
   };
@@ -1412,18 +1419,21 @@ const AdvanceStatementReport = () => {
                                 ))}
                               </div>
                             )}
-                            {admissionNotesDiagnosis && (
-                              <div className="text-xs text-gray-500">{admissionNotesDiagnosis}</div>
-                            )}
-                            <SearchableSelect
-                              options={diagnosesList.map(d => ({ value: d.id, label: d.name }))}
-                              value=""
-                              onValueChange={(value) =>
-                                handleAdditionalDiagnosisAdd(item.id, value, junctionDiagObjs.map(d => d.id))
-                              }
-                              placeholder="+ Add additional..."
-                              searchPlaceholder="Type to search..."
-                              className="w-full"
+                            <Input
+                              defaultValue={admissionNotesDiagnosis || ''}
+                              placeholder="Type additional diagnosis..."
+                              className="h-8 text-xs"
+                              onBlur={(e) => {
+                                const v = e.target.value.trim();
+                                if (v !== (admissionNotesDiagnosis || '')) {
+                                  handleAdmissionDiagnosisUpdate(item.id, item.ipd_admission_notes, v);
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  (e.target as HTMLInputElement).blur();
+                                }
+                              }}
                             />
                           </div>
                         </TableCell>
@@ -1555,7 +1565,19 @@ const AdvanceStatementReport = () => {
 
                 <div>
                   <h3 className="text-sm font-semibold mb-2">Package</h3>
-                  {detailRow('Package Name', selectedRow.package_name || selectedRow.package_details || '-')}
+                  {detailRow('Package Name', (
+                    <SearchableSelect
+                      options={packages.map(pkg => ({ value: pkg.name, label: pkg.name }))}
+                      value={selectedRow.package_name || ''}
+                      onValueChange={(value) => {
+                        handlePackageNameUpdate(selectedRow.id, value);
+                        setSelectedRow({ ...selectedRow, package_name: value });
+                      }}
+                      placeholder="Select package..."
+                      searchPlaceholder="Type to search..."
+                      className="w-60"
+                    />
+                  ))}
                   {detailRow('Package Amount', selectedRow.package_amount
                     ? `₹${(parseFloat(selectedRow.package_amount) || 0).toLocaleString('en-IN')}`
                     : '-')}
@@ -1640,6 +1662,8 @@ const AdvanceStatementReport = () => {
                     <p className="text-sm text-gray-700">{selectedRow.comments}</p>
                   </div>
                 )}
+
+                <BillDocumentsSection patientId={patient?.id} patientName={patient?.name} />
               </div>
             );
           })()}
