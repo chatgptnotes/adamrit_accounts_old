@@ -1,9 +1,11 @@
-import { useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import {
   Activity,
   AlertCircle,
   ClipboardCopy,
   FileText,
+  Loader2,
+  MessageCircle,
   RefreshCw,
   ShieldCheck,
   Upload,
@@ -59,22 +61,38 @@ const compactProcedure = (row: GovernmentPortalRow) => {
   return code || details || '-';
 };
 
+const formatExtensionPatientList = (rows: GovernmentPortalRow[]) =>
+  rows
+    .map((row, index) => {
+      const name = row.values['Beneficiary Name'] || 'Name not available';
+      const registrationId = row.values['Registration ID'] || 'No Registration ID';
+      const days =
+        row.daysSincePreauth === null ? 'days not available' : `${row.daysSincePreauth} days`;
+      return `${index + 1}. ${name} - ${registrationId} - ${compactProcedure(row)} - ${days}`;
+    })
+    .join('\n');
+
 const CopyBox = ({
   title,
   text,
   onCopy,
+  action,
 }: {
   title: string;
   text: string;
   onCopy: (title: string, text: string) => void;
+  action?: ReactNode;
 }) => (
   <div className="rounded-lg border bg-white p-4 shadow-sm">
     <div className="mb-3 flex items-center justify-between gap-3">
       <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
-      <Button size="sm" variant="outline" onClick={() => onCopy(title, text)}>
-        <ClipboardCopy className="mr-2 h-4 w-4" />
-        Copy
-      </Button>
+      <div className="flex flex-wrap justify-end gap-2">
+        {action}
+        <Button size="sm" variant="outline" onClick={() => onCopy(title, text)}>
+          <ClipboardCopy className="mr-2 h-4 w-4" />
+          Copy
+        </Button>
+      </div>
     </div>
     <Textarea
       value={text}
@@ -153,7 +171,14 @@ export default function GovernmentPortalReportImport() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [fileName, setFileName] = useState('');
   const [report, setReport] = useState<ReturnType<typeof parseGovernmentPortalReport> | null>(null);
+  const [reportDateLabel, setReportDateLabel] = useState('');
   const [isReading, setIsReading] = useState(false);
+  const [isSendingWhatsApp, setIsSendingWhatsApp] = useState(false);
+
+  const extensionNeededRows = useMemo(
+    () => (report?.rows || []).filter((row) => row.extensionNeeded),
+    [report],
+  );
 
   const sections = useMemo(() => {
     const rows = report?.rows || [];
@@ -189,6 +214,7 @@ export default function GovernmentPortalReportImport() {
   const handleReset = () => {
     setFileName('');
     setReport(null);
+    setReportDateLabel('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -213,6 +239,7 @@ export default function GovernmentPortalReportImport() {
 
     setIsReading(true);
     setFileName(file.name);
+    setReportDateLabel(new Date().toLocaleDateString('en-IN'));
 
     try {
       const text = await file.text();
@@ -229,6 +256,47 @@ export default function GovernmentPortalReportImport() {
       toast.error('Could not read the uploaded file');
     } finally {
       setIsReading(false);
+    }
+  };
+
+  const handleSendExtensionWhatsApp = async () => {
+    if (!report || report.fatalErrors.length > 0) {
+      toast.error('Upload a valid Hope Hospital report first');
+      return;
+    }
+
+    if (extensionNeededRows.length === 0) {
+      toast.error('No extension-needed patients to send');
+      return;
+    }
+
+    setIsSendingWhatsApp(true);
+    try {
+      const response = await fetch('/api/send-extension-needed-whatsapp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reportDate: reportDateLabel || new Date().toLocaleDateString('en-IN'),
+          patientList: formatExtensionPatientList(extensionNeededRows),
+          extensionCount: extensionNeededRows.length,
+        }),
+      });
+
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        const detail =
+          typeof payload?.detail === 'string'
+            ? payload.detail
+            : payload?.error || 'DoubleTick send failed';
+        throw new Error(detail);
+      }
+
+      toast.success(`WhatsApp sent for ${extensionNeededRows.length} extension-needed patients`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not send WhatsApp';
+      toast.error(message);
+    } finally {
+      setIsSendingWhatsApp(false);
     }
   };
 
@@ -363,6 +431,25 @@ export default function GovernmentPortalReportImport() {
                 title="Urgent Extensions Needed"
                 text={report.whatsApp.urgentExtensions}
                 onCopy={handleCopy}
+                action={
+                  <Button
+                    size="sm"
+                    onClick={handleSendExtensionWhatsApp}
+                    disabled={
+                      isSendingWhatsApp ||
+                      report.fatalErrors.length > 0 ||
+                      extensionNeededRows.length === 0
+                    }
+                    className="bg-emerald-600 text-white hover:bg-emerald-700"
+                  >
+                    {isSendingWhatsApp ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <MessageCircle className="mr-2 h-4 w-4" />
+                    )}
+                    Send WhatsApp
+                  </Button>
+                }
               />
               <CopyBox
                 title="Dialysis Batch Status"

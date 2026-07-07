@@ -323,6 +323,118 @@ function slackProxyPlugin(env: Record<string, string>): Plugin {
   };
 }
 
+// Dev-only DoubleTick relay for the Government Portal Import screen. Production
+// uses api/send-extension-needed-whatsapp.ts; this keeps the same same-origin
+// URL working under Vite without exposing the DoubleTick key to the browser.
+function doubleTickExtensionAlertPlugin(env: Record<string, string>): Plugin {
+  return {
+    name: "doubletick-extension-alert-dev",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use("/api/send-extension-needed-whatsapp", (req, res) => {
+        const send = (status: number, body: unknown) => {
+          res.statusCode = status;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify(body));
+        };
+
+        if (req.method !== "POST") {
+          send(405, { error: "method_not_allowed" });
+          return;
+        }
+
+        const apiKey = env.DOUBLETICK_API_KEY || process.env.DOUBLETICK_API_KEY || "";
+        const from = env.DOUBLETICK_PHONE || process.env.DOUBLETICK_PHONE || "";
+        const to = env.DOUBLETICK_EXTENSION_ALERT_TO || process.env.DOUBLETICK_EXTENSION_ALERT_TO || "";
+
+        if (!apiKey || !from || !to) {
+          send(500, {
+            error: "doubletick_not_configured",
+            keys: { apiKey: Boolean(apiKey), from: Boolean(from), to: Boolean(to) },
+          });
+          return;
+        }
+
+        let raw = "";
+        req.on("data", (c) => (raw += c));
+        req.on("end", async () => {
+          try {
+            const body = JSON.parse(raw || "{}");
+            const reportDate = typeof body.reportDate === "string" ? body.reportDate.trim() : "";
+            const patientList = typeof body.patientList === "string" ? body.patientList.trim() : "";
+            const extensionCount = Number(body.extensionCount);
+
+            if (!reportDate) {
+              send(400, { error: "reportDate required" });
+              return;
+            }
+            if (!patientList) {
+              send(400, { error: "patientList required" });
+              return;
+            }
+            if (!Number.isFinite(extensionCount) || extensionCount <= 0) {
+              send(400, { error: "extensionCount must be greater than zero" });
+              return;
+            }
+
+            const r = await fetch("https://public.doubletick.io/whatsapp/message/template", {
+              method: "POST",
+              headers: {
+                accept: "application/json",
+                "content-type": "application/json",
+                Authorization: apiKey,
+              },
+              body: JSON.stringify({
+                messages: [
+                  {
+                    to,
+                    from,
+                    content: {
+                      templateName: "extension_needed_patients_v1",
+                      language: "en",
+                      templateData: {
+                        header: { type: "TEXT" },
+                        body: {
+                          placeholders: [
+                            "Billing Team",
+                            reportDate,
+                            patientList,
+                            String(extensionCount),
+                          ],
+                        },
+                      },
+                    },
+                  },
+                ],
+              }),
+            });
+
+            const responseText = await r.text();
+            let responseBody: unknown = responseText;
+            try {
+              responseBody = responseText ? JSON.parse(responseText) : null;
+            } catch {
+              responseBody = responseText.slice(0, 1000);
+            }
+
+            if (!r.ok) {
+              send(502, { error: "doubletick_send_failed", status: r.status, detail: responseBody });
+              return;
+            }
+
+            send(200, { ok: true, status: r.status, response: responseBody });
+          } catch (e) {
+            send(502, {
+              error: "doubletick_unreachable",
+              detail: e instanceof Error ? e.message : String(e),
+            });
+          }
+        });
+      });
+    },
+  };
+}
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   // Load non-VITE_ env (e.g. SLACK_WEBHOOK_URL) for server-side dev use only.
@@ -333,7 +445,7 @@ export default defineConfig(({ mode }) => {
     port: 8080,
   },
   plugins: [
-    ...(mode === 'development' ? [slackProxyPlugin(env), tallyProxyPlugin(), gmailProxyPlugin(env)] : []),
+    ...(mode === 'development' ? [slackProxyPlugin(env), doubleTickExtensionAlertPlugin(env), tallyProxyPlugin(), gmailProxyPlugin(env)] : []),
     react(),
     // Service worker for installability + instant app-shell launch. We keep the
     // hand-written public/manifest.webmanifest (manifest: false) and only let the
