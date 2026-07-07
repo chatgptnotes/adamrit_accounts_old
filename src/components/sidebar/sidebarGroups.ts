@@ -65,6 +65,7 @@ export const GROUP_BY_TITLE: Record<string, string> = {
   'Corporate': 'Billing & Accounts',
   'Corporate Receipts': 'Billing & Accounts',
   'Intimation + Bill Submissions': 'Billing & Accounts',
+  'Government Portal Import': 'Billing & Accounts',
   'Bill Approvals': 'Billing & Accounts',
   'Tally Integration': 'Billing & Accounts',
   'Payment QR': 'Billing & Accounts',
