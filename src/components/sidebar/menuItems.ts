@@ -162,6 +162,11 @@ export const menuItems: MenuItemDef[] = [
     icon: Receipt,
   },
   {
+    title: "Government Portal Import",
+    url: "/government-portal-report-import",
+    icon: FileText,
+  },
+  {
     title: "Bill Approvals",
     url: "/bill-approvals",
     icon: ClipboardCheck,

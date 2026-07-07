@@ -76,6 +76,7 @@ const SECTIONS: ReportSection[] = [
   {
     heading: 'Exports',
     items: [
+      { title: 'Government Portal Import', route: '/government-portal-report-import', description: 'MJPJY/PMJAY caret-delimited report review', icon: FileSpreadsheet },
       { title: 'Patient Data Export', route: '/reports', description: 'Export admission/discharge data to Excel', icon: FileSpreadsheet },
     ],
   },

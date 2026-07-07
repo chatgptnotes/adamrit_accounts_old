@@ -112,6 +112,7 @@ const BillSubmission = lazy(() => import("../pages/BillSubmission"));
 const BillAgingStatement = lazy(() => import("../pages/BillAgingStatement"));
 const BillAgingStatementClassic = lazy(() => import("../pages/BillAgingStatementClassic"));
 const ExpectedPaymentDateReport = lazy(() => import("../pages/ExpectedPaymentDateReport"));
+const GovernmentPortalReportImport = lazy(() => import("../pages/GovernmentPortalReportImport"));
 const Marketing = lazy(() => import("../pages/Marketing"));
 const RelationshipManager = lazy(() => import("../pages/RelationshipManager"));
 const ITTransactionRegister = lazy(() => import("../pages/ITTransactionRegister"));
@@ -297,6 +298,7 @@ export const AppRoutes = () => {
         <Route path="/bill-aging-statement" element={<Suspense fallback={<PageLoader />}><BillAgingStatement /></Suspense>} />
         <Route path="/bill-aging-statement-classic" element={<Suspense fallback={<PageLoader />}><BillAgingStatementClassic /></Suspense>} />
         <Route path="/expected-payment-date-report" element={<Suspense fallback={<PageLoader />}><ExpectedPaymentDateReport /></Suspense>} />
+        <Route path="/government-portal-report-import" element={<Suspense fallback={<PageLoader />}><GovernmentPortalReportImport /></Suspense>} />
         <Route path="/marketing" element={<Suspense fallback={<PageLoader />}><Marketing /></Suspense>} />
         <Route path="/it-transaction-register" element={<Suspense fallback={<PageLoader />}><ITTransactionRegister /></Suspense>} />
         <Route path="/tally" element={<Suspense fallback={<PageLoader />}><TallyIntegration /></Suspense>} />
