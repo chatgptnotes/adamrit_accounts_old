@@ -23,6 +23,8 @@ export const PatientInfoSection: React.FC<PatientInfoSectionProps> = ({
   onInputChange,
   onDateChange
 }) => {
+  const corporateKey = formData.corporate.trim().toLowerCase();
+  const isEsicCorporate = corporateKey.includes('esic');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
@@ -618,7 +620,7 @@ export const PatientInfoSection: React.FC<PatientInfoSectionProps> = ({
       </div>
 
       {/* ESIC Insurance Person No - Only show if Corporate is ESIC */}
-      {formData.corporate === 'esic' && (
+      {isEsicCorporate && (
         <div className="mt-4">
           <div className="space-y-2">
             <Label htmlFor="insurancePersonNo" className="text-sm font-medium">

@@ -56,6 +56,9 @@ export const usePatientRegistration = (onClose: () => void) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
+  const normalizedCorporate = formData.corporate.trim().toLowerCase();
+  const isEsicCorporate = normalizedCorporate.includes('esic');
+
   const resetForm = () => {
     setFormData({
       patientName: '',
@@ -107,7 +110,7 @@ export const usePatientRegistration = (onClose: () => void) => {
     }
 
     // Check if ESIC is selected but Insurance Person No. is empty
-    if (formData.corporate === 'esic' && !formData.insurancePersonNo) {
+    if (isEsicCorporate && !formData.insurancePersonNo) {
       toast({
         title: "Error",
         description: "Insurance Person No. is required for ESIC patients",
@@ -136,7 +139,7 @@ export const usePatientRegistration = (onClose: () => void) => {
           const patientData = {
             patients_id: customPatientId,
             name: formData.patientName,
-            insurance_person_no: formData.corporate === 'esic' ? formData.insurancePersonNo : null,
+            insurance_person_no: isEsicCorporate ? formData.insurancePersonNo : null,
             corporate: formData.corporate,
             age: formData.age ? parseInt(formData.age) : null,
             gender: formData.gender,
@@ -148,7 +151,6 @@ export const usePatientRegistration = (onClose: () => void) => {
             second_emergency_contact_mobile: formData.secondEmergencyContactMobile || null,
             date_of_birth: dateOfBirth ? format(dateOfBirth, 'yyyy-MM-dd') : null,
             aadhar_passport: formData.aadharPassport || null,
-            ayushman_id: formData.ayushmanId || null,
             aadhaar_number: formData.aadharId || null,
             quarter_plot_no: formData.quarterPlotNo || null,
             ward: formData.ward || null,
