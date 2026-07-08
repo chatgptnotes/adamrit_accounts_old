@@ -20,7 +20,15 @@ export type GovernmentPortalSection =
   | 'surgical'
   | 'unclassified';
 
+export type GovernmentPortalPatientStatus =
+  | 'pending'
+  | 'extension_requested'
+  | 'approved'
+  | 'rejected'
+  | 'closed';
+
 export interface GovernmentPortalRow {
+  id?: string;
   rowNumber: number;
   values: Record<GovernmentPortalColumn, string>;
   section: GovernmentPortalSection;
@@ -32,6 +40,7 @@ export interface GovernmentPortalRow {
   daysSincePreauth: number | null;
   extensionNeeded: boolean;
   preauthDateLabel: string;
+  status: GovernmentPortalPatientStatus;
 }
 
 export interface GovernmentPortalReport {
@@ -230,6 +239,7 @@ const classifyRow = (
     daysSincePreauth,
     extensionNeeded,
     preauthDateLabel: parsedDate ? parsedDate.toLocaleDateString('en-IN') : '',
+    status: 'pending',
   };
 };
 

@@ -36,6 +36,22 @@ const compactProcedure = (row: GovernmentPortalRow) => {
   return code || details || "-";
 };
 
+const statusStyles = {
+  pending: "border-amber-200 bg-amber-50 text-amber-800",
+  extension_requested: "border-sky-200 bg-sky-50 text-sky-800",
+  approved: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  rejected: "border-rose-200 bg-rose-50 text-rose-700",
+  closed: "border-slate-200 bg-slate-50 text-slate-600",
+} as const;
+
+const statusLabel = {
+  pending: "Pending",
+  extension_requested: "Extension requested",
+  approved: "Approved",
+  rejected: "Rejected",
+  closed: "Closed",
+} as const;
+
 const formatPreauth = (row: GovernmentPortalRow) =>
   row.preauthDateLabel || row.values["Preauth Initiated Date"] || "-";
 
@@ -177,7 +193,7 @@ export function GovernmentPortalGeneralMedicalSection({
               <div className="space-y-3">
                 {visibleRows.map((row) => (
                   <article
-                    key={`${row.rowNumber}-${row.values["Registration ID"]}`}
+                    key={`${row.id || row.rowNumber}-${row.values["Registration ID"]}`}
                     className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -191,6 +207,9 @@ export function GovernmentPortalGeneralMedicalSection({
                               Extension Needed
                             </Badge>
                           )}
+                          <Badge variant="outline" className={statusStyles[row.status]}>
+                            {statusLabel[row.status]}
+                          </Badge>
                         </div>
                         <div className="mt-1 text-xs text-gray-500">
                           Row {row.rowNumber} · Reg {row.values["Registration ID"] || "-"} ·{" "}
@@ -228,7 +247,7 @@ export function GovernmentPortalGeneralMedicalSection({
             <div className="space-y-3">
               {visibleRows.map((row) => (
                 <article
-                  key={`${row.rowNumber}-${row.values["Registration ID"]}`}
+                  key={`${row.id || row.rowNumber}-${row.values["Registration ID"]}`}
                   className="rounded-2xl border border-border bg-card p-4"
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -237,12 +256,15 @@ export function GovernmentPortalGeneralMedicalSection({
                         <div className="text-sm font-semibold text-foreground">
                           {row.values["Beneficiary Name"] || "-"}
                         </div>
-                        {row.extensionNeeded && (
-                          <Badge className="bg-amber-500/15 text-amber-200 hover:bg-amber-500/15">
-                            Extension Needed
+                          {row.extensionNeeded && (
+                            <Badge className="bg-amber-500/15 text-amber-200 hover:bg-amber-500/15">
+                              Extension Needed
+                            </Badge>
+                          )}
+                          <Badge variant="outline" className={statusStyles[row.status]}>
+                            {statusLabel[row.status]}
                           </Badge>
-                        )}
-                      </div>
+                        </div>
                       <div className="mt-1 text-xs text-muted-foreground">
                         Row {row.rowNumber} · Reg {row.values["Registration ID"] || "-"} ·{" "}
                         {formatPreauth(row)} · {row.daysSincePreauth ?? "-"} days

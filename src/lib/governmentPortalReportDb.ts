@@ -2,6 +2,7 @@ import { supabase } from '@/integrations/supabase/client';
 import {
   GOVERNMENT_PORTAL_REQUIRED_COLUMNS,
   type GovernmentPortalColumn,
+  type GovernmentPortalPatientStatus,
   type GovernmentPortalReport,
   type GovernmentPortalRow,
   type GovernmentPortalSection,
@@ -18,6 +19,7 @@ export interface SavedGovernmentPortalImport {
 }
 
 export interface GovernmentPortalExtensionAlertRow {
+  status: GovernmentPortalPatientStatus;
   rowNumber: number;
   registrationId: string;
   beneficiaryName: string;
@@ -57,7 +59,9 @@ type ImportRow = {
 };
 
 type DbReportRow = {
+  id: string;
   row_number: number;
+  status: string | null;
   registration_id: string | null;
   program_id: string | null;
   beneficiary_name: string | null;
@@ -84,6 +88,7 @@ function rowToDbRecord(importId: string, row: GovernmentPortalRow) {
   return {
     import_id: importId,
     row_number: row.rowNumber,
+    status: row.status || 'pending',
     registration_id: row.values['Registration ID'] || null,
     program_id: row.values['Program ID'] || null,
     beneficiary_name: row.values['Beneficiary Name'] || null,
@@ -122,6 +127,7 @@ function dbRowToGovernmentPortalRow(row: DbReportRow): GovernmentPortalRow {
   values['Preauth Approved Amount'] = row.preauth_approved_amount || '';
 
   return {
+    id: row.id,
     rowNumber: row.row_number,
     values,
     section: row.section as GovernmentPortalSection,
@@ -133,6 +139,7 @@ function dbRowToGovernmentPortalRow(row: DbReportRow): GovernmentPortalRow {
     daysSincePreauth: row.days_since_preauth,
     extensionNeeded: row.extension_needed,
     preauthDateLabel: row.preauth_date_label || '',
+    status: (row.status as GovernmentPortalPatientStatus) || 'pending',
   };
 }
 
@@ -252,13 +259,14 @@ export async function fetchLatestGovernmentPortalExtensionAlerts(
   if (!header) return null;
 
   const importId = header.id as string;
-  const count = Number(header.count_extension_needed || 0);
 
   const { data: rows, error: rowsError } = await db
     .from('government_portal_report_rows')
     .select(
       [
+        'id',
         'row_number',
+        'status',
         'registration_id',
         'beneficiary_name',
         'case_type',
@@ -271,6 +279,7 @@ export async function fetchLatestGovernmentPortalExtensionAlerts(
     )
     .eq('import_id', importId)
     .eq('extension_needed', true)
+    .eq('status', 'pending')
     .order('days_since_preauth', { ascending: false, nullsFirst: false })
     .order('row_number', { ascending: true })
     .limit(rowLimit);
@@ -282,8 +291,9 @@ export async function fetchLatestGovernmentPortalExtensionAlerts(
     fileName: header.file_name,
     reportDateLabel: header.report_date_label,
     createdAt: header.created_at,
-    count,
+    count: (rows || []).length,
     rows: (rows || []).map((row: DbReportRow) => ({
+      status: (row.status as GovernmentPortalPatientStatus) || 'pending',
       rowNumber: row.row_number,
       registrationId: row.registration_id || '',
       beneficiaryName: row.beneficiary_name || '',
@@ -343,6 +353,18 @@ export async function fetchGovernmentPortalReportById(
     createdAt: header.created_at,
     report: importToReport(header as ImportRow, (rows || []) as DbReportRow[]),
   };
+}
+
+export async function updateGovernmentPortalRowStatus(
+  rowId: string,
+  status: GovernmentPortalPatientStatus,
+): Promise<void> {
+  const { error } = await db
+    .from('government_portal_report_rows')
+    .update({ status })
+    .eq('id', rowId);
+
+  if (error) throw error;
 }
 
 /** Guard for type exports used only in this module */

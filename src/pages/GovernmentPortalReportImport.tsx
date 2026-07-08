@@ -28,7 +28,15 @@ import {
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   GOVERNMENT_PORTAL_REQUIRED_COLUMNS,
+  type GovernmentPortalPatientStatus,
   parseGovernmentPortalReport,
 } from '@/lib/governmentPortalReport';
 import type {
@@ -40,6 +48,7 @@ import {
   fetchGovernmentPortalReportById,
   fetchLatestGovernmentPortalReport,
   saveGovernmentPortalReport,
+  updateGovernmentPortalRowStatus,
 } from '@/lib/governmentPortalReportDb';
 
 const sectionStyles: Record<GovernmentPortalSection, string> = {
@@ -48,6 +57,25 @@ const sectionStyles: Record<GovernmentPortalSection, string> = {
   surgical: 'bg-violet-50 text-violet-700 border-violet-200',
   unclassified: 'bg-rose-50 text-rose-700 border-rose-200',
 };
+
+const STATUS_OPTIONS: Array<{ value: GovernmentPortalPatientStatus; label: string }> = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'extension_requested', label: 'Extension requested' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'rejected', label: 'Rejected' },
+  { value: 'closed', label: 'Closed' },
+];
+
+const statusStyles: Record<GovernmentPortalPatientStatus, string> = {
+  pending: 'border-amber-200 bg-amber-50 text-amber-800',
+  extension_requested: 'border-sky-200 bg-sky-50 text-sky-800',
+  approved: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  rejected: 'border-rose-200 bg-rose-50 text-rose-700',
+  closed: 'border-slate-200 bg-slate-50 text-slate-600',
+};
+
+const statusLabel = (status: GovernmentPortalPatientStatus) =>
+  STATUS_OPTIONS.find((option) => option.value === status)?.label || 'Pending';
 
 const formatAmount = (value: string) => {
   if (!value.trim()) return '-';
@@ -109,7 +137,15 @@ const CopyBox = ({
   </div>
 );
 
-const ResultTable = ({ rows }: { rows: GovernmentPortalRow[] }) => {
+const ResultTable = ({
+  rows,
+  onStatusChange,
+  savingRowId,
+}: {
+  rows: GovernmentPortalRow[];
+  onStatusChange: (row: GovernmentPortalRow, status: GovernmentPortalPatientStatus) => void;
+  savingRowId: string | null;
+}) => {
   if (rows.length === 0) {
     return (
       <div className="rounded-lg border border-dashed bg-gray-50 p-6 text-center text-sm text-gray-500">
@@ -131,12 +167,13 @@ const ResultTable = ({ rows }: { rows: GovernmentPortalRow[] }) => {
             <TableHead className="text-right">Days</TableHead>
             <TableHead>Procedure</TableHead>
             <TableHead className="text-right">Approved</TableHead>
+            <TableHead>Status</TableHead>
             <TableHead>Issue</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {rows.map((row) => (
-            <TableRow key={`${row.rowNumber}-${row.values['Registration ID']}`}>
+            <TableRow key={`${row.id || row.rowNumber}-${row.values['Registration ID']}`}>
               <TableCell className="font-medium text-gray-600">{row.rowNumber}</TableCell>
               <TableCell className="min-w-[180px] font-medium">
                 {row.values['Beneficiary Name'] || '-'}
@@ -161,6 +198,26 @@ const ResultTable = ({ rows }: { rows: GovernmentPortalRow[] }) => {
               <TableCell className="min-w-[260px]">{compactProcedure(row)}</TableCell>
               <TableCell className="text-right">
                 {formatAmount(row.values['Preauth Approved Amount'])}
+              </TableCell>
+              <TableCell className="min-w-[180px]">
+                <Select
+                  value={row.status}
+                  onValueChange={(value) =>
+                    onStatusChange(row, value as GovernmentPortalPatientStatus)
+                  }
+                  disabled={!row.id || savingRowId === row.id}
+                >
+                  <SelectTrigger className={`h-9 max-w-[170px] ${statusStyles[row.status]}`}>
+                    <SelectValue placeholder={statusLabel(row.status)} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STATUS_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </TableCell>
               <TableCell className="min-w-[220px] text-xs text-gray-500">
                 {row.issues.length ? row.issues.join('; ') : '-'}
@@ -187,6 +244,7 @@ export default function GovernmentPortalReportImport() {
   const [isSaving, setIsSaving] = useState(false);
   const [isReading, setIsReading] = useState(false);
   const [isSendingWhatsApp, setIsSendingWhatsApp] = useState(false);
+  const [savingRowId, setSavingRowId] = useState<string | null>(null);
 
   const applySavedReport = (
     saved: {
@@ -207,6 +265,34 @@ export default function GovernmentPortalReportImport() {
   const refreshImportHistory = async () => {
     const history = await fetchGovernmentPortalImportHistory();
     setImportHistory(history);
+  };
+
+  const handleStatusChange = async (row: GovernmentPortalRow, status: GovernmentPortalPatientStatus) => {
+    if (!row.id) {
+      toast.error('Save the report before editing patient status');
+      return;
+    }
+
+    setSavingRowId(row.id);
+    try {
+      await updateGovernmentPortalRowStatus(row.id, status);
+      setReport((current) =>
+        current
+          ? {
+              ...current,
+              rows: current.rows.map((item) =>
+                item.id === row.id ? { ...item, status } : item,
+              ),
+            }
+          : current,
+      );
+      toast.success(`Status updated to ${statusLabel(status)}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not update status';
+      toast.error(message);
+    } finally {
+      setSavingRowId(null);
+    }
   };
 
   useEffect(() => {
@@ -251,7 +337,7 @@ export default function GovernmentPortalReportImport() {
   };
 
   const extensionNeededRows = useMemo(
-    () => (report?.rows || []).filter((row) => row.extensionNeeded),
+    () => (report?.rows || []).filter((row) => row.extensionNeeded && row.status === 'pending'),
     [report],
   );
 
@@ -275,8 +361,8 @@ export default function GovernmentPortalReportImport() {
       },
       {
         title: 'Extension Needed',
-        count: report?.counts.extensionNeeded || 0,
-        rows: rows.filter((row) => row.extensionNeeded),
+        count: rows.filter((row) => row.extensionNeeded && row.status === 'pending').length,
+        rows: rows.filter((row) => row.extensionNeeded && row.status === 'pending'),
       },
       {
         title: 'Unclassified / Error Rows',
@@ -285,6 +371,17 @@ export default function GovernmentPortalReportImport() {
       },
     ];
   }, [report]);
+
+  const urgentExtensionsText = useMemo(() => {
+    if (!report) return '';
+    return [
+      'Urgent Extensions Needed',
+      '',
+      ...(extensionNeededRows.length
+        ? formatExtensionPatientList(extensionNeededRows).split('\n')
+        : ['No urgent extensions needed.']),
+    ].join('\n');
+  }, [extensionNeededRows, report]);
 
   const handleReset = () => {
     setFileName('');
@@ -330,8 +427,14 @@ export default function GovernmentPortalReportImport() {
         setIsSaving(true);
         try {
           const importId = await saveGovernmentPortalReport(file.name, parsed, dateLabel);
-          setSavedImportId(importId);
-          setSavedAt(new Date().toISOString());
+          const saved = await fetchGovernmentPortalReportById(importId);
+          if (saved) {
+            applySavedReport(saved);
+          } else {
+            setSavedImportId(importId);
+            setSavedAt(new Date().toISOString());
+            setReport(parsed);
+          }
           await refreshImportHistory();
           toast.success(`Parsed and saved ${parsed.totalRows} rows`);
         } catch (saveError) {
@@ -418,7 +521,7 @@ export default function GovernmentPortalReportImport() {
         },
         {
           label: 'Extension Needed',
-          value: report.counts.extensionNeeded,
+          value: extensionNeededRows.length,
           icon: AlertCircle,
           className: 'border-amber-200 bg-amber-50 text-amber-700',
         },
@@ -552,7 +655,7 @@ export default function GovernmentPortalReportImport() {
               />
               <CopyBox
                 title="Urgent Extensions Needed"
-                text={report.whatsApp.urgentExtensions}
+                text={urgentExtensionsText}
                 onCopy={handleCopy}
                 action={
                   <Button
@@ -587,9 +690,13 @@ export default function GovernmentPortalReportImport() {
               <section key={section.title} className="space-y-3">
                 <div className="flex items-center justify-between gap-3">
                   <h2 className="text-lg font-semibold text-gray-900">{section.title}</h2>
-                  <Badge variant="outline">{section.count} rows</Badge>
+              <Badge variant="outline">{section.count} rows</Badge>
                 </div>
-                <ResultTable rows={section.rows} />
+                <ResultTable
+                  rows={section.rows}
+                  onStatusChange={handleStatusChange}
+                  savingRowId={savingRowId}
+                />
               </section>
             ))}
           </div>
