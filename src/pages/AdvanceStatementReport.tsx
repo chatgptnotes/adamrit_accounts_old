@@ -139,6 +139,7 @@ const AdvanceStatementReport = () => {
           extension_days_count,
           package_name,
           treatment_type,
+          yojana_registration_id,
           ipd_admission_notes,
           patients!inner (
             id,
@@ -664,6 +665,21 @@ const AdvanceStatementReport = () => {
     if (error) {
       console.error('Error updating package name:', error);
     } else {
+      queryClient.invalidateQueries({ queryKey: ['advance-statement-report-currently-admitted'] });
+    }
+  };
+
+  const handleRegistrationIdUpdate = async (visitId: string, value: string) => {
+    const { error } = await supabase
+      .from('visits')
+      .update({ yojana_registration_id: value || null })
+      .eq('id', visitId);
+
+    if (error) {
+      console.error('Error updating Yojana Registration ID:', error);
+      toast.error('Failed to save Registration ID');
+    } else {
+      toast.success('Registration ID saved');
       queryClient.invalidateQueries({ queryKey: ['advance-statement-report-currently-admitted'] });
     }
   };
@@ -1299,6 +1315,7 @@ const AdvanceStatementReport = () => {
                 <TableRow>
                   <TableHead className="w-16">Sr. No.</TableHead>
                   <TableHead className="min-w-[250px]">Patient Details</TableHead>
+                  <TableHead className="min-w-[180px]">Registration ID</TableHead>
                   {hospitalType === 'hope' && (
                     <TableHead className="min-w-[150px]">Corporate Type</TableHead>
                   )}
@@ -1314,13 +1331,13 @@ const AdvanceStatementReport = () => {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={hospitalType === 'hope' ? 10 : 9} className="text-center py-8">
+                    <TableCell colSpan={hospitalType === 'hope' ? 11 : 10} className="text-center py-8">
                       Loading...
                     </TableCell>
                   </TableRow>
                 ) : advanceData.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={hospitalType === 'hope' ? 10 : 9} className="text-center py-8 text-gray-500">
+                    <TableCell colSpan={hospitalType === 'hope' ? 11 : 10} className="text-center py-8 text-gray-500">
                       No data found
                     </TableCell>
                   </TableRow>
@@ -1378,6 +1395,24 @@ const AdvanceStatementReport = () => {
                       >
                         <TableCell className="text-center">{index + 1}</TableCell>
                         <TableCell>{patientDetails}</TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <Input
+                            defaultValue={(item as any).yojana_registration_id || ''}
+                            placeholder="Registration ID..."
+                            className="h-8 text-xs"
+                            onBlur={(e) => {
+                              const v = e.target.value.trim();
+                              if (v !== ((item as any).yojana_registration_id || '')) {
+                                handleRegistrationIdUpdate(item.id, v);
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                (e.target as HTMLInputElement).blur();
+                              }
+                            }}
+                          />
+                        </TableCell>
                         {hospitalType === 'hope' && (
                           <TableCell>{corporateDisplay}</TableCell>
                         )}
