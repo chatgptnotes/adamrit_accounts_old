@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { geoToDbFields, type GeoCapture } from "@/lib/geotag";
+import { captureGeolocation, geoToDbFields, type GeoCapture } from "@/lib/geotag";
+import { stampGeotagOnImage } from "@/lib/geotagImage";
 
 /** The document tabs shown under a patient profile, in display order. */
 export const PATIENT_DOC_CATEGORIES = [
@@ -76,6 +77,7 @@ interface UploadMeta {
   patientName: string | null;
   category: PatientDocCategory;
   uploadedBy?: string | null;
+  placeLabel?: string | null;
 }
 
 /**
@@ -92,14 +94,29 @@ export async function uploadPatientDocs(
   );
 
   for (const { file, geo = null, captureSource = geo ? "in_app_camera" : "file_picker" } of normalized) {
-    const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    let uploadFile = file;
+    let uploadGeo = geo;
+
+    if (file.type.startsWith("image/")) {
+      uploadGeo = uploadGeo || await captureGeolocation();
+      const stamped = await stampGeotagOnImage(file, uploadGeo, {
+        fileName: file.name,
+        fileType: file.type,
+        placeLabel: meta.placeLabel ?? undefined,
+      });
+      uploadFile = new File([stamped.blob], stamped.fileName, {
+        type: stamped.fileType,
+      });
+    }
+
+    const sanitizedName = uploadFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
     const storagePath = `uploads/${Date.now()}_${Math.random()
       .toString(36)
       .slice(2, 8)}_${sanitizedName}`;
 
     const { error: storageError } = await supabase.storage
       .from(BUCKET)
-      .upload(storagePath, file);
+      .upload(storagePath, uploadFile, { contentType: uploadFile.type || "application/octet-stream" });
     if (storageError) throw storageError;
 
     const { data: urlData } = supabase.storage
@@ -107,16 +124,16 @@ export async function uploadPatientDocs(
       .getPublicUrl(storagePath);
 
     const { error: insertError } = await supabase.from("file_uploads").insert({
-      file_name: file.name,
+      file_name: uploadFile.name,
       file_url: urlData?.publicUrl || "",
-      file_type: file.type || "application/octet-stream",
-      file_size: file.size,
+      file_type: uploadFile.type || "application/octet-stream",
+      file_size: uploadFile.size,
       storage_path: storagePath,
       category: meta.category,
       patient_id: meta.patientId,
       patient_name: meta.patientName,
       uploaded_by: meta.uploadedBy ?? null,
-      ...geoToDbFields(geo, captureSource),
+      ...geoToDbFields(uploadGeo, captureSource),
     });
     if (insertError) throw insertError;
   }

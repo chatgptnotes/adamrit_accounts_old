@@ -1,5 +1,5 @@
 import { Routes, Route } from "react-router-dom";
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, ReactNode } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 
@@ -174,25 +174,47 @@ const DirectorRoute = () => {
   const navigate = useNavigate();
   const DIRECTOR_EMAILS = ['cmd@hopehospital.com', 'finance@hopehospital.com'];
   const DIRECTOR_ROLES = ['superadmin', 'super_admin'];
-
-  const canAccess = (u: typeof user): boolean => {
-    if (!u) return false;
-    const email = u.email?.toLowerCase() ?? '';
-    const role = (u as { role?: string }).role ?? '';
-    return DIRECTOR_EMAILS.includes(email) || DIRECTOR_ROLES.includes(role);
-  };
+  const userRole = (user as { role?: string }).role ?? '';
+  const userEmail = user?.email?.toLowerCase() || '';
+  const normalizedRole = userRole.toLowerCase().trim();
+  const canAccess =
+    DIRECTOR_EMAILS.includes(userEmail) ||
+    DIRECTOR_ROLES.includes(normalizedRole);
 
   useEffect(() => {
-    if (!canAccess(user)) {
+    if (!canAccess) {
       navigate('/dashboard', { replace: true });
     }
-  }, [user, navigate]);
+  }, [canAccess, navigate]);
 
-  if (!canAccess(user)) {
+  if (!canAccess) {
     return null;
   }
 
   return <Suspense fallback={<PageLoader />}><DirectorDashboard /></Suspense>;
+};
+
+type SuperAdminRouteProps = {
+  children: ReactNode;
+};
+
+const SuperAdminRoute = ({ children }: SuperAdminRouteProps) => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const userRole = ((user as { role?: string }).role ?? '').toLowerCase().trim();
+  const canAccess = userRole === 'superadmin' || userRole === 'super_admin';
+
+  useEffect(() => {
+    if (!canAccess) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [canAccess, navigate]);
+
+  if (!canAccess) {
+    return null;
+  }
+
+  return <>{children}</>;
 };
 
 export const AppRoutes = () => {
@@ -236,7 +258,11 @@ export const AppRoutes = () => {
         <Route path="/pvi-form/:visitId" element={<Suspense fallback={<PageLoader />}><PVIFormPrint /></Suspense>} />
         <Route path="/diagnoses" element={<Suspense fallback={<PageLoader />}><Diagnoses /></Suspense>} />
         <Route path="/patients" element={<Suspense fallback={<PageLoader />}><Patients /></Suspense>} />
-        <Route path="/users" element={<Suspense fallback={<PageLoader />}><Users /></Suspense>} />
+        <Route path="/users" element={
+          <SuperAdminRoute>
+            <Suspense fallback={<PageLoader />}><Users /></Suspense>
+          </SuperAdminRoute>
+        } />
         <Route path="/complications" element={<Suspense fallback={<PageLoader />}><Complications /></Suspense>} />
         <Route path="/cghs-surgery" element={<Suspense fallback={<PageLoader />}><CghsSurgery /></Suspense>} />
         <Route path="/cghs-surgery-master" element={<Suspense fallback={<PageLoader />}><CghsSurgeryMaster /></Suspense>} />
@@ -307,7 +333,11 @@ export const AppRoutes = () => {
         <Route path="/cath-lab" element={<Suspense fallback={<PageLoader />}><CathLab /></Suspense>} />
         <Route path="/nursing" element={<Suspense fallback={<PageLoader />}><NursingStation /></Suspense>} />
         <Route path="/ct-mri" element={<Suspense fallback={<PageLoader />}><CTMRIModule /></Suspense>} />
-        <Route path="/user-management" element={<Suspense fallback={<PageLoader />}><UserManagement /></Suspense>} />
+        <Route path="/user-management" element={
+          <SuperAdminRoute>
+            <Suspense fallback={<PageLoader />}><UserManagement /></Suspense>
+          </SuperAdminRoute>
+        } />
         <Route path="/activity-log" element={<Suspense fallback={<PageLoader />}><ActivityLog /></Suspense>} />
         <Route path="/patient-journey-logs" element={<Suspense fallback={<PageLoader />}><PatientJourneyLogs /></Suspense>} />
         <Route path="/marketing-dashboard" element={<Suspense fallback={<PageLoader />}><MarketingDashboard /></Suspense>} />

@@ -1,5 +1,6 @@
 import { ReportColumn, PrintPreset } from '@/types/print';
 import { format } from 'date-fns';
+import { formatDateOnlyForDisplay } from '@/utils/dateOnly';
 
 /**
  * Column definitions for IPD Dashboard print functionality
@@ -76,7 +77,7 @@ export const IPD_PRINT_COLUMNS: ReportColumn[] = [
     printable: true,
     widthPx: 120,
     align: 'center',
-    format: (value) => value ? format(new Date(value), 'MMM dd, yyyy') : '—'
+    format: (value) => formatDateOnlyForDisplay(value, 'MMM dd, yyyy')
   },
   {
     id: 'esic_uhid',
@@ -209,7 +210,7 @@ export const IPD_PRINT_COLUMNS: ReportColumn[] = [
     printable: true,
     widthPx: 120,
     align: 'center',
-    format: (value) => value ? format(new Date(value), 'MMM dd, yyyy') : '—'
+    format: (value) => formatDateOnlyForDisplay(value, 'MMM dd, yyyy')
   },
   {
     id: 'admission_time',
@@ -255,7 +256,7 @@ export const IPD_PRINT_COLUMNS: ReportColumn[] = [
     printable: true,
     widthPx: 120,
     align: 'center',
-    format: (value) => value ? format(new Date(value), 'MMM dd, yyyy') : '—'
+    format: (value) => formatDateOnlyForDisplay(value, 'MMM dd, yyyy')
   },
   {
     id: 'discharge_time',
@@ -316,7 +317,7 @@ export const IPD_PRINT_COLUMNS: ReportColumn[] = [
     printable: true,
     widthPx: 120,
     align: 'center',
-    format: (value) => value ? format(new Date(value), 'MMM dd, yyyy') : '—'
+    format: (value) => formatDateOnlyForDisplay(value, 'MMM dd, yyyy')
   }
 ];
 

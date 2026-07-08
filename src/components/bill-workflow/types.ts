@@ -1,4 +1,5 @@
 import { Clock, Send, CalendarClock, CheckCircle, AlertTriangle } from 'lucide-react';
+import { parseDateOnly } from '@/utils/dateOnly';
 
 export type BillStatus =
   | 'pending_submission'
@@ -62,17 +63,18 @@ export function getBillStatus(submission: any): BillStatus {
 
 export function isOverdue(submission: any): { overdue: boolean; reason: string } {
   const status = getBillStatus(submission);
-  const today = new Date();
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
   if (status === 'pending_submission' && submission.discharge_date) {
-    const discharge = new Date(submission.discharge_date);
+    const discharge = parseDateOnly(submission.discharge_date);
     if (discharge < today) {
       return { overdue: true, reason: 'Discharged' };
     }
   }
 
   if (status === 'payment_expected' && submission.expected_payment_date) {
-    const expected = new Date(submission.expected_payment_date);
+    const expected = parseDateOnly(submission.expected_payment_date);
     if (expected < today) {
       return { overdue: true, reason: 'Past due' };
     }

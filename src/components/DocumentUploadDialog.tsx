@@ -24,6 +24,8 @@ import {
   verticalListSortingStrategy
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { captureGeolocation, geoToDbFields } from '@/lib/geotag';
+import { stampGeotagOnImage } from '@/lib/geotagImage';
 
 interface DocumentUploadDialogProps {
   isOpen: boolean;
@@ -559,13 +561,29 @@ export const DocumentUploadDialog: React.FC<DocumentUploadDialogProps> = ({
     setAlertMessage(null);
 
     try {
+      let uploadFile: File | Blob = file;
+      let uploadFileName = file.name;
+      let uploadFileType = file.type;
+      let uploadGeo = null;
+
+      if (file.type.startsWith('image/')) {
+        uploadGeo = await captureGeolocation();
+        const stamped = await stampGeotagOnImage(file, uploadGeo, {
+          fileName: file.name,
+          fileType: file.type,
+        });
+        uploadFile = stamped.blob;
+        uploadFileName = stamped.fileName;
+        uploadFileType = stamped.fileType;
+      }
+
       // Create preview for images
       let filePreview = '';
-      if (file.type.startsWith('image/')) {
+      if (uploadFileType.startsWith('image/')) {
         filePreview = await new Promise<string>((resolve) => {
           const reader = new FileReader();
           reader.onload = (e) => resolve(e.target?.result as string || '');
-          reader.readAsDataURL(file);
+          reader.readAsDataURL(uploadFile);
         });
       }
 
@@ -573,7 +591,7 @@ export const DocumentUploadDialog: React.FC<DocumentUploadDialogProps> = ({
       const documentName = documents.find(d => d.id === documentId)?.name || `Document ${documentId}`;
 
       // Create file path for Supabase Storage
-      const fileExtension = file.name.split('.').pop();
+      const fileExtension = uploadFileName.split('.').pop();
       const timestamp = Date.now();
       // Sanitize visitId to remove spaces and special characters for valid file path
       const sanitizedVisitId = visitId.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '');
@@ -583,9 +601,10 @@ export const DocumentUploadDialog: React.FC<DocumentUploadDialogProps> = ({
       // Upload file to Supabase Storage
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('patient-documents')
-        .upload(filePath, file, {
+        .upload(filePath, uploadFile, {
           cacheControl: '3600',
-          upsert: false
+          upsert: false,
+          contentType: uploadFileType
         });
 
       if (uploadError) {
@@ -605,14 +624,15 @@ export const DocumentUploadDialog: React.FC<DocumentUploadDialogProps> = ({
           patient_id: visitId.split('-')[0] || visitId, // Extract patient ID from visit ID
           document_type_id: documentId,
           document_name: documentName,
-          file_name: file.name,
+          file_name: uploadFileName,
           file_path: filePath, // Store the storage path
-          file_size: file.size,
-          file_type: file.type,
+          file_size: uploadFile.size,
+          file_type: uploadFileType,
           is_uploaded: true,
           uploaded_at: new Date().toISOString(),
           remarks: 'Yes',
-          remark_reason: documents.find(d => d.id === documentId)?.remarkReason || ''
+          remark_reason: documents.find(d => d.id === documentId)?.remarkReason || '',
+          ...geoToDbFields(uploadGeo, file.type.startsWith('image/') ? 'file_picker' : null)
         }, {
           onConflict: 'visit_id,document_type_id'
         });
@@ -634,10 +654,10 @@ export const DocumentUploadDialog: React.FC<DocumentUploadDialogProps> = ({
             ? {
                 ...doc,
                 isUploaded: true,
-                fileName: file.name,
+                fileName: uploadFileName,
                 fileUrl: publicUrl,
                 uploadedAt: new Date().toISOString(),
-                fileType: file.type,
+                fileType: uploadFileType,
                 filePreview: filePreview
               }
             : doc
@@ -646,7 +666,7 @@ export const DocumentUploadDialog: React.FC<DocumentUploadDialogProps> = ({
 
       setAlertMessage({
         type: 'success',
-        message: `${file.name} has been uploaded to storage successfully.`
+        message: `${uploadFileName} has been uploaded to storage successfully.`
       });
     } catch (error) {
       console.error('Upload failed:', error);

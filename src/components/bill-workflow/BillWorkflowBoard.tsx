@@ -10,6 +10,7 @@ import {
 import { Loader2, IndianRupee, AlertTriangle, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { useUpdateBillSubmission } from '@/hooks/useBillSubmissions';
+import { formatDateOnly } from '@/utils/dateOnly';
 import { BillWorkflowColumn } from './BillWorkflowColumn';
 import { BillWorkflowCard } from './BillWorkflowCard';
 import { PaymentReceivedDialog } from './PaymentReceivedDialog';
@@ -24,7 +25,7 @@ interface BillWorkflowBoardProps {
 }
 
 function formatToday(): string {
-  return new Date().toISOString().slice(0, 10);
+  return formatDateOnly(new Date());
 }
 
 function formatAmount(amount: number) {

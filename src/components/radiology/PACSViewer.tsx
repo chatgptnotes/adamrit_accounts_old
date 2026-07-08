@@ -49,7 +49,8 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { logActivity } from '@/lib/activity-logger';
 import { captureInAppPhoto } from '@/lib/captureInAppPhoto';
-import { geoToDbFields } from '@/lib/geotag';
+import { captureGeolocation, geoToDbFields } from '@/lib/geotag';
+import { stampGeotagOnImage } from '@/lib/geotagImage';
 import { GeotagStatus } from '@/components/GeotagStatus';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
@@ -234,14 +235,30 @@ const PACSViewer: React.FC<PACSViewerProps> = ({ patients, dicomStudies }) => {
     if (!uploadFile || !selectedStudyId) return;
     setUploading(true);
     try {
+      let fileToUpload = uploadFile;
+      let fileName = uploadFile.name;
+      let mimeType = uploadFile.type || 'image/jpeg';
+      let geo = uploadGeo;
+
+      if (!geo && uploadFile.type.startsWith('image/')) {
+        geo = await captureGeolocation();
+        const stamped = await stampGeotagOnImage(uploadFile, geo, {
+          fileName,
+          fileType: mimeType,
+        });
+        fileToUpload = new File([stamped.blob], stamped.fileName, { type: stamped.fileType });
+        fileName = stamped.fileName;
+        mimeType = stamped.fileType;
+      }
+
       const timestamp = Date.now();
-      const ext = uploadFile.name.split('.').pop() || 'png';
+      const ext = fileName.split('.').pop() || 'jpg';
       const filePath = `studies/${selectedStudyId}/${timestamp}.${ext}`;
 
       // Upload file to Supabase Storage
       const { error: uploadError } = await (supabase as any).storage
         .from('radiology-images')
-        .upload(filePath, uploadFile);
+        .upload(filePath, fileToUpload, { contentType: mimeType });
       if (uploadError) throw uploadError;
 
       // Save metadata to pacs_images table
@@ -250,23 +267,23 @@ const PACSViewer: React.FC<PACSViewerProps> = ({ patients, dicomStudies }) => {
         .insert({
           study_id: selectedStudyId,
           file_path: filePath,
-          file_name: uploadFile.name,
+          file_name: fileName,
           body_part: uploadBodyPart || null,
           description: uploadDescription || null,
-          mime_type: uploadFile.type || 'image/jpeg',
-          ...geoToDbFields(uploadGeo, uploadGeo ? 'in_app_camera' : 'file_picker'),
+          mime_type: mimeType,
+          ...geoToDbFields(geo, geo ? 'in_app_camera' : 'file_picker'),
         });
       if (insertError) throw insertError;
 
       await logActivity('PACS Image Upload', {
         study_id: selectedStudyId,
-        file_name: uploadFile.name,
+        file_name: fileName,
         body_part: uploadBodyPart,
       });
 
       toast({
         title: 'Image Uploaded',
-        description: `${uploadFile.name} uploaded successfully.`,
+        description: `${fileName} uploaded successfully.`,
       });
 
       // Reset upload state and refresh gallery

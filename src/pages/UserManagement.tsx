@@ -75,9 +75,10 @@ interface UserRow {
   designation: string | null;
   is_active: boolean | null;
   must_change_password: boolean | null;
-  last_login: string | null;
+  last_login?: string | null;
+  last_login_at: string | null;
   created_at: string | null;
-  password_hash: string | null;
+  password: string | null;
   company_id: string | null;
 }
 
@@ -309,6 +310,7 @@ const UserManagement: React.FC = () => {
   const [showCsvDialog, setShowCsvDialog] = useState(false);
   const [csvRows, setCsvRows] = useState<CsvRow[]>([]);
   const [importing, setImporting] = useState(false);
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
 
   // ---- Collapsible Role Access section ----
   const [roleAccessOpen, setRoleAccessOpen] = useState(false);
@@ -452,7 +454,7 @@ const UserManagement: React.FC = () => {
 
       // Hash password when provided
       if (form.password) {
-        record.password_hash = await hashPassword(form.password);
+        record.password = await hashPassword(form.password);
       }
 
       if (editingUserId) {
@@ -583,7 +585,7 @@ const UserManagement: React.FC = () => {
         role: row.role,
         hospital_type: row.hospital_type,
         department: row.department || null,
-        password_hash: defaultHash,
+        password: defaultHash,
         is_active: true,
         must_change_password: true,
       }));
@@ -609,6 +611,61 @@ const UserManagement: React.FC = () => {
       });
     } finally {
       setImporting(false);
+    }
+  };
+
+  // -----------------------------------------------------------------------
+  // Delete user (hard delete from User table)
+  // -----------------------------------------------------------------------
+  const handleDeleteUser = async (user: UserRow) => {
+    if (!window.confirm(`Delete user "${user.email}"?`)) {
+      return;
+    }
+
+    setDeletingUserId(user.id);
+    try {
+      const { data, error } = await (supabase as any)
+        .from("User")
+        .delete()
+        .eq("id", user.id)
+        .select("id");
+
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        throw new Error("No user row was deleted. The row may be protected by policies or already removed.");
+      }
+
+      await logActivity("user_delete", { email: user.email });
+      toast({
+        title: "Success",
+        description: "User deleted successfully.",
+      });
+      fetchUsers();
+    } catch (err: any) {
+      console.error("Error deleting user:", err);
+      const errorCode = err?.code ? ` (${err.code})` : "";
+      const normalizedMessage = `${String(err?.message || "").toLowerCase()}`;
+      let reason = "It may be linked to other records or you may not have permission.";
+
+      if (err?.code === "42501") {
+        reason = "Permission denied. This account may not have DB delete rights for the User table.";
+      } else if (err?.code === "23503") {
+        reason = "Cannot delete this user because related records still reference it.";
+      } else if (err?.code === "23505") {
+        reason = "Duplicate key error (unexpected during delete).";
+      } else if (normalizedMessage.includes("no rows")) {
+        reason = "No matching user row found for deletion.";
+      }
+
+      const details = [err?.message, err?.details, err?.hint].filter(Boolean).join(" ");
+      toast({
+        title: "Error",
+        description:
+          `Failed to delete user.${errorCode} ${details || reason}`,
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingUserId(null);
     }
   };
 
@@ -818,6 +875,7 @@ const UserManagement: React.FC = () => {
                 <TableRow>
                   <TableHead>Full Name</TableHead>
                   <TableHead>Email</TableHead>
+                  <TableHead>Password</TableHead>
                   <TableHead>Phone</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead>Hospital</TableHead>
@@ -832,7 +890,7 @@ const UserManagement: React.FC = () => {
                 {filteredUsers.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={9}
+                      colSpan={11}
                       className="text-center py-8 text-muted-foreground"
                     >
                       No users found.
@@ -845,6 +903,14 @@ const UserManagement: React.FC = () => {
                         {user.full_name || "-"}
                       </TableCell>
                       <TableCell>{user.email}</TableCell>
+                      <TableCell>
+                        <div
+                          className="max-w-[220px] truncate text-xs font-mono"
+                          title={user.password || "-"}
+                        >
+                          {user.password || "-"}
+                        </div>
+                      </TableCell>
                       <TableCell>{user.phone || "-"}</TableCell>
                       <TableCell>
                         <Badge variant="secondary" className="capitalize">
@@ -870,9 +936,9 @@ const UserManagement: React.FC = () => {
                         )}
                       </TableCell>
                       <TableCell>
-                        {user.last_login
+                        {(user.last_login_at || user.last_login)
                           ? format(
-                              new Date(user.last_login),
+                              new Date(user.last_login_at || user.last_login || ""),
                               "dd MMM yyyy HH:mm"
                             )
                           : "-"}
@@ -886,6 +952,15 @@ const UserManagement: React.FC = () => {
                             onClick={() => openEditDialog(user)}
                           >
                             <Edit2 className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Delete user"
+                            disabled={deletingUserId === user.id}
+                            onClick={() => handleDeleteUser(user)}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-500" />
                           </Button>
                           <Button
                             variant="ghost"

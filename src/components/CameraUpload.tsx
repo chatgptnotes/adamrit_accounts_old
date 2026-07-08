@@ -44,6 +44,7 @@ import { LLM_BACKEND, callVpsClaude } from '@/lib/vpsClaude';
 import { downscaleImageForVision } from '@/lib/downscaleImage';
 import { captureInAppPhoto, reapplyGeotagToBlob } from '@/lib/captureInAppPhoto';
 import { captureGeolocation, geoToDbFields, googleMapsUrl, type GeoCapture } from '@/lib/geotag';
+import { stampGeotagOnImage } from '@/lib/geotagImage';
 import { GeotagStatus } from '@/components/GeotagStatus';
 
 // ---------------------------------------------------------------------------
@@ -376,7 +377,9 @@ const CameraUpload: React.FC<CameraUploadProps> = ({
       return;
     }
 
-    const result = await captureInAppPhoto(videoRef.current, canvasRef.current);
+    const result = await captureInAppPhoto(videoRef.current, canvasRef.current, 0.9, {
+      placeLabel: `${hospitalConfig.fullName}, ${hospitalConfig.contactInfo.address}, India`,
+    });
     if (result) {
       setCapturedBlob(result.blob);
       setCapturedGeo(result.geo);
@@ -1249,10 +1252,27 @@ Rules:
       const raw = localStorage.getItem('hmis_user');
       const user = raw ? JSON.parse(raw) : null;
 
+      let uploadBlob = fileToUpload;
+      let uploadGeo = capturedBlob ? capturedGeo : null;
+      const uploadSource = capturedBlob ? 'in_app_camera' : 'file_picker';
+
       // Determine file name
-      const fileName = selectedFile
+      let fileName = selectedFile
         ? selectedFile.name
         : `capture_${Date.now()}.jpg`;
+      let fileType = selectedFile?.type || 'image/jpeg';
+
+      if (selectedFile && selectedFile.type.startsWith('image/')) {
+        uploadGeo = await captureGeolocation();
+        const stamped = await stampGeotagOnImage(selectedFile, uploadGeo, {
+          fileName,
+          fileType: selectedFile.type,
+          placeLabel: `${hospitalConfig.fullName}, ${hospitalConfig.contactInfo.address}, India`,
+        });
+        uploadBlob = stamped.blob;
+        fileName = stamped.fileName;
+        fileType = stamped.fileType;
+      }
 
       const sanitizedName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
       const storagePath = `uploads/${Date.now()}_${sanitizedName}`;
@@ -1260,7 +1280,7 @@ Rules:
       // Upload to Supabase Storage bucket "uploads"
       const { error: storageError } = await (supabase as any).storage
         .from('uploads')
-        .upload(storagePath, fileToUpload);
+        .upload(storagePath, uploadBlob, { contentType: fileType });
 
       if (storageError) {
         console.error('Storage upload error:', storageError);
@@ -1286,18 +1306,15 @@ Rules:
         .insert({
           file_name: fileName,
           file_url: publicUrl,
-          file_type: selectedFile?.type || 'image/jpeg',
-          file_size: fileToUpload.size,
+          file_type: fileType,
+          file_size: uploadBlob.size,
           storage_path: storagePath,
           category,
           patient_id: selectedPatient?.id || null,
           patient_name: selectedPatient?.name || null,
           notes: notes || null,
           uploaded_by: user?.id || null,
-          ...geoToDbFields(
-            capturedBlob ? capturedGeo : null,
-            capturedBlob ? 'in_app_camera' : 'file_picker',
-          ),
+          ...geoToDbFields(uploadGeo, uploadSource),
         });
 
       if (insertError) {
@@ -1330,7 +1347,7 @@ Rules:
         setPrescriptionPatient({ ...selectedPatient });
         // Remember the uploaded source image so it can be linked to the prescription
         setPrescriptionImageUrl(publicUrl);
-        setPrescriptionImageType(selectedFile?.type || 'image/jpeg');
+        setPrescriptionImageType(fileType);
 
         // Auto-fill doctor name from latest visit
         try {

@@ -17,14 +17,15 @@ interface PermissionChecks {
 export const usePermissions = (): PermissionChecks => {
   const { user } = useAuth();
   const userRole = user?.role;
-  const isSuperAdmin = userRole === 'superadmin';
+  const normalizedRole = (userRole || '').toLowerCase().trim();
+  const isSuperAdmin = normalizedRole === 'superadmin' || normalizedRole === 'super_admin';
 
   return {
     // SuperAdmin always has all permissions
-    canEditMasters: isSuperAdmin || canEditMasters(userRole),
-    canDeleteMasters: isSuperAdmin || canDeleteMasters(userRole),
-    canManageUsers: isSuperAdmin || canManageUsers(userRole),
-    canDeleteRecords: isSuperAdmin || canDeleteRecords(userRole),
-    hasPermission: (permission: Permission) => isSuperAdmin || hasPermission(userRole, permission),
+    canEditMasters: isSuperAdmin || canEditMasters(normalizedRole as any),
+    canDeleteMasters: isSuperAdmin || canDeleteMasters(normalizedRole as any),
+    canManageUsers: isSuperAdmin || canManageUsers(normalizedRole as any),
+    canDeleteRecords: isSuperAdmin || canDeleteRecords(normalizedRole as any),
+    hasPermission: (permission: Permission) => isSuperAdmin || hasPermission(normalizedRole as any, permission),
   };
 };

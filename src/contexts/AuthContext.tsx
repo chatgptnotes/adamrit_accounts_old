@@ -240,21 +240,27 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
       // Staff pin login: pin already verified by the query, skip password check
       if (!isStaffPin) {
+        const dbPassword = (data as any)?.password || (data as any)?.password_hash || null;
+
+        if (!dbPassword) {
+          console.error('User has no password set.');
+          return false;
+        }
 
         // Check if password is hashed (new users) or plain text (existing users)
         let isPasswordValid = false;
 
-        if (data.password.startsWith('$2')) {
+        if (dbPassword.startsWith('$2')) {
           // Hashed password - use bcrypt compare with setTimeout to prevent UI blocking
           isPasswordValid = await new Promise<boolean>((resolve) => {
             setTimeout(async () => {
-              const result = await comparePassword(credentials.password, data.password);
+              const result = await comparePassword(credentials.password, dbPassword);
               resolve(result);
             }, 10);
           });
         } else {
           // Plain text password - direct comparison (for backward compatibility)
-          isPasswordValid = data.password === credentials.password;
+          isPasswordValid = dbPassword === credentials.password;
         }
 
         if (!isPasswordValid) {

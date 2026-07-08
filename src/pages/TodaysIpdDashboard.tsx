@@ -54,6 +54,7 @@ import { RefereeDoaPaymentModal } from '@/components/ipd/RefereeDoaPaymentModal'
 import { MriOrderModal } from '@/components/ipd/MriOrderModal';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { calculateReferralAmount, formatIndianCurrency } from '@/utils/referralCalculator';
+import { formatDateOnly, formatDateOnlyForDisplay, parseDateOnly } from '@/utils/dateOnly';
 
 // Referee DOA Amount Cell with Payment Modal and Referral Tooltip
 const IpdRefereeAmountCell = ({
@@ -1974,7 +1975,7 @@ const TodaysIpdDashboard = () => {
     const save = async (date: Date | undefined) => {
       if (!visitId) return;
       setSaving(true);
-      const iso = date ? date.toISOString().slice(0, 10) : null;
+      const iso = date ? formatDateOnly(date) : null;
       const { error } = await (supabase as any)
         .from('bill_preparation')
         .upsert({ visit_id: visitId, intimation_date: iso }, { onConflict: 'visit_id' });
@@ -1991,7 +1992,7 @@ const TodaysIpdDashboard = () => {
       return (
         <div className="flex items-center justify-center gap-1">
           <EnhancedDatePicker
-            value={intimationDate ? new Date(intimationDate) : undefined}
+            value={intimationDate ? parseDateOnly(intimationDate) : undefined}
             onChange={save}
             placeholder="Select date"
             isDOB={false}
@@ -2020,7 +2021,7 @@ const TodaysIpdDashboard = () => {
           className="mx-auto inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200 transition-colors hover:bg-emerald-100"
         >
           <Circle className="h-2.5 w-2.5 text-green-600 fill-green-600" />
-          {new Date(intimationDate).toLocaleDateString('en-IN')}
+          {formatDateOnlyForDisplay(intimationDate, 'dd/MM/yyyy')}
         </button>
       );
     }

@@ -8,6 +8,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { formatDateOnly } from '@/utils/dateOnly';
 
 export interface BillSubmission {
   id: string;
@@ -46,13 +47,14 @@ const BillSubmissionForm: React.FC<BillSubmissionFormProps> = ({
   editData,
   prefilledPatient,
 }) => {
+  const today = formatDateOnly(new Date());
   const [formData, setFormData] = useState<Omit<BillSubmission, 'id'>>({
     visitId: '',
     patientName: '',
     corporate: '',
     billAmount: 0,
     submittedBy: '',
-    submissionDate: new Date().toISOString().split('T')[0],
+    submissionDate: today,
     intimationDate: '',
     expectedPaymentDate: '',
     receivedAmount: 0,
@@ -86,7 +88,7 @@ const BillSubmissionForm: React.FC<BillSubmissionFormProps> = ({
         corporate: prefilledPatient.corporate,
         billAmount: 0,
         submittedBy: '',
-        submissionDate: new Date().toISOString().split('T')[0],
+        submissionDate: today,
         intimationDate: '',
         expectedPaymentDate: '',
         receivedAmount: 0,
@@ -101,7 +103,7 @@ const BillSubmissionForm: React.FC<BillSubmissionFormProps> = ({
         corporate: '',
         billAmount: 0,
         submittedBy: '',
-        submissionDate: new Date().toISOString().split('T')[0],
+        submissionDate: today,
         intimationDate: '',
         expectedPaymentDate: '',
         receivedAmount: 0,
@@ -110,7 +112,7 @@ const BillSubmissionForm: React.FC<BillSubmissionFormProps> = ({
         receivedDate: '',
       });
     }
-  }, [editData, prefilledPatient, open]);
+  }, [editData, prefilledPatient, open, today]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

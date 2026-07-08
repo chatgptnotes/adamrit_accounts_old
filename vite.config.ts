@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import basicSsl from "@vitejs/plugin-basic-ssl";
 import { VitePWA } from "vite-plugin-pwa";
 import path from "path";
 import * as http from "http";
@@ -446,6 +447,7 @@ export default defineConfig(({ mode }) => {
   },
   plugins: [
     ...(mode === 'development' ? [slackProxyPlugin(env), doubleTickExtensionAlertPlugin(env), tallyProxyPlugin(), gmailProxyPlugin(env)] : []),
+    ...(mode === 'development' ? [basicSsl()] : []),
     react(),
     // Service worker for installability + instant app-shell launch. We keep the
     // hand-written public/manifest.webmanifest (manifest: false) and only let the

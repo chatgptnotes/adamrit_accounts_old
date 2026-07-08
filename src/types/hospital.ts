@@ -54,7 +54,7 @@ export const HOSPITAL_CONFIGS: Record<HospitalType, HospitalConfig> = {
     contactInfo: {
       phone: '+91-40-2345-6789',
       email: 'info@hopehospital.com',
-      address: 'Hope Hospital Complex, Hyderabad'
+      address: 'Chande Colony, Mahle Hospital, Nagpur, Maharashtra 440026'
     },
     features: {
       hasPharmacy: true,

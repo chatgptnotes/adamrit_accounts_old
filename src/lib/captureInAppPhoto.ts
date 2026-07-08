@@ -1,5 +1,6 @@
 import { captureGeolocation, type CaptureSource, type GeoCapture } from '@/lib/geotag';
 import { embedGpsInJpeg } from '@/lib/embedGeotagExif';
+import { stampGeotagOnImage } from '@/lib/geotagImage';
 
 export interface InAppCaptureResult {
   blob: Blob;
@@ -35,6 +36,7 @@ export async function captureInAppPhoto(
   video: HTMLVideoElement,
   canvas: HTMLCanvasElement,
   quality = 0.9,
+  options: { placeLabel?: string } = {},
 ): Promise<InAppCaptureResult | null> {
   const [rawBlob, geo] = await Promise.all([
     drawVideoToJpegBlob(video, canvas, quality),
@@ -43,9 +45,14 @@ export async function captureInAppPhoto(
 
   if (!rawBlob) return null;
 
-  const blob = await embedGpsInJpeg(rawBlob, geo);
+  const exifBlob = await embedGpsInJpeg(rawBlob, geo);
+  const stamped = await stampGeotagOnImage(exifBlob, geo, {
+    fileName: `capture_${Date.now()}.jpg`,
+    fileType: 'image/jpeg',
+    placeLabel: options.placeLabel,
+  });
   return {
-    blob,
+    blob: stamped.blob,
     geo,
     captureSource: 'in_app_camera',
   };
@@ -55,6 +62,13 @@ export async function captureInAppPhoto(
 export async function reapplyGeotagToBlob(
   blob: Blob,
   geo: GeoCapture | null,
+  options: { placeLabel?: string } = {},
 ): Promise<Blob> {
-  return embedGpsInJpeg(blob, geo);
+  const exifBlob = await embedGpsInJpeg(blob, geo);
+  const stamped = await stampGeotagOnImage(exifBlob, geo, {
+    fileName: `capture_${Date.now()}.jpg`,
+    fileType: 'image/jpeg',
+    placeLabel: options.placeLabel,
+  });
+  return stamped.blob;
 }

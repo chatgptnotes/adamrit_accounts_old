@@ -61,11 +61,28 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
   } = props;
 
   return useMemo(() => {
+    const userRole = (user?.role || '').toLowerCase().trim();
+    const isSuperAdmin = userRole === 'superadmin' || userRole === 'super_admin';
+
     const filtered = menuItems
       .filter(item => {
-        // Hide Users tab for non-admins
-        if (item.title === "Users" && !canManageUsers) {
+        // Hide Users tab for non-superadmins
+        if (item.title === "Users" || item.url === "/users") {
+          if (!isSuperAdmin) {
+            return false;
+          }
+        }
+
+        // Backward compatibility: preserve admin-only behavior where required
+        if (item.title === "Users" && !canManageUsers && !isSuperAdmin) {
           return false;
+        }
+
+        // Hide User Management tab for non-superadmins only
+        if (item.title === "User Management" || item.url === "/user-management") {
+          if (!isSuperAdmin) {
+            return false;
+          }
         }
 
         if (item.title === "Payment Allocation" && !canAccessAccounting) {

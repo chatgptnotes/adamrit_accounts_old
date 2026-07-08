@@ -8,10 +8,25 @@ import PatientHeader from '@/components/patient/PatientHeader';
 import PatientInfoCards from '@/components/patient/PatientInfoCards';
 import DischargeInfo from '@/components/patient/DischargeInfo';
 import PatientTabs from '@/components/patient/PatientTabs';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Search } from 'lucide-react';
+
+type PatientSearchRow = {
+  id: string;
+  name: string | null;
+  patients_id: string | null;
+  phone: string | null;
+  age: number | null;
+  gender: string | null;
+  created_at: string | null;
+};
 
 const PatientProfile = () => {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const patientId = searchParams.get('patient');
+  const [patientSearchTerm, setPatientSearchTerm] = useState('');
   const [activeSection, setActiveSection] = useState('clinical-mgmt');
 
   const { data: patient, isLoading: patientLoading } = useQuery({
@@ -36,6 +51,30 @@ const PatientProfile = () => {
       return data;
     },
     enabled: !!patientId
+  });
+
+  const { data: searchResults = [], isLoading: searchLoading } = useQuery({
+    queryKey: ['patient-profile-search', patientSearchTerm],
+    queryFn: async () => {
+      const term = patientSearchTerm.trim();
+      if (term.length < 2) return [];
+
+      const safe = term.replace(/[%,]/g, '');
+      const { data, error } = await supabase
+        .from('patients')
+        .select('id, name, patients_id, phone, age, gender, created_at')
+        .or(`name.ilike.%${safe}%,patients_id.ilike.%${safe}%,phone.ilike.%${safe}%`)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (error) {
+        console.error('Error searching patients:', error);
+        throw error;
+      }
+
+      return (data || []) as PatientSearchRow[];
+    },
+    enabled: !patientId,
   });
 
   const { data: visits = [] } = useQuery({
@@ -84,11 +123,92 @@ const PatientProfile = () => {
     );
   }
 
+  if (!patientId) {
+    return (
+      <div className="min-h-screen bg-background p-6">
+        <div className="mx-auto max-w-4xl space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Search className="h-5 w-5" />
+                Search patient profile
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Input
+                  value={patientSearchTerm}
+                  onChange={(e) => setPatientSearchTerm(e.target.value)}
+                  placeholder="Search by name, patient ID, or phone"
+                />
+                <p className="text-sm text-muted-foreground">
+                  Open a profile by selecting a patient below. Direct links should use <code>?patient=&lt;id&gt;</code>.
+                </p>
+              </div>
+
+              {searchLoading ? (
+                <div className="py-8 text-center text-sm text-muted-foreground">Searching...</div>
+              ) : searchResults.length === 0 ? (
+                <div className="py-8 text-center text-sm text-muted-foreground">
+                  {patientSearchTerm.trim().length < 2
+                    ? 'Type at least 2 characters to search.'
+                    : 'No patients found.'}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {searchResults.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className="w-full rounded-lg border p-4 text-left transition-colors hover:bg-accent"
+                      onClick={() => {
+                        const nextParams = new URLSearchParams(searchParams);
+                        nextParams.set('patient', p.id);
+                        setSearchParams(nextParams, { replace: true });
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <div className="font-medium">{p.name || 'Unnamed patient'}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {p.patients_id || 'No patient ID'}
+                            {p.phone ? ` - ${p.phone}` : ''}
+                          </div>
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          {p.gender || '-'}
+                          {p.age != null ? ` - ${p.age}y` : ''}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   if (!patient) {
     return (
       <div className="min-h-screen bg-background p-6">
-        <div className="max-w-7xl mx-auto">
+        <div className="mx-auto max-w-4xl space-y-4">
           <div className="text-center">Patient not found</div>
+          <div className="text-center">
+            <Button
+              variant="outline"
+              onClick={() => {
+                const nextParams = new URLSearchParams(searchParams);
+                nextParams.delete('patient');
+                setSearchParams(nextParams, { replace: true });
+                setPatientSearchTerm('');
+              }}
+            >
+              Search another patient
+            </Button>
+          </div>
         </div>
       </div>
     );

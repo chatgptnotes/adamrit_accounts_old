@@ -35,6 +35,7 @@ import {
 import * as XLSX from 'xlsx';
 import { BillWorkflowBoard } from '@/components/bill-workflow/BillWorkflowBoard';
 import type { BillStatus } from '@/components/bill-workflow/types';
+import { formatDateOnly, formatDateOnlyForDisplay, parseDateOnly } from '@/utils/dateOnly';
 import { KanbanSquare } from 'lucide-react';
 
 const BillSubmissionPage: React.FC = () => {
@@ -325,13 +326,13 @@ const BillSubmissionPage: React.FC = () => {
         corporate: existing.corporate || visit.patients?.corporate || '',
         billAmount: Number(existing.bill_amount) || 0,
         submittedBy: existing.executive_who_submitted || '',
-        submissionDate: existing.date_of_submission ? String(existing.date_of_submission).split('T')[0] : '',
-        intimationDate: existing.intimation_date ? String(existing.intimation_date).split('T')[0] : '',
-        expectedPaymentDate: existing.expected_payment_date ? String(existing.expected_payment_date).split('T')[0] : '',
+        submissionDate: existing.date_of_submission || '',
+        intimationDate: existing.intimation_date || '',
+        expectedPaymentDate: existing.expected_payment_date || '',
         receivedAmount: Number(existing.received_amount) || 0,
         deductionAmount: Number(existing.deduction_amount) || 0,
         tdsAmount: Number(existing.tds_amount) || 0,
-        receivedDate: existing.received_date ? String(existing.received_date).split('T')[0] : '',
+        receivedDate: existing.received_date || '',
       });
     } else {
       // No existing record — open fresh form
@@ -374,13 +375,13 @@ const BillSubmissionPage: React.FC = () => {
       corporate: submission.corporate || submission.patient_corporate || '',
       billAmount: Number(submission.bill_amount) || 0,
       submittedBy: submission.executive_who_submitted || '',
-      submissionDate: submission.date_of_submission ? String(submission.date_of_submission).split('T')[0] : '',
-      intimationDate: submission.intimation_date ? String(submission.intimation_date).split('T')[0] : '',
-      expectedPaymentDate: submission.expected_payment_date ? String(submission.expected_payment_date).split('T')[0] : '',
+      submissionDate: submission.date_of_submission || '',
+      intimationDate: submission.intimation_date || '',
+      expectedPaymentDate: submission.expected_payment_date || '',
       receivedAmount: Number(submission.received_amount) || 0,
       deductionAmount: Number(submission.deduction_amount) || 0,
       tdsAmount: Number(submission.tds_amount) || 0,
-      receivedDate: submission.received_date ? String(submission.received_date).split('T')[0] : '',
+      receivedDate: submission.received_date || '',
     });
     setIsFormOpen(true);
   };
@@ -422,12 +423,11 @@ const BillSubmissionPage: React.FC = () => {
   };
 
   const formatDate = (dateString: string) => {
-    if (!dateString) return '-';
-    return new Date(dateString).toLocaleDateString('en-IN');
+    return formatDateOnlyForDisplay(dateString, 'dd/MM/yyyy');
   };
 
   const handleIntimationDateChange = async (id: string, d: Date | undefined) => {
-    const iso = d ? d.toISOString().slice(0, 10) : null;
+    const iso = d ? formatDateOnly(d) : null;
     const { error } = await (supabase as any)
       .from('bill_preparation')
       .update({ intimation_date: iso })
@@ -672,7 +672,7 @@ const BillSubmissionPage: React.FC = () => {
                             <span className="text-gray-500 text-xs">Intimation Date</span>
                             <div className="mt-0.5">
                               <IntimationCell
-                                value={bill.intimation_date ? new Date(bill.intimation_date) : undefined}
+                                value={bill.intimation_date ? parseDateOnly(bill.intimation_date) : undefined}
                                 onChange={(d) => handleIntimationDateChange(bill.id, d)}
                               />
                             </div>
@@ -778,7 +778,7 @@ const BillSubmissionPage: React.FC = () => {
                           <TableCell>{formatDate(submission.admission_date)}</TableCell>
                           <TableCell>
                             <IntimationCell
-                              value={submission.intimation_date ? new Date(submission.intimation_date) : undefined}
+                              value={submission.intimation_date ? parseDateOnly(submission.intimation_date) : undefined}
                               onChange={(d) => handleIntimationDateChange(submission.id, d)}
                             />
                           </TableCell>

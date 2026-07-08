@@ -12,6 +12,7 @@ import { generatePatientId } from '@/utils/patientIdGenerator';
 import { captureInAppPhoto } from '@/lib/captureInAppPhoto';
 import { captureGeolocation, geoToDbFields, type GeoCapture } from '@/lib/geotag';
 import { geotagJpegFile } from '@/lib/embedGeotagExif';
+import { stampGeotagOnImage } from '@/lib/geotagImage';
 import { GeotagStatus } from '@/components/GeotagStatus';
 
 interface Patient {
@@ -190,7 +191,12 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
     setScanningSlot(slot);
     setScanProgress(0);
 
-    const taggedFile = await geotagJpegFile(file, geo);
+    const exifFile = await geotagJpegFile(file, geo);
+    const stamped = await stampGeotagOnImage(exifFile, geo, {
+      fileName: exifFile.name,
+      fileType: exifFile.type || 'image/jpeg',
+    });
+    const taggedFile = new File([stamped.blob], stamped.fileName, { type: stamped.fileType });
     const previewUrl = URL.createObjectURL(taggedFile);
     if (slot === 'front') {
       setFrontFile(taggedFile);

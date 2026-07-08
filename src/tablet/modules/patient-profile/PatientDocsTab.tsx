@@ -72,7 +72,7 @@ export function PatientDocsTab({
   category,
   label,
 }: PatientDocsTabProps) {
-  const { user } = useAuth();
+  const { user, hospitalConfig } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
   const docs = usePatientDocs(patientId, category);
@@ -122,6 +122,7 @@ export function PatientDocsTab({
           patientName,
           category,
           uploadedBy: user?.id ?? null,
+          placeLabel: `${hospitalConfig.fullName}, ${hospitalConfig.contactInfo.address}, India`,
         },
       );
       await qc.invalidateQueries({
