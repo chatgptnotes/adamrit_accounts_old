@@ -11,8 +11,15 @@ export interface PaymentVoucherRow {
   person_name: string;
   amount: number;
   purpose: string | null;
+  narration: string | null;
+  account_ledger_name: string | null;
   paid_by: string | null;
   hospital_type: string;
+  payment_voucher_lines?: Array<{
+    ledger_name: string;
+    amount: number;
+    line_order: number | null;
+  }>;
 }
 
 /**
@@ -45,13 +52,20 @@ const formatDMY = (iso: string): string => {
  */
 export const voucherToEntry = (v: PaymentVoucherRow): VoucherEntry => {
   const amount = Number(v.amount) || 0;
-  const purposeText = v.purpose ? ` | ${v.purpose}` : '';
+  const lineNarration = (v.payment_voucher_lines || [])
+    .slice()
+    .sort((a, b) => (a.line_order || 0) - (b.line_order || 0))
+    .map((line) => line.ledger_name)
+    .filter(Boolean)
+    .join(', ');
+  const narration = (v.narration || v.purpose || lineNarration || '').trim();
+  const narrationText = narration ? ` | ${narration}` : '';
   const person = v.person_name || 'Unknown';
   return {
     type: 'patient-summary',
     date: formatDMY(v.voucher_date),
     particulars: `${person} - Payment Voucher`,
-    summary: `Payment Voucher ${v.voucher_no} | CASH: Rs ${amount.toLocaleString('en-IN')}${purposeText}`,
+    summary: `Payment Voucher ${v.voucher_no} | CASH: Rs ${amount.toLocaleString('en-IN')}${narrationText}`,
     debit: 0,
     credit: amount,
     patientId: undefined,
@@ -73,7 +87,7 @@ export const usePaymentVouchers = (fromDate: string, toDate: string, hospitalTyp
     queryFn: async () => {
       let query = (supabase as any)
         .from('payment_vouchers')
-        .select('*')
+        .select('id, voucher_no, voucher_date, person_name, amount, purpose, narration, account_ledger_name, paid_by, hospital_type, payment_voucher_lines(ledger_name, amount, line_order)')
         .gte('voucher_date', fromDate)
         .lte('voucher_date', toDate)
         .order('voucher_date', { ascending: false });
