@@ -35,7 +35,7 @@ import {
 import * as XLSX from 'xlsx';
 import { BillWorkflowBoard } from '@/components/bill-workflow/BillWorkflowBoard';
 import type { BillStatus } from '@/components/bill-workflow/types';
-import { formatDateOnly, formatDateOnlyForDisplay, parseDateOnly } from '@/utils/dateOnly';
+import { formatDateOnly, formatDateOnlyForDisplay, parseDateOnly, stripToDateOnly } from '@/utils/dateOnly';
 import { KanbanSquare } from 'lucide-react';
 
 const BillSubmissionPage: React.FC = () => {
@@ -326,13 +326,13 @@ const BillSubmissionPage: React.FC = () => {
         corporate: existing.corporate || visit.patients?.corporate || '',
         billAmount: Number(existing.bill_amount) || 0,
         submittedBy: existing.executive_who_submitted || '',
-        submissionDate: existing.date_of_submission || '',
-        intimationDate: existing.intimation_date || '',
-        expectedPaymentDate: existing.expected_payment_date || '',
+        submissionDate: existing.date_of_submission ? stripToDateOnly(String(existing.date_of_submission)) : '',
+        intimationDate: existing.intimation_date ? stripToDateOnly(String(existing.intimation_date)) : '',
+        expectedPaymentDate: existing.expected_payment_date ? stripToDateOnly(String(existing.expected_payment_date)) : '',
         receivedAmount: Number(existing.received_amount) || 0,
         deductionAmount: Number(existing.deduction_amount) || 0,
         tdsAmount: Number(existing.tds_amount) || 0,
-        receivedDate: existing.received_date || '',
+        receivedDate: existing.received_date ? stripToDateOnly(String(existing.received_date)) : '',
       });
     } else {
       // No existing record — open fresh form
@@ -375,13 +375,13 @@ const BillSubmissionPage: React.FC = () => {
       corporate: submission.corporate || submission.patient_corporate || '',
       billAmount: Number(submission.bill_amount) || 0,
       submittedBy: submission.executive_who_submitted || '',
-      submissionDate: submission.date_of_submission || '',
-      intimationDate: submission.intimation_date || '',
-      expectedPaymentDate: submission.expected_payment_date || '',
+      submissionDate: submission.date_of_submission ? stripToDateOnly(String(submission.date_of_submission)) : '',
+      intimationDate: submission.intimation_date ? stripToDateOnly(String(submission.intimation_date)) : '',
+      expectedPaymentDate: submission.expected_payment_date ? stripToDateOnly(String(submission.expected_payment_date)) : '',
       receivedAmount: Number(submission.received_amount) || 0,
       deductionAmount: Number(submission.deduction_amount) || 0,
       tdsAmount: Number(submission.tds_amount) || 0,
-      receivedDate: submission.received_date || '',
+      receivedDate: submission.received_date ? stripToDateOnly(String(submission.received_date)) : '',
     });
     setIsFormOpen(true);
   };

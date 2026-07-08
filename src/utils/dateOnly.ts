@@ -7,8 +7,13 @@ export function formatDateOnly(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+export function stripToDateOnly(value: string): string {
+  return value.split('T')[0];
+}
+
 export function parseDateOnly(value: string): Date {
-  const [year, month, day] = value.split('-').map(Number);
+  const stripped = stripToDateOnly(value);
+  const [year, month, day] = stripped.split('-').map(Number);
 
   if (!year || !month || !day) {
     throw new Error(`Invalid date-only value: ${value}`);
