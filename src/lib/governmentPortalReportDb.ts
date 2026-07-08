@@ -168,6 +168,44 @@ function importToReport(header: ImportRow, rows: DbReportRow[]): GovernmentPorta
   };
 }
 
+async function loadLatestImportWithRows(
+  importSelect: string,
+  rowSelect: string,
+  rowFilter: (query: any) => any,
+  rowLimit?: number,
+): Promise<{ header: ImportRow | null; rows: DbReportRow[] }> {
+  const { data: imports, error: importsError } = await db
+    .from('government_portal_report_imports')
+    .select(importSelect)
+    .order('created_at', { ascending: false })
+    .limit(20);
+
+  if (importsError) throw importsError;
+
+  for (const header of (imports || []) as ImportRow[]) {
+    let rowQuery = db
+      .from('government_portal_report_rows')
+      .select(rowSelect)
+      .eq('import_id', header.id)
+      .order('row_number', { ascending: true });
+
+    rowQuery = rowFilter(rowQuery);
+
+    if (rowLimit !== undefined) {
+      rowQuery = rowQuery.limit(rowLimit);
+    }
+
+    const { data: rows, error: rowsError } = await rowQuery;
+    if (rowsError) throw rowsError;
+
+    if ((rows || []).length > 0) {
+      return { header, rows: rows as DbReportRow[] };
+    }
+  }
+
+  return { header: null, rows: [] };
+}
+
 function getUploadedBy(): string | null {
   try {
     const raw = localStorage.getItem('hmis_user');
@@ -211,83 +249,47 @@ export async function saveGovernmentPortalReport(
   if (report.rows.length > 0) {
     const payload = report.rows.map((row) => rowToDbRecord(importId, row));
     const { error: rowsError } = await db.from('government_portal_report_rows').insert(payload);
-    if (rowsError) throw rowsError;
+    if (rowsError) {
+      await db.from('government_portal_report_imports').delete().eq('id', importId);
+      throw rowsError;
+    }
   }
 
   return importId;
 }
 
 export async function fetchLatestGovernmentPortalReport(): Promise<SavedGovernmentPortalImport | null> {
-  const { data: header, error: headerError } = await db
-    .from('government_portal_report_imports')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { header, rows } = await loadLatestImportWithRows(
+    '*',
+    '*',
+    (query) => query,
+  );
 
-  if (headerError) throw headerError;
   if (!header) return null;
-
-  const { data: rows, error: rowsError } = await db
-    .from('government_portal_report_rows')
-    .select('*')
-    .eq('import_id', header.id)
-    .order('row_number', { ascending: true });
-
-  if (rowsError) throw rowsError;
 
   return {
     id: header.id,
     fileName: header.file_name,
     reportDateLabel: header.report_date_label,
     createdAt: header.created_at,
-    report: importToReport(header as ImportRow, (rows || []) as DbReportRow[]),
+    report: importToReport(header, rows),
   };
 }
 
 export async function fetchLatestGovernmentPortalExtensionAlerts(
   rowLimit = 100,
 ): Promise<GovernmentPortalExtensionAlertSummary | null> {
-  const { data: header, error: headerError } = await db
-    .from('government_portal_report_imports')
-    .select('id, file_name, report_date_label, count_extension_needed, created_at')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { header, rows } = await loadLatestImportWithRows(
+    'id, file_name, report_date_label, count_extension_needed, created_at',
+    'id, row_number, status, registration_id, beneficiary_name, case_type, preauth_date_label, days_since_preauth, procedure_code, procedure_details, preauth_approved_amount',
+    (query) => query.eq('extension_needed', true).eq('status', 'pending'),
+    rowLimit,
+  );
 
-  if (headerError) throw headerError;
   if (!header) return null;
 
-  const importId = header.id as string;
-
-  const { data: rows, error: rowsError } = await db
-    .from('government_portal_report_rows')
-    .select(
-      [
-        'id',
-        'row_number',
-        'status',
-        'registration_id',
-        'beneficiary_name',
-        'case_type',
-        'preauth_date_label',
-        'days_since_preauth',
-        'procedure_code',
-        'procedure_details',
-        'preauth_approved_amount',
-      ].join(', '),
-    )
-    .eq('import_id', importId)
-    .eq('extension_needed', true)
-    .eq('status', 'pending')
-    .order('days_since_preauth', { ascending: false, nullsFirst: false })
-    .order('row_number', { ascending: true })
-    .limit(rowLimit);
-
-  if (rowsError) throw rowsError;
-
   return {
-    importId,
+    importId: header.id,
     fileName: header.file_name,
     reportDateLabel: header.report_date_label,
     createdAt: header.created_at,
