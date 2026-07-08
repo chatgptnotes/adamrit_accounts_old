@@ -130,7 +130,7 @@ const splitCaretLine = (line: string): string[] => {
   return cells;
 };
 
-const parsePortalDate = (rawValue: string): Date | null => {
+export const parsePortalDate = (rawValue: string): Date | null => {
   const value = cleanCell(rawValue);
   if (!value) return null;
 

@@ -19,6 +19,7 @@ import {
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { BillDocumentsSection } from '@/pages/corporate-bill/BillDocumentsSection';
+import { syncPortalDataForRegistrationId } from '@/lib/governmentPortalReportDb';
 import { toast } from 'sonner';
 import '@/styles/print.css';
 
@@ -678,10 +679,24 @@ const AdvanceStatementReport = () => {
     if (error) {
       console.error('Error updating Yojana Registration ID:', error);
       toast.error('Failed to save Registration ID');
-    } else {
-      toast.success('Registration ID saved');
-      queryClient.invalidateQueries({ queryKey: ['advance-statement-report-currently-admitted'] });
+      return;
     }
+
+    let portalMatched = false;
+    if (value) {
+      try {
+        portalMatched = await syncPortalDataForRegistrationId(value);
+      } catch (syncError) {
+        console.error('Error syncing portal data for Registration ID:', syncError);
+      }
+    }
+
+    toast.success(
+      portalMatched
+        ? 'Registration ID saved — portal data auto-filled'
+        : 'Registration ID saved',
+    );
+    queryClient.invalidateQueries({ queryKey: ['advance-statement-report-currently-admitted'] });
   };
 
   const handleDiagnosisUpdate = async (visitId: string, diagnosisId: string) => {

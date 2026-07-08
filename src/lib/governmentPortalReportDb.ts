@@ -1,6 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import {
   GOVERNMENT_PORTAL_REQUIRED_COLUMNS,
+  parsePortalDate,
   type GovernmentPortalColumn,
   type GovernmentPortalPatientStatus,
   type GovernmentPortalReport,
@@ -253,6 +254,12 @@ export async function saveGovernmentPortalReport(
       await db.from('government_portal_report_imports').delete().eq('id', importId);
       throw rowsError;
     }
+
+    try {
+      await syncGovernmentPortalReportToVisits(report);
+    } catch (syncError) {
+      console.error('Error syncing portal report to visits:', syncError);
+    }
   }
 
   return importId;
@@ -355,6 +362,123 @@ export async function fetchGovernmentPortalReportById(
     createdAt: header.created_at,
     report: importToReport(header as ImportRow, (rows || []) as DbReportRow[]),
   };
+}
+
+type PortalSyncSource = {
+  registration_id: string | null;
+  procedure_details: string | null;
+  preauth_approved_amount: string | null;
+  preauth_initiated_date: string | null;
+};
+
+function portalDateToIso(raw: string | null): string | null {
+  const parsed = parsePortalDate(raw || '');
+  if (!parsed) return null;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}`;
+}
+
+async function applyPortalRowToVisit(
+  visit: { id: string; visit_id: string | null },
+  row: PortalSyncSource,
+): Promise<boolean> {
+  const visitUpdate: Record<string, string> = {};
+  // Portal exports repeat the value pipe-separated, e.g. "Severe sepsis|Severe sepsis"
+  const procedureDetails = [
+    ...new Set((row.procedure_details || '').split('|').map((part) => part.trim()).filter(Boolean)),
+  ].join(', ');
+  if (procedureDetails) visitUpdate.package_name = procedureDetails;
+  const amount = (row.preauth_approved_amount || '').replace(/[^0-9.]/g, '');
+  if (amount) visitUpdate.package_amount = amount;
+
+  if (Object.keys(visitUpdate).length > 0) {
+    const { error } = await db.from('visits').update(visitUpdate).eq('id', visit.id);
+    if (error) throw error;
+  }
+
+  const intimationDate = portalDateToIso(row.preauth_initiated_date);
+  if (intimationDate && visit.visit_id) {
+    const { error } = await db
+      .from('bill_preparation')
+      .upsert(
+        { visit_id: visit.visit_id, intimation_date: intimationDate },
+        { onConflict: 'visit_id' },
+      );
+    if (error) throw error;
+  }
+
+  return Object.keys(visitUpdate).length > 0 || Boolean(intimationDate);
+}
+
+/**
+ * Pull the latest uploaded portal row matching a registration ID into every
+ * visit tagged with that ID (package name/amount + intimation date).
+ * Returns true when a portal row matched and something was synced.
+ */
+export async function syncPortalDataForRegistrationId(registrationId: string): Promise<boolean> {
+  const trimmed = registrationId.trim();
+  if (!trimmed) return false;
+
+  const { data: row, error } = await db
+    .from('government_portal_report_rows')
+    .select('registration_id, procedure_details, preauth_approved_amount, preauth_initiated_date')
+    .eq('registration_id', trimmed)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!row) return false;
+
+  const { data: visits, error: visitsError } = await db
+    .from('visits')
+    .select('id, visit_id')
+    .eq('yojana_registration_id', trimmed);
+
+  if (visitsError) throw visitsError;
+
+  let synced = false;
+  for (const visit of visits || []) {
+    if (await applyPortalRowToVisit(visit, row)) synced = true;
+  }
+  return synced;
+}
+
+/**
+ * After a portal file upload, push each row's data into visits whose
+ * yojana_registration_id matches. Returns the number of visits updated.
+ */
+export async function syncGovernmentPortalReportToVisits(
+  report: GovernmentPortalReport,
+): Promise<number> {
+  const rowsByRegistrationId = new Map<string, PortalSyncSource>();
+  for (const row of report.rows) {
+    const registrationId = (row.values['Registration ID'] || '').trim();
+    if (!registrationId) continue;
+    rowsByRegistrationId.set(registrationId, {
+      registration_id: registrationId,
+      procedure_details: row.values['Procedure Details'] || null,
+      preauth_approved_amount: row.values['Preauth Approved Amount'] || null,
+      preauth_initiated_date: row.values['Preauth Initiated Date'] || null,
+    });
+  }
+
+  if (rowsByRegistrationId.size === 0) return 0;
+
+  const { data: visits, error } = await db
+    .from('visits')
+    .select('id, visit_id, yojana_registration_id')
+    .in('yojana_registration_id', [...rowsByRegistrationId.keys()]);
+
+  if (error) throw error;
+
+  let updated = 0;
+  for (const visit of visits || []) {
+    const row = rowsByRegistrationId.get((visit.yojana_registration_id || '').trim());
+    if (!row) continue;
+    if (await applyPortalRowToVisit(visit, row)) updated += 1;
+  }
+  return updated;
 }
 
 export async function updateGovernmentPortalRowStatus(
