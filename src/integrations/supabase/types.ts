@@ -11364,6 +11364,7 @@ export type Database = {
           privilege_card_number: string | null
           quarter_plot_no: string | null
           referral_source: string | null
+          registration_id: string | null
           relationship_manager: string | null
           relative_phone_no: string | null
           second_emergency_contact_mobile: string | null
@@ -11405,6 +11406,7 @@ export type Database = {
           privilege_card_number?: string | null
           quarter_plot_no?: string | null
           referral_source?: string | null
+          registration_id?: string | null
           relationship_manager?: string | null
           relative_phone_no?: string | null
           second_emergency_contact_mobile?: string | null
@@ -11446,6 +11448,7 @@ export type Database = {
           privilege_card_number?: string | null
           quarter_plot_no?: string | null
           referral_source?: string | null
+          registration_id?: string | null
           relationship_manager?: string | null
           relative_phone_no?: string | null
           second_emergency_contact_mobile?: string | null

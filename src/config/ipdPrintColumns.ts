@@ -54,9 +54,9 @@ export const IPD_PRINT_COLUMNS: ReportColumn[] = [
     align: 'left'
   },
   {
-    id: 'thumb_registration_no',
-    label: 'Thumb Reg. No.',
-    accessorKey: 'thumb_registration_no',
+    id: 'registration_id',
+    label: 'Registration ID',
+    accessorKey: 'patients.registration_id',
     printable: true,
     widthPx: 120,
     align: 'left'
@@ -346,7 +346,7 @@ export const IPD_PRINT_PRESETS: PrintPreset[] = [
       'visit_id',
       'patient_name',
       'claim_id',
-      'thumb_registration_no',
+      'registration_id',
       'treatment_type',
       'intimation_date',
       'esic_uhid',

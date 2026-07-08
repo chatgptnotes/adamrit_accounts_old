@@ -642,6 +642,35 @@ const TodaysIpdDashboard = () => {
     );
   };
 
+  // Custom component for Registration ID input with debouncing
+  const RegistrationIdInput = ({ visit }) => {
+    const registrationId = visit.patients?.registration_id || '';
+    const patientId = visit.patients?.id;
+    const [value, setValue] = useState(registrationId);
+    const [debouncedValue] = useDebounce(value, 7000);
+
+    useEffect(() => {
+      if (debouncedValue !== registrationId) {
+        handleRegistrationIdSubmit(patientId, debouncedValue);
+      }
+    }, [debouncedValue, registrationId, patientId]);
+
+    // Sync with server updates
+    useEffect(() => {
+      setValue(registrationId);
+    }, [registrationId]);
+
+    return (
+      <Input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => handleRegistrationIdSubmit(patientId, value)}
+        placeholder="Enter Registration ID"
+        className="w-40 h-8 text-sm"
+      />
+    );
+  };
+
   // Custom component for ESIC UHID input with debouncing
   const EsicUhidInput = ({ visit }) => {
     const [value, setValue] = useState(visit.esic_uh_id || '');
@@ -1558,7 +1587,7 @@ const TodaysIpdDashboard = () => {
         let patientQuery = supabase
           .from('patients')
           .select('id')
-          .or(`name.ilike.%${safeSearch}%,patients_id.ilike.%${safeSearch}%,phone.ilike.%${safeSearch}%`)
+          .or(`name.ilike.%${safeSearch}%,patients_id.ilike.%${safeSearch}%,registration_id.ilike.%${safeSearch}%,phone.ilike.%${safeSearch}%`)
           .limit(50);
         if (hospitalConfig?.name) {
           patientQuery = patientQuery.eq('hospital_name', hospitalConfig.name);
@@ -1592,6 +1621,7 @@ const TodaysIpdDashboard = () => {
               age,
               gender,
               phone,
+              registration_id,
               emergency_contact_name,
               emergency_contact_mobile
             ),
@@ -2467,6 +2497,26 @@ const TodaysIpdDashboard = () => {
     }
   };
 
+  const handleRegistrationIdSubmit = async (patientId: string | undefined, value: string) => {
+    if (!patientId) return;
+
+    try {
+      const { error } = await supabase
+        .from('patients')
+        .update({ registration_id: value.trim() || null })
+        .eq('id', patientId);
+
+      if (error) {
+        console.error('Error updating registration_id:', error);
+        return;
+      }
+
+      refetch();
+    } catch (error) {
+      console.error('Error updating registration_id:', error);
+    }
+  };
+
   const handleEsicUhidSubmit = async (visitId: string, value: string) => {
     try {
       const { error } = await supabase
@@ -3012,6 +3062,7 @@ const TodaysIpdDashboard = () => {
                 <TableHead className="font-semibold">Diagnosis</TableHead>
                 <TableHead className="font-semibold">Gender/Age</TableHead>
                 <TableHead className="font-semibold">Claim ID</TableHead>
+                <TableHead className="font-semibold">Registration ID</TableHead>
                 <TableHead className="text-center font-semibold">Intimation</TableHead>
                 <TableHead className="text-center font-semibold">Payment Received</TableHead>
                 <TableHead className="font-semibold">Bill</TableHead>
@@ -3048,6 +3099,7 @@ const TodaysIpdDashboard = () => {
               <TableRow className="bg-muted/30">
                 {!hideColumns && <TableHead></TableHead>}
                 {!hideColumns && <TableHead></TableHead>}
+                <TableHead></TableHead>
                 <TableHead></TableHead>
                 <TableHead></TableHead>
                 <TableHead></TableHead>
@@ -3158,6 +3210,9 @@ const TodaysIpdDashboard = () => {
                   </TableCell>
                   <TableCell>
                     <ClaimIdInput visit={visit} />
+                  </TableCell>
+                  <TableCell>
+                    <RegistrationIdInput visit={visit} />
                   </TableCell>
                   <TableCell className="text-center">
                     {renderIntimationStatus(visit)}
@@ -3898,7 +3953,7 @@ const TodaysIpdDashboard = () => {
                       <span className="font-medium text-gray-600">Treatment Type:</span> {selectedPatientForView.treatment_type || 'N/A'}
                     </div>
                     <div>
-                      <span className="font-medium text-gray-600">Thumb Reg. No:</span> {selectedPatientForView.thumb_registration_no || 'N/A'}
+                      <span className="font-medium text-gray-600">Registration ID:</span> {selectedPatientForView.patients?.registration_id || 'N/A'}
                     </div>
                     <div>
                       <span className="font-medium text-gray-600">Referring Doctor:</span> {selectedPatientForView.referring_doctor || 'N/A'}
