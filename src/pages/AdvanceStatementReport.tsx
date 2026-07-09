@@ -1,9 +1,10 @@
-import { useState, useEffect, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, FileText, Search, Download, Printer } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -23,6 +24,39 @@ import { syncPortalDataForRegistrationId } from '@/lib/governmentPortalReportDb'
 import { toast } from 'sonner';
 import '@/styles/print.css';
 
+const normalizeLookupValue = (value?: string | null) =>
+  (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const getRowRegistrationNos = (item: any) => {
+  const patient = item?.patients;
+  return [
+    item?.thumb_registration_no,
+    patient?.registration_id,
+    patient?.patients_id,
+  ].filter((value): value is string => Boolean(value && String(value).trim()));
+};
+
+const getPrimaryRegistrationNo = (item: any) => getRowRegistrationNos(item)[0] || '';
+
+const getRowSearchTokens = (item: any) => {
+  const patient = item?.patients;
+  return [
+    item?.visit_id,
+    item?.id,
+    patient?.name,
+    ...getRowRegistrationNos(item),
+  ];
+};
+
+const matchesRowSearchTerm = (item: any, searchTerm: string) => {
+  const search = normalizeLookupValue(searchTerm);
+  if (!search) return true;
+
+  return getRowSearchTokens(item).some((token) =>
+    normalizeLookupValue(token).includes(search)
+  );
+};
+
 const AdvanceStatementReport = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -30,10 +64,12 @@ const AdvanceStatementReport = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
   // URL-persisted state
-  const searchTerm = searchParams.get('search') || '';
+  const searchParamTerm = searchParams.get('search') || '';
   const dateFrom = searchParams.get('from') || '';
   const dateTo = searchParams.get('to') || '';
-  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(searchTerm);
+  const includeDischargedPatients = searchParams.get('includeDischarged') === '1';
+  const [searchInput, setSearchInput] = useState(searchParamTerm);
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(searchParamTerm);
 
   // Helper to update URL params
   const updateParams = (updates: Record<string, string | null>) => {
@@ -49,9 +85,24 @@ const AdvanceStatementReport = () => {
   };
 
   // Setter functions
-  const setSearchTerm = (value: string) => updateParams({ search: value });
+  const setSearchTerm = (value: string) => {
+    setSearchInput(value);
+    updateParams({ search: value });
+  };
   const setDateFrom = (value: string) => updateParams({ from: value });
   const setDateTo = (value: string) => updateParams({ to: value });
+  const setIncludeDischargedPatients = (value: boolean) =>
+    updateParams({ includeDischarged: value ? '1' : null });
+
+  const reportScopeLabel = includeDischargedPatients
+    ? 'Currently Admitted + Discharged'
+    : 'Currently Admitted';
+  const reportTitle = includeDischargedPatients
+    ? 'Advance Statement Report - Currently Admitted + Discharged'
+    : 'Advance Statement Report - Currently Admitted';
+  const reportSubtitle = includeDischargedPatients
+    ? 'Currently admitted and discharged patients with diagnosis, and planned surgery procedures with costs'
+    : 'Currently admitted patients with diagnosis, and planned surgery procedures with costs';
 
   // Financial data for print report
   const [billsData, setBillsData] = useState<Record<string, number>>({});
@@ -64,12 +115,16 @@ const AdvanceStatementReport = () => {
   // Debounce search term
   useEffect(() => {
     const timer = setTimeout(() => {
-      console.log('🔍 Setting debounced search term:', searchTerm);
-      setDebouncedSearchTerm(searchTerm);
+      console.log('🔍 Setting debounced search term:', searchInput);
+      setDebouncedSearchTerm(searchInput);
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [searchTerm]);
+  }, [searchInput]);
+
+  useEffect(() => {
+    setSearchInput(searchParamTerm);
+  }, [searchParamTerm]);
 
   // Fetch packages for the searchable dropdown: MJPJAY/PMJAY package master
   // (the table behind the Government Portal Report data) first, then CGHS surgeries.
@@ -115,16 +170,17 @@ const AdvanceStatementReport = () => {
 
   // Fetch advance statement data
   const { data: allData = [], isLoading } = useQuery({
-    queryKey: ['advance-statement-report-currently-admitted', hospitalConfig?.name, debouncedSearchTerm, dateFrom, dateTo],
+    queryKey: ['advance-statement-report-currently-admitted', hospitalConfig?.name, includeDischargedPatients, dateFrom, dateTo],
     queryFn: async () => {
       console.log('🏥 Fetching advance statement data for hospital:', hospitalConfig?.name);
-      console.log('🔍 Search params:', { debouncedSearchTerm, dateFrom, dateTo });
+      console.log('🔍 Search params:', { debouncedSearchTerm, dateFrom, dateTo, includeDischargedPatients });
 
       let query = supabase
         .from('visits')
         .select(`
           id,
           visit_id,
+          thumb_registration_no,
           visit_date,
           status,
           created_at,
@@ -146,6 +202,7 @@ const AdvanceStatementReport = () => {
             id,
             name,
             patients_id,
+            registration_id,
             age,
             gender,
             insurance_person_no,
@@ -175,8 +232,11 @@ const AdvanceStatementReport = () => {
           )
         `)
         .not('admission_date', 'is', null) // Only get visits with admission date
-        .is('discharge_date', null) // Only get visits WITHOUT discharge date (currently admitted)
         .eq('patient_type', 'IPD'); // Only IPD patients (match Currently Admitted Patients)
+
+      if (!includeDischargedPatients) {
+        query = query.is('discharge_date', null); // Only get visits WITHOUT discharge date (currently admitted)
+      }
 
       // Apply hospital filter if hospitalConfig exists
       if (hospitalConfig?.name) {
@@ -212,7 +272,12 @@ const AdvanceStatementReport = () => {
         throw error;
       }
 
-      console.log('🔍 Query filters applied: admission_date not null, discharge_date is null, patient_type = IPD, hospital_name =', hospitalConfig?.name);
+      console.log(
+        '🔍 Query filters applied: admission_date not null,',
+        includeDischargedPatients ? 'all discharge states' : 'discharge_date is null,',
+        'patient_type = IPD, hospital_name =',
+        hospitalConfig?.name
+      );
       console.log('🔍 Date filters: from:', dateFrom, 'to:', dateTo);
       console.log('🔍 Raw data length:', data?.length || 0);
 
@@ -275,7 +340,7 @@ const AdvanceStatementReport = () => {
       const visitUUIDs = data?.map(visit => visit.id).filter(Boolean) || [];
       const uniqueVisitUUIDs = Array.from(new Set(visitUUIDs));
 
-      let labTotalMapping: Record<string, number> = {};
+      const labTotalMapping: Record<string, number> = {};
 
       if (uniqueVisitUUIDs.length > 0) {
         const { data: labData, error: labError } = await supabase
@@ -303,8 +368,8 @@ const AdvanceStatementReport = () => {
       });
 
       // Fetch pharmacy_sales for pharmacy totals and paid using visit_id
-      let pharmacyTotalMapping: Record<string, number> = {};
-      let pharmacyPaidMapping: Record<string, number> = {};
+      const pharmacyTotalMapping: Record<string, number> = {};
+      const pharmacyPaidMapping: Record<string, number> = {};
 
       if (uniqueVisitIds.length > 0) {
         const { data: pharmacyData, error: pharmacyError } = await supabase
@@ -354,7 +419,7 @@ const AdvanceStatementReport = () => {
       }
 
       // Fetch package names from advance_payment
-      let packageNameMapping: Record<string, string> = {};
+      const packageNameMapping: Record<string, string> = {};
       if (uniqueVisitIds.length > 0) {
         const { data: pkgData, error: pkgError } = await supabase
           .from('advance_payment')
@@ -373,7 +438,7 @@ const AdvanceStatementReport = () => {
       }
 
       // Fetch intimation + bill submission data from bill_preparation
-      let billPrepMapping: Record<string, {
+      const billPrepMapping: Record<string, {
         intimation_date: string | null;
         date_of_submission: string | null;
         bill_amount: number | null;
@@ -420,35 +485,36 @@ const AdvanceStatementReport = () => {
   });
 
   // Filter data on frontend for search
-  const filteredData = allData.filter(item => {
-    if (!debouncedSearchTerm) return true;
+  const advanceData = useMemo(
+    () => allData.filter((item) => matchesRowSearchTerm(item, debouncedSearchTerm)),
+    [allData, debouncedSearchTerm]
+  );
 
-    const searchLower = debouncedSearchTerm.toLowerCase();
-    const patient = item.patients;
+  useEffect(() => {
+    if (!selectedRow) return;
+    const stillVisible = advanceData.some((row) => row.id === selectedRow.id);
+    if (!stillVisible) {
+      setSelectedRow(null);
+    }
+  }, [advanceData, selectedRow]);
 
-    return (
-      item.visit_id?.toLowerCase().includes(searchLower) ||
-      patient?.name?.toLowerCase().includes(searchLower) ||
-      patient?.patients_id?.toLowerCase().includes(searchLower)
+  useEffect(() => {
+    const search = normalizeLookupValue(debouncedSearchTerm);
+    if (!search || advanceData.length === 0) return;
+
+    const exactMatch = advanceData.find((item) =>
+      getRowSearchTokens(item).some((token) => normalizeLookupValue(token) === search)
     );
-  });
 
-  const advanceData = filteredData;
+    if (exactMatch && selectedRow?.id !== exactMatch.id) {
+      setSelectedRow(exactMatch);
+    }
+  }, [advanceData, debouncedSearchTerm, selectedRow]);
 
   // Fetch financial data for print report (bills and advance payments)
   useEffect(() => {
     const fetchFinancialData = async () => {
-      // Filter inside useEffect to avoid dependency on unstable array reference
-      const filtered = allData.filter(item => {
-        if (!debouncedSearchTerm) return true;
-        const searchLower = debouncedSearchTerm.toLowerCase();
-        const patient = item.patients;
-        return (
-          item.visit_id?.toLowerCase().includes(searchLower) ||
-          patient?.name?.toLowerCase().includes(searchLower) ||
-          patient?.patients_id?.toLowerCase().includes(searchLower)
-        );
-      });
+      const filtered = advanceData;
 
       if (filtered.length === 0) return;
 
@@ -597,7 +663,7 @@ const AdvanceStatementReport = () => {
         console.log('📊 Final billMap:', billMap);
 
         // Fetch advance payments data
-        let advanceMap: Record<string, { totalAdvance: number; lastPayment: { amount: number; date: string | null } }> = {};
+        const advanceMap: Record<string, { totalAdvance: number; lastPayment: { amount: number; date: string | null } }> = {};
         const { data: advances, error: advancesError } = await supabase
           .from('advance_payment')
           .select('visit_id, advance_amount, payment_date')
@@ -629,7 +695,7 @@ const AdvanceStatementReport = () => {
     };
 
     fetchFinancialData();
-  }, [allData, debouncedSearchTerm]);
+  }, [advanceData]);
 
   const handlePackageDaysUpdate = async (visitId: string, value: number) => {
     const { error } = await supabase
@@ -857,7 +923,7 @@ const AdvanceStatementReport = () => {
     } catch (e) { console.error('Error fetching bills for print:', e); }
 
     // Fetch advance payments
-    let printAdvanceData: Record<string, { totalAdvance: number; lastPayment: { amount: number; date: string | null } }> = {};
+    const printAdvanceData: Record<string, { totalAdvance: number; lastPayment: { amount: number; date: string | null } }> = {};
     try {
       const { data: advances } = await supabase
         .from('advance_payment')
@@ -922,13 +988,13 @@ const AdvanceStatementReport = () => {
           </style>
         </head>
         <body>
-          <h1>Advance Statement Report - Currently Admitted Patients</h1>
-          <p style="text-align: center; margin-bottom: 20px;">Currently admitted patients with diagnosis, and planned surgery procedures with costs</p>
+          <h1>${reportTitle}</h1>
+          <p style="text-align: center; margin-bottom: 20px;">${reportSubtitle}</p>
           
           <div class="stats">
             <div class="stat-item">
               <div class="stat-number">${advanceData.length}</div>
-              <div class="stat-label">Currently Admitted</div>
+              <div class="stat-label">${reportScopeLabel}</div>
             </div>
             <div class="stat-item">
               <div class="stat-number">${advanceData.filter(item => item.diagnoses || (item.visit_diagnoses && item.visit_diagnoses.length > 0)).length}</div>
@@ -975,10 +1041,11 @@ const AdvanceStatementReport = () => {
             <tbody>
               ${advanceData.map((item, index) => {
                 const patient = item.patients;
+                const registrationNo = getPrimaryRegistrationNo(item) || 'N/A';
                 const patientDetailsText = `
                   <div class="patient-details">
                     <strong>${patient?.name || 'N/A'}</strong><br/>
-                    Visit ID: ${item.visit_id || 'N/A'} | Patient ID: ${patient?.patients_id || 'N/A'}<br/>
+                    Visit ID: ${item.visit_id || 'N/A'} | Patient ID: ${patient?.patients_id || 'N/A'} | Reg No: ${registrationNo}<br/>
                     Age: ${patient?.age || 'N/A'} | Sex: ${patient?.gender || 'N/A'}${patient?.insurance_person_no ? `<br/>Insurance: ${patient.insurance_person_no}` : ''}
                   </div>
                 `;
@@ -1114,7 +1181,7 @@ const AdvanceStatementReport = () => {
       headers.join(','),
       ...advanceData.map((item, index) => {
         const patient = item.patients;
-        const patientDetails = `${patient?.name || 'N/A'} (Visit: ${item.visit_id || 'N/A'}, Patient ID: ${patient?.patients_id || 'N/A'}, Age: ${patient?.age || 'N/A'}, Sex: ${patient?.gender || 'N/A'})`;
+        const patientDetails = `${patient?.name || 'N/A'} (Visit: ${item.visit_id || 'N/A'}, Patient ID: ${patient?.patients_id || 'N/A'}, Reg No: ${getPrimaryRegistrationNo(item) || 'N/A'}, Age: ${patient?.age || 'N/A'}, Sex: ${patient?.gender || 'N/A'})`;
 
         // Room/Bed
         const roomBed = item.room_management?.ward_type && item.room_allotted
@@ -1210,9 +1277,9 @@ const AdvanceStatementReport = () => {
             </Button>
             <FileText className="h-8 w-8 text-primary" />
             <div>
-              <h1 className="text-3xl font-bold text-primary">Advance Statement Report - Currently Admitted</h1>
+              <h1 className="text-3xl font-bold text-primary">{reportTitle}</h1>
               <p className="text-muted-foreground">
-                Currently admitted patients with diagnosis, and planned surgery procedures with costs
+                {reportSubtitle}
               </p>
             </div>
           </div>
@@ -1240,17 +1307,32 @@ const AdvanceStatementReport = () => {
         <div className="bg-white p-6 rounded-lg shadow-sm border print:hidden">
           <h2 className="text-lg font-semibold mb-4">Filters</h2>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input
-                placeholder="Search by patient name, ID, or visit ID..."
-                value={searchTerm}
-                onChange={(e) => {
-                  console.log('🔍 Search input changed:', e.target.value);
-                  setSearchTerm(e.target.value);
-                }}
-                className="pl-10"
-              />
+            <div className="md:col-span-2 space-y-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <Input
+                  placeholder="Search by patient name, ID, registration no, or visit ID..."
+                  value={searchInput}
+                  onChange={(e) => {
+                    console.log('🔍 Search input changed:', e.target.value);
+                    setSearchTerm(e.target.value);
+                  }}
+                  className="pl-10"
+                />
+              </div>
+              <div className="flex items-center gap-3 rounded-md border border-dashed border-gray-200 bg-gray-50 px-3 py-2">
+                <Checkbox
+                  id="include-discharged"
+                  checked={includeDischargedPatients}
+                  onCheckedChange={(checked) => setIncludeDischargedPatients(checked === true)}
+                />
+                <label
+                  htmlFor="include-discharged"
+                  className="cursor-pointer text-sm font-medium leading-none text-gray-700"
+                >
+                  Include discharged patients
+                </label>
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">From Date</label>
@@ -1274,6 +1356,7 @@ const AdvanceStatementReport = () => {
                   setSearchTerm('');
                   setDateFrom('');
                   setDateTo('');
+                  setIncludeDischargedPatients(false);
                 }}
                 variant="outline"
                 className="w-full"
@@ -1287,7 +1370,7 @@ const AdvanceStatementReport = () => {
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="bg-white p-6 rounded-lg shadow-sm border">
-            <h3 className="text-sm font-medium text-gray-500">Currently Admitted</h3>
+            <h3 className="text-sm font-medium text-gray-500">{reportScopeLabel}</h3>
             <p className="text-2xl font-bold text-primary">{advanceData.length}</p>
             <p className="text-xs text-gray-500">Raw data: {allData.length}</p>
           </div>
@@ -1363,7 +1446,7 @@ const AdvanceStatementReport = () => {
                       <div className="space-y-1">
                         <div className="font-medium">{patient?.name || 'N/A'}</div>
                         <div className="text-sm text-gray-500">
-                          Visit ID: {item.visit_id || 'N/A'} | Patient ID: {patient?.patients_id || 'N/A'}
+                          Visit ID: {item.visit_id || 'N/A'} | Patient ID: {patient?.patients_id || 'N/A'} | Reg No: {getPrimaryRegistrationNo(item) || 'N/A'}
                         </div>
                         <div className="text-sm text-gray-500">
                           Age: {patient?.age || 'N/A'} | Sex: {patient?.gender || 'N/A'}
@@ -1578,7 +1661,7 @@ const AdvanceStatementReport = () => {
                 <SheetHeader>
                   <SheetTitle>{patient?.name || 'N/A'}</SheetTitle>
                   <div className="text-sm text-gray-500">
-                    Visit ID: {selectedRow.visit_id || 'N/A'} | Patient ID: {patient?.patients_id || 'N/A'}
+                    Visit ID: {selectedRow.visit_id || 'N/A'} | Patient ID: {patient?.patients_id || 'N/A'} | Reg No: {getPrimaryRegistrationNo(selectedRow) || 'N/A'}
                   </div>
                   <div className="text-sm text-gray-500">
                     Age: {patient?.age || 'N/A'} | Sex: {patient?.gender || 'N/A'}
