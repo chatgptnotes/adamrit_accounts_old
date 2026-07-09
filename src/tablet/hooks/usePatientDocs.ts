@@ -7,6 +7,7 @@ import { stampGeotagOnImage } from "@/lib/geotagImage";
 export const PATIENT_DOC_CATEGORIES = [
   { id: "treatment_sheet", label: "Treatment Sheet" },
   { id: "monitor_chart", label: "Monitor Chart" },
+  { id: "dialysis", label: "Dialysis" },
   { id: "lab_investigation", label: "Lab Investigation" },
   { id: "radiology_investigation", label: "Radiology Investigation" },
   { id: "ot_notes", label: "OT Notes" },

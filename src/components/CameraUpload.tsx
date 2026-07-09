@@ -81,6 +81,7 @@ interface FileUploadRecord {
 type BillDocumentCategory =
   | 'treatment_sheet'
   | 'monitor_chart'
+  | 'dialysis'
   | 'lab_investigation'
   | 'radiology_investigation'
   | 'ot_notes'
@@ -133,6 +134,7 @@ interface AiParseResult {
 const BILL_DOCUMENT_OPTIONS: { value: BillDocumentCategory; label: string }[] = [
   { value: 'treatment_sheet', label: 'Treatment Sheet' },
   { value: 'monitor_chart', label: 'Monitor Chart' },
+  { value: 'dialysis', label: 'Dialysis' },
   { value: 'lab_investigation', label: 'Lab Investigation' },
   { value: 'radiology_investigation', label: 'Radiology Investigation' },
   { value: 'ot_notes', label: 'OT Notes' },
@@ -503,12 +505,13 @@ Return ONLY valid JSON with these fields:
 {
   "patientName": string or null,
   "patientId": string or null,
-  "category": one of "treatment_sheet"|"monitor_chart"|"lab_investigation"|"radiology_investigation"|"ot_notes"|"ot_photos"|"implant_invoice"|"implant_sticker"|"report"|"prescription"|"opd_summary"|"xray"|"mri_report"|"ct_scan_report"|"document"|"photo"|"id_proof" or null,
+  "category": one of "treatment_sheet"|"monitor_chart"|"dialysis"|"lab_investigation"|"radiology_investigation"|"ot_notes"|"ot_photos"|"implant_invoice"|"implant_sticker"|"report"|"prescription"|"opd_summary"|"xray"|"mri_report"|"ct_scan_report"|"document"|"photo"|"id_proof" or null,
   "notes": string or null
 }
 
 Category mapping hints:
 - Monitor chart, vitals chart, ICU chart: "monitor_chart"
+- Dialysis sheet, dialysis chart, hemodialysis record: "dialysis"
 - Lab investigation, blood test, pathology: "lab_investigation"
 - Radiology investigation, radiology file: "radiology_investigation"
 - OT notes: "ot_notes"
