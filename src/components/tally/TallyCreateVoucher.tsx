@@ -461,44 +461,9 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
       })
       if (dbError) throw new Error(`HMS save failed: ${dbError.message}`)
 
-      // 2 — Push to TallyPrime
+      // 2 — Mirror to tally_vouchers so Ledger View and Cash Book pick it up.
+      // In one-way mode this is the only ledger record we create.
       const narration = form.narration.trim() || `Payment #${voucherNo} to ${form.particulars}`
-      let tallySuccess = false
-      try {
-        const res = await fetch('/api/tally-proxy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            endpoint: 'push',
-            action: 'create-voucher',
-            serverUrl,
-            companyName,
-            data: {
-              voucherType: 'Payment',
-              date: form.date,
-              narration,
-              partyLedger: form.particulars,
-              ledgerEntries: [
-                { ledgerName: form.particulars, amount, isDeemedPositive: true },
-                { ledgerName: form.account, amount, isDeemedPositive: false },
-              ],
-            },
-          }),
-        })
-        const result = await res.json()
-        tallySuccess = !!result.success
-        if (!tallySuccess) {
-          toast.warning(`Saved to HMS but Tally push failed: ${result.errors?.join(', ') || result.message}`)
-        }
-      } catch (err: any) {
-        const msg = err?.message || String(err)
-        console.error('[TallyPush] network error:', msg)
-        toast.warning(`Saved to HMS but could not reach TallyPrime: ${msg}`)
-      }
-
-      // 3 — Mirror to tally_vouchers so Ledger View and Cash Book pick it up.
-      // Always insert (regardless of tallySuccess) so vouchers are visible in the
-      // ledger view even when Tally is offline. sync_status reflects push state.
       if (companyId) {
         const { count } = await supabase
           .from('tally_vouchers')
@@ -519,15 +484,15 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
               { ledger: form.account, amount, is_debit: false },
             ],
             sync_direction: 'to_tally',
-            sync_status: tallySuccess ? 'synced' : 'pending',
+            sync_status: 'pending',
             adamrit_payment_id: voucherNo,
             company_id: companyId,
-            synced_at: tallySuccess ? new Date().toISOString() : null,
+            synced_at: null,
           })
         }
       }
 
-      toast.success(`Voucher ${voucherNo} saved${tallySuccess ? ' & pushed to Tally' : ' to HMS'}`)
+      toast.success(`Voucher ${voucherNo} saved locally`)
       setLastSaved(voucherNo)
       await loadVoucherHistory()
       setForm({ paymentNo: '', account: form.account, date: form.date, amount: '', particulars: '', narration: '' })

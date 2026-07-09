@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '@/integrations/supabase/client'
 import {
   LayoutDashboard, BookOpen, FileText, Package,
@@ -40,35 +40,134 @@ export default function TallyPage() {
   const [companyName, setCompanyName] = useState('')
   const [companyId, setCompanyId] = useState('')
   const [configs, setConfigs] = useState<{ id: string; server_url: string; company_name: string }[]>([])
+  const [liveCompanies, setLiveCompanies] = useState<string[]>([])
+
+  const loadLiveCompanies = useCallback(async (targetServerUrl?: string) => {
+    if (!targetServerUrl) {
+      setLiveCompanies([])
+      return
+    }
+
+    try {
+      const res = await fetch('/api/tally-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          endpoint: 'test-connection',
+          serverUrl: targetServerUrl,
+        }),
+      })
+      const result = await res.json()
+      setLiveCompanies(Array.isArray(result.companies) ? result.companies.filter(Boolean) : [])
+      return Array.isArray(result.companies) ? result.companies.filter(Boolean) : []
+    } catch {
+      setLiveCompanies([])
+      return []
+    }
+  }, [])
 
   const loadConfigs = useCallback(async (selectId?: string) => {
     const query = supabase
       .from('tally_config')
-      .select('id, server_url, company_name')
-      .eq('is_active', true)
+      .select('id, server_url, company_name, is_active')
 
     const { data } = await query.order('company_name')
 
     if (data && data.length > 0) {
-      const unique = data.filter((config, index, list) =>
-        list.findIndex((item) => item.company_name === config.company_name) === index
-      )
-      setConfigs(unique)
+      setConfigs(data)
       const target = selectId
-        ? unique.find(c => c.id === selectId) || unique[0]
-        : unique.find(c => c.id === companyId) || unique[0]
+        ? data.find(c => c.id === selectId) || data[0]
+        : data.find(c => c.id === companyId) || data[0]
       if (target) {
         setServerUrl(target.server_url || '')
         setCompanyName(target.company_name || '')
         setCompanyId(target.id)
+        const discovered = await loadLiveCompanies(target.server_url || '')
+        const existing = new Set(data.map((item) => item.company_name).filter(Boolean))
+        const missing = discovered.filter((name) => name && !existing.has(name))
+        if (missing.length > 0) {
+          await Promise.all(
+            missing.map((company_name) =>
+              supabase.from('tally_config').insert({
+                company_name,
+                server_url: target.server_url || '',
+                is_active: true,
+                auto_sync_enabled: false,
+                sync_interval_minutes: 30,
+                hospital_id: null,
+              })
+            )
+          )
+          const { data: refreshed } = await supabase
+            .from('tally_config')
+            .select('id, server_url, company_name, is_active')
+            .order('company_name')
+          setConfigs(refreshed || [])
+        }
       }
     } else {
       setConfigs([])
       setCompanyId('')
       setCompanyName('')
       setServerUrl('')
+      setLiveCompanies([])
     }
-  }, [companyId])
+  }, [companyId, loadLiveCompanies])
+
+  const companyOptions = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...(configs || []).map((c) => c.company_name).filter(Boolean),
+          ...(liveCompanies || []),
+        ])
+      ),
+    [configs, liveCompanies]
+  )
+
+  const handleCompanyChange = useCallback(
+    async (selectedName: string) => {
+      const config = configs.find((c) => c.company_name === selectedName)
+      if (config) {
+        setCompanyId(config.id)
+        setCompanyName(config.company_name)
+        setServerUrl(config.server_url || '')
+        await loadLiveCompanies(config.server_url || '')
+        return
+      }
+
+      setCompanyName(selectedName)
+      if (!serverUrl) {
+        setCompanyId('')
+        return
+      }
+
+      const { data: inserted, error } = await supabase
+        .from('tally_config')
+        .insert({
+          company_name: selectedName,
+          server_url: serverUrl,
+          is_active: true,
+          auto_sync_enabled: false,
+          sync_interval_minutes: 30,
+          hospital_id: null,
+        })
+        .select('id, server_url, company_name')
+        .single()
+
+      if (error || !inserted) {
+        setCompanyId('')
+        return
+      }
+
+      setCompanyId(inserted.id)
+      setCompanyName(inserted.company_name)
+      setServerUrl(inserted.server_url || serverUrl)
+      setConfigs((current) => [...current, inserted])
+      await loadLiveCompanies(inserted.server_url || serverUrl)
+    },
+    [configs, loadLiveCompanies, serverUrl]
+  )
 
   useEffect(() => {
     loadConfigs()
@@ -84,24 +183,17 @@ export default function TallyPage() {
             TallyPrime Server two-way sync for Adamrit HMS
           </p>
         </div>
-        {configs.length > 0 ? (
+        {companyOptions.length > 0 ? (
           <div className="flex items-center gap-2 text-sm text-gray-600 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
             <span>Company:</span>
             <select
-              value={companyId}
-              onChange={(e) => {
-                const config = configs.find(c => c.id === e.target.value)
-                if (config) {
-                  setCompanyId(config.id)
-                  setCompanyName(config.company_name)
-                  setServerUrl(config.server_url || '')
-                }
-              }}
+              value={companyName}
+              onChange={(e) => { void handleCompanyChange(e.target.value) }}
               className="font-medium text-blue-700 bg-transparent border-none outline-none cursor-pointer"
             >
-              {!companyId && <option value="">Select company</option>}
-              {configs.map(c => (
-                <option key={c.id} value={c.id}>{c.company_name}</option>
+              {!companyName && <option value="">Select company</option>}
+              {companyOptions.map(name => (
+                <option key={name} value={name}>{name}</option>
               ))}
             </select>
           </div>

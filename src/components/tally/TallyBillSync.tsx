@@ -7,6 +7,8 @@ import {
   RefreshCw, Plus, Send, RotateCcw, FileText, X
 } from 'lucide-react'
 
+const OUTBOUND_TALLY_DISABLED = true
+
 interface TallyBillSyncProps {
   serverUrl: string
   companyName: string
@@ -62,6 +64,10 @@ export default function TallyBillSync({ serverUrl, companyName, companyId }: Tal
   }
 
   async function pushVoucher(voucher) {
+    if (OUTBOUND_TALLY_DISABLED) {
+      toast.info('Outbound push to Tally is disabled. Use sync-only mode.')
+      return
+    }
     setPushing(prev => new Set(prev).add(voucher.id))
     try {
       const action = voucher.voucher_type === 'Sales' ? 'create-sales-voucher' : 'create-voucher'
@@ -115,6 +121,10 @@ export default function TallyBillSync({ serverUrl, companyName, companyId }: Tal
   }
 
   async function pushSelected() {
+    if (OUTBOUND_TALLY_DISABLED) {
+      toast.info('Outbound push to Tally is disabled. Use sync-only mode.')
+      return
+    }
     const pendingSelected = vouchers.filter(v => selected.has(v.id) && v.sync_status === 'pending')
     if (pendingSelected.length === 0) {
       toast.error('No pending items selected')
@@ -127,6 +137,10 @@ export default function TallyBillSync({ serverUrl, companyName, companyId }: Tal
   }
 
   async function retryFailed() {
+    if (OUTBOUND_TALLY_DISABLED) {
+      toast.info('Outbound push to Tally is disabled. Use sync-only mode.')
+      return
+    }
     const failed = vouchers.filter(v => v.sync_status === 'failed')
     if (failed.length === 0) return toast.info('No failed items to retry')
     await ( supabase as any).from('tally_vouchers').update({ sync_status: 'pending', error_message: null })
@@ -144,15 +158,22 @@ export default function TallyBillSync({ serverUrl, companyName, companyId }: Tal
       sync_direction: 'to_tally', sync_status: 'pending',
     }).select().single()
     if (error) return toast.error('Failed to create voucher')
-    toast.success('Voucher created')
+    toast.success('Voucher created locally')
     setShowModal(false)
     setFormData({ voucher_type: 'Sales', date: new Date().toISOString().split('T')[0], party_ledger: '', amount: '', narration: '' })
     await loadVouchers()
-    if (data) pushVoucher(data)
+    if (data && !OUTBOUND_TALLY_DISABLED) {
+      await pushVoucher(data)
+    }
   }
 
   function toggleSelect(id: string) {
-    setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
   function toggleSelectAll() {
@@ -195,20 +216,20 @@ export default function TallyBillSync({ serverUrl, companyName, companyId }: Tal
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setShowModal(true)}
-              className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-1.5"
+              className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5"
             >
               <Plus className="h-4 w-4" /> Create New
             </button>
             <button
               onClick={pushSelected}
-              disabled={selected.size === 0}
+              disabled={OUTBOUND_TALLY_DISABLED || selected.size === 0}
               className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5"
             >
               <Send className="h-4 w-4" /> Push Selected ({selected.size})
             </button>
             <button
               onClick={retryFailed}
-              disabled={stats.failed === 0}
+              disabled={OUTBOUND_TALLY_DISABLED || stats.failed === 0}
               className="px-3 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50 flex items-center gap-1.5"
             >
               <RotateCcw className="h-4 w-4" /> Retry Failed
@@ -277,11 +298,11 @@ export default function TallyBillSync({ serverUrl, companyName, companyId }: Tal
                     </td>
                     <td className="py-2 px-3">{statusBadge(v.sync_status)}</td>
                     <td className="py-2 px-3 text-xs text-red-600 max-w-[200px] truncate" title={v.error_message || ''}>{v.error_message || '-'}</td>
-                    <td className="py-2 px-3 text-center">
+                      <td className="py-2 px-3 text-center">
                       {v.sync_status === 'pending' && (
                         <button
                           onClick={() => pushVoucher(v)}
-                          disabled={pushing.has(v.id)}
+                          disabled={OUTBOUND_TALLY_DISABLED || pushing.has(v.id)}
                           className="px-2.5 py-1 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1"
                         >
                           {pushing.has(v.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
@@ -333,8 +354,11 @@ export default function TallyBillSync({ serverUrl, companyName, companyId }: Tal
                 <textarea value={formData.narration} onChange={e => setFormData(p => ({ ...p, narration: e.target.value }))} rows={2} placeholder="Optional notes" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none" />
               </div>
               <div className="flex gap-3 pt-2">
-                <button type="submit" className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center justify-center gap-2">
-                  <Send className="h-4 w-4" /> Create & Push
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  <Send className="h-4 w-4" /> Create Voucher
                 </button>
                 <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200">Cancel</button>
               </div>

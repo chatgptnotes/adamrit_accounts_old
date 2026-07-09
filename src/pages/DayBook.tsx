@@ -6,7 +6,6 @@ import { usePaymentVouchers, voucherToEntry } from '@/hooks/usePaymentVouchers';
 import PatientTransactionModal from '@/components/PatientTransactionModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import * as XLSX from 'xlsx';
 import { useCompanies } from '@/hooks/useCompanies';
 
 const DayBook: React.FC = () => {
@@ -52,13 +51,26 @@ const DayBook: React.FC = () => {
     transactionDate?: string;
   } | null>(null);
 
+  useEffect(() => {
+    if (!selectedCompanyId && companies.length > 0) {
+      setSelectedCompanyId(companies[0].id);
+    }
+  }, [companies, selectedCompanyId]);
+
+  const selectedCompany = useMemo(
+    () => companies.find((company) => company.id === selectedCompanyId) || null,
+    [companies, selectedCompanyId]
+  );
+  const effectiveCompanyKey = selectedCompany?.company_key || hospitalConfig.name;
+  const effectiveCompanyName = selectedCompany?.company_name || hospitalConfig.name;
+
   // Fetch ALL daily transactions from all billing tables (filtered by hospital)
   const { data: dailyTransactions, isLoading, error } = useAllDailyTransactions({
     from_date: fromDate,
     to_date: toDate,
     search_narration: searchNarration || undefined,
     payment_mode: selectedPaymentMode || undefined
-  }, hospitalConfig.name);
+  }, effectiveCompanyKey);
 
   // Fetch old voucher data for Opening Balance only
   const { data: cashBookData } = useCashBookEntries({
@@ -67,7 +79,7 @@ const DayBook: React.FC = () => {
   });
 
   // Payment vouchers (cash paid out) for this hospital → shown as Credit rows
-  const { data: paymentVouchers } = usePaymentVouchers(fromDate, toDate, hospitalConfig.name);
+  const { data: paymentVouchers } = usePaymentVouchers(fromDate, toDate, effectiveCompanyKey);
 
   // State for pharmacy credit payments (only for Hope hospital)
   const [pharmacyCreditPayments, setPharmacyCreditPayments] = useState<any[]>([]);
@@ -76,7 +88,7 @@ const DayBook: React.FC = () => {
   useEffect(() => {
     const fetchPharmacyCreditPayments = async () => {
       // Only fetch for Hope hospital (check if name contains 'hope', exclude Ayushman)
-      if (!hospitalConfig?.name || !hospitalConfig.name.toLowerCase().includes('hope')) {
+      if (!effectiveCompanyKey || !effectiveCompanyKey.toLowerCase().includes('hope')) {
         setPharmacyCreditPayments([]);
         return;
       }
@@ -85,7 +97,7 @@ const DayBook: React.FC = () => {
         .from('pharmacy_credit_payments')
         .select('*')
         .neq('payment_method', 'CREDIT')
-        .ilike('hospital_name', '%hope%')
+        .ilike('hospital_name', `%${effectiveCompanyKey}%`)
         .gte('payment_date', `${fromDate}T00:00:00`)
         .lte('payment_date', `${toDate}T23:59:59`)
         .order('payment_date', { ascending: true });
@@ -98,7 +110,7 @@ const DayBook: React.FC = () => {
     };
 
     fetchPharmacyCreditPayments();
-  }, [fromDate, toDate, hospitalConfig?.name]);
+  }, [fromDate, toDate, effectiveCompanyKey]);
 
   // Handler to open patient transaction modal
   const handlePatientClick = (patientId?: string, visitId?: string, patientName?: string, transactionDate?: string) => {
@@ -111,41 +123,24 @@ const DayBook: React.FC = () => {
     navigate('/ledger-statement');
   };
 
-  // Handler to export Day Book to Excel
-  const handleExcelExport = () => {
+  const csvEscape = (value: string | number | null | undefined) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+
+  // Handler to export Day Book to CSV
+  const handleCsvExport = () => {
     if (displayEntries.length === 0) {
       alert('No data to export');
       return;
     }
 
-    // Create workbook
-    const workbook = XLSX.utils.book_new();
-
-    // Prepare data array
     const data: any[][] = [];
-
-    // Add hospital header
-    data.push(['Drm Hope Hospitals Pvt Ltd']);
-    data.push(['Shreevardhan Complex 3 Rd Floor Ramdaspet']);
-    data.push(['Kamptee Road Takia Naka Nagpur']);
-    data.push([]);  // Empty row
-
-    // Add title with hospital identifier
-    const hospitalIdentifier = hospitalConfig?.name === 'Hope' ? 'HOPE' : hospitalConfig?.name === 'Ayushman' ? 'Ayushman' : 'HOPE';
-    data.push([`Day Book (${hospitalIdentifier})`]);
-    data.push([]);  // Empty row
-
-    // Add date period
+    data.push([effectiveCompanyName]);
+    data.push([effectiveCompanyKey]);
+    data.push([`Day Book`]);
     data.push([`For ${formatDateForInput(fromDate)} to ${formatDateForInput(toDate)}`]);
-    data.push([]);  // Empty row
-
-    // Add headers
+    data.push([]);
     data.push(['Date', 'Particulars', 'Payment Mode', 'Vch Type', 'Vch No.', 'Debit', 'Credit']);
 
-    // Counter for voucher numbers
     let voucherCounter = 1;
-
-    // Add all entries
     displayEntries.forEach((entry) => {
       if (entry.type === 'opening-balance') {
         data.push([
@@ -155,10 +150,12 @@ const DayBook: React.FC = () => {
           '',
           '',
           entry.debit > 0 ? entry.debit : '',
-          entry.credit > 0 ? entry.credit : ''
+          entry.credit > 0 ? entry.credit : '',
         ]);
-      } else if (entry.type === 'patient-summary') {
-        // Add main row with patient name
+        return;
+      }
+
+      if (entry.type === 'patient-summary') {
         data.push([
           entry.date,
           entry.particulars,
@@ -166,70 +163,32 @@ const DayBook: React.FC = () => {
           'Payment',
           voucherCounter++,
           entry.debit > 0 ? entry.debit : '',
-          entry.credit > 0 ? entry.credit : ''
+          entry.credit > 0 ? entry.credit : '',
         ]);
-        // Add summary as a sub-row
+
         if (entry.summary) {
-          data.push([
-            '',
-            `  ${entry.summary}`,
-            '',
-            '',
-            '',
-            '',
-            ''
-          ]);
+          data.push(['', entry.summary, '', '', '', '', '']);
         }
       }
     });
 
-    // Add empty row before totals
     data.push([]);
+    data.push(['', 'Total:', '', '', '', totals.totalDebit, totals.totalCredit]);
+    data.push(['', 'By', 'Closing Balance', '', '', '', Math.abs(totals.closingBalance)]);
 
-    // Add total row
-    data.push([
-      '',
-      'Total:',
-      '',
-      '',
-      '',
-      totals.totalDebit,
-      totals.totalCredit
-    ]);
+    const csv = data
+      .map((row) => row.map((cell) => csvEscape(cell)).join(','))
+      .join('\n');
 
-    // Add closing balance row
-    data.push([
-      '',
-      'By',
-      'Closing Balance',
-      '',
-      '',
-      '',
-      Math.abs(totals.closingBalance)
-    ]);
-
-    // Create worksheet from data
-    const worksheet = XLSX.utils.aoa_to_sheet(data);
-
-    // Set column widths
-    worksheet['!cols'] = [
-      { wch: 12 },  // Date column
-      { wch: 45 },  // Particulars column
-      { wch: 12 },  // Payment Mode
-      { wch: 12 },  // Vch Type column
-      { wch: 8 },   // Vch No. column
-      { wch: 15 },  // Debit column
-      { wch: 15 }   // Credit column
-    ];
-
-    // Add worksheet to workbook
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Day Book');
-
-    // Generate filename with date range
-    const filename = `DayBook_${formatDateForInput(fromDate)}_to_${formatDateForInput(toDate)}.xlsx`.replace(/\//g, '-');
-
-    // Save file
-    XLSX.writeFile(workbook, filename);
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `DayBook_${effectiveCompanyKey || 'company'}_${fromDate}_to_${toDate}.csv`.replace(/\//g, '-');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
   };
 
   // Prepare entries with all transactions grouped by patient
@@ -262,7 +221,7 @@ const DayBook: React.FC = () => {
       const allowedTransactionTypes = ['ADVANCE_PAYMENT', 'FINAL_BILL'];
       
       // Add pharmacy only for Hope hospital (case-insensitive check)
-      if (hospitalConfig?.name?.toLowerCase() === 'hope') {
+      if (effectiveCompanyKey.toLowerCase() === 'hope') {
         allowedTransactionTypes.push('PHARMACY');
       }
 
@@ -337,7 +296,7 @@ const DayBook: React.FC = () => {
     }
 
     return entries;
-  }, [dailyTransactions, cashBookData, fromDate, pharmacyCreditPayments, paymentVouchers, selectedPaymentMode]);
+  }, [dailyTransactions, cashBookData, effectiveCompanyKey, fromDate, pharmacyCreditPayments, paymentVouchers, selectedPaymentMode]);
 
   // Calculate totals for footer
   const totals = useMemo(() => {
@@ -388,10 +347,10 @@ const DayBook: React.FC = () => {
         </div>
         <div className="flex space-x-2">
           <button
-            onClick={handleExcelExport}
+            onClick={handleCsvExport}
             className="bg-blue-700 hover:bg-blue-800 text-white px-4 py-1.5 rounded text-sm font-medium"
           >
-            Export To Excel
+            Export CSV
           </button>
           <button
             onClick={handlePrint}

@@ -8,9 +8,8 @@ import * as https from "https";
 
 // Dev-only Tally proxy. In production, api/tally-proxy.ts (Vercel function)
 // handles this. In dev, Vite doesn't serve API routes, so the browser POST to
-// /api/tally-proxy returns 404 and the push silently fails. This middleware
-// intercepts the same path and forwards XML to TallyPrime from Node.js
-// (no CORS/mixed-content restrictions since it runs server-side).
+// /api/tally-proxy returns 404 unless this middleware intercepts it. Read-only
+// mode keeps test-connection and proxy available, but blocks all outbound push.
 function tallyProxyPlugin(): Plugin {
   function esc(s: string) {
     return (s || "")
@@ -129,20 +128,10 @@ function tallyProxyPlugin(): Plugin {
             }
 
             if (endpoint === "push") {
-              if (!action || !companyName || !data) { send({ error: "Missing action/companyName/data" }); return; }
-              const xml = buildVoucherXml(companyName, action, data);
-              if (!xml) { send({ error: `Unknown push action: ${action}` }); return; }
-              console.log(`[tally-proxy] PUSH ${action} → ${serverUrl} company="${companyName}"`);
-              try {
-                const raw = await callTally(serverUrl, xml);
-                console.log(`[tally-proxy] Tally response (first 500 chars):`, raw.substring(0, 500));
-                const result = parseResp(raw);
-                console.log(`[tally-proxy] Parsed:`, result);
-                send(result);
-              } catch (e: any) {
-                console.error(`[tally-proxy] callTally error:`, e.message);
-                send({ success: false, message: e.message });
-              }
+              send({
+                success: false,
+                message: "Outbound push to Tally is disabled. This installation is read-only from Tally.",
+              });
               return;
             }
 

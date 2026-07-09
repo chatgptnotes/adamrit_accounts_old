@@ -114,43 +114,21 @@ function EditVoucherModal({ voucher, serverUrl, companyName, onClose, onSaved }:
   }
 
   async function handleSave() {
-    if (!serverUrl || !companyName) { toast.error('Tally connection required'); return }
     setSaving(true)
     try {
-      const res = await fetch('/api/tally-proxy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          endpoint: 'push',
-          action: 'alter-voucher',
-          serverUrl, companyName,
-          data: {
-            originalVoucherNumber: voucher.voucher_number,
-            voucherType: voucher.voucher_type,
-            date: form.date,
-            partyLedger: form.partyLedger,
-            narration: form.narration,
-            ledgerEntries: form.ledgerEntries,
-          },
-        }),
-      })
-      const result = await res.json()
-      if (result.success) {
-        // Update local record
-        await ( supabase as any).from('tally_vouchers').update({
-          date: form.date,
-          party_ledger: form.partyLedger,
-          narration: form.narration,
-          ledger_entries: form.ledgerEntries.map(e => ({
-            ledger: e.ledger, amount: e.amount, is_debit: e.isDeemedPositive,
-          })),
-          amount: form.ledgerEntries.filter(e => e.isDeemedPositive).reduce((s, e) => s + e.amount, 0),
-        }).eq('id', voucher.id)
-        toast.success('Voucher updated in Tally')
-        onSaved()
-      } else {
-        toast.error(result.message || 'Failed to update voucher')
-      }
+      await (supabase as any).from('tally_vouchers').update({
+        date: form.date,
+        party_ledger: form.partyLedger,
+        narration: form.narration,
+        ledger_entries: form.ledgerEntries.map(e => ({
+          ledger: e.ledger, amount: e.amount, is_debit: e.isDeemedPositive,
+        })),
+        amount: form.ledgerEntries.filter(e => e.isDeemedPositive).reduce((s, e) => s + e.amount, 0),
+        sync_status: 'pending',
+        synced_at: null,
+      }).eq('id', voucher.id)
+      toast.success('Voucher updated locally')
+      onSaved()
     } catch {
       toast.error('Failed to update voucher')
     }
@@ -229,32 +207,13 @@ function DeleteConfirmModal({ voucher, serverUrl, companyName, onClose, onDelete
   const [deleting, setDeleting] = useState(false)
 
   async function handleDelete() {
-    if (!serverUrl || !companyName) { toast.error('Tally connection required'); return }
     setDeleting(true)
     try {
-      const res = await fetch('/api/tally-proxy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          endpoint: 'push',
-          action: 'cancel-voucher',
-          serverUrl, companyName,
-          data: {
-            voucherNumber: voucher.voucher_number,
-            voucherType: voucher.voucher_type,
-          },
-        }),
-      })
-      const result = await res.json()
-      if (result.success) {
-        await ( supabase as any).from('tally_vouchers').update({ is_cancelled: true }).eq('id', voucher.id)
-        toast.success('Voucher cancelled in Tally')
-        onDeleted()
-      } else {
-        toast.error(result.message || 'Failed to cancel voucher')
-      }
+      await (supabase as any).from('tally_vouchers').delete().eq('id', voucher.id)
+      toast.success('Voucher removed locally')
+      onDeleted()
     } catch {
-      toast.error('Failed to cancel voucher')
+      toast.error('Failed to delete voucher')
     }
     setDeleting(false)
   }
