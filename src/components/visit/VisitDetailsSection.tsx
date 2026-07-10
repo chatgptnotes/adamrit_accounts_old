@@ -509,7 +509,7 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
         {/* Referring Doctor */}
         <div className="space-y-2">
           <Label htmlFor="referringDoctor" className="text-sm font-medium">
-            Referring Doctor
+            Referring Doctor <span className="text-red-500">*</span>
           </Label>
           <SearchableSelect
             options={[
@@ -536,7 +536,7 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
         {/* Relationship Manager */}
         <div className="space-y-2">
           <Label htmlFor="relationshipManager" className="text-sm font-medium">
-            Relationship Manager
+            Relationship Manager <span className="text-red-500">*</span>
           </Label>
           <SearchableSelect
             options={[

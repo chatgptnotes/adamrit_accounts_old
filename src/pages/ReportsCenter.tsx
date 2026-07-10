@@ -62,6 +62,7 @@ const SECTIONS: ReportSection[] = [
     heading: 'Marketing',
     items: [
       { title: 'Marketing Dashboard', route: '/marketing-dashboard', description: 'Daily marketing stats and chat notes', icon: TrendingUp },
+      { title: 'Referral Register', route: '/referral-register', description: 'Admissions by panel, marketing executive, and referral doctor', icon: Users },
       { title: 'Marketing Incentives', route: '/marketing-incentives', description: 'Staff incentive achievement tracking', icon: Award },
     ],
   },

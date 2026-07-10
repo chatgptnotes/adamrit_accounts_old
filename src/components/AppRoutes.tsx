@@ -153,6 +153,7 @@ const TelephonyDashboard = lazy(() => import("../pages/TelephonyDashboard"));
 const PaymentQR = lazy(() => import("../pages/PaymentQR"));
 const QueueStatus = lazy(() => import("../pages/QueueStatus"));
 const CasualtyRegister = lazy(() => import("../pages/CasualtyRegister"));
+const ReferralRegister = lazy(() => import("../pages/ReferralRegister"));
 const AccountLogsPage = lazy(() => import("../pages/AccountLogs"));
 const DeadlineDashboard = lazy(() => import("../components/task-optimizer/flow/DeadlineDashboard"));
 
@@ -379,6 +380,7 @@ export const AppRoutes = () => {
         <Route path="/queue-status" element={<QueueStatus />} />
         <Route path="/nephroplus" element={<Suspense fallback={<PageLoader />}><NephroPlus /></Suspense>} />
         <Route path="/casualty-register" element={<Suspense fallback={<PageLoader />}><CasualtyRegister /></Suspense>} />
+        <Route path="/referral-register" element={<Suspense fallback={<PageLoader />}><ReferralRegister /></Suspense>} />
         <Route path="/deadline-tracking" element={<Suspense fallback={<PageLoader />}><DeadlineTrackingRoute /></Suspense>} />
         {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
         <Route path="/master-data" element={<Suspense fallback={<PageLoader />}><MasterData /></Suspense>} />

@@ -177,6 +177,8 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
     if (!formData.claimId || formData.claimId.trim() === '') missingFields.push('Claim Id');
     if (!formData.thumbRegistrationNo || formData.thumbRegistrationNo.trim() === '') missingFields.push('Thumb Registration No.');
     if (!formData.treatmentType || formData.treatmentType.trim() === '') missingFields.push('Treatment Type');
+    if (!formData.referringDoctor || formData.referringDoctor.trim() === '' || formData.referringDoctor === 'none') missingFields.push('Referring Doctor');
+    if (!formData.relationshipManager || formData.relationshipManager.trim() === '' || formData.relationshipManager === 'none') missingFields.push('Relationship Manager');
 
     // Validate ward and room only for IPD/Emergency patients
     const requiresWardRoom = formData.patientType === 'IPD' ||

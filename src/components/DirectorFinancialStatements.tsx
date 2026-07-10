@@ -41,14 +41,15 @@ export function DirectorFinancialStatements() {
     },
   });
 
-  // Rows come from the marketing executives master, so new hires appear automatically
+  // Rows come from the relationship managers master (the single master for
+  // marketing executives), so new hires appear automatically
   const { data: marketingRows = [] } = useQuery({
-    queryKey: ['marketing-users-names'],
+    queryKey: ['relationship-managers-names'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('marketing_users')
+        .from('relationship_managers')
         .select('name')
-        .eq('is_active', true)
+        .eq('is_hidden', false)
         .order('name');
       if (error) throw error;
       return (data ?? []).map(u => u.name);
@@ -97,7 +98,7 @@ export function DirectorFinancialStatements() {
       <MonthlyMatrixCard
         title="Marketing Executive Revenue"
         statementKey="marketing_revenue"
-        subtitle="Rows pulled live from the marketing executives master"
+        subtitle="Rows pulled live from the relationship managers master"
         icon={<Megaphone className="h-5 w-5 text-violet-600" />}
         accentClass="border-l-violet-500"
         rows={marketingRows}
