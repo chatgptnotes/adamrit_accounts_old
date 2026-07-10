@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { format, startOfMonth } from 'date-fns';
@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -47,8 +48,14 @@ interface VisitMatch {
 
 const entriesTable = () => (supabase as any).from('referral_register_entries');
 
+type MasterOption = { value: string; label: string; selectedLabel?: string };
+
+const formatMarketingExecutive = (name: string, code?: string | null) =>
+  code ? `${name} (${code})` : name;
+
 const ReferralRegister = () => {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const today = format(new Date(), 'yyyy-MM-dd');
   const monthStart = format(startOfMonth(new Date()), 'yyyy-MM-dd');
 
@@ -62,8 +69,48 @@ const ReferralRegister = () => {
   const [visitQueryText, setVisitQueryText] = useState('');
   const [visitSearch, setVisitSearch] = useState('');
   const [selectedVisit, setSelectedVisit] = useState<VisitMatch | null>(null);
-  const [entryForm, setEntryForm] = useState({ ayushman: 'unset', executiveDoctor: '', changesNote: '' });
+  const [entryForm, setEntryForm] = useState({
+    marketingExecutive: '',
+    referralDoctor: '',
+    ayushman: 'unset',
+    executiveDoctor: '',
+    changesNote: '',
+  });
   const [saving, setSaving] = useState(false);
+
+  const { data: relationshipManagerOptions = [] } = useQuery({
+    queryKey: ['referral-register-rm-options'],
+    enabled: dialogOpen,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('relationship_managers')
+        .select('name, code')
+        .order('name');
+      if (error) throw error;
+      return (data || []).map(row => ({
+        value: row.name,
+        label: formatMarketingExecutive(row.name, row.code),
+        selectedLabel: row.name,
+      })) as MasterOption[];
+    },
+  });
+
+  const { data: refereeOptions = [] } = useQuery({
+    queryKey: ['referral-register-referee-options'],
+    enabled: dialogOpen,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('referees')
+        .select('name, specialty')
+        .order('name');
+      if (error) throw error;
+      return (data || []).map(row => ({
+        value: row.name,
+        label: row.specialty ? `${row.name} (${row.specialty})` : row.name,
+        selectedLabel: row.name,
+      })) as MasterOption[];
+    },
+  });
 
   useEffect(() => {
     const timer = setTimeout(() => setVisitSearch(visitQueryText), 300);
@@ -131,11 +178,97 @@ const ReferralRegister = () => {
     },
   });
 
+  useEffect(() => {
+    if (!selectedVisit) return;
+    setEntryForm(prev => ({
+      ...prev,
+      marketingExecutive: selectedVisit.relationship_managers?.name || '',
+      referralDoctor: selectedVisit.referees?.name || '',
+    }));
+  }, [selectedVisit]);
+
+  const ensureRelationshipManager = async (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const { data: existing } = await supabase
+      .from('relationship_managers')
+      .select('name, code')
+      .ilike('name', trimmed)
+      .limit(1);
+    if (existing?.[0]) {
+      setEntryForm(prev => ({ ...prev, marketingExecutive: existing[0].name }));
+      return;
+    }
+    const { data: inserted, error } = await supabase
+      .from('relationship_managers')
+      .insert([{ name: trimmed }])
+      .select('name, code')
+      .single();
+    if (error) {
+      const { data: refetched } = await supabase
+        .from('relationship_managers')
+        .select('name, code')
+        .ilike('name', trimmed)
+        .limit(1);
+      if (refetched?.[0]) {
+        setEntryForm(prev => ({ ...prev, marketingExecutive: refetched[0].name }));
+        return;
+      }
+      throw error;
+    }
+    setEntryForm(prev => ({ ...prev, marketingExecutive: inserted.name }));
+    queryClient.invalidateQueries({ queryKey: ['referral-register-rm-options'] });
+    toast.success(`Added "${inserted.name}" to relationship managers.`);
+  };
+
+  const ensureReferee = async (
+    name: string,
+    field: 'referralDoctor' | 'executiveDoctor',
+  ) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const { data: existing } = await supabase
+      .from('referees')
+      .select('name')
+      .ilike('name', trimmed)
+      .limit(1);
+    if (existing?.[0]) {
+      setEntryForm(prev => ({ ...prev, [field]: existing[0].name }));
+      return;
+    }
+    const { data: inserted, error } = await supabase
+      .from('referees')
+      .insert([{ name: trimmed }])
+      .select('name')
+      .single();
+    if (error) {
+      const { data: refetched } = await supabase
+        .from('referees')
+        .select('name')
+        .ilike('name', trimmed)
+        .limit(1);
+      if (refetched?.[0]) {
+        setEntryForm(prev => ({ ...prev, [field]: refetched[0].name }));
+        return;
+      }
+      throw error;
+    }
+    setEntryForm(prev => ({ ...prev, [field]: inserted.name }));
+    queryClient.invalidateQueries({ queryKey: ['referral-register-referee-options'] });
+    toast.success(`Added "${inserted.name}" to referral doctors.`);
+  };
+
   const resetDialog = () => {
     setDialogOpen(false);
     setVisitQueryText('');
     setSelectedVisit(null);
-    setEntryForm({ ayushman: 'unset', executiveDoctor: '', changesNote: '' });
+    setEntryForm({
+      marketingExecutive: '',
+      referralDoctor: '',
+      ayushman: 'unset',
+      executiveDoctor: '',
+      changesNote: '',
+    });
   };
 
   const handleSave = async () => {
@@ -145,16 +278,21 @@ const ReferralRegister = () => {
     }
     setSaving(true);
     try {
+      const rmMatch = relationshipManagerOptions.find(
+        opt => opt.value === entryForm.marketingExecutive,
+      );
+      const marketingExecutive = entryForm.marketingExecutive.trim()
+        ? rmMatch?.label || entryForm.marketingExecutive.trim()
+        : null;
+
       const { error } = await entriesTable().insert({
         visit_uuid: selectedVisit.id,
         visit_id: selectedVisit.visit_id,
         admission_date: selectedVisit.admission_date.slice(0, 10),
         patient_name: selectedVisit.patients?.name || '—',
         panel: selectedVisit.corporate || selectedVisit.patients?.corporate || null,
-        marketing_executive: selectedVisit.relationship_managers
-          ? `${selectedVisit.relationship_managers.name}${selectedVisit.relationship_managers.code ? ` (${selectedVisit.relationship_managers.code})` : ''}`
-          : null,
-        referral_doctor: selectedVisit.referees?.name || null,
+        marketing_executive: marketingExecutive,
+        referral_doctor: entryForm.referralDoctor.trim() || null,
         shifted_from_ayushman_opd:
           entryForm.ayushman === 'yes' ? true : entryForm.ayushman === 'no' ? false : null,
         executive_referral_doctor: entryForm.executiveDoctor.trim() || null,
@@ -341,7 +479,7 @@ const ReferralRegister = () => {
                   )}
                 </div>
                 <p className="text-xs text-gray-500">
-                  The entry snapshots the panel, marketing executive, and referral doctor selected at registration.
+                  Search Hope / Ayushman admissions, then confirm marketing executive and referral doctor from master.
                 </p>
               </div>
             ) : (
@@ -363,11 +501,74 @@ const ReferralRegister = () => {
                 <p className="text-xs text-gray-600">
                   Panel: {selectedVisit.corporate || selectedVisit.patients?.corporate || '—'}
                 </p>
-                <p className="text-xs text-gray-600">
-                  Marketing executive: {selectedVisit.relationship_managers?.name || '—'} · Referral doctor:{' '}
-                  {selectedVisit.referees?.name || '—'}
-                </p>
               </div>
+            )}
+
+            {selectedVisit && (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Marketing executive / relationship manager</Label>
+                  <SearchableSelect
+                    options={[
+                      ...relationshipManagerOptions,
+                      ...(entryForm.marketingExecutive &&
+                      !relationshipManagerOptions.some(opt => opt.value === entryForm.marketingExecutive)
+                        ? [{
+                            value: entryForm.marketingExecutive,
+                            label: entryForm.marketingExecutive,
+                          }]
+                        : []),
+                    ]}
+                    value={entryForm.marketingExecutive}
+                    onValueChange={value =>
+                      setEntryForm(prev => ({ ...prev, marketingExecutive: value }))
+                    }
+                    onCreateOption={async name => {
+                      try {
+                        await ensureRelationshipManager(name);
+                      } catch (error) {
+                        console.error('Failed to add relationship manager:', error);
+                        toast.error('Could not add marketing executive.');
+                      }
+                    }}
+                    placeholder="Search marketing executive..."
+                    searchPlaceholder="Search or add relationship manager..."
+                    emptyText="No marketing executive found."
+                    createOptionLabel={input => `Add "${input}" to master`}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Referral doctor</Label>
+                  <SearchableSelect
+                    options={[
+                      ...refereeOptions,
+                      ...(entryForm.referralDoctor &&
+                      !refereeOptions.some(opt => opt.value === entryForm.referralDoctor)
+                        ? [{
+                            value: entryForm.referralDoctor,
+                            label: entryForm.referralDoctor,
+                          }]
+                        : []),
+                    ]}
+                    value={entryForm.referralDoctor}
+                    onValueChange={value =>
+                      setEntryForm(prev => ({ ...prev, referralDoctor: value }))
+                    }
+                    onCreateOption={async name => {
+                      try {
+                        await ensureReferee(name, 'referralDoctor');
+                      } catch (error) {
+                        console.error('Failed to add referral doctor:', error);
+                        toast.error('Could not add referral doctor.');
+                      }
+                    }}
+                    placeholder="Search referral doctor..."
+                    searchPlaceholder="Search or add referral doctor..."
+                    emptyText="No referral doctor found."
+                    createOptionLabel={input => `Add "${input}" to master`}
+                  />
+                </div>
+              </>
             )}
 
             <div className="space-y-1.5">
@@ -387,12 +588,34 @@ const ReferralRegister = () => {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="exec-doctor">Doctor who referred to the marketing executive</Label>
-              <Input
-                id="exec-doctor"
+              <Label>Doctor who referred to the marketing executive</Label>
+              <SearchableSelect
+                options={[
+                  ...refereeOptions,
+                  ...(entryForm.executiveDoctor &&
+                  !refereeOptions.some(opt => opt.value === entryForm.executiveDoctor)
+                    ? [{
+                        value: entryForm.executiveDoctor,
+                        label: entryForm.executiveDoctor,
+                      }]
+                    : []),
+                ]}
                 value={entryForm.executiveDoctor}
-                onChange={e => setEntryForm(prev => ({ ...prev, executiveDoctor: e.target.value }))}
-                placeholder="Doctor name"
+                onValueChange={value =>
+                  setEntryForm(prev => ({ ...prev, executiveDoctor: value }))
+                }
+                onCreateOption={async name => {
+                  try {
+                    await ensureReferee(name, 'executiveDoctor');
+                  } catch (error) {
+                    console.error('Failed to add executive referral doctor:', error);
+                    toast.error('Could not add doctor.');
+                  }
+                }}
+                placeholder="Search doctor..."
+                searchPlaceholder="Search or add doctor..."
+                emptyText="No doctor found."
+                createOptionLabel={input => `Add "${input}" to master`}
               />
             </div>
             <div className="space-y-1.5">
