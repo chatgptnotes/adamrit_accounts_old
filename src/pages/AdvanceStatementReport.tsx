@@ -30,8 +30,8 @@ const normalizeLookupValue = (value?: string | null) =>
 const getRowRegistrationNos = (item: any) => {
   const patient = item?.patients;
   return [
+    item?.yojana_registration_id,
     item?.thumb_registration_no,
-    patient?.registration_id,
     patient?.patients_id,
   ].filter((value): value is string => Boolean(value && String(value).trim()));
 };
@@ -193,7 +193,7 @@ const AdvanceStatementReport = () => {
         let patientSearchQuery = supabase
           .from('patients')
           .select('id')
-          .or(`name.ilike.%${safeSearch}%,patients_id.ilike.%${safeSearch}%,registration_id.ilike.%${safeSearch}%`)
+          .or(`name.ilike.%${safeSearch}%,patients_id.ilike.%${safeSearch}%`)
           .limit(100);
 
         if (hospitalConfig?.name) {
@@ -212,6 +212,7 @@ const AdvanceStatementReport = () => {
         const visitSearchParts = [
           `visit_id.ilike.%${safeSearch}%`,
           `thumb_registration_no.ilike.%${safeSearch}%`,
+          `yojana_registration_id.ilike.%${safeSearch}%`,
         ];
         searchOr = visitSearchParts.join(',');
       }
@@ -243,7 +244,6 @@ const AdvanceStatementReport = () => {
             id,
             name,
             patients_id,
-            registration_id,
             age,
             gender,
             insurance_person_no,

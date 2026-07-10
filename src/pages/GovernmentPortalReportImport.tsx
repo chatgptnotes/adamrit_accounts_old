@@ -426,7 +426,8 @@ export default function GovernmentPortalReportImport() {
       } else {
         setIsSaving(true);
         try {
-          const importId = await saveGovernmentPortalReport(file.name, parsed, dateLabel);
+          const saveResult = await saveGovernmentPortalReport(file.name, parsed, dateLabel);
+          const importId = saveResult.importId;
           const saved = await fetchGovernmentPortalReportById(importId);
           if (saved) {
             applySavedReport(saved);
@@ -436,7 +437,15 @@ export default function GovernmentPortalReportImport() {
             setReport(parsed);
           }
           await refreshImportHistory();
-          toast.success(`Parsed and saved ${parsed.totalRows} rows`);
+          if (saveResult.packageSync.error) {
+            toast.warning(
+              `Parsed and saved ${parsed.totalRows} rows. Package master sync failed: ${saveResult.packageSync.error}`,
+            );
+          } else {
+            toast.success(
+              `Parsed and saved ${parsed.totalRows} rows. Added ${saveResult.packageSync.inserted} master packages; ${saveResult.packageSync.skippedExisting} already existed.`,
+            );
+          }
         } catch (saveError) {
           console.error('Government portal report save failed:', saveError);
           toast.error('Parsed report could not be saved to the database');

@@ -645,16 +645,16 @@ const TodaysIpdDashboard = () => {
 
   // Custom component for Registration ID input with debouncing
   const RegistrationIdInput = ({ visit }) => {
-    const registrationId = visit.patients?.registration_id || '';
-    const patientId = visit.patients?.id;
+    const registrationId = visit.yojana_registration_id || '';
+    const visitRowId = visit.id;
     const [value, setValue] = useState(registrationId);
     const [debouncedValue] = useDebounce(value, 7000);
 
     useEffect(() => {
       if (debouncedValue !== registrationId) {
-        handleRegistrationIdSubmit(patientId, debouncedValue);
+        handleRegistrationIdSubmit(visitRowId, debouncedValue);
       }
-    }, [debouncedValue, registrationId, patientId]);
+    }, [debouncedValue, registrationId, visitRowId]);
 
     // Sync with server updates
     useEffect(() => {
@@ -665,7 +665,7 @@ const TodaysIpdDashboard = () => {
       <Input
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        onBlur={() => handleRegistrationIdSubmit(patientId, value)}
+        onBlur={() => handleRegistrationIdSubmit(visitRowId, value)}
         placeholder="Enter Registration ID"
         className="w-40 h-8 text-sm"
       />
@@ -1588,7 +1588,7 @@ const TodaysIpdDashboard = () => {
         let patientQuery = supabase
           .from('patients')
           .select('id')
-          .or(`name.ilike.%${safeSearch}%,patients_id.ilike.%${safeSearch}%,registration_id.ilike.%${safeSearch}%,phone.ilike.%${safeSearch}%`)
+          .or(`name.ilike.%${safeSearch}%,patients_id.ilike.%${safeSearch}%,phone.ilike.%${safeSearch}%`)
           .limit(50);
         if (hospitalConfig?.name) {
           patientQuery = patientQuery.eq('hospital_name', hospitalConfig.name);
@@ -1597,7 +1597,10 @@ const TodaysIpdDashboard = () => {
         if (searchError) {
           console.error('Error searching patients for IPD dashboard:', searchError);
         }
-        const orParts = [`visit_id.ilike.%${safeSearch}%`];
+        const orParts = [
+          `visit_id.ilike.%${safeSearch}%`,
+          `yojana_registration_id.ilike.%${safeSearch}%`,
+        ];
         if (matchedPatients?.length) {
           orParts.push(`patient_id.in.(${matchedPatients.map(p => p.id).join(',')})`);
         }
@@ -1622,7 +1625,6 @@ const TodaysIpdDashboard = () => {
               age,
               gender,
               phone,
-              registration_id,
               emergency_contact_name,
               emergency_contact_mobile
             ),
@@ -2498,23 +2500,23 @@ const TodaysIpdDashboard = () => {
     }
   };
 
-  const handleRegistrationIdSubmit = async (patientId: string | undefined, value: string) => {
-    if (!patientId) return;
+  const handleRegistrationIdSubmit = async (visitRowId: string | undefined, value: string) => {
+    if (!visitRowId) return;
 
     try {
       const { error } = await supabase
-        .from('patients')
-        .update({ registration_id: value.trim() || null })
-        .eq('id', patientId);
+        .from('visits')
+        .update({ yojana_registration_id: value.trim() || null })
+        .eq('id', visitRowId);
 
       if (error) {
-        console.error('Error updating registration_id:', error);
+        console.error('Error updating yojana_registration_id:', error);
         return;
       }
 
       refetch();
     } catch (error) {
-      console.error('Error updating registration_id:', error);
+      console.error('Error updating yojana_registration_id:', error);
     }
   };
 
@@ -3954,7 +3956,7 @@ const TodaysIpdDashboard = () => {
                       <span className="font-medium text-gray-600">Treatment Type:</span> {selectedPatientForView.treatment_type || 'N/A'}
                     </div>
                     <div>
-                      <span className="font-medium text-gray-600">Registration ID:</span> {selectedPatientForView.patients?.registration_id || 'N/A'}
+                      <span className="font-medium text-gray-600">Registration ID:</span> {selectedPatientForView.yojana_registration_id || 'N/A'}
                     </div>
                     <div>
                       <span className="font-medium text-gray-600">Referring Doctor:</span> {selectedPatientForView.referring_doctor || 'N/A'}

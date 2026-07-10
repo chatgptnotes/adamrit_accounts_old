@@ -57,7 +57,7 @@ export const IPD_PRINT_COLUMNS: ReportColumn[] = [
   {
     id: 'registration_id',
     label: 'Registration ID',
-    accessorKey: 'patients.registration_id',
+    accessorKey: 'yojana_registration_id',
     printable: true,
     widthPx: 120,
     align: 'left'

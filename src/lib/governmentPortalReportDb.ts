@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+import { fetchAllRows } from '@/lib/fetchAllRows';
 import {
   GOVERNMENT_PORTAL_REQUIRED_COLUMNS,
   parsePortalDate,
@@ -39,6 +40,18 @@ export interface GovernmentPortalExtensionAlertSummary {
   createdAt: string;
   count: number;
   rows: GovernmentPortalExtensionAlertRow[];
+}
+
+export interface GovernmentPortalPackageSyncResult {
+  inserted: number;
+  skippedExisting: number;
+  skippedInvalid: number;
+  error?: string;
+}
+
+export interface SaveGovernmentPortalReportResult {
+  importId: string;
+  packageSync: GovernmentPortalPackageSyncResult;
 }
 
 type ImportRow = {
@@ -218,11 +231,154 @@ function getUploadedBy(): string | null {
   }
 }
 
+type ExistingPackageRow = {
+  scheme: string | null;
+  treatment_code: string | null;
+  treatment_plan: string | null;
+};
+
+type PortalPackageCandidate = {
+  scheme: string;
+  treatment_code: string | null;
+  treatment_plan: string | null;
+  category: string | null;
+  package_price: number | null;
+  patient_name_example: string | null;
+  is_active: boolean;
+};
+
+const emptyPackageSyncResult = (): GovernmentPortalPackageSyncResult => ({
+  inserted: 0,
+  skippedExisting: 0,
+  skippedInvalid: 0,
+});
+
+const cleanPortalPackageText = (value: string | null | undefined): string =>
+  [
+    ...new Set(
+      (value || '')
+        .split('|')
+        .map((part) => part.trim().replace(/\s+/g, ' '))
+        .filter(Boolean),
+    ),
+  ].join(', ');
+
+const normalizePackageKeyPart = (value: string | null | undefined): string =>
+  (value || '').trim().replace(/\s+/g, ' ').toUpperCase();
+
+const packageIdentityKey = (
+  scheme: string | null | undefined,
+  treatmentCode: string | null | undefined,
+  treatmentPlan: string | null | undefined,
+): string | null => {
+  const normalizedScheme = normalizePackageKeyPart(scheme);
+  const normalizedCode = normalizePackageKeyPart(treatmentCode);
+  const normalizedPlan = normalizePackageKeyPart(treatmentPlan);
+
+  if (!normalizedScheme) return null;
+  if (normalizedCode) return `${normalizedScheme}:CODE:${normalizedCode}`;
+  if (normalizedPlan) return `${normalizedScheme}:PLAN:${normalizedPlan}`;
+  return null;
+};
+
+const inferSchemeFromProgramId = (programId: string): string => {
+  const normalized = normalizePackageKeyPart(programId);
+  if (/MJP|MAHATMA|JYOTIRAO|JYOTIBA|PHULE/.test(normalized)) return 'MJPJAY';
+  if (/PM[\s-]*JAY|PRADHAN|AYUSHMAN|AB[\s-]*PM/.test(normalized)) return 'PMJAY';
+  return 'PMJAY';
+};
+
+const inferCategoryFromCaseType = (caseType: string): string | null => {
+  const normalized = caseType.trim().toLowerCase();
+  if (normalized.includes('surgical') || normalized.includes('surgery')) return 'SURGICAL';
+  if (normalized.includes('medical')) return 'CONSERVATIVE';
+  return null;
+};
+
+const parsePackagePrice = (amount: string): number | null => {
+  const numeric = amount.replace(/[^0-9.]/g, '');
+  if (!numeric) return null;
+  const parsed = Number(numeric);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const portalRowToPackageCandidate = (row: GovernmentPortalRow): PortalPackageCandidate | null => {
+  const treatmentCode = cleanPortalPackageText(row.values['Procedure Code']) || null;
+  const treatmentPlan = cleanPortalPackageText(row.values['Procedure Details']) || null;
+  if (!treatmentCode && !treatmentPlan) return null;
+
+  return {
+    scheme: inferSchemeFromProgramId(row.values['Program ID']),
+    treatment_code: treatmentCode,
+    treatment_plan: treatmentPlan,
+    category: inferCategoryFromCaseType(row.values['Case Type']),
+    package_price: parsePackagePrice(row.values['Preauth Approved Amount']),
+    patient_name_example: cleanPortalPackageText(row.values['Beneficiary Name']) || null,
+    is_active: true,
+  };
+};
+
+async function syncGovernmentPortalPackagesToMaster(
+  report: GovernmentPortalReport,
+): Promise<GovernmentPortalPackageSyncResult> {
+  const result = emptyPackageSyncResult();
+  const existingRows = await fetchAllRows<ExistingPackageRow>((from, to) =>
+    db
+      .from('pmjay_mjpjay_packages')
+      .select('scheme, treatment_code, treatment_plan')
+      .in('scheme', ['PMJAY', 'MJPJAY'])
+      .range(from, to),
+  );
+
+  const seenKeys = new Set<string>();
+  for (const row of existingRows) {
+    const key = packageIdentityKey(row.scheme, row.treatment_code, row.treatment_plan);
+    if (key) seenKeys.add(key);
+  }
+
+  const pendingInserts: PortalPackageCandidate[] = [];
+  for (const row of report.rows) {
+    const candidate = portalRowToPackageCandidate(row);
+    if (!candidate) {
+      result.skippedInvalid += 1;
+      continue;
+    }
+
+    const key = packageIdentityKey(
+      candidate.scheme,
+      candidate.treatment_code,
+      candidate.treatment_plan,
+    );
+    if (!key) {
+      result.skippedInvalid += 1;
+      continue;
+    }
+
+    if (seenKeys.has(key)) {
+      result.skippedExisting += 1;
+      continue;
+    }
+
+    seenKeys.add(key);
+    pendingInserts.push(candidate);
+  }
+
+  for (let index = 0; index < pendingInserts.length; index += 500) {
+    const chunk = pendingInserts.slice(index, index + 500);
+    const { error } = await db.from('pmjay_mjpjay_packages').insert(chunk);
+    if (error) throw error;
+    result.inserted += chunk.length;
+  }
+
+  return result;
+}
+
 export async function saveGovernmentPortalReport(
   fileName: string,
   report: GovernmentPortalReport,
   reportDateLabel: string,
-): Promise<string> {
+): Promise<SaveGovernmentPortalReportResult> {
+  const packageSync = emptyPackageSyncResult();
   const { data: header, error: headerError } = await db
     .from('government_portal_report_imports')
     .insert({
@@ -260,9 +416,17 @@ export async function saveGovernmentPortalReport(
     } catch (syncError) {
       console.error('Error syncing portal report to visits:', syncError);
     }
+
+    try {
+      Object.assign(packageSync, await syncGovernmentPortalPackagesToMaster(report));
+    } catch (syncError) {
+      console.error('Error syncing portal report packages to master:', syncError);
+      packageSync.error =
+        syncError instanceof Error ? syncError.message : 'Package master sync failed';
+    }
   }
 
-  return importId;
+  return { importId, packageSync };
 }
 
 export async function fetchLatestGovernmentPortalReport(): Promise<SavedGovernmentPortalImport | null> {
