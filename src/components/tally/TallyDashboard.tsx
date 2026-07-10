@@ -64,7 +64,7 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
   }, [propServerUrl, propCompanyName, propCompanyId])
 
   useEffect(() => {
-    if (propServerUrl && propCompanyName) void testConnection()
+    if (propServerUrl && propCompanyName) void testConnection(propServerUrl, propCompanyName)
   }, [propServerUrl, propCompanyName])
 
   useEffect(() => {
@@ -155,10 +155,10 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
     setSyncLogs(data || [])
   }
 
-  async function testConnection() {
+  async function testConnection(serverUrlOverride?: string, companyNameOverride?: string) {
     setIsTesting(true)
-    const normalizedServerUrl = serverUrl.trim()
-    const normalizedCompanyName = companyName.trim()
+    const normalizedServerUrl = (serverUrlOverride ?? serverUrl).trim()
+    const normalizedCompanyName = (companyNameOverride ?? companyName).trim()
     if (!normalizedServerUrl) {
       setIsConnected(false)
       setConnectionInfo(null)
