@@ -159,6 +159,22 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
     setIsTesting(true)
     const normalizedServerUrl = serverUrl.trim()
     const normalizedCompanyName = companyName.trim()
+    if (!normalizedServerUrl) {
+      setIsConnected(false)
+      setConnectionInfo(null)
+      setConnectionError('Enter the Tally server URL first, for example http://192.168.1.10:9000')
+      toast.error('Tally server URL is required')
+      setIsTesting(false)
+      return
+    }
+    if (!normalizedCompanyName) {
+      setIsConnected(false)
+      setConnectionInfo(null)
+      setConnectionError('Select or enter the Tally company name first')
+      toast.error('Tally company name is required')
+      setIsTesting(false)
+      return
+    }
     try {
       const res = await fetch('/api/tally-proxy', {
         method: 'POST',
@@ -199,6 +215,14 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
   }
 
   async function saveConfig() {
+    if (!serverUrl.trim()) {
+      toast.error('Enter the Tally server URL before saving')
+      return
+    }
+    if (!companyName.trim()) {
+      toast.error('Enter or select the Tally company name before saving')
+      return
+    }
     setIsSaving(true)
     try {
       const payload = {
