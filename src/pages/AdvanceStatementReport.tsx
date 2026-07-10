@@ -1370,13 +1370,13 @@ const AdvanceStatementReport = () => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Button
-              onClick={() => navigate('/todays-ipd')}
+              onClick={() => navigate('/dashboard')}
               variant="ghost"
               size="sm"
               className="flex items-center gap-2 print:hidden"
             >
               <ArrowLeft className="h-4 w-4" />
-              Back to Dashboard
+              Back to Adamrit
             </Button>
             <FileText className="h-8 w-8 text-primary" />
             <div>

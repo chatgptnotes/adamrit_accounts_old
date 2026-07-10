@@ -79,6 +79,10 @@ function normalizedCompanyName(value: string): string {
   return value.trim().replace(/\s+/g, ' ').toLowerCase()
 }
 
+function canonicalCompanyKey(value: string): string {
+  return normalizedCompanyName(value).replace(/[^a-z0-9]/g, '')
+}
+
 function normalizedServerUrl(value: string): string {
   return new URL(normalizeServerUrl(value)).toString().replace(/\/$/, '').toLowerCase()
 }
@@ -165,7 +169,10 @@ async function handleTestConnection(body: any) {
       const responseText = await fetchFromTally(serverUrl, xmlBody, 60000)
       const companies = getCompanyNames(responseText)
       const versionMatch = responseText.match(/<VERSION[^>]*>([^<]+)<\/VERSION>/i)
-      const companyValid = !companyName || companies.some((name) => normalizedCompanyName(name) === normalizedCompanyName(companyName))
+      const companyValid = !companyName || companies.some((name) =>
+        canonicalCompanyKey(name) === canonicalCompanyKey(companyName) ||
+        normalizedCompanyName(name) === normalizedCompanyName(companyName)
+      )
       return { connected: true, companies, companyValid, version: versionMatch ? versionMatch[1] : 'Connected' }
     } catch (err: any) {
       if (attempt === 0 && err.message.includes('timed out')) continue
@@ -229,7 +236,10 @@ async function handlePush(body: any) {
   <BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES></DESC></BODY>
 </ENVELOPE>`
     const companies = getCompanyNames(await fetchFromTally(serverUrl, companiesXml, 60000))
-    if (!companies.some((name) => normalizedCompanyName(name) === normalizedCompanyName(companyName))) {
+    if (!companies.some((name) =>
+      canonicalCompanyKey(name) === canonicalCompanyKey(companyName) ||
+      normalizedCompanyName(name) === normalizedCompanyName(companyName)
+    )) {
       return { success: false, error: `Company "${companyName}" is not available on the connected Tally server` }
     }
   } catch (err: any) {
@@ -294,7 +304,8 @@ async function handleSync(body: any) {
   let matchesSavedConfig = false
   try {
     matchesSavedConfig = normalizedServerUrl(serverUrl) === normalizedServerUrl(config.server_url || '') &&
-      normalizedCompanyName(companyName) === normalizedCompanyName(config.company_name || '')
+      (canonicalCompanyKey(companyName) === canonicalCompanyKey(config.company_name || '') ||
+        normalizedCompanyName(companyName) === normalizedCompanyName(config.company_name || ''))
   } catch {
     matchesSavedConfig = false
   }

@@ -40,6 +40,10 @@ function tallyProxyPlugin(): Plugin {
     return names;
   }
 
+  function canonicalCompanyKey(value: string): string {
+    return (value || "").trim().replace(/\s+/g, " ").toLowerCase().replace(/[^a-z0-9]/g, "");
+  }
+
   function buildVoucherXml(companyName: string, action: string, data: any): string {
     switch (action) {
       case "create-voucher": {
@@ -132,7 +136,10 @@ function tallyProxyPlugin(): Plugin {
               try {
                 const resp = await callTally(serverUrl, xml);
                 const companies = companyNames(resp);
-                const companyValid = !companyName || companies.some((name) => name.trim().replace(/\s+/g, " ").toLowerCase() === companyName.trim().replace(/\s+/g, " ").toLowerCase());
+                const companyValid = !companyName || companies.some((name) =>
+                  canonicalCompanyKey(name) === canonicalCompanyKey(companyName) ||
+                  name.trim().replace(/\s+/g, " ").toLowerCase() === companyName.trim().replace(/\s+/g, " ").toLowerCase()
+                );
                 send({ connected: true, companies, companyValid, version: "Connected" });
               } catch (e: any) {
                 send({ connected: false, companies: [], version: "", error: e.message });
@@ -155,7 +162,10 @@ function tallyProxyPlugin(): Plugin {
                 const companiesXml = `<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>List of Companies</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES></DESC></BODY></ENVELOPE>`;
                 const companies = companyNames(await callTally(serverUrl, companiesXml));
                 const normalized = companyName.trim().replace(/\s+/g, " ").toLowerCase();
-                if (!companies.some((name) => name.trim().replace(/\s+/g, " ").toLowerCase() === normalized)) {
+                if (!companies.some((name) =>
+                  canonicalCompanyKey(name) === canonicalCompanyKey(companyName) ||
+                  name.trim().replace(/\s+/g, " ").toLowerCase() === normalized
+                )) {
                   send({ success: false, error: `Company "${companyName}" is not available on the connected Tally server` });
                   return;
                 }

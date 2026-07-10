@@ -631,30 +631,6 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
             {isTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wifi className="h-4 w-4" />}
             Test Connection
           </button>
-          <button
-            onClick={saveConfig}
-            disabled={isSaving || !companyName.trim()}
-            className="px-4 py-2 bg-gray-800 text-white rounded-lg text-sm font-medium hover:bg-gray-900 disabled:opacity-50 flex items-center gap-2"
-          >
-            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            Save Configuration
-          </button>
-          <button
-            onClick={handleAddCompany}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 flex items-center gap-2"
-          >
-            <PlusCircle className="h-4 w-4" />
-            Add Company
-          </button>
-          {configId && (
-            <button
-              onClick={handleDeleteCompany}
-              className="px-4 py-2 bg-red-100 text-red-700 rounded-lg text-sm font-medium hover:bg-red-200 flex items-center gap-2"
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete
-            </button>
-          )}
         </div>
       </div>
 

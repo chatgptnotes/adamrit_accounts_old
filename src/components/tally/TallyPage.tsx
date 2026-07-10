@@ -1,13 +1,15 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/integrations/supabase/client'
 import {
   LayoutDashboard, BookOpen, FileText, Package,
   BarChart3, ArrowUpFromLine, Link2, Banknote, Landmark,
-  Scale, FileBarChart, PlusCircle
-  , RefreshCw, Loader2
+  Scale, FileBarChart, PlusCircle,
+  RefreshCw, Loader2, ArrowLeft
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
 import TallyDashboard from '@/components/tally/TallyDashboard'
 import TallyLedgers from '@/components/tally/TallyLedgers'
 import TallyVouchers from '@/components/tally/TallyVouchers'
@@ -37,6 +39,7 @@ const tabs = [
 ]
 
 export default function TallyPage() {
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('dashboard')
   const [serverUrl, setServerUrl] = useState('')
   const [companyName, setCompanyName] = useState('')
@@ -226,11 +229,23 @@ export default function TallyPage() {
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Tally Integration</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            TallyPrime Server two-way sync for Adamrit HMS
-          </p>
+        <div className="flex items-center gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => navigate('/dashboard')}
+            className="flex items-center gap-2"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Tally Integration</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              TallyPrime Server two-way sync for Adamrit HMS
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {companyOptions.length > 0 ? (

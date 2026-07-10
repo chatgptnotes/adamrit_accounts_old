@@ -236,22 +236,56 @@ async function handleSync(body: any) {
           try {
             const rawDate = getVal(el, 'DATE')
             const date = rawDate ? `${rawDate.slice(0, 4)}-${rawDate.slice(4, 6)}-${rawDate.slice(6, 8)}` : to
+            const voucherNumber = getVal(el, 'VOUCHERNUMBER') || null
+            const tallyGuid = getVal(el, 'GUID') || getAttr(el, 'REMOTEID') || null
             const entryElements = getAll(el, 'ALLLEDGERENTRIES.LIST')
             const ledgerEntries = entryElements.map(entryEl => {
               const amt = parseFloat(getVal(entryEl, 'AMOUNT') || '0')
               return { ledger: getVal(entryEl, 'LEDGERNAME'), amount: Math.abs(amt), is_debit: amt < 0 }
             })
             const totalAmount = ledgerEntries.reduce((s, e) => e.is_debit ? s + e.amount : s, 0)
-            await supabase.from('tally_vouchers').upsert({
-              tally_guid: getVal(el, 'GUID') || getAttr(el, 'REMOTEID') || null,
-              voucher_number: getVal(el, 'VOUCHERNUMBER'),
+            const voucherPayload = {
+              company_id: companyId,
+              tally_guid: tallyGuid,
+              voucher_number: voucherNumber,
               voucher_type: getVal(el, 'VOUCHERTYPENAME') || getAttr(el, 'VCHTYPE'),
-              date, party_ledger: getVal(el, 'PARTYLEDGERNAME'),
-              amount: totalAmount, narration: getVal(el, 'NARRATION') || null,
+              date,
+              party_ledger: getVal(el, 'PARTYLEDGERNAME'),
+              amount: totalAmount,
+              narration: getVal(el, 'NARRATION') || null,
               is_cancelled: getVal(el, 'ISCANCELLED') === 'Yes',
-              sync_direction: 'from_tally', sync_status: 'synced',
-              ledger_entries: ledgerEntries, synced_at: new Date().toISOString(),
-            }, { onConflict: 'tally_guid', ignoreDuplicates: false })
+              sync_direction: 'from_tally',
+              sync_status: 'synced',
+              ledger_entries: ledgerEntries,
+              synced_at: new Date().toISOString(),
+              error_message: null,
+            }
+
+            if (voucherNumber) {
+              const { data: existingVoucherRows } = await supabase
+                .from('tally_vouchers')
+                .select('id')
+                .eq('company_id', companyId)
+                .eq('voucher_number', voucherNumber)
+                .order('created_at', { ascending: false })
+                .limit(1)
+
+              const existingVoucher = existingVoucherRows?.[0]
+              if (existingVoucher?.id) {
+                await supabase
+                  .from('tally_vouchers')
+                  .update(voucherPayload)
+                  .eq('id', existingVoucher.id)
+              } else if (tallyGuid) {
+                await supabase.from('tally_vouchers').upsert(voucherPayload, { onConflict: 'tally_guid', ignoreDuplicates: false })
+              } else {
+                await supabase.from('tally_vouchers').insert(voucherPayload)
+              }
+            } else if (tallyGuid) {
+              await supabase.from('tally_vouchers').upsert(voucherPayload, { onConflict: 'tally_guid', ignoreDuplicates: false })
+            } else {
+              await supabase.from('tally_vouchers').insert(voucherPayload)
+            }
             recordsSynced++
           } catch (e: any) { recordsFailed++; errors.push(e.message) }
         }

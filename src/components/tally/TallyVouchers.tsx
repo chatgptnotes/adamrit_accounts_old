@@ -2,11 +2,13 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/integrations/supabase/client'
 import { toast } from 'sonner'
+import * as XLSX from 'xlsx'
 import {
-  FileText, ArrowDownToLine, ArrowUpFromLine, CheckCircle, XCircle,
+  FileText, FileSpreadsheet, ArrowDownToLine, ArrowUpFromLine, CheckCircle, XCircle,
   Clock, AlertTriangle, ChevronLeft, ChevronRight, X, Search, Filter,
   Loader2, Edit3, Trash2, AlertCircle
 } from 'lucide-react'
+import { Switch } from '@/components/ui/switch'
 
 const PAGE_SIZE = 25
 
@@ -394,6 +396,7 @@ export default function TallyVouchers({ serverUrl, companyName, companyId }: { s
   const [dateTo, setDateTo] = useState('')
   const [typeFilter, setTypeFilter] = useState('All')
   const [statusFilter, setStatusFilter] = useState('All')
+  const [showAll, setShowAll] = useState(false)
 
   // Modals
   const [selectedVoucher, setSelectedVoucher] = useState<any>(null)
@@ -414,6 +417,7 @@ export default function TallyVouchers({ serverUrl, companyName, companyId }: { s
       if (dateTo) query = query.lte('date', dateTo)
       if (typeFilter !== 'All') query = query.eq('voucher_type', typeFilter)
       if (statusFilter !== 'All') query = query.eq('sync_status', statusFilter)
+      if (!showAll) query = query.eq('sync_direction', 'to_tally')
 
       const { data, count, error } = await query
 
@@ -429,7 +433,7 @@ export default function TallyVouchers({ serverUrl, companyName, companyId }: { s
       toast.error('Failed to load vouchers')
     }
     setLoading(false)
-  }, [page, dateFrom, dateTo, typeFilter, statusFilter, companyId])
+  }, [page, dateFrom, dateTo, typeFilter, statusFilter, showAll, companyId])
 
   useEffect(() => {
     fetchVouchers()
@@ -438,9 +442,33 @@ export default function TallyVouchers({ serverUrl, companyName, companyId }: { s
   // Reset to first page when filters change
   useEffect(() => {
     setPage(0)
-  }, [dateFrom, dateTo, typeFilter, statusFilter])
+  }, [dateFrom, dateTo, typeFilter, statusFilter, showAll])
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE)
+
+  const handleExportExcel = useCallback(() => {
+    if (vouchers.length === 0) {
+      toast.info('No vouchers to export')
+      return
+    }
+
+    const data = vouchers.map((voucher) => ({
+      Date: formatDate(voucher.date),
+      Particulars: getPartyName(voucher),
+      'Voucher Type': voucher.voucher_type || '-',
+      'Voucher No': voucher.voucher_number || '-',
+      'Debit Amount': voucher.sync_direction === 'to_tally' ? Number(voucher.amount || 0) : '',
+      'Credit Amount': voucher.sync_direction !== 'to_tally' ? Number(voucher.amount || 0) : '',
+      Status: voucher.sync_status || '-',
+      Direction: voucher.sync_direction === 'from_tally' ? 'From Tally' : 'To Tally',
+      Narration: voucher.narration || '-',
+    }))
+
+    const worksheet = XLSX.utils.json_to_sheet(data)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Day Book')
+    XLSX.writeFile(workbook, `Tally_Vouchers_${companyName || 'Company'}_${new Date().toISOString().split('T')[0]}.xlsx`)
+  }, [companyName, vouchers])
 
   return (
     <div className="space-y-4">
@@ -450,7 +478,14 @@ export default function TallyVouchers({ serverUrl, companyName, companyId }: { s
           <Filter className="h-4 w-4 text-blue-600" />
           <h3 className="text-sm font-semibold text-gray-900">Filters</h3>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-0.5">Show All</label>
+              <p className="text-xs text-gray-400">{showAll ? 'Show all company vouchers' : 'Show Adamrit vouchers only'}</p>
+            </div>
+            <Switch checked={showAll} onCheckedChange={setShowAll} />
+          </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">From Date</label>
             <input
@@ -506,7 +541,18 @@ export default function TallyVouchers({ serverUrl, companyName, companyId }: { s
               ({totalCount.toLocaleString()} total)
             </span>
           </h3>
-          {loading && <Loader2 className="h-4 w-4 text-blue-600 animate-spin" />}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              disabled={loading || vouchers.length === 0}
+              className="inline-flex items-center gap-2 rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm font-medium text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <FileSpreadsheet className="h-4 w-4" />
+              Export Excel
+            </button>
+            {loading && <Loader2 className="h-4 w-4 text-blue-600 animate-spin" />}
+          </div>
         </div>
 
         <div className="overflow-x-auto">

@@ -445,8 +445,7 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
 
   // ── Submit ────────────────────────────────────────────────────
   async function handleSubmit() {
-    if (!serverUrl || !companyName || !companyId) { toast.error('Select a Tally company first'); return }
-    if (tallyOnline !== true) { toast.error('Tally is offline. Connect to Tally before creating a voucher'); return }
+    if (!companyId) { toast.error('Select a company first'); return }
     if (!form.account) { toast.error('Select an Account'); return }
     if (!form.particulars) { toast.error('Select Particulars'); return }
     const amount = Number(form.amount)
@@ -457,39 +456,29 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
       const voucherNo = form.paymentNo.trim() || await nextVoucherNo(form.date)
       const narration = form.narration.trim() || `Payment #${voucherNo} to ${form.particulars}`
 
-      const response = await fetch('/api/tally-proxy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          endpoint: 'push',
-          action: 'create-voucher',
-          serverUrl,
-          companyName,
-          companyId,
-          data: {
-            voucherType: 'Payment',
-            voucherNumber: voucherNo,
-            date: form.date,
-            narration,
-            partyLedger: form.particulars,
-            ledgerEntries: [
-              { ledgerName: form.particulars, amount, isDeemedPositive: true },
-              { ledgerName: form.account, amount, isDeemedPositive: false },
-            ],
-          },
-        }),
-      })
-      const result = await response.json()
-      if (!response.ok || !result.success) throw new Error(result.error || result.message || 'Tally rejected the voucher')
-
-      // Tally is the source of truth. Pull the created voucher back into the read model.
-      await fetch('/api/tally-proxy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ endpoint: 'sync', action: 'vouchers', serverUrl, companyName, companyId }),
+      const { error } = await supabase.from('tally_vouchers').insert({
+        company_id: companyId,
+        voucher_type: 'Payment',
+        voucher_number: voucherNo,
+        date: form.date,
+        party_ledger: form.particulars,
+        amount,
+        narration,
+        sync_direction: 'to_tally',
+        sync_status: 'pending',
+        ledger_entries: [
+          { ledger: form.particulars, amount, is_debit: true },
+          { ledger: form.account, amount, is_debit: false },
+        ],
+        is_cancelled: false,
+        tally_guid: null,
+        synced_at: null,
+        error_message: null,
       })
 
-      toast.success(`Voucher ${voucherNo} created in Tally`)
+      if (error) throw error
+
+      toast.success(`Voucher ${voucherNo} saved in Adamrit`)
       setLastSaved(voucherNo)
       await loadVoucherHistory()
       setForm({ paymentNo: '', account: form.account, date: form.date, amount: '', particulars: '', narration: '' })
@@ -525,6 +514,7 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
         {/* Form */}
         <div className="bg-white border rounded-xl p-6 space-y-5">
           <h3 className="text-base font-semibold text-gray-900">New Payment Voucher</h3>
+          <p className="text-xs text-gray-500">This saves in Adamrit first. Export it later and import it into Tally manually.</p>
 
         <div className="grid grid-cols-2 gap-4">
           {/* Payment Number */}
@@ -627,13 +617,13 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
             className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlusCircle className="h-4 w-4" />}
-            {saving ? 'Saving…' : 'Save Voucher'}
+            {saving ? 'Saving…' : 'Save in Adamrit'}
           </button>
 
           {lastSaved && (
             <span className="flex items-center gap-1.5 text-sm text-green-600">
               <CheckCircle2 className="h-4 w-4" />
-              Last saved: {lastSaved}
+              Saved in Adamrit: {lastSaved}
             </span>
           )}
         </div>
