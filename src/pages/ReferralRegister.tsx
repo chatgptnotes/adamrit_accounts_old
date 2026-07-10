@@ -58,6 +58,23 @@ interface RegisterRow {
 const formatMarketingExecutive = (name: string, code?: string | null) =>
   code ? `${name} (${code})` : name;
 
+// Corporate short name mapping for the Panel column
+const CORPORATE_SHORT_NAMES: Record<string, string> = {
+  'Mahatma Jyotirao Phule jan Arogya Yojana (MJPJAY)': 'MJPJAY',
+  'Ayushman Bharat - Pradhan Mantri Jan Arogya Yojna (PM-JAY)': 'PM-JAY',
+  'Rashtriya Bal Swasthya Karyakram (RBSK)': 'RBSK',
+  'Central Government Health Scheme (CGHS)': 'CGHS',
+  'Ex Serviceman Contributory Health Scheme (ECHS)': 'ECHS',
+  'Maharashtra Police Kutumb Arogya Yojana (MPKAY)': 'MPKAY',
+  'MIKSSKAY - Maharashtra Karagruh Va Sudhar Sevabal Kutumb Arogya Yojana': 'MIKSSKAY',
+  'Maharashtra Dharmadaya Karmachari Kutumbe Seashya Yojana (MDKKSY)': 'MDKKSY',
+  'Coal India Limited (CIL)': 'CIL',
+  'Central Railways (C.Rly)': 'CR',
+  'South Eastern Central Railway (SECR)': 'SECR',
+  'Western Coalfield Limited (WCL)': 'WCL',
+};
+const getCorporateShortName = (fullName: string): string => CORPORATE_SHORT_NAMES[fullName] || fullName;
+
 const ReferralRegister = () => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -394,7 +411,7 @@ const ReferralRegister = () => {
                       </TableCell>
                       <TableCell>{visit.patients?.name || '—'}</TableCell>
                       <TableCell className="whitespace-nowrap">{visit.visit_id}</TableCell>
-                      <TableCell>{visit.corporate || visit.patients?.corporate || '—'}</TableCell>
+                      <TableCell>{getCorporateShortName(visit.corporate || visit.patients?.corporate || '') || '—'}</TableCell>
                       <TableCell>{entry?.marketing_executive || visit.relationship_managers?.name || '—'}</TableCell>
                       <TableCell>{entry?.referral_doctor || visit.referees?.name || '—'}</TableCell>
                       <TableCell>
@@ -460,7 +477,7 @@ const ReferralRegister = () => {
                     : '—'}
                 </p>
                 <p className="text-xs text-gray-600">
-                  Panel: {selectedVisit.corporate || selectedVisit.patients?.corporate || '—'}
+                  Panel: {getCorporateShortName(selectedVisit.corporate || selectedVisit.patients?.corporate || '') || '—'}
                 </p>
               </div>
             )}

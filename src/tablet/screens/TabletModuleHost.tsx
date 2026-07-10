@@ -32,6 +32,9 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   billing: lazy(() => import("@/tablet/modules/billing/BillingFlow")),
   "cash-in-hand": lazy(() => import("@/tablet/modules/cash-in-hand/CashInHandView")),
   report: lazy(() => import("@/tablet/modules/report/ReportFlow")),
+  "referral-register": lazy(
+    () => import("@/tablet/modules/referral-register/ReferralRegisterFlow"),
+  ),
 };
 
 /**

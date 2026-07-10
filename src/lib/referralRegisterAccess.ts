@@ -1,6 +1,8 @@
 const REFERRAL_REGISTER_EMAILS = new Set([
   'diksha@hopehospital.com',
   'cmd@hopehospital.com',
+  'sanjaykhobragade46@gmail.com',
+  'ganeshsharnagat47@gmail.com',
 ]);
 
 const REFERRAL_REGISTER_ROLES = new Set(['superadmin', 'super_admin']);

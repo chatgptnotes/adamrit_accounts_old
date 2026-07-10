@@ -39,6 +39,23 @@ const statusVariant = (status: string | null) => {
   return 'outline';
 };
 
+// Corporate short name mapping for the Panel column
+const CORPORATE_SHORT_NAMES: Record<string, string> = {
+  'Mahatma Jyotirao Phule jan Arogya Yojana (MJPJAY)': 'MJPJAY',
+  'Ayushman Bharat - Pradhan Mantri Jan Arogya Yojna (PM-JAY)': 'PM-JAY',
+  'Rashtriya Bal Swasthya Karyakram (RBSK)': 'RBSK',
+  'Central Government Health Scheme (CGHS)': 'CGHS',
+  'Ex Serviceman Contributory Health Scheme (ECHS)': 'ECHS',
+  'Maharashtra Police Kutumb Arogya Yojana (MPKAY)': 'MPKAY',
+  'MIKSSKAY - Maharashtra Karagruh Va Sudhar Sevabal Kutumb Arogya Yojana': 'MIKSSKAY',
+  'Maharashtra Dharmadaya Karmachari Kutumbe Seashya Yojana (MDKKSY)': 'MDKKSY',
+  'Coal India Limited (CIL)': 'CIL',
+  'Central Railways (C.Rly)': 'CR',
+  'South Eastern Central Railway (SECR)': 'SECR',
+  'Western Coalfield Limited (WCL)': 'WCL',
+};
+const getCorporateShortName = (fullName: string): string => CORPORATE_SHORT_NAMES[fullName] || fullName;
+
 const CasualtyRegister = () => {
   const { hospitalConfig } = useAuth();
   const today = format(new Date(), 'yyyy-MM-dd');
@@ -238,7 +255,7 @@ const CasualtyRegister = () => {
                       <TableCell className="max-w-40 truncate">{row.reason_for_visit || '-'}</TableCell>
                       <TableCell>
                         <Badge variant="outline">
-                          {row.corporate || row.patients?.corporate || 'Private'}
+                          {getCorporateShortName(row.corporate || row.patients?.corporate || '') || 'Private'}
                         </Badge>
                       </TableCell>
                       <TableCell>

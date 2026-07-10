@@ -15,9 +15,11 @@ import {
   Stethoscope,
   UserPlus,
   UserRound,
+  Users,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
+import { canAccessReferralRegister } from "@/lib/referralRegisterAccess";
 
 export interface TabletModule {
   /** URL segment under /t/ and lookup key. */
@@ -184,6 +186,14 @@ export const TABLET_MODULES: TabletModule[] = [
     accent: "text-blue-600",
     tint: "from-blue-400 to-blue-600",
   },
+  {
+    id: "referral-register",
+    label: "Referral Register",
+    description: "Complete referral entries",
+    icon: Users,
+    accent: "text-emerald-600",
+    tint: "from-emerald-400 to-emerald-600",
+  },
 ];
 
 const ADMIN_ROLES = ["admin", "superadmin", "super_admin"];
@@ -219,6 +229,9 @@ export function modulesForUser(
     if (HIDDEN_MODULE_IDS.has(m.id)) return false;
     if (m.id === "director") {
       return isDirectorRole || isDirectorEmail;
+    }
+    if (m.id === "referral-register") {
+      return canAccessReferralRegister(user);
     }
     if (!role || isAdmin) return true;
     return !m.roles || m.roles.includes(role);
