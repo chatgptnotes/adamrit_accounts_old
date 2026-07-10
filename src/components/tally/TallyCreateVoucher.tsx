@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '@/integrations/supabase/client'
-import { useAuth } from '@/contexts/AuthContext'
 import { toast } from 'sonner'
 import { PlusCircle, RefreshCw, Loader2, CheckCircle2, WifiOff } from 'lucide-react'
 import { SearchableSelect, type SearchableSelectOption } from '@/components/ui/searchable-select'
@@ -128,8 +127,6 @@ function getVoucherFlow(voucher: VoucherHistory, accountLedger: string): 'debit'
 }
 
 export default function TallyCreateVoucher({ serverUrl, companyName, companyId }: Props) {
-  const { hospitalType } = useAuth()
-
   const [allLedgers, setAllLedgers] = useState<Ledger[]>([])
   const [loadingLedgers, setLoadingLedgers] = useState(false)
   const [tallyOnline, setTallyOnline] = useState<boolean | null>(null)
@@ -253,7 +250,7 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
           }),
         })
         const result = await res.json()
-        return !!result.connected
+        return !!result.connected && result.companyValid === true
       } catch {
         return false
       }
@@ -262,7 +259,11 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
     // 1. Try to refresh from TallyPrime live
     if ((forceLive || tallyOnline !== false) && serverUrl && companyName) {
       try {
-        const res = await fetch('/api/tally-proxy', {
+        liveSuccess = await testLiveConnection()
+        if (!liveSuccess) {
+          setTallyOnline(false)
+        } else {
+          const res = await fetch('/api/tally-proxy', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -272,18 +273,21 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
             companyName,
             companyId,
           }),
-        })
-        const result = await res.json()
-        if (result.recordsSynced > 0 || result.success) {
-          liveSuccess = true
-          setTallyOnline(true)
-        } else if (typeof result.message === 'string' && result.message.includes('Sync not available in dev mode')) {
-          liveSuccess = await testLiveConnection()
-          setTallyOnline(liveSuccess)
+          })
+          const result = await res.json()
+          if (result.recordsSynced > 0 || result.success) {
+            setTallyOnline(true)
+          } else if (typeof result.message === 'string' && result.message.includes('Sync not available in dev mode')) {
+            // Vite dev has no Supabase service-role sync, but Tally itself is live.
+            setTallyOnline(true)
+          } else {
+            liveSuccess = false
+            setTallyOnline(false)
+          }
         }
       } catch {
-        liveSuccess = await testLiveConnection()
-        setTallyOnline(liveSuccess)
+        liveSuccess = false
+        setTallyOnline(false)
       }
     }
 
@@ -422,17 +426,18 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
     }))
   }
 
-  // ── Voucher number generator (same logic as PaymentVoucher page) ──
+  // Generate a readable number from the Tally-backed voucher mirror.
   async function nextVoucherNo(date: string): Promise<string> {
     const datePart = date.replace(/-/g, '')
     const prefix = `PV-${datePart}-`
     const { data } = await (supabase as any)
-      .from('payment_vouchers')
-      .select('voucher_no')
-      .like('voucher_no', `${prefix}%`)
-      .order('voucher_no', { ascending: false })
+      .from('tally_vouchers')
+      .select('voucher_number')
+      .eq('company_id', companyId)
+      .like('voucher_number', `${prefix}%`)
+      .order('voucher_number', { ascending: false })
       .limit(1)
-    const lastNo = data?.[0]?.voucher_no as string | undefined
+    const lastNo = data?.[0]?.voucher_number as string | undefined
     const lastSeq = lastNo ? parseInt(lastNo.slice(prefix.length), 10) : 0
     const seq = String((Number.isFinite(lastSeq) ? lastSeq : 0) + 1).padStart(3, '0')
     return `${prefix}${seq}`
@@ -440,6 +445,8 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
 
   // ── Submit ────────────────────────────────────────────────────
   async function handleSubmit() {
+    if (!serverUrl || !companyName || !companyId) { toast.error('Select a Tally company first'); return }
+    if (tallyOnline !== true) { toast.error('Tally is offline. Connect to Tally before creating a voucher'); return }
     if (!form.account) { toast.error('Select an Account'); return }
     if (!form.particulars) { toast.error('Select Particulars'); return }
     const amount = Number(form.amount)
@@ -448,51 +455,41 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
     setSaving(true)
     try {
       const voucherNo = form.paymentNo.trim() || await nextVoucherNo(form.date)
-
-      // 1 — Save to HMS payment_vouchers
-      const { error: dbError } = await (supabase as any).from('payment_vouchers').insert({
-        voucher_no: voucherNo,
-        voucher_date: form.date,
-        person_name: form.particulars,
-        amount,
-        purpose: form.narration.trim() || null,
-        paid_by: form.account,
-        hospital_type: hospitalType,
-      })
-      if (dbError) throw new Error(`HMS save failed: ${dbError.message}`)
-
-      // 2 — Mirror to tally_vouchers so Ledger View and Cash Book pick it up.
-      // In one-way mode this is the only ledger record we create.
       const narration = form.narration.trim() || `Payment #${voucherNo} to ${form.particulars}`
-      if (companyId) {
-        const { count } = await supabase
-          .from('tally_vouchers')
-          .select('id', { count: 'exact', head: true })
-          .eq('company_id', companyId)
-          .eq('voucher_number', voucherNo)
 
-        if (!count || count === 0) {
-          await supabase.from('tally_vouchers').insert({
-            voucher_type: 'Payment',
-            voucher_number: voucherNo,
+      const response = await fetch('/api/tally-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          endpoint: 'push',
+          action: 'create-voucher',
+          serverUrl,
+          companyName,
+          companyId,
+          data: {
+            voucherType: 'Payment',
+            voucherNumber: voucherNo,
             date: form.date,
-            party_ledger: form.particulars,
-            amount,
             narration,
-            ledger_entries: [
-              { ledger: form.particulars, amount, is_debit: true },
-              { ledger: form.account, amount, is_debit: false },
+            partyLedger: form.particulars,
+            ledgerEntries: [
+              { ledgerName: form.particulars, amount, isDeemedPositive: true },
+              { ledgerName: form.account, amount, isDeemedPositive: false },
             ],
-            sync_direction: 'to_tally',
-            sync_status: 'pending',
-            adamrit_payment_id: voucherNo,
-            company_id: companyId,
-            synced_at: null,
-          })
-        }
-      }
+          },
+        }),
+      })
+      const result = await response.json()
+      if (!response.ok || !result.success) throw new Error(result.error || result.message || 'Tally rejected the voucher')
 
-      toast.success(`Voucher ${voucherNo} saved locally`)
+      // Tally is the source of truth. Pull the created voucher back into the read model.
+      await fetch('/api/tally-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint: 'sync', action: 'vouchers', serverUrl, companyName, companyId }),
+      })
+
+      toast.success(`Voucher ${voucherNo} created in Tally`)
       setLastSaved(voucherNo)
       await loadVoucherHistory()
       setForm({ paymentNo: '', account: form.account, date: form.date, amount: '', particulars: '', narration: '' })

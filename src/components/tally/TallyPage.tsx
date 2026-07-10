@@ -5,7 +5,9 @@ import {
   LayoutDashboard, BookOpen, FileText, Package,
   BarChart3, ArrowUpFromLine, Link2, Banknote, Landmark,
   Scale, FileBarChart, PlusCircle
+  , RefreshCw, Loader2
 } from 'lucide-react'
+import { toast } from 'sonner'
 import TallyDashboard from '@/components/tally/TallyDashboard'
 import TallyLedgers from '@/components/tally/TallyLedgers'
 import TallyVouchers from '@/components/tally/TallyVouchers'
@@ -41,11 +43,12 @@ export default function TallyPage() {
   const [companyId, setCompanyId] = useState('')
   const [configs, setConfigs] = useState<{ id: string; server_url: string; company_name: string }[]>([])
   const [liveCompanies, setLiveCompanies] = useState<string[]>([])
+  const [refreshingAll, setRefreshingAll] = useState(false)
 
-  const loadLiveCompanies = useCallback(async (targetServerUrl?: string) => {
+  const loadLiveCompanies = useCallback(async (targetServerUrl?: string): Promise<string[]> => {
     if (!targetServerUrl) {
       setLiveCompanies([])
-      return
+      return []
     }
 
     try {
@@ -82,15 +85,29 @@ export default function TallyPage() {
         setServerUrl(target.server_url || '')
         setCompanyName(target.company_name || '')
         setCompanyId(target.id)
-        const discovered = await loadLiveCompanies(target.server_url || '')
+        const serverUrls = Array.from(
+          new Set(data.map((item) => item.server_url).filter(Boolean)),
+        )
+        const discoveredByServer = await Promise.all(
+          serverUrls.map(async (server_url) => ({
+            server_url,
+            companies: await loadLiveCompanies(server_url),
+          })),
+        )
+        const discovered = Array.from(new Set(discoveredByServer.flatMap((item) => item.companies)))
+        setLiveCompanies(discovered)
         const existing = new Set(data.map((item) => item.company_name).filter(Boolean))
-        const missing = discovered.filter((name) => name && !existing.has(name))
+        const missing = discoveredByServer.flatMap(({ server_url, companies }) =>
+          companies
+            .filter((name) => name && !existing.has(name))
+            .map((company_name) => ({ company_name, server_url })),
+        )
         if (missing.length > 0) {
           await Promise.all(
-            missing.map((company_name) =>
+            missing.map(({ company_name, server_url }) =>
               supabase.from('tally_config').insert({
                 company_name,
-                server_url: target.server_url || '',
+                server_url,
                 is_active: true,
                 auto_sync_enabled: false,
                 sync_interval_minutes: 30,
@@ -173,6 +190,38 @@ export default function TallyPage() {
     loadConfigs()
   }, [loadConfigs])
 
+  const refreshAll = useCallback(async () => {
+    if (!serverUrl || !companyName || !companyId) {
+      toast.error('Select a Tally company first')
+      return
+    }
+
+    setRefreshingAll(true)
+    try {
+      const response = await fetch('/api/tally-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          endpoint: 'sync',
+          action: 'full',
+          serverUrl,
+          companyName,
+          companyId,
+        }),
+      })
+      const result = await response.json()
+      if (!response.ok || result.error || result.success === false) {
+        throw new Error(result.error || result.message || 'Tally refresh failed')
+      }
+      toast.success(`All Tally data refreshed for ${companyName}`)
+      window.location.reload()
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not refresh Tally data')
+    } finally {
+      setRefreshingAll(false)
+    }
+  }, [companyId, companyName, serverUrl])
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -183,25 +232,37 @@ export default function TallyPage() {
             TallyPrime Server two-way sync for Adamrit HMS
           </p>
         </div>
-        {companyOptions.length > 0 ? (
-          <div className="flex items-center gap-2 text-sm text-gray-600 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
-            <span>Company:</span>
-            <select
-              value={companyName}
-              onChange={(e) => { void handleCompanyChange(e.target.value) }}
-              className="font-medium text-blue-700 bg-transparent border-none outline-none cursor-pointer"
-            >
-              {!companyName && <option value="">Select company</option>}
-              {companyOptions.map(name => (
-                <option key={name} value={name}>{name}</option>
-              ))}
-            </select>
-          </div>
-        ) : companyName ? (
-          <div className="text-sm text-gray-600 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
-            Company: <span className="font-medium text-blue-700">{companyName}</span>
-          </div>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {companyOptions.length > 0 ? (
+            <div className="flex items-center gap-2 text-sm text-gray-600 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
+              <span>Company:</span>
+              <select
+                value={companyName}
+                onChange={(e) => { void handleCompanyChange(e.target.value) }}
+                className="font-medium text-blue-700 bg-transparent border-none outline-none cursor-pointer"
+              >
+                {!companyName && <option value="">Select company</option>}
+                {companyOptions.map(name => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+            </div>
+          ) : companyName ? (
+            <div className="text-sm text-gray-600 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
+              Company: <span className="font-medium text-blue-700">{companyName}</span>
+            </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => void refreshAll()}
+            disabled={refreshingAll || !companyId}
+            className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+            title="Refresh all Tally data for the selected company"
+          >
+            {refreshingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {refreshingAll ? 'Refreshing...' : 'Refresh All'}
+          </button>
+        </div>
       </div>
 
       {/* Tab Navigation */}

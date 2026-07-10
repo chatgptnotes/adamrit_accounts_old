@@ -8,8 +8,7 @@ import * as https from "https";
 
 // Dev-only Tally proxy. In production, api/tally-proxy.ts (Vercel function)
 // handles this. In dev, Vite doesn't serve API routes, so the browser POST to
-// /api/tally-proxy returns 404 unless this middleware intercepts it. Read-only
-// mode keeps test-connection and proxy available, but blocks all outbound push.
+// /api/tally-proxy returns 404 unless this middleware intercepts it.
 function tallyProxyPlugin(): Plugin {
   function esc(s: string) {
     return (s || "")
@@ -22,6 +21,25 @@ function tallyProxyPlugin(): Plugin {
     return (d || "").replace(/-/g, "");
   }
 
+  function companyNames(xml: string): string[] {
+    const names: string[] = [];
+    const add = (value: string) => {
+      const name = value.replace(/&amp;/gi, "&").trim();
+      if (name && !names.includes(name)) names.push(name);
+    };
+    for (const match of xml.match(/<NAME[^>]*>([^<]+)<\/NAME>/gi) || []) {
+      add(match.replace(/<\/?NAME[^>]*>/gi, ""));
+    }
+    for (const match of xml.match(/<BASICCOMPANYNAME[^>]*>([^<]+)<\/BASICCOMPANYNAME>/gi) || []) {
+      add(match.replace(/<\/?BASICCOMPANYNAME[^>]*>/gi, ""));
+    }
+    for (const match of xml.match(/<COMPANY\b[^>]*\bNAME="([^"]+)"[^>]*>/gi) || []) {
+      const name = match.match(/\bNAME="([^"]+)"/i)?.[1];
+      if (name) add(name);
+    }
+    return names;
+  }
+
   function buildVoucherXml(companyName: string, action: string, data: any): string {
     switch (action) {
       case "create-voucher": {
@@ -30,7 +48,7 @@ function tallyProxyPlugin(): Plugin {
           const amt = e.isDeemedPositive ? -Math.abs(e.amount) : Math.abs(e.amount);
           entries += `<ALLLEDGERENTRIES.LIST><LEDGERNAME>${esc(e.ledgerName || e.ledger)}</LEDGERNAME><ISDEEMEDPOSITIVE>${e.isDeemedPositive ? "Yes" : "No"}</ISDEEMEDPOSITIVE><AMOUNT>${amt}</AMOUNT></ALLLEDGERENTRIES.LIST>`;
         }
-        return `<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER><BODY><DESC><STATICVARIABLES><SVCURRENTCOMPANY>${esc(companyName)}</SVCURRENTCOMPANY></STATICVARIABLES></DESC><DATA><TALLYMESSAGE xmlns:UDF="TallyUDF"><VOUCHER VCHTYPE="${esc(data.voucherType)}" ACTION="Create"><DATE>${fmtDate(data.date)}</DATE><NARRATION>${esc(data.narration || "")}</NARRATION><VOUCHERTYPENAME>${esc(data.voucherType)}</VOUCHERTYPENAME><PARTYLEDGERNAME>${esc(data.partyLedger || "")}</PARTYLEDGERNAME>${entries}</VOUCHER></TALLYMESSAGE></DATA></BODY></ENVELOPE>`;
+        return `<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER><BODY><DESC><STATICVARIABLES><SVCURRENTCOMPANY>${esc(companyName)}</SVCURRENTCOMPANY></STATICVARIABLES></DESC><DATA><TALLYMESSAGE xmlns:UDF="TallyUDF"><VOUCHER VCHTYPE="${esc(data.voucherType)}" ACTION="Create"><DATE>${fmtDate(data.date)}</DATE>${data.voucherNumber ? `<VOUCHERNUMBER>${esc(data.voucherNumber)}</VOUCHERNUMBER>` : ""}<NARRATION>${esc(data.narration || "")}</NARRATION><VOUCHERTYPENAME>${esc(data.voucherType)}</VOUCHERTYPENAME><PARTYLEDGERNAME>${esc(data.partyLedger || "")}</PARTYLEDGERNAME>${entries}</VOUCHER></TALLYMESSAGE></DATA></BODY></ENVELOPE>`;
       }
       case "create-sales-voucher": {
         let entries = `<ALLLEDGERENTRIES.LIST><LEDGERNAME>${esc(data.patientName)}</LEDGERNAME><ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE><AMOUNT>-${data.totalAmount}</AMOUNT></ALLLEDGERENTRIES.LIST>`;
@@ -113,8 +131,9 @@ function tallyProxyPlugin(): Plugin {
               const xml = `<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>List of Companies</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES></DESC></BODY></ENVELOPE>`;
               try {
                 const resp = await callTally(serverUrl, xml);
-                const names = [...resp.matchAll(/<NAME[^>]*>([^<]+)<\/NAME>/gi)].map((m) => m[1].trim()).filter(Boolean);
-                send({ connected: true, companies: [...new Set(names)], version: "Connected" });
+                const companies = companyNames(resp);
+                const companyValid = !companyName || companies.some((name) => name.trim().replace(/\s+/g, " ").toLowerCase() === companyName.trim().replace(/\s+/g, " ").toLowerCase());
+                send({ connected: true, companies, companyValid, version: "Connected" });
               } catch (e: any) {
                 send({ connected: false, companies: [], version: "", error: e.message });
               }
@@ -128,10 +147,22 @@ function tallyProxyPlugin(): Plugin {
             }
 
             if (endpoint === "push") {
-              send({
-                success: false,
-                message: "Outbound push to Tally is disabled. This installation is read-only from Tally.",
-              });
+              if (action !== "create-voucher" || !companyName) {
+                send({ success: false, error: "A validated company and create-voucher action are required" });
+                return;
+              }
+              try {
+                const companiesXml = `<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>List of Companies</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES></DESC></BODY></ENVELOPE>`;
+                const companies = companyNames(await callTally(serverUrl, companiesXml));
+                const normalized = companyName.trim().replace(/\s+/g, " ").toLowerCase();
+                if (!companies.some((name) => name.trim().replace(/\s+/g, " ").toLowerCase() === normalized)) {
+                  send({ success: false, error: `Company "${companyName}" is not available on the connected Tally server` });
+                  return;
+                }
+                send(parseResp(await callTally(serverUrl, buildVoucherXml(companyName, action, data))));
+              } catch (e: any) {
+                send({ success: false, error: e.message });
+              }
               return;
             }
 

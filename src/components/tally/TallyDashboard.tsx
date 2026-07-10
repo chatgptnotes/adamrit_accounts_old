@@ -64,6 +64,10 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
   }, [propServerUrl, propCompanyName, propCompanyId])
 
   useEffect(() => {
+    if (propServerUrl && propCompanyName) void testConnection()
+  }, [propServerUrl, propCompanyName])
+
+  useEffect(() => {
     loadConfig()
     loadStats()
     loadSyncLogs()
@@ -167,7 +171,7 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
       })
       const result = await res.json()
 
-      if (result.connected) {
+      if (result.connected && result.companyValid !== false) {
         setIsConnected(true)
         setConnectionInfo(result)
         setConnectionError('')
@@ -178,7 +182,9 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
       } else {
         setIsConnected(false)
         setConnectionInfo(null)
-        const errorMessage = result.error || 'Cannot connect to Tally server'
+        const errorMessage = result.error || (result.companyValid === false
+          ? `Company "${normalizedCompanyName}" was not found on this Tally server`
+          : 'Cannot connect to Tally server')
         setConnectionError(errorMessage)
         setAutoSync(false)
         toast.error(errorMessage)
@@ -625,54 +631,6 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
               Delete
             </button>
           )}
-        </div>
-      </div>
-
-      {/* Sync Control Panel */}
-      <div className="bg-white rounded-xl shadow-sm border p-6">
-        <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
-          <RefreshCw className="h-5 w-5 text-blue-600" />
-          Sync Control
-        </h2>
-
-        {syncing && (
-          <div className="mb-4">
-            <div className="flex items-center justify-between text-sm mb-1">
-              <span className="text-gray-600">Syncing {syncing}...</span>
-              <span className="text-blue-600 font-medium">{syncProgress}%</span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div
-                className="bg-blue-600 h-2 rounded-full transition-all duration-500"
-                style={{ width: `${syncProgress}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-          {[
-            { action: 'full', label: 'Sync All', icon: RefreshCw, color: 'blue' },
-            { action: 'ledgers', label: 'Ledgers', icon: Database, color: 'indigo' },
-            { action: 'groups', label: 'Groups', icon: FileText, color: 'purple' },
-            { action: 'stock', label: 'Stock', icon: Package, color: 'emerald' },
-            { action: 'vouchers', label: 'Vouchers', icon: ArrowDownToLine, color: 'orange' },
-            { action: 'reports', label: 'Reports', icon: BarChart3, color: 'teal' },
-          ].map(({ action, label, icon: Icon, color }) => (
-            <button
-              key={action}
-              onClick={() => runSync(action)}
-              disabled={!!syncing || !companyName}
-              className={`flex flex-col items-center gap-2 p-4 rounded-lg border-2 border-${color}-200 bg-${color}-50 hover:bg-${color}-100 disabled:opacity-50 transition-colors text-sm font-medium text-${color}-700`}
-            >
-              {syncing === action ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <Icon className="h-5 w-5" />
-              )}
-              {label}
-            </button>
-          ))}
         </div>
       </div>
 

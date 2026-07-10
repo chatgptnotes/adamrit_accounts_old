@@ -55,21 +55,45 @@ function getAll(xml: string, tag: string): string[] {
   return xml.match(new RegExp(`<${tag}[^>]*>[\\s\\S]*?</${tag}>`, 'gi')) || []
 }
 
+function getCompanyNames(xml: string): string[] {
+  const companies: string[] = []
+  const add = (value: string) => {
+    const name = value.replace(/&amp;/gi, '&').trim()
+    if (name && !companies.includes(name)) companies.push(name)
+  }
+
+  for (const match of xml.match(/<NAME[^>]*>([^<]+)<\/NAME>/gi) || []) {
+    add(match.replace(/<\/?NAME[^>]*>/gi, ''))
+  }
+  for (const match of xml.match(/<BASICCOMPANYNAME[^>]*>([^<]+)<\/BASICCOMPANYNAME>/gi) || []) {
+    add(match.replace(/<\/?BASICCOMPANYNAME[^>]*>/gi, ''))
+  }
+  for (const match of xml.match(/<COMPANY\b[^>]*\bNAME="([^"]+)"[^>]*>/gi) || []) {
+    const name = match.match(/\bNAME="([^"]+)"/i)?.[1]
+    if (name) add(name)
+  }
+  return companies
+}
+
+function normalizedCompanyName(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+function normalizedServerUrl(value: string): string {
+  return new URL(normalizeServerUrl(value)).toString().replace(/\/$/, '').toLowerCase()
+}
+
 function getAttr(xml: string, attr: string): string {
   const m = xml.match(new RegExp(`${attr}="([^"]*)"`, 'i'))
   return m ? m[1] : ''
 }
 
 function buildExportXml(reportId: string, companyName: string, extraVars = ''): string {
-  // companyName is intentionally not embedded in SVCURRENTCOMPANY because
-  // Tally silently returns 0 records when the name doesn't match exactly
-  // (case, spacing, & vs &amp;). Tally uses the currently-loaded company
-  // when SVCURRENTCOMPANY is omitted, which is what we want.
-  void companyName
   return `<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>${reportId}</ID></HEADER>
   <BODY><DESC><STATICVARIABLES>
     <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+    <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>
     ${extraVars}
   </STATICVARIABLES></DESC></BODY>
 </ENVELOPE>`
@@ -132,7 +156,6 @@ async function handleTestConnection(body: any) {
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>List of Companies</ID></HEADER>
   <BODY><DESC><STATICVARIABLES>
     <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-    ${companyName ? `<SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>` : ''}
   </STATICVARIABLES></DESC></BODY>
 </ENVELOPE>`
 
@@ -140,20 +163,16 @@ async function handleTestConnection(body: any) {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const responseText = await fetchFromTally(serverUrl, xmlBody, 60000)
-      const companies: string[] = []
-      const companyMatches = responseText.match(/<NAME[^>]*>([^<]+)<\/NAME>/gi) || []
-      for (const match of companyMatches) {
-        const name = match.replace(/<\/?NAME[^>]*>/gi, '').trim()
-        if (name && !companies.includes(name)) companies.push(name)
-      }
+      const companies = getCompanyNames(responseText)
       const versionMatch = responseText.match(/<VERSION[^>]*>([^<]+)<\/VERSION>/i)
-      return { connected: true, companies, version: versionMatch ? versionMatch[1] : 'Connected' }
+      const companyValid = !companyName || companies.some((name) => normalizedCompanyName(name) === normalizedCompanyName(companyName))
+      return { connected: true, companies, companyValid, version: versionMatch ? versionMatch[1] : 'Connected' }
     } catch (err: any) {
       if (attempt === 0 && err.message.includes('timed out')) continue
-      return { connected: false, companies: [], version: '', error: err.message }
+      return { connected: false, companies: [], companyValid: false, version: '', error: err.message }
     }
   }
-  return { connected: false, companies: [], version: '', error: 'Connection timed out after retries' }
+  return { connected: false, companies: [], companyValid: false, version: '', error: 'Connection timed out after retries' }
 }
 
 // ─── Endpoint: proxy (raw XML) ───
@@ -170,17 +189,120 @@ async function handleProxy(body: any) {
 
 // ─── Endpoint: push (create/alter/cancel vouchers & ledgers) ───
 async function handlePush(body: any) {
-  void body
-  return {
-    success: false,
-    message: 'Outbound push to Tally is disabled. This installation is read-only from Tally.',
+  const { action, serverUrl, companyName, companyId, data } = body
+  if (!serverUrl || !companyName || !companyId || !action) return { success: false, error: 'Missing required fields' }
+
+  if (action !== 'create-voucher') {
+    return { success: false, error: `Unsupported push action: ${action}` }
   }
+
+  let config: any
+  try {
+    const { data: savedConfig, error } = await getSupabase()
+      .from('tally_config')
+      .select('id, server_url, company_name, is_active')
+      .eq('id', companyId)
+      .maybeSingle()
+    if (error) throw error
+    config = savedConfig
+  } catch (err: any) {
+    return { success: false, error: `Could not validate Tally company configuration: ${err.message}` }
+  }
+
+  if (!config || config.is_active === false) {
+    return { success: false, error: 'The selected Tally company configuration is inactive or missing' }
+  }
+  let matchesSavedConfig = false
+  try {
+    matchesSavedConfig = normalizedServerUrl(serverUrl) === normalizedServerUrl(config.server_url || '') &&
+      normalizedCompanyName(companyName) === normalizedCompanyName(config.company_name || '')
+  } catch {
+    matchesSavedConfig = false
+  }
+  if (!matchesSavedConfig) {
+    return { success: false, error: 'The selected company does not match its configured Tally server' }
+  }
+
+  try {
+    const companiesXml = `<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>List of Companies</ID></HEADER>
+  <BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES></DESC></BODY>
+</ENVELOPE>`
+    const companies = getCompanyNames(await fetchFromTally(serverUrl, companiesXml, 60000))
+    if (!companies.some((name) => normalizedCompanyName(name) === normalizedCompanyName(companyName))) {
+      return { success: false, error: `Company "${companyName}" is not available on the connected Tally server` }
+    }
+  } catch (err: any) {
+    return { success: false, error: `Could not confirm the selected Tally company: ${err.message}` }
+  }
+
+  const voucher = data || {}
+  const voucherType = String(voucher.voucherType || 'Payment').trim()
+  const date = String(voucher.date || '').trim()
+  const voucherNumber = String(voucher.voucherNumber || '').trim()
+  const narration = String(voucher.narration || '').trim()
+  const partyLedger = String(voucher.partyLedger || '').trim()
+  const entries = Array.isArray(voucher.ledgerEntries) ? voucher.ledgerEntries : []
+
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return { success: false, error: 'Invalid voucher date' }
+  if (!partyLedger || entries.length < 2) return { success: false, error: 'At least two ledger entries are required' }
+  if (entries.some((entry: any) => !String(entry.ledgerName || '').trim() || !Number.isFinite(Number(entry.amount)) || Number(entry.amount) <= 0)) {
+    return { success: false, error: 'Every ledger entry must have a ledger and a positive amount' }
+  }
+
+  const entriesXml = entries.map((entry: any) => {
+    const amount = entry.isDeemedPositive ? -Math.abs(Number(entry.amount)) : Math.abs(Number(entry.amount))
+    return `<ALLLEDGERENTRIES.LIST>
+      <LEDGERNAME>${escapeXml(String(entry.ledgerName).trim())}</LEDGERNAME>
+      <ISDEEMEDPOSITIVE>${entry.isDeemedPositive ? 'Yes' : 'No'}</ISDEEMEDPOSITIVE>
+      <AMOUNT>${amount}</AMOUNT>
+    </ALLLEDGERENTRIES.LIST>`
+  }).join('')
+
+  const xml = `<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
+  <BODY><DESC><STATICVARIABLES><SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY></STATICVARIABLES></DESC>
+    <DATA><TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <VOUCHER VCHTYPE="${escapeXml(voucherType)}" ACTION="Create">
+        <DATE>${formatDate(date)}</DATE>
+        ${voucherNumber ? `<VOUCHERNUMBER>${escapeXml(voucherNumber)}</VOUCHERNUMBER>` : ''}
+        <VOUCHERTYPENAME>${escapeXml(voucherType)}</VOUCHERTYPENAME>
+        <PARTYLEDGERNAME>${escapeXml(partyLedger)}</PARTYLEDGERNAME>
+        <NARRATION>${escapeXml(narration)}</NARRATION>
+        ${entriesXml}
+      </VOUCHER>
+    </TALLYMESSAGE></DATA>
+  </BODY></ENVELOPE>`
+
+  const response = await fetchFromTally(serverUrl, xml, 60000)
+  return parseResponse(response)
 }
 
 // ─── Endpoint: sync (pull from Tally → save to Supabase) ───
 async function handleSync(body: any) {
-  const { action, serverUrl, companyName, companyId, dateRange } = body
-  if (!serverUrl || !companyName || !action) return { error: 'Missing required fields' }
+  let { action, serverUrl, companyName, companyId, dateRange } = body
+  if (!serverUrl || !companyName || !companyId || !action) return { error: 'Missing required fields' }
+
+  const { data: config, error: configError } = await getSupabase()
+    .from('tally_config')
+    .select('id, server_url, company_name, is_active')
+    .eq('id', companyId)
+    .maybeSingle()
+  if (configError) return { error: `Could not validate Tally company configuration: ${configError.message}` }
+  if (!config || config.is_active === false) return { error: 'The selected Tally company configuration is inactive or missing' }
+
+  let matchesSavedConfig = false
+  try {
+    matchesSavedConfig = normalizedServerUrl(serverUrl) === normalizedServerUrl(config.server_url || '') &&
+      normalizedCompanyName(companyName) === normalizedCompanyName(config.company_name || '')
+  } catch {
+    matchesSavedConfig = false
+  }
+  if (!matchesSavedConfig) return { error: 'The selected company does not match its configured Tally server' }
+
+  // Use the canonical values from the saved configuration for every Tally request.
+  serverUrl = config.server_url
+  companyName = config.company_name
 
   // Tally company names can contain &, <, > which must be escaped before
   // being embedded inside <SVCURRENTCOMPANY> — otherwise Tally rejects the XML.
@@ -203,12 +325,10 @@ async function handleSync(body: any) {
   try {
     switch (action) {
       case 'ledgers': {
-        // TallyPrime Collection-based export — SVCURRENTCOMPANY omitted; Tally
-        // uses the currently-loaded company. Sending it caused silent 0-record
-        // responses when name didn't match exactly (case/spacing/&-encoding).
         const xml = `<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>Ledger Collection</ID></HEADER>
   <BODY><DESC>
+    <STATICVARIABLES><SVCURRENTCOMPANY>${safeCompany}</SVCURRENTCOMPANY></STATICVARIABLES>
     <TDL><TDLMESSAGE>
       <COLLECTION NAME="Ledger Collection" ISMODIFY="No">
         <TYPE>Ledger</TYPE>
@@ -256,6 +376,7 @@ async function handleSync(body: any) {
         const xml = `<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>Group Collection</ID></HEADER>
   <BODY><DESC>
+    <STATICVARIABLES><SVCURRENTCOMPANY>${safeCompany}</SVCURRENTCOMPANY></STATICVARIABLES>
     <TDL><TDLMESSAGE>
       <COLLECTION NAME="Group Collection" ISMODIFY="No">
         <TYPE>Group</TYPE>
@@ -296,6 +417,7 @@ async function handleSync(body: any) {
         const xml = `<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>StockItem Collection</ID></HEADER>
   <BODY><DESC>
+    <STATICVARIABLES><SVCURRENTCOMPANY>${safeCompany}</SVCURRENTCOMPANY></STATICVARIABLES>
     <TDL><TDLMESSAGE>
       <COLLECTION NAME="StockItem Collection" ISMODIFY="No">
         <TYPE>StockItem</TYPE>
@@ -355,6 +477,7 @@ async function handleSync(body: any) {
         const collectionXml = `<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>Voucher Collection</ID></HEADER>
   <BODY><DESC>
+    <STATICVARIABLES><SVCURRENTCOMPANY>${safeCompany}</SVCURRENTCOMPANY></STATICVARIABLES>
     <TDL><TDLMESSAGE>
       <COLLECTION NAME="Voucher Collection" ISMODIFY="No">
         <TYPE>Voucher</TYPE>
