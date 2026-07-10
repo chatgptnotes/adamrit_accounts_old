@@ -2,12 +2,15 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode 
 import {
   Activity,
   AlertCircle,
+  Camera,
+  CheckCircle2,
   ClipboardCopy,
   FileText,
   Loader2,
   MessageCircle,
   RefreshCw,
   ShieldCheck,
+  Sparkles,
   Upload,
   UserRound,
 } from 'lucide-react';
@@ -34,6 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   GOVERNMENT_PORTAL_REQUIRED_COLUMNS,
   type GovernmentPortalPatientStatus,
@@ -50,6 +54,13 @@ import {
   saveGovernmentPortalReport,
   updateGovernmentPortalRowStatus,
 } from '@/lib/governmentPortalReportDb';
+import { extractPreauthSubmissionList } from '@/lib/extractPreauthSubmissionList';
+import {
+  fetchPreauthSubmissionUploads,
+  savePreauthSubmissionUpload,
+  updatePreauthSubmissionRowStatus,
+  type PreauthSubmissionUpload,
+} from '@/lib/preauthSubmissionDb';
 
 const sectionStyles: Record<GovernmentPortalSection, string> = {
   dialysis: 'bg-cyan-50 text-cyan-700 border-cyan-200',
@@ -231,7 +242,13 @@ const ResultTable = ({
 };
 
 export default function GovernmentPortalReportImport() {
+  const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const preauthFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [preauthUploads, setPreauthUploads] = useState<PreauthSubmissionUpload[]>([]);
+  const [isLoadingPreauth, setIsLoadingPreauth] = useState(true);
+  const [isExtractingPreauth, setIsExtractingPreauth] = useState(false);
+  const [preauthSavingRowId, setPreauthSavingRowId] = useState<string | null>(null);
   const [fileName, setFileName] = useState('');
   const [report, setReport] = useState<ReturnType<typeof parseGovernmentPortalReport> | null>(null);
   const [reportDateLabel, setReportDateLabel] = useState('');
@@ -322,6 +339,77 @@ export default function GovernmentPortalReportImport() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadPreauthUploads = async () => {
+      setIsLoadingPreauth(true);
+      try {
+        const uploads = await fetchPreauthSubmissionUploads();
+        if (!cancelled) setPreauthUploads(uploads);
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Failed to load preauth submission uploads:', error);
+        }
+      } finally {
+        if (!cancelled) setIsLoadingPreauth(false);
+      }
+    };
+
+    void loadPreauthUploads();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handlePreauthFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Upload a screenshot image (PNG or JPG)');
+      if (preauthFileInputRef.current) preauthFileInputRef.current.value = '';
+      return;
+    }
+
+    setIsExtractingPreauth(true);
+    try {
+      const cases = await extractPreauthSubmissionList(file);
+      const saved = await savePreauthSubmissionUpload(file, cases, user?.email || user?.username || null);
+      setPreauthUploads((current) => [saved, ...current]);
+      toast.success(`Read ${cases.length} patient case(s) from the screenshot.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not read the screenshot';
+      console.error('Preauth submission screenshot extraction failed:', error);
+      toast.error(message);
+    } finally {
+      setIsExtractingPreauth(false);
+      if (preauthFileInputRef.current) preauthFileInputRef.current.value = '';
+    }
+  };
+
+  const handleTogglePreauthRowStatus = async (rowId: string, uploadId: string, nextStatus: 'pending' | 'submitted') => {
+    setPreauthSavingRowId(rowId);
+    try {
+      await updatePreauthSubmissionRowStatus(rowId, nextStatus);
+      setPreauthUploads((current) =>
+        current.map((upload) =>
+          upload.id !== uploadId
+            ? upload
+            : {
+                ...upload,
+                rows: upload.rows.map((row) => (row.id === rowId ? { ...row, status: nextStatus } : row)),
+              },
+        ),
+      );
+    } catch (error) {
+      console.error('Failed to update preauth submission row status:', error);
+      toast.error('Could not update status');
+    } finally {
+      setPreauthSavingRowId(null);
+    }
+  };
 
   const handleSelectImport = async (importId: string) => {
     if (!importId) return;
@@ -623,6 +711,133 @@ export default function GovernmentPortalReportImport() {
           <div className="rounded-lg bg-gray-50 p-3 text-xs text-gray-500">
             Required columns: {GOVERNMENT_PORTAL_REQUIRED_COLUMNS.join(', ')}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-amber-200">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Camera className="h-5 w-5 text-amber-600" />
+            Preauthorization to be Submitted (Screenshot Upload)
+          </CardTitle>
+          <p className="text-sm text-gray-500">
+            Upload a screenshot of the "Preauthorization to be Submitted" card list from the NHA
+            provider portal dashboard. AI reads the patient list for you to track submission progress.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              onClick={() => preauthFileInputRef.current?.click()}
+              disabled={isExtractingPreauth}
+              className="bg-amber-600 text-white hover:bg-amber-700"
+            >
+              {isExtractingPreauth ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="mr-2 h-4 w-4" />
+              )}
+              {isExtractingPreauth ? 'Reading screenshot…' : 'Upload Screenshot'}
+            </Button>
+            <input
+              ref={preauthFileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => void handlePreauthFileChange(e)}
+            />
+            {isLoadingPreauth && (
+              <span className="text-sm text-gray-500">Loading saved uploads…</span>
+            )}
+          </div>
+
+          {!isLoadingPreauth && preauthUploads.length === 0 && (
+            <div className="rounded-lg border border-dashed bg-gray-50 p-6 text-center text-sm text-gray-500">
+              No preauthorization screenshots uploaded yet.
+            </div>
+          )}
+
+          {preauthUploads.map((upload) => {
+            const pendingCount = upload.rows.filter((row) => row.status === 'pending').length;
+            return (
+              <div key={upload.id} className="space-y-3 rounded-lg border bg-white p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">{upload.fileName}</p>
+                    <p className="text-xs text-gray-500">
+                      {new Date(upload.createdAt).toLocaleString('en-IN')}
+                      {upload.uploadedBy ? ` · ${upload.uploadedBy}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
+                      {pendingCount} pending
+                    </Badge>
+                    <a
+                      href={upload.imageUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs font-medium text-blue-600 hover:underline"
+                    >
+                      View screenshot
+                    </a>
+                  </div>
+                </div>
+                <div className="overflow-x-auto rounded-lg border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Patient</TableHead>
+                        <TableHead>Age / Gender</TableHead>
+                        <TableHead>Program ID</TableHead>
+                        <TableHead>Registration ID</TableHead>
+                        <TableHead>Registration Date</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {upload.rows.map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell className="font-medium">{row.patientName || '-'}</TableCell>
+                          <TableCell>
+                            {row.ageLabel || '-'}
+                            {row.gender ? ` · ${row.gender}` : ''}
+                          </TableCell>
+                          <TableCell>{row.programId || '-'}</TableCell>
+                          <TableCell>{row.registrationId || '-'}</TableCell>
+                          <TableCell>{row.registrationDate || '-'}</TableCell>
+                          <TableCell>
+                            <Button
+                              size="sm"
+                              variant={row.status === 'submitted' ? 'outline' : 'default'}
+                              disabled={preauthSavingRowId === row.id}
+                              className={row.status === 'submitted' ? 'border-emerald-200 text-emerald-700' : ''}
+                              onClick={() =>
+                                handleTogglePreauthRowStatus(
+                                  row.id,
+                                  upload.id,
+                                  row.status === 'submitted' ? 'pending' : 'submitted',
+                                )
+                              }
+                            >
+                              {row.status === 'submitted' ? (
+                                <>
+                                  <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                                  Submitted
+                                </>
+                              ) : (
+                                'Mark submitted'
+                              )}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            );
+          })}
         </CardContent>
       </Card>
 
