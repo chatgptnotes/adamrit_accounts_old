@@ -530,9 +530,13 @@ export async function fetchGovernmentPortalReportById(
 
 type PortalSyncSource = {
   registration_id: string | null;
+  program_id: string | null;
+  case_type: string | null;
+  procedure_code: string | null;
   procedure_details: string | null;
   preauth_approved_amount: string | null;
   preauth_initiated_date: string | null;
+  beneficiary_name: string | null;
 };
 
 function normalizePortalPackageName(raw: string | null): string {
@@ -548,10 +552,55 @@ function portalDateToIso(raw: string | null): string | null {
   return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}`;
 }
 
+async function ensurePortalPackageSavedToMaster(row: PortalSyncSource): Promise<void> {
+  const scheme = inferSchemeFromProgramId(row.program_id || '');
+  const treatmentCode = cleanPortalPackageText(row.procedure_code) || null;
+  const treatmentPlan = cleanPortalPackageText(row.procedure_details) || null;
+
+  const identityKey = packageIdentityKey(scheme, treatmentCode, treatmentPlan);
+  if (!identityKey) return;
+
+  let existingQuery = db
+    .from('pmjay_mjpjay_packages')
+    .select('id')
+    .eq('scheme', scheme)
+    .limit(1);
+
+  if (treatmentCode) {
+    existingQuery = existingQuery.eq('treatment_code', treatmentCode);
+  } else {
+    existingQuery = existingQuery.is('treatment_code', null);
+  }
+
+  if (treatmentPlan) {
+    existingQuery = existingQuery.eq('treatment_plan', treatmentPlan);
+  } else {
+    existingQuery = existingQuery.is('treatment_plan', null);
+  }
+
+  const { data: existingRows, error: existingError } = await existingQuery;
+  if (existingError) throw existingError;
+  if ((existingRows || []).length > 0) return;
+
+  const { error: insertError } = await db.from('pmjay_mjpjay_packages').insert({
+    scheme,
+    treatment_code: treatmentCode,
+    treatment_plan: treatmentPlan,
+    category: inferCategoryFromCaseType(row.case_type || ''),
+    package_price: parsePackagePrice(row.preauth_approved_amount || ''),
+    patient_name_example: cleanPortalPackageText(row.beneficiary_name) || null,
+    is_active: true,
+  });
+
+  if (insertError) throw insertError;
+}
+
 async function applyPortalRowToVisit(
   visit: { id: string; visit_id: string | null },
   row: PortalSyncSource,
 ): Promise<boolean> {
+  await ensurePortalPackageSavedToMaster(row);
+
   const visitUpdate: Record<string, string> = {};
   // Portal exports repeat the value pipe-separated, e.g. "Severe sepsis|Severe sepsis"
   const packageName = normalizePortalPackageName(row.procedure_details);
@@ -589,7 +638,7 @@ export async function syncPortalDataForRegistrationId(registrationId: string): P
 
   const { data: row, error } = await db
     .from('government_portal_report_rows')
-    .select('registration_id, procedure_details, preauth_approved_amount, preauth_initiated_date')
+    .select('registration_id, program_id, case_type, procedure_code, procedure_details, preauth_approved_amount, preauth_initiated_date, beneficiary_name')
     .eq('registration_id', trimmed)
     .order('created_at', { ascending: false })
     .limit(1)
@@ -625,9 +674,13 @@ export async function syncGovernmentPortalReportToVisits(
     if (!registrationId) continue;
     rowsByRegistrationId.set(registrationId, {
       registration_id: registrationId,
+      program_id: row.values['Program ID'] || null,
+      case_type: row.values['Case Type'] || null,
+      procedure_code: row.values['Procedure Code'] || null,
       procedure_details: row.values['Procedure Details'] || null,
       preauth_approved_amount: row.values['Preauth Approved Amount'] || null,
       preauth_initiated_date: row.values['Preauth Initiated Date'] || null,
+      beneficiary_name: row.values['Beneficiary Name'] || null,
     });
   }
 
