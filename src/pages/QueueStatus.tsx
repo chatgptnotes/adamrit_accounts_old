@@ -155,7 +155,7 @@ function PersonalView({ dept, tokenNumber }: PersonalViewProps) {
       setLastUpdated(new Date());
       return (data ?? []) as QueueToken[];
     },
-    refetchInterval: 8000,
+    refetchInterval: 20000,
     staleTime: 4000,
   });
 
@@ -319,7 +319,7 @@ function OverviewView() {
       setLastUpdated(new Date());
       return (data ?? []) as QueueToken[];
     },
-    refetchInterval: 8000,
+    refetchInterval: 20000,
     staleTime: 4000,
   });
 

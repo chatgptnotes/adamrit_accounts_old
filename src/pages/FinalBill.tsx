@@ -541,6 +541,18 @@ const isMaharashtraYojana = (corp: string) => {
     c.includes('ab pmjay') || c.includes('maharashtra yojana');
 };
 
+type VisitContextRecord = {
+  id: string;
+  visit_id?: string;
+  patient_type?: string | null;
+  insurance_type?: string | null;
+  corporate?: string | null;
+  admission_date?: string | null;
+  discharge_date?: string | null;
+  surgery_date?: string | null;
+  patients?: any;
+};
+
 const FinalBill = () => {
   const { visitId } = useParams<{ visitId: string }>();
   const navigate = useNavigate();
@@ -565,6 +577,15 @@ const FinalBill = () => {
 
   // Trigger for refetching services when patient info loads
   const [servicesRefetchTrigger, setServicesRefetchTrigger] = useState(0);
+  const visitContextCacheRef = useRef<{
+    visitId: string | null;
+    data: VisitContextRecord | null;
+    promise: Promise<VisitContextRecord | null> | null;
+  }>({
+    visitId: null,
+    data: null,
+    promise: null,
+  });
 
   // Advance Payment Modal State
   const [isAdvancePaymentModalOpen, setIsAdvancePaymentModalOpen] = useState(false);
@@ -578,6 +599,52 @@ const FinalBill = () => {
   const [isSavingFinalPayment, setIsSavingFinalPayment] = useState(false);
   const [isPatientDischarged, setIsPatientDischarged] = useState(false);
   const [finalPaymentSelectedBank, setFinalPaymentSelectedBank] = useState('');
+
+  const getVisitContext = useCallback(async (): Promise<VisitContextRecord | null> => {
+    if (!visitId) return null;
+
+    const cache = visitContextCacheRef.current;
+    if (cache.visitId !== visitId) {
+      cache.visitId = visitId;
+      cache.data = null;
+      cache.promise = null;
+    }
+
+    if (cache.data) return cache.data;
+    if (cache.promise) return cache.promise;
+
+    cache.promise = (async () => {
+      const { data, error } = await supabase
+        .from('visits')
+        .select(`
+          id,
+          visit_id,
+          patient_type,
+          insurance_type,
+          corporate,
+          admission_date,
+          discharge_date,
+          surgery_date,
+          patients (*)
+        `)
+        .eq('visit_id', visitId)
+        .single();
+
+      if (error || !data) {
+        if (error) console.error('Error fetching visit context:', error);
+        return null;
+      }
+
+      cache.data = data as VisitContextRecord;
+      return cache.data;
+    })();
+
+    try {
+      return await cache.promise;
+    } finally {
+      cache.promise = null;
+    }
+  }, [visitId]);
   const [finalPaymentDischargeDate, setFinalPaymentDischargeDate] = useState(new Date().toISOString());
   const [bankAccounts, setBankAccounts] = useState<Array<{ id: string; account_name: string }>>([]);
   const [pendingPharmacyAmount, setPendingPharmacyAmount] = useState(0);
@@ -788,13 +855,6 @@ const FinalBill = () => {
   // NOTE: fetchSavedRadiology is now called from fetchPatientInfo() instead of here
   // This ensures patientInfo is loaded before calculating radiology rates
   // See line 2985 in fetchPatientInfo function
-
-  // Fetch saved medications when visit ID is available
-  useEffect(() => {
-    if (visitId) {
-      fetchSavedMedications(visitId);
-    }
-  }, [visitId]);
 
   // Fetch patient info when visit ID is available
   useEffect(() => {
@@ -1667,14 +1727,17 @@ const FinalBill = () => {
 
 
       try {
+        const visitContext = await getVisitContext();
+        if (!visitContext) return;
+
         // Fetch visit-related data (surgeries, diagnoses, complications, labs, radiology, medications, AI recommendations)
         await Promise.all([
           fetchSavedSurgeriesFromVisit(visitId),
           fetchSavedDiagnoses(visitId),
           fetchSavedComplications(visitId),
-          fetchSavedLabs(visitId),
-          fetchSavedRadiology(visitId),
-          fetchSavedMedications(visitId),
+          fetchSavedLabs(visitId, visitContext),
+          fetchSavedRadiology(visitId, visitContext),
+          fetchSavedMedications(visitId, visitContext),
           fetchAIRecommendations(visitId),
           loadSelectedComplicationsFromDB(visitId),
           fetchBillPreparationData(visitId)
@@ -2675,13 +2738,6 @@ const FinalBill = () => {
   // State for medication modal
   const [selectedMedication, setSelectedMedication] = useState<any>(null);
 
-  // Fetch saved labs when visit ID is available (moved here to avoid hoisting issues)
-  useEffect(() => {
-    if (visitId) {
-      fetchSavedLabs(visitId);
-    }
-  }, [visitId, labDataRefreshCounter]);
-
   // Fetch saved pathology charges when visit ID is available
   useEffect(() => {
     if (visitId && !pathologyChargesInitialized) {
@@ -3126,175 +3182,6 @@ const FinalBill = () => {
     }
   }, [visitData]);
 
-  // Fetch saved data for the tabs
-  useEffect(() => {
-    const fetchSavedData = async () => {
-      if (!visitId) return;
-
-      try {
-        // First get the actual visit UUID from the visits table
-        const { data: visitData, error: visitError } = await supabase
-          .from('visits')
-          .select('id')
-          .eq('visit_id', visitId)
-          .single();
-
-        if (visitError || !visitData?.id) {
-          console.error('Error fetching visit UUID for saved data:', visitError);
-          return;
-        }
-
-        const visitUUID = visitData.id;
-
-        // Fetch saved lab data
-        const { data: labData, error: labError } = await supabase
-          .from('visit_labs')
-          .select('*')
-          .eq('visit_id', visitUUID);
-
-        if (!labError && labData) {
-          // Fetch lab details for each lab_id
-          const formattedLabData = await Promise.all(
-            labData.map(async (item) => {
-              if (item.lab_id) {
-                const { data: labDetails } = await supabase
-                  .from('lab')
-                  .select('name, private, "CGHS_code", description, "NABH_rates_in_rupee", "Non-NABH_rates_in_rupee", bhopal_nabh_rate, bhopal_non_nabh_rate')
-                  .eq('id', item.lab_id)
-                  .single();
-
-                // Determine correct rate based on corporate status
-                const corporate = (patientInfo?.corporate || '').toLowerCase().trim();
-                const hasCorp = corporate.length > 0 && corporate !== 'private';
-                let masterRate = labDetails?.private || 0;
-                if (hasCorp) {
-                  if (corporate.includes('cghs') || corporate.includes('echs')) {
-                    masterRate = labDetails?.['NABH_rates_in_rupee'] || labDetails?.private || 0;
-                  } else if (corporate.includes('esic')) {
-                    masterRate = labDetails?.['Non-NABH_rates_in_rupee'] || labDetails?.private || 0;
-                  } else if (corporate.includes('mp police') || corporate.includes('ordnance factory')) {
-                    masterRate = labDetails?.bhopal_nabh_rate || labDetails?.private || 0;
-                  } else if (corporate.includes('icici')) {
-                    masterRate = labDetails?.private || 0;
-                  } else {
-                    masterRate = labDetails?.['NABH_rates_in_rupee'] || labDetails?.private || 0;
-                  }
-                }
-
-                return {
-                  ...item,
-                  lab_name: labDetails?.name || 'Unknown Lab',
-                  cost: masterRate > 0 ? masterRate : (item.cost || 0), // Always use current master rate
-                  quantity: item.quantity || 1,
-                  description: labDetails?.description || ''
-                };
-              }
-              return {
-                ...item,
-                lab_name: 'Unknown Lab',
-                cost: item.cost || 0,
-                quantity: item.quantity || 1,
-                description: ''
-              };
-            })
-          );
-          setSavedLabData(formattedLabData);
-        }
-
-        // Fetch saved radiology data
-        const { data: radiologyData, error: radiologyError } = await supabase
-          .from('visit_radiology')
-          .select('*')
-          .eq('visit_id', visitUUID);
-
-        if (!radiologyError && radiologyData) {
-          // Fetch radiology details for each radiology_id
-          const formattedRadiologyData = await Promise.all(
-            radiologyData.map(async (item) => {
-              if (item.radiology_id) {
-                const { data: radiologyDetails } = await supabase
-                  .from('radiology')
-                  .select('name, description, private, NABH_NABL_Rate, Non_NABH_NABL_Rate, bhopal_nabh')
-                  .eq('id', item.radiology_id)
-                  .single();
-
-                // Determine correct rate based on corporate status
-                const corporate = (patientInfo?.corporate || '').toLowerCase().trim();
-                const hasCorp = corporate.length > 0 && corporate !== 'private';
-                let masterRate = radiologyDetails?.private || 0;
-                if (hasCorp) {
-                  if (corporate.includes('cghs') || corporate.includes('echs')) {
-                    masterRate = radiologyDetails?.NABH_NABL_Rate || radiologyDetails?.private || 0;
-                  } else if (corporate.includes('esic')) {
-                    masterRate = radiologyDetails?.Non_NABH_NABL_Rate || radiologyDetails?.private || 0;
-                  } else if (corporate.includes('mp police') || corporate.includes('ordnance factory')) {
-                    masterRate = radiologyDetails?.bhopal_nabh || radiologyDetails?.private || 0;
-                  } else {
-                    masterRate = radiologyDetails?.NABH_NABL_Rate || radiologyDetails?.private || 0;
-                  }
-                }
-
-                return {
-                  ...item,
-                  radiology_name: radiologyDetails?.name || 'Unknown Radiology',
-                  cost: masterRate > 0 ? masterRate : (item.cost || 0),
-                  description: radiologyDetails?.description || ''
-                };
-              }
-              return {
-                ...item,
-                radiology_name: 'Unknown Radiology',
-                cost: item.cost || 0,
-                description: ''
-              };
-            })
-          );
-          setSavedRadiologyData(formattedRadiologyData);
-        }
-
-        // Fetch saved medication data
-        const { data: medicationData, error: medicationError } = await supabase
-          .from('visit_medications')
-          .select('*')
-          .eq('visit_id', visitUUID);
-
-        if (!medicationError && medicationData) {
-          // Fetch medication details for each medication_id
-          const formattedMedicationData = await Promise.all(
-            medicationData.map(async (item) => {
-              if (item.medication_id) {
-                const { data: medicationDetails } = await supabase
-                  .from('medication')
-                  .select('name, price_per_strip, description')
-                  .eq('id', item.medication_id)
-                  .single();
-
-                return {
-                  ...item,
-                  medication_name: medicationDetails?.name || 'Unknown Medication',
-                  cost: item.cost || medicationDetails?.price_per_strip || 0,
-                  description: medicationDetails?.description || ''
-                };
-              }
-              return {
-                ...item,
-                medication_name: 'Unknown Medication',
-                cost: 0,
-                description: ''
-              };
-            })
-          );
-          setSavedMedicationData(formattedMedicationData);
-        }
-
-      } catch (error) {
-        console.error('Error fetching saved data:', error);
-      }
-    };
-
-    fetchSavedData();
-  }, [visitId]);
-
   // Additional useEffect to ensure individual fetch functions are called for data consistency
   useEffect(() => {
     if (visitId) {
@@ -3303,35 +3190,38 @@ const FinalBill = () => {
 
       // Enhanced error handling with individual function calls
       const fetchPromises = [
-        fetchSavedLabData().catch(err => console.error('❌ [PAGE LOAD] Lab data fetch failed:', err)),
-        fetchSavedRadiologyData().catch(err => console.error('❌ [PAGE LOAD] Radiology data fetch failed:', err)),
-        fetchSavedMedicationData().catch(err => console.error('❌ [PAGE LOAD] Medication data fetch failed:', err)),
-        fetchSavedClinicalServicesData().catch(err => console.error('❌ [PAGE LOAD] Clinical services fetch failed:', err)),
-        fetchSavedImplantData().catch(err => console.error('❌ [PAGE LOAD] Implant data fetch failed:', err)),
-        fetchSavedAnesthetistData().catch(err => console.error('❌ [PAGE LOAD] Anesthetist data fetch failed:', err)),
+        getVisitContext().then(visitContext => {
+          if (!visitContext?.id) return null;
+          return Promise.all([
+            fetchSavedClinicalServicesData(visitContext).catch(err => console.error('❌ [PAGE LOAD] Clinical services fetch failed:', err)),
+            fetchSavedMandatoryServicesData(visitContext).then(result => {
+              console.log('✅ [PAGE LOAD] Mandatory services fetch completed:', {
+                result,
+                resultLength: result?.length || 0,
+                hasData: !!(result && result.length > 0)
+              });
+              return result;
+            }).catch(err => {
+              console.error('❌ [PAGE LOAD] Mandatory services fetch failed:', err);
+              console.log('🔄 [PAGE LOAD FALLBACK] Attempting manual retry of mandatory services...');
 
-        // Special enhanced handling for mandatory services
-        fetchSavedMandatoryServicesData().then(result => {
-          console.log('✅ [PAGE LOAD] Mandatory services fetch completed:', {
-            result,
-            resultLength: result?.length || 0,
-            hasData: !!(result && result.length > 0)
-          });
-          return result;
-        }).catch(err => {
-          console.error('❌ [PAGE LOAD] Mandatory services fetch failed:', err);
-          console.log('🔄 [PAGE LOAD FALLBACK] Attempting manual retry of mandatory services...');
+              // Immediate retry on page load failure
+              setTimeout(async () => {
+                try {
+                  console.log('🔄 [PAGE LOAD RETRY] Retrying mandatory services fetch...');
+                  await fetchSavedMandatoryServicesData(visitContext);
+                } catch (retryErr) {
+                  console.error('❌ [PAGE LOAD RETRY] Retry also failed:', retryErr);
+                }
+              }, 1000);
 
-          // Immediate retry on page load failure
-          setTimeout(async () => {
-            try {
-              console.log('🔄 [PAGE LOAD RETRY] Retrying mandatory services fetch...');
-              const retryResult = await fetchSavedMandatoryServicesData();
-            } catch (retryErr) {
-              console.error('❌ [PAGE LOAD RETRY] Retry also failed:', retryErr);
-            }
-          }, 1000);
-
+              return null;
+            }),
+            fetchSavedImplantData(visitContext).catch(err => console.error('❌ [PAGE LOAD] Implant data fetch failed:', err)),
+            fetchSavedAnesthetistData(visitContext).catch(err => console.error('❌ [PAGE LOAD] Anesthetist data fetch failed:', err))
+          ]);
+        }).catch(error => {
+          console.error('❌ [PAGE LOAD] Error resolving visit context:', error);
           return null;
         })
       ];
@@ -3347,8 +3237,12 @@ const FinalBill = () => {
   useEffect(() => {
     if (visitId && patientInfo?.corporate) {
       console.log('🔄 [PATIENT INFO LOADED] Re-fetching lab data with correct corporate rates:', patientInfo.corporate);
-      fetchSavedLabData().catch(err => console.error('❌ Lab re-fetch failed:', err));
-      fetchSavedRadiologyData().catch(err => console.error('❌ Radiology re-fetch failed:', err));
+      getVisitContext()
+        .then(visitContext => Promise.all([
+          fetchSavedLabData(visitContext).catch(err => console.error('❌ Lab re-fetch failed:', err)),
+          fetchSavedRadiologyData(visitContext).catch(err => console.error('❌ Radiology re-fetch failed:', err))
+        ]))
+        .catch(err => console.error('❌ [PATIENT INFO LOADED] Failed to load visit context:', err));
     }
   }, [patientInfo?.corporate]);
 
@@ -3650,13 +3544,14 @@ const FinalBill = () => {
     if (!visitId) return;
 
     try {
+      const visitContext = await getVisitContext();
       // Call individual fetch functions for consistency
       await Promise.all([
-        fetchSavedLabData(),
-        fetchSavedRadiologyData(),
-        fetchSavedMedicationData(),
-        fetchSavedClinicalServicesData(),
-        fetchSavedMandatoryServicesData()
+        fetchSavedLabData(visitContext),
+        fetchSavedRadiologyData(visitContext),
+        fetchSavedMedicationData(visitContext),
+        fetchSavedClinicalServicesData(visitContext),
+        fetchSavedMandatoryServicesData(visitContext)
       ]);
     } catch (error) {
       console.error('Error refreshing saved data:', error);
@@ -4113,21 +4008,12 @@ const FinalBill = () => {
   };
 
   // Function to fetch patient info with surgery details
-  const fetchPatientInfo = async () => {
+  const fetchPatientInfo = async (visitContext?: VisitContextRecord | null) => {
     if (!visitId) return;
 
     try {
-      // First get visit data with patient info
-      const { data: visitData, error: visitError } = await supabase
-        .from('visits')
-        .select(`
-          *,
-          patients (*)
-        `)
-        .eq('visit_id', visitId)
-        .single();
-
-      if (visitError) throw visitError;
+      const visitData = visitContext || await getVisitContext();
+      if (!visitData) return;
 
       // Get surgery details from visit_surgeries table
       const { data: surgeryData, error: surgeryError } = await supabase
@@ -4168,7 +4054,7 @@ const FinalBill = () => {
       // Pass combinedInfo directly to avoid race condition with async state update
       // This ensures correct pricing based on patient type
       if (visitId) {
-        await fetchSavedRadiology(visitId, combinedInfo);
+        await fetchSavedRadiology(visitId, combinedInfo, visitData);
       }
 
       // Auto-populate Additional Sanction Approval field with patient's lab and radiology data only
@@ -4243,18 +4129,9 @@ const FinalBill = () => {
     try {
       toast.info('Fetching all patient data...');
 
-      // First get the actual visit UUID from the visits table with patient data
-      const { data: visitData, error: visitError } = await supabase
-        .from('visits')
-        .select(`
-          *,
-          patients (*)
-        `)
-        .eq('visit_id', visitId)
-        .single();
-
-      if (visitError || !visitData) {
-        console.error('Error fetching visit data:', visitError);
+      const visitData = await getVisitContext();
+      if (!visitData) {
+        console.error('Error fetching visit data');
         toast.error('Failed to fetch visit data');
         return;
       }
@@ -6435,19 +6312,13 @@ INSTRUCTIONS:
   };
 
   // Function to fetch saved radiology data
-  const fetchSavedRadiologyData = async () => {
+  const fetchSavedRadiologyData = async (visitContext?: VisitContextRecord | null) => {
     if (!visitId) return;
 
     try {
-      // First get the actual visit UUID from the visits table
-      const { data: visitData, error: visitError } = await supabase
-        .from('visits')
-        .select('id')
-        .eq('visit_id', visitId)
-        .single();
-
-      if (visitError || !visitData?.id) {
-        console.error('Error fetching visit UUID for radiology:', visitError);
+      const visitData = visitContext || await getVisitContext();
+      if (!visitData?.id) {
+        console.error('Error fetching visit UUID for radiology:', visitData);
         return;
       }
 
@@ -6586,21 +6457,15 @@ INSTRUCTIONS:
   };
 
   // Function to fetch saved lab data
-  const fetchSavedLabData = async () => {
+  const fetchSavedLabData = async (visitContext?: VisitContextRecord | null) => {
     if (!visitId) return;
 
     console.log('🔍 Fetching saved lab data for visit:', visitId);
 
     try {
-      // First get the actual visit UUID and patient_type from the visits table
-      const { data: visitData, error: visitError } = await supabase
-        .from('visits')
-        .select('id, patient_type')
-        .eq('visit_id', visitId)
-        .single();
-
-      if (visitError || !visitData?.id) {
-        console.error('Error fetching visit UUID for labs:', visitError);
+      const visitData = visitContext || await getVisitContext();
+      if (!visitData?.id) {
+        console.error('Error fetching visit UUID for labs:', visitData);
         return;
       }
 
@@ -7670,19 +7535,13 @@ INSTRUCTIONS:
   };
 
   // Function to fetch saved medication data
-  const fetchSavedMedicationData = async () => {
+  const fetchSavedMedicationData = async (visitContext?: VisitContextRecord | null) => {
     if (!visitId) return;
 
     try {
-      // First get the actual visit UUID from the visits table
-      const { data: visitData, error: visitError } = await supabase
-        .from('visits')
-        .select('id')
-        .eq('visit_id', visitId)
-        .single();
-
-      if (visitError || !visitData?.id) {
-        console.error('Error fetching visit UUID for medications:', visitError);
+      const visitData = visitContext || await getVisitContext();
+      if (!visitData?.id) {
+        console.error('Error fetching visit UUID for medications:', visitData);
         return;
       }
 
@@ -7923,8 +7782,8 @@ INSTRUCTIONS:
       console.log('🔍 [DB VERIFICATION] Full visit data structure:', {
         visit_id: visitData.visit_id,
         id: visitData.id,
-        hasClinicalServiceId: visitData.hasOwnProperty('clinical_service_id'),
-        hasMandatoryServiceId: visitData.hasOwnProperty('mandatory_service_id'),
+        hasClinicalServiceId: Object.prototype.hasOwnProperty.call(visitData, 'clinical_service_id'),
+        hasMandatoryServiceId: Object.prototype.hasOwnProperty.call(visitData, 'mandatory_service_id'),
         clinicalServiceId: visitData.clinical_service_id,
         mandatoryServiceId: visitData.mandatory_service_id,
         hasClinicalService: !!visitData.clinical_service,
@@ -8310,7 +8169,7 @@ INSTRUCTIONS:
   };
 
   // Function to fetch saved clinical services data
-  const fetchSavedClinicalServicesData = async () => {
+  const fetchSavedClinicalServicesData = async (visitContext?: VisitContextRecord | null) => {
     if (!visitId) {
       console.warn('🚫 fetchSavedClinicalServicesData: No visitId provided');
       return;
@@ -8322,14 +8181,10 @@ INSTRUCTIONS:
     try {
       // Step 1: Get visit UUID first
       console.log('🔍 [CLINICAL SERVICES FETCH] Step 1: Getting visit UUID...');
-      const { data: visitData, error: visitError } = await supabase
-        .from('visits')
-        .select('id, visit_id')
-        .eq('visit_id', visitId)
-        .single();
+      const visitData = visitContext || await getVisitContext();
 
-      if (visitError || !visitData) {
-        console.error('❌ [CLINICAL SERVICES FETCH] Visit not found:', visitError);
+      if (!visitData?.id) {
+        console.error('❌ [CLINICAL SERVICES FETCH] Visit not found');
         return;
       }
 
@@ -8432,7 +8287,7 @@ INSTRUCTIONS:
   };
 
   // Function to fetch saved mandatory services data
-  const fetchSavedMandatoryServicesData = async () => {
+  const fetchSavedMandatoryServicesData = async (visitContext?: VisitContextRecord | null) => {
     if (!visitId) {
       console.log('🔍 [MANDATORY SERVICES FETCH] No visitId, skipping fetch');
       return;
@@ -8591,16 +8446,10 @@ INSTRUCTIONS:
     try {
       // Step 1: Get visit UUID and patient data first (CONSISTENT WITH SAVE OPERATION)
       console.log('🔍 [MANDATORY SERVICES FETCH] Step 1: Getting visit UUID and patient data...');
-      const { data: visitData, error: visitError } = await supabase
-        .from('visits')
-        .select('id, visit_id, patient_type, patients(category)')
-        .eq('visit_id', visitId)
-        .order('created_at', { ascending: false }) // Use most recent visit if duplicates exist
-        .limit(1)
-        .single();
+      const visitData = visitContext || await getVisitContext();
 
-      if (visitError || !visitData) {
-        console.error('❌ [MANDATORY SERVICES FETCH] Visit not found:', visitError);
+      if (!visitData?.id) {
+        console.error('❌ [MANDATORY SERVICES FETCH] Visit not found');
         return;
       }
 
@@ -8717,7 +8566,7 @@ INSTRUCTIONS:
         expectedToFind: 'Multiple services if added'
       });
 
-      let { data: mandatoryServicesData, error: mandatoryError } = await supabase
+      const { data: mandatoryServicesData, error: mandatoryError } = await supabase
         .from('visit_mandatory_services')
         .select('*')
         .eq('visit_id', visitData.id)
@@ -8814,7 +8663,7 @@ INSTRUCTIONS:
       }
 
       // If we have junction table records, fetch the corresponding service details
-      let servicesDetails = {};
+      const servicesDetails: Record<string, any> = {};
       if (mandatoryServicesData && mandatoryServicesData.length > 0) {
         const serviceIds = mandatoryServicesData.map(item => item.mandatory_service_id).filter(Boolean);
 
@@ -9153,7 +9002,7 @@ INSTRUCTIONS:
   };
 
   // Function to fetch saved implant data
-  const fetchSavedImplantData = async () => {
+  const fetchSavedImplantData = async (visitContext?: VisitContextRecord | null) => {
     if (!visitId) {
       return [];
     }
@@ -9161,15 +9010,9 @@ INSTRUCTIONS:
     try {
       console.log('🔍 [IMPLANT FETCH] Starting fetch for visitId:', visitId);
 
-      // Get visit UUID
-      const { data: visitData, error: visitError } = await supabase
-        .from('visits')
-        .select('id')
-        .eq('visit_id', visitId)
-        .single();
-
-      if (visitError || !visitData) {
-        console.error('❌ [IMPLANT FETCH] Visit not found:', visitError);
+      const visitData = visitContext || await getVisitContext();
+      if (!visitData?.id) {
+        console.error('❌ [IMPLANT FETCH] Visit not found:', visitData);
         return [];
       }
 
@@ -9323,7 +9166,7 @@ INSTRUCTIONS:
   };
 
   // Function to fetch saved anesthetist data
-  const fetchSavedAnesthetistData = async () => {
+  const fetchSavedAnesthetistData = async (visitContext?: VisitContextRecord | null) => {
     if (!visitId) {
       return [];
     }
@@ -9331,15 +9174,9 @@ INSTRUCTIONS:
     try {
       console.log('🔍 [ANESTHETIST FETCH] Starting fetch for visitId:', visitId);
 
-      // Get visit UUID
-      const { data: visitData, error: visitError } = await supabase
-        .from('visits')
-        .select('id')
-        .eq('visit_id', visitId)
-        .single();
-
-      if (visitError || !visitData) {
-        console.error('❌ [ANESTHETIST FETCH] Visit not found:', visitError);
+      const visitData = visitContext || await getVisitContext();
+      if (!visitData?.id) {
+        console.error('❌ [ANESTHETIST FETCH] Visit not found:', visitData);
         return [];
       }
 
@@ -10098,15 +9935,9 @@ INSTRUCTIONS:
       try {
         console.log('💾 Saving lab to visit_labs table:', { visitId, labService });
 
-        // Get the actual visit UUID from the visits table
-        const { data: visitData, error: visitError } = await supabase
-          .from('visits')
-          .select('id')
-          .eq('visit_id', visitId)
-          .single();
-
-        if (visitError || !visitData?.id) {
-          console.warn('Could not save lab to visit_labs - visit not found:', visitError);
+        const visitData = await getVisitContext();
+        if (!visitData?.id) {
+          console.warn('Could not save lab to visit_labs - visit not found');
           toast.error('Could not save lab to visit record');
           return;
         }
@@ -10219,19 +10050,7 @@ INSTRUCTIONS:
 
       console.log('💾 Saving radiology to visit_radiology table:', radiologyService);
 
-      // First get the actual visit UUID from the visits table
-      const { data: visitData, error: visitError } = await supabase
-        .from('visits')
-        .select('id')
-        .eq('visit_id', visitId)
-        .single();
-
-      if (visitError) {
-        console.error('❌ Error fetching visit UUID for radiology:', visitError);
-        toast.error('Error finding visit record');
-        return;
-      }
-
+      const visitData = await getVisitContext();
       if (!visitData?.id) {
         toast.error('Visit record not found');
         return;
@@ -10310,25 +10129,17 @@ INSTRUCTIONS:
   };
 
   // Function to fetch saved radiology from visit_radiology table
-  const fetchSavedRadiology = async (visitId: string, patientInfoOverride?: any) => {
+  const fetchSavedRadiology = async (
+    visitId: string,
+    patientInfoOverride?: any,
+    visitContext?: VisitContextRecord | null
+  ) => {
     try {
       if (!visitId) {
         return;
       }
 
-
-      // First get the actual visit UUID and patient_type from the visits table
-      const { data: visitData, error: visitError } = await supabase
-        .from('visits')
-        .select('id, patient_type')
-        .eq('visit_id', visitId)
-        .single();
-
-      if (visitError) {
-        console.error('Error fetching visit UUID for radiology:', visitError);
-        return;
-      }
-
+      const visitData = visitContext || await getVisitContext();
       if (!visitData?.id) {
         setSavedRadiologyData([]);
         return;
@@ -11476,8 +11287,8 @@ INSTRUCTIONS:
         }
       }
 
-      let data = finalData;
-      let error = null;
+      const data = finalData;
+      const error = null;
 
       // Transform data to match expected format and handle missing fields with patient type-based rates
       const transformedData = data?.map((item, index) => {
@@ -12607,26 +12418,14 @@ INSTRUCTIONS:
   };
 
   // Function to fetch saved labs from visit_labs table
-  const fetchSavedLabs = async (visitId: string) => {
+  const fetchSavedLabs = async (visitId: string, visitContext?: VisitContextRecord | null) => {
     console.log('🚀🚀🚀 fetchSavedLabs FUNCTION CALLED at:', new Date().toISOString(), 'with visitId:', visitId);
     try {
       if (!visitId) {
         return;
       }
 
-
-      // Get the actual visit UUID and patient_type from the visits table
-      const { data: visitData, error: visitError } = await supabase
-        .from('visits')
-        .select('id, patient_type')
-        .eq('visit_id', visitId)
-        .single();
-
-      if (visitError) {
-        console.error('Error fetching visit UUID for labs:', visitError);
-        return;
-      }
-
+      const visitData = visitContext || await getVisitContext();
       if (!visitData?.id) {
         setSavedLabData([]);
         return;
@@ -13954,25 +13753,13 @@ Format the response as JSON:
 
 
   // Function to fetch saved medications from visit_medications table
-  const fetchSavedMedications = async (visitId: string) => {
+  const fetchSavedMedications = async (visitId: string, visitContext?: VisitContextRecord | null) => {
     try {
       if (!visitId) {
         return;
       }
 
-
-      // First get the actual visit UUID from the visits table
-      const { data: visitData, error: visitError } = await supabase
-        .from('visits')
-        .select('id')
-        .eq('visit_id', visitId)
-        .single();
-
-      if (visitError) {
-        console.error('Error fetching visit UUID for medications:', visitError);
-        return;
-      }
-
+      const visitData = visitContext || await getVisitContext();
       if (!visitData?.id) {
         setSavedMedications([]);
         return;
@@ -14374,7 +14161,7 @@ Format the response as JSON:
   };
 
   // Function to save selected medications to visit_medications table
-  const saveMedicationsToVisit = async (visitId: string) => {
+  const saveMedicationsToVisit = async (visitId: string, visitContext?: VisitContextRecord | null) => {
     try {
 
       if (selectedMedications.length === 0) {
@@ -14382,19 +14169,7 @@ Format the response as JSON:
         return;
       }
 
-      // First get the actual visit UUID from the visits table
-      const { data: visitData, error: visitError } = await supabase
-        .from('visits')
-        .select('id')
-        .eq('visit_id', visitId)
-        .single();
-
-      if (visitError) {
-        console.error('Error fetching visit UUID for medications:', visitError);
-        toast.error('Failed to find visit record. Cannot save medications.');
-        return;
-      }
-
+      const visitData = visitContext || await getVisitContext();
       if (!visitData?.id) {
         toast.error('Visit record not found. Cannot save medications.');
         return;
