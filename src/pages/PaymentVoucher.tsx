@@ -64,6 +64,16 @@ const fmtINR = (n: number | null | undefined): string => {
   return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n);
 };
 
+const dedupeLedgerOptions = (items: LedgerOption[]): LedgerOption[] => {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = item.name.trim().toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 const formatDateLabel = (iso: string): string => {
   const d = new Date(iso + 'T00:00:00');
   if (Number.isNaN(d.getTime())) return iso;
@@ -139,7 +149,7 @@ const LedgerSearch = ({ selected, onSelect, placeholder, className, inputRef, on
         if (text.trim()) query = query.ilike('name', `%${text.trim()}%`);
         const { data, error } = await query;
         if (error) throw error;
-        setOptions((data ?? []) as LedgerOption[]);
+        setOptions(dedupeLedgerOptions((data ?? []) as LedgerOption[]));
         setHighlight(0);
       } catch (err) {
         console.error('Ledger search failed:', err);
@@ -273,7 +283,7 @@ const LedgerSearch = ({ selected, onSelect, placeholder, className, inputRef, on
       const created = inserted as LedgerOption;
       pick(created);
       setText(created.name);
-      setOptions((prev) => [created, ...prev.filter((l) => l.id !== created.id)]);
+      setOptions((prev) => dedupeLedgerOptions([created, ...prev.filter((l) => l.id !== created.id)]));
       setCreateOpen(false);
 
       const tallyResult = await pushLedgerToTally({
@@ -356,10 +366,7 @@ const LedgerSearch = ({ selected, onSelect, placeholder, className, inputRef, on
                 i === highlight ? 'bg-[#fdf6d8]' : ''
               }`}
             >
-              <span>
-                {l.name}
-                {l.parent_group && <span className="ml-2 text-xs text-muted-foreground">({l.parent_group})</span>}
-              </span>
+              <span>{l.name}</span>
               {l.closing_balance !== null && (
                 <span className="font-mono text-xs text-muted-foreground">{fmtINR(Number(l.closing_balance))}</span>
               )}

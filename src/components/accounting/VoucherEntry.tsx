@@ -217,10 +217,7 @@ const AccountSearch = ({ accounts, selected, onSelect, placeholder, className, i
                 i === highlight ? 'bg-[#fdf6d8]' : ''
               }`}
             >
-              <span>
-                {a.account_name}
-                <span className="ml-2 text-xs text-muted-foreground">({a.account_code})</span>
-              </span>
+              <span>{a.account_name}</span>
             </button>
           ))}
         </div>
