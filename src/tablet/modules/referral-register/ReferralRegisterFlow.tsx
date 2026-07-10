@@ -3,7 +3,7 @@ import { Navigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, startOfMonth } from "date-fns";
 import { toast } from "sonner";
-import { Loader2, Lock, Search, Users } from "lucide-react";
+import { Loader2, Lock, MessageSquarePlus, Search, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { canAccessReferralRegister } from "@/lib/referralRegisterAccess";
@@ -51,9 +51,18 @@ interface RegisterRow {
   entry: RegisterEntry | null;
 }
 
+interface EntryComment {
+  id: string;
+  entry_id: string;
+  comment: string;
+  created_by: string | null;
+  created_at: string;
+}
+
 type MasterOption = { value: string; label: string; selectedLabel?: string };
 
 const entriesTable = () => (supabase as any).from("referral_register_entries");
+const commentsTable = () => (supabase as any).from("referral_register_entry_comments");
 
 const formatMarketingExecutive = (name: string, code?: string | null) =>
   code ? `${name} (${code})` : name;
@@ -89,6 +98,11 @@ export default function ReferralRegisterFlow() {
   const [term, setTerm] = useState("");
   const [rows, setRows] = useState<RegisterRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [commentsByEntry, setCommentsByEntry] = useState<Record<string, EntryComment[]>>({});
+
+  const [commentEntry, setCommentEntry] = useState<RegisterEntry | null>(null);
+  const [commentText, setCommentText] = useState("");
+  const [commentSaving, setCommentSaving] = useState(false);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedVisit, setSelectedVisit] = useState<VisitMatch | null>(null);
@@ -175,6 +189,22 @@ export default function ReferralRegisterFlow() {
         visit,
         entry: savedByVisit.get(visit.id) || savedByVisit.get(visit.visit_id) || null,
       })));
+
+      const entryIds = savedEntries.map(entry => entry.id);
+      if (entryIds.length) {
+        const { data: comments, error: commentsError } = await commentsTable()
+          .select("*")
+          .in("entry_id", entryIds)
+          .order("created_at", { ascending: true });
+        if (commentsError) throw commentsError;
+        const grouped: Record<string, EntryComment[]> = {};
+        ((comments as EntryComment[]) || []).forEach(comment => {
+          (grouped[comment.entry_id] ||= []).push(comment);
+        });
+        setCommentsByEntry(grouped);
+      } else {
+        setCommentsByEntry({});
+      }
     } catch (error) {
       console.error("Failed to load referral register:", error);
       toast.error("Could not load the referral register.");
@@ -323,6 +353,35 @@ export default function ReferralRegisterFlow() {
     }
   };
 
+  const resetCommentDialog = () => {
+    setCommentEntry(null);
+    setCommentText("");
+  };
+
+  const handleAddComment = async () => {
+    if (!commentEntry || !commentText.trim()) {
+      toast.error("Enter a comment first.");
+      return;
+    }
+    setCommentSaving(true);
+    try {
+      const { error } = await commentsTable().insert({
+        entry_id: commentEntry.id,
+        comment: commentText.trim(),
+        created_by: user?.email || user?.username || null,
+      });
+      if (error) throw error;
+      toast.success("Comment added.");
+      resetCommentDialog();
+      fetchData();
+    } catch (error) {
+      console.error("Failed to add referral register comment:", error);
+      toast.error("Could not add the comment. Please retry.");
+    } finally {
+      setCommentSaving(false);
+    }
+  };
+
   const filteredRows = term.trim()
     ? rows.filter(({ visit }) =>
         (visit.patients?.name || "").toLowerCase().includes(term.trim().toLowerCase()) ||
@@ -387,16 +446,28 @@ export default function ReferralRegisterFlow() {
                     <p className="text-sm text-muted-foreground">
                       {visit.visit_id} ·{" "}
                       {visit.admission_date ? format(new Date(visit.admission_date), "dd MMM yyyy") : "—"}
+                      {entry ? ` · ${format(new Date(entry.created_at), "hh:mm a")}` : ""}
                     </p>
                     <p className="text-sm text-muted-foreground">
                       {getCorporateShortName(visit.corporate || visit.patients?.corporate || "") || "—"}
                     </p>
                   </div>
                   {entry ? (
-                    <span className="flex items-center gap-1 whitespace-nowrap text-xs text-muted-foreground">
-                      <Lock className="h-3.5 w-3.5" />
-                      Saved
-                    </span>
+                    <div className="flex flex-col items-end gap-1.5">
+                      <span className="flex items-center gap-1 whitespace-nowrap text-xs text-muted-foreground">
+                        <Lock className="h-3.5 w-3.5" />
+                        Saved
+                      </span>
+                      <TabletButton
+                        size="sm"
+                        variant="outline"
+                        className="h-9 min-h-0 px-3 text-xs"
+                        onClick={() => setCommentEntry(entry)}
+                      >
+                        <MessageSquarePlus className="mr-1 h-3.5 w-3.5" />
+                        Add comment
+                      </TabletButton>
+                    </div>
                   ) : (
                     <TabletButton
                       size="sm"
@@ -440,6 +511,19 @@ export default function ReferralRegisterFlow() {
                         <p className="whitespace-pre-wrap font-medium">{entry.changes_note}</p>
                       </div>
                     ) : null}
+                  </div>
+                ) : null}
+                {entry && commentsByEntry[entry.id]?.length ? (
+                  <div className="space-y-1.5 border-t pt-2">
+                    {commentsByEntry[entry.id].map(comment => (
+                      <div key={comment.id} className="text-xs text-muted-foreground">
+                        <p className="text-foreground">{comment.comment}</p>
+                        <p>
+                          {format(new Date(comment.created_at), "dd MMM yyyy hh:mm a")}
+                          {comment.created_by ? ` · ${comment.created_by}` : ""}
+                        </p>
+                      </div>
+                    ))}
                   </div>
                 ) : null}
               </TabletCard>
@@ -615,6 +699,49 @@ export default function ReferralRegisterFlow() {
               disabled={saving || !selectedVisit}
             >
               {saving ? "Saving..." : "Save entry"}
+            </TabletButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!commentEntry} onOpenChange={open => !open && resetCommentDialog()}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add comment</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {commentEntry && (
+              <div className="space-y-1 rounded-md border bg-muted/50 p-3 text-sm">
+                <p className="font-semibold">{commentEntry.patient_name}</p>
+                <p className="text-xs text-muted-foreground">{commentEntry.visit_id}</p>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="tablet-new-comment">Comment</Label>
+              <Textarea
+                id="tablet-new-comment"
+                value={commentText}
+                onChange={e => setCommentText(e.target.value)}
+                placeholder="Add a follow-up note to this entry"
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <TabletButton
+              variant="outline"
+              className="h-11 min-h-0 flex-1 text-base"
+              onClick={resetCommentDialog}
+              disabled={commentSaving}
+            >
+              Cancel
+            </TabletButton>
+            <TabletButton
+              className="h-11 min-h-0 flex-1 text-base"
+              onClick={handleAddComment}
+              disabled={commentSaving || !commentText.trim()}
+            >
+              {commentSaving ? "Saving..." : "Add comment"}
             </TabletButton>
           </DialogFooter>
         </DialogContent>

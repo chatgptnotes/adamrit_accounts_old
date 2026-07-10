@@ -19,7 +19,7 @@ import {
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { Search, RefreshCw, Users, Loader2, Lock } from 'lucide-react';
+import { Search, RefreshCw, Users, Loader2, Lock, MessageSquarePlus } from 'lucide-react';
 
 interface RegisterEntry {
   id: string;
@@ -37,6 +37,14 @@ interface RegisterEntry {
   created_at: string;
 }
 
+interface EntryComment {
+  id: string;
+  entry_id: string;
+  comment: string;
+  created_by: string | null;
+  created_at: string;
+}
+
 interface VisitMatch {
   id: string;
   visit_id: string;
@@ -48,6 +56,7 @@ interface VisitMatch {
 }
 
 const entriesTable = () => (supabase as any).from('referral_register_entries');
+const commentsTable = () => (supabase as any).from('referral_register_entry_comments');
 
 type MasterOption = { value: string; label: string; selectedLabel?: string };
 interface RegisterRow {
@@ -86,6 +95,11 @@ const ReferralRegister = () => {
   const [nameSearch, setNameSearch] = useState('');
   const [rows, setRows] = useState<RegisterRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [commentsByEntry, setCommentsByEntry] = useState<Record<string, EntryComment[]>>({});
+
+  const [commentEntry, setCommentEntry] = useState<RegisterEntry | null>(null);
+  const [commentText, setCommentText] = useState('');
+  const [commentSaving, setCommentSaving] = useState(false);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedVisit, setSelectedVisit] = useState<VisitMatch | null>(null);
@@ -172,6 +186,22 @@ const ReferralRegister = () => {
         visit,
         entry: savedByVisit.get(visit.id) || savedByVisit.get(visit.visit_id) || null,
       })));
+
+      const entryIds = savedEntries.map(entry => entry.id);
+      if (entryIds.length) {
+        const { data: comments, error: commentsError } = await commentsTable()
+          .select('*')
+          .in('entry_id', entryIds)
+          .order('created_at', { ascending: true });
+        if (commentsError) throw commentsError;
+        const grouped: Record<string, EntryComment[]> = {};
+        ((comments as EntryComment[]) || []).forEach(comment => {
+          (grouped[comment.entry_id] ||= []).push(comment);
+        });
+        setCommentsByEntry(grouped);
+      } else {
+        setCommentsByEntry({});
+      }
     } catch (error) {
       console.error('Failed to load referral register:', error);
       toast.error('Could not load the referral register.');
@@ -320,6 +350,35 @@ const ReferralRegister = () => {
     }
   };
 
+  const resetCommentDialog = () => {
+    setCommentEntry(null);
+    setCommentText('');
+  };
+
+  const handleAddComment = async () => {
+    if (!commentEntry || !commentText.trim()) {
+      toast.error('Enter a comment first.');
+      return;
+    }
+    setCommentSaving(true);
+    try {
+      const { error } = await commentsTable().insert({
+        entry_id: commentEntry.id,
+        comment: commentText.trim(),
+        created_by: user?.email || user?.username || null,
+      });
+      if (error) throw error;
+      toast.success('Comment added.');
+      resetCommentDialog();
+      fetchData();
+    } catch (error) {
+      console.error('Failed to add referral register comment:', error);
+      toast.error('Could not add the comment. Please retry.');
+    } finally {
+      setCommentSaving(false);
+    }
+  };
+
   const filteredRows = nameSearch.trim()
     ? rows.filter(({ visit }) =>
         (visit.patients?.name || '').toLowerCase().includes(nameSearch.trim().toLowerCase()) ||
@@ -408,6 +467,11 @@ const ReferralRegister = () => {
                     <TableRow key={visit.id}>
                       <TableCell className="whitespace-nowrap font-medium">
                         {visit.admission_date ? format(new Date(visit.admission_date), 'dd MMM yyyy') : '—'}
+                        {entry ? (
+                          <div className="text-xs font-normal text-gray-500">
+                            {format(new Date(entry.created_at), 'hh:mm a')}
+                          </div>
+                        ) : null}
                       </TableCell>
                       <TableCell>{visit.patients?.name || '—'}</TableCell>
                       <TableCell className="whitespace-nowrap">{visit.visit_id}</TableCell>
@@ -423,7 +487,20 @@ const ReferralRegister = () => {
                       </TableCell>
                       <TableCell>{entry?.executive_referral_doctor || '—'}</TableCell>
                       <TableCell className="max-w-[260px] whitespace-pre-wrap text-sm">
-                        {entry?.changes_note || '—'}
+                        {entry?.changes_note || (commentsByEntry[entry?.id || '']?.length ? null : '—')}
+                        {entry && commentsByEntry[entry.id]?.length ? (
+                          <div className="mt-1.5 space-y-1.5 border-t pt-1.5">
+                            {commentsByEntry[entry.id].map(comment => (
+                              <div key={comment.id} className="text-xs text-gray-600">
+                                <p>{comment.comment}</p>
+                                <p className="text-gray-400">
+                                  {format(new Date(comment.created_at), 'dd MMM yyyy hh:mm a')}
+                                  {comment.created_by ? ` · ${comment.created_by}` : ''}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-xs text-gray-500">
                         {entry ? <>{format(new Date(entry.created_at), 'dd MMM yyyy HH:mm')}
@@ -431,10 +508,21 @@ const ReferralRegister = () => {
                       </TableCell>
                       <TableCell>
                         {entry ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-gray-500">
-                            <Lock className="h-3.5 w-3.5" />
-                            Saved
-                          </span>
+                          <div className="flex flex-col items-start gap-1.5">
+                            <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                              <Lock className="h-3.5 w-3.5" />
+                              Saved
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => setCommentEntry(entry)}
+                            >
+                              <MessageSquarePlus className="mr-1 h-3.5 w-3.5" />
+                              Add comment
+                            </Button>
+                          </div>
                         ) : (
                           <Button
                             size="sm"
@@ -456,7 +544,7 @@ const ReferralRegister = () => {
           {!loading && filteredRows.length > 0 && (
             <p className="mt-3 flex items-center gap-1.5 text-xs text-gray-500">
               <Lock className="h-3.5 w-3.5" />
-              Saved entries are read-only. Unsaved admissions can be completed from the Action column.
+              Saved entries are read-only, but you can add follow-up comments. Unsaved admissions can be completed from the Action column.
             </p>
           )}
         </CardContent>
@@ -617,6 +705,40 @@ const ReferralRegister = () => {
             </Button>
             <Button onClick={handleSave} disabled={saving || !selectedVisit}>
               {saving ? 'Saving...' : 'Save entry'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!commentEntry} onOpenChange={open => !open && resetCommentDialog()}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add comment</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {commentEntry && (
+              <div className="space-y-1 rounded-md border bg-gray-50 p-3 text-sm">
+                <p className="font-semibold text-gray-900">{commentEntry.patient_name}</p>
+                <p className="text-xs text-gray-600">{commentEntry.visit_id}</p>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="new-comment">Comment</Label>
+              <Textarea
+                id="new-comment"
+                value={commentText}
+                onChange={e => setCommentText(e.target.value)}
+                placeholder="Add a follow-up note to this entry"
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={resetCommentDialog} disabled={commentSaving}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddComment} disabled={commentSaving || !commentText.trim()}>
+              {commentSaving ? 'Saving...' : 'Add comment'}
             </Button>
           </DialogFooter>
         </DialogContent>
