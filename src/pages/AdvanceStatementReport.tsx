@@ -20,6 +20,7 @@ import {
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { BillDocumentsSection } from '@/pages/corporate-bill/BillDocumentsSection';
+import { syncPortalDataForRegistrationId } from '@/lib/governmentPortalReportDb';
 import { toast } from 'sonner';
 import '@/styles/print.css';
 
@@ -797,7 +798,20 @@ const AdvanceStatementReport = () => {
       return;
     }
 
-    toast.success('Registration ID saved');
+    let portalMatched = false;
+    if (value) {
+      try {
+        portalMatched = await syncPortalDataForRegistrationId(value);
+      } catch (syncError) {
+        console.error('Error syncing portal data for Registration ID:', syncError);
+      }
+    }
+
+    toast.success(
+      portalMatched
+        ? 'Registration ID saved — portal data auto-filled'
+        : 'Registration ID saved',
+    );
     queryClient.invalidateQueries({ queryKey: ['advance-statement-report-currently-admitted'] });
   };
 
