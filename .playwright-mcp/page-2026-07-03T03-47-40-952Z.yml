@@ -1,0 +1,388 @@
+- generic [ref=f13e2]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=f13e4]:
+    - generic [ref=f13e8]:
+      - generic [ref=f13e10]:
+        - generic [ref=f13e11] [cursor=pointer]:
+          - generic [ref=f13e12]: h
+          - heading "hope HMIS" [level=2] [ref=f13e13]
+        - generic [ref=f13e14]:
+          - generic [ref=f13e15]: cmd
+          - button "Switch" [ref=f13e16] [cursor=pointer]:
+            - img
+            - generic [ref=f13e17]: Switch
+          - button "Logout" [ref=f13e18] [cursor=pointer]:
+            - img
+            - generic [ref=f13e19]: Logout
+      - generic [ref=f13e20]:
+        - generic [ref=f13e23]:
+          - img [ref=f13e24]
+          - textbox "Search tabs..." [ref=f13e27]
+        - button "Overview" [ref=f13e29] [cursor=pointer]:
+          - generic [ref=f13e30]: Overview
+          - img [ref=f13e31]
+        - button "Patient Care" [ref=f13e34] [cursor=pointer]:
+          - generic [ref=f13e35]: Patient Care
+          - img [ref=f13e36]
+        - button "Diagnostics" [ref=f13e39] [cursor=pointer]:
+          - generic [ref=f13e40]: Diagnostics
+          - img [ref=f13e41]
+        - button "Beds & Facility" [ref=f13e44] [cursor=pointer]:
+          - generic [ref=f13e45]: Beds & Facility
+          - img [ref=f13e46]
+        - button "Billing & Accounts" [ref=f13e49] [cursor=pointer]:
+          - generic [ref=f13e50]: Billing & Accounts
+          - img [ref=f13e51]
+        - button "Marketing & Outreach" [ref=f13e54] [cursor=pointer]:
+          - generic [ref=f13e55]: Marketing & Outreach
+          - img [ref=f13e56]
+        - button "Patient-Facing" [ref=f13e59] [cursor=pointer]:
+          - generic [ref=f13e60]: Patient-Facing
+          - img [ref=f13e61]
+        - button "Masters" [ref=f13e64] [cursor=pointer]:
+          - generic [ref=f13e65]: Masters
+          - img [ref=f13e66]
+    - main [ref=f13e68]:
+      - generic [ref=f13e69]:
+        - button "Toggle Sidebar" [ref=f13e70] [cursor=pointer]:
+          - img
+          - generic [ref=f13e71]: Toggle Sidebar
+        - button "Tablet view" [ref=f13e72] [cursor=pointer]:
+          - img [ref=f13e73]
+          - text: Tablet view
+      - generic [ref=f13e85]:
+        - generic [ref=f13e86]:
+          - generic [ref=f13e87]:
+            - img [ref=f13e88]
+            - generic [ref=f13e91]:
+              - heading "Pharmacy Management" [level=1] [ref=f13e92]
+              - paragraph [ref=f13e93]: Enterprise-level pharmacy operations and inventory management
+          - generic [ref=f13e94]:
+            - button "25 pending discount approvals" [ref=f13e95] [cursor=pointer]:
+              - img
+              - generic [ref=f13e96]: "25"
+            - button "111 pending prescriptions" [ref=f13e97] [cursor=pointer]:
+              - img
+              - generic [ref=f13e98]: 99+
+            - generic [ref=f13e99]:
+              - img [ref=f13e100]
+              - generic [ref=f13e102]: 03 Jul 2026
+        - generic [ref=f13e103]:
+          - tablist [ref=f13e104]:
+            - generic [ref=f13e105]:
+              - tab "Overview" [ref=f13e106] [cursor=pointer]
+              - tab "Items" [ref=f13e107] [cursor=pointer]
+              - tab "Direct Sale" [ref=f13e108] [cursor=pointer]
+              - tab "Sale Bill" [ref=f13e109] [cursor=pointer]
+              - tab "View Sales" [ref=f13e110] [cursor=pointer]
+              - tab "Return Sales" [ref=f13e111] [cursor=pointer]
+              - tab "Credit Payments" [ref=f13e112] [cursor=pointer]
+              - tab "Stock Mgmt" [ref=f13e113] [cursor=pointer]
+              - tab "Manufacturer" [ref=f13e114] [cursor=pointer]
+              - tab "Supplier" [ref=f13e115] [cursor=pointer]
+              - tab "Purchase Order" [active] [selected] [ref=f13e116] [cursor=pointer]
+              - tab "Low Stock" [ref=f13e117] [cursor=pointer]
+              - tab "Prescriptions" [ref=f13e118] [cursor=pointer]
+              - tab "Discount Approvals 25" [ref=f13e119] [cursor=pointer]:
+                - text: Discount Approvals
+                - generic [ref=f13e120]: "25"
+          - tabpanel "Purchase Order" [ref=f13e121]:
+            - generic [ref=f13e122]:
+              - generic [ref=f13e123]:
+                - button "Purchase Order List" [ref=f13e124] [cursor=pointer]
+                - button "Add Purchase Order" [ref=f13e125] [cursor=pointer]
+              - generic [ref=f13e126]:
+                - generic [ref=f13e127]:
+                  - generic [ref=f13e128]:
+                    - heading "Purchase Orders" [level=2] [ref=f13e129]
+                    - paragraph [ref=f13e130]: Manage and track all purchase orders
+                  - generic [ref=f13e131]:
+                    - button "Add Purchase Order" [ref=f13e132] [cursor=pointer]:
+                      - img
+                      - text: Add Purchase Order
+                    - button "Back" [ref=f13e133] [cursor=pointer]
+                - generic [ref=f13e136]:
+                  - generic [ref=f13e137]:
+                    - generic [ref=f13e138]: Service Provider
+                    - textbox "Search by supplier name..." [ref=f13e139]
+                  - generic [ref=f13e140]:
+                    - generic [ref=f13e141]: Purchase Order No
+                    - textbox "Search by PO number..." [ref=f13e142]
+                  - generic [ref=f13e143]:
+                    - generic [ref=f13e144]: Status
+                    - combobox [ref=f13e145]:
+                      - option "All" [selected]
+                      - option "Pending"
+                      - option "Completed"
+                      - option "Cancelled"
+                  - button "Search" [ref=f13e146] [cursor=pointer]:
+                    - img
+                    - text: Search
+                - table [ref=f13e150]:
+                  - rowgroup [ref=f13e151]:
+                    - row "Sr.No. Purchase Order No. Order For Supplier Type Status Created Date Goods Received Date Actions" [ref=f13e152]:
+                      - columnheader "Sr.No." [ref=f13e153]
+                      - columnheader "Purchase Order No." [ref=f13e154]
+                      - columnheader "Order For" [ref=f13e155]
+                      - columnheader "Supplier" [ref=f13e156]
+                      - columnheader "Type" [ref=f13e157]
+                      - columnheader "Status" [ref=f13e158]
+                      - columnheader "Created Date" [ref=f13e159]
+                      - columnheader "Goods Received Date" [ref=f13e160]
+                      - columnheader "Actions" [ref=f13e161]
+                  - rowgroup [ref=f13e162]:
+                    - row "1 PO/26-10348 Pharmacy ALL IN ONE PHARMA Pharmacy Pending 03/07/2026 09:09:41 -" [ref=f13e163]:
+                      - cell "1" [ref=f13e164]
+                      - cell "PO/26-10348" [ref=f13e165]
+                      - cell "Pharmacy" [ref=f13e166]
+                      - cell "ALL IN ONE PHARMA" [ref=f13e167]
+                      - cell "Pharmacy" [ref=f13e168]
+                      - cell "Pending" [ref=f13e169]:
+                        - generic [ref=f13e170]: Pending
+                      - cell "03/07/2026 09:09:41" [ref=f13e171]
+                      - cell "-" [ref=f13e172]
+                      - cell [ref=f13e173]:
+                        - generic [ref=f13e174]:
+                          - button "View" [ref=f13e175] [cursor=pointer]:
+                            - img [ref=f13e176]
+                          - button "Edit" [ref=f13e179] [cursor=pointer]:
+                            - img [ref=f13e180]
+                          - button "Cancel order" [ref=f13e183] [cursor=pointer]:
+                            - img [ref=f13e184]
+                    - row "2 PO/26-10347 Pharmacy ALL IN ONE PHARMA Pharmacy Pending 03/07/2026 09:03:47 03/07/2026 05:30:00" [ref=f13e187]:
+                      - cell "2" [ref=f13e188]
+                      - cell "PO/26-10347" [ref=f13e189]
+                      - cell "Pharmacy" [ref=f13e190]
+                      - cell "ALL IN ONE PHARMA" [ref=f13e191]
+                      - cell "Pharmacy" [ref=f13e192]
+                      - cell "Pending" [ref=f13e193]:
+                        - generic [ref=f13e194]: Pending
+                      - cell "03/07/2026 09:03:47" [ref=f13e195]
+                      - cell "03/07/2026 05:30:00" [ref=f13e196]
+                      - cell [ref=f13e197]:
+                        - generic [ref=f13e198]:
+                          - button "View" [ref=f13e199] [cursor=pointer]:
+                            - img [ref=f13e200]
+                          - button "Edit" [ref=f13e203] [cursor=pointer]:
+                            - img [ref=f13e204]
+                          - button "Cancel order" [ref=f13e207] [cursor=pointer]:
+                            - img [ref=f13e208]
+                    - row "3 PO/26-10346 Pharmacy ALL IN ONE PHARMA Pharmacy Completed 03/07/2026 09:01:37 03/07/2026 05:30:00" [ref=f13e211]:
+                      - cell "3" [ref=f13e212]
+                      - cell "PO/26-10346" [ref=f13e213]
+                      - cell "Pharmacy" [ref=f13e214]
+                      - cell "ALL IN ONE PHARMA" [ref=f13e215]
+                      - cell "Pharmacy" [ref=f13e216]
+                      - cell "Completed" [ref=f13e217]:
+                        - generic [ref=f13e218]: Completed
+                      - cell "03/07/2026 09:01:37" [ref=f13e219]
+                      - cell "03/07/2026 05:30:00" [ref=f13e220]
+                      - cell [ref=f13e221]:
+                        - generic [ref=f13e222]:
+                          - button "View" [ref=f13e223] [cursor=pointer]:
+                            - img [ref=f13e224]
+                          - button "Locked - GRN already posted to inventory" [disabled] [ref=f13e227]:
+                            - img [ref=f13e228]
+                          - button "Cannot delete completed orders" [disabled] [ref=f13e231]:
+                            - img [ref=f13e232]
+                    - row "4 PO/26-10345 Pharmacy ALL IN ONE PHARMA Pharmacy Completed 03/07/2026 09:00:04 03/07/2026 05:30:00" [ref=f13e235]:
+                      - cell "4" [ref=f13e236]
+                      - cell "PO/26-10345" [ref=f13e237]
+                      - cell "Pharmacy" [ref=f13e238]
+                      - cell "ALL IN ONE PHARMA" [ref=f13e239]
+                      - cell "Pharmacy" [ref=f13e240]
+                      - cell "Completed" [ref=f13e241]:
+                        - generic [ref=f13e242]: Completed
+                      - cell "03/07/2026 09:00:04" [ref=f13e243]
+                      - cell "03/07/2026 05:30:00" [ref=f13e244]
+                      - cell [ref=f13e245]:
+                        - generic [ref=f13e246]:
+                          - button "View" [ref=f13e247] [cursor=pointer]:
+                            - img [ref=f13e248]
+                          - button "Locked - GRN already posted to inventory" [disabled] [ref=f13e251]:
+                            - img [ref=f13e252]
+                          - button "Cannot delete completed orders" [disabled] [ref=f13e255]:
+                            - img [ref=f13e256]
+                    - row "5 PO/26-10344 Pharmacy ALL IN ONE PHARMA Pharmacy Completed 03/07/2026 08:56:25 03/07/2026 05:30:00" [ref=f13e259]:
+                      - cell "5" [ref=f13e260]
+                      - cell "PO/26-10344" [ref=f13e261]
+                      - cell "Pharmacy" [ref=f13e262]
+                      - cell "ALL IN ONE PHARMA" [ref=f13e263]
+                      - cell "Pharmacy" [ref=f13e264]
+                      - cell "Completed" [ref=f13e265]:
+                        - generic [ref=f13e266]: Completed
+                      - cell "03/07/2026 08:56:25" [ref=f13e267]
+                      - cell "03/07/2026 05:30:00" [ref=f13e268]
+                      - cell [ref=f13e269]:
+                        - generic [ref=f13e270]:
+                          - button "View" [ref=f13e271] [cursor=pointer]:
+                            - img [ref=f13e272]
+                          - button "Locked - GRN already posted to inventory" [disabled] [ref=f13e275]:
+                            - img [ref=f13e276]
+                          - button "Cannot delete completed orders" [disabled] [ref=f13e279]:
+                            - img [ref=f13e280]
+                    - row "6 PO/26-10343 Pharmacy CHANDRA ENTERPRISES 25-26 Pharmacy Completed 02/07/2026 23:12:21 30/06/2026 05:30:00" [ref=f13e283]:
+                      - cell "6" [ref=f13e284]
+                      - cell "PO/26-10343" [ref=f13e285]
+                      - cell "Pharmacy" [ref=f13e286]
+                      - cell "CHANDRA ENTERPRISES 25-26" [ref=f13e287]
+                      - cell "Pharmacy" [ref=f13e288]
+                      - cell "Completed" [ref=f13e289]:
+                        - generic [ref=f13e290]: Completed
+                      - cell "02/07/2026 23:12:21" [ref=f13e291]
+                      - cell "30/06/2026 05:30:00" [ref=f13e292]
+                      - cell [ref=f13e293]:
+                        - generic [ref=f13e294]:
+                          - button "View" [ref=f13e295] [cursor=pointer]:
+                            - img [ref=f13e296]
+                          - button "Locked - GRN already posted to inventory" [disabled] [ref=f13e299]:
+                            - img [ref=f13e300]
+                          - button "Cannot delete completed orders" [disabled] [ref=f13e303]:
+                            - img [ref=f13e304]
+                    - row "7 PO/26-10342 Pharmacy SSV PHARMACEUTICAL & DISTRIBUTOR Pharmacy Completed 02/07/2026 23:07:15 30/06/2026 05:30:00" [ref=f13e307]:
+                      - cell "7" [ref=f13e308]
+                      - cell "PO/26-10342" [ref=f13e309]
+                      - cell "Pharmacy" [ref=f13e310]
+                      - cell "SSV PHARMACEUTICAL & DISTRIBUTOR" [ref=f13e311]
+                      - cell "Pharmacy" [ref=f13e312]
+                      - cell "Completed" [ref=f13e313]:
+                        - generic [ref=f13e314]: Completed
+                      - cell "02/07/2026 23:07:15" [ref=f13e315]
+                      - cell "30/06/2026 05:30:00" [ref=f13e316]
+                      - cell [ref=f13e317]:
+                        - generic [ref=f13e318]:
+                          - button "View" [ref=f13e319] [cursor=pointer]:
+                            - img [ref=f13e320]
+                          - button "Locked - GRN already posted to inventory" [disabled] [ref=f13e323]:
+                            - img [ref=f13e324]
+                          - button "Cannot delete completed orders" [disabled] [ref=f13e327]:
+                            - img [ref=f13e328]
+                    - row "8 PO/26-10341 Pharmacy SSV PHARMACEUTICAL & DISTRIBUTOR Pharmacy Completed 02/07/2026 22:59:47 29/06/2026 05:30:00" [ref=f13e331]:
+                      - cell "8" [ref=f13e332]
+                      - cell "PO/26-10341" [ref=f13e333]
+                      - cell "Pharmacy" [ref=f13e334]
+                      - cell "SSV PHARMACEUTICAL & DISTRIBUTOR" [ref=f13e335]
+                      - cell "Pharmacy" [ref=f13e336]
+                      - cell "Completed" [ref=f13e337]:
+                        - generic [ref=f13e338]: Completed
+                      - cell "02/07/2026 22:59:47" [ref=f13e339]
+                      - cell "29/06/2026 05:30:00" [ref=f13e340]
+                      - cell [ref=f13e341]:
+                        - generic [ref=f13e342]:
+                          - button "View" [ref=f13e343] [cursor=pointer]:
+                            - img [ref=f13e344]
+                          - button "Locked - GRN already posted to inventory" [disabled] [ref=f13e347]:
+                            - img [ref=f13e348]
+                          - button "Cannot delete completed orders" [disabled] [ref=f13e351]:
+                            - img [ref=f13e352]
+                    - row "9 PO/26-10340 Pharmacy SSV PHARMACEUTICAL & DISTRIBUTOR Pharmacy Completed 02/07/2026 22:33:48 29/06/2026 05:30:00" [ref=f13e355]:
+                      - cell "9" [ref=f13e356]
+                      - cell "PO/26-10340" [ref=f13e357]
+                      - cell "Pharmacy" [ref=f13e358]
+                      - cell "SSV PHARMACEUTICAL & DISTRIBUTOR" [ref=f13e359]
+                      - cell "Pharmacy" [ref=f13e360]
+                      - cell "Completed" [ref=f13e361]:
+                        - generic [ref=f13e362]: Completed
+                      - cell "02/07/2026 22:33:48" [ref=f13e363]
+                      - cell "29/06/2026 05:30:00" [ref=f13e364]
+                      - cell [ref=f13e365]:
+                        - generic [ref=f13e366]:
+                          - button "View" [ref=f13e367] [cursor=pointer]:
+                            - img [ref=f13e368]
+                          - button "Locked - GRN already posted to inventory" [disabled] [ref=f13e371]:
+                            - img [ref=f13e372]
+                          - button "Cannot delete completed orders" [disabled] [ref=f13e375]:
+                            - img [ref=f13e376]
+                    - row "10 PO/26-10339 Pharmacy HOSPIRUSH PHARMACY Pharmacy Cancelled 02/07/2026 22:22:48 29/06/2026 05:30:00" [ref=f13e379]:
+                      - cell "10" [ref=f13e380]
+                      - cell "PO/26-10339" [ref=f13e381]
+                      - cell "Pharmacy" [ref=f13e382]
+                      - cell "HOSPIRUSH PHARMACY" [ref=f13e383]
+                      - cell "Pharmacy" [ref=f13e384]
+                      - cell "Cancelled" [ref=f13e385]:
+                        - generic [ref=f13e386]: Cancelled
+                      - cell "02/07/2026 22:22:48" [ref=f13e387]
+                      - cell "29/06/2026 05:30:00" [ref=f13e388]
+                      - cell [ref=f13e389]:
+                        - generic [ref=f13e390]:
+                          - button "View" [ref=f13e391] [cursor=pointer]:
+                            - img [ref=f13e392]
+                          - button "Edit" [ref=f13e395] [cursor=pointer]:
+                            - img [ref=f13e396]
+                          - button "Cancel order" [ref=f13e399] [cursor=pointer]:
+                            - img [ref=f13e400]
+                    - row "11 PO/26-10338 Pharmacy HOSPIRUSH PHARMACY Pharmacy Completed 02/07/2026 21:59:51 02/07/2026 05:30:00" [ref=f13e403]:
+                      - cell "11" [ref=f13e404]
+                      - cell "PO/26-10338" [ref=f13e405]
+                      - cell "Pharmacy" [ref=f13e406]
+                      - cell "HOSPIRUSH PHARMACY" [ref=f13e407]
+                      - cell "Pharmacy" [ref=f13e408]
+                      - cell "Completed" [ref=f13e409]:
+                        - generic [ref=f13e410]: Completed
+                      - cell "02/07/2026 21:59:51" [ref=f13e411]
+                      - cell "02/07/2026 05:30:00" [ref=f13e412]
+                      - cell [ref=f13e413]:
+                        - generic [ref=f13e414]:
+                          - button "View" [ref=f13e415] [cursor=pointer]:
+                            - img [ref=f13e416]
+                          - button "Locked - GRN already posted to inventory" [disabled] [ref=f13e419]:
+                            - img [ref=f13e420]
+                          - button "Cannot delete completed orders" [disabled] [ref=f13e423]:
+                            - img [ref=f13e424]
+                    - row "12 PO/26-10337 Pharmacy ASIAN SURGICAL COM. SURGICAL Pharmacy Completed 02/07/2026 21:55:40 02/07/2026 05:30:00" [ref=f13e427]:
+                      - cell "12" [ref=f13e428]
+                      - cell "PO/26-10337" [ref=f13e429]
+                      - cell "Pharmacy" [ref=f13e430]
+                      - cell "ASIAN SURGICAL COM. SURGICAL" [ref=f13e431]
+                      - cell "Pharmacy" [ref=f13e432]
+                      - cell "Completed" [ref=f13e433]:
+                        - generic [ref=f13e434]: Completed
+                      - cell "02/07/2026 21:55:40" [ref=f13e435]
+                      - cell "02/07/2026 05:30:00" [ref=f13e436]
+                      - cell [ref=f13e437]:
+                        - generic [ref=f13e438]:
+                          - button "View" [ref=f13e439] [cursor=pointer]:
+                            - img [ref=f13e440]
+                          - button "Locked - GRN already posted to inventory" [disabled] [ref=f13e443]:
+                            - img [ref=f13e444]
+                          - button "Cannot delete completed orders" [disabled] [ref=f13e447]:
+                            - img [ref=f13e448]
+                    - row "13 PO/26-10336 Pharmacy HOSPIRUSH PHARMACY Pharmacy Completed 02/07/2026 21:34:59 02/07/2026 05:30:00" [ref=f13e451]:
+                      - cell "13" [ref=f13e452]
+                      - cell "PO/26-10336" [ref=f13e453]
+                      - cell "Pharmacy" [ref=f13e454]
+                      - cell "HOSPIRUSH PHARMACY" [ref=f13e455]
+                      - cell "Pharmacy" [ref=f13e456]
+                      - cell "Completed" [ref=f13e457]:
+                        - generic [ref=f13e458]: Completed
+                      - cell "02/07/2026 21:34:59" [ref=f13e459]
+                      - cell "02/07/2026 05:30:00" [ref=f13e460]
+                      - cell [ref=f13e461]:
+                        - generic [ref=f13e462]:
+                          - button "View" [ref=f13e463] [cursor=pointer]:
+                            - img [ref=f13e464]
+                          - button "Locked - GRN already posted to inventory" [disabled] [ref=f13e467]:
+                            - img [ref=f13e468]
+                          - button "Cannot delete completed orders" [disabled] [ref=f13e471]:
+                            - img [ref=f13e472]
+                - generic [ref=f13e475]:
+                  - generic [ref=f13e476]: Showing 1 to 13 of 366 results
+                  - generic [ref=f13e477]:
+                    - button "Previous" [disabled]
+                    - generic [ref=f13e478]:
+                      - button "1" [ref=f13e479] [cursor=pointer]
+                      - button "2" [ref=f13e480] [cursor=pointer]
+                      - button "3" [ref=f13e481] [cursor=pointer]
+                      - button "4" [ref=f13e482] [cursor=pointer]
+                      - button "5" [ref=f13e483] [cursor=pointer]
+                      - button "6" [ref=f13e484] [cursor=pointer]
+                      - button "7" [ref=f13e485] [cursor=pointer]
+                      - button "8" [ref=f13e486] [cursor=pointer]
+                      - button "9" [ref=f13e487] [cursor=pointer]
+                    - button "Next" [ref=f13e488] [cursor=pointer]
+      - button "Open camera capture" [ref=f13e78] [cursor=pointer]:
+        - img [ref=f13e79]
+      - button "AI Assistant" [ref=f13e82] [cursor=pointer]:
+        - img [ref=f13e83]

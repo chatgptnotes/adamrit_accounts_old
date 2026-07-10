@@ -1,0 +1,503 @@
+- generic [ref=f14e1]:
+  - generic [ref=f14e3]:
+    - generic [ref=f14e4]:
+      - generic [ref=f14e8]:
+        - generic [ref=f14e10]:
+          - img [ref=f14e11]
+          - generic [ref=f14e13]:
+            - paragraph [ref=f14e14]: We are investigating a technical issue
+            - generic [ref=f14e15]:
+              - generic [ref=f14e16]: ·
+              - generic [ref=f14e17]:
+                - text: Follow the
+                - link "status page" [ref=f14e18] [cursor=pointer]:
+                  - /url: https://status.supabase.com
+                - text: for updates
+        - button "Dismiss banner" [ref=f14e19] [cursor=pointer]:
+          - img [ref=f14e21]
+      - banner [ref=f14e25]:
+        - generic [ref=f14e26]:
+          - generic [ref=f14e27]:
+            - link "Supabase" [ref=f14e28] [cursor=pointer]:
+              - /url: /dashboard/org/uekmbdtburauuqzleeya
+              - img "Supabase" [ref=f14e29]
+            - generic [ref=f14e30]:
+              - img [ref=f14e32]
+              - generic [ref=f14e34]:
+                - link "chatgptnotes's Org Pro" [ref=f14e35] [cursor=pointer]:
+                  - /url: /dashboard/org/uekmbdtburauuqzleeya
+                  - img [ref=f14e36]
+                  - generic [ref=f14e46]: chatgptnotes's Org
+                  - generic [ref=f14e47]: Pro
+                - button [ref=f14e48] [cursor=pointer]:
+                  - img [ref=f14e50]
+              - generic [ref=f14e53]:
+                - img [ref=f14e55]
+                - generic [ref=f14e57]:
+                  - link "drmhope" [ref=f14e58] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv
+                    - img [ref=f14e59]
+                    - generic "drmhope" [ref=f14e62]
+                  - button [ref=f14e63] [cursor=pointer]:
+                    - img [ref=f14e65]
+                - img [ref=f14e69]
+                - generic [ref=f14e71]:
+                  - link "main Production" [ref=f14e72] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv
+                    - generic "main" [ref=f14e73]
+                    - generic [ref=f14e74]: Production
+                  - button [ref=f14e75] [cursor=pointer]:
+                    - img [ref=f14e77]
+            - button "Connect" [ref=f14e81] [cursor=pointer]:
+              - img [ref=f14e83]
+              - generic [ref=f14e85]: Connect
+          - generic [ref=f14e86]:
+            - generic [ref=f14e88] [cursor=pointer]: Feedback
+            - generic [ref=f14e89]:
+              - button "Search..." [ref=f14e90]:
+                - generic [ref=f14e91]:
+                  - img [ref=f14e92]
+                  - paragraph [ref=f14e95]: Search...
+                - generic [ref=f14e97]: ⌘K
+              - button "Help" [ref=f14e98] [cursor=pointer]:
+                - generic [ref=f14e99]:
+                  - img [ref=f14e100]
+                  - generic [ref=f14e103]: Help
+              - button "Advisor Center" [ref=f14e105] [cursor=pointer]:
+                - generic [ref=f14e106]:
+                  - img [ref=f14e107]
+                  - generic [ref=f14e109]: Advisor Center
+              - button "SQL Editor" [ref=f14e111] [cursor=pointer]:
+                - generic [ref=f14e112]:
+                  - img [ref=f14e113]
+                  - generic [ref=f14e115]: SQL Editor
+              - button "AI Assistant" [ref=f14e116] [cursor=pointer]:
+                - generic [ref=f14e117]:
+                  - img [ref=f14e120]
+                  - generic [ref=f14e123]: AI Assistant
+            - button "chatgptnotes" [ref=f14e124] [cursor=pointer]:
+              - img "chatgptnotes" [ref=f14e126]
+      - generic [ref=f14e127]:
+        - generic [ref=f14e131]:
+          - list [ref=f14e134]:
+            - generic [ref=f14e135]:
+              - listitem [ref=f14e136]:
+                - link "Project Overview" [ref=f14e137] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv
+                  - img [ref=f14e138]
+                  - generic: Project Overview
+              - listitem [ref=f14e140]:
+                - link "Table Editor" [ref=f14e141] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/editor
+                  - img [ref=f14e142]
+                  - generic: Table Editor
+              - listitem [ref=f14e144]:
+                - link "SQL Editor" [ref=f14e145] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/sql
+                  - img [ref=f14e146]
+                  - generic: SQL Editor
+            - generic [ref=f14e148]:
+              - listitem [ref=f14e149]:
+                - link "Database" [ref=f14e150] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/database/schemas
+                  - img [ref=f14e151]
+                  - generic: Database
+              - listitem [ref=f14e155]:
+                - link "Authentication" [ref=f14e156] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/auth/users
+                  - img [ref=f14e157]
+                  - generic: Authentication
+              - listitem [ref=f14e159]:
+                - link "Storage" [ref=f14e160] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/storage/files
+                  - img [ref=f14e161]
+                  - generic: Storage
+              - listitem [ref=f14e163]:
+                - link "Edge Functions" [ref=f14e164] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/functions
+                  - img [ref=f14e165]
+                  - generic: Edge Functions
+              - listitem [ref=f14e170]:
+                - link "Realtime" [ref=f14e171] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/realtime/inspector
+                  - img [ref=f14e172]
+                  - generic: Realtime
+            - generic [ref=f14e174]:
+              - listitem [ref=f14e176]:
+                - link "Advisors" [ref=f14e177] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/advisors/security
+                  - img [ref=f14e178]
+                  - generic: Advisors
+              - listitem [ref=f14e180]:
+                - link "Observability" [ref=f14e181] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/observability
+                  - img [ref=f14e182]
+                  - generic: Observability
+              - listitem [ref=f14e190]:
+                - link "Logs" [ref=f14e191] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs
+                  - img [ref=f14e192]
+                  - generic: Logs
+              - listitem [ref=f14e193]:
+                - link "Integrations" [ref=f14e194] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/integrations
+                  - img [ref=f14e195]
+                  - generic: Integrations
+            - listitem [ref=f14e199]:
+              - link "Project Settings" [ref=f14e200] [cursor=pointer]:
+                - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/settings/general
+                - img [ref=f14e201]
+                - generic: Project Settings
+          - button "Sidebar control" [ref=f14e206] [cursor=pointer]:
+            - img [ref=f14e208]
+        - generic [ref=f14e215]:
+          - generic [ref=f14e219]:
+            - heading "Logs" [level=4] [ref=f14e221]
+            - generic [ref=f14e223]:
+              - generic [ref=f14e224]:
+                - generic [ref=f14e226]: New
+                - heading "Introducing unified logs" [level=3] [ref=f14e227]
+                - button "More information" [disabled] [ref=f14e229] [cursor=pointer]:
+                  - img [ref=f14e231]
+                  - generic [ref=f14e234]: More information
+              - generic [ref=f14e235]:
+                - generic [ref=f14e237]:
+                  - generic [ref=f14e238]: Search collections
+                  - textbox "Search collections..." [disabled] [ref=f14e239]
+                  - img [ref=f14e240]
+                - link [disabled] [ref=f14e243] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/explorer
+                  - img [ref=f14e245]
+              - link "Templates" [disabled] [ref=f14e247] [cursor=pointer]:
+                - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/explorer/templates
+              - generic [ref=f14e248]:
+                - button "Collections" [disabled] [expanded] [ref=f14e249]:
+                  - img [ref=f14e250]
+                  - generic [ref=f14e252]: Collections
+                - generic [ref=f14e253]:
+                  - link "API Gateway" [disabled] [ref=f14e255] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/edge-logs
+                    - generic [ref=f14e256]: API Gateway
+                  - link "Postgres" [disabled] [ref=f14e258] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/postgres-logs
+                    - generic [ref=f14e259]: Postgres
+                  - link "PostgREST" [disabled] [ref=f14e261] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/postgrest-logs
+                    - generic [ref=f14e262]: PostgREST
+                  - link "Shared Pooler" [disabled] [ref=f14e264] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/pooler-logs
+                    - generic [ref=f14e265]: Shared Pooler
+                  - link "Dedicated Pooler" [disabled] [ref=f14e267] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/dedicated-pooler-logs
+                    - generic [ref=f14e268]: Dedicated Pooler
+                  - link "Auth" [disabled] [ref=f14e270] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/auth-logs
+                    - generic [ref=f14e271]: Auth
+                  - link "Storage" [disabled] [ref=f14e273] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/storage-logs
+                    - generic [ref=f14e274]: Storage
+                  - link "Realtime" [disabled] [ref=f14e276] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/realtime-logs
+                    - generic [ref=f14e277]: Realtime
+                  - link "Edge Functions" [disabled] [ref=f14e279] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/edge-functions-logs
+                    - generic [ref=f14e280]: Edge Functions
+                  - link "Cron" [disabled] [ref=f14e282] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/pgcron-logs
+                    - generic [ref=f14e283]: Cron
+              - generic [ref=f14e284]:
+                - button "Database operations" [disabled] [expanded] [ref=f14e285]:
+                  - img [ref=f14e286]
+                  - generic [ref=f14e288]: Database operations
+                - link "Postgres Version Upgrade" [disabled] [ref=f14e291] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/pg-upgrade-logs
+                  - generic [ref=f14e292]: Postgres Version Upgrade
+              - generic [ref=f14e293]:
+                - button "Queries" [disabled] [expanded] [ref=f14e294]:
+                  - img [ref=f14e295]
+                  - generic [ref=f14e297]: Queries
+                - generic [ref=f14e300]:
+                  - paragraph [ref=f14e301]: No queries created yet
+                  - paragraph [ref=f14e302]: Create and save your queries to use them in the explorer
+                  - link "Create query" [disabled] [ref=f14e304] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/explorer
+                    - generic [ref=f14e305]: Create query
+              - generic [ref=f14e306]:
+                - generic [ref=f14e308]:
+                  - img [ref=f14e309]
+                  - img [ref=f14e312]
+                  - img [ref=f14e314]
+                  - img [ref=f14e316]
+                - generic [ref=f14e318]:
+                  - heading "Capture your logs" [level=3] [ref=f14e319]
+                  - paragraph [ref=f14e320]: Send logs to your preferred observability or storage platform.
+                - link "Go to Log Drains" [disabled] [ref=f14e322] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/settings/log-drains
+                  - generic [ref=f14e323]: Go to Log Drains
+          - separator [disabled] [ref=f14e324]:
+            - img [ref=f14e326]
+          - main [ref=f14e335]:
+            - generic [ref=f14e336]:
+              - generic [ref=f14e337]:
+                - generic [ref=f14e338]:
+                  - group [ref=f14e340]:
+                    - textbox "Search events" [ref=f14e341]
+                    - group [ref=f14e342]:
+                      - img [ref=f14e343]
+                    - group
+                  - button "refresh" [ref=f14e433] [cursor=pointer]:
+                    - generic [ref=f14e1830]:
+                      - generic [ref=f14e2365]: "2"
+                      - img [ref=f14e1831]
+                  - button "Last 5 days" [ref=f14e999] [cursor=pointer]:
+                    - img [ref=f14e348]
+                    - generic [ref=f14e351]: Last 5 days
+                  - button "Severity" [active] [ref=f14e353] [cursor=pointer]:
+                    - generic [ref=f14e354]: Severity
+                  - button "Chart" [ref=f14e356] [cursor=pointer]:
+                    - img [ref=f14e358]
+                    - generic [ref=f14e361]: Chart
+                  - button [ref=f14e444] [cursor=pointer]:
+                    - img [ref=f14e446]
+                - generic [ref=f14e362]:
+                  - link [ref=f14e363] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/explorer?q=select%20identifier%2C%20postgres_logs.timestamp%2C%20id%2C%20event_message%2C%20parsed.error_severity%2C%20parsed.detail%2C%20parsed.hint%20from%20postgres_logs%0A%20%20cross%20join%20unnest(metadata)%20as%20m%0A%20%20cross%20join%20unnest(m.parsed)%20as%20parsed%0A%20%20where%20(parsed.error_severity%20in%20(%27ERROR%27%2C%20%27FATAL%27%2C%20%27PANIC%27))%0A%20%20order%20by%20timestamp%20desc%0A%20%20limit%20100%0A%20%20&its=2026-06-27T14%3A29%3A41.345Z&ite=
+                    - img [ref=f14e365]
+                  - generic [ref=f14e367] [cursor=pointer]:
+                    - generic [ref=f14e368]: Source
+                    - button "Primary database" [ref=f14e369]:
+                      - generic [ref=f14e370]: Primary database
+                      - img [ref=f14e372]
+              - generic [ref=f14e375]:
+                - img [ref=f14e1839]
+                - generic [ref=f14e2085]:
+                  - generic [ref=f14e2086]: Jun 27, 2026, 07:30pm
+                  - generic [ref=f14e2087]: Jul 2, 2026, 07:30pm
+              - table [ref=f14e386]:
+                - row [ref=f14e387]:
+                  - columnheader [ref=f14e388]
+                  - columnheader [ref=f14e389]
+                - row "02 Jul 26 20:00:02 ERROR relation \"public.utility_deadlines\" does not exist" [ref=f14e2088] [cursor=pointer]:
+                  - gridcell [ref=f14e2089]:
+                    - checkbox [ref=f14e2091]
+                  - gridcell "02 Jul 26 20:00:02 ERROR relation \"public.utility_deadlines\" does not exist" [ref=f14e2092]:
+                    - generic [ref=f14e2093]:
+                      - generic [ref=f14e2094]: 02 Jul 26 20:00:02
+                      - generic [ref=f14e2366]:
+                        - img [ref=f14e2368]
+                        - generic [ref=f14e2370]: ERROR
+                      - generic [ref=f14e2100]: relation "public.utility_deadlines" does not exist
+                - row "02 Jul 26 19:59:05 ERROR syntax error at or near \"'storage.buckets'\"" [ref=f14e2101] [cursor=pointer]:
+                  - gridcell [ref=f14e2102]:
+                    - checkbox [ref=f14e2104]
+                  - gridcell "02 Jul 26 19:59:05 ERROR syntax error at or near \"'storage.buckets'\"" [ref=f14e2105]:
+                    - generic [ref=f14e2106]:
+                      - generic [ref=f14e2107]: 02 Jul 26 19:59:05
+                      - generic [ref=f14e2371]:
+                        - img [ref=f14e2373]
+                        - generic [ref=f14e2375]: ERROR
+                      - generic [ref=f14e2113]: syntax error at or near "'storage.buckets'"
+                - row "02 Jul 26 19:55:10 ERROR relation \"public.medication\" does not exist" [ref=f14e2114] [cursor=pointer]:
+                  - gridcell [ref=f14e2115]:
+                    - checkbox [ref=f14e2117]
+                  - gridcell "02 Jul 26 19:55:10 ERROR relation \"public.medication\" does not exist" [ref=f14e2118]:
+                    - generic [ref=f14e2119]:
+                      - generic [ref=f14e2120]: 02 Jul 26 19:55:10
+                      - generic [ref=f14e2376]:
+                        - img [ref=f14e2378]
+                        - generic [ref=f14e2380]: ERROR
+                      - generic [ref=f14e2126]: relation "public.medication" does not exist
+                - row "02 Jul 26 19:55:09 ERROR syntax error at or near \"'storage.buckets'\"" [ref=f14e2127] [cursor=pointer]:
+                  - gridcell [ref=f14e2128]:
+                    - checkbox [ref=f14e2130]
+                  - gridcell "02 Jul 26 19:55:09 ERROR syntax error at or near \"'storage.buckets'\"" [ref=f14e2131]:
+                    - generic [ref=f14e2132]:
+                      - generic [ref=f14e2133]: 02 Jul 26 19:55:09
+                      - generic [ref=f14e2381]:
+                        - img [ref=f14e2383]
+                        - generic [ref=f14e2385]: ERROR
+                      - generic [ref=f14e2139]: syntax error at or near "'storage.buckets'"
+                - row "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2140] [cursor=pointer]:
+                  - gridcell [ref=f14e2141]:
+                    - checkbox [ref=f14e2143]
+                  - gridcell "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2144]:
+                    - generic [ref=f14e2145]:
+                      - generic [ref=f14e2146]: 02 Jul 26 19:55:05
+                      - generic [ref=f14e2386]:
+                        - img [ref=f14e2388]
+                        - generic [ref=f14e2390]: ERROR
+                      - generic [ref=f14e2152]: column patient_documents.patient_name does not exist
+                - row "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2153] [cursor=pointer]:
+                  - gridcell [ref=f14e2154]:
+                    - checkbox [ref=f14e2156]
+                  - gridcell "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2157]:
+                    - generic [ref=f14e2158]:
+                      - generic [ref=f14e2159]: 02 Jul 26 19:55:05
+                      - generic [ref=f14e2391]:
+                        - img [ref=f14e2393]
+                        - generic [ref=f14e2395]: ERROR
+                      - generic [ref=f14e2165]: column patient_documents.patient_name does not exist
+                - row "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2166] [cursor=pointer]:
+                  - gridcell [ref=f14e2167]:
+                    - checkbox [ref=f14e2169]
+                  - gridcell "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2170]:
+                    - generic [ref=f14e2171]:
+                      - generic [ref=f14e2172]: 02 Jul 26 19:55:05
+                      - generic [ref=f14e2396]:
+                        - img [ref=f14e2398]
+                        - generic [ref=f14e2400]: ERROR
+                      - generic [ref=f14e2178]: column patient_documents.patient_name does not exist
+                - row "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2179] [cursor=pointer]:
+                  - gridcell [ref=f14e2180]:
+                    - checkbox [ref=f14e2182]
+                  - gridcell "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2183]:
+                    - generic [ref=f14e2184]:
+                      - generic [ref=f14e2185]: 02 Jul 26 19:55:05
+                      - generic [ref=f14e2401]:
+                        - img [ref=f14e2403]
+                        - generic [ref=f14e2405]: ERROR
+                      - generic [ref=f14e2191]: column patient_documents.patient_name does not exist
+                - row "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2192] [cursor=pointer]:
+                  - gridcell [ref=f14e2193]:
+                    - checkbox [ref=f14e2195]
+                  - gridcell "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2196]:
+                    - generic [ref=f14e2197]:
+                      - generic [ref=f14e2198]: 02 Jul 26 19:55:05
+                      - generic [ref=f14e2406]:
+                        - img [ref=f14e2408]
+                        - generic [ref=f14e2410]: ERROR
+                      - generic [ref=f14e2204]: column patient_documents.patient_name does not exist
+                - row "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2205] [cursor=pointer]:
+                  - gridcell [ref=f14e2206]:
+                    - checkbox [ref=f14e2208]
+                  - gridcell "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2209]:
+                    - generic [ref=f14e2210]:
+                      - generic [ref=f14e2211]: 02 Jul 26 19:55:05
+                      - generic [ref=f14e2411]:
+                        - img [ref=f14e2413]
+                        - generic [ref=f14e2415]: ERROR
+                      - generic [ref=f14e2217]: column patient_documents.patient_name does not exist
+                - row "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2218] [cursor=pointer]:
+                  - gridcell [ref=f14e2219]:
+                    - checkbox [ref=f14e2221]
+                  - gridcell "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2222]:
+                    - generic [ref=f14e2223]:
+                      - generic [ref=f14e2224]: 02 Jul 26 19:55:05
+                      - generic [ref=f14e2416]:
+                        - img [ref=f14e2418]
+                        - generic [ref=f14e2420]: ERROR
+                      - generic [ref=f14e2230]: column patient_documents.patient_name does not exist
+                - row "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2231] [cursor=pointer]:
+                  - gridcell [ref=f14e2232]:
+                    - checkbox [ref=f14e2234]
+                  - gridcell "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2235]:
+                    - generic [ref=f14e2236]:
+                      - generic [ref=f14e2237]: 02 Jul 26 19:55:05
+                      - generic [ref=f14e2421]:
+                        - img [ref=f14e2423]
+                        - generic [ref=f14e2425]: ERROR
+                      - generic [ref=f14e2243]: column patient_documents.patient_name does not exist
+                - row "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2244] [cursor=pointer]:
+                  - gridcell [ref=f14e2245]:
+                    - checkbox [ref=f14e2247]
+                  - gridcell "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2248]:
+                    - generic [ref=f14e2249]:
+                      - generic [ref=f14e2250]: 02 Jul 26 19:55:05
+                      - generic [ref=f14e2426]:
+                        - img [ref=f14e2428]
+                        - generic [ref=f14e2430]: ERROR
+                      - generic [ref=f14e2256]: column patient_documents.patient_name does not exist
+                - row "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2257] [cursor=pointer]:
+                  - gridcell [ref=f14e2258]:
+                    - checkbox [ref=f14e2260]
+                  - gridcell "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2261]:
+                    - generic [ref=f14e2262]:
+                      - generic [ref=f14e2263]: 02 Jul 26 19:55:05
+                      - generic [ref=f14e2431]:
+                        - img [ref=f14e2433]
+                        - generic [ref=f14e2435]: ERROR
+                      - generic [ref=f14e2269]: column patient_documents.patient_name does not exist
+                - row "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2270] [cursor=pointer]:
+                  - gridcell [ref=f14e2271]:
+                    - checkbox [ref=f14e2273]
+                  - gridcell "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2274]:
+                    - generic [ref=f14e2275]:
+                      - generic [ref=f14e2276]: 02 Jul 26 19:55:05
+                      - generic [ref=f14e2436]:
+                        - img [ref=f14e2438]
+                        - generic [ref=f14e2440]: ERROR
+                      - generic [ref=f14e2282]: column patient_documents.patient_name does not exist
+                - row "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2283] [cursor=pointer]:
+                  - gridcell [ref=f14e2284]:
+                    - checkbox [ref=f14e2286]
+                  - gridcell "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2287]:
+                    - generic [ref=f14e2288]:
+                      - generic [ref=f14e2289]: 02 Jul 26 19:55:05
+                      - generic [ref=f14e2441]:
+                        - img [ref=f14e2443]
+                        - generic [ref=f14e2445]: ERROR
+                      - generic [ref=f14e2295]: column patient_documents.patient_name does not exist
+                - row "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2296] [cursor=pointer]:
+                  - gridcell [ref=f14e2297]:
+                    - checkbox [ref=f14e2299]
+                  - gridcell "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2300]:
+                    - generic [ref=f14e2301]:
+                      - generic [ref=f14e2302]: 02 Jul 26 19:55:05
+                      - generic [ref=f14e2446]:
+                        - img [ref=f14e2448]
+                        - generic [ref=f14e2450]: ERROR
+                      - generic [ref=f14e2308]: column patient_documents.patient_name does not exist
+                - row "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2309] [cursor=pointer]:
+                  - gridcell [ref=f14e2310]:
+                    - checkbox [ref=f14e2312]
+                  - gridcell "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2313]:
+                    - generic [ref=f14e2314]:
+                      - generic [ref=f14e2315]: 02 Jul 26 19:55:05
+                      - generic [ref=f14e2451]:
+                        - img [ref=f14e2453]
+                        - generic [ref=f14e2455]: ERROR
+                      - generic [ref=f14e2321]: column patient_documents.patient_name does not exist
+                - row "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2322] [cursor=pointer]:
+                  - gridcell [ref=f14e2323]:
+                    - checkbox [ref=f14e2325]
+                  - gridcell "02 Jul 26 19:55:05 ERROR column patient_documents.patient_name does not exist" [ref=f14e2326]:
+                    - generic [ref=f14e2327]:
+                      - generic [ref=f14e2328]: 02 Jul 26 19:55:05
+                      - generic [ref=f14e2456]:
+                        - img [ref=f14e2458]
+                        - generic [ref=f14e2460]: ERROR
+                      - generic [ref=f14e2334]: column patient_documents.patient_name does not exist
+              - generic [ref=f14e2335]:
+                - button "Load older" [ref=f14e2336] [cursor=pointer]:
+                  - img [ref=f14e2338]
+                  - generic [ref=f14e2341]: Load older
+                - generic [ref=f14e2342]: Showing 100 results
+    - generic [ref=f14e393]:
+      - generic:
+        - img "Background pattern"
+      - generic [ref=f14e394]:
+        - button "Close banner" [ref=f14e396] [cursor=pointer]:
+          - img [ref=f14e398]
+        - generic [ref=f14e401]:
+          - generic [ref=f14e402]:
+            - generic [ref=f14e403]: Beta
+            - generic [ref=f14e405]:
+              - generic [ref=f14e2462]:
+                - generic [ref=f14e2464]: 02 Jul 26 20:00:18
+                - generic [ref=f14e2465]: "304"
+              - generic [ref=f14e2467]:
+                - generic [ref=f14e2469]: 02 Jul 26 20:00:15
+                - generic [ref=f14e2470]: "200"
+              - generic [ref=f14e2344]:
+                - generic [ref=f14e2346]: 02 Jul 26 20:00:12
+                - generic [ref=f14e2347]: "201"
+              - generic [ref=f14e2349]:
+                - generic [ref=f14e2351]: 02 Jul 26 20:00:09
+                - generic [ref=f14e2352]: "200"
+          - generic [ref=f14e426]:
+            - paragraph [ref=f14e427]: Unified Logs is here
+            - paragraph [ref=f14e428]: Search and correlate logs across all of your services from a single place.
+          - link "Explore Unified Logs" [ref=f14e430] [cursor=pointer]:
+            - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs
+            - generic [ref=f14e431]: Explore Unified Logs
+  - alert [ref=f14e432]: Postgres Logs | Logs | drmhope | chatgptnotes's Org | Supabase

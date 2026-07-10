@@ -1,0 +1,325 @@
+- generic [ref=f20e1]:
+  - generic [ref=f20e3]:
+    - generic [ref=f20e4]:
+      - generic [ref=f20e147]:
+        - generic [ref=f20e149]:
+          - img [ref=f20e150]
+          - generic [ref=f20e152]:
+            - paragraph [ref=f20e153]: We are investigating a technical issue
+            - generic [ref=f20e154]:
+              - generic [ref=f20e155]: ·
+              - generic [ref=f20e156]:
+                - text: Follow the
+                - link "status page" [ref=f20e157] [cursor=pointer]:
+                  - /url: https://status.supabase.com
+                - text: for updates
+        - button "Dismiss banner" [ref=f20e158] [cursor=pointer]:
+          - img [ref=f20e160]
+      - banner [ref=f20e6]:
+        - generic [ref=f20e7]:
+          - generic [ref=f20e8]:
+            - link "Supabase" [ref=f20e9] [cursor=pointer]:
+              - /url: /dashboard/org/uekmbdtburauuqzleeya
+              - img "Supabase" [ref=f20e10]
+            - generic [ref=f20e11]:
+              - img [ref=f20e164]
+              - generic [ref=f20e166]:
+                - link "chatgptnotes's Org Pro" [ref=f20e167] [cursor=pointer]:
+                  - /url: /dashboard/org/uekmbdtburauuqzleeya
+                  - img [ref=f20e168]
+                  - generic [ref=f20e178]: chatgptnotes's Org
+                  - generic [ref=f20e179]: Pro
+                - button [ref=f20e180] [cursor=pointer]:
+                  - img [ref=f20e182]
+              - generic [ref=f20e12]:
+                - img [ref=f20e14]
+                - generic [ref=f20e185]:
+                  - link "drmhope" [ref=f20e186] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv
+                    - img [ref=f20e187]
+                    - generic "drmhope" [ref=f20e190]
+                  - button [ref=f20e191] [cursor=pointer]:
+                    - img [ref=f20e193]
+                - img [ref=f20e197]
+                - generic [ref=f20e199]:
+                  - link "main Production" [ref=f20e200] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv
+                    - generic "main" [ref=f20e201]
+                    - generic [ref=f20e202]: Production
+                  - button [ref=f20e203] [cursor=pointer]:
+                    - img [ref=f20e205]
+            - button "Connect" [ref=f20e208] [cursor=pointer]:
+              - img [ref=f20e210]
+              - generic [ref=f20e212]: Connect
+          - generic [ref=f20e23]:
+            - generic [ref=f20e25] [cursor=pointer]: Feedback
+            - generic [ref=f20e26]:
+              - button "Search..." [ref=f20e27]:
+                - generic [ref=f20e28]:
+                  - img [ref=f20e29]
+                  - paragraph [ref=f20e32]: Search...
+                - generic [ref=f20e34]: ⌘K
+              - button "Help" [ref=f20e35] [cursor=pointer]:
+                - generic [ref=f20e36]:
+                  - img [ref=f20e37]
+                  - generic [ref=f20e40]: Help
+              - button "Advisor Center" [ref=f20e42] [cursor=pointer]:
+                - generic [ref=f20e43]:
+                  - img [ref=f20e44]
+                  - generic [ref=f20e46]: Advisor Center
+              - button "SQL Editor" [ref=f20e47] [cursor=pointer]:
+                - generic [ref=f20e48]:
+                  - img [ref=f20e49]
+                  - generic [ref=f20e51]: SQL Editor
+              - button "AI Assistant" [ref=f20e52] [cursor=pointer]:
+                - generic [ref=f20e53]:
+                  - img [ref=f20e56]
+                  - generic [ref=f20e59]: AI Assistant
+            - button "chatgptnotes" [ref=f20e214] [cursor=pointer]:
+              - img "chatgptnotes" [ref=f20e215]
+      - generic [ref=f20e65]:
+        - generic [ref=f20e69]:
+          - list [ref=f20e72]:
+            - generic [ref=f20e73]:
+              - listitem [ref=f20e74]:
+                - link "Project Overview" [ref=f20e75] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv
+                  - img [ref=f20e76]
+                  - generic: Project Overview
+              - listitem [ref=f20e78]:
+                - link "Table Editor" [ref=f20e216] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/editor
+                  - img [ref=f20e217]
+                  - generic: Table Editor
+              - listitem [ref=f20e79]:
+                - link "SQL Editor" [ref=f20e219] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/sql
+                  - img [ref=f20e220]
+                  - generic: SQL Editor
+            - generic [ref=f20e80]:
+              - listitem [ref=f20e81]:
+                - link "Database" [ref=f20e222] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/database/schemas
+                  - img [ref=f20e223]
+                  - generic: Database
+              - listitem [ref=f20e82]:
+                - link "Authentication" [ref=f20e227] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/auth/users
+                  - img [ref=f20e228]
+                  - generic: Authentication
+              - listitem [ref=f20e83]:
+                - link "Storage" [ref=f20e230] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/storage/files
+                  - img [ref=f20e231]
+                  - generic: Storage
+              - listitem [ref=f20e84]:
+                - link "Edge Functions" [ref=f20e85] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/functions
+                  - img [ref=f20e86]
+                  - generic: Edge Functions
+              - listitem [ref=f20e91]:
+                - link "Realtime" [ref=f20e233] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/realtime/inspector
+                  - img [ref=f20e234]
+                  - generic: Realtime
+            - generic [ref=f20e92]:
+              - listitem [ref=f20e94]:
+                - link "Advisors" [ref=f20e236] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/advisors/security
+                  - img [ref=f20e237]
+                  - generic: Advisors
+              - listitem [ref=f20e95]:
+                - link "Observability" [ref=f20e239] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/observability
+                  - img [ref=f20e240]
+                  - generic: Observability
+              - listitem [ref=f20e96]:
+                - link "Logs" [ref=f20e97] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs
+                  - img [ref=f20e98]
+                  - generic: Logs
+              - listitem [ref=f20e99]:
+                - link "Integrations" [ref=f20e248] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/integrations
+                  - img [ref=f20e249]
+                  - generic: Integrations
+            - listitem [ref=f20e101]:
+              - link "Project Settings" [ref=f20e102] [cursor=pointer]:
+                - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/settings/general
+                - img [ref=f20e103]
+                - generic: Project Settings
+          - button "Sidebar control" [ref=f20e108] [cursor=pointer]:
+            - img [ref=f20e110]
+        - generic [ref=f20e117]:
+          - generic [ref=f20e255]:
+            - heading "Logs" [level=4] [ref=f20e257]
+            - generic [ref=f20e259]:
+              - generic [ref=f20e260]:
+                - generic [ref=f20e262]: New
+                - heading "Introducing unified logs" [level=3] [ref=f20e263]
+                - button "More information" [disabled] [ref=f20e265] [cursor=pointer]:
+                  - img [ref=f20e267]
+                  - generic [ref=f20e270]: More information
+              - generic [ref=f20e271]:
+                - generic [ref=f20e273]:
+                  - generic [ref=f20e274]: Search collections
+                  - textbox "Search collections..." [disabled] [ref=f20e275]
+                  - img [ref=f20e276]
+                - link [disabled] [ref=f20e279] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/explorer
+                  - img [ref=f20e281]
+              - link "Templates" [disabled] [ref=f20e283] [cursor=pointer]:
+                - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/explorer/templates
+              - generic [ref=f20e284]:
+                - button "Collections" [disabled] [expanded] [ref=f20e285]:
+                  - img [ref=f20e286]
+                  - generic [ref=f20e288]: Collections
+                - generic [ref=f20e289]:
+                  - link "API Gateway" [disabled] [ref=f20e291] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/edge-logs
+                    - generic [ref=f20e292]: API Gateway
+                  - link "Postgres" [disabled] [ref=f20e294] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/postgres-logs
+                    - generic [ref=f20e295]: Postgres
+                  - link "PostgREST" [disabled] [ref=f20e297] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/postgrest-logs
+                    - generic [ref=f20e298]: PostgREST
+                  - link "Shared Pooler" [disabled] [ref=f20e300] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/pooler-logs
+                    - generic [ref=f20e301]: Shared Pooler
+                  - link "Dedicated Pooler" [disabled] [ref=f20e303] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/dedicated-pooler-logs
+                    - generic [ref=f20e304]: Dedicated Pooler
+                  - link "Auth" [disabled] [ref=f20e306] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/auth-logs
+                    - generic [ref=f20e307]: Auth
+                  - link "Storage" [disabled] [ref=f20e309] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/storage-logs
+                    - generic [ref=f20e310]: Storage
+                  - link "Realtime" [disabled] [ref=f20e312] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/realtime-logs
+                    - generic [ref=f20e313]: Realtime
+                  - link "Edge Functions" [disabled] [ref=f20e315] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/edge-functions-logs
+                    - generic [ref=f20e316]: Edge Functions
+                  - link "Cron" [disabled] [ref=f20e318] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/pgcron-logs
+                    - generic [ref=f20e319]: Cron
+              - generic [ref=f20e320]:
+                - button "Database operations" [disabled] [expanded] [ref=f20e321]:
+                  - img [ref=f20e322]
+                  - generic [ref=f20e324]: Database operations
+                - link "Postgres Version Upgrade" [disabled] [ref=f20e327] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/pg-upgrade-logs
+                  - generic [ref=f20e328]: Postgres Version Upgrade
+              - generic [ref=f20e329]:
+                - button "Queries" [disabled] [expanded] [ref=f20e330]:
+                  - img [ref=f20e331]
+                  - generic [ref=f20e333]: Queries
+                - generic [ref=f20e336]:
+                  - paragraph [ref=f20e337]: No queries created yet
+                  - paragraph [ref=f20e338]: Create and save your queries to use them in the explorer
+                  - link "Create query" [disabled] [ref=f20e340] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/explorer
+                    - generic [ref=f20e341]: Create query
+              - generic [ref=f20e342]:
+                - generic [ref=f20e344]:
+                  - img [ref=f20e345]
+                  - img [ref=f20e348]
+                  - img [ref=f20e350]
+                  - img [ref=f20e352]
+                - generic [ref=f20e354]:
+                  - heading "Capture your logs" [level=3] [ref=f20e355]
+                  - paragraph [ref=f20e356]: Send logs to your preferred observability or storage platform.
+                - link "Go to Log Drains" [disabled] [ref=f20e358] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/settings/log-drains
+                  - generic [ref=f20e359]: Go to Log Drains
+          - separator [disabled] [ref=f20e360]:
+            - img [ref=f20e362]
+          - main [ref=f20e120]:
+            - generic [ref=f20e370]:
+              - generic [ref=f20e372]:
+                - generic [ref=f20e375]:
+                  - generic [ref=f20e376]:
+                    - button "Insert source" [ref=f20e377] [cursor=pointer]:
+                      - generic [ref=f20e378]: Insert source
+                      - img [ref=f20e380]
+                    - button "Templates" [ref=f20e382] [cursor=pointer]:
+                      - generic [ref=f20e383]: Templates
+                      - img [ref=f20e385]
+                    - button "27 Jun, 19:59 - 02 Jul, 20:08" [ref=f20e387] [cursor=pointer]:
+                      - img [ref=f20e389]
+                      - generic [ref=f20e392]: 27 Jun, 19:59 - 02 Jul, 20:08
+                    - button "1 warning" [ref=f20e394]:
+                      - generic [ref=f20e395]: 1 warning
+                  - button "Field Reference" [ref=f20e397] [cursor=pointer]:
+                    - img [ref=f20e399]
+                    - generic [ref=f20e402]: Field Reference
+                - code [ref=f20e406]:
+                  - generic [ref=f20e407]:
+                    - generic [ref=f20e412]: "1"
+                    - generic [ref=f20e434]:
+                      - generic [ref=f20e436]: select postgres_logs.timestamp, event_message, parsed.error_severity,
+                      - generic [ref=f20e438]: parsed.detail, parsed.hint, parsed.query from postgres_logs cross join
+                      - generic [ref=f20e440]: unnest(metadata) as m cross join unnest(m.parsed) as parsed where
+                      - generic [ref=f20e442]: event_message ilike '%invalid input syntax for type uuid%' order by
+                      - generic [ref=f20e444]: timestamp desc limit 20
+                    - textbox "Editor content" [active] [ref=f20e446]: select postgres_logs.timestamp, event_message, parsed.error_severity, parsed.detail, parsed.hint, parsed.query from postgres_logs cross join unnest(metadata) as m cross join unnest(m.parsed) as parsed where event_message ilike '%invalid input syntax for type uuid%' order by timestamp desc limit 20
+              - separator [ref=f20e447]:
+                - img [ref=f20e449]
+              - generic [ref=f20e459]:
+                - generic [ref=f20e460]:
+                  - generic [ref=f20e461]:
+                    - button "Results" [disabled]:
+                      - generic: Results
+                      - generic:
+                        - img
+                  - generic [ref=f20e462]:
+                    - button "Save query" [ref=f20e463] [cursor=pointer]:
+                      - generic [ref=f20e464]: Save query
+                    - button "Run" [ref=f20e465] [cursor=pointer]:
+                      - generic [ref=f20e466]: Run
+                      - img [ref=f20e468]
+                - table [ref=f20e474]:
+                  - generic [ref=f20e532]:
+                    - generic [ref=f20e533]: Error fetching logs
+                    - generic [ref=f20e534]:
+                      - code [ref=f20e536]:
+                        - generic [ref=f20e537]: "{"
+                        - generic [ref=f20e538]: "\"message\": \"BigQuery does not support ILIKE. Use REGEXP_CONTAINS instead.\","
+                        - generic [ref=f20e539]: "\"docs\": \"https://supabase.com/docs/guides/platform/advanced-log-filtering#the-ilike-and-similar-to-keywords-are-not-supported\""
+                        - text: "}"
+                      - button [ref=f20e541] [cursor=pointer]:
+                        - img [ref=f20e543]
+    - generic [ref=f20e490]:
+      - generic:
+        - img "Background pattern"
+      - generic [ref=f20e491]:
+        - button "Close banner" [ref=f20e493] [cursor=pointer]:
+          - img [ref=f20e495]
+        - generic [ref=f20e498]:
+          - generic [ref=f20e499]:
+            - generic [ref=f20e500]: Beta
+            - generic [ref=f20e502]:
+              - generic [ref=f20e567]:
+                - generic [ref=f20e569]: 02 Jul 26 20:08:46
+                - generic [ref=f20e570]: "400"
+              - generic [ref=f20e572]:
+                - generic [ref=f20e574]: 02 Jul 26 20:08:43
+                - generic [ref=f20e575]: "304"
+              - generic [ref=f20e577]:
+                - generic [ref=f20e579]: 02 Jul 26 20:08:40
+                - generic [ref=f20e580]: "200"
+              - generic [ref=f20e582]:
+                - generic [ref=f20e584]: 02 Jul 26 20:08:37
+                - generic [ref=f20e585]: "201"
+          - generic [ref=f20e523]:
+            - paragraph [ref=f20e524]: Unified Logs is here
+            - paragraph [ref=f20e525]: Search and correlate logs across all of your services from a single place.
+          - link "Explore Unified Logs" [ref=f20e527] [cursor=pointer]:
+            - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs
+            - generic [ref=f20e528]: Explore Unified Logs
+  - alert [ref=f20e143]: Explorer | Logs | drmhope | chatgptnotes's Org | Supabase
+  - generic [ref=f20e529]:
+    - alert
+    - alert

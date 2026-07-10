@@ -1,0 +1,151 @@
+- generic [active] [ref=f23e1]:
+  - generic [ref=f23e3]:
+    - generic [ref=f23e4]:
+      - banner [ref=f23e6]:
+        - generic [ref=f23e7]:
+          - generic [ref=f23e8]:
+            - link "Supabase" [ref=f23e9] [cursor=pointer]:
+              - /url: /dashboard/org/uekmbdtburauuqzleeya
+              - img "Supabase" [ref=f23e10]
+            - generic [ref=f23e12]:
+              - img [ref=f23e14]
+              - generic [ref=f23e16]:
+                - link "drmhope" [ref=f23e17] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv
+                  - img [ref=f23e18]
+                  - generic "drmhope" [ref=f23e21]
+                - button [ref=f23e22] [cursor=pointer]:
+                  - img [ref=f23e24]
+              - img [ref=f23e28]
+            - button "Connect" [ref=f23e32] [cursor=pointer]:
+              - img [ref=f23e34]
+              - generic [ref=f23e36]: Connect
+          - generic [ref=f23e37]:
+            - generic [ref=f23e39] [cursor=pointer]: Feedback
+            - generic [ref=f23e40]:
+              - button "Search..." [ref=f23e41]:
+                - generic [ref=f23e42]:
+                  - img [ref=f23e43]
+                  - paragraph [ref=f23e46]: Search...
+                - generic [ref=f23e48]: ⌘K
+              - button "Help" [ref=f23e49] [cursor=pointer]:
+                - generic [ref=f23e50]:
+                  - img [ref=f23e51]
+                  - generic [ref=f23e54]: Help
+              - button "Advisor Center" [ref=f23e56] [cursor=pointer]:
+                - generic [ref=f23e57]:
+                  - img [ref=f23e58]
+                  - generic [ref=f23e60]: Advisor Center
+              - button "SQL Editor" [ref=f23e62] [cursor=pointer]:
+                - generic [ref=f23e63]:
+                  - img [ref=f23e64]
+                  - generic [ref=f23e66]: SQL Editor
+              - button "AI Assistant" [ref=f23e67] [cursor=pointer]:
+                - generic [ref=f23e68]:
+                  - img [ref=f23e71]
+                  - generic [ref=f23e74]: AI Assistant
+            - button "chatgptnotes" [ref=f23e75] [cursor=pointer]:
+              - img "chatgptnotes" [ref=f23e77]
+      - generic [ref=f23e78]:
+        - generic [ref=f23e82]:
+          - list [ref=f23e85]:
+            - generic [ref=f23e86]:
+              - listitem [ref=f23e87]:
+                - link "Project Overview" [ref=f23e88] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv
+                  - img [ref=f23e89]
+                  - generic: Project Overview
+              - listitem [ref=f23e91]:
+                - link "Table Editor" [ref=f23e92] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/editor
+                  - img [ref=f23e93]
+                  - generic: Table Editor
+              - listitem [ref=f23e95]:
+                - link "SQL Editor" [ref=f23e96] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/sql
+                  - img [ref=f23e97]
+                  - generic: SQL Editor
+            - generic [ref=f23e99]:
+              - listitem [ref=f23e100]:
+                - link "Database" [ref=f23e101] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/database/schemas
+                  - img [ref=f23e102]
+                  - generic: Database
+              - listitem [ref=f23e106]:
+                - link "Authentication" [ref=f23e107] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/auth/users
+                  - img [ref=f23e108]
+                  - generic: Authentication
+              - listitem [ref=f23e110]:
+                - link "Storage" [ref=f23e111] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/storage/files
+                  - img [ref=f23e112]
+                  - generic: Storage
+              - listitem [ref=f23e114]:
+                - link "Edge Functions" [ref=f23e115] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/functions
+                  - img [ref=f23e116]
+                  - generic: Edge Functions
+              - listitem [ref=f23e121]:
+                - link "Realtime" [ref=f23e122] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/realtime/inspector
+                  - img [ref=f23e123]
+                  - generic: Realtime
+            - generic [ref=f23e125]:
+              - listitem [ref=f23e127]:
+                - link "Advisors" [ref=f23e128] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/advisors/security
+                  - img [ref=f23e129]
+                  - generic: Advisors
+              - listitem [ref=f23e131]:
+                - link "Observability" [ref=f23e132] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/observability
+                  - img [ref=f23e133]
+                  - generic: Observability
+              - listitem [ref=f23e141]:
+                - link "Logs" [ref=f23e142] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/explorer
+                  - img [ref=f23e143]
+                  - generic: Logs
+              - listitem [ref=f23e144]:
+                - link "Integrations" [ref=f23e145] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/integrations
+                  - img [ref=f23e146]
+                  - generic: Integrations
+            - listitem [ref=f23e150]:
+              - link "Project Settings" [ref=f23e151] [cursor=pointer]:
+                - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/settings/general
+                - img [ref=f23e152]
+                - generic: Project Settings
+          - button "Sidebar control" [ref=f23e157] [cursor=pointer]:
+            - img [ref=f23e159]
+        - main [ref=f23e169]:
+          - img [ref=f23e172]
+    - generic [ref=f23e177]:
+      - generic:
+        - img "Background pattern"
+      - generic [ref=f23e178]:
+        - button "Close banner" [ref=f23e180] [cursor=pointer]:
+          - img [ref=f23e182]
+        - generic [ref=f23e185]:
+          - generic [ref=f23e186]:
+            - generic [ref=f23e187]: Beta
+            - generic [ref=f23e189]:
+              - generic [ref=f23e191]:
+                - generic [ref=f23e193]: 02 Jul 26 20:09:17
+                - generic [ref=f23e194]: "200"
+              - generic [ref=f23e196]:
+                - generic [ref=f23e198]: 02 Jul 26 20:09:16
+                - generic [ref=f23e199]: "201"
+              - generic [ref=f23e201]:
+                - generic [ref=f23e203]: 02 Jul 26 20:09:15
+                - generic [ref=f23e204]: "200"
+              - generic [ref=f23e206]:
+                - generic [ref=f23e208]: 02 Jul 26 20:09:14
+                - generic [ref=f23e209]: "200"
+          - generic [ref=f23e210]:
+            - paragraph [ref=f23e211]: Unified Logs is here
+            - paragraph [ref=f23e212]: Search and correlate logs across all of your services from a single place.
+          - button "Enable Unified Logs" [ref=f23e214] [cursor=pointer]:
+            - generic [ref=f23e215]: Enable Unified Logs
+  - alert [ref=f23e216]: Explorer | Logs | Supabase

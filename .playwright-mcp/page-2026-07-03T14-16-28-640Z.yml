@@ -1,0 +1,58 @@
+- generic [ref=e2]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=e4]:
+    - generic [ref=e8]:
+      - generic [ref=e10]:
+        - generic [ref=e11] [cursor=pointer]:
+          - generic [ref=e12]: h
+          - heading "hope HMIS" [level=2] [ref=e13]
+        - generic [ref=e14]:
+          - generic [ref=e15]: cmd
+          - button "Switch" [ref=e16] [cursor=pointer]:
+            - img
+            - generic [ref=e17]: Switch
+          - button "Logout" [ref=e18] [cursor=pointer]:
+            - img
+            - generic [ref=e19]: Logout
+      - generic [ref=e20]:
+        - generic [ref=e23]:
+          - img [ref=e24]
+          - textbox "Search tabs..." [ref=e27]
+        - button "Overview" [ref=e29] [cursor=pointer]:
+          - generic [ref=e30]: Overview
+          - img [ref=e31]
+        - button "Patient Care" [ref=e34] [cursor=pointer]:
+          - generic [ref=e35]: Patient Care
+          - img [ref=e36]
+        - button "Diagnostics" [ref=e39] [cursor=pointer]:
+          - generic [ref=e40]: Diagnostics
+          - img [ref=e41]
+        - button "Beds & Facility" [ref=e44] [cursor=pointer]:
+          - generic [ref=e45]: Beds & Facility
+          - img [ref=e46]
+        - button "Billing & Accounts" [ref=e49] [cursor=pointer]:
+          - generic [ref=e50]: Billing & Accounts
+          - img [ref=e51]
+        - button "Marketing & Outreach" [ref=e54] [cursor=pointer]:
+          - generic [ref=e55]: Marketing & Outreach
+          - img [ref=e56]
+        - button "Patient-Facing" [ref=e59] [cursor=pointer]:
+          - generic [ref=e60]: Patient-Facing
+          - img [ref=e61]
+        - button "Masters" [ref=e64] [cursor=pointer]:
+          - generic [ref=e65]: Masters
+          - img [ref=e66]
+    - main [ref=e68]:
+      - generic [ref=e69]:
+        - button "Toggle Sidebar" [ref=e70] [cursor=pointer]:
+          - img
+          - generic [ref=e71]: Toggle Sidebar
+        - button "Tablet view" [ref=e72] [cursor=pointer]:
+          - img [ref=e73]
+          - text: Tablet view
+      - button "Open camera capture" [ref=e78] [cursor=pointer]:
+        - img [ref=e79]
+      - button "AI Assistant" [ref=e82] [cursor=pointer]:
+        - img [ref=e83]

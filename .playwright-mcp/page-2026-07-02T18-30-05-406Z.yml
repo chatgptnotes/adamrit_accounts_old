@@ -1,0 +1,140 @@
+- generic [ref=f4e2]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=f4e4]:
+    - generic [ref=f4e8]:
+      - generic [ref=f4e10]:
+        - generic [ref=f4e11] [cursor=pointer]:
+          - generic [ref=f4e12]: h
+          - heading "hope HMIS" [level=2] [ref=f4e13]
+        - generic [ref=f4e14]:
+          - generic [ref=f4e15]: cmd
+          - button "Switch" [ref=f4e16] [cursor=pointer]:
+            - img
+            - generic [ref=f4e17]: Switch
+          - button "Logout" [ref=f4e18] [cursor=pointer]:
+            - img
+            - generic [ref=f4e19]: Logout
+      - generic [ref=f4e20]:
+        - generic [ref=f4e23]:
+          - img [ref=f4e24]
+          - textbox "Search tabs..." [ref=f4e27]
+        - button "Overview" [ref=f4e29] [cursor=pointer]:
+          - generic [ref=f4e30]: Overview
+          - img [ref=f4e31]
+        - button "Patient Care" [ref=f4e34] [cursor=pointer]:
+          - generic [ref=f4e35]: Patient Care
+          - img [ref=f4e36]
+        - button "Diagnostics" [ref=f4e39] [cursor=pointer]:
+          - generic [ref=f4e40]: Diagnostics
+          - img [ref=f4e41]
+        - button "Beds & Facility" [ref=f4e44] [cursor=pointer]:
+          - generic [ref=f4e45]: Beds & Facility
+          - img [ref=f4e46]
+        - button "Billing & Accounts" [ref=f4e49] [cursor=pointer]:
+          - generic [ref=f4e50]: Billing & Accounts
+          - img [ref=f4e51]
+        - button "Marketing & Outreach" [ref=f4e54] [cursor=pointer]:
+          - generic [ref=f4e55]: Marketing & Outreach
+          - img [ref=f4e56]
+        - button "Patient-Facing" [ref=f4e59] [cursor=pointer]:
+          - generic [ref=f4e60]: Patient-Facing
+          - img [ref=f4e61]
+        - button "Masters" [ref=f4e64] [cursor=pointer]:
+          - generic [ref=f4e65]: Masters
+          - img [ref=f4e66]
+    - main [ref=f4e68]:
+      - generic [ref=f4e69]:
+        - button "Toggle Sidebar" [ref=f4e70] [cursor=pointer]:
+          - img
+          - generic [ref=f4e71]: Toggle Sidebar
+        - button "Tablet view" [ref=f4e72] [cursor=pointer]:
+          - img [ref=f4e73]
+          - text: Tablet view
+      - generic [ref=f4e85]:
+        - generic [ref=f4e86]:
+          - generic [ref=f4e87]:
+            - img [ref=f4e88]
+            - generic [ref=f4e91]:
+              - heading "Pharmacy Management" [level=1] [ref=f4e92]
+              - paragraph [ref=f4e93]: Enterprise-level pharmacy operations and inventory management
+          - generic [ref=f4e94]:
+            - button "25 pending discount approvals" [ref=f4e95] [cursor=pointer]:
+              - img
+              - generic [ref=f4e96]: "25"
+            - button "111 pending prescriptions" [ref=f4e97] [cursor=pointer]:
+              - img
+              - generic [ref=f4e98]: 99+
+            - generic [ref=f4e99]:
+              - img [ref=f4e100]
+              - generic [ref=f4e102]: 03 Jul 2026
+        - generic [ref=f4e103]:
+          - tablist [ref=f4e104]:
+            - generic [ref=f4e105]:
+              - tab "Overview" [ref=f4e106] [cursor=pointer]
+              - tab "Items" [ref=f4e107] [cursor=pointer]
+              - tab "Direct Sale" [ref=f4e108] [cursor=pointer]
+              - tab "Sale Bill" [ref=f4e109] [cursor=pointer]
+              - tab "View Sales" [ref=f4e110] [cursor=pointer]
+              - tab "Return Sales" [ref=f4e111] [cursor=pointer]
+              - tab "Credit Payments" [ref=f4e112] [cursor=pointer]
+              - tab "Stock Mgmt" [active] [selected] [ref=f4e113] [cursor=pointer]
+              - tab "Manufacturer" [ref=f4e114] [cursor=pointer]
+              - tab "Supplier" [ref=f4e115] [cursor=pointer]
+              - tab "Purchase Order" [ref=f4e116] [cursor=pointer]
+              - tab "Low Stock" [ref=f4e117] [cursor=pointer]
+              - tab "Prescriptions" [ref=f4e118] [cursor=pointer]
+              - tab "Discount Approvals 25" [ref=f4e119] [cursor=pointer]:
+                - text: Discount Approvals
+                - generic [ref=f4e120]: "25"
+          - tabpanel "Stock Mgmt" [ref=f4e300]:
+            - generic [ref=f4e301]:
+              - generic [ref=f4e302]:
+                - generic [ref=f4e303]:
+                  - img [ref=f4e304]
+                  - generic [ref=f4e308]:
+                    - heading "Stock Management" [level=2] [ref=f4e309]
+                    - paragraph [ref=f4e310]: Monitor inventory levels, track stock movements, and manage alerts
+                - generic [ref=f4e311]:
+                  - button "Export Report" [disabled]:
+                    - img
+                    - text: Export Report
+                  - button "Refresh" [disabled]:
+                    - img
+                    - text: Refresh
+                  - button "Opening Stock History" [ref=f4e312] [cursor=pointer]:
+                    - img
+                    - text: Opening Stock History
+                  - button "Add Opening Stock" [ref=f4e313] [cursor=pointer]:
+                    - img
+                    - text: Add Opening Stock
+                  - button "Stock Adjustment" [ref=f4e314] [cursor=pointer]:
+                    - img
+                    - text: Stock Adjustment
+              - generic [ref=f4e315]:
+                - generic [ref=f4e318]:
+                  - generic [ref=f4e319]: "0"
+                  - generic [ref=f4e320]: Total Items
+                - generic [ref=f4e323]:
+                  - generic [ref=f4e324]: "2"
+                  - generic [ref=f4e325]: Low Stock
+                - generic [ref=f4e328]:
+                  - generic [ref=f4e329]: "0"
+                  - generic [ref=f4e330]: Out of Stock
+                - generic [ref=f4e333]:
+                  - generic [ref=f4e334]: "0"
+                  - generic [ref=f4e335]: Expiring Soon
+                - generic [ref=f4e338]:
+                  - generic [ref=f4e339]: "0"
+                  - generic [ref=f4e340]: Expired
+                - generic [ref=f4e343]:
+                  - generic [ref=f4e344]: ₹0.00
+                  - generic [ref=f4e345]: Total Value
+              - generic [ref=f4e348]:
+                - img [ref=f4e349]
+                - paragraph [ref=f4e351]: Loading batch inventory...
+      - button "Open camera capture" [ref=f4e78] [cursor=pointer]:
+        - img [ref=f4e79]
+      - button "AI Assistant" [ref=f4e82] [cursor=pointer]:
+        - img [ref=f4e83]

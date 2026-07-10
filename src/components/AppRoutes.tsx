@@ -2,6 +2,7 @@ import { Routes, Route } from "react-router-dom";
 import { lazy, Suspense, useEffect, ReactNode } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
+import { canAccessReferralRegister } from "@/lib/referralRegisterAccess";
 
 // Import critical pages synchronously
 import LandingPage from "../pages/LandingPage";
@@ -196,6 +197,21 @@ const DirectorRoute = ({ children }: { children?: ReactNode }) => {
   return <Suspense fallback={<PageLoader />}>{children ?? <DirectorDashboard />}</Suspense>;
 };
 
+const ReferralRegisterRoute = ({ children }: { children?: ReactNode }) => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const canAccess = canAccessReferralRegister(user);
+
+  useEffect(() => {
+    if (!canAccess) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [canAccess, navigate]);
+
+  if (!canAccess) return null;
+  return <>{children}</>;
+};
+
 type SuperAdminRouteProps = {
   children: ReactNode;
 };
@@ -380,7 +396,7 @@ export const AppRoutes = () => {
         <Route path="/queue-status" element={<QueueStatus />} />
         <Route path="/nephroplus" element={<Suspense fallback={<PageLoader />}><NephroPlus /></Suspense>} />
         <Route path="/casualty-register" element={<Suspense fallback={<PageLoader />}><CasualtyRegister /></Suspense>} />
-        <Route path="/referral-register" element={<Suspense fallback={<PageLoader />}><ReferralRegister /></Suspense>} />
+        <Route path="/referral-register" element={<Suspense fallback={<PageLoader />}><ReferralRegisterRoute><ReferralRegister /></ReferralRegisterRoute></Suspense>} />
         <Route path="/deadline-tracking" element={<Suspense fallback={<PageLoader />}><DeadlineTrackingRoute /></Suspense>} />
         {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
         <Route path="/master-data" element={<Suspense fallback={<PageLoader />}><MasterData /></Suspense>} />

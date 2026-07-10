@@ -1,0 +1,445 @@
+- generic [ref=f17e1]:
+  - generic [ref=f17e3]:
+    - generic [ref=f17e4]:
+      - generic [ref=f17e147]:
+        - generic [ref=f17e149]:
+          - img [ref=f17e150]
+          - generic [ref=f17e152]:
+            - paragraph [ref=f17e153]: We are investigating a technical issue
+            - generic [ref=f17e154]:
+              - generic [ref=f17e155]: ·
+              - generic [ref=f17e156]:
+                - text: Follow the
+                - link "status page" [ref=f17e157] [cursor=pointer]:
+                  - /url: https://status.supabase.com
+                - text: for updates
+        - button "Dismiss banner" [ref=f17e158] [cursor=pointer]:
+          - img [ref=f17e160]
+      - banner [ref=f17e6]:
+        - generic [ref=f17e7]:
+          - generic [ref=f17e8]:
+            - link "Supabase" [ref=f17e9] [cursor=pointer]:
+              - /url: /dashboard/org/uekmbdtburauuqzleeya
+              - img "Supabase" [ref=f17e10]
+            - generic [ref=f17e11]:
+              - img [ref=f17e164]
+              - generic [ref=f17e166]:
+                - link "chatgptnotes's Org Pro" [ref=f17e167] [cursor=pointer]:
+                  - /url: /dashboard/org/uekmbdtburauuqzleeya
+                  - img [ref=f17e168]
+                  - generic [ref=f17e178]: chatgptnotes's Org
+                  - generic [ref=f17e179]: Pro
+                - button [ref=f17e180] [cursor=pointer]:
+                  - img [ref=f17e182]
+              - generic [ref=f17e12]:
+                - img [ref=f17e14]
+                - generic [ref=f17e185]:
+                  - link "drmhope" [ref=f17e186] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv
+                    - img [ref=f17e187]
+                    - generic "drmhope" [ref=f17e190]
+                  - button [ref=f17e191] [cursor=pointer]:
+                    - img [ref=f17e193]
+                - img [ref=f17e197]
+                - generic [ref=f17e199]:
+                  - link "main Production" [ref=f17e200] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv
+                    - generic "main" [ref=f17e201]
+                    - generic [ref=f17e202]: Production
+                  - button [ref=f17e203] [cursor=pointer]:
+                    - img [ref=f17e205]
+            - button "Connect" [ref=f17e208] [cursor=pointer]:
+              - img [ref=f17e210]
+              - generic [ref=f17e212]: Connect
+          - generic [ref=f17e23]:
+            - generic [ref=f17e25] [cursor=pointer]: Feedback
+            - generic [ref=f17e26]:
+              - button "Search..." [ref=f17e27]:
+                - generic [ref=f17e28]:
+                  - img [ref=f17e29]
+                  - paragraph [ref=f17e32]: Search...
+                - generic [ref=f17e34]: ⌘K
+              - button "Help" [ref=f17e35] [cursor=pointer]:
+                - generic [ref=f17e36]:
+                  - img [ref=f17e37]
+                  - generic [ref=f17e40]: Help
+              - button "Advisor Center" [ref=f17e42] [cursor=pointer]:
+                - generic [ref=f17e43]:
+                  - img [ref=f17e44]
+                  - generic [ref=f17e46]: Advisor Center
+              - button "SQL Editor" [ref=f17e47] [cursor=pointer]:
+                - generic [ref=f17e48]:
+                  - img [ref=f17e49]
+                  - generic [ref=f17e51]: SQL Editor
+              - button "AI Assistant" [ref=f17e52] [cursor=pointer]:
+                - generic [ref=f17e53]:
+                  - img [ref=f17e56]
+                  - generic [ref=f17e59]: AI Assistant
+            - button "chatgptnotes" [ref=f17e214] [cursor=pointer]:
+              - img "chatgptnotes" [ref=f17e215]
+      - generic [ref=f17e65]:
+        - generic [ref=f17e69]:
+          - list [ref=f17e72]:
+            - generic [ref=f17e73]:
+              - listitem [ref=f17e74]:
+                - link "Project Overview" [ref=f17e75] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv
+                  - img [ref=f17e76]
+                  - generic: Project Overview
+              - listitem [ref=f17e78]:
+                - link "Table Editor" [ref=f17e216] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/editor
+                  - img [ref=f17e217]
+                  - generic: Table Editor
+              - listitem [ref=f17e79]:
+                - link "SQL Editor" [ref=f17e219] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/sql
+                  - img [ref=f17e220]
+                  - generic: SQL Editor
+            - generic [ref=f17e80]:
+              - listitem [ref=f17e81]:
+                - link "Database" [ref=f17e222] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/database/schemas
+                  - img [ref=f17e223]
+                  - generic: Database
+              - listitem [ref=f17e82]:
+                - link "Authentication" [ref=f17e227] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/auth/users
+                  - img [ref=f17e228]
+                  - generic: Authentication
+              - listitem [ref=f17e83]:
+                - link "Storage" [ref=f17e230] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/storage/files
+                  - img [ref=f17e231]
+                  - generic: Storage
+              - listitem [ref=f17e84]:
+                - link "Edge Functions" [ref=f17e85] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/functions
+                  - img [ref=f17e86]
+                  - generic: Edge Functions
+              - listitem [ref=f17e91]:
+                - link "Realtime" [ref=f17e233] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/realtime/inspector
+                  - img [ref=f17e234]
+                  - generic: Realtime
+            - generic [ref=f17e92]:
+              - listitem [ref=f17e94]:
+                - link "Advisors" [ref=f17e236] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/advisors/security
+                  - img [ref=f17e237]
+                  - generic: Advisors
+              - listitem [ref=f17e95]:
+                - link "Observability" [ref=f17e239] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/observability
+                  - img [ref=f17e240]
+                  - generic: Observability
+              - listitem [ref=f17e96]:
+                - link "Logs" [ref=f17e97] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs
+                  - img [ref=f17e98]
+                  - generic: Logs
+              - listitem [ref=f17e99]:
+                - link "Integrations" [ref=f17e248] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/integrations
+                  - img [ref=f17e249]
+                  - generic: Integrations
+            - listitem [ref=f17e101]:
+              - link "Project Settings" [ref=f17e102] [cursor=pointer]:
+                - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/settings/general
+                - img [ref=f17e103]
+                - generic: Project Settings
+          - button "Sidebar control" [ref=f17e108] [cursor=pointer]:
+            - img [ref=f17e110]
+        - generic [ref=f17e117]:
+          - generic [ref=f17e255]:
+            - heading "Logs" [level=4] [ref=f17e257]
+            - generic [ref=f17e259]:
+              - generic [ref=f17e260]:
+                - generic [ref=f17e262]: New
+                - heading "Introducing unified logs" [level=3] [ref=f17e263]
+                - button "More information" [disabled] [ref=f17e265] [cursor=pointer]:
+                  - img [ref=f17e267]
+                  - generic [ref=f17e270]: More information
+              - generic [ref=f17e271]:
+                - generic [ref=f17e273]:
+                  - generic [ref=f17e274]: Search collections
+                  - textbox "Search collections..." [disabled] [ref=f17e275]
+                  - img [ref=f17e276]
+                - link [disabled] [ref=f17e279] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/explorer
+                  - img [ref=f17e281]
+              - link "Templates" [disabled] [ref=f17e283] [cursor=pointer]:
+                - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/explorer/templates
+              - generic [ref=f17e284]:
+                - button "Collections" [disabled] [expanded] [ref=f17e285]:
+                  - img [ref=f17e286]
+                  - generic [ref=f17e288]: Collections
+                - generic [ref=f17e289]:
+                  - link "API Gateway" [disabled] [ref=f17e291] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/edge-logs
+                    - generic [ref=f17e292]: API Gateway
+                  - link "Postgres" [disabled] [ref=f17e294] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/postgres-logs
+                    - generic [ref=f17e295]: Postgres
+                  - link "PostgREST" [disabled] [ref=f17e297] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/postgrest-logs
+                    - generic [ref=f17e298]: PostgREST
+                  - link "Shared Pooler" [disabled] [ref=f17e300] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/pooler-logs
+                    - generic [ref=f17e301]: Shared Pooler
+                  - link "Dedicated Pooler" [disabled] [ref=f17e303] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/dedicated-pooler-logs
+                    - generic [ref=f17e304]: Dedicated Pooler
+                  - link "Auth" [disabled] [ref=f17e306] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/auth-logs
+                    - generic [ref=f17e307]: Auth
+                  - link "Storage" [disabled] [ref=f17e309] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/storage-logs
+                    - generic [ref=f17e310]: Storage
+                  - link "Realtime" [disabled] [ref=f17e312] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/realtime-logs
+                    - generic [ref=f17e313]: Realtime
+                  - link "Edge Functions" [disabled] [ref=f17e315] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/edge-functions-logs
+                    - generic [ref=f17e316]: Edge Functions
+                  - link "Cron" [disabled] [ref=f17e318] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/pgcron-logs
+                    - generic [ref=f17e319]: Cron
+              - generic [ref=f17e320]:
+                - button "Database operations" [disabled] [expanded] [ref=f17e321]:
+                  - img [ref=f17e322]
+                  - generic [ref=f17e324]: Database operations
+                - link "Postgres Version Upgrade" [disabled] [ref=f17e327] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/pg-upgrade-logs
+                  - generic [ref=f17e328]: Postgres Version Upgrade
+              - generic [ref=f17e329]:
+                - button "Queries" [disabled] [expanded] [ref=f17e330]:
+                  - img [ref=f17e331]
+                  - generic [ref=f17e333]: Queries
+                - generic [ref=f17e336]:
+                  - paragraph [ref=f17e337]: No queries created yet
+                  - paragraph [ref=f17e338]: Create and save your queries to use them in the explorer
+                  - link "Create query" [disabled] [ref=f17e340] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/explorer
+                    - generic [ref=f17e341]: Create query
+              - generic [ref=f17e342]:
+                - generic [ref=f17e344]:
+                  - img [ref=f17e345]
+                  - img [ref=f17e348]
+                  - img [ref=f17e350]
+                  - img [ref=f17e352]
+                - generic [ref=f17e354]:
+                  - heading "Capture your logs" [level=3] [ref=f17e355]
+                  - paragraph [ref=f17e356]: Send logs to your preferred observability or storage platform.
+                - link "Go to Log Drains" [disabled] [ref=f17e358] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/settings/log-drains
+                  - generic [ref=f17e359]: Go to Log Drains
+          - separator [disabled] [ref=f17e360]:
+            - img [ref=f17e362]
+          - main [ref=f17e120]:
+            - generic [ref=f17e370]:
+              - generic [ref=f17e372]:
+                - generic [ref=f17e375]:
+                  - generic [ref=f17e376]:
+                    - button "Insert source" [ref=f17e377] [cursor=pointer]:
+                      - generic [ref=f17e378]: Insert source
+                      - img [ref=f17e380]
+                    - button "Templates" [ref=f17e382] [cursor=pointer]:
+                      - generic [ref=f17e383]: Templates
+                      - img [ref=f17e385]
+                    - button "27 Jun, 19:59 - 02 Jul, 20:01" [ref=f17e387] [cursor=pointer]:
+                      - img [ref=f17e389]
+                      - generic [ref=f17e392]: 27 Jun, 19:59 - 02 Jul, 20:01
+                    - button "1 warning" [ref=f17e394]:
+                      - generic [ref=f17e395]: 1 warning
+                  - button "Field Reference" [ref=f17e397] [cursor=pointer]:
+                    - img [ref=f17e399]
+                    - generic [ref=f17e402]: Field Reference
+                - code [ref=f17e406]:
+                  - generic [ref=f17e407]:
+                    - generic [ref=f17e412]: "1"
+                    - generic [ref=f17e438]:
+                      - generic [ref=f17e538]: select event_message, parsed.error_severity, count(*) as cnt, min
+                      - generic [ref=f17e540]: (postgres_logs.timestamp) as first_seen, max(postgres_logs.timestamp) as
+                      - generic [ref=f17e542]: last_seen from postgres_logs cross join unnest(metadata) as m cross join
+                      - generic [ref=f17e544]: unnest(m.parsed) as parsed where parsed.error_severity in ('ERROR',
+                      - generic [ref=f17e546]: "'FATAL','PANIC') group by event_message, parsed.error_severity order by"
+                      - generic [ref=f17e548]: cnt desc limit 50
+                    - textbox "Editor content" [ref=f17e453]: select eve
+              - separator [ref=f17e454]:
+                - img [ref=f17e456]
+              - generic [ref=f17e466]:
+                - generic [ref=f17e467]:
+                  - button "Results (50)" [ref=f17e549] [cursor=pointer]:
+                    - generic [ref=f17e550]: Results (50)
+                    - img [ref=f17e552]
+                  - generic [ref=f17e469]:
+                    - button "Save query" [ref=f17e470] [cursor=pointer]:
+                      - generic [ref=f17e471]: Save query
+                    - button "Run" [active] [ref=f17e472] [cursor=pointer]:
+                      - generic [ref=f17e473]: Run
+                      - img [ref=f17e475]
+                - table [ref=f17e481]:
+                  - row "cnt error_severity event_message first_seen" [ref=f17e554]:
+                    - columnheader [ref=f17e555]
+                    - columnheader "cnt" [ref=f17e556]:
+                      - generic [ref=f17e557]: cnt
+                    - columnheader "error_severity" [ref=f17e559]:
+                      - generic [ref=f17e560]: error_severity
+                    - columnheader "event_message" [ref=f17e562]:
+                      - generic [ref=f17e563]: event_message
+                    - columnheader "first_seen" [ref=f17e565]:
+                      - generic [ref=f17e566]: first_seen
+                  - row "1000409 ERROR column patient_documents.patient_name does not exist 1782570652888000" [ref=f17e568] [cursor=pointer]:
+                    - gridcell [ref=f17e569]:
+                      - checkbox [ref=f17e571]
+                    - gridcell "1000409" [ref=f17e572]:
+                      - generic [ref=f17e573]: "1000409"
+                    - gridcell "ERROR" [ref=f17e574]:
+                      - generic [ref=f17e575]: ERROR
+                    - gridcell "column patient_documents.patient_name does not exist" [ref=f17e576]:
+                      - generic [ref=f17e577]: column patient_documents.patient_name does not exist
+                    - gridcell "1782570652888000" [ref=f17e578]:
+                      - generic [ref=f17e579]: "1782570652888000"
+                  - row "16394 ERROR column visits.insurance_type does not exist 1782570588311000" [ref=f17e580] [cursor=pointer]:
+                    - gridcell [ref=f17e581]:
+                      - checkbox [ref=f17e583]
+                    - gridcell "16394" [ref=f17e584]:
+                      - generic [ref=f17e585]: "16394"
+                    - gridcell "ERROR" [ref=f17e586]:
+                      - generic [ref=f17e587]: ERROR
+                    - gridcell "column visits.insurance_type does not exist" [ref=f17e588]:
+                      - generic [ref=f17e589]: column visits.insurance_type does not exist
+                    - gridcell "1782570588311000" [ref=f17e590]:
+                      - generic [ref=f17e591]: "1782570588311000"
+                  - row "8135 ERROR relation \"public.medication\" does not exist 1782570586891000" [ref=f17e592] [cursor=pointer]:
+                    - gridcell [ref=f17e593]:
+                      - checkbox [ref=f17e595]
+                    - gridcell "8135" [ref=f17e596]:
+                      - generic [ref=f17e597]: "8135"
+                    - gridcell "ERROR" [ref=f17e598]:
+                      - generic [ref=f17e599]: ERROR
+                    - gridcell "relation \"public.medication\" does not exist" [ref=f17e600]:
+                      - generic [ref=f17e601]: relation "public.medication" does not exist
+                    - gridcell "1782570586891000" [ref=f17e602]:
+                      - generic [ref=f17e603]: "1782570586891000"
+                  - row "2986 ERROR column lab.hospital_name does not exist 1782570657541000" [ref=f17e604] [cursor=pointer]:
+                    - gridcell [ref=f17e605]:
+                      - checkbox [ref=f17e607]
+                    - gridcell "2986" [ref=f17e608]:
+                      - generic [ref=f17e609]: "2986"
+                    - gridcell "ERROR" [ref=f17e610]:
+                      - generic [ref=f17e611]: ERROR
+                    - gridcell "column lab.hospital_name does not exist" [ref=f17e612]:
+                      - generic [ref=f17e613]: column lab.hospital_name does not exist
+                    - gridcell "1782570657541000" [ref=f17e614]:
+                      - generic [ref=f17e615]: "1782570657541000"
+                  - row "2521 ERROR canceling statement due to statement timeout 1782618310837000" [ref=f17e616] [cursor=pointer]:
+                    - gridcell [ref=f17e617]:
+                      - checkbox [ref=f17e619]
+                    - gridcell "2521" [ref=f17e620]:
+                      - generic [ref=f17e621]: "2521"
+                    - gridcell "ERROR" [ref=f17e622]:
+                      - generic [ref=f17e623]: ERROR
+                    - gridcell "canceling statement due to statement timeout" [ref=f17e624]:
+                      - generic [ref=f17e625]: canceling statement due to statement timeout
+                    - gridcell "1782618310837000" [ref=f17e626]:
+                      - generic [ref=f17e627]: "1782618310837000"
+                  - row "1975 ERROR column patients_1.category does not exist 1782570657882000" [ref=f17e628] [cursor=pointer]:
+                    - gridcell [ref=f17e629]:
+                      - checkbox [ref=f17e631]
+                    - gridcell "1975" [ref=f17e632]:
+                      - generic [ref=f17e633]: "1975"
+                    - gridcell "ERROR" [ref=f17e634]:
+                      - generic [ref=f17e635]: ERROR
+                    - gridcell "column patients_1.category does not exist" [ref=f17e636]:
+                      - generic [ref=f17e637]: column patients_1.category does not exist
+                    - gridcell "1782570657882000" [ref=f17e638]:
+                      - generic [ref=f17e639]: "1782570657882000"
+                  - 'row "1511 ERROR invalid input syntax for type uuid: \"undefined\" 1782570657648000" [ref=f17e640] [cursor=pointer]':
+                    - gridcell [ref=f17e641]:
+                      - checkbox [ref=f17e643]
+                    - gridcell "1511" [ref=f17e644]:
+                      - generic [ref=f17e645]: "1511"
+                    - gridcell "ERROR" [ref=f17e646]:
+                      - generic [ref=f17e647]: ERROR
+                    - 'gridcell "invalid input syntax for type uuid: \"undefined\"" [ref=f17e648]':
+                      - generic [ref=f17e649]: "invalid input syntax for type uuid: \"undefined\""
+                    - gridcell "1782570657648000" [ref=f17e650]:
+                      - generic [ref=f17e651]: "1782570657648000"
+                  - row "1473 ERROR column radiology_1.cost does not exist 1782570658271000" [ref=f17e652] [cursor=pointer]:
+                    - gridcell [ref=f17e653]:
+                      - checkbox [ref=f17e655]
+                    - gridcell "1473" [ref=f17e656]:
+                      - generic [ref=f17e657]: "1473"
+                    - gridcell "ERROR" [ref=f17e658]:
+                      - generic [ref=f17e659]: ERROR
+                    - gridcell "column radiology_1.cost does not exist" [ref=f17e660]:
+                      - generic [ref=f17e661]: column radiology_1.cost does not exist
+                    - gridcell "1782570658271000" [ref=f17e662]:
+                      - generic [ref=f17e663]: "1782570658271000"
+                  - 'row "812 ERROR invalid input syntax for type uuid: \"IH26F28007\" 1782715298722000" [ref=f17e664] [cursor=pointer]':
+                    - gridcell [ref=f17e665]:
+                      - checkbox [ref=f17e667]
+                    - gridcell "812" [ref=f17e668]:
+                      - generic [ref=f17e669]: "812"
+                    - gridcell "ERROR" [ref=f17e670]:
+                      - generic [ref=f17e671]: ERROR
+                    - 'gridcell "invalid input syntax for type uuid: \"IH26F28007\"" [ref=f17e672]':
+                      - generic [ref=f17e673]: "invalid input syntax for type uuid: \"IH26F28007\""
+                    - gridcell "1782715298722000" [ref=f17e674]:
+                      - generic [ref=f17e675]: "1782715298722000"
+                  - row "774 ERROR relation \"public.accounting_transactions\" does not exist 1782616769476000" [ref=f17e676] [cursor=pointer]:
+                    - gridcell [ref=f17e677]:
+                      - checkbox [ref=f17e679]
+                    - gridcell "774" [ref=f17e680]:
+                      - generic [ref=f17e681]: "774"
+                    - gridcell "ERROR" [ref=f17e682]:
+                      - generic [ref=f17e683]: ERROR
+                    - gridcell "relation \"public.accounting_transactions\" does not exist" [ref=f17e684]:
+                      - generic [ref=f17e685]: relation "public.accounting_transactions" does not exist
+                    - gridcell "1782616769476000" [ref=f17e686]:
+                      - generic [ref=f17e687]: "1782616769476000"
+                  - 'row "554 ERROR invalid input syntax for type uuid: \"IH26F29004\" 1782712895235000" [ref=f17e688] [cursor=pointer]':
+                    - gridcell [ref=f17e689]:
+                      - checkbox [ref=f17e691]
+                    - gridcell "554" [ref=f17e692]:
+                      - generic [ref=f17e693]: "554"
+                    - gridcell "ERROR" [ref=f17e694]:
+                      - generic [ref=f17e695]: ERROR
+                    - 'gridcell "invalid input syntax for type uuid: \"IH26F29004\"" [ref=f17e696]':
+                      - generic [ref=f17e697]: "invalid input syntax for type uuid: \"IH26F29004\""
+                    - gridcell "1782712895235000" [ref=f17e698]:
+                      - generic [ref=f17e699]: "1782712895235000"
+    - generic [ref=f17e497]:
+      - generic:
+        - img "Background pattern"
+      - generic [ref=f17e498]:
+        - button "Close banner" [ref=f17e500] [cursor=pointer]:
+          - img [ref=f17e502]
+        - generic [ref=f17e505]:
+          - generic [ref=f17e506]:
+            - generic [ref=f17e507]: Beta
+            - generic [ref=f17e509]:
+              - generic [ref=f17e701]:
+                - generic [ref=f17e703]: 02 Jul 26 20:01:48
+                - generic [ref=f17e704]: "201"
+              - generic [ref=f17e706]:
+                - generic [ref=f17e708]: 02 Jul 26 20:01:45
+                - generic [ref=f17e709]: "200"
+              - generic [ref=f17e711]:
+                - generic [ref=f17e713]: 02 Jul 26 20:01:43
+                - generic [ref=f17e714]: "200"
+              - generic [ref=f17e716]:
+                - generic [ref=f17e718]: 02 Jul 26 20:01:39
+                - generic [ref=f17e719]: "500"
+          - generic [ref=f17e530]:
+            - paragraph [ref=f17e531]: Unified Logs is here
+            - paragraph [ref=f17e532]: Search and correlate logs across all of your services from a single place.
+          - link "Explore Unified Logs" [ref=f17e534] [cursor=pointer]:
+            - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs
+            - generic [ref=f17e535]: Explore Unified Logs
+  - alert [ref=f17e143]: Explorer | Logs | drmhope | chatgptnotes's Org | Supabase
+  - generic [ref=f17e536]:
+    - alert
+    - alert

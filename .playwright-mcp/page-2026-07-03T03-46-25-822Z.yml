@@ -1,0 +1,63 @@
+- generic [ref=f12e2]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=f12e4]:
+    - generic [ref=f12e8]:
+      - generic [ref=f12e10]:
+        - generic [ref=f12e11] [cursor=pointer]:
+          - generic [ref=f12e12]: h
+          - heading "hope HMIS" [level=2] [ref=f12e13]
+        - generic [ref=f12e14]:
+          - generic [ref=f12e15]: cmd
+          - button "Switch" [ref=f12e16] [cursor=pointer]:
+            - img
+            - generic [ref=f12e17]: Switch
+          - button "Logout" [ref=f12e18] [cursor=pointer]:
+            - img
+            - generic [ref=f12e19]: Logout
+      - generic [ref=f12e20]:
+        - generic [ref=f12e23]:
+          - img [ref=f12e24]
+          - textbox "Search tabs..." [ref=f12e27]
+        - button "Overview" [ref=f12e29] [cursor=pointer]:
+          - generic [ref=f12e30]: Overview
+          - img [ref=f12e31]
+        - button "Patient Care" [ref=f12e34] [cursor=pointer]:
+          - generic [ref=f12e35]: Patient Care
+          - img [ref=f12e36]
+        - button "Diagnostics" [ref=f12e39] [cursor=pointer]:
+          - generic [ref=f12e40]: Diagnostics
+          - img [ref=f12e41]
+        - button "Beds & Facility" [ref=f12e44] [cursor=pointer]:
+          - generic [ref=f12e45]: Beds & Facility
+          - img [ref=f12e46]
+        - button "Billing & Accounts" [ref=f12e49] [cursor=pointer]:
+          - generic [ref=f12e50]: Billing & Accounts
+          - img [ref=f12e51]
+        - button "Marketing & Outreach" [ref=f12e54] [cursor=pointer]:
+          - generic [ref=f12e55]: Marketing & Outreach
+          - img [ref=f12e56]
+        - button "Patient-Facing" [ref=f12e59] [cursor=pointer]:
+          - generic [ref=f12e60]: Patient-Facing
+          - img [ref=f12e61]
+        - button "Masters" [ref=f12e64] [cursor=pointer]:
+          - generic [ref=f12e65]: Masters
+          - img [ref=f12e66]
+    - main [ref=f12e68]:
+      - generic [ref=f12e69]:
+        - button "Toggle Sidebar" [ref=f12e70] [cursor=pointer]:
+          - img
+          - generic [ref=f12e71]: Toggle Sidebar
+        - button "Tablet view" [ref=f12e72] [cursor=pointer]:
+          - img [ref=f12e73]
+          - text: Tablet view
+      - generic [ref=f12e449]:
+        - heading "404" [level=1] [ref=f12e450]
+        - paragraph [ref=f12e451]: Oops! Page not found
+        - link "Return to Home" [ref=f12e452] [cursor=pointer]:
+          - /url: /
+      - button "Open camera capture" [ref=f12e78] [cursor=pointer]:
+        - img [ref=f12e79]
+      - button "AI Assistant" [ref=f12e82] [cursor=pointer]:
+        - img [ref=f12e83]

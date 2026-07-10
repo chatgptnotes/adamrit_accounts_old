@@ -1,0 +1,58 @@
+- generic [ref=f6e2]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=f6e4]:
+    - generic [ref=f6e8]:
+      - generic [ref=f6e10]:
+        - generic [ref=f6e11] [cursor=pointer]:
+          - generic [ref=f6e12]: h
+          - heading "hope HMIS" [level=2] [ref=f6e13]
+        - generic [ref=f6e14]:
+          - generic [ref=f6e15]: cmd
+          - button "Switch" [ref=f6e16] [cursor=pointer]:
+            - img
+            - generic [ref=f6e17]: Switch
+          - button "Logout" [ref=f6e18] [cursor=pointer]:
+            - img
+            - generic [ref=f6e19]: Logout
+      - generic [ref=f6e20]:
+        - generic [ref=f6e23]:
+          - img [ref=f6e24]
+          - textbox "Search tabs..." [ref=f6e27]
+        - button "Overview" [ref=f6e29] [cursor=pointer]:
+          - generic [ref=f6e30]: Overview
+          - img [ref=f6e31]
+        - button "Patient Care" [ref=f6e34] [cursor=pointer]:
+          - generic [ref=f6e35]: Patient Care
+          - img [ref=f6e36]
+        - button "Diagnostics" [ref=f6e39] [cursor=pointer]:
+          - generic [ref=f6e40]: Diagnostics
+          - img [ref=f6e41]
+        - button "Beds & Facility" [ref=f6e44] [cursor=pointer]:
+          - generic [ref=f6e45]: Beds & Facility
+          - img [ref=f6e46]
+        - button "Billing & Accounts" [ref=f6e49] [cursor=pointer]:
+          - generic [ref=f6e50]: Billing & Accounts
+          - img [ref=f6e51]
+        - button "Marketing & Outreach" [ref=f6e54] [cursor=pointer]:
+          - generic [ref=f6e55]: Marketing & Outreach
+          - img [ref=f6e56]
+        - button "Patient-Facing" [ref=f6e59] [cursor=pointer]:
+          - generic [ref=f6e60]: Patient-Facing
+          - img [ref=f6e61]
+        - button "Masters" [ref=f6e64] [cursor=pointer]:
+          - generic [ref=f6e65]: Masters
+          - img [ref=f6e66]
+    - main [ref=f6e68]:
+      - generic [ref=f6e69]:
+        - button "Toggle Sidebar" [ref=f6e70] [cursor=pointer]:
+          - img
+          - generic [ref=f6e71]: Toggle Sidebar
+        - button "Tablet view" [ref=f6e72] [cursor=pointer]:
+          - img [ref=f6e73]
+          - text: Tablet view
+      - button "Open camera capture" [ref=f6e78] [cursor=pointer]:
+        - img [ref=f6e79]
+      - button "AI Assistant" [ref=f6e82] [cursor=pointer]:
+        - img [ref=f6e83]

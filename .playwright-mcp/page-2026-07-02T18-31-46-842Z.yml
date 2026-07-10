@@ -1,0 +1,312 @@
+- generic [ref=f4e2]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=f4e4]:
+    - generic [ref=f4e8]:
+      - generic [ref=f4e10]:
+        - generic [ref=f4e11] [cursor=pointer]:
+          - generic [ref=f4e12]: h
+          - heading "hope HMIS" [level=2] [ref=f4e13]
+        - generic [ref=f4e14]:
+          - generic [ref=f4e15]: cmd
+          - button "Switch" [ref=f4e16] [cursor=pointer]:
+            - img
+            - generic [ref=f4e17]: Switch
+          - button "Logout" [ref=f4e18] [cursor=pointer]:
+            - img
+            - generic [ref=f4e19]: Logout
+      - generic [ref=f4e20]:
+        - generic [ref=f4e23]:
+          - img [ref=f4e24]
+          - textbox "Search tabs..." [ref=f4e27]
+        - button "Overview" [ref=f4e29] [cursor=pointer]:
+          - generic [ref=f4e30]: Overview
+          - img [ref=f4e31]
+        - button "Patient Care" [ref=f4e34] [cursor=pointer]:
+          - generic [ref=f4e35]: Patient Care
+          - img [ref=f4e36]
+        - button "Diagnostics" [ref=f4e39] [cursor=pointer]:
+          - generic [ref=f4e40]: Diagnostics
+          - img [ref=f4e41]
+        - button "Beds & Facility" [ref=f4e44] [cursor=pointer]:
+          - generic [ref=f4e45]: Beds & Facility
+          - img [ref=f4e46]
+        - button "Billing & Accounts" [ref=f4e49] [cursor=pointer]:
+          - generic [ref=f4e50]: Billing & Accounts
+          - img [ref=f4e51]
+        - button "Marketing & Outreach" [ref=f4e54] [cursor=pointer]:
+          - generic [ref=f4e55]: Marketing & Outreach
+          - img [ref=f4e56]
+        - button "Patient-Facing" [ref=f4e59] [cursor=pointer]:
+          - generic [ref=f4e60]: Patient-Facing
+          - img [ref=f4e61]
+        - button "Masters" [ref=f4e64] [cursor=pointer]:
+          - generic [ref=f4e65]: Masters
+          - img [ref=f4e66]
+    - main [ref=f4e68]:
+      - generic [ref=f4e69]:
+        - button "Toggle Sidebar" [ref=f4e70] [cursor=pointer]:
+          - img
+          - generic [ref=f4e71]: Toggle Sidebar
+        - button "Tablet view" [ref=f4e72] [cursor=pointer]:
+          - img [ref=f4e73]
+          - text: Tablet view
+      - generic [ref=f4e85]:
+        - generic [ref=f4e86]:
+          - generic [ref=f4e87]:
+            - img [ref=f4e88]
+            - generic [ref=f4e91]:
+              - heading "Pharmacy Management" [level=1] [ref=f4e92]
+              - paragraph [ref=f4e93]: Enterprise-level pharmacy operations and inventory management
+          - generic [ref=f4e94]:
+            - button "25 pending discount approvals" [ref=f4e95] [cursor=pointer]:
+              - img
+              - generic [ref=f4e96]: "25"
+            - button "111 pending prescriptions" [ref=f4e97] [cursor=pointer]:
+              - img
+              - generic [ref=f4e98]: 99+
+            - generic [ref=f4e99]:
+              - img [ref=f4e100]
+              - generic [ref=f4e102]: 03 Jul 2026
+        - generic [ref=f4e103]:
+          - tablist [ref=f4e104]:
+            - generic [ref=f4e105]:
+              - tab "Overview" [ref=f4e106] [cursor=pointer]
+              - tab "Items" [active] [selected] [ref=f4e107] [cursor=pointer]
+              - tab "Direct Sale" [ref=f4e108] [cursor=pointer]
+              - tab "Sale Bill" [ref=f4e109] [cursor=pointer]
+              - tab "View Sales" [ref=f4e110] [cursor=pointer]
+              - tab "Return Sales" [ref=f4e111] [cursor=pointer]
+              - tab "Credit Payments" [ref=f4e112] [cursor=pointer]
+              - tab "Stock Mgmt" [ref=f4e113] [cursor=pointer]
+              - tab "Manufacturer" [ref=f4e114] [cursor=pointer]
+              - tab "Supplier" [ref=f4e115] [cursor=pointer]
+              - tab "Purchase Order" [ref=f4e116] [cursor=pointer]
+              - tab "Low Stock" [ref=f4e117] [cursor=pointer]
+              - tab "Prescriptions" [ref=f4e118] [cursor=pointer]
+              - tab "Discount Approvals 25" [ref=f4e119] [cursor=pointer]:
+                - text: Discount Approvals
+                - generic [ref=f4e120]: "25"
+          - tabpanel "Items" [ref=f4e32384]:
+            - generic [ref=f4e32385]:
+              - generic [ref=f4e32386]:
+                - generic [ref=f4e32387]:
+                  - img [ref=f4e32388]
+                  - generic [ref=f4e32392]:
+                    - heading "Medicine Items" [level=2] [ref=f4e32393]
+                    - paragraph [ref=f4e32394]: Manage medicine items - Add, Edit, and Delete medicines
+                - generic [ref=f4e32395]:
+                  - button "Print" [ref=f4e32396] [cursor=pointer]:
+                    - img
+                    - text: Print
+                  - button "Import" [ref=f4e32397] [cursor=pointer]:
+                    - img
+                    - text: Import
+                  - button "Export" [ref=f4e32398] [cursor=pointer]:
+                    - img
+                    - text: Export
+                  - button "Add Medicine" [ref=f4e32399] [cursor=pointer]:
+                    - img
+                    - text: Add Medicine
+              - generic [ref=f4e32402]:
+                - generic [ref=f4e32403]:
+                  - paragraph [ref=f4e32404]: Total Medicines
+                  - paragraph [ref=f4e32405]: "1000"
+                - img [ref=f4e32406]
+              - generic [ref=f4e32412]:
+                - img [ref=f4e32413]
+                - textbox "Search medicines by name or generic name..." [ref=f4e32416]
+              - generic [ref=f4e32417]:
+                - heading "Medicines (1000)" [level=3] [ref=f4e32419]
+                - generic [ref=f4e32420]:
+                  - table [ref=f4e32423]:
+                    - rowgroup [ref=f4e32424]:
+                      - row "Medicine Name Generic Name Manufacturer Supplier Type Stock (Tablets) Stock (Strips) Actions" [ref=f4e32425]:
+                        - columnheader "Medicine Name" [ref=f4e32426]
+                        - columnheader "Generic Name" [ref=f4e32427]
+                        - columnheader "Manufacturer" [ref=f4e32428]
+                        - columnheader "Supplier" [ref=f4e32429]
+                        - columnheader "Type" [ref=f4e32430]
+                        - columnheader "Stock (Tablets)" [ref=f4e32431]
+                        - columnheader "Stock (Strips)" [ref=f4e32432]
+                        - columnheader "Actions" [ref=f4e32433]
+                    - rowgroup [ref=f4e32434]:
+                      - row "3 WAY EXTENSION 10 CM 3 WAY N/A ASIAN SURGICAL COM. SURGICAL N/A 0 0" [ref=f4e32435]:
+                        - cell "3 WAY EXTENSION 10 CM" [ref=f4e32436]
+                        - cell "3 WAY" [ref=f4e32437]
+                        - cell "N/A" [ref=f4e32438]
+                        - cell "ASIAN SURGICAL COM. SURGICAL" [ref=f4e32439]
+                        - cell "N/A" [ref=f4e32440]
+                        - cell "0" [ref=f4e32441]:
+                          - generic [ref=f4e32442]: "0"
+                        - cell "0" [ref=f4e32443]:
+                          - generic [ref=f4e32444]: "0"
+                        - cell [ref=f4e32445]:
+                          - generic [ref=f4e32446]:
+                            - button [ref=f4e32447] [cursor=pointer]:
+                              - img
+                            - button [ref=f4e32448] [cursor=pointer]:
+                              - img
+                      - row "3 WAY EXTENSION 10 CM vein-line 10cc surgical N/A ASIAN SURGICAL COM. SURGICAL N/A 42 42" [ref=f4e32449]:
+                        - cell "3 WAY EXTENSION 10 CM" [ref=f4e32450]
+                        - cell "vein-line 10cc surgical" [ref=f4e32451]
+                        - cell "N/A" [ref=f4e32452]
+                        - cell "ASIAN SURGICAL COM. SURGICAL" [ref=f4e32453]
+                        - cell "N/A" [ref=f4e32454]
+                        - cell "42" [ref=f4e32455]:
+                          - generic [ref=f4e32456]: "42"
+                        - cell "42" [ref=f4e32457]:
+                          - generic [ref=f4e32458]: "42"
+                        - cell [ref=f4e32459]:
+                          - generic [ref=f4e32460]:
+                            - button [ref=f4e32461] [cursor=pointer]:
+                              - img
+                            - button [ref=f4e32462] [cursor=pointer]:
+                              - img
+                      - row "ABD BELT SATNAM -L SIZE ABDOMINAL BELT ABD BELT N/A ASIAN SURGICAL COM. SURGICAL Other 2 2" [ref=f4e32463]:
+                        - cell "ABD BELT SATNAM -L SIZE ABDOMINAL BELT" [ref=f4e32464]
+                        - cell "ABD BELT" [ref=f4e32465]
+                        - cell "N/A" [ref=f4e32466]
+                        - cell "ASIAN SURGICAL COM. SURGICAL" [ref=f4e32467]
+                        - cell "Other" [ref=f4e32468]
+                        - cell "2" [ref=f4e32469]:
+                          - generic [ref=f4e32470]: "2"
+                        - cell "2" [ref=f4e32471]:
+                          - generic [ref=f4e32472]: "2"
+                        - cell [ref=f4e32473]:
+                          - generic [ref=f4e32474]:
+                            - button [ref=f4e32475] [cursor=pointer]:
+                              - img
+                            - button [ref=f4e32476] [cursor=pointer]:
+                              - img
+                      - row "ABD PAD 25CM *40CM 8 PLY ABD PAD N/A ASIAN SURGICAL COM. SURGICAL Tablets 20 20" [ref=f4e32477]:
+                        - cell "ABD PAD 25CM *40CM 8 PLY" [ref=f4e32478]
+                        - cell "ABD PAD" [ref=f4e32479]
+                        - cell "N/A" [ref=f4e32480]
+                        - cell "ASIAN SURGICAL COM. SURGICAL" [ref=f4e32481]
+                        - cell "Tablets" [ref=f4e32482]
+                        - cell "20" [ref=f4e32483]:
+                          - generic [ref=f4e32484]: "20"
+                        - cell "20" [ref=f4e32485]:
+                          - generic [ref=f4e32486]: "20"
+                        - cell [ref=f4e32487]:
+                          - generic [ref=f4e32488]:
+                            - button [ref=f4e32489] [cursor=pointer]:
+                              - img
+                            - button [ref=f4e32490] [cursor=pointer]:
+                              - img
+                      - row "ABGEL [REGULAR] SURGICAL PROUDOCT N/A N/A Other 5 5" [ref=f4e32491]:
+                        - cell "ABGEL [REGULAR]" [ref=f4e32492]
+                        - cell "SURGICAL PROUDOCT" [ref=f4e32493]
+                        - cell "N/A" [ref=f4e32494]
+                        - cell "N/A" [ref=f4e32495]
+                        - cell "Other" [ref=f4e32496]
+                        - cell "5" [ref=f4e32497]:
+                          - generic [ref=f4e32498]: "5"
+                        - cell "5" [ref=f4e32499]:
+                          - generic [ref=f4e32500]: "5"
+                        - cell [ref=f4e32501]:
+                          - generic [ref=f4e32502]:
+                            - button [ref=f4e32503] [cursor=pointer]:
+                              - img
+                            - button [ref=f4e32504] [cursor=pointer]:
+                              - img
+                      - row "ABLCATH HDC TL 12FR13.5 CM (C)-HD CATHETER HD CATHETE N/A N/A Other 1 1" [ref=f4e32505]:
+                        - cell "ABLCATH HDC TL 12FR13.5 CM (C)-HD CATHETER" [ref=f4e32506]
+                        - cell "HD CATHETE" [ref=f4e32507]
+                        - cell "N/A" [ref=f4e32508]
+                        - cell "N/A" [ref=f4e32509]
+                        - cell "Other" [ref=f4e32510]
+                        - cell "1" [ref=f4e32511]:
+                          - generic [ref=f4e32512]: "1"
+                        - cell "1" [ref=f4e32513]:
+                          - generic [ref=f4e32514]: "1"
+                        - cell [ref=f4e32515]:
+                          - generic [ref=f4e32516]:
+                            - button [ref=f4e32517] [cursor=pointer]:
+                              - img
+                            - button [ref=f4e32518] [cursor=pointer]:
+                              - img
+                      - row "ABLECATH CENTRAL CATHETER KIT TRIPLE LUMEN SURGICAL N/A ASIAN SURGICAL COM. SURGICAL Other 1 1" [ref=f4e32519]:
+                        - cell "ABLECATH CENTRAL CATHETER KIT TRIPLE LUMEN" [ref=f4e32520]
+                        - cell "SURGICAL" [ref=f4e32521]
+                        - cell "N/A" [ref=f4e32522]
+                        - cell "ASIAN SURGICAL COM. SURGICAL" [ref=f4e32523]
+                        - cell "Other" [ref=f4e32524]
+                        - cell "1" [ref=f4e32525]:
+                          - generic [ref=f4e32526]: "1"
+                        - cell "1" [ref=f4e32527]:
+                          - generic [ref=f4e32528]: "1"
+                        - cell [ref=f4e32529]:
+                          - generic [ref=f4e32530]:
+                            - button [ref=f4e32531] [cursor=pointer]:
+                              - img
+                            - button [ref=f4e32532] [cursor=pointer]:
+                              - img
+                      - row "ABLECATH DOUBLE LUMEN SURGICAL N/A ASIAN SURGICAL COM. SURGICAL Other 2 2" [ref=f4e32533]:
+                        - cell "ABLECATH DOUBLE LUMEN" [ref=f4e32534]
+                        - cell "SURGICAL" [ref=f4e32535]
+                        - cell "N/A" [ref=f4e32536]
+                        - cell "ASIAN SURGICAL COM. SURGICAL" [ref=f4e32537]
+                        - cell "Other" [ref=f4e32538]
+                        - cell "2" [ref=f4e32539]:
+                          - generic [ref=f4e32540]: "2"
+                        - cell "2" [ref=f4e32541]:
+                          - generic [ref=f4e32542]: "2"
+                        - cell [ref=f4e32543]:
+                          - generic [ref=f4e32544]:
+                            - button [ref=f4e32545] [cursor=pointer]:
+                              - img
+                            - button [ref=f4e32546] [cursor=pointer]:
+                              - img
+                      - row "ABN-IMRO TAB(Ivermectin (6mg) + Albendazole (400mg) Ivermectin (6mg) + Albendazole (400mg) N/A NEO PHARMA Tablets 10 10" [ref=f4e32547]:
+                        - cell "ABN-IMRO TAB(Ivermectin (6mg) + Albendazole (400mg)" [ref=f4e32548]
+                        - cell "Ivermectin (6mg) + Albendazole (400mg)" [ref=f4e32549]
+                        - cell "N/A" [ref=f4e32550]
+                        - cell "NEO PHARMA" [ref=f4e32551]
+                        - cell "Tablets" [ref=f4e32552]
+                        - cell "10" [ref=f4e32553]:
+                          - generic [ref=f4e32554]: "10"
+                        - cell "10" [ref=f4e32555]:
+                          - generic [ref=f4e32556]: "10"
+                        - cell [ref=f4e32557]:
+                          - generic [ref=f4e32558]:
+                            - button [ref=f4e32559] [cursor=pointer]:
+                              - img
+                            - button [ref=f4e32560] [cursor=pointer]:
+                              - img
+                      - row "ACECLOFENAC PARACETAMOL & CHLOROXOXAZONE TAB -APRONAC MR TAB ACECLOFENAC PARACETAMOL & CHLOROXOXAZONE TAB -APRONAC MR TAB N/A HOSPIRUSH PHARMACY Tablets 3 3" [ref=f4e32561]:
+                        - cell "ACECLOFENAC PARACETAMOL & CHLOROXOXAZONE TAB -APRONAC MR TAB" [ref=f4e32562]
+                        - cell "ACECLOFENAC PARACETAMOL & CHLOROXOXAZONE TAB -APRONAC MR TAB" [ref=f4e32563]
+                        - cell "N/A" [ref=f4e32564]
+                        - cell "HOSPIRUSH PHARMACY" [ref=f4e32565]
+                        - cell "Tablets" [ref=f4e32566]
+                        - cell "3" [ref=f4e32567]:
+                          - generic [ref=f4e32568]: "3"
+                        - cell "3" [ref=f4e32569]:
+                          - generic [ref=f4e32570]: "3"
+                        - cell [ref=f4e32571]:
+                          - generic [ref=f4e32572]:
+                            - button [ref=f4e32573] [cursor=pointer]:
+                              - img
+                            - button [ref=f4e32574] [cursor=pointer]:
+                              - img
+                  - generic [ref=f4e32575]:
+                    - generic [ref=f4e32576]: Showing 1 to 10 of 1000 medicines
+                    - generic [ref=f4e32577]:
+                      - button "Previous" [disabled]:
+                        - img
+                        - text: Previous
+                      - generic [ref=f4e32578]:
+                        - button "1" [ref=f4e32579] [cursor=pointer]
+                        - button "2" [ref=f4e32580] [cursor=pointer]
+                        - generic [ref=f4e32581]: ...
+                        - button "100" [ref=f4e32582] [cursor=pointer]
+                      - button "Next" [ref=f4e32583] [cursor=pointer]:
+                        - text: Next
+                        - img
+      - button "Open camera capture" [ref=f4e78] [cursor=pointer]:
+        - img [ref=f4e79]
+      - button "AI Assistant" [ref=f4e82] [cursor=pointer]:
+        - img [ref=f4e83]

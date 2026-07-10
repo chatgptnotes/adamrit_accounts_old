@@ -1,0 +1,11 @@
+[    1319ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://play.google.com/log?format=json&hasfast=true:0
+[    1399ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://play.google.com/log?format=json&hasfast=true&authuser=0:0
+[    3229ms] [LOG] %c%s color: red; background: yellow; font-size: 24px; WARNING! @ /_/mss/boq-dots/_/js/k=boq-dots.DotsSplashUi_desktop_ms.en_IN.nS4s4HC1kd8.2018.O/am=GAIFAAAAAICZAAMG/d=1/excm=_b,_tp,homeview/ed=1/dg=0/wt=2/ujg=1/rs=ALs0n2MY9dPTSVlF6Ok1UcQ7TId6GweUiA/dti=1/m=_b,_tp:287
+[    3229ms] [LOG] %c%s font-size: 18px; Using this console may allow attackers to impersonate you and steal your information using an attack called Self-XSS.
+Do not enter or paste code that you don't understand. @ /_/mss/boq-dots/_/js/k=boq-dots.DotsSplashUi_desktop_ms.en_IN.nS4s4HC1kd8.2018.O/am=GAIFAAAAAICZAAMG/d=1/excm=_b,_tp,homeview/ed=1/dg=0/wt=2/ujg=1/rs=ALs0n2MY9dPTSVlF6Ok1UcQ7TId6GweUiA/dti=1/m=_b,_tp:287
+[    3545ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://play.google.com/log?format=json&hasfast=true&authuser=0:0
+[    3546ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://play.google.com/log?format=json&hasfast=true&authuser=0:0
+[    3585ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://play.google.com/log?format=json&hasfast=true&authuser=0:0
+[    4288ms] _.Mj
+[    4549ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://play.google.com/log?format=json&hasfast=true:0
+[    5214ms] _.Mj

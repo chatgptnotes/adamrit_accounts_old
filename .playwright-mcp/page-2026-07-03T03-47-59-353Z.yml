@@ -1,0 +1,214 @@
+- generic [ref=f13e2]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=f13e4]:
+    - generic [ref=f13e8]:
+      - generic [ref=f13e10]:
+        - generic [ref=f13e11] [cursor=pointer]:
+          - generic [ref=f13e12]: h
+          - heading "hope HMIS" [level=2] [ref=f13e13]
+        - generic [ref=f13e14]:
+          - generic [ref=f13e15]: cmd
+          - button "Switch" [ref=f13e16] [cursor=pointer]:
+            - img
+            - generic [ref=f13e17]: Switch
+          - button "Logout" [ref=f13e18] [cursor=pointer]:
+            - img
+            - generic [ref=f13e19]: Logout
+      - generic [ref=f13e20]:
+        - generic [ref=f13e23]:
+          - img [ref=f13e24]
+          - textbox "Search tabs..." [ref=f13e27]
+        - button "Overview" [ref=f13e29] [cursor=pointer]:
+          - generic [ref=f13e30]: Overview
+          - img [ref=f13e31]
+        - button "Patient Care" [ref=f13e34] [cursor=pointer]:
+          - generic [ref=f13e35]: Patient Care
+          - img [ref=f13e36]
+        - button "Diagnostics" [ref=f13e39] [cursor=pointer]:
+          - generic [ref=f13e40]: Diagnostics
+          - img [ref=f13e41]
+        - button "Beds & Facility" [ref=f13e44] [cursor=pointer]:
+          - generic [ref=f13e45]: Beds & Facility
+          - img [ref=f13e46]
+        - button "Billing & Accounts" [ref=f13e49] [cursor=pointer]:
+          - generic [ref=f13e50]: Billing & Accounts
+          - img [ref=f13e51]
+        - button "Marketing & Outreach" [ref=f13e54] [cursor=pointer]:
+          - generic [ref=f13e55]: Marketing & Outreach
+          - img [ref=f13e56]
+        - button "Patient-Facing" [ref=f13e59] [cursor=pointer]:
+          - generic [ref=f13e60]: Patient-Facing
+          - img [ref=f13e61]
+        - button "Masters" [ref=f13e64] [cursor=pointer]:
+          - generic [ref=f13e65]: Masters
+          - img [ref=f13e66]
+    - main [ref=f13e68]:
+      - generic [ref=f13e69]:
+        - button "Toggle Sidebar" [ref=f13e70] [cursor=pointer]:
+          - img
+          - generic [ref=f13e71]: Toggle Sidebar
+        - button "Tablet view" [ref=f13e72] [cursor=pointer]:
+          - img [ref=f13e73]
+          - text: Tablet view
+      - generic [ref=f13e85]:
+        - generic [ref=f13e86]:
+          - generic [ref=f13e87]:
+            - img [ref=f13e88]
+            - generic [ref=f13e91]:
+              - heading "Pharmacy Management" [level=1] [ref=f13e92]
+              - paragraph [ref=f13e93]: Enterprise-level pharmacy operations and inventory management
+          - generic [ref=f13e94]:
+            - button "25 pending discount approvals" [ref=f13e95] [cursor=pointer]:
+              - img
+              - generic [ref=f13e96]: "25"
+            - button "111 pending prescriptions" [ref=f13e97] [cursor=pointer]:
+              - img
+              - generic [ref=f13e98]: 99+
+            - generic [ref=f13e99]:
+              - img [ref=f13e100]
+              - generic [ref=f13e102]: 03 Jul 2026
+        - generic [ref=f13e103]:
+          - tablist [ref=f13e104]:
+            - generic [ref=f13e105]:
+              - tab "Overview" [ref=f13e106] [cursor=pointer]
+              - tab "Items" [ref=f13e107] [cursor=pointer]
+              - tab "Direct Sale" [ref=f13e108] [cursor=pointer]
+              - tab "Sale Bill" [ref=f13e109] [cursor=pointer]
+              - tab "View Sales" [ref=f13e110] [cursor=pointer]
+              - tab "Return Sales" [ref=f13e111] [cursor=pointer]
+              - tab "Credit Payments" [ref=f13e112] [cursor=pointer]
+              - tab "Stock Mgmt" [ref=f13e113] [cursor=pointer]
+              - tab "Manufacturer" [ref=f13e114] [cursor=pointer]
+              - tab "Supplier" [ref=f13e115] [cursor=pointer]
+              - tab "Purchase Order" [selected] [ref=f13e116] [cursor=pointer]
+              - tab "Low Stock" [ref=f13e117] [cursor=pointer]
+              - tab "Prescriptions" [ref=f13e118] [cursor=pointer]
+              - tab "Discount Approvals 25" [ref=f13e119] [cursor=pointer]:
+                - text: Discount Approvals
+                - generic [ref=f13e120]: "25"
+          - tabpanel "Purchase Order" [ref=f13e121]:
+            - generic [ref=f13e122]:
+              - generic [ref=f13e123]:
+                - button "Purchase Order List" [ref=f13e124] [cursor=pointer]
+                - button "Add Purchase Order" [ref=f13e125] [cursor=pointer]
+              - generic [ref=f13e489]:
+                - generic [ref=f13e490]:
+                  - generic [ref=f13e491]:
+                    - img [ref=f13e492]
+                    - generic [ref=f13e496]:
+                      - heading "Goods Received Note" [level=2] [ref=f13e497]
+                      - paragraph [ref=f13e498]: Edit and update purchase order details
+                  - button "Back" [ref=f13e499] [cursor=pointer]
+                - generic [ref=f13e500]:
+                  - generic [ref=f13e503]:
+                    - generic [ref=f13e504]:
+                      - generic [ref=f13e505]: From
+                      - textbox [ref=f13e506]
+                    - generic [ref=f13e507]:
+                      - generic [ref=f13e508]: To
+                      - textbox [ref=f13e509]
+                    - generic [ref=f13e510]:
+                      - generic [ref=f13e511]: Supplier
+                      - textbox "Search supplier..." [ref=f13e512]
+                    - generic [ref=f13e513]:
+                      - generic [ref=f13e514]: Location
+                      - combobox [ref=f13e515]:
+                        - option "All" [selected]
+                    - generic [ref=f13e516]:
+                      - generic [ref=f13e517]: GRN No
+                      - textbox "Search GRN..." [ref=f13e518]
+                    - button "Search" [ref=f13e519] [cursor=pointer]:
+                      - img
+                      - text: Search
+                  - generic [ref=f13e522]:
+                    - heading "Purchase Order Details" [level=3] [ref=f13e525]
+                    - generic [ref=f13e526]:
+                      - generic [ref=f13e527]:
+                        - generic [ref=f13e528]:
+                          - generic [ref=f13e529]: "PO Number:"
+                          - generic [ref=f13e530]: PO/26-10348
+                        - generic [ref=f13e531]: Order For:Pharmacy
+                      - generic [ref=f13e532]:
+                        - generic [ref=f13e533]: Supplier:ALL IN ONE PHARMA
+                        - generic [ref=f13e534]: Created:03/07/2026, 09:09:41
+                    - generic [ref=f13e535]:
+                      - generic [ref=f13e536]:
+                        - generic [ref=f13e537]: Party Invoice Number
+                        - textbox "Enter invoice number..." [ref=f13e538]
+                      - generic [ref=f13e539]:
+                        - generic [ref=f13e540]: Goods Received Date
+                        - textbox [ref=f13e541]: 2026-07-03T09:17
+                  - table [ref=f13e545]:
+                    - rowgroup [ref=f13e546]:
+                      - row "# Product Name Manufacturer Pack Pieces/Pack Batch No* Expiry Date* MRP* Pur. Price* Sale Price* Tax (%) Tax Amt. Qty. Ord Qty. Rcvd Free Amount" [ref=f13e547]:
+                        - columnheader "#" [ref=f13e548]
+                        - columnheader "Product Name" [ref=f13e549]
+                        - columnheader "Manufacturer" [ref=f13e550]
+                        - columnheader "Pack" [ref=f13e551]
+                        - columnheader "Pieces/Pack" [ref=f13e552]
+                        - columnheader "Batch No*" [ref=f13e553]
+                        - columnheader "Expiry Date*" [ref=f13e554]
+                        - columnheader "MRP*" [ref=f13e555]
+                        - columnheader "Pur. Price*" [ref=f13e556]
+                        - columnheader "Sale Price*" [ref=f13e557]
+                        - columnheader "Tax (%)" [ref=f13e558]
+                        - columnheader "Tax Amt." [ref=f13e559]
+                        - columnheader "Qty. Ord" [ref=f13e560]
+                        - columnheader "Qty. Rcvd" [ref=f13e561]
+                        - columnheader "Free" [ref=f13e562]
+                        - columnheader "Amount" [ref=f13e563]
+                    - rowgroup [ref=f13e564]:
+                      - row "1 MENTIDINE 2ML INJ-RANITIDINE INJ Vial 2447 1 0 0 0 0.00 1 1 0 ₹0.00" [ref=f13e565]:
+                        - cell "1" [ref=f13e566]
+                        - cell "MENTIDINE 2ML INJ-RANITIDINE INJ" [ref=f13e567]:
+                          - generic [ref=f13e568]: MENTIDINE 2ML INJ-RANITIDINE INJ
+                        - cell [ref=f13e569]
+                        - cell "Vial" [ref=f13e570]
+                        - cell [ref=f13e571]:
+                          - spinbutton "e.g., 10" [ref=f13e572]
+                        - cell "2447" [ref=f13e573]:
+                          - textbox "Required" [ref=f13e574]: "2447"
+                        - cell [ref=f13e575]:
+                          - textbox [ref=f13e576]
+                        - cell "1" [ref=f13e577]:
+                          - spinbutton "0.00" [ref=f13e578]: "1"
+                        - cell "0" [ref=f13e579]:
+                          - spinbutton "0.00" [ref=f13e580]: "0"
+                        - cell "0" [ref=f13e581]:
+                          - spinbutton "0.00" [ref=f13e582]: "0"
+                        - cell "0" [ref=f13e583]:
+                          - spinbutton "0" [ref=f13e584]
+                        - cell "0.00" [ref=f13e585]
+                        - cell "1" [ref=f13e586]
+                        - cell "1" [ref=f13e587]:
+                          - spinbutton [ref=f13e588]: "1"
+                        - cell "0" [ref=f13e589]:
+                          - spinbutton [ref=f13e590]: "0"
+                        - cell "₹0.00" [ref=f13e591]
+                  - generic [ref=f13e595]:
+                    - generic [ref=f13e596]:
+                      - generic [ref=f13e597]: Subtotal
+                      - generic [ref=f13e598]: ₹0.00
+                    - generic [ref=f13e599]:
+                      - generic [ref=f13e600]: Discount
+                      - spinbutton [ref=f13e601]: "0"
+                    - generic [ref=f13e602]:
+                      - generic [ref=f13e603]: Total Tax
+                      - spinbutton [ref=f13e604]: "0.00"
+                    - generic [ref=f13e605]:
+                      - generic [ref=f13e606]: Total Amount
+                      - generic [ref=f13e607]: ₹0.00
+                    - generic [ref=f13e608]:
+                      - generic [ref=f13e609]: Net Amount
+                      - generic [ref=f13e610]: ₹0.00
+                  - generic [ref=f13e611]:
+                    - button "Update" [ref=f13e612] [cursor=pointer]
+                    - button "Submit & Add to Inventory" [disabled]:
+                      - img
+                      - text: Submit & Add to Inventory
+      - button "Open camera capture" [ref=f13e78] [cursor=pointer]:
+        - img [ref=f13e79]
+      - button "AI Assistant" [ref=f13e82] [cursor=pointer]:
+        - img [ref=f13e83]

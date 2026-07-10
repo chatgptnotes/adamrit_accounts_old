@@ -1,9 +1,12 @@
 import { Link } from 'react-router-dom';
+import { useMemo } from 'react';
 import {
   LayoutDashboard, Calendar, ClipboardList, Wallet, FileText, BookOpen, Clock,
   Receipt, ScrollText, TrendingUp, Award, Activity, Cross, ScanLine, Navigation,
   Phone, MessageCircle, Users, FileSpreadsheet,
 } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { canAccessReferralRegister } from '@/lib/referralRegisterAccess';
 
 /**
  * Reports Center — one place that lists every standalone system report, ordered
@@ -84,6 +87,18 @@ const SECTIONS: ReportSection[] = [
 ];
 
 export default function ReportsCenter() {
+  const { user } = useAuth();
+  const visibleSections = useMemo(
+    () =>
+      SECTIONS.map((section) => ({
+        ...section,
+        items: section.items.filter(
+          (item) => item.route !== '/referral-register' || canAccessReferralRegister(user),
+        ),
+      })).filter((section) => section.items.length > 0),
+    [user],
+  );
+
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto">
       <div className="mb-6 flex items-center gap-3">
@@ -97,7 +112,7 @@ export default function ReportsCenter() {
       </div>
 
       <div className="space-y-8">
-        {SECTIONS.map((section) => (
+        {visibleSections.map((section) => (
           <section key={section.heading}>
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">
               {section.heading}

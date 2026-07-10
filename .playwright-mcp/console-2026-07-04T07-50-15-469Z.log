@@ -1,0 +1,6 @@
+[  -80566ms] [WARNING] prepareForClient in beginLoad() failed. @ chrome://glic/glic.js:360
+[      93ms] [WARNING] prepareForClient in beginLoad() failed. @ chrome://glic/glic.js:360
+[  169922ms] [ERROR] Failed to load resource: net::ERR_NAME_NOT_RESOLVED @ https://ogads-pa.clients6.google.com/$rpc/google.internal.onegoogle.asyncdata.v1.AsyncDataService/GetAsyncData:0
+[  170905ms] [ERROR] Failed to load resource: net::ERR_INTERNET_DISCONNECTED @ https://play.google.com/log?format=json&hasfast=true&authuser=0:0
+[  172755ms] [ERROR] Failed to load resource: net::ERR_INTERNET_DISCONNECTED @ https://play.google.com/log?format=json&hasfast=true&authuser=0:0
+[  177316ms] [ERROR] Failed to load resource: net::ERR_NAME_NOT_RESOLVED @ https://play.google.com/log?format=json&hasfast=true&authuser=0:0

@@ -1,0 +1,8 @@
+[    3984ms] [LOG] %c%s color: red; background: yellow; font-size: 24px; WARNING! @ /_/mss/boq-dots/_/js/k=boq-dots.DotsSplashUi_desktop_ms.en_IN.nS4s4HC1kd8.2018.O/am=GAIFAAAAAICZAAMG/d=1/excm=_b,_tp,homeview/ed=1/dg=0/wt=2/ujg=1/rs=ALs0n2MY9dPTSVlF6Ok1UcQ7TId6GweUiA/dti=1/m=_b,_tp:287
+[    3984ms] [LOG] %c%s font-size: 18px; Using this console may allow attackers to impersonate you and steal your information using an attack called Self-XSS.
+Do not enter or paste code that you don't understand. @ /_/mss/boq-dots/_/js/k=boq-dots.DotsSplashUi_desktop_ms.en_IN.nS4s4HC1kd8.2018.O/am=GAIFAAAAAICZAAMG/d=1/excm=_b,_tp,homeview/ed=1/dg=0/wt=2/ujg=1/rs=ALs0n2MY9dPTSVlF6Ok1UcQ7TId6GweUiA/dti=1/m=_b,_tp:287
+[    4947ms] _.Mj
+[    5800ms] _.Mj
+[   48518ms] [WARNING] Blocked aria-hidden on an element because its descendant retained focus. The focus must not be hidden from assistive technology users. Avoid using aria-hidden on a focused element or its ancestor. Consider using the inert attribute instead, which will also prevent focus. For more details, see the aria-hidden section of the WAI-ARIA specification at https://w3c.github.io/aria/#aria-hidden.
+Element with focus: <a.svxzne>
+Ancestor with aria-hidden: <c-wiz.zQTmif SSPGKf oCHqfe> @ https://news.google.com/stories/CAAqNggKIjBDQklTSGpvSmMzUnZjbmt0TXpZd1NoRUtEd2lrNk42eEVSRmdWVEZvNXUyMnVDZ0FQAQ?hl=en-IN&gl=IN&ceid=IN%3Aen:0

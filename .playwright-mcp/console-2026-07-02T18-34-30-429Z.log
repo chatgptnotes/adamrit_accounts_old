@@ -1,0 +1,864 @@
+[     186ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:21550
+[     194ms] [WARNING] GoTrueClient@sb-xvkxccqaopbnkvwgyfjv-auth-token:1 (2.104.1) 2026-07-02T18:34:30.623Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key. @ http://localhost:8080/node_modules/.vite/deps/@supabase_supabase-js.js?v=be3f5c00:14963
+[     231ms] [LOG] 🔴 [IpdDischargeSummary] Component mounted with visitId: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:83
+[     232ms] [LOG] 🏥 IPD Discharge Summary: Fetching data for visit_id: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:274
+[     232ms] [LOG] 🧪 Fetching lab results for visit_id: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:340
+[     232ms] [LOG] 🔍 Looking for visit UUID for visit_id: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:342
+[     233ms] [LOG] 🩻 Fetching radiology data for visit_id: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:436
+[     233ms] [LOG] 🔍 Trying radiology lookup in radiology_orders with visit_id: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:461
+[     233ms] [LOG] 🔪 Fetching surgery data for visit: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:543
+[     233ms] [LOG] 🏥 Fetching OT Notes data for visit: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:587
+[     233ms] [LOG] 🏥 Fetching diagnosis data for visit: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:623
+[     233ms] [LOG] 📋 Loading existing discharge summary for visit: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:672
+[     234ms] [LOG] 🔴 [IpdDischargeSummary] Component mounted with visitId: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:83
+[     235ms] [LOG] 🏥 IPD Discharge Summary: Fetching data for visit_id: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:274
+[     235ms] [LOG] 🧪 Fetching lab results for visit_id: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:340
+[     235ms] [LOG] 🔍 Looking for visit UUID for visit_id: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:342
+[     235ms] [LOG] 🩻 Fetching radiology data for visit_id: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:436
+[     235ms] [LOG] 🔍 Trying radiology lookup in radiology_orders with visit_id: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:461
+[     235ms] [LOG] 🔪 Fetching surgery data for visit: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:543
+[     235ms] [LOG] 🏥 Fetching OT Notes data for visit: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:587
+[     235ms] [LOG] 🏥 Fetching diagnosis data for visit: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:623
+[     235ms] [LOG] 📋 Loading existing discharge summary for visit: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:672
+[     243ms] [LOG] 🏥 IPD Discharge Summary: Fetching data for visit_id: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:274
+[     243ms] [LOG] 🧪 Fetching lab results for visit_id: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:340
+[     243ms] [LOG] 🔍 Looking for visit UUID for visit_id: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:342
+[     243ms] [LOG] 🩻 Fetching radiology data for visit_id: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:436
+[     243ms] [LOG] 🔍 Trying radiology lookup in radiology_orders with visit_id: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:461
+[     243ms] [LOG] 🔪 Fetching surgery data for visit: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:543
+[     243ms] [LOG] 🏥 Fetching OT Notes data for visit: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:587
+[     243ms] [LOG] 🏥 Fetching diagnosis data for visit: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:623
+[     243ms] [LOG] 📋 Loading existing discharge summary for visit: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:672
+[     257ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:8080/ipd-discharge-summary/IH26G02034:0
+[     567ms] [ERROR] Failed to load resource: the server responded with a status of 406 () @ https://xvkxccqaopbnkvwgyfjv.supabase.co/rest/v1/discharge_summaries?select=*&visit_id=eq.IH26G02034:0
+[     573ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://xvkxccqaopbnkvwgyfjv.supabase.co/rest/v1/radiology_orders?select=id%2Corder_number%2Cpriority%2Cclinical_indication%2Cclinical_history%2Corder_date%2Cscheduled_date%2Cstatus%2Cnotes%2Cradiology_procedures%21inner%28id%2Cname%2Ccode%2Cmodality_id%2Cbody_part%29&patient_id=eq.IH26G02034&order=order_date.desc:0
+[     573ms] [LOG] 🔍 Fetching surgery data with visit UUID: d618010c-d4ba-4cda-b5b9-fafa5d064af9 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:553
+[     614ms] [LOG] 🔍 Fetching OT notes with visit UUID: d618010c-d4ba-4cda-b5b9-fafa5d064af9 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:597
+[     614ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://xvkxccqaopbnkvwgyfjv.supabase.co/rest/v1/radiology_orders?select=id%2Corder_number%2Cpriority%2Cclinical_indication%2Cclinical_history%2Corder_date%2Cscheduled_date%2Cstatus%2Cnotes%2Cradiology_procedures%21inner%28id%2Cname%2Ccode%2Cmodality_id%2Cbody_part%29&patient_id=eq.IH26G02034&order=order_date.desc:0
+[     628ms] [ERROR] Failed to load resource: the server responded with a status of 406 () @ https://xvkxccqaopbnkvwgyfjv.supabase.co/rest/v1/discharge_summaries?select=*&visit_id=eq.IH26G02034:0
+[     645ms] [LOG] 🔍 Raw surgery data count: 0 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:571
+[     645ms] [LOG] 🔍 First surgery: undefined @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:572
+[     645ms] [LOG] 🔍 Surgery IDs: [] @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:573
+[     646ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://xvkxccqaopbnkvwgyfjv.supabase.co/rest/v1/radiology_orders?select=id%2Corder_number%2Cpriority%2Cclinical_indication%2Cclinical_history%2Corder_date%2Cscheduled_date%2Cstatus%2Cnotes%2Cradiology_procedures%21inner%28id%2Cname%2Ccode%2Cmodality_id%2Cbody_part%29&patient_id=eq.IH26G02034&order=order_date.desc:0
+[     646ms] [LOG] 🔍 Fetching diagnosis with visit UUID: d618010c-d4ba-4cda-b5b9-fafa5d064af9 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:633
+[     663ms] [ERROR] Failed to load resource: the server responded with a status of 406 () @ https://xvkxccqaopbnkvwgyfjv.supabase.co/rest/v1/discharge_summaries?select=*&visit_id=eq.IH26G02034:0
+[     664ms] [LOG] 🩻 Fetching radiology data for visit_id: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:436
+[     664ms] [LOG] 🔍 Trying radiology lookup with visit UUID: d618010c-d4ba-4cda-b5b9-fafa5d064af9 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:439
+[     675ms] [LOG] 🔍 Fetching OT notes with visit UUID: d618010c-d4ba-4cda-b5b9-fafa5d064af9 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:597
+[     688ms] [LOG] 🔍 Raw OT notes data: [] @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:603
+[     707ms] [LOG] 🔍 All visit_diagnoses for UUID: d618010c-d4ba-4cda-b5b9-fafa5d064af9 [] @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:636
+[     707ms] [LOG] 📋 Found visit UUID: d618010c-d4ba-4cda-b5b9-fafa5d064af9 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:345
+[     707ms] [LOG] 🧪 Searching lab results using UUID: d618010c-d4ba-4cda-b5b9-fafa5d064af9 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:347
+[     721ms] [LOG] 🔍 Raw OT notes data: [] @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:603
+[     726ms] [LOG] 🔍 Trying radiology lookup in radiology_orders with visit_id: IH26G02034 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:461
+[     741ms] [LOG] 🔍 Fetching diagnosis with visit UUID: d618010c-d4ba-4cda-b5b9-fafa5d064af9 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:633
+[     773ms] [LOG] 🔍 Detailed diagnosis data: [] @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:652
+[     773ms] [LOG] 🔍 No data found, checking visit_diagnoses table directly... @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:654
+[     774ms] [LOG] 🔍 All visit_diagnoses for UUID: d618010c-d4ba-4cda-b5b9-fafa5d064af9 [] @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:636
+[     801ms] [LOG] 📋 Found visit UUID: d618010c-d4ba-4cda-b5b9-fafa5d064af9 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:345
+[     801ms] [LOG] 🧪 Searching lab results using UUID: d618010c-d4ba-4cda-b5b9-fafa5d064af9 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:347
+[     819ms] [LOG] 🔍 Detailed diagnosis data: [] @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:652
+[     819ms] [LOG] 🔍 No data found, checking visit_diagnoses table directly... @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:654
+[     830ms] [LOG] 🔍 Fetching surgery data with visit UUID: d618010c-d4ba-4cda-b5b9-fafa5d064af9 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:553
+[     845ms] [LOG] 🔍 All visit_diagnoses in table: [Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object] @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:656
+[     868ms] [LOG] 🔍 Raw surgery data count: 0 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:571
+[     868ms] [LOG] 🔍 First surgery: undefined @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:572
+[     868ms] [LOG] 🔍 Surgery IDs: [] @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:573
+[     902ms] [LOG] 🔍 All visit_diagnoses in table: [Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object] @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:656
+[     906ms] [LOG] 📋 Found visit UUID: d618010c-d4ba-4cda-b5b9-fafa5d064af9 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:345
+[     906ms] [LOG] 🧪 Searching lab results using UUID: d618010c-d4ba-4cda-b5b9-fafa5d064af9 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:347
+[     938ms] [LOG] 🔍 Fetching surgery data with visit UUID: d618010c-d4ba-4cda-b5b9-fafa5d064af9 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:553
+[     940ms] [LOG] 📋 No existing discharge summary found - creating new one @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:684
+[     968ms] [LOG] 🔍 Fetching OT notes with visit UUID: d618010c-d4ba-4cda-b5b9-fafa5d064af9 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:597
+[     976ms] [LOG] 🔍 Raw surgery data count: 0 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:571
+[     976ms] [LOG] 🔍 First surgery: undefined @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:572
+[     976ms] [LOG] 🔍 Surgery IDs: [] @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:573
+[     978ms] [LOG] 📋 No existing discharge summary found - creating new one @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:684
+[    1000ms] [LOG] 🔍 Raw OT notes data: [] @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:603
+[    1001ms] [LOG] 🏥 Surgery Effect triggered: {visitSurgeryData: Array(0), otNotesData: null, isOtNotesLoading: false} @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:824
+[    1032ms] [LOG] 🔍 Fetching diagnosis with visit UUID: d618010c-d4ba-4cda-b5b9-fafa5d064af9 @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:633
+[    1039ms] [LOG] 📋 No existing discharge summary found - creating new one @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:684
+[    1064ms] [LOG] 🔍 All visit_diagnoses for UUID: d618010c-d4ba-4cda-b5b9-fafa5d064af9 [] @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:636
+[    1095ms] [LOG] 🔍 Detailed diagnosis data: [] @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:652
+[    1095ms] [LOG] 🔍 No data found, checking visit_diagnoses table directly... @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:654
+[    1143ms] [LOG] 🔍 All visit_diagnoses in table: [Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object] @ http://localhost:8080/src/pages/IpdDischargeSummary.tsx:656
+[    5500ms] [ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s Dr. Afsal Sheikh 
+    at select
+    at http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:235:13
+    at http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:1224:6
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Popper (http://localhost:8080/node_modules/.vite/deps/chunk-DRXI42AI.js?v=92d89cfc:1989:11)
+    at Select (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:182:5)
+    at div
+    at div
+    at div
+    at _c9 (http://localhost:8080/src/components/ui/card.tsx:91:12)
+    at div
+    at _c (http://localhost:8080/src/components/ui/card.tsx:5:11)
+    at div
+    at form
+    at IpdDischargeSummary (http://localhost:8080/src/pages/IpdDischargeSummary.tsx:67:23)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4131:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4601:5)
+    at Suspense
+    at AppRoutes
+    at div
+    at main
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:39:7
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4544:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:5290:5)
+    at ThemeProvider (http://localhost:8080/src/contexts/ThemeContext.tsx:15:33)
+    at AppContent (http://localhost:8080/src/App.tsx:257:7)
+    at Suspense
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx:24:32)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=6a174ec6:3210:3)
+    at ErrorBoundary (http://localhost:8080/src/App.tsx:172:5)
+    at App (http://localhost:8080/src/App.tsx:561:3) @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:520
+[    5509ms] [ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s Dr. Afsal Sheikh 
+    at select
+    at http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:235:13
+    at http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:1224:6
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Popper (http://localhost:8080/node_modules/.vite/deps/chunk-DRXI42AI.js?v=92d89cfc:1989:11)
+    at Select (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:182:5)
+    at div
+    at div
+    at div
+    at _c9 (http://localhost:8080/src/components/ui/card.tsx:91:12)
+    at div
+    at _c (http://localhost:8080/src/components/ui/card.tsx:5:11)
+    at div
+    at form
+    at IpdDischargeSummary (http://localhost:8080/src/pages/IpdDischargeSummary.tsx:67:23)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4131:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4601:5)
+    at Suspense
+    at AppRoutes
+    at div
+    at main
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:39:7
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4544:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:5290:5)
+    at ThemeProvider (http://localhost:8080/src/contexts/ThemeContext.tsx:15:33)
+    at AppContent (http://localhost:8080/src/App.tsx:257:7)
+    at Suspense
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx:24:32)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=6a174ec6:3210:3)
+    at ErrorBoundary (http://localhost:8080/src/App.tsx:172:5)
+    at App (http://localhost:8080/src/App.tsx:561:3) @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:520
+[    5534ms] [ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s Dr. Afsal Sheikh 
+    at select
+    at http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:235:13
+    at http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:1224:6
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Popper (http://localhost:8080/node_modules/.vite/deps/chunk-DRXI42AI.js?v=92d89cfc:1989:11)
+    at Select (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:182:5)
+    at div
+    at div
+    at div
+    at _c9 (http://localhost:8080/src/components/ui/card.tsx:91:12)
+    at div
+    at _c (http://localhost:8080/src/components/ui/card.tsx:5:11)
+    at div
+    at form
+    at IpdDischargeSummary (http://localhost:8080/src/pages/IpdDischargeSummary.tsx:67:23)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4131:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4601:5)
+    at Suspense
+    at AppRoutes
+    at div
+    at main
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:39:7
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4544:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:5290:5)
+    at ThemeProvider (http://localhost:8080/src/contexts/ThemeContext.tsx:15:33)
+    at AppContent (http://localhost:8080/src/App.tsx:257:7)
+    at Suspense
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx:24:32)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=6a174ec6:3210:3)
+    at ErrorBoundary (http://localhost:8080/src/App.tsx:172:5)
+    at App (http://localhost:8080/src/App.tsx:561:3) @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:520
+[    5550ms] [ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s Dr. Afsal Sheikh 
+    at select
+    at http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:235:13
+    at http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:1224:6
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Popper (http://localhost:8080/node_modules/.vite/deps/chunk-DRXI42AI.js?v=92d89cfc:1989:11)
+    at Select (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:182:5)
+    at div
+    at div
+    at div
+    at _c9 (http://localhost:8080/src/components/ui/card.tsx:91:12)
+    at div
+    at _c (http://localhost:8080/src/components/ui/card.tsx:5:11)
+    at div
+    at form
+    at IpdDischargeSummary (http://localhost:8080/src/pages/IpdDischargeSummary.tsx:67:23)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4131:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4601:5)
+    at Suspense
+    at AppRoutes
+    at div
+    at main
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:39:7
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4544:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:5290:5)
+    at ThemeProvider (http://localhost:8080/src/contexts/ThemeContext.tsx:15:33)
+    at AppContent (http://localhost:8080/src/App.tsx:257:7)
+    at Suspense
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx:24:32)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=6a174ec6:3210:3)
+    at ErrorBoundary (http://localhost:8080/src/App.tsx:172:5)
+    at App (http://localhost:8080/src/App.tsx:561:3) @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:520
+[    5557ms] [ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s Dr. Afsal Sheikh 
+    at select
+    at http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:235:13
+    at http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:1224:6
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Popper (http://localhost:8080/node_modules/.vite/deps/chunk-DRXI42AI.js?v=92d89cfc:1989:11)
+    at Select (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:182:5)
+    at div
+    at div
+    at div
+    at _c9 (http://localhost:8080/src/components/ui/card.tsx:91:12)
+    at div
+    at _c (http://localhost:8080/src/components/ui/card.tsx:5:11)
+    at div
+    at form
+    at IpdDischargeSummary (http://localhost:8080/src/pages/IpdDischargeSummary.tsx:67:23)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4131:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4601:5)
+    at Suspense
+    at AppRoutes
+    at div
+    at main
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:39:7
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4544:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:5290:5)
+    at ThemeProvider (http://localhost:8080/src/contexts/ThemeContext.tsx:15:33)
+    at AppContent (http://localhost:8080/src/App.tsx:257:7)
+    at Suspense
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx:24:32)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=6a174ec6:3210:3)
+    at ErrorBoundary (http://localhost:8080/src/App.tsx:172:5)
+    at App (http://localhost:8080/src/App.tsx:561:3) @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:520
+[    5562ms] [ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s Dr. Afsal Sheikh 
+    at select
+    at http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:235:13
+    at http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:1224:6
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Popper (http://localhost:8080/node_modules/.vite/deps/chunk-DRXI42AI.js?v=92d89cfc:1989:11)
+    at Select (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:182:5)
+    at div
+    at div
+    at div
+    at _c9 (http://localhost:8080/src/components/ui/card.tsx:91:12)
+    at div
+    at _c (http://localhost:8080/src/components/ui/card.tsx:5:11)
+    at div
+    at form
+    at IpdDischargeSummary (http://localhost:8080/src/pages/IpdDischargeSummary.tsx:67:23)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4131:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4601:5)
+    at Suspense
+    at AppRoutes
+    at div
+    at main
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:39:7
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4544:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:5290:5)
+    at ThemeProvider (http://localhost:8080/src/contexts/ThemeContext.tsx:15:33)
+    at AppContent (http://localhost:8080/src/App.tsx:257:7)
+    at Suspense
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx:24:32)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=6a174ec6:3210:3)
+    at ErrorBoundary (http://localhost:8080/src/App.tsx:172:5)
+    at App (http://localhost:8080/src/App.tsx:561:3) @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:520
+[   60480ms] [ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s Dr. Afsal Sheikh 
+    at select
+    at http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:235:13
+    at http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:1224:6
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Popper (http://localhost:8080/node_modules/.vite/deps/chunk-DRXI42AI.js?v=92d89cfc:1989:11)
+    at Select (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:182:5)
+    at div
+    at div
+    at div
+    at _c9 (http://localhost:8080/src/components/ui/card.tsx:91:12)
+    at div
+    at _c (http://localhost:8080/src/components/ui/card.tsx:5:11)
+    at div
+    at form
+    at IpdDischargeSummary (http://localhost:8080/src/pages/IpdDischargeSummary.tsx:67:23)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4131:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4601:5)
+    at Suspense
+    at AppRoutes
+    at div
+    at main
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:39:7
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4544:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:5290:5)
+    at ThemeProvider (http://localhost:8080/src/contexts/ThemeContext.tsx:15:33)
+    at AppContent (http://localhost:8080/src/App.tsx:257:7)
+    at Suspense
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx:24:32)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=6a174ec6:3210:3)
+    at ErrorBoundary (http://localhost:8080/src/App.tsx:172:5)
+    at App (http://localhost:8080/src/App.tsx:561:3) @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:520
+[   60688ms] [ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s Dr. Afsal Sheikh 
+    at select
+    at http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:235:13
+    at http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:1224:6
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Popper (http://localhost:8080/node_modules/.vite/deps/chunk-DRXI42AI.js?v=92d89cfc:1989:11)
+    at Select (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:182:5)
+    at div
+    at div
+    at div
+    at _c9 (http://localhost:8080/src/components/ui/card.tsx:91:12)
+    at div
+    at _c (http://localhost:8080/src/components/ui/card.tsx:5:11)
+    at div
+    at form
+    at IpdDischargeSummary (http://localhost:8080/src/pages/IpdDischargeSummary.tsx:67:23)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4131:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4601:5)
+    at Suspense
+    at AppRoutes
+    at div
+    at main
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:39:7
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4544:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:5290:5)
+    at ThemeProvider (http://localhost:8080/src/contexts/ThemeContext.tsx:15:33)
+    at AppContent (http://localhost:8080/src/App.tsx:257:7)
+    at Suspense
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx:24:32)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=6a174ec6:3210:3)
+    at ErrorBoundary (http://localhost:8080/src/App.tsx:172:5)
+    at App (http://localhost:8080/src/App.tsx:561:3) @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:520
+[   60717ms] [ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s Dr. Afsal Sheikh 
+    at select
+    at http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:235:13
+    at http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:1224:6
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Popper (http://localhost:8080/node_modules/.vite/deps/chunk-DRXI42AI.js?v=92d89cfc:1989:11)
+    at Select (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:182:5)
+    at div
+    at div
+    at div
+    at _c9 (http://localhost:8080/src/components/ui/card.tsx:91:12)
+    at div
+    at _c (http://localhost:8080/src/components/ui/card.tsx:5:11)
+    at div
+    at form
+    at IpdDischargeSummary (http://localhost:8080/src/pages/IpdDischargeSummary.tsx:67:23)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4131:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4601:5)
+    at Suspense
+    at AppRoutes
+    at div
+    at main
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:39:7
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4544:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:5290:5)
+    at ThemeProvider (http://localhost:8080/src/contexts/ThemeContext.tsx:15:33)
+    at AppContent (http://localhost:8080/src/App.tsx:257:7)
+    at Suspense
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx:24:32)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=6a174ec6:3210:3)
+    at ErrorBoundary (http://localhost:8080/src/App.tsx:172:5)
+    at App (http://localhost:8080/src/App.tsx:561:3) @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:520
+[   60737ms] [ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s Dr. Afsal Sheikh 
+    at select
+    at http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:235:13
+    at http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:1224:6
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Popper (http://localhost:8080/node_modules/.vite/deps/chunk-DRXI42AI.js?v=92d89cfc:1989:11)
+    at Select (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:182:5)
+    at div
+    at div
+    at div
+    at _c9 (http://localhost:8080/src/components/ui/card.tsx:91:12)
+    at div
+    at _c (http://localhost:8080/src/components/ui/card.tsx:5:11)
+    at div
+    at form
+    at IpdDischargeSummary (http://localhost:8080/src/pages/IpdDischargeSummary.tsx:67:23)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4131:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4601:5)
+    at Suspense
+    at AppRoutes
+    at div
+    at main
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:39:7
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4544:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:5290:5)
+    at ThemeProvider (http://localhost:8080/src/contexts/ThemeContext.tsx:15:33)
+    at AppContent (http://localhost:8080/src/App.tsx:257:7)
+    at Suspense
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx:24:32)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=6a174ec6:3210:3)
+    at ErrorBoundary (http://localhost:8080/src/App.tsx:172:5)
+    at App (http://localhost:8080/src/App.tsx:561:3) @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:520
+[   60765ms] [ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s Dr. Afsal Sheikh 
+    at select
+    at http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:235:13
+    at http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:1224:6
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Popper (http://localhost:8080/node_modules/.vite/deps/chunk-DRXI42AI.js?v=92d89cfc:1989:11)
+    at Select (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:182:5)
+    at div
+    at div
+    at div
+    at _c9 (http://localhost:8080/src/components/ui/card.tsx:91:12)
+    at div
+    at _c (http://localhost:8080/src/components/ui/card.tsx:5:11)
+    at div
+    at form
+    at IpdDischargeSummary (http://localhost:8080/src/pages/IpdDischargeSummary.tsx:67:23)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4131:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4601:5)
+    at Suspense
+    at AppRoutes
+    at div
+    at main
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:39:7
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4544:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:5290:5)
+    at ThemeProvider (http://localhost:8080/src/contexts/ThemeContext.tsx:15:33)
+    at AppContent (http://localhost:8080/src/App.tsx:257:7)
+    at Suspense
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx:24:32)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=6a174ec6:3210:3)
+    at ErrorBoundary (http://localhost:8080/src/App.tsx:172:5)
+    at App (http://localhost:8080/src/App.tsx:561:3) @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:520
+[   60785ms] [ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s Dr. Afsal Sheikh 
+    at select
+    at http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:235:13
+    at http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:1224:6
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Popper (http://localhost:8080/node_modules/.vite/deps/chunk-DRXI42AI.js?v=92d89cfc:1989:11)
+    at Select (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:182:5)
+    at div
+    at div
+    at div
+    at _c9 (http://localhost:8080/src/components/ui/card.tsx:91:12)
+    at div
+    at _c (http://localhost:8080/src/components/ui/card.tsx:5:11)
+    at div
+    at form
+    at IpdDischargeSummary (http://localhost:8080/src/pages/IpdDischargeSummary.tsx:67:23)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4131:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4601:5)
+    at Suspense
+    at AppRoutes
+    at div
+    at main
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:39:7
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4544:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:5290:5)
+    at ThemeProvider (http://localhost:8080/src/contexts/ThemeContext.tsx:15:33)
+    at AppContent (http://localhost:8080/src/App.tsx:257:7)
+    at Suspense
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx:24:32)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=6a174ec6:3210:3)
+    at ErrorBoundary (http://localhost:8080/src/App.tsx:172:5)
+    at App (http://localhost:8080/src/App.tsx:561:3) @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:520
+[   60875ms] [ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s Dr. Afsal Sheikh 
+    at select
+    at http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:235:13
+    at http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:1224:6
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Popper (http://localhost:8080/node_modules/.vite/deps/chunk-DRXI42AI.js?v=92d89cfc:1989:11)
+    at Select (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:182:5)
+    at div
+    at div
+    at div
+    at _c9 (http://localhost:8080/src/components/ui/card.tsx:91:12)
+    at div
+    at _c (http://localhost:8080/src/components/ui/card.tsx:5:11)
+    at div
+    at form
+    at IpdDischargeSummary (http://localhost:8080/src/pages/IpdDischargeSummary.tsx:67:23)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4131:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4601:5)
+    at Suspense
+    at AppRoutes
+    at div
+    at main
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:39:7
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4544:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:5290:5)
+    at ThemeProvider (http://localhost:8080/src/contexts/ThemeContext.tsx:15:33)
+    at AppContent (http://localhost:8080/src/App.tsx:257:7)
+    at Suspense
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx:24:32)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=6a174ec6:3210:3)
+    at ErrorBoundary (http://localhost:8080/src/App.tsx:172:5)
+    at App (http://localhost:8080/src/App.tsx:561:3) @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:520
+[   61082ms] [ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s Dr. Afsal Sheikh 
+    at select
+    at http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:235:13
+    at http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:1224:6
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Popper (http://localhost:8080/node_modules/.vite/deps/chunk-DRXI42AI.js?v=92d89cfc:1989:11)
+    at Select (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:182:5)
+    at div
+    at div
+    at div
+    at _c9 (http://localhost:8080/src/components/ui/card.tsx:91:12)
+    at div
+    at _c (http://localhost:8080/src/components/ui/card.tsx:5:11)
+    at div
+    at form
+    at IpdDischargeSummary (http://localhost:8080/src/pages/IpdDischargeSummary.tsx:67:23)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4131:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4601:5)
+    at Suspense
+    at AppRoutes
+    at div
+    at main
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:39:7
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4544:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:5290:5)
+    at ThemeProvider (http://localhost:8080/src/contexts/ThemeContext.tsx:15:33)
+    at AppContent (http://localhost:8080/src/App.tsx:257:7)
+    at Suspense
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx:24:32)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=6a174ec6:3210:3)
+    at ErrorBoundary (http://localhost:8080/src/App.tsx:172:5)
+    at App (http://localhost:8080/src/App.tsx:561:3) @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:520
+[   66739ms] [ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s Dr. Afsal Sheikh 
+    at select
+    at http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:235:13
+    at http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:1224:6
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Popper (http://localhost:8080/node_modules/.vite/deps/chunk-DRXI42AI.js?v=92d89cfc:1989:11)
+    at Select (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:182:5)
+    at div
+    at div
+    at div
+    at _c9 (http://localhost:8080/src/components/ui/card.tsx:91:12)
+    at div
+    at _c (http://localhost:8080/src/components/ui/card.tsx:5:11)
+    at div
+    at form
+    at IpdDischargeSummary (http://localhost:8080/src/pages/IpdDischargeSummary.tsx:67:23)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4131:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4601:5)
+    at Suspense
+    at AppRoutes
+    at div
+    at main
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:39:7
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4544:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:5290:5)
+    at ThemeProvider (http://localhost:8080/src/contexts/ThemeContext.tsx:15:33)
+    at AppContent (http://localhost:8080/src/App.tsx:257:7)
+    at Suspense
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx:24:32)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=6a174ec6:3210:3)
+    at ErrorBoundary (http://localhost:8080/src/App.tsx:172:5)
+    at App (http://localhost:8080/src/App.tsx:561:3) @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:520
+[   66761ms] [ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s Dr. Afsal Sheikh 
+    at select
+    at http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:235:13
+    at http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:1224:6
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Popper (http://localhost:8080/node_modules/.vite/deps/chunk-DRXI42AI.js?v=92d89cfc:1989:11)
+    at Select (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:182:5)
+    at div
+    at div
+    at div
+    at _c9 (http://localhost:8080/src/components/ui/card.tsx:91:12)
+    at div
+    at _c (http://localhost:8080/src/components/ui/card.tsx:5:11)
+    at div
+    at form
+    at IpdDischargeSummary (http://localhost:8080/src/pages/IpdDischargeSummary.tsx:67:23)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4131:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4601:5)
+    at Suspense
+    at AppRoutes
+    at div
+    at main
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:39:7
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4544:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:5290:5)
+    at ThemeProvider (http://localhost:8080/src/contexts/ThemeContext.tsx:15:33)
+    at AppContent (http://localhost:8080/src/App.tsx:257:7)
+    at Suspense
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx:24:32)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=6a174ec6:3210:3)
+    at ErrorBoundary (http://localhost:8080/src/App.tsx:172:5)
+    at App (http://localhost:8080/src/App.tsx:561:3) @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:520
+[   66789ms] [ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s Dr. Afsal Sheikh 
+    at select
+    at http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:235:13
+    at http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:1224:6
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Popper (http://localhost:8080/node_modules/.vite/deps/chunk-DRXI42AI.js?v=92d89cfc:1989:11)
+    at Select (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:182:5)
+    at div
+    at div
+    at div
+    at _c9 (http://localhost:8080/src/components/ui/card.tsx:91:12)
+    at div
+    at _c (http://localhost:8080/src/components/ui/card.tsx:5:11)
+    at div
+    at form
+    at IpdDischargeSummary (http://localhost:8080/src/pages/IpdDischargeSummary.tsx:67:23)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4131:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4601:5)
+    at Suspense
+    at AppRoutes
+    at div
+    at main
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:39:7
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4544:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:5290:5)
+    at ThemeProvider (http://localhost:8080/src/contexts/ThemeContext.tsx:15:33)
+    at AppContent (http://localhost:8080/src/App.tsx:257:7)
+    at Suspense
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx:24:32)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=6a174ec6:3210:3)
+    at ErrorBoundary (http://localhost:8080/src/App.tsx:172:5)
+    at App (http://localhost:8080/src/App.tsx:561:3) @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:520
+[   66808ms] [ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s Dr. Afsal Sheikh 
+    at select
+    at http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:235:13
+    at http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:1224:6
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Popper (http://localhost:8080/node_modules/.vite/deps/chunk-DRXI42AI.js?v=92d89cfc:1989:11)
+    at Select (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:182:5)
+    at div
+    at div
+    at div
+    at _c9 (http://localhost:8080/src/components/ui/card.tsx:91:12)
+    at div
+    at _c (http://localhost:8080/src/components/ui/card.tsx:5:11)
+    at div
+    at form
+    at IpdDischargeSummary (http://localhost:8080/src/pages/IpdDischargeSummary.tsx:67:23)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4131:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4601:5)
+    at Suspense
+    at AppRoutes
+    at div
+    at main
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:39:7
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4544:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:5290:5)
+    at ThemeProvider (http://localhost:8080/src/contexts/ThemeContext.tsx:15:33)
+    at AppContent (http://localhost:8080/src/App.tsx:257:7)
+    at Suspense
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx:24:32)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=6a174ec6:3210:3)
+    at ErrorBoundary (http://localhost:8080/src/App.tsx:172:5)
+    at App (http://localhost:8080/src/App.tsx:561:3) @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:520
+[   66827ms] [ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s Dr. Afsal Sheikh 
+    at select
+    at http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:235:13
+    at http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:1224:6
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Popper (http://localhost:8080/node_modules/.vite/deps/chunk-DRXI42AI.js?v=92d89cfc:1989:11)
+    at Select (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:182:5)
+    at div
+    at div
+    at div
+    at _c9 (http://localhost:8080/src/components/ui/card.tsx:91:12)
+    at div
+    at _c (http://localhost:8080/src/components/ui/card.tsx:5:11)
+    at div
+    at form
+    at IpdDischargeSummary (http://localhost:8080/src/pages/IpdDischargeSummary.tsx:67:23)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4131:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4601:5)
+    at Suspense
+    at AppRoutes
+    at div
+    at main
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:39:7
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4544:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:5290:5)
+    at ThemeProvider (http://localhost:8080/src/contexts/ThemeContext.tsx:15:33)
+    at AppContent (http://localhost:8080/src/App.tsx:257:7)
+    at Suspense
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx:24:32)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=6a174ec6:3210:3)
+    at ErrorBoundary (http://localhost:8080/src/App.tsx:172:5)
+    at App (http://localhost:8080/src/App.tsx:561:3) @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:520
+[   67204ms] [ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s Dr. Afsal Sheikh 
+    at select
+    at http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:235:13
+    at http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:1224:6
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at Popper (http://localhost:8080/node_modules/.vite/deps/chunk-DRXI42AI.js?v=92d89cfc:1989:11)
+    at Select (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-select.js?v=cbc9b654:182:5)
+    at div
+    at div
+    at div
+    at _c9 (http://localhost:8080/src/components/ui/card.tsx:91:12)
+    at div
+    at _c (http://localhost:8080/src/components/ui/card.tsx:5:11)
+    at div
+    at form
+    at IpdDischargeSummary (http://localhost:8080/src/pages/IpdDischargeSummary.tsx:67:23)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4131:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4601:5)
+    at Suspense
+    at AppRoutes
+    at div
+    at main
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:39:7
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:4544:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=096e3a5d:5290:5)
+    at ThemeProvider (http://localhost:8080/src/contexts/ThemeContext.tsx:15:33)
+    at AppContent (http://localhost:8080/src/App.tsx:257:7)
+    at Suspense
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx:24:32)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-RKLIXPIZ.js?v=92d89cfc:44:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=90e4ca51:157:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=6a174ec6:3210:3)
+    at ErrorBoundary (http://localhost:8080/src/App.tsx:172:5)
+    at App (http://localhost:8080/src/App.tsx:561:3) @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=92d89cfc:520

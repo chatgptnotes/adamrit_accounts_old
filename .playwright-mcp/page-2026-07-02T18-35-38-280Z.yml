@@ -1,0 +1,301 @@
+- generic [ref=f5e2]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=f5e4]:
+    - generic [ref=f5e8]:
+      - generic [ref=f5e10]:
+        - generic [ref=f5e11] [cursor=pointer]:
+          - generic [ref=f5e12]: h
+          - heading "hope HMIS" [level=2] [ref=f5e13]
+        - generic [ref=f5e14]:
+          - generic [ref=f5e15]: cmd
+          - button "Switch" [ref=f5e16] [cursor=pointer]:
+            - img
+            - generic [ref=f5e17]: Switch
+          - button "Logout" [ref=f5e18] [cursor=pointer]:
+            - img
+            - generic [ref=f5e19]: Logout
+      - generic [ref=f5e20]:
+        - generic [ref=f5e23]:
+          - img [ref=f5e24]
+          - textbox "Search tabs..." [ref=f5e27]
+        - button "Overview" [ref=f5e29] [cursor=pointer]:
+          - generic [ref=f5e30]: Overview
+          - img [ref=f5e31]
+        - button "Patient Care" [ref=f5e34] [cursor=pointer]:
+          - generic [ref=f5e35]: Patient Care
+          - img [ref=f5e36]
+        - button "Diagnostics" [ref=f5e39] [cursor=pointer]:
+          - generic [ref=f5e40]: Diagnostics
+          - img [ref=f5e41]
+        - button "Beds & Facility" [ref=f5e44] [cursor=pointer]:
+          - generic [ref=f5e45]: Beds & Facility
+          - img [ref=f5e46]
+        - button "Billing & Accounts" [ref=f5e49] [cursor=pointer]:
+          - generic [ref=f5e50]: Billing & Accounts
+          - img [ref=f5e51]
+        - button "Marketing & Outreach" [ref=f5e54] [cursor=pointer]:
+          - generic [ref=f5e55]: Marketing & Outreach
+          - img [ref=f5e56]
+        - button "Patient-Facing" [ref=f5e59] [cursor=pointer]:
+          - generic [ref=f5e60]: Patient-Facing
+          - img [ref=f5e61]
+        - button "Masters" [ref=f5e64] [cursor=pointer]:
+          - generic [ref=f5e65]: Masters
+          - img [ref=f5e66]
+    - main [ref=f5e68]:
+      - generic [ref=f5e69]:
+        - button "Toggle Sidebar" [ref=f5e70] [cursor=pointer]:
+          - img
+          - generic [ref=f5e71]: Toggle Sidebar
+        - button "Tablet view" [ref=f5e72] [cursor=pointer]:
+          - img [ref=f5e73]
+          - text: Tablet view
+      - generic [ref=f5e91]:
+        - generic [ref=f5e92]:
+          - heading "IPD Discharge Summary- MOHD NOMAN (UHHO26D02001)" [level=1] [ref=f5e93]:
+            - text: IPD Discharge Summary
+            - generic [ref=f5e94]: "- MOHD NOMAN (UHHO26D02001)"
+          - generic [ref=f5e95]:
+            - button "Save" [ref=f5e96] [cursor=pointer]
+            - button "Print Preview" [ref=f5e98] [cursor=pointer]
+            - button "Clear Cache & Refresh" [ref=f5e99] [cursor=pointer]
+            - button "Close" [ref=f5e100] [cursor=pointer]
+        - generic [ref=f5e101]:
+          - heading "Patient Information" [level=3] [ref=f5e103]
+          - generic [ref=f5e105]:
+            - generic [ref=f5e106]:
+              - text: "Name:"
+              - textbox "Patient Name" [ref=f5e107]: MOHD NOMAN
+            - generic [ref=f5e108]:
+              - text: "Reg ID:"
+              - textbox "Registration ID" [ref=f5e109]: UHHO26D02001
+            - generic [ref=f5e110]:
+              - text: "Address:"
+              - textbox "Patient Address" [ref=f5e111]: NAURANI GROUND HEENA TREDARS ANSAR NAGAR MOMINPURA
+            - generic [ref=f5e112]:
+              - text: "Age/Sex:"
+              - textbox "Age/Sex" [ref=f5e113]: 41 Years / male
+            - generic [ref=f5e114]:
+              - text: "Treating Consultant:"
+              - textbox "Treating Consultant" [ref=f5e115]: Dr. Afzal Sheikh
+            - generic [ref=f5e116]:
+              - text: "DOA:"
+              - textbox "Date of admission cannot be changed" [disabled] [ref=f5e117]: 2026-07-02
+            - generic [ref=f5e118]:
+              - text: "Other Consultants:"
+              - textbox "Other Consultants" [ref=f5e119]
+            - generic [ref=f5e120]:
+              - text: "Date Of Discharge:"
+              - textbox [ref=f5e121]: 2026-07-02
+            - generic [ref=f5e122]:
+              - text: "Reason Of Discharge:"
+              - combobox [ref=f5e123] [cursor=pointer]:
+                - generic: Please select
+                - img [ref=f5e124]
+              - combobox [ref=f5e126]
+            - generic [ref=f5e127]:
+              - text: "Corporate Type:"
+              - textbox "Corporate Type" [ref=f5e128]: private
+            - generic [ref=f5e129]:
+              - text: "Treatment Type:"
+              - textbox "—" [ref=f5e130]: Conservative
+        - generic [ref=f5e131]:
+          - generic [ref=f5e132]:
+            - heading "Upload Documents → Auto-fill (AI OCR)" [level=3] [ref=f5e133]
+            - button "Extract & Fill" [disabled]
+          - generic [ref=f5e134]:
+            - paragraph [ref=f5e135]: Upload one or more photos of the patient's documents (admission/treatment sheets, doctor notes, charts). The AI reads them and fills Diagnosis, Clinical History, Examination, Medications, Advice and Hospital Stay Notes (overwrites existing values). Images only — not PDF.
+            - button "Choose File" [ref=f5e136]
+        - generic [ref=f5e137]:
+          - heading "Diagnosis" [level=3] [ref=f5e139]:
+            - generic [ref=f5e140]: Diagnosis
+          - generic [ref=f5e142]:
+            - text: "Diagnosis Details:"
+            - textbox "Enter diagnosis details..." [ref=f5e143]
+        - generic [ref=f5e144]:
+          - generic [ref=f5e145]:
+            - heading "Case Summary Presenting Complaints:" [level=3] [ref=f5e146]
+            - button "Elaborate with AI" [ref=f5e147] [cursor=pointer]
+          - textbox "Enter case summary and presenting complaints..." [ref=f5e149]
+        - generic [ref=f5e150]:
+          - heading "Advice:" [level=3] [ref=f5e152]
+          - textbox "Enter discharge advice..." [ref=f5e154]
+        - generic [ref=f5e155]:
+          - generic [ref=f5e156]:
+            - heading "Hospital Stay Notes:" [level=3] [ref=f5e157]
+            - button "Generate with AI" [ref=f5e158] [cursor=pointer]
+          - textbox "Enter hospital stay notes..." [ref=f5e160]
+        - generic [ref=f5e161]:
+          - heading "Treatment on Discharge:" [level=3] [ref=f5e163]
+          - generic [ref=f5e165]:
+            - table [ref=f5e166]:
+              - rowgroup [ref=f5e167]:
+                - row "Name of Medication Unit Remark Route Dose Quantity No. of Days Start Date Timing Is SOS" [ref=f5e168]:
+                  - columnheader "Name of Medication" [ref=f5e169]
+                  - columnheader "Unit" [ref=f5e170]
+                  - columnheader "Remark" [ref=f5e171]
+                  - columnheader "Route" [ref=f5e172]
+                  - columnheader "Dose" [ref=f5e173]
+                  - columnheader "Quantity" [ref=f5e174]
+                  - columnheader "No. of Days" [ref=f5e175]
+                  - columnheader "Start Date" [ref=f5e176]
+                  - columnheader "Timing" [ref=f5e177]
+                  - columnheader "Is SOS" [ref=f5e178]
+              - rowgroup [ref=f5e179]:
+                - 'row "1-AL 1-AL-M TAB(LEVOCETRIZINE MANTOLUKOST) Mfg: FDC LIMITED 1-AL TAB Mfg: FDC LIMITED 1-AL TAB(LEVOCETIRIZINE(5MG)TAB) Mfg: FDC LIMITED 0" [ref=f5e317]':
+                  - 'cell "1-AL 1-AL-M TAB(LEVOCETRIZINE MANTOLUKOST) Mfg: FDC LIMITED 1-AL TAB Mfg: FDC LIMITED 1-AL TAB(LEVOCETIRIZINE(5MG)TAB) Mfg: FDC LIMITED" [ref=f5e318]':
+                    - generic [ref=f5e182]:
+                      - textbox "Search medicine name..." [active] [ref=f5e183]: 1-AL
+                      - generic [ref=f5e319]:
+                        - generic [ref=f5e320] [cursor=pointer]:
+                          - generic [ref=f5e321]: 1-AL-M TAB(LEVOCETRIZINE MANTOLUKOST)
+                          - generic [ref=f5e322]: "Mfg: FDC LIMITED"
+                        - generic [ref=f5e323] [cursor=pointer]:
+                          - generic [ref=f5e324]: 1-AL TAB
+                          - generic [ref=f5e325]: "Mfg: FDC LIMITED"
+                        - generic [ref=f5e326] [cursor=pointer]:
+                          - generic [ref=f5e327]: 1-AL TAB(LEVOCETIRIZINE(5MG)TAB)
+                          - generic [ref=f5e328]: "Mfg: FDC LIMITED"
+                  - cell [ref=f5e184]:
+                    - textbox [ref=f5e185]
+                  - cell [ref=f5e186]:
+                    - textbox [ref=f5e187]
+                  - cell [ref=f5e188]:
+                    - combobox [ref=f5e189] [cursor=pointer]:
+                      - generic: Select
+                      - img [ref=f5e190]
+                    - combobox [ref=f5e192]
+                  - cell [ref=f5e193]:
+                    - combobox [ref=f5e194] [cursor=pointer]:
+                      - generic: Select
+                      - img [ref=f5e195]
+                    - combobox [ref=f5e197]
+                  - cell [ref=f5e198]:
+                    - textbox [ref=f5e199]
+                  - cell "0" [ref=f5e200]:
+                    - textbox [ref=f5e201]: "0"
+                  - cell [ref=f5e202]:
+                    - textbox [ref=f5e203]
+                  - cell [ref=f5e204]:
+                    - generic [ref=f5e205]:
+                      - combobox [ref=f5e206] [cursor=pointer]:
+                        - generic: I
+                        - img [ref=f5e207]
+                      - combobox [ref=f5e209]
+                      - combobox [ref=f5e210] [cursor=pointer]:
+                        - generic: II
+                        - img [ref=f5e211]
+                      - combobox [ref=f5e213]
+                      - combobox [ref=f5e214] [cursor=pointer]:
+                        - generic: III
+                        - img [ref=f5e215]
+                      - combobox [ref=f5e217]
+                      - combobox [ref=f5e218] [cursor=pointer]:
+                        - generic: IV
+                        - img [ref=f5e219]
+                      - combobox [ref=f5e221]
+                  - cell [ref=f5e222]:
+                    - checkbox [ref=f5e223] [cursor=pointer]
+                    - checkbox
+            - generic [ref=f5e224]:
+              - button "Add More" [ref=f5e225] [cursor=pointer]
+              - button "Remove" [ref=f5e226] [cursor=pointer]
+        - generic [ref=f5e227]:
+          - heading "Examination" [level=3] [ref=f5e229]
+          - generic [ref=f5e231]:
+            - generic [ref=f5e232]:
+              - text: "Temp:"
+              - generic [ref=f5e233]:
+                - textbox [ref=f5e234]
+                - generic [ref=f5e235]: °F
+            - generic [ref=f5e236]:
+              - text: "P.R:"
+              - generic [ref=f5e237]:
+                - textbox [ref=f5e238]
+                - generic [ref=f5e239]: /Min
+            - generic [ref=f5e240]:
+              - text: "R.R:"
+              - generic [ref=f5e241]:
+                - textbox [ref=f5e242]
+                - generic [ref=f5e243]: /Min
+            - generic [ref=f5e244]:
+              - text: "BP:"
+              - generic [ref=f5e245]:
+                - textbox [ref=f5e246]
+                - generic [ref=f5e247]: mmHg
+            - generic [ref=f5e248]:
+              - text: "SPO₂:"
+              - generic [ref=f5e249]:
+                - textbox [ref=f5e250]
+                - generic [ref=f5e251]: "% in Room Air"
+        - generic [ref=f5e252]:
+          - 'heading "Investigations: Fetch Lab & Radiology Data" [level=3] [ref=f5e254]':
+            - generic [ref=f5e255]: "Investigations:"
+            - button "Fetch Lab & Radiology Data" [ref=f5e256] [cursor=pointer]
+          - generic [ref=f5e257]:
+            - generic [ref=f5e258]:
+              - checkbox [ref=f5e259] [cursor=pointer]
+              - checkbox
+              - generic [ref=f5e260]: Print Recent Investigation only
+            - textbox "Investigation details will be populated here..." [ref=f5e261]: Lab and radiology investigations will be populated here when data is available.
+            - generic [ref=f5e262]: Click "Fetch Lab & Radiology Data" to load latest results.
+        - generic [ref=f5e263]:
+          - heading "OT Notes" [level=3] [ref=f5e265]
+          - generic [ref=f5e268]:
+            - generic [ref=f5e269]:
+              - button "Add" [ref=f5e271] [cursor=pointer]
+              - text: "Favorite Templates:"
+              - generic [ref=f5e274]:
+                - generic [ref=f5e275] [cursor=pointer]:
+                  - generic [ref=f5e276]: Original one
+                  - generic [ref=f5e277]: "Discharge summary template Everytime i type this :discharge: assume You are a medical specialist, Make a professionally written Discharge summary that will show off the power of chatgpt.: Make up facts..Add findings which are not provided to you. Come up with creative complaints, events during the stay in hospital and relevant examination findings, add medications to be given on discharge in indIan BRANDS. The entire document should be a minimum of 800 words. If a surgery was performed, Come up with creative detailed surgery notes with this which should be a minimum of 6 sentences. Use headings, subheadings, bullet points, and bold to organize the information. The person who will read the summary is another doctor. Advice appropriate precautions to be taken at home after discharge. Also advice to return to hospital in case of any or all the complications of surgery performed or medical treatment taken which was noticed after discharge. List the symptoms and signs of these complications.Do not mention the name, sex or age of the patient. Add the sentence at the end :URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 9373111709. .The medication should be at the end of summary and in table form with columns for name , strength, route , dosage and the number of days to be taken. Another line in hindi to be added in the column of dosage in addition to english start summary with he Diagnosis . followed by medication. These should be at the begining of summary and in table form with columns for name , strength, route , dosage and the number of days to be taken. Another line in hindi to be added in the column of dosage in addition to english. This patient does not have comorbidities other than that is mentioned."
+                - generic [ref=f5e278]:
+                  - button "✏️" [ref=f5e279] [cursor=pointer]
+                  - button "🗑️" [ref=f5e280] [cursor=pointer]
+                  - button "⬆️" [disabled]
+                  - button "⬇️" [disabled]
+              - generic [ref=f5e281]:
+                - textbox "Choose from above or type here..." [ref=f5e282]
+                - generic [ref=f5e283]:
+                  - button "Message chat GPT as" [ref=f5e284] [cursor=pointer]
+                  - button "Fetch Data" [ref=f5e285] [cursor=pointer]
+            - generic [ref=f5e286]:
+              - text: "Stay Notes:"
+              - textbox [ref=f5e287]
+        - generic [ref=f5e288]:
+          - heading "Treatment During Hospital Stay:" [level=3] [ref=f5e290]
+          - generic [ref=f5e291]:
+            - generic [ref=f5e293]:
+              - text: "The condition of patient at the time of discharge was:"
+              - generic [ref=f5e294]:
+                - combobox [ref=f5e295] [cursor=pointer]:
+                  - generic: Satisfactory
+                  - img [ref=f5e296]
+                - combobox [ref=f5e298]
+                - combobox [ref=f5e299] [cursor=pointer]:
+                  - generic: Please select
+                  - img [ref=f5e300]
+                - combobox [ref=f5e302]
+            - generic [ref=f5e303]:
+              - generic [ref=f5e304]:
+                - text: Review on*
+                - textbox [ref=f5e305]
+              - generic [ref=f5e306]:
+                - text: Resident On Discharge*
+                - combobox [ref=f5e307] [cursor=pointer]:
+                  - generic: Please select
+                  - img [ref=f5e308]
+                - combobox [ref=f5e310]
+              - generic [ref=f5e311]:
+                - checkbox [ref=f5e312] [cursor=pointer]
+                - checkbox
+                - generic [ref=f5e313]: Enable SMS Alert
+        - generic [ref=f5e314]:
+          - button "Save" [ref=f5e315] [cursor=pointer]
+          - button "Close" [ref=f5e316] [cursor=pointer]
+      - button "Open camera capture" [ref=f5e83] [cursor=pointer]:
+        - img [ref=f5e84]
+      - button "AI Assistant" [ref=f5e87] [cursor=pointer]:
+        - img [ref=f5e88]

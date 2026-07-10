@@ -1,0 +1,533 @@
+- generic [ref=f14e1]:
+  - generic [ref=f14e3]:
+    - generic [ref=f14e4]:
+      - generic [ref=f14e8]:
+        - generic [ref=f14e10]:
+          - img [ref=f14e11]
+          - generic [ref=f14e13]:
+            - paragraph [ref=f14e14]: We are investigating a technical issue
+            - generic [ref=f14e15]:
+              - generic [ref=f14e16]: ·
+              - generic [ref=f14e17]:
+                - text: Follow the
+                - link "status page" [ref=f14e18] [cursor=pointer]:
+                  - /url: https://status.supabase.com
+                - text: for updates
+        - button "Dismiss banner" [ref=f14e19] [cursor=pointer]:
+          - img [ref=f14e21]
+      - banner [ref=f14e25]:
+        - generic [ref=f14e26]:
+          - generic [ref=f14e27]:
+            - link "Supabase" [ref=f14e28] [cursor=pointer]:
+              - /url: /dashboard/org/uekmbdtburauuqzleeya
+              - img "Supabase" [ref=f14e29]
+            - generic [ref=f14e30]:
+              - img [ref=f14e32]
+              - generic [ref=f14e34]:
+                - link "chatgptnotes's Org Pro" [ref=f14e35] [cursor=pointer]:
+                  - /url: /dashboard/org/uekmbdtburauuqzleeya
+                  - img [ref=f14e36]
+                  - generic [ref=f14e46]: chatgptnotes's Org
+                  - generic [ref=f14e47]: Pro
+                - button [ref=f14e48] [cursor=pointer]:
+                  - img [ref=f14e50]
+              - generic [ref=f14e53]:
+                - img [ref=f14e55]
+                - generic [ref=f14e57]:
+                  - link "drmhope" [ref=f14e58] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv
+                    - img [ref=f14e59]
+                    - generic "drmhope" [ref=f14e62]
+                  - button [ref=f14e63] [cursor=pointer]:
+                    - img [ref=f14e65]
+                - img [ref=f14e69]
+                - generic [ref=f14e71]:
+                  - link "main Production" [ref=f14e72] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv
+                    - generic "main" [ref=f14e73]
+                    - generic [ref=f14e74]: Production
+                  - button [ref=f14e75] [cursor=pointer]:
+                    - img [ref=f14e77]
+            - button "Connect" [ref=f14e81] [cursor=pointer]:
+              - img [ref=f14e83]
+              - generic [ref=f14e85]: Connect
+          - generic [ref=f14e86]:
+            - generic [ref=f14e88] [cursor=pointer]: Feedback
+            - generic [ref=f14e89]:
+              - button "Search..." [ref=f14e90]:
+                - generic [ref=f14e91]:
+                  - img [ref=f14e92]
+                  - paragraph [ref=f14e95]: Search...
+                - generic [ref=f14e97]: ⌘K
+              - button "Help" [ref=f14e98] [cursor=pointer]:
+                - generic [ref=f14e99]:
+                  - img [ref=f14e100]
+                  - generic [ref=f14e103]: Help
+              - button "Advisor Center" [ref=f14e105] [cursor=pointer]:
+                - generic [ref=f14e106]:
+                  - img [ref=f14e107]
+                  - generic [ref=f14e109]: Advisor Center
+              - button "SQL Editor" [ref=f14e111] [cursor=pointer]:
+                - generic [ref=f14e112]:
+                  - img [ref=f14e113]
+                  - generic [ref=f14e115]: SQL Editor
+              - button "AI Assistant" [ref=f14e116] [cursor=pointer]:
+                - generic [ref=f14e117]:
+                  - img [ref=f14e120]
+                  - generic [ref=f14e123]: AI Assistant
+            - button "chatgptnotes" [ref=f14e124] [cursor=pointer]:
+              - img "chatgptnotes" [ref=f14e126]
+      - generic [ref=f14e127]:
+        - generic [ref=f14e131]:
+          - list [ref=f14e134]:
+            - generic [ref=f14e135]:
+              - listitem [ref=f14e136]:
+                - link "Project Overview" [ref=f14e137] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv
+                  - img [ref=f14e138]
+                  - generic: Project Overview
+              - listitem [ref=f14e140]:
+                - link "Table Editor" [ref=f14e141] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/editor
+                  - img [ref=f14e142]
+                  - generic: Table Editor
+              - listitem [ref=f14e144]:
+                - link "SQL Editor" [ref=f14e145] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/sql
+                  - img [ref=f14e146]
+                  - generic: SQL Editor
+            - generic [ref=f14e148]:
+              - listitem [ref=f14e149]:
+                - link "Database" [ref=f14e150] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/database/schemas
+                  - img [ref=f14e151]
+                  - generic: Database
+              - listitem [ref=f14e155]:
+                - link "Authentication" [ref=f14e156] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/auth/users
+                  - img [ref=f14e157]
+                  - generic: Authentication
+              - listitem [ref=f14e159]:
+                - link "Storage" [ref=f14e160] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/storage/files
+                  - img [ref=f14e161]
+                  - generic: Storage
+              - listitem [ref=f14e163]:
+                - link "Edge Functions" [ref=f14e164] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/functions
+                  - img [ref=f14e165]
+                  - generic: Edge Functions
+              - listitem [ref=f14e170]:
+                - link "Realtime" [ref=f14e171] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/realtime/inspector
+                  - img [ref=f14e172]
+                  - generic: Realtime
+            - generic [ref=f14e174]:
+              - listitem [ref=f14e176]:
+                - link "Advisors" [ref=f14e177] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/advisors/security
+                  - img [ref=f14e178]
+                  - generic: Advisors
+              - listitem [ref=f14e180]:
+                - link "Observability" [ref=f14e181] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/observability
+                  - img [ref=f14e182]
+                  - generic: Observability
+              - listitem [ref=f14e190]:
+                - link "Logs" [ref=f14e191] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs
+                  - img [ref=f14e192]
+                  - generic: Logs
+              - listitem [ref=f14e193]:
+                - link "Integrations" [ref=f14e194] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/integrations
+                  - img [ref=f14e195]
+                  - generic: Integrations
+            - listitem [ref=f14e199]:
+              - link "Project Settings" [ref=f14e200] [cursor=pointer]:
+                - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/settings/general
+                - img [ref=f14e201]
+                - generic: Project Settings
+          - button "Sidebar control" [ref=f14e206] [cursor=pointer]:
+            - img [ref=f14e208]
+        - generic [ref=f14e215]:
+          - generic [ref=f14e219]:
+            - heading "Logs" [level=4] [ref=f14e221]
+            - generic [ref=f14e223]:
+              - generic [ref=f14e224]:
+                - generic [ref=f14e226]: New
+                - heading "Introducing unified logs" [level=3] [ref=f14e227]
+                - button "More information" [disabled] [ref=f14e229] [cursor=pointer]:
+                  - img [ref=f14e231]
+                  - generic [ref=f14e234]: More information
+              - generic [ref=f14e235]:
+                - generic [ref=f14e237]:
+                  - generic [ref=f14e238]: Search collections
+                  - textbox "Search collections..." [disabled] [ref=f14e239]
+                  - img [ref=f14e240]
+                - link [disabled] [ref=f14e243] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/explorer
+                  - img [ref=f14e245]
+              - link "Templates" [disabled] [ref=f14e247] [cursor=pointer]:
+                - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/explorer/templates
+              - generic [ref=f14e248]:
+                - button "Collections" [disabled] [expanded] [ref=f14e249]:
+                  - img [ref=f14e250]
+                  - generic [ref=f14e252]: Collections
+                - generic [ref=f14e253]:
+                  - link "API Gateway" [disabled] [ref=f14e255] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/edge-logs
+                    - generic [ref=f14e256]: API Gateway
+                  - link "Postgres" [disabled] [ref=f14e258] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/postgres-logs
+                    - generic [ref=f14e259]: Postgres
+                  - link "PostgREST" [disabled] [ref=f14e261] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/postgrest-logs
+                    - generic [ref=f14e262]: PostgREST
+                  - link "Shared Pooler" [disabled] [ref=f14e264] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/pooler-logs
+                    - generic [ref=f14e265]: Shared Pooler
+                  - link "Dedicated Pooler" [disabled] [ref=f14e267] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/dedicated-pooler-logs
+                    - generic [ref=f14e268]: Dedicated Pooler
+                  - link "Auth" [disabled] [ref=f14e270] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/auth-logs
+                    - generic [ref=f14e271]: Auth
+                  - link "Storage" [disabled] [ref=f14e273] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/storage-logs
+                    - generic [ref=f14e274]: Storage
+                  - link "Realtime" [disabled] [ref=f14e276] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/realtime-logs
+                    - generic [ref=f14e277]: Realtime
+                  - link "Edge Functions" [disabled] [ref=f14e279] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/edge-functions-logs
+                    - generic [ref=f14e280]: Edge Functions
+                  - link "Cron" [disabled] [ref=f14e282] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/pgcron-logs
+                    - generic [ref=f14e283]: Cron
+              - generic [ref=f14e284]:
+                - button "Database operations" [disabled] [expanded] [ref=f14e285]:
+                  - img [ref=f14e286]
+                  - generic [ref=f14e288]: Database operations
+                - link "Postgres Version Upgrade" [disabled] [ref=f14e291] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/pg-upgrade-logs
+                  - generic [ref=f14e292]: Postgres Version Upgrade
+              - generic [ref=f14e293]:
+                - button "Queries" [disabled] [expanded] [ref=f14e294]:
+                  - img [ref=f14e295]
+                  - generic [ref=f14e297]: Queries
+                - generic [ref=f14e300]:
+                  - paragraph [ref=f14e301]: No queries created yet
+                  - paragraph [ref=f14e302]: Create and save your queries to use them in the explorer
+                  - link "Create query" [disabled] [ref=f14e304] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/explorer
+                    - generic [ref=f14e305]: Create query
+              - generic [ref=f14e306]:
+                - generic [ref=f14e308]:
+                  - img [ref=f14e309]
+                  - img [ref=f14e312]
+                  - img [ref=f14e314]
+                  - img [ref=f14e316]
+                - generic [ref=f14e318]:
+                  - heading "Capture your logs" [level=3] [ref=f14e319]
+                  - paragraph [ref=f14e320]: Send logs to your preferred observability or storage platform.
+                - link "Go to Log Drains" [disabled] [ref=f14e322] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/settings/log-drains
+                  - generic [ref=f14e323]: Go to Log Drains
+          - separator [disabled] [ref=f14e324]:
+            - img [ref=f14e326]
+          - main [ref=f14e335]:
+            - generic [ref=f14e336]:
+              - generic [ref=f14e337]:
+                - generic [ref=f14e338]:
+                  - group [ref=f14e340]:
+                    - textbox "Search events" [ref=f14e341]
+                    - group [ref=f14e342]:
+                      - img [ref=f14e343]
+                    - group
+                  - button "refresh" [ref=f14e433] [cursor=pointer]:
+                    - generic [ref=f14e990]:
+                      - generic [ref=f14e993]: "4"
+                      - img [ref=f14e994]
+                  - button "Last 5 days" [ref=f14e999] [cursor=pointer]:
+                    - img [ref=f14e348]
+                    - generic [ref=f14e351]: Last 5 days
+                  - button "Severity" [expanded] [ref=f14e353] [cursor=pointer]:
+                    - generic [ref=f14e354]: Severity
+                  - button "Chart" [ref=f14e356] [cursor=pointer]:
+                    - img [ref=f14e358]
+                    - generic [ref=f14e361]: Chart
+                  - button [ref=f14e444] [cursor=pointer]:
+                    - img [ref=f14e446]
+                - generic [ref=f14e362]:
+                  - link [ref=f14e363] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/explorer?q=select%20identifier%2C%20postgres_logs.timestamp%2C%20id%2C%20event_message%2C%20parsed.error_severity%2C%20parsed.detail%2C%20parsed.hint%20from%20postgres_logs%0A%20%20cross%20join%20unnest(metadata)%20as%20m%0A%20%20cross%20join%20unnest(m.parsed)%20as%20parsed%0A%20%20%0A%20%20order%20by%20timestamp%20desc%0A%20%20limit%20100%0A%20%20&its=2026-06-27T14%3A29%3A41.345Z&ite=
+                    - img [ref=f14e365]
+                  - generic [ref=f14e367] [cursor=pointer]:
+                    - generic [ref=f14e368]: Source
+                    - button "Primary database" [ref=f14e369]:
+                      - generic [ref=f14e370]: Primary database
+                      - img [ref=f14e372]
+              - generic [ref=f14e375]:
+                - img [ref=f14e1003]
+                - generic [ref=f14e1501]:
+                  - generic [ref=f14e1502]: Jun 27, 2026, 07:30pm
+                  - generic [ref=f14e1503]: Jul 2, 2026, 07:30pm
+              - table [ref=f14e386]:
+                - row [ref=f14e387]:
+                  - columnheader [ref=f14e388]
+                  - columnheader [ref=f14e389]
+                - 'row "02 Jul 26 19:59:12 LOG connection authenticated: identity=\"postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)" [ref=f14e1504] [cursor=pointer]':
+                  - gridcell [ref=f14e1505]:
+                    - checkbox [ref=f14e1507]
+                  - 'gridcell "02 Jul 26 19:59:12 LOG connection authenticated: identity=\"postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)" [ref=f14e1508]':
+                    - generic [ref=f14e1509]:
+                      - generic [ref=f14e1510]: 02 Jul 26 19:59:12
+                      - generic [ref=f14e1511]:
+                        - img [ref=f14e1513]
+                        - generic [ref=f14e1515]: LOG
+                      - generic [ref=f14e1516]: "connection authenticated: identity=\"postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)"
+                - 'row "02 Jul 26 19:59:11 LOG connection authenticated: identity=\"postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)" [ref=f14e1517] [cursor=pointer]':
+                  - gridcell [ref=f14e1518]:
+                    - checkbox [ref=f14e1520]
+                  - 'gridcell "02 Jul 26 19:59:11 LOG connection authenticated: identity=\"postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)" [ref=f14e1521]':
+                    - generic [ref=f14e1522]:
+                      - generic [ref=f14e1523]: 02 Jul 26 19:59:11
+                      - generic [ref=f14e1524]:
+                        - img [ref=f14e1526]
+                        - generic [ref=f14e1528]: LOG
+                      - generic [ref=f14e1529]: "connection authenticated: identity=\"postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)"
+                - row "02 Jul 26 19:59:05 ERROR syntax error at or near \"'storage.buckets'\"" [ref=f14e1530] [cursor=pointer]:
+                  - gridcell [ref=f14e1531]:
+                    - checkbox [ref=f14e1533]
+                  - gridcell "02 Jul 26 19:59:05 ERROR syntax error at or near \"'storage.buckets'\"" [ref=f14e1534]:
+                    - generic [ref=f14e1535]:
+                      - generic [ref=f14e1536]: 02 Jul 26 19:59:05
+                      - generic [ref=f14e1537]:
+                        - img [ref=f14e1539]
+                        - generic [ref=f14e1541]: ERROR
+                      - generic [ref=f14e1542]: syntax error at or near "'storage.buckets'"
+                - 'row "02 Jul 26 19:59:05 LOG connection authenticated: identity=\"postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)" [ref=f14e1543] [cursor=pointer]':
+                  - gridcell [ref=f14e1544]:
+                    - checkbox [ref=f14e1546]
+                  - 'gridcell "02 Jul 26 19:59:05 LOG connection authenticated: identity=\"postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)" [ref=f14e1547]':
+                    - generic [ref=f14e1548]:
+                      - generic [ref=f14e1549]: 02 Jul 26 19:59:05
+                      - generic [ref=f14e1550]:
+                        - img [ref=f14e1552]
+                        - generic [ref=f14e1554]: LOG
+                      - generic [ref=f14e1555]: "connection authenticated: identity=\"postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)"
+                - 'row "02 Jul 26 19:59:05 LOG connection received: host=2406:da18:96a:8200:d15c:d30:3c50:3f80 port=43190" [ref=f14e1556] [cursor=pointer]':
+                  - gridcell [ref=f14e1557]:
+                    - checkbox [ref=f14e1559]
+                  - 'gridcell "02 Jul 26 19:59:05 LOG connection received: host=2406:da18:96a:8200:d15c:d30:3c50:3f80 port=43190" [ref=f14e1560]':
+                    - generic [ref=f14e1561]:
+                      - generic [ref=f14e1562]: 02 Jul 26 19:59:05
+                      - generic [ref=f14e1563]:
+                        - img [ref=f14e1565]
+                        - generic [ref=f14e1567]: LOG
+                      - generic [ref=f14e1568]: "connection received: host=2406:da18:96a:8200:d15c:d30:3c50:3f80 port=43190"
+                - 'row "02 Jul 26 19:59:05 LOG connection received: host=2406:da18:96a:8201:d40e:97af:7da4:e9e9 port=52914" [ref=f14e1569] [cursor=pointer]':
+                  - gridcell [ref=f14e1570]:
+                    - checkbox [ref=f14e1572]
+                  - 'gridcell "02 Jul 26 19:59:05 LOG connection received: host=2406:da18:96a:8201:d40e:97af:7da4:e9e9 port=52914" [ref=f14e1573]':
+                    - generic [ref=f14e1574]:
+                      - generic [ref=f14e1575]: 02 Jul 26 19:59:05
+                      - generic [ref=f14e1576]:
+                        - img [ref=f14e1578]
+                        - generic [ref=f14e1580]: LOG
+                      - generic [ref=f14e1581]: "connection received: host=2406:da18:96a:8201:d40e:97af:7da4:e9e9 port=52914"
+                - 'row "02 Jul 26 19:59:05 LOG connection received: host=2406:da18:96a:8201:2b1f:d4a5:e244:514 port=53836" [ref=f14e1582] [cursor=pointer]':
+                  - gridcell [ref=f14e1583]:
+                    - checkbox [ref=f14e1585]
+                  - 'gridcell "02 Jul 26 19:59:05 LOG connection received: host=2406:da18:96a:8201:2b1f:d4a5:e244:514 port=53836" [ref=f14e1586]':
+                    - generic [ref=f14e1587]:
+                      - generic [ref=f14e1588]: 02 Jul 26 19:59:05
+                      - generic [ref=f14e1589]:
+                        - img [ref=f14e1591]
+                        - generic [ref=f14e1593]: LOG
+                      - generic [ref=f14e1594]: "connection received: host=2406:da18:96a:8201:2b1f:d4a5:e244:514 port=53836"
+                - 'row "02 Jul 26 19:58:42 LOG connection received: host=2406:da1a:6b0:f600:e9b7:b302:3c53:1970 port=36876" [ref=f14e1595] [cursor=pointer]':
+                  - gridcell [ref=f14e1596]:
+                    - checkbox [ref=f14e1598]
+                  - 'gridcell "02 Jul 26 19:58:42 LOG connection received: host=2406:da1a:6b0:f600:e9b7:b302:3c53:1970 port=36876" [ref=f14e1599]':
+                    - generic [ref=f14e1600]:
+                      - generic [ref=f14e1601]: 02 Jul 26 19:58:42
+                      - generic [ref=f14e1602]:
+                        - img [ref=f14e1604]
+                        - generic [ref=f14e1606]: LOG
+                      - generic [ref=f14e1607]: "connection received: host=2406:da1a:6b0:f600:e9b7:b302:3c53:1970 port=36876"
+                - 'row "02 Jul 26 19:56:42 LOG connection authorized: user=cli_login_postgres database=postgres application_name=Supavisor" [ref=f14e1608] [cursor=pointer]':
+                  - gridcell [ref=f14e1609]:
+                    - checkbox [ref=f14e1611]
+                  - 'gridcell "02 Jul 26 19:56:42 LOG connection authorized: user=cli_login_postgres database=postgres application_name=Supavisor" [ref=f14e1612]':
+                    - generic [ref=f14e1613]:
+                      - generic [ref=f14e1614]: 02 Jul 26 19:56:42
+                      - generic [ref=f14e1615]:
+                        - img [ref=f14e1617]
+                        - generic [ref=f14e1619]: LOG
+                      - generic [ref=f14e1620]: "connection authorized: user=cli_login_postgres database=postgres application_name=Supavisor"
+                - 'row "02 Jul 26 19:56:42 LOG connection authenticated: identity=\"cli_login_postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)" [ref=f14e1621] [cursor=pointer]':
+                  - gridcell [ref=f14e1622]:
+                    - checkbox [ref=f14e1624]
+                  - 'gridcell "02 Jul 26 19:56:42 LOG connection authenticated: identity=\"cli_login_postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)" [ref=f14e1625]':
+                    - generic [ref=f14e1626]:
+                      - generic [ref=f14e1627]: 02 Jul 26 19:56:42
+                      - generic [ref=f14e1628]:
+                        - img [ref=f14e1630]
+                        - generic [ref=f14e1632]: LOG
+                      - generic [ref=f14e1633]: "connection authenticated: identity=\"cli_login_postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)"
+                - 'row "02 Jul 26 19:56:42 LOG connection authorized: user=cli_login_postgres database=postgres application_name=Supavisor" [ref=f14e1634] [cursor=pointer]':
+                  - gridcell [ref=f14e1635]:
+                    - checkbox [ref=f14e1637]
+                  - 'gridcell "02 Jul 26 19:56:42 LOG connection authorized: user=cli_login_postgres database=postgres application_name=Supavisor" [ref=f14e1638]':
+                    - generic [ref=f14e1639]:
+                      - generic [ref=f14e1640]: 02 Jul 26 19:56:42
+                      - generic [ref=f14e1641]:
+                        - img [ref=f14e1643]
+                        - generic [ref=f14e1645]: LOG
+                      - generic [ref=f14e1646]: "connection authorized: user=cli_login_postgres database=postgres application_name=Supavisor"
+                - 'row "02 Jul 26 19:56:42 LOG connection authenticated: identity=\"cli_login_postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)" [ref=f14e1647] [cursor=pointer]':
+                  - gridcell [ref=f14e1648]:
+                    - checkbox [ref=f14e1650]
+                  - 'gridcell "02 Jul 26 19:56:42 LOG connection authenticated: identity=\"cli_login_postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)" [ref=f14e1651]':
+                    - generic [ref=f14e1652]:
+                      - generic [ref=f14e1653]: 02 Jul 26 19:56:42
+                      - generic [ref=f14e1654]:
+                        - img [ref=f14e1656]
+                        - generic [ref=f14e1658]: LOG
+                      - generic [ref=f14e1659]: "connection authenticated: identity=\"cli_login_postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)"
+                - 'row "02 Jul 26 19:56:41 LOG connection received: host=2406:da18:96a:8200:ecfc:318b:a41e:ff85 port=57592" [ref=f14e1660] [cursor=pointer]':
+                  - gridcell [ref=f14e1661]:
+                    - checkbox [ref=f14e1663]
+                  - 'gridcell "02 Jul 26 19:56:41 LOG connection received: host=2406:da18:96a:8200:ecfc:318b:a41e:ff85 port=57592" [ref=f14e1664]':
+                    - generic [ref=f14e1665]:
+                      - generic [ref=f14e1666]: 02 Jul 26 19:56:41
+                      - generic [ref=f14e1667]:
+                        - img [ref=f14e1669]
+                        - generic [ref=f14e1671]: LOG
+                      - generic [ref=f14e1672]: "connection received: host=2406:da18:96a:8200:ecfc:318b:a41e:ff85 port=57592"
+                - 'row "02 Jul 26 19:56:22 LOG connection authorized: user=cli_login_postgres database=postgres application_name=Supavisor" [ref=f14e1673] [cursor=pointer]':
+                  - gridcell [ref=f14e1674]:
+                    - checkbox [ref=f14e1676]
+                  - 'gridcell "02 Jul 26 19:56:22 LOG connection authorized: user=cli_login_postgres database=postgres application_name=Supavisor" [ref=f14e1677]':
+                    - generic [ref=f14e1678]:
+                      - generic [ref=f14e1679]: 02 Jul 26 19:56:22
+                      - generic [ref=f14e1680]:
+                        - img [ref=f14e1682]
+                        - generic [ref=f14e1684]: LOG
+                      - generic [ref=f14e1685]: "connection authorized: user=cli_login_postgres database=postgres application_name=Supavisor"
+                - 'row "02 Jul 26 19:56:22 LOG connection authenticated: identity=\"cli_login_postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)" [ref=f14e1686] [cursor=pointer]':
+                  - gridcell [ref=f14e1687]:
+                    - checkbox [ref=f14e1689]
+                  - 'gridcell "02 Jul 26 19:56:22 LOG connection authenticated: identity=\"cli_login_postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)" [ref=f14e1690]':
+                    - generic [ref=f14e1691]:
+                      - generic [ref=f14e1692]: 02 Jul 26 19:56:22
+                      - generic [ref=f14e1693]:
+                        - img [ref=f14e1695]
+                        - generic [ref=f14e1697]: LOG
+                      - generic [ref=f14e1698]: "connection authenticated: identity=\"cli_login_postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)"
+                - 'row "02 Jul 26 19:56:22 LOG connection authenticated: identity=\"cli_login_postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)" [ref=f14e1699] [cursor=pointer]':
+                  - gridcell [ref=f14e1700]:
+                    - checkbox [ref=f14e1702]
+                  - 'gridcell "02 Jul 26 19:56:22 LOG connection authenticated: identity=\"cli_login_postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)" [ref=f14e1703]':
+                    - generic [ref=f14e1704]:
+                      - generic [ref=f14e1705]: 02 Jul 26 19:56:22
+                      - generic [ref=f14e1706]:
+                        - img [ref=f14e1708]
+                        - generic [ref=f14e1710]: LOG
+                      - generic [ref=f14e1711]: "connection authenticated: identity=\"cli_login_postgres\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)"
+                - 'row "02 Jul 26 19:56:22 LOG connection authorized: user=cli_login_postgres database=postgres application_name=Supavisor" [ref=f14e1712] [cursor=pointer]':
+                  - gridcell [ref=f14e1713]:
+                    - checkbox [ref=f14e1715]
+                  - 'gridcell "02 Jul 26 19:56:22 LOG connection authorized: user=cli_login_postgres database=postgres application_name=Supavisor" [ref=f14e1716]':
+                    - generic [ref=f14e1717]:
+                      - generic [ref=f14e1718]: 02 Jul 26 19:56:22
+                      - generic [ref=f14e1719]:
+                        - img [ref=f14e1721]
+                        - generic [ref=f14e1723]: LOG
+                      - generic [ref=f14e1724]: "connection authorized: user=cli_login_postgres database=postgres application_name=Supavisor"
+                - 'row "02 Jul 26 19:56:21 LOG connection received: host=2406:da18:96a:8200:998d:66ff:b43d:a209 port=58492" [ref=f14e1725] [cursor=pointer]':
+                  - gridcell [ref=f14e1726]:
+                    - checkbox [ref=f14e1728]
+                  - 'gridcell "02 Jul 26 19:56:21 LOG connection received: host=2406:da18:96a:8200:998d:66ff:b43d:a209 port=58492" [ref=f14e1729]':
+                    - generic [ref=f14e1730]:
+                      - generic [ref=f14e1731]: 02 Jul 26 19:56:21
+                      - generic [ref=f14e1732]:
+                        - img [ref=f14e1734]
+                        - generic [ref=f14e1736]: LOG
+                      - generic [ref=f14e1737]: "connection received: host=2406:da18:96a:8200:998d:66ff:b43d:a209 port=58492"
+                - 'row "02 Jul 26 19:56:19 LOG checkpoint starting: time" [ref=f14e1738] [cursor=pointer]':
+                  - gridcell [ref=f14e1739]:
+                    - checkbox [ref=f14e1741]
+                  - 'gridcell "02 Jul 26 19:56:19 LOG checkpoint starting: time" [ref=f14e1742]':
+                    - generic [ref=f14e1743]:
+                      - generic [ref=f14e1744]: 02 Jul 26 19:56:19
+                      - generic [ref=f14e1745]:
+                        - img [ref=f14e1747]
+                        - generic [ref=f14e1749]: LOG
+                      - generic [ref=f14e1750]: "checkpoint starting: time"
+              - generic [ref=f14e1751]:
+                - button "Load older" [ref=f14e1752] [cursor=pointer]:
+                  - img [ref=f14e1754]
+                  - generic [ref=f14e1757]: Load older
+                - generic [ref=f14e1758]: Showing 100 results
+    - generic [ref=f14e393]:
+      - generic:
+        - img "Background pattern"
+      - generic [ref=f14e394]:
+        - button "Close banner" [ref=f14e396] [cursor=pointer]:
+          - img [ref=f14e398]
+        - generic [ref=f14e401]:
+          - generic [ref=f14e402]:
+            - generic [ref=f14e403]: Beta
+            - generic [ref=f14e405]:
+              - generic [ref=f14e1816]:
+                - generic [ref=f14e1818]: 02 Jul 26 20:00:00
+                - generic [ref=f14e1819]: "200"
+              - generic [ref=f14e1821]:
+                - generic [ref=f14e1823]: 02 Jul 26 19:59:57
+                - generic [ref=f14e1824]: "400"
+              - generic [ref=f14e1826]:
+                - generic [ref=f14e1828]: 02 Jul 26 19:59:54
+                - generic [ref=f14e1829]: "304"
+              - generic [ref=f14e1811]:
+                - generic [ref=f14e1813]: 02 Jul 26 19:59:51
+                - generic [ref=f14e1814]: "200"
+          - generic [ref=f14e426]:
+            - paragraph [ref=f14e427]: Unified Logs is here
+            - paragraph [ref=f14e428]: Search and correlate logs across all of your services from a single place.
+          - link "Explore Unified Logs" [ref=f14e430] [cursor=pointer]:
+            - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs
+            - generic [ref=f14e431]: Explore Unified Logs
+  - alert [ref=f14e432]: Postgres Logs | Logs | drmhope | chatgptnotes's Org | Supabase
+  - dialog [ref=f14e1785]:
+    - generic [ref=f14e1786]:
+      - generic [ref=f14e1787]:
+        - generic [ref=f14e1788]:
+          - checkbox "Error Show all events with ERROR, PANIC, or FATAL" [checked] [active] [ref=f14e1789]:
+            - generic:
+              - img
+          - checkbox [checked]
+        - generic [ref=f14e1790]:
+          - generic [ref=f14e1791]: Error
+          - generic [ref=f14e1792]: Show all events with ERROR, PANIC, or FATAL
+      - generic [ref=f14e1793]:
+        - generic [ref=f14e1794]:
+          - checkbox "No Error Show all non-error events" [ref=f14e1795]
+          - checkbox
+        - generic [ref=f14e1796]:
+          - generic [ref=f14e1797]: No Error
+          - generic [ref=f14e1798]: Show all non-error events
+      - generic [ref=f14e1799]:
+        - generic [ref=f14e1800]:
+          - checkbox "Log Show all events that are log severity" [ref=f14e1801]
+          - checkbox
+        - generic [ref=f14e1802]:
+          - generic [ref=f14e1803]: Log
+          - generic [ref=f14e1804]: Show all events that are log severity
+      - generic [ref=f14e1805]:
+        - button "Clear" [ref=f14e1806] [cursor=pointer]:
+          - generic [ref=f14e1807]: Clear
+        - button "Apply" [ref=f14e1808] [cursor=pointer]:
+          - generic [ref=f14e1809]: Apply

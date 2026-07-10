@@ -1,0 +1,23 @@
+[     106ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://localhost:8080/node_modules/.vite/deps/chunk-NFC5BX5N.js?v=c59434e6:21550
+[     112ms] [WARNING] GoTrueClient@sb-xvkxccqaopbnkvwgyfjv-auth-token:1 (2.104.1) 2026-07-03T16:20:12.594Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key. @ http://localhost:8080/node_modules/.vite/deps/@supabase_supabase-js.js?v=c59434e6:14963
+[     160ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:8080/director-dashboard:0
+[    1751ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://xvkxccqaopbnkvwgyfjv.supabase.co/rest/v1/advance_payment?select=advance_amount%2Camount%2Cvisit_id&status=eq.ACTIVE&is_refund=eq.false&created_at=gte.2026-06-30T18%3A30%3A00.000Z&created_at=lt.2026-07-31T18%3A30%3A00.000Z:0
+[   99406ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://xvkxccqaopbnkvwgyfjv.supabase.co/rest/v1/advance_payment?select=advance_amount%2Camount%2Cvisit_id&status=eq.ACTIVE&is_refund=eq.false&created_at=gte.2026-06-30T18%3A30%3A00.000Z&created_at=lt.2026-07-31T18%3A30%3A00.000Z:0
+[  102106ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:8080/@vite/client:559
+[  102106ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/src/components/DirectorKpiCards.tsx?t=1783095714573:0
+[  102106ms] [ERROR] [hmr] Failed to reload /src/components/DirectorKpiCards.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:8080/@vite/client:175
+[  102106ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/src/components/DepartmentActivityMonitor.tsx?t=1783095714573:0
+[  102106ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/src/index.css?t=1783095714573:0
+[  102106ms] [ERROR] [hmr] Failed to reload /src/components/DepartmentActivityMonitor.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:8080/@vite/client:175
+[  102106ms] [ERROR] [hmr] Failed to reload /src/index.css. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:8080/@vite/client:175
+[  102107ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/:0
+[  103109ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/:0
+[  104111ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/:0
+[  105113ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/:0
+[  106115ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/:0
+[  107117ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/:0
+[  108119ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/:0
+[  109121ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/:0
+[  110123ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/:0
+[  111126ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/:0
+[  112128ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/:0

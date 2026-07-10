@@ -1,0 +1,105 @@
+- generic [active] [ref=f26e1]:
+  - generic [ref=f26e4]:
+    - banner [ref=f26e6]:
+      - generic [ref=f26e7]:
+        - generic [ref=f26e8]:
+          - link "Supabase" [ref=f26e9] [cursor=pointer]:
+            - /url: /dashboard/org/uekmbdtburauuqzleeya
+            - img "Supabase" [ref=f26e10]
+          - img [ref=f26e14]
+          - button "Connect" [disabled] [ref=f26e18]:
+            - img [ref=f26e20]
+            - generic [ref=f26e22]: Connect
+        - generic [ref=f26e23]:
+          - generic [ref=f26e25] [cursor=pointer]: Feedback
+          - generic [ref=f26e26]:
+            - button "Search..." [ref=f26e27]:
+              - generic [ref=f26e28]:
+                - img [ref=f26e29]
+                - paragraph [ref=f26e32]: Search...
+              - generic [ref=f26e34]: ⌘K
+            - button "Help" [ref=f26e35] [cursor=pointer]:
+              - generic [ref=f26e36]:
+                - img [ref=f26e37]
+                - generic [ref=f26e40]: Help
+            - button "Advisor Center" [ref=f26e42] [cursor=pointer]:
+              - generic [ref=f26e43]:
+                - img [ref=f26e44]
+                - generic [ref=f26e46]: Advisor Center
+            - button "SQL Editor" [ref=f26e47] [cursor=pointer]:
+              - generic [ref=f26e48]:
+                - img [ref=f26e49]
+                - generic [ref=f26e51]: SQL Editor
+            - button "AI Assistant" [ref=f26e52] [cursor=pointer]:
+              - generic [ref=f26e53]:
+                - img [ref=f26e56]
+                - generic [ref=f26e59]: AI Assistant
+          - button "chatgptnotes" [ref=f26e60] [cursor=pointer]:
+            - img "chatgptnotes" [ref=f26e62]
+    - generic [ref=f26e63]:
+      - generic [ref=f26e67]:
+        - list [ref=f26e70]:
+          - generic [ref=f26e71]:
+            - listitem [ref=f26e72]:
+              - link "Project Overview" [ref=f26e73] [cursor=pointer]:
+                - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv
+                - img [ref=f26e74]
+                - generic: Project Overview
+            - listitem [ref=f26e76]:
+              - button "Table Editor" [disabled]:
+                - img
+                - generic: Table Editor
+            - listitem [ref=f26e77]:
+              - button "SQL Editor" [disabled]:
+                - img
+                - generic: SQL Editor
+          - generic [ref=f26e78]:
+            - listitem [ref=f26e79]:
+              - button "Database" [disabled]:
+                - img
+                - generic: Database
+            - listitem [ref=f26e80]:
+              - button "Authentication" [disabled]:
+                - img
+                - generic: Authentication
+            - listitem [ref=f26e81]:
+              - button "Storage" [disabled]:
+                - img
+                - generic: Storage
+            - listitem [ref=f26e82]:
+              - link "Edge Functions" [ref=f26e83] [cursor=pointer]:
+                - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/functions
+                - img [ref=f26e84]
+                - generic: Edge Functions
+            - listitem [ref=f26e89]:
+              - button "Realtime" [disabled]:
+                - img
+                - generic: Realtime
+          - generic [ref=f26e90]:
+            - listitem [ref=f26e92]:
+              - button "Advisors" [disabled]:
+                - img
+                - generic: Advisors
+            - listitem [ref=f26e93]:
+              - button "Observability" [disabled]:
+                - img
+                - generic: Observability
+            - listitem [ref=f26e94]:
+              - link "Logs" [ref=f26e95] [cursor=pointer]:
+                - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs
+                - img [ref=f26e96]
+                - generic: Logs
+            - listitem [ref=f26e97]:
+              - button "Integrations" [disabled]:
+                - img
+                - generic: Integrations
+          - listitem [ref=f26e99]:
+            - link "Project Settings" [ref=f26e100] [cursor=pointer]:
+              - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/settings/general
+              - img [ref=f26e101]
+              - generic: Project Settings
+        - button "Sidebar control" [ref=f26e106] [cursor=pointer]:
+          - img [ref=f26e108]
+      - main [ref=f26e118]:
+        - img [ref=f26e121]
+  - alert [ref=f26e123]: Explorer | Logs | Supabase

@@ -1,0 +1,119 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - banner [ref=e6]:
+        - generic [ref=e7]:
+          - generic [ref=e8]:
+            - link "Supabase" [ref=e9] [cursor=pointer]:
+              - /url: /dashboard/organizations
+              - img "Supabase" [ref=e10]
+            - img [ref=e14]
+            - button "Connect" [disabled] [ref=e18]:
+              - img [ref=e20]
+              - generic [ref=e22]: Connect
+          - generic [ref=e23]:
+            - generic [ref=e25] [cursor=pointer]: Feedback
+            - generic [ref=e26]:
+              - button "Search..." [ref=e27]:
+                - generic [ref=e28]:
+                  - img [ref=e29]
+                  - paragraph [ref=e32]: Search...
+                - generic [ref=e34]: ⌘K
+              - button "Help" [ref=e35] [cursor=pointer]:
+                - generic [ref=e36]:
+                  - img [ref=e37]
+                  - generic [ref=e40]: Help
+              - button "Advisor Center" [ref=e42] [cursor=pointer]:
+                - generic [ref=e43]:
+                  - img [ref=e44]
+                  - generic [ref=e46]: Advisor Center
+              - button "SQL Editor" [ref=e47] [cursor=pointer]:
+                - generic [ref=e48]:
+                  - img [ref=e49]
+                  - generic [ref=e51]: SQL Editor
+              - button "AI Assistant" [ref=e52] [cursor=pointer]:
+                - generic [ref=e53]:
+                  - img [ref=e56]
+                  - generic [ref=e59]: AI Assistant
+            - button [ref=e60] [cursor=pointer]:
+              - img [ref=e63]
+      - generic [ref=e65]:
+        - generic [ref=e69]:
+          - list [ref=e72]:
+            - generic [ref=e73]:
+              - listitem [ref=e74]:
+                - link "Project Overview" [ref=e75] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv
+                  - img [ref=e76]
+                  - generic: Project Overview
+              - listitem [ref=e78]:
+                - button "Table Editor" [disabled]:
+                  - img
+                  - generic: Table Editor
+              - listitem [ref=e79]:
+                - button "SQL Editor" [disabled]:
+                  - img
+                  - generic: SQL Editor
+            - generic [ref=e80]:
+              - listitem [ref=e81]:
+                - button "Database" [disabled]:
+                  - img
+                  - generic: Database
+              - listitem [ref=e82]:
+                - button "Authentication" [disabled]:
+                  - img
+                  - generic: Authentication
+              - listitem [ref=e83]:
+                - button "Storage" [disabled]:
+                  - img
+                  - generic: Storage
+              - listitem [ref=e84]:
+                - link "Edge Functions" [ref=e85] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/functions
+                  - img [ref=e86]
+                  - generic: Edge Functions
+              - listitem [ref=e91]:
+                - button "Realtime" [disabled]:
+                  - img
+                  - generic: Realtime
+            - generic [ref=e92]:
+              - listitem [ref=e94]:
+                - button "Advisors" [disabled]:
+                  - img
+                  - generic: Advisors
+              - listitem [ref=e95]:
+                - button "Observability" [disabled]:
+                  - img
+                  - generic: Observability
+              - listitem [ref=e96]:
+                - link "Logs" [ref=e97] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/explorer
+                  - img [ref=e98]
+                  - generic: Logs
+              - listitem [ref=e99]:
+                - button "Integrations" [disabled]:
+                  - img
+                  - generic: Integrations
+            - listitem [ref=e101]:
+              - link "Project Settings" [ref=e102] [cursor=pointer]:
+                - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/settings/general
+                - img [ref=e103]
+                - generic: Project Settings
+          - button "Sidebar control" [ref=e108] [cursor=pointer]:
+            - img [ref=e110]
+        - main [ref=e120]:
+          - img [ref=e123]
+    - generic [ref=e128]:
+      - generic:
+        - img "Background pattern"
+      - generic [ref=e129]:
+        - button "Close banner" [ref=e131] [cursor=pointer]:
+          - img [ref=e133]
+        - generic [ref=e136]:
+          - generic [ref=e137]: Notice
+          - generic [ref=e138]:
+            - paragraph [ref=e139]: We've updated our Terms of Service
+            - paragraph [ref=e140]: Updates define the responsibilities of both you and Supabase in the use of AI.
+          - button "Learn more" [ref=e141] [cursor=pointer]:
+            - generic [ref=e142]: Learn more
+  - alert [ref=e143]: Postgres Logs | Logs | Supabase

@@ -1,0 +1,119 @@
+- generic [active] [ref=f11e1]:
+  - generic [ref=f11e3]:
+    - generic [ref=f11e4]:
+      - banner [ref=f11e6]:
+        - generic [ref=f11e7]:
+          - generic [ref=f11e8]:
+            - link "Supabase" [ref=f11e9] [cursor=pointer]:
+              - /url: /dashboard/organizations
+              - img "Supabase" [ref=f11e10]
+            - img [ref=f11e14]
+            - button "Connect" [disabled] [ref=f11e18]:
+              - img [ref=f11e20]
+              - generic [ref=f11e22]: Connect
+          - generic [ref=f11e23]:
+            - generic [ref=f11e25] [cursor=pointer]: Feedback
+            - generic [ref=f11e26]:
+              - button "Search..." [ref=f11e27]:
+                - generic [ref=f11e28]:
+                  - img [ref=f11e29]
+                  - paragraph [ref=f11e32]: Search...
+                - generic [ref=f11e34]: ⌘K
+              - button "Help" [ref=f11e35] [cursor=pointer]:
+                - generic [ref=f11e36]:
+                  - img [ref=f11e37]
+                  - generic [ref=f11e40]: Help
+              - button "Advisor Center" [ref=f11e42] [cursor=pointer]:
+                - generic [ref=f11e43]:
+                  - img [ref=f11e44]
+                  - generic [ref=f11e46]: Advisor Center
+              - button "SQL Editor" [ref=f11e47] [cursor=pointer]:
+                - generic [ref=f11e48]:
+                  - img [ref=f11e49]
+                  - generic [ref=f11e51]: SQL Editor
+              - button "AI Assistant" [ref=f11e52] [cursor=pointer]:
+                - generic [ref=f11e53]:
+                  - img [ref=f11e56]
+                  - generic [ref=f11e59]: AI Assistant
+            - button [ref=f11e60] [cursor=pointer]:
+              - img [ref=f11e63]
+      - generic [ref=f11e65]:
+        - generic [ref=f11e69]:
+          - list [ref=f11e72]:
+            - generic [ref=f11e73]:
+              - listitem [ref=f11e74]:
+                - link "Project Overview" [ref=f11e75] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv
+                  - img [ref=f11e76]
+                  - generic: Project Overview
+              - listitem [ref=f11e78]:
+                - button "Table Editor" [disabled]:
+                  - img
+                  - generic: Table Editor
+              - listitem [ref=f11e79]:
+                - button "SQL Editor" [disabled]:
+                  - img
+                  - generic: SQL Editor
+            - generic [ref=f11e80]:
+              - listitem [ref=f11e81]:
+                - button "Database" [disabled]:
+                  - img
+                  - generic: Database
+              - listitem [ref=f11e82]:
+                - button "Authentication" [disabled]:
+                  - img
+                  - generic: Authentication
+              - listitem [ref=f11e83]:
+                - button "Storage" [disabled]:
+                  - img
+                  - generic: Storage
+              - listitem [ref=f11e84]:
+                - link "Edge Functions" [ref=f11e85] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/functions
+                  - img [ref=f11e86]
+                  - generic: Edge Functions
+              - listitem [ref=f11e91]:
+                - button "Realtime" [disabled]:
+                  - img
+                  - generic: Realtime
+            - generic [ref=f11e92]:
+              - listitem [ref=f11e94]:
+                - button "Advisors" [disabled]:
+                  - img
+                  - generic: Advisors
+              - listitem [ref=f11e95]:
+                - button "Observability" [disabled]:
+                  - img
+                  - generic: Observability
+              - listitem [ref=f11e96]:
+                - link "Logs" [ref=f11e97] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/explorer
+                  - img [ref=f11e98]
+                  - generic: Logs
+              - listitem [ref=f11e99]:
+                - button "Integrations" [disabled]:
+                  - img
+                  - generic: Integrations
+            - listitem [ref=f11e101]:
+              - link "Project Settings" [ref=f11e102] [cursor=pointer]:
+                - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/settings/general
+                - img [ref=f11e103]
+                - generic: Project Settings
+          - button "Sidebar control" [ref=f11e108] [cursor=pointer]:
+            - img [ref=f11e110]
+        - main [ref=f11e120]:
+          - img [ref=f11e123]
+    - generic [ref=f11e128]:
+      - generic:
+        - img "Background pattern"
+      - generic [ref=f11e129]:
+        - button "Close banner" [ref=f11e131] [cursor=pointer]:
+          - img [ref=f11e133]
+        - generic [ref=f11e136]:
+          - generic [ref=f11e137]: Notice
+          - generic [ref=f11e138]:
+            - paragraph [ref=f11e139]: We've updated our Terms of Service
+            - paragraph [ref=f11e140]: Updates define the responsibilities of both you and Supabase in the use of AI.
+          - button "Learn more" [ref=f11e141] [cursor=pointer]:
+            - generic [ref=f11e142]: Learn more
+  - alert [ref=f11e143]: Postgres Logs | Logs | Supabase

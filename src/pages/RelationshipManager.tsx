@@ -6,7 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Plus, Search, Users, EyeOff, Eye, Phone, Edit, Upload, FileDown } from 'lucide-react';
+import { Plus, Search, Users, EyeOff, Eye, Phone, Edit, Upload, FileDown, ArrowRight } from 'lucide-react';
 import { AddItemDialog } from '@/components/AddItemDialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import ReferralRegisterTable from '@/components/relationship/ReferralRegisterTable';
@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useAuth } from '@/contexts/AuthContext';
 import { logActivity, getDeviceInfo } from '@/lib/activity-logger';
+import { canAccessReferralRegister } from '@/lib/referralRegisterAccess';
 
 interface RelationshipManagerType {
   id: string;
@@ -25,15 +26,8 @@ interface RelationshipManagerType {
   updated_at: string;
 }
 
-// Only these users (plus any superadmin) may access the Referral Register tab —
-// add rows, edit, delete and generate the PDF. Compared lowercase against the
-// logged-in user's email.
-const REFERRAL_REGISTER_EMAILS = [
-  'sanjaykhobragade46@gmail.com',
-  'ganeshsharnagat47@gmail.com',
-];
-
 const RelationshipManager = () => {
+  const [activeTab, setActiveTab] = useState('managers');
   const [searchTerm, setSearchTerm] = useState('');
   const [showHidden, setShowHidden] = useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -45,11 +39,7 @@ const RelationshipManager = () => {
   const { user } = useAuth();
   const importInputRef = useRef<HTMLInputElement>(null);
 
-  // Referral Register is restricted to a fixed allowlist of users (+ superadmin).
-  const canAccessReferralRegister =
-    user?.role === 'superadmin' ||
-    user?.role === 'super_admin' ||
-    REFERRAL_REGISTER_EMAILS.includes((user?.email || '').toLowerCase());
+  const canUseReferralRegister = canAccessReferralRegister(user);
 
   const { data: managers = [], isLoading } = useQuery({
     queryKey: ['relationship-managers', showHidden],
@@ -423,15 +413,34 @@ const RelationshipManager = () => {
           </p>
         </div>
 
-        <Tabs defaultValue="managers" className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="mb-6">
             <TabsTrigger value="managers">Managers</TabsTrigger>
-            {canAccessReferralRegister && (
+            {canUseReferralRegister && (
               <TabsTrigger value="referral">Referral Register</TabsTrigger>
             )}
           </TabsList>
 
           <TabsContent value="managers">
+        {canUseReferralRegister && (
+          <Card className="mb-6 border-emerald-200 bg-emerald-50">
+            <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-emerald-900">Update Referral Register</h2>
+                <p className="text-sm text-emerald-700">
+                  Complete and review referral entries for admitted patients.
+                </p>
+              </div>
+              <Button
+                onClick={() => setActiveTab('referral')}
+                className="bg-emerald-700 text-white hover:bg-emerald-800"
+              >
+                Open Register
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </CardContent>
+          </Card>
+        )}
         <div className="mb-6 flex flex-col sm:flex-row gap-4 items-center justify-between">
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
@@ -556,7 +565,7 @@ const RelationshipManager = () => {
         )}
           </TabsContent>
 
-          {canAccessReferralRegister && (
+          {canUseReferralRegister && (
             <TabsContent value="referral">
               <ReferralRegisterTable />
             </TabsContent>

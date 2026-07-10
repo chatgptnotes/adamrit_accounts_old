@@ -1,0 +1,801 @@
+- generic [active] [ref=f1e1]:
+  - generic:
+    - generic:
+      - link "Skip to main content" [ref=f1e2] [cursor=pointer]
+      - link "Accessibility help" [ref=f1e3] [cursor=pointer]:
+        - /url: https://support.google.com/websearch/answer/181196?hl=en-IN
+  - generic [ref=f1e8]:
+    - search [ref=f1e9]:
+      - generic [ref=f1e11]:
+        - generic:
+          - generic:
+            - generic:
+              - img
+        - 'link "ICC Women''s T20 World Cup: Semi-finals" [ref=f1e13] [cursor=pointer]':
+          - /url: https://www.google.com/webhp?hl=en&ictx=2&sa=X&ved=0ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQPQgK
+          - 'img "ICC Women''s T20 World Cup: Semi-finals" [ref=f1e14]'
+        - generic [ref=f1e15]:
+          - generic [ref=f1e16]:
+            - combobox "Search" [ref=f1e19]: issue issue
+            - generic [ref=f1e20]:
+              - button "Clear" [ref=f1e22] [cursor=pointer]:
+                - img [ref=f1e24]
+              - generic [ref=f1e27]:
+                - button "Search by voice" [ref=f1e28] [cursor=pointer]:
+                  - img [ref=f1e29]
+                - button "Search by image" [ref=f1e31] [cursor=pointer]:
+                  - img [ref=f1e32]
+          - button "Search" [ref=f1e34] [cursor=pointer]:
+            - img [ref=f1e37]
+    - generic [ref=f1e39]:
+      - button "Share" [ref=f1e40] [cursor=pointer]:
+        - img [ref=f1e44]
+      - generic [ref=f1e46]:
+        - link "Search Labs" [ref=f1e48] [cursor=pointer]:
+          - /url: https://labs.google.com/search?source=srp
+          - img [ref=f1e49]
+        - button "Google apps" [ref=f1e52] [cursor=pointer]:
+          - img [ref=f1e53]
+        - 'button "Google Account: chatgptnotes BK (chatgptnotes@gmail.com)" [ref=f1e57] [cursor=pointer]':
+          - img [ref=f1e58]
+  - generic [ref=f1e60]:
+    - navigation [ref=f1e66]:
+      - generic [ref=f1e72]:
+        - list [ref=f1e73]:
+          - listitem [ref=f1e74]:
+            - link "AI Mode" [ref=f1e77] [cursor=pointer]:
+              - /url: /search?q=issue&sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&udm=50&fbs=ABfTbFVyMZGZf1hfvX9uKjN_-G8c4u0nXx4bEIpwm1lnNH832SMIiTl3t-JZ4hGJOxPbHYSIu8Q64jU5EwQ-803VaKbdipNP9IdSJPNW0dZW-vtpfcVpgKvtTi4Am3eOPHObqPfnspKzHIX2x8Vx_XU9yiiONmNwp-mnvzeVLD0yMvcC-SYydLfYKH0yn0HyXd5g9GE9kUmM_PJbi8qT773wfECW6MKqow&aep=1&ntc=1&sa=X&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ2J8OegQIEBAD
+              - generic [ref=f1e80]: AI Mode
+          - listitem [ref=f1e81]:
+            - link "All" [disabled] [ref=f1e82]:
+              - generic [ref=f1e84]: All
+          - listitem [ref=f1e85]:
+            - link "Images" [ref=f1e86] [cursor=pointer]:
+              - /url: /search?sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&udm=2&fbs=ABfTbFVyMZGZf1hfvX9uKjN_-G8c4u0nXx4bEIpwm1lnNH832SMIiTl3t-JZ4hGJOxPbHYSIu8Q64jU5EwQ-803VaKbdipNP9IdSJPNW0dZW-vtpfcVpgKvtTi4Am3eOPHObqPfnspKzHIX2x8Vx_XU9yiiONmNwp-mnvzeVLD0yMvcC-SYydLfYKH0yn0HyXd5g9GE9kUmM_PJbi8qT773wfECW6MKqow&q=issue&sa=X&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQtKgLegQIFRAB
+              - generic [ref=f1e88]: Images
+          - listitem [ref=f1e89]:
+            - link "Shopping" [ref=f1e90] [cursor=pointer]:
+              - /url: /search?sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&udm=28&fbs=ABfTbFVyMZGZf1hfvX9uKjN_-G8c4u0nXx4bEIpwm1lnNH832SMIiTl3t-JZ4hGJOxPbHYSIu8Q64jU5EwQ-803VaKbdipNP9IdSJPNW0dZW-vtpfcVpgKvtTi4Am3eOPHObqPfnspKzHIX2x8Vx_XU9yiiONmNwp-mnvzeVLD0yMvcC-SYydLfYKH0yn0HyXd5g9GE9kUmM_PJbi8qT773wfECW6MKqow&q=issue&ved=1t:220175&ictx=111
+              - generic [ref=f1e92]: Shopping
+          - listitem [ref=f1e93]:
+            - link "Videos" [ref=f1e94] [cursor=pointer]:
+              - /url: /search?sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&udm=7&fbs=ABfTbFVyMZGZf1hfvX9uKjN_-G8c4u0nXx4bEIpwm1lnNH832SMIiTl3t-JZ4hGJOxPbHYSIu8Q64jU5EwQ-803VaKbdipNP9IdSJPNW0dZW-vtpfcVpgKvtTi4Am3eOPHObqPfnspKzHIX2x8Vx_XU9yiiONmNwp-mnvzeVLD0yMvcC-SYydLfYKH0yn0HyXd5g9GE9kUmM_PJbi8qT773wfECW6MKqow&q=issue&sa=X&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQtKgLegQIERAB
+              - generic [ref=f1e96]: Videos
+          - listitem [ref=f1e97]:
+            - link "Forums" [ref=f1e98] [cursor=pointer]:
+              - /url: /search?sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&udm=18&fbs=ABfTbFVyMZGZf1hfvX9uKjN_-G8c4u0nXx4bEIpwm1lnNH832SMIiTl3t-JZ4hGJOxPbHYSIu8Q64jU5EwQ-803VaKbdipNP9IdSJPNW0dZW-vtpfcVpgKvtTi4Am3eOPHObqPfnspKzHIX2x8Vx_XU9yiiONmNwp-mnvzeVLD0yMvcC-SYydLfYKH0yn0HyXd5g9GE9kUmM_PJbi8qT773wfECW6MKqow&q=issue&sa=X&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQs6gLegQIEhAB
+              - generic [ref=f1e100]: Forums
+          - listitem [ref=f1e101]:
+            - link "News" [ref=f1e102] [cursor=pointer]:
+              - /url: /search?sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&q=issue&tbm=nws&source=lnms&fbs=ABfTbFVyMZGZf1hfvX9uKjN_-G8c4u0nXx4bEIpwm1lnNH832SMIiTl3t-JZ4hGJOxPbHYSIu8Q64jU5EwQ-803VaKbdipNP9IdSJPNW0dZW-vtpfcVpgKvtTi4Am3eOPHObqPfnspKzHIX2x8Vx_XU9yiiONmNwp-mnvzeVLD0yMvcC-SYydLfYKH0yn0HyXd5g9GE9kUmM_PJbi8qT773wfECW6MKqow&sa=X&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ0pQJegQIFhAB
+              - generic [ref=f1e104]: News
+          - listitem [ref=f1e105]:
+            - button "More filters" [ref=f1e106] [cursor=pointer]:
+              - generic "More filters" [ref=f1e107]:
+                - generic [ref=f1e108]:
+                  - generic [ref=f1e109]: More
+                  - img [ref=f1e111]
+        - button "Tools" [ref=f1e114] [cursor=pointer]:
+          - generic [ref=f1e116]:
+            - generic [ref=f1e117]: Tools
+            - img [ref=f1e119]
+    - heading "Search Results" [level=1] [ref=f1e121]
+    - main [ref=f1e127]:
+      - generic [ref=f1e131]:
+        - generic [ref=f1e144]:
+          - generic [ref=f1e148]:
+            - heading "Dictionary" [level=2] [ref=f1e149]:
+              - generic [ref=f1e150]: Dictionary
+            - generic [ref=f1e153]:
+              - text: Definitions from
+              - link "Oxford Languages" [ref=f1e154] [cursor=pointer]:
+                - /url: https://languages.oup.com/google-dictionary-hi
+              - text: ·
+              - link "Learn more" [ref=f1e155] [cursor=pointer]:
+                - /url: https://support.google.com/websearch/answer/10106608?hl=en
+          - generic [ref=f1e158]:
+            - generic [ref=f1e160]:
+              - button "Listen" [ref=f1e161] [cursor=pointer]
+              - generic [ref=f1e168]:
+                - generic [ref=f1e169]: issue
+                - generic [ref=f1e170]: ‍ˈइशू
+            - generic [ref=f1e171]:
+              - generic [ref=f1e172]:
+                - generic [ref=f1e174]: noun
+                - generic [ref=f1e175]:
+                  - text: "noun:"
+                  - generic [ref=f1e176]: issue
+                - generic [ref=f1e177]:
+                  - text: "; plural noun:"
+                  - generic [ref=f1e178]: issues
+                - generic [ref=f1e179]:
+                  - generic [ref=f1e182]:
+                    - generic [ref=f1e183]: "1."
+                    - generic [ref=f1e184]:
+                      - generic [ref=f1e185]: a problem or subject for discussion
+                      - generic [ref=f1e186]: चर्चा का मुद्दा या विषय
+                      - generic [ref=f1e187]:
+                        - button "I want to raise the issue of overtime pay at the meeting. I want to raise the issue of overtime pay at the meeting." [ref=f1e191] [cursor=pointer]:
+                          - generic [ref=f1e192]: I want to raise the issue of overtime pay at the meeting.
+                          - generic [ref=f1e195]: I want to raise the issue of overtime pay at the meeting.
+                        - button [ref=f1e202] [cursor=pointer]:
+                          - generic [ref=f1e203]: The government cannot avoid the issue of homelessness any longer.
+                          - generic [ref=f1e206]: The government cannot avoid the issue of homelessness any longer.
+                  - generic [ref=f1e213]:
+                    - generic [ref=f1e214]: "2."
+                    - generic [ref=f1e215]:
+                      - generic [ref=f1e216]: one in a series of things that are published or produced
+                      - generic [ref=f1e217]: प्रकाशित या उत्पादित वस्तुओं की शृंखला में एक अंक
+                      - button "Do you have last week’s issue of this magazine? Do you have last week’s issue of this magazine?" [ref=f1e222] [cursor=pointer]:
+                        - generic [ref=f1e223]: Do you have last week’s issue of this magazine?
+                        - generic [ref=f1e226]: Do you have last week’s issue of this magazine?
+                  - generic [ref=f1e232]:
+                    - generic [ref=f1e233]: "3."
+                    - generic [ref=f1e234]:
+                      - generic [ref=f1e235]: the act of publishing or giving something to people
+                      - generic [ref=f1e236]: प्रकाशित करने का या लोगों को कुछ देने का कार्य
+                      - button [ref=f1e241] [cursor=pointer]:
+                        - generic [ref=f1e242]: the issue of blankets to the refugees
+                        - generic [ref=f1e245]: the issue of blankets to the refugees
+              - generic [ref=f1e250]:
+                - generic [ref=f1e252]: verb
+                - generic [ref=f1e253]:
+                  - text: "verb:"
+                  - generic [ref=f1e254]: issue
+                - generic [ref=f1e255]:
+                  - text: "; past tense:"
+                  - generic [ref=f1e256]: issued
+                - generic [ref=f1e257]:
+                  - text: "; past participle:"
+                  - generic [ref=f1e258]: issued
+                - generic [ref=f1e259]:
+                  - text: "; 3rd person present:"
+                  - generic [ref=f1e260]: issues
+                - generic [ref=f1e261]:
+                  - text: "; gerund or present participle:"
+                  - generic [ref=f1e262]: issuing
+                - generic [ref=f1e263]:
+                  - generic [ref=f1e266]:
+                    - generic [ref=f1e267]: "1."
+                    - generic [ref=f1e268]:
+                      - generic [ref=f1e269]: to print and supply something
+                      - generic [ref=f1e270]: कोई वस्तु छापना और कहीं/किसी को पहुँचाना
+                      - button "to issue a magazine/newsletter to issue a magazine/newsletter" [ref=f1e275] [cursor=pointer]:
+                        - generic [ref=f1e276]: to issue a magazine/newsletter
+                        - generic [ref=f1e279]: to issue a magazine/newsletter
+                  - generic [ref=f1e286]:
+                    - generic [ref=f1e287]: "2."
+                    - generic [ref=f1e288]:
+                      - generic [ref=f1e289]: to give or say something to somebody officially
+                      - generic [ref=f1e290]: किसी व्यक्ति को आधिकारिक रूप से कुछ देना या कहना जारी करना
+                      - generic [ref=f1e291]:
+                        - button "The new employees were issued with uniforms. The new employees were issued with uniforms." [ref=f1e295] [cursor=pointer]:
+                          - generic [ref=f1e296]: The new employees were issued with uniforms.
+                          - generic [ref=f1e299]: The new employees were issued with uniforms.
+                        - button [ref=f1e306] [cursor=pointer]:
+                          - generic [ref=f1e307]: to issue a visa
+                          - generic [ref=f1e310]: to issue a visa
+                  - generic [ref=f1e316]:
+                    - generic [ref=f1e317]: "3."
+                    - generic [ref=f1e318]:
+                      - generic [ref=f1e320]: formal
+                      - generic [ref=f1e321]: to come or go out
+                      - generic [ref=f1e322]: आना या बाहर जाना, निकलना
+                      - button [ref=f1e327] [cursor=pointer]:
+                        - generic [ref=f1e328]: An angry voice issued from the loudspeaker.
+                        - generic [ref=f1e331]: An angry voice issued from the loudspeaker.
+          - button "Feedback" [ref=f1e340] [cursor=pointer]:
+            - generic [ref=f1e341]: Feedback
+          - link "See more" [ref=f1e344] [cursor=pointer]:
+            - /url: /search?sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&q=issue&si=APenkKluqATW9WWW_MboZ7FKPTsEKObR-Guz1NlvkO17yJNROQ3UorVsbSuMF_QK84IoFsHa0ccYVHXnzP03wxWlUU6KomWpYw%3D%3D&expnd=1&sa=X&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ2v4IegQIHhAf
+            - separator [ref=f1e345]
+            - generic [ref=f1e346]:
+              - generic [ref=f1e347]: See more
+              - img [ref=f1e349]
+        - generic [ref=f1e353]:
+          - heading "Web results" [level=2] [ref=f1e354]
+          - generic [ref=f1e355]:
+            - generic [ref=f1e358]:
+              - link "ISSUE | English meaning - Cambridge Dictionary Cambridge Dictionary https://dictionary.cambridge.org › dictionary › issue" [ref=f1e360] [cursor=pointer]:
+                - /url: https://dictionary.cambridge.org/dictionary/english/issue
+                - heading "ISSUE | English meaning - Cambridge Dictionary" [level=3] [ref=f1e361]
+                - generic [ref=f1e367]:
+                  - generic [ref=f1e369]: Cambridge Dictionary
+                  - generic [ref=f1e371]: https://dictionary.cambridge.org › dictionary › issue
+              - button "About this result" [ref=f1e374] [cursor=pointer]:
+                - img [ref=f1e377]
+            - generic [ref=f1e380]:
+              - generic [ref=f1e381]:
+                - emphasis [ref=f1e382]: to dislike or disapprove of someone or something
+                - text: "and let it upset or worry you: I feel like my dad has an issue with me having a husband with ..."
+              - link "Read more" [ref=f1e383] [cursor=pointer]:
+                - /url: https://dictionary.cambridge.org/dictionary/english/issue#:~:text=to%20dislike%20or%20disapprove%20of,husband%20with%20a%20different%20religion.
+        - generic [ref=f1e387]:
+          - generic [ref=f1e390]:
+            - link "ISSUE Definition & Meaning Merriam-Webster https://www.merriam-webster.com › dictionary › issue" [ref=f1e392] [cursor=pointer]:
+              - /url: https://www.merriam-webster.com/dictionary/issue
+              - heading "ISSUE Definition & Meaning" [level=3] [ref=f1e393]
+              - generic [ref=f1e399]:
+                - generic [ref=f1e401]: Merriam-Webster
+                - generic [ref=f1e403]: https://www.merriam-webster.com › dictionary › issue
+            - button "About this result" [ref=f1e406] [cursor=pointer]:
+              - img [ref=f1e409]
+          - generic [ref=f1e412]:
+            - generic [ref=f1e413]: 5 days ago —
+            - generic [ref=f1e414]:
+              - text: The meaning of ISSUE is
+              - emphasis [ref=f1e415]: a vital or unsettled matter
+              - text: . Water purity is a public health issue. Synonyms of issue spring, arise, rise, originate, ...
+        - generic [ref=f1e424]:
+          - generic [ref=f1e426]:
+            - generic [ref=f1e428]:
+              - generic [ref=f1e429]:
+                - img [ref=f1e430]
+                - heading "AI Overview" [level=2] [ref=f1e432]
+              - generic [ref=f1e433]:
+                - button "View 8 corroboration links" [ref=f1e435] [cursor=pointer]:
+                  - generic [ref=f1e440]: "+6"
+                - button "About this result" [ref=f1e443]:
+                  - img [ref=f1e445]
+            - generic [ref=f1e465]:
+              - generic [ref=f1e467]:
+                - button "Listen" [ref=f1e470] [cursor=pointer]
+                - generic [ref=f1e477]:
+                  - generic [ref=f1e478]: issue
+                  - generic [ref=f1e479]: /ˈɪʃ(j)uː/
+              - generic [ref=f1e480]:
+                - text: An
+                - strong [ref=f1e481]: issue
+                - text: is a complex word that refers to
+                - mark [ref=f1e482]: a subject or topic of discussion, a problem or point of disagreement, a single edition of a publication, or a person's lineal descendants
+                - text: . As a verb, it means to officially produce, distribute, or circulate items or statements.
+                - generic [ref=f1e484]:
+                  - link "Merriam-Webster (+3) – View related links" [ref=f1e485] [cursor=pointer]:
+                    - /url: https://www.merriam-webster.com/dictionary/issue
+                  - button "Merriam-Webster (+3) – View related links" [ref=f1e486] [cursor=pointer]:
+                    - generic [ref=f1e488]:
+                      - generic [ref=f1e489]: Merriam-Webster
+                      - generic [ref=f1e490]: "+3"
+                    - img [ref=f1e493]
+              - heading "Core Definitions & Contexts" [level=3] [ref=f1e496]
+              - list [ref=f1e498]:
+                - listitem [ref=f1e499]:
+                  - generic [ref=f1e500]:
+                    - strong [ref=f1e501]: "Problem or Difficulty:"
+                    - text: Often used interchangeably with "problem" (e.g., "We have an IT issue").
+                - listitem [ref=f1e502]:
+                  - generic [ref=f1e503]:
+                    - strong [ref=f1e504]: "Topic of Debate:"
+                    - text: A central point or subject of discussion. Phrases like
+                    - emphasis [ref=f1e505]: "\"at issue\""
+                    - text: refer to the main point being disputed.
+                - listitem [ref=f1e506]:
+                  - generic [ref=f1e507]:
+                    - strong [ref=f1e508]: "Publication:"
+                    - text: A single copy of a regularly printed series, like a magazine, newspaper, or journal.
+                - listitem [ref=f1e509]:
+                  - generic [ref=f1e510]:
+                    - strong [ref=f1e511]: "Distribution:"
+                    - text: To officially put something into circulation, such as passports, stamps, or monetary bonds.
+                - listitem [ref=f1e513]:
+                  - generic [ref=f1e514]:
+                    - strong [ref=f1e515]: "Genealogy/Legal:"
+                    - text: A formal term for a person's direct lineal descendants, such as children or grandchildren.
+                  - generic [ref=f1e517]:
+                    - link [ref=f1e518] [cursor=pointer]:
+                      - /url: https://www.merriam-webster.com/dictionary/issue
+                    - button [ref=f1e519] [cursor=pointer]:
+                      - generic [ref=f1e521]:
+                        - generic [ref=f1e522]: Merriam-Webster
+                        - generic [ref=f1e523]: "+6"
+                      - img [ref=f1e526]
+              - generic [ref=f1e528]:
+                - heading [level=3] [ref=f1e530]: Common Synonyms
+                - list [ref=f1e532]:
+                  - listitem [ref=f1e533]:
+                    - generic [ref=f1e534]:
+                      - strong [ref=f1e535]: "Topic/Subject:"
+                      - text: Matter, theme, concern.
+                  - listitem [ref=f1e536]:
+                    - generic [ref=f1e537]:
+                      - strong [ref=f1e538]: "Problem:"
+                      - text: Complication, dilemma, glitch.
+                  - listitem [ref=f1e539]:
+                    - generic [ref=f1e540]:
+                      - strong [ref=f1e541]: "Distribution:"
+                      - text: Issuance, publishing, circulation, emission.
+                    - generic [ref=f1e543]:
+                      - link [ref=f1e544] [cursor=pointer]:
+                        - /url: https://www.merriam-webster.com/dictionary/issue
+                      - button [ref=f1e545] [cursor=pointer]:
+                        - generic [ref=f1e547]:
+                          - generic [ref=f1e548]: Merriam-Webster
+                          - generic [ref=f1e549]: "+4"
+                        - img [ref=f1e552]
+                - heading [level=3] [ref=f1e555]: Usage Examples
+                - list [ref=f1e557]:
+                  - listitem [ref=f1e558]:
+                    - generic [ref=f1e559]:
+                      - strong [ref=f1e560]: "As a topic:"
+                      - text: "\"Climate change is a critical"
+                      - strong [ref=f1e561]: issue
+                      - text: for global policymakers."
+                  - listitem [ref=f1e562]:
+                    - generic [ref=f1e563]:
+                      - strong [ref=f1e564]: "As a problem:"
+                      - text: "\"The latest software update fixed several known"
+                      - strong [ref=f1e565]: issues
+                      - text: ."
+                  - listitem [ref=f1e566]:
+                    - generic [ref=f1e567]:
+                      - strong [ref=f1e568]: "As an official release:"
+                      - text: "\"The government will"
+                      - strong [ref=f1e569]: issue
+                      - text: new identity cards tomorrow."
+                    - button [ref=f1e572] [cursor=pointer]:
+                      - img [ref=f1e575]
+                - generic [ref=f1e578]:
+                  - text: For a deeper dive into synonyms or alternative usages, explore the
+                  - link [ref=f1e580] [cursor=pointer]:
+                    - /url: https://www.merriam-webster.com/dictionary/issue
+                    - text: Merriam-Webster Issue Dictionary
+                  - text: or the
+                  - link [ref=f1e582] [cursor=pointer]:
+                    - /url: https://dictionary.cambridge.org/dictionary/english/issue
+                    - text: Cambridge English Issue Definition
+                  - text: .
+                - list [ref=f1e585]:
+                  - generic [ref=f1e586]:
+                    - listitem [ref=f1e587]:
+                      - generic [ref=f1e588]:
+                        - link [ref=f1e589] [cursor=pointer]:
+                          - /url: https://www.merriam-webster.com/dictionary/issue
+                        - generic [ref=f1e590]:
+                          - generic [ref=f1e592]:
+                            - generic [ref=f1e593]: ISSUE Definition & Meaning - Merriam-Webster
+                            - generic [ref=f1e595]: "Several senators are calling for the issue [=issuance] of new guidelines. * 3. : offspring, progeny. died without issue. * 4. : a ..."
+                          - generic [ref=f1e596]:
+                            - generic [ref=f1e599]: Merriam-Webster
+                            - button [ref=f1e603] [cursor=pointer]:
+                              - img [ref=f1e605]
+                    - listitem [ref=f1e608]:
+                      - generic [ref=f1e609]:
+                        - link [ref=f1e610] [cursor=pointer]:
+                          - /url: https://dictionary.cambridge.org/dictionary/english/issue
+                        - generic [ref=f1e611]:
+                          - generic [ref=f1e613]:
+                            - generic [ref=f1e614]: ISSUE | English meaning - Cambridge Dictionary
+                            - generic [ref=f1e616]: issue | American Dictionary. issue. noun [ C ] /ˈɪʃ·u/ issue noun [C] (SUBJECT) Add to word list Add to word list. a subject or pr...
+                          - generic [ref=f1e617]:
+                            - generic [ref=f1e620]: Cambridge Dictionary
+                            - button [ref=f1e624] [cursor=pointer]:
+                              - img [ref=f1e626]
+                    - listitem [ref=f1e629]:
+                      - generic [ref=f1e630]:
+                        - link [ref=f1e631] [cursor=pointer]:
+                          - /url: https://www.youtube.com/shorts/afH3TH78i20
+                        - generic [ref=f1e632]:
+                          - generic [ref=f1e633]:
+                            - button [ref=f1e638] [cursor=pointer]:
+                              - generic [ref=f1e639]:
+                                - img [ref=f1e640]
+                                - generic [ref=f1e642]:
+                                  - generic:
+                                    - generic:
+                                      - generic:
+                                        - img
+                                    - generic: 1:00
+                                - img [ref=f1e645]
+                            - generic [ref=f1e647]: ISSUE and PROBLEM - Confusing English Words 😖
+                          - generic [ref=f1e648]:
+                            - generic [ref=f1e651]:
+                              - text: YouTube
+                              - generic [ref=f1e652]: ·JForrest English
+                            - button [ref=f1e656] [cursor=pointer]:
+                              - img [ref=f1e658]
+                    - listitem [ref=f1e661]:
+                      - generic [ref=f1e662]:
+                        - link [ref=f1e663] [cursor=pointer]:
+                          - /url: https://www.youtube.com/watch?v=lnvOw6XkvcQ
+                        - generic [ref=f1e664]:
+                          - generic [ref=f1e665]:
+                            - button [ref=f1e670] [cursor=pointer]:
+                              - generic [ref=f1e671]:
+                                - img [ref=f1e672]
+                                - generic [ref=f1e674]:
+                                  - generic:
+                                    - generic:
+                                      - generic:
+                                        - img
+                                    - generic: 10:04
+                                - img [ref=f1e677]
+                            - generic [ref=f1e679]: Issue Meaning
+                          - generic [ref=f1e680]:
+                            - generic [ref=f1e683]:
+                              - text: YouTube
+                              - generic [ref=f1e684]: ·iswearenglish
+                            - button [ref=f1e688] [cursor=pointer]:
+                              - img [ref=f1e690]
+                    - listitem [ref=f1e693]:
+                      - generic [ref=f1e694]:
+                        - link [ref=f1e695] [cursor=pointer]:
+                          - /url: https://www.youtube.com/watch?v=TPEzEhtlGww
+                        - generic [ref=f1e696]:
+                          - generic [ref=f1e697]:
+                            - button [ref=f1e702] [cursor=pointer]:
+                              - generic [ref=f1e703]:
+                                - img [ref=f1e704]
+                                - generic [ref=f1e706]:
+                                  - generic:
+                                    - generic:
+                                      - generic:
+                                        - img
+                                    - generic: 1:44
+                                - img [ref=f1e709]
+                            - generic [ref=f1e711]: ISSUE (noun) definition, ISSUE in a sentence, ISSUE pronunciation, ...
+                          - generic [ref=f1e712]:
+                            - generic [ref=f1e715]:
+                              - text: YouTube
+                              - generic [ref=f1e716]: ·University English Hub
+                            - button [ref=f1e720] [cursor=pointer]:
+                              - img [ref=f1e722]
+                    - listitem [ref=f1e725]:
+                      - generic [ref=f1e726]:
+                        - link [ref=f1e727] [cursor=pointer]:
+                          - /url: https://en.wikipedia.org/wiki/Issue_(genealogy)
+                        - generic [ref=f1e728]:
+                          - generic [ref=f1e730]:
+                            - generic [ref=f1e731]: Issue (genealogy) - Wikipedia
+                            - generic [ref=f1e733]: Lineal descendants. Issue typically means a person's lineal descendants—all genetic descendants of a person−regardless of degree. ...
+                          - generic [ref=f1e734]:
+                            - generic [ref=f1e737]: Wikipedia
+                            - button [ref=f1e741] [cursor=pointer]:
+                              - img [ref=f1e743]
+                    - listitem [ref=f1e746]:
+                      - generic [ref=f1e747]:
+                        - link [ref=f1e748] [cursor=pointer]:
+                          - /url: https://www.oxfordlearnersdictionaries.com/definition/american_english/issue_1
+                        - generic [ref=f1e749]:
+                          - generic [ref=f1e751]:
+                            - generic [ref=f1e752]: issue noun - Definition, pictures, pronunciation and usage notes
+                            - generic [ref=f1e754]: issue * countable] an important topic that people are discussing or arguing about a key/sensitive/controversial issue This is a bi...
+                          - generic [ref=f1e755]:
+                            - generic [ref=f1e758]: Oxford Learner's Dictionaries
+                            - button [ref=f1e762] [cursor=pointer]:
+                              - img [ref=f1e764]
+                    - listitem [ref=f1e767]:
+                      - generic [ref=f1e768]:
+                        - link [ref=f1e769] [cursor=pointer]:
+                          - /url: https://www.wordwebonline.com/en/ISSUE
+                        - generic [ref=f1e770]:
+                          - generic [ref=f1e772]:
+                            - generic [ref=f1e773]: Issue - WordWeb Online Dictionary and Thesaurus
+                            - generic [ref=f1e775]: "issue, issued, issues, issuing- WordWeb dictionary definition. Noun: issue i-shoo. An important question that is in dispute and mu..."
+                          - generic [ref=f1e776]:
+                            - generic [ref=f1e779]: WordWeb Online Dictionary
+                            - button [ref=f1e783] [cursor=pointer]:
+                              - img [ref=f1e785]
+                    - generic [ref=f1e789]:
+                      - link [ref=f1e790] [cursor=pointer]:
+                        - /url: https://engoo.com/blog/language-tips/how-to-use-issue-like-a-pro/
+                      - generic [ref=f1e791]:
+                        - generic [ref=f1e793]:
+                          - generic [ref=f1e794]: How to Use "Issue" Like a Pro
+                          - generic [ref=f1e796]: Verb use As a verb, "issue" has one basic meaning, which is "to give" or "to send out." This can be used in a few different ways. ...
+                        - generic [ref=f1e798]:
+                          - generic [ref=f1e801]: Engoo
+                          - button [ref=f1e805] [cursor=pointer]:
+                            - img [ref=f1e807]
+                  - button [ref=f1e810] [cursor=pointer]:
+                    - img [ref=f1e812]
+          - button "Show more AI Overview" [ref=f1e817]:
+            - generic [ref=f1e819] [cursor=pointer]:
+              - generic [ref=f1e820]: Show more
+              - img [ref=f1e822]
+        - generic [ref=f1e827]:
+          - heading "Web results" [level=2] [ref=f1e828]
+          - generic [ref=f1e829]:
+            - generic [ref=f1e832]:
+              - link "Issuu | Create Interactive Flipbooks on our Digital Publishing ... Issuu https://issuu.com" [ref=f1e834] [cursor=pointer]:
+                - /url: https://issuu.com/
+                - heading "Issuu | Create Interactive Flipbooks on our Digital Publishing ..." [level=3] [ref=f1e835]
+                - generic [ref=f1e841]:
+                  - generic [ref=f1e843]: Issuu
+                  - generic [ref=f1e845]: https://issuu.com
+              - button "About this result" [ref=f1e848] [cursor=pointer]:
+                - img [ref=f1e851]
+            - generic [ref=f1e855]:
+              - text: Issuu
+              - emphasis [ref=f1e856]: converts PDFs and documents into an interactive flipbook and marketing assets
+              - text: . Embed flipbooks onto your website and distribute online.
+        - generic [ref=f1e860]:
+          - generic [ref=f1e862]:
+            - heading "Videos" [level=2] [ref=f1e863]
+            - button "About this result" [ref=f1e864] [cursor=pointer]:
+              - img [ref=f1e867]
+          - generic [ref=f1e870]:
+            - generic [ref=f1e875]:
+              - generic [ref=f1e876]:
+                - generic [ref=f1e877]:
+                  - link "ISSUE (noun) definition, ISSUE in a sentence, ISSUE ... YouTube University English Hub 23 Sept 2022" [ref=f1e879] [cursor=pointer]:
+                    - /url: https://www.youtube.com/watch?v=TPEzEhtlGww
+                    - heading "ISSUE (noun) definition, ISSUE in a sentence, ISSUE ... YouTube University English Hub 23 Sept 2022" [level=3] [ref=f1e880]:
+                      - generic [ref=f1e883]: ISSUE (noun) definition, ISSUE in a sentence, ISSUE ...
+                      - generic [ref=f1e885]:
+                        - generic [ref=f1e886]:
+                          - text: YouTube
+                          - generic [ref=f1e887]: · University English Hub
+                        - generic [ref=f1e888]: 23 Sept 2022
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - text: YouTube
+                            - generic: · University English Hub
+                      - button "About this result" [ref=f1e889] [cursor=pointer]:
+                        - img [ref=f1e892]
+                - button "ISSUE (noun) definition, ISSUE in a sentence, ISSUE ... by University English Hub on YouTube. Play on Google. 1:44" [ref=f1e894] [cursor=pointer]:
+                  - generic [ref=f1e895]:
+                    - img [ref=f1e898]
+                    - generic [ref=f1e901]:
+                      - generic [ref=f1e902]: 1:44
+                      - img [ref=f1e905]
+              - button "Issue as a noun means an important topic for debate, a problem preventing progress, or a publication of a journal or magazine." [ref=f1e908] [cursor=pointer]:
+                - generic [ref=f1e912]: Issue as a noun means an important topic for debate, a problem preventing progress, or a publication of a journal or magazine.
+            - generic [ref=f1e917]:
+              - generic [ref=f1e918]:
+                - generic [ref=f1e919]:
+                  - link "ISSUE (verb) definition, ISSUE in a sentence, ISSUE ... YouTube University English Hub 25 Sept 2022" [ref=f1e921] [cursor=pointer]:
+                    - /url: https://www.youtube.com/watch?v=L0mvdB6F0DA
+                    - heading "ISSUE (verb) definition, ISSUE in a sentence, ISSUE ... YouTube University English Hub 25 Sept 2022" [level=3] [ref=f1e922]:
+                      - generic [ref=f1e925]: ISSUE (verb) definition, ISSUE in a sentence, ISSUE ...
+                      - generic [ref=f1e927]:
+                        - generic [ref=f1e928]:
+                          - text: YouTube
+                          - generic [ref=f1e929]: · University English Hub
+                        - generic [ref=f1e930]: 25 Sept 2022
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - text: YouTube
+                            - generic: · University English Hub
+                      - button "About this result" [ref=f1e931] [cursor=pointer]:
+                        - img [ref=f1e934]
+                - button "ISSUE (verb) definition, ISSUE in a sentence, ISSUE ... by University English Hub on YouTube. Play on Google. 1:18" [ref=f1e936] [cursor=pointer]:
+                  - generic [ref=f1e937]:
+                    - img [ref=f1e940]
+                    - generic [ref=f1e943]:
+                      - generic [ref=f1e944]: 1:18
+                      - img [ref=f1e947]
+              - 'button "ISSUE as a verb means to supply or distribute something. Common usages: to issue an assignment, shares, stocks, payment, or permit." [ref=f1e950] [cursor=pointer]':
+                - generic [ref=f1e954]: "ISSUE as a verb means to supply or distribute something. Common usages: to issue an assignment, shares, stocks, payment, or permit."
+            - generic [ref=f1e960]:
+              - generic [ref=f1e961]:
+                - generic [ref=f1e962]:
+                  - link "Issue Meaning in English, Definition, and Synonyms ... YouTube Thesaurus Thrive 11 Jul 2024" [ref=f1e964] [cursor=pointer]:
+                    - /url: https://www.youtube.com/watch?v=C-E9H5Hq1pk
+                    - heading "Issue Meaning in English, Definition, and Synonyms ... YouTube Thesaurus Thrive 11 Jul 2024" [level=3] [ref=f1e965]:
+                      - generic [ref=f1e968]: Issue Meaning in English, Definition, and Synonyms ...
+                      - generic [ref=f1e970]:
+                        - generic [ref=f1e971]:
+                          - text: YouTube
+                          - generic [ref=f1e972]: · Thesaurus Thrive
+                        - generic [ref=f1e973]: 11 Jul 2024
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - text: YouTube
+                            - generic: · Thesaurus Thrive
+                      - button "About this result" [ref=f1e974] [cursor=pointer]:
+                        - img [ref=f1e977]
+                - button "Issue Meaning in English, Definition, and Synonyms ... by Thesaurus Thrive on YouTube. Play on Google. 1:23" [ref=f1e979] [cursor=pointer]:
+                  - generic [ref=f1e980]:
+                    - img [ref=f1e986]
+                    - generic [ref=f1e989]:
+                      - generic [ref=f1e990]: 1:23
+                      - img [ref=f1e993]
+              - button "Issue can mean a problem or concern, or the act of distributing something. Synonyms include concern, difficulty, release, and publication." [ref=f1e996] [cursor=pointer]:
+                - generic [ref=f1e1000]: Issue can mean a problem or concern, or the act of distributing something. Synonyms include concern, difficulty, release, and publication.
+          - link "View all videos" [ref=f1e1003] [cursor=pointer]:
+            - /url: /search?sca_esv=99d7ffa4206631f6&udm=7&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&q=issue&sa=X&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ8ccDKAJ6BAhIEAQ
+            - separator [ref=f1e1004]
+            - generic [ref=f1e1005]:
+              - generic [ref=f1e1006]: View all
+              - img [ref=f1e1008]
+        - generic [ref=f1e1012]:
+          - heading "Web results" [level=2] [ref=f1e1013]
+          - generic [ref=f1e1014]:
+            - generic [ref=f1e1017]:
+              - link "ISSUE definition and meaning | Collins English Dictionary Collins Dictionary https://www.collinsdictionary.com › dictionary › issue" [ref=f1e1019] [cursor=pointer]:
+                - /url: https://www.collinsdictionary.com/dictionary/english/issue
+                - heading "ISSUE definition and meaning | Collins English Dictionary" [level=3] [ref=f1e1020]
+                - generic [ref=f1e1026]:
+                  - generic [ref=f1e1028]: Collins Dictionary
+                  - generic [ref=f1e1030]: https://www.collinsdictionary.com › dictionary › issue
+              - button "About this result" [ref=f1e1033] [cursor=pointer]:
+                - img [ref=f1e1036]
+            - generic [ref=f1e1039]:
+              - generic [ref=f1e1040]:
+                - text: An issue is
+                - emphasis [ref=f1e1041]: an important subject that people are arguing about or discussing
+                - text: . Agents will raise the issue of prize-money for next year's world championships.
+              - link "Read more" [ref=f1e1042] [cursor=pointer]:
+                - /url: https://www.collinsdictionary.com/dictionary/english/issue#:~:text=An%20issue%20is%20an%20important,for%20next%20year's%20world%20championships.
+        - generic [ref=f1e1046]:
+          - generic [ref=f1e1049]:
+            - link "ISSUE Definition & Meaning Dictionary.com https://www.dictionary.com › browse › issue" [ref=f1e1051] [cursor=pointer]:
+              - /url: https://www.dictionary.com/browse/issue
+              - heading "ISSUE Definition & Meaning" [level=3] [ref=f1e1052]
+              - generic [ref=f1e1058]:
+                - generic [ref=f1e1060]: Dictionary.com
+                - generic [ref=f1e1062]: https://www.dictionary.com › browse › issue
+            - button "About this result" [ref=f1e1065] [cursor=pointer]:
+              - img [ref=f1e1068]
+          - generic [ref=f1e1071]:
+            - generic [ref=f1e1072]:
+              - text: noun ·
+              - emphasis [ref=f1e1073]: the act of sending or giving out something; supply; delivery
+              - text: · something issued; an edition of stamps, a magazine, etc · the number of identical items, ...
+            - link "Read more" [ref=f1e1074] [cursor=pointer]:
+              - /url: https://www.dictionary.com/browse/issue#:~:text=noun&text=the%20act%20of%20sending%20or,giving%20out%20something%3B%20supply%3B%20delivery&text=something%20issued%3B%20an%20edition%20of,stamps%2C%20a%20magazine%2C%20etc&text=the%20number%20of%20identical%20items%2C,available%20at%20a%20particular%20time
+        - generic [ref=f1e1078]:
+          - generic [ref=f1e1081]:
+            - link "Issue - Definition, Meaning & Synonyms Vocabulary.com https://www.vocabulary.com › dictionary › issue" [ref=f1e1083] [cursor=pointer]:
+              - /url: https://www.vocabulary.com/dictionary/issue
+              - heading "Issue - Definition, Meaning & Synonyms" [level=3] [ref=f1e1084]
+              - generic [ref=f1e1090]:
+                - generic [ref=f1e1092]: Vocabulary.com
+                - generic [ref=f1e1094]: https://www.vocabulary.com › dictionary › issue
+            - button "About this result" [ref=f1e1097] [cursor=pointer]:
+              - img [ref=f1e1100]
+          - generic [ref=f1e1103]:
+            - generic [ref=f1e1104]:
+              - text: an issue is
+              - emphasis [ref=f1e1105]: a current topic, sometimes controversial, that is being discussed
+              - text: . Politicians often say they want to talk about the issues (and not their personal ...
+            - link "Read more" [ref=f1e1106] [cursor=pointer]:
+              - /url: https://www.vocabulary.com/dictionary/issue#:~:text=Likewise%2C%20an%20issue%20is%20a,(and%20not%20their%20personal%20lives!).
+        - generic [ref=f1e1110]:
+          - generic [ref=f1e1113]:
+            - link "ISSUE Synonyms & Antonyms - 254 words Thesaurus.com https://www.thesaurus.com › browse › issue" [ref=f1e1115] [cursor=pointer]:
+              - /url: https://www.thesaurus.com/browse/issue
+              - heading "ISSUE Synonyms & Antonyms - 254 words" [level=3] [ref=f1e1116]
+              - generic [ref=f1e1122]:
+                - generic [ref=f1e1124]: Thesaurus.com
+                - generic [ref=f1e1126]: https://www.thesaurus.com › browse › issue
+            - button "About this result" [ref=f1e1129] [cursor=pointer]:
+              - img [ref=f1e1132]
+          - generic [ref=f1e1136]:
+            - text: The verb
+            - emphasis [ref=f1e1137]: issue
+            - text: "is often used of a number of persons, a mass of matter, or a volume of smoke, sound, or the like, coming forth through any outlet or outlets:"
+        - generic [ref=f1e1141]:
+          - generic [ref=f1e1144]:
+            - link "The matter with “issue” - PMC - NIH PubMed Central (PMC) (.gov) https://pmc.ncbi.nlm.nih.gov › articles › PMC1647343" [ref=f1e1146] [cursor=pointer]:
+              - /url: https://pmc.ncbi.nlm.nih.gov/articles/PMC1647343/
+              - heading "The matter with “issue” - PMC - NIH" [level=3] [ref=f1e1147]
+              - generic [ref=f1e1153]:
+                - generic [ref=f1e1155]: PubMed Central (PMC) (.gov)
+                - generic [ref=f1e1157]: https://pmc.ncbi.nlm.nih.gov › articles › PMC1647343
+            - button "About this result" [ref=f1e1160] [cursor=pointer]:
+              - img [ref=f1e1163]
+          - generic [ref=f1e1166]:
+            - generic [ref=f1e1167]: by J Aronson · 2006 —
+            - generic [ref=f1e1168]:
+              - text: To issue [something] means
+              - emphasis [ref=f1e1169]: to send it out
+              - text: —an edict, stamp, coin, banknote, report, threat, ultimatum; other meanings are obsolete or rare
+      - generic [ref=f1e1171]:
+        - generic [ref=f1e1176]:
+          - heading "People also search for" [level=2] [ref=f1e1178]
+          - generic [ref=f1e1180]:
+            - generic [ref=f1e1181]:
+              - link "Issue in Hindi" [ref=f1e1185] [cursor=pointer]:
+                - /url: /search?sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&q=Issue+in+Hindi&sa=X&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ1QJ6BAgjEAE
+                - generic [ref=f1e1186]:
+                  - generic [ref=f1e1191]: Issue in Hindi
+                  - img [ref=f1e1195]
+              - link "Issue meaning problem" [ref=f1e1200] [cursor=pointer]:
+                - /url: /search?sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&q=Issue+meaning+problem&sa=X&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ1QJ6BAg2EAE
+                - generic [ref=f1e1201]:
+                  - generic [ref=f1e1206]: Issue meaning problem
+                  - img [ref=f1e1210]
+              - link "Issues word" [ref=f1e1215] [cursor=pointer]:
+                - /url: /search?sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&q=Issues+word&sa=X&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ1QJ6BAgxEAE
+                - generic [ref=f1e1216]:
+                  - generic [ref=f1e1221]: Issues word
+                  - img [ref=f1e1225]
+              - link "Issue meaning child" [ref=f1e1230] [cursor=pointer]:
+                - /url: /search?sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&q=Issue+meaning+child&sa=X&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ1QJ6BAguEAE
+                - generic [ref=f1e1231]:
+                  - generic [ref=f1e1236]: Issue meaning child
+                  - img [ref=f1e1240]
+            - generic [ref=f1e1242]:
+              - link "Issue translate" [ref=f1e1246] [cursor=pointer]:
+                - /url: /search?sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&q=Issue+translate&sa=X&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ1QJ6BAgtEAE
+                - generic [ref=f1e1247]:
+                  - generic [ref=f1e1252]: Issue translate
+                  - img [ref=f1e1256]
+              - link "Issue meaning synonyms" [ref=f1e1261] [cursor=pointer]:
+                - /url: /search?sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&q=Issue+meaning+synonyms&sa=X&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ1QJ6BAgsEAE
+                - generic [ref=f1e1262]:
+                  - generic [ref=f1e1267]: Issue meaning synonyms
+                  - img [ref=f1e1271]
+              - link "Issue example" [ref=f1e1276] [cursor=pointer]:
+                - /url: /search?sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&q=Issue+example&sa=X&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ1QJ6BAgnEAE
+                - generic [ref=f1e1277]:
+                  - generic [ref=f1e1282]: Issue example
+                  - img [ref=f1e1286]
+              - link "Any issues meaning" [ref=f1e1291] [cursor=pointer]:
+                - /url: /search?sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&q=Any+issues+meaning&sa=X&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ1QJ6BAgkEAE
+                - generic [ref=f1e1292]:
+                  - generic [ref=f1e1297]: Any issues meaning
+                  - img [ref=f1e1301]
+        - navigation [ref=f1e1303]:
+          - heading "Page navigation" [level=1] [ref=f1e1304]
+          - text: "1"
+          - link "Page 2" [ref=f1e1307] [cursor=pointer]:
+            - /url: /search?q=issue&sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&ei=jHVGar6FK9fNseMPpcvg2Qg&start=10&sa=N&sstk=AU9db-Ch3Slyb9ivXsOA0AyNdVkZb7_QaQGfCwzEtEAQs6ZEqqGolecV4d7GVsiXrYnw2vJaz1N9y7wV5r3PZs2Kctj5dFxuF6VShQ&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ8tMDegQIIRAE
+            - text: "2"
+          - link "Page 3" [ref=f1e1309] [cursor=pointer]:
+            - /url: /search?q=issue&sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&ei=jHVGar6FK9fNseMPpcvg2Qg&start=20&sa=N&sstk=AU9db-Ch3Slyb9ivXsOA0AyNdVkZb7_QaQGfCwzEtEAQs6ZEqqGolecV4d7GVsiXrYnw2vJaz1N9y7wV5r3PZs2Kctj5dFxuF6VShQ&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ8tMDegQIIRAG
+            - text: "3"
+          - link "Page 4" [ref=f1e1311] [cursor=pointer]:
+            - /url: /search?q=issue&sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&ei=jHVGar6FK9fNseMPpcvg2Qg&start=30&sa=N&sstk=AU9db-Ch3Slyb9ivXsOA0AyNdVkZb7_QaQGfCwzEtEAQs6ZEqqGolecV4d7GVsiXrYnw2vJaz1N9y7wV5r3PZs2Kctj5dFxuF6VShQ&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ8tMDegQIIRAI
+            - text: "4"
+          - link "Page 5" [ref=f1e1313] [cursor=pointer]:
+            - /url: /search?q=issue&sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&ei=jHVGar6FK9fNseMPpcvg2Qg&start=40&sa=N&sstk=AU9db-Ch3Slyb9ivXsOA0AyNdVkZb7_QaQGfCwzEtEAQs6ZEqqGolecV4d7GVsiXrYnw2vJaz1N9y7wV5r3PZs2Kctj5dFxuF6VShQ&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ8tMDegQIIRAK
+            - text: "5"
+          - link "Page 6" [ref=f1e1315] [cursor=pointer]:
+            - /url: /search?q=issue&sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&ei=jHVGar6FK9fNseMPpcvg2Qg&start=50&sa=N&sstk=AU9db-Ch3Slyb9ivXsOA0AyNdVkZb7_QaQGfCwzEtEAQs6ZEqqGolecV4d7GVsiXrYnw2vJaz1N9y7wV5r3PZs2Kctj5dFxuF6VShQ&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ8tMDegQIIRAM
+            - text: "6"
+          - link "Page 7" [ref=f1e1317] [cursor=pointer]:
+            - /url: /search?q=issue&sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&ei=jHVGar6FK9fNseMPpcvg2Qg&start=60&sa=N&sstk=AU9db-Ch3Slyb9ivXsOA0AyNdVkZb7_QaQGfCwzEtEAQs6ZEqqGolecV4d7GVsiXrYnw2vJaz1N9y7wV5r3PZs2Kctj5dFxuF6VShQ&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ8tMDegQIIRAO
+            - text: "7"
+          - link "Page 8" [ref=f1e1319] [cursor=pointer]:
+            - /url: /search?q=issue&sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&ei=jHVGar6FK9fNseMPpcvg2Qg&start=70&sa=N&sstk=AU9db-Ch3Slyb9ivXsOA0AyNdVkZb7_QaQGfCwzEtEAQs6ZEqqGolecV4d7GVsiXrYnw2vJaz1N9y7wV5r3PZs2Kctj5dFxuF6VShQ&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ8tMDegQIIRAQ
+            - text: "8"
+          - link "Page 9" [ref=f1e1321] [cursor=pointer]:
+            - /url: /search?q=issue&sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&ei=jHVGar6FK9fNseMPpcvg2Qg&start=80&sa=N&sstk=AU9db-Ch3Slyb9ivXsOA0AyNdVkZb7_QaQGfCwzEtEAQs6ZEqqGolecV4d7GVsiXrYnw2vJaz1N9y7wV5r3PZs2Kctj5dFxuF6VShQ&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ8tMDegQIIRAS
+            - text: "9"
+          - link "Page 10" [ref=f1e1323] [cursor=pointer]:
+            - /url: /search?q=issue&sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&ei=jHVGar6FK9fNseMPpcvg2Qg&start=90&sa=N&sstk=AU9db-Ch3Slyb9ivXsOA0AyNdVkZb7_QaQGfCwzEtEAQs6ZEqqGolecV4d7GVsiXrYnw2vJaz1N9y7wV5r3PZs2Kctj5dFxuF6VShQ&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ8tMDegQIIRAU
+            - text: "10"
+          - heading "Next" [level=2] [ref=f1e1325]:
+            - link "Next" [ref=f1e1326] [cursor=pointer]:
+              - /url: /search?q=issue&sca_esv=99d7ffa4206631f6&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711&ei=jHVGar6FK9fNseMPpcvg2Qg&start=10&sa=N&sstk=AU9db-Ch3Slyb9ivXsOA0AyNdVkZb7_QaQGfCwzEtEAQs6ZEqqGolecV4d7GVsiXrYnw2vJaz1N9y7wV5r3PZs2Kctj5dFxuF6VShQ&ved=2ahUKEwi--6j5mbSVAxXXZmwGHaUlOIsQ8NMDegQIIRAW
+              - generic [ref=f1e1328]: Next
+      - navigation
+    - contentinfo [ref=f1e1329]:
+      - heading "Footer links" [level=1] [ref=f1e1330]
+      - generic [ref=f1e1334]:
+        - generic [ref=f1e1337]:
+          - generic [ref=f1e1338]: Results are personalised
+          - generic [ref=f1e1339]: "-"
+          - link "Try without personalisation" [ref=f1e1341] [cursor=pointer]:
+            - /url: https://www.google.com/search?q=issue&oq=issue&gs_lcrp=EgZjaHJvbWUyBggAEEUYOTIKCAEQABixAxiABDIHCAIQABiABDIHCAMQABiABDIKCAQQABixAxiABDIKCAUQABixAxiABDINCAYQABiDARixAxiABDIHCAcQABiABDIHCAgQABiABDIHCAkQABiABNIBCDIwOThqMGo0qAIAsAIA&sourceid=chrome&ie=UTF-8&peek_pws=0&sxsrf=APpeQntGmOzT9SPmrNFVZiFY6ejSNWOq6A:1783002508711
+            - generic [ref=f1e1342]: Try without personalisation
+        - generic [ref=f1e1344]:
+          - text: India
+          - generic [ref=f1e1346]:
+            - button "440026, Nagpur, Maharashtra - Based on your past activity" [ref=f1e1348] [cursor=pointer]:
+              - generic [ref=f1e1349]: 440026, Nagpur, Maharashtra
+              - generic [ref=f1e1351]:
+                - text: "-"
+                - generic [ref=f1e1352]: Based on your past activity
+            - text: "-"
+            - button "Update location" [ref=f1e1354] [cursor=pointer]: Update location
+        - generic [ref=f1e1357]:
+          - link "Help" [ref=f1e1358] [cursor=pointer]:
+            - /url: https://support.google.com/websearch/?p=ws_results_help&hl=en-IN&fg=1
+          - link "Send feedback" [ref=f1e1359] [cursor=pointer]:
+            - /url: "#"
+          - link "Privacy" [ref=f1e1360] [cursor=pointer]:
+            - /url: https://policies.google.com/privacy?hl=en-IN&fg=1
+          - link "Terms" [ref=f1e1361] [cursor=pointer]:
+            - /url: https://policies.google.com/terms?hl=en-IN&fg=1

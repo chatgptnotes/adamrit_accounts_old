@@ -1,0 +1,377 @@
+- generic [ref=f29e1]:
+  - generic [ref=f29e3]:
+    - generic [ref=f29e4]:
+      - generic [ref=f29e8]:
+        - generic [ref=f29e10]:
+          - img [ref=f29e11]
+          - generic [ref=f29e13]:
+            - paragraph [ref=f29e14]: We are investigating a technical issue
+            - generic [ref=f29e15]:
+              - generic [ref=f29e16]: ·
+              - generic [ref=f29e17]:
+                - text: Follow the
+                - link "status page" [ref=f29e18] [cursor=pointer]:
+                  - /url: https://status.supabase.com
+                - text: for updates
+        - button "Dismiss banner" [ref=f29e19] [cursor=pointer]:
+          - img [ref=f29e21]
+      - banner [ref=f29e25]:
+        - generic [ref=f29e26]:
+          - generic [ref=f29e27]:
+            - link "Supabase" [ref=f29e28] [cursor=pointer]:
+              - /url: /dashboard/org/uekmbdtburauuqzleeya
+              - img "Supabase" [ref=f29e29]
+            - generic [ref=f29e30]:
+              - img [ref=f29e32]
+              - generic [ref=f29e34]:
+                - link "chatgptnotes's Org Pro" [ref=f29e35] [cursor=pointer]:
+                  - /url: /dashboard/org/uekmbdtburauuqzleeya
+                  - img [ref=f29e36]
+                  - generic [ref=f29e46]: chatgptnotes's Org
+                  - generic [ref=f29e47]: Pro
+                - button [ref=f29e48] [cursor=pointer]:
+                  - img [ref=f29e50]
+              - generic [ref=f29e53]:
+                - img [ref=f29e55]
+                - generic [ref=f29e57]:
+                  - link "drmhope" [ref=f29e58] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv
+                    - img [ref=f29e59]
+                    - generic "drmhope" [ref=f29e62]
+                  - button [ref=f29e63] [cursor=pointer]:
+                    - img [ref=f29e65]
+                - img [ref=f29e69]
+                - generic [ref=f29e71]:
+                  - link "main Production" [ref=f29e72] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv
+                    - generic "main" [ref=f29e73]
+                    - generic [ref=f29e74]: Production
+                  - button [ref=f29e75] [cursor=pointer]:
+                    - img [ref=f29e77]
+            - button "Connect" [ref=f29e81] [cursor=pointer]:
+              - img [ref=f29e83]
+              - generic [ref=f29e85]: Connect
+          - generic [ref=f29e86]:
+            - generic [ref=f29e88] [cursor=pointer]: Feedback
+            - generic [ref=f29e89]:
+              - button "Search..." [ref=f29e90]:
+                - generic [ref=f29e91]:
+                  - img [ref=f29e92]
+                  - paragraph [ref=f29e95]: Search...
+                - generic [ref=f29e97]: ⌘K
+              - button "Help" [ref=f29e98] [cursor=pointer]:
+                - generic [ref=f29e99]:
+                  - img [ref=f29e100]
+                  - generic [ref=f29e103]: Help
+              - button "Advisor Center" [ref=f29e105] [cursor=pointer]:
+                - generic [ref=f29e106]:
+                  - img [ref=f29e107]
+                  - generic [ref=f29e109]: Advisor Center
+              - button "SQL Editor" [ref=f29e111] [cursor=pointer]:
+                - generic [ref=f29e112]:
+                  - img [ref=f29e113]
+                  - generic [ref=f29e115]: SQL Editor
+              - button "AI Assistant" [ref=f29e116] [cursor=pointer]:
+                - generic [ref=f29e117]:
+                  - img [ref=f29e120]
+                  - generic [ref=f29e123]: AI Assistant
+            - button "chatgptnotes" [ref=f29e124] [cursor=pointer]:
+              - img "chatgptnotes" [ref=f29e126]
+      - generic [ref=f29e127]:
+        - generic [ref=f29e131]:
+          - list [ref=f29e134]:
+            - generic [ref=f29e135]:
+              - listitem [ref=f29e136]:
+                - link "Project Overview" [ref=f29e137] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv
+                  - img [ref=f29e138]
+                  - generic: Project Overview
+              - listitem [ref=f29e140]:
+                - link "Table Editor" [ref=f29e141] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/editor
+                  - img [ref=f29e142]
+                  - generic: Table Editor
+              - listitem [ref=f29e144]:
+                - link "SQL Editor" [ref=f29e145] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/sql
+                  - img [ref=f29e146]
+                  - generic: SQL Editor
+            - generic [ref=f29e148]:
+              - listitem [ref=f29e149]:
+                - link "Database" [ref=f29e150] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/database/schemas
+                  - img [ref=f29e151]
+                  - generic: Database
+              - listitem [ref=f29e155]:
+                - link "Authentication" [ref=f29e156] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/auth/users
+                  - img [ref=f29e157]
+                  - generic: Authentication
+              - listitem [ref=f29e159]:
+                - link "Storage" [ref=f29e160] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/storage/files
+                  - img [ref=f29e161]
+                  - generic: Storage
+              - listitem [ref=f29e163]:
+                - link "Edge Functions" [ref=f29e164] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/functions
+                  - img [ref=f29e165]
+                  - generic: Edge Functions
+              - listitem [ref=f29e170]:
+                - link "Realtime" [ref=f29e171] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/realtime/inspector
+                  - img [ref=f29e172]
+                  - generic: Realtime
+            - generic [ref=f29e174]:
+              - listitem [ref=f29e176]:
+                - link "Advisors" [ref=f29e177] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/advisors/security
+                  - img [ref=f29e178]
+                  - generic: Advisors
+              - listitem [ref=f29e180]:
+                - link "Observability" [ref=f29e181] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/observability
+                  - img [ref=f29e182]
+                  - generic: Observability
+              - listitem [ref=f29e190]:
+                - link "Logs" [ref=f29e191] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs
+                  - img [ref=f29e192]
+                  - generic: Logs
+              - listitem [ref=f29e193]:
+                - link "Integrations" [ref=f29e194] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/integrations
+                  - img [ref=f29e195]
+                  - generic: Integrations
+            - listitem [ref=f29e199]:
+              - link "Project Settings" [ref=f29e200] [cursor=pointer]:
+                - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/settings/general
+                - img [ref=f29e201]
+                - generic: Project Settings
+          - button "Sidebar control" [ref=f29e206] [cursor=pointer]:
+            - img [ref=f29e208]
+        - generic [ref=f29e215]:
+          - generic [ref=f29e219]:
+            - heading "Logs" [level=4] [ref=f29e221]
+            - generic [ref=f29e223]:
+              - generic [ref=f29e224]:
+                - generic [ref=f29e226]: New
+                - heading "Introducing unified logs" [level=3] [ref=f29e227]
+                - button "More information" [disabled] [ref=f29e229] [cursor=pointer]:
+                  - img [ref=f29e231]
+                  - generic [ref=f29e234]: More information
+              - generic [ref=f29e235]:
+                - generic [ref=f29e237]:
+                  - generic [ref=f29e238]: Search collections
+                  - textbox "Search collections..." [disabled] [ref=f29e239]
+                  - img [ref=f29e240]
+                - link [disabled] [ref=f29e243] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/explorer
+                  - img [ref=f29e245]
+              - link "Templates" [disabled] [ref=f29e247] [cursor=pointer]:
+                - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/explorer/templates
+              - generic [ref=f29e248]:
+                - button "Collections" [disabled] [expanded] [ref=f29e249]:
+                  - img [ref=f29e250]
+                  - generic [ref=f29e252]: Collections
+                - generic [ref=f29e253]:
+                  - link "API Gateway" [disabled] [ref=f29e255] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/edge-logs
+                    - generic [ref=f29e256]: API Gateway
+                  - link "Postgres" [disabled] [ref=f29e258] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/postgres-logs
+                    - generic [ref=f29e259]: Postgres
+                  - link "PostgREST" [disabled] [ref=f29e261] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/postgrest-logs
+                    - generic [ref=f29e262]: PostgREST
+                  - link "Shared Pooler" [disabled] [ref=f29e264] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/pooler-logs
+                    - generic [ref=f29e265]: Shared Pooler
+                  - link "Dedicated Pooler" [disabled] [ref=f29e267] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/dedicated-pooler-logs
+                    - generic [ref=f29e268]: Dedicated Pooler
+                  - link "Auth" [disabled] [ref=f29e270] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/auth-logs
+                    - generic [ref=f29e271]: Auth
+                  - link "Storage" [disabled] [ref=f29e273] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/storage-logs
+                    - generic [ref=f29e274]: Storage
+                  - link "Realtime" [disabled] [ref=f29e276] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/realtime-logs
+                    - generic [ref=f29e277]: Realtime
+                  - link "Edge Functions" [disabled] [ref=f29e279] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/edge-functions-logs
+                    - generic [ref=f29e280]: Edge Functions
+                  - link "Cron" [disabled] [ref=f29e282] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/pgcron-logs
+                    - generic [ref=f29e283]: Cron
+              - generic [ref=f29e284]:
+                - button "Database operations" [disabled] [expanded] [ref=f29e285]:
+                  - img [ref=f29e286]
+                  - generic [ref=f29e288]: Database operations
+                - link "Postgres Version Upgrade" [disabled] [ref=f29e291] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/pg-upgrade-logs
+                  - generic [ref=f29e292]: Postgres Version Upgrade
+              - generic [ref=f29e293]:
+                - button "Queries" [disabled] [expanded] [ref=f29e294]:
+                  - img [ref=f29e295]
+                  - generic [ref=f29e297]: Queries
+                - generic [ref=f29e300]:
+                  - paragraph [ref=f29e301]: No queries created yet
+                  - paragraph [ref=f29e302]: Create and save your queries to use them in the explorer
+                  - link "Create query" [disabled] [ref=f29e304] [cursor=pointer]:
+                    - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs/explorer
+                    - generic [ref=f29e305]: Create query
+              - generic [ref=f29e306]:
+                - generic [ref=f29e308]:
+                  - img [ref=f29e309]
+                  - img [ref=f29e312]
+                  - img [ref=f29e314]
+                  - img [ref=f29e316]
+                - generic [ref=f29e318]:
+                  - heading "Capture your logs" [level=3] [ref=f29e319]
+                  - paragraph [ref=f29e320]: Send logs to your preferred observability or storage platform.
+                - link "Go to Log Drains" [disabled] [ref=f29e322] [cursor=pointer]:
+                  - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/settings/log-drains
+                  - generic [ref=f29e323]: Go to Log Drains
+          - separator [disabled] [ref=f29e324]:
+            - img [ref=f29e326]
+          - main [ref=f29e335]:
+            - generic [ref=f29e337]:
+              - generic [ref=f29e339]:
+                - generic [ref=f29e342]:
+                  - generic [ref=f29e343]:
+                    - button "Insert source" [ref=f29e344] [cursor=pointer]:
+                      - generic [ref=f29e345]: Insert source
+                      - img [ref=f29e347]
+                    - button "Templates" [ref=f29e349] [cursor=pointer]:
+                      - generic [ref=f29e350]: Templates
+                      - img [ref=f29e352]
+                    - button "27 Jun, 19:59 - 02 Jul, 20:14" [ref=f29e354] [cursor=pointer]:
+                      - img [ref=f29e356]
+                      - generic [ref=f29e359]: 27 Jun, 19:59 - 02 Jul, 20:14
+                    - button "1 warning" [ref=f29e361]:
+                      - generic [ref=f29e362]: 1 warning
+                  - button "Field Reference" [ref=f29e364] [cursor=pointer]:
+                    - img [ref=f29e366]
+                    - generic [ref=f29e369]: Field Reference
+                - code [ref=f29e373]:
+                  - generic [ref=f29e374]:
+                    - generic [ref=f29e379]: "1"
+                    - generic [ref=f29e397]:
+                      - generic [ref=f29e399]: select postgres_logs.timestamp, event_message, parsed.detail, parsed.
+                      - generic [ref=f29e401]: query from postgres_logs cross join unnest(metadata) as m cross join
+                      - generic [ref=f29e403]: unnest(m.parsed) as parsed where event_message like '%IH26F28007%' order
+                      - generic [ref=f29e405]: by timestamp desc limit 5
+                    - textbox "Editor content" [active] [ref=f29e408]: select pos
+              - separator [ref=f29e409]:
+                - img [ref=f29e411]
+              - generic [ref=f29e421]:
+                - generic [ref=f29e422]:
+                  - button "Results (5)" [ref=f29e493] [cursor=pointer]:
+                    - generic [ref=f29e494]: Results (5)
+                    - img [ref=f29e496]
+                  - generic [ref=f29e424]:
+                    - button "Save query" [ref=f29e425] [cursor=pointer]:
+                      - generic [ref=f29e426]: Save query
+                    - button "Run" [ref=f29e427] [cursor=pointer]:
+                      - generic [ref=f29e428]: Run
+                      - img [ref=f29e430]
+                - table [ref=f29e436]:
+                  - row "timestamp detail event_message query" [ref=f29e498]:
+                    - columnheader [ref=f29e499]
+                    - columnheader "timestamp" [ref=f29e500]:
+                      - generic [ref=f29e501]: timestamp
+                    - columnheader "detail" [ref=f29e503]:
+                      - generic [ref=f29e504]: detail
+                    - columnheader "event_message" [ref=f29e506]:
+                      - generic [ref=f29e507]: event_message
+                    - columnheader "query" [ref=f29e509]:
+                      - generic [ref=f29e510]: query
+                  - 'row "1782908548257000 NULL invalid input syntax for type uuid: \"IH26F28007\" WITH pgrst_source AS ( SELECT \"public\".\"visits\".\"id\", \"public\".\"visits\".\"visit_id\", \"public\".\"visits\".\"appointment_with\", \"public\".\"visits\".\"reason_for_visit\" FROM \"public\".\"visits\" WHERE \"public\".\"visits\".\"id\" = $1 LIMIT $2 OFFSET $3 ) SELECT null::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t)->0, ''null'') AS body, nullif(current_setting(''response.headers'', true), '''') AS response_headers, nullif(current_setting(''response.status'', true), '''') AS response_status, '''' AS response_inserted FROM ( SELECT * FROM pgrst_source ) _postgrest_t" [ref=f29e512] [cursor=pointer]':
+                    - gridcell [ref=f29e513]:
+                      - checkbox [ref=f29e515]
+                    - gridcell "1782908548257000" [ref=f29e516]:
+                      - generic [ref=f29e517]: "1782908548257000"
+                    - gridcell "NULL" [ref=f29e518]:
+                      - generic [ref=f29e519]: "NULL"
+                    - 'gridcell "invalid input syntax for type uuid: \"IH26F28007\"" [ref=f29e520]':
+                      - generic [ref=f29e521]: "invalid input syntax for type uuid: \"IH26F28007\""
+                    - gridcell "WITH pgrst_source AS ( SELECT \"public\".\"visits\".\"id\", \"public\".\"visits\".\"visit_id\", \"public\".\"visits\".\"appointment_with\", \"public\".\"visits\".\"reason_for_visit\" FROM \"public\".\"visits\" WHERE \"public\".\"visits\".\"id\" = $1 LIMIT $2 OFFSET $3 ) SELECT null::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t)->0, 'null') AS body, nullif(current_setting('response.headers', true), '') AS response_headers, nullif(current_setting('response.status', true), '') AS response_status, '' AS response_inserted FROM ( SELECT * FROM pgrst_source ) _postgrest_t" [ref=f29e522]:
+                      - generic [ref=f29e523]: WITH pgrst_source AS ( SELECT "public"."visits"."id", "public"."visits"."visit_id", "public"."visits"."appointment_with", "public"."visits"."reason_for_visit" FROM "public"."visits" WHERE "public"."visits"."id" = $1 LIMIT $2 OFFSET $3 ) SELECT null::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t)->0, 'null') AS body, nullif(current_setting('response.headers', true), '') AS response_headers, nullif(current_setting('response.status', true), '') AS response_status, '' AS response_inserted FROM ( SELECT * FROM pgrst_source ) _postgrest_t
+                  - 'row "1782908547803000 NULL invalid input syntax for type uuid: \"IH26F28007\" WITH pgrst_source AS ( SELECT \"public\".\"visits\".\"id\", \"public\".\"visits\".\"visit_id\", \"public\".\"visits\".\"appointment_with\", \"public\".\"visits\".\"reason_for_visit\" FROM \"public\".\"visits\" WHERE \"public\".\"visits\".\"id\" = $1 LIMIT $2 OFFSET $3 ) SELECT null::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t)->0, ''null'') AS body, nullif(current_setting(''response.headers'', true), '''') AS response_headers, nullif(current_setting(''response.status'', true), '''') AS response_status, '''' AS response_inserted FROM ( SELECT * FROM pgrst_source ) _postgrest_t" [ref=f29e524] [cursor=pointer]':
+                    - gridcell [ref=f29e525]:
+                      - checkbox [ref=f29e527]
+                    - gridcell "1782908547803000" [ref=f29e528]:
+                      - generic [ref=f29e529]: "1782908547803000"
+                    - gridcell "NULL" [ref=f29e530]:
+                      - generic [ref=f29e531]: "NULL"
+                    - 'gridcell "invalid input syntax for type uuid: \"IH26F28007\"" [ref=f29e532]':
+                      - generic [ref=f29e533]: "invalid input syntax for type uuid: \"IH26F28007\""
+                    - gridcell "WITH pgrst_source AS ( SELECT \"public\".\"visits\".\"id\", \"public\".\"visits\".\"visit_id\", \"public\".\"visits\".\"appointment_with\", \"public\".\"visits\".\"reason_for_visit\" FROM \"public\".\"visits\" WHERE \"public\".\"visits\".\"id\" = $1 LIMIT $2 OFFSET $3 ) SELECT null::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t)->0, 'null') AS body, nullif(current_setting('response.headers', true), '') AS response_headers, nullif(current_setting('response.status', true), '') AS response_status, '' AS response_inserted FROM ( SELECT * FROM pgrst_source ) _postgrest_t" [ref=f29e534]:
+                      - generic [ref=f29e535]: WITH pgrst_source AS ( SELECT "public"."visits"."id", "public"."visits"."visit_id", "public"."visits"."appointment_with", "public"."visits"."reason_for_visit" FROM "public"."visits" WHERE "public"."visits"."id" = $1 LIMIT $2 OFFSET $3 ) SELECT null::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t)->0, 'null') AS body, nullif(current_setting('response.headers', true), '') AS response_headers, nullif(current_setting('response.status', true), '') AS response_status, '' AS response_inserted FROM ( SELECT * FROM pgrst_source ) _postgrest_t
+                  - 'row "1782908547320000 NULL invalid input syntax for type uuid: \"IH26F28007\" WITH pgrst_source AS ( SELECT \"public\".\"visits\".\"id\", \"public\".\"visits\".\"visit_id\", \"public\".\"visits\".\"appointment_with\", \"public\".\"visits\".\"reason_for_visit\" FROM \"public\".\"visits\" WHERE \"public\".\"visits\".\"id\" = $1 LIMIT $2 OFFSET $3 ) SELECT null::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t)->0, ''null'') AS body, nullif(current_setting(''response.headers'', true), '''') AS response_headers, nullif(current_setting(''response.status'', true), '''') AS response_status, '''' AS response_inserted FROM ( SELECT * FROM pgrst_source ) _postgrest_t" [ref=f29e536] [cursor=pointer]':
+                    - gridcell [ref=f29e537]:
+                      - checkbox [ref=f29e539]
+                    - gridcell "1782908547320000" [ref=f29e540]:
+                      - generic [ref=f29e541]: "1782908547320000"
+                    - gridcell "NULL" [ref=f29e542]:
+                      - generic [ref=f29e543]: "NULL"
+                    - 'gridcell "invalid input syntax for type uuid: \"IH26F28007\"" [ref=f29e544]':
+                      - generic [ref=f29e545]: "invalid input syntax for type uuid: \"IH26F28007\""
+                    - gridcell "WITH pgrst_source AS ( SELECT \"public\".\"visits\".\"id\", \"public\".\"visits\".\"visit_id\", \"public\".\"visits\".\"appointment_with\", \"public\".\"visits\".\"reason_for_visit\" FROM \"public\".\"visits\" WHERE \"public\".\"visits\".\"id\" = $1 LIMIT $2 OFFSET $3 ) SELECT null::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t)->0, 'null') AS body, nullif(current_setting('response.headers', true), '') AS response_headers, nullif(current_setting('response.status', true), '') AS response_status, '' AS response_inserted FROM ( SELECT * FROM pgrst_source ) _postgrest_t" [ref=f29e546]:
+                      - generic [ref=f29e547]: WITH pgrst_source AS ( SELECT "public"."visits"."id", "public"."visits"."visit_id", "public"."visits"."appointment_with", "public"."visits"."reason_for_visit" FROM "public"."visits" WHERE "public"."visits"."id" = $1 LIMIT $2 OFFSET $3 ) SELECT null::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t)->0, 'null') AS body, nullif(current_setting('response.headers', true), '') AS response_headers, nullif(current_setting('response.status', true), '') AS response_status, '' AS response_inserted FROM ( SELECT * FROM pgrst_source ) _postgrest_t
+                  - 'row "1782908546804000 NULL invalid input syntax for type uuid: \"IH26F28007\" WITH pgrst_source AS ( SELECT \"public\".\"visits\".\"id\", \"public\".\"visits\".\"visit_id\", \"public\".\"visits\".\"appointment_with\", \"public\".\"visits\".\"reason_for_visit\" FROM \"public\".\"visits\" WHERE \"public\".\"visits\".\"id\" = $1 LIMIT $2 OFFSET $3 ) SELECT null::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t)->0, ''null'') AS body, nullif(current_setting(''response.headers'', true), '''') AS response_headers, nullif(current_setting(''response.status'', true), '''') AS response_status, '''' AS response_inserted FROM ( SELECT * FROM pgrst_source ) _postgrest_t" [ref=f29e548] [cursor=pointer]':
+                    - gridcell [ref=f29e549]:
+                      - checkbox [ref=f29e551]
+                    - gridcell "1782908546804000" [ref=f29e552]:
+                      - generic [ref=f29e553]: "1782908546804000"
+                    - gridcell "NULL" [ref=f29e554]:
+                      - generic [ref=f29e555]: "NULL"
+                    - 'gridcell "invalid input syntax for type uuid: \"IH26F28007\"" [ref=f29e556]':
+                      - generic [ref=f29e557]: "invalid input syntax for type uuid: \"IH26F28007\""
+                    - gridcell "WITH pgrst_source AS ( SELECT \"public\".\"visits\".\"id\", \"public\".\"visits\".\"visit_id\", \"public\".\"visits\".\"appointment_with\", \"public\".\"visits\".\"reason_for_visit\" FROM \"public\".\"visits\" WHERE \"public\".\"visits\".\"id\" = $1 LIMIT $2 OFFSET $3 ) SELECT null::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t)->0, 'null') AS body, nullif(current_setting('response.headers', true), '') AS response_headers, nullif(current_setting('response.status', true), '') AS response_status, '' AS response_inserted FROM ( SELECT * FROM pgrst_source ) _postgrest_t" [ref=f29e558]:
+                      - generic [ref=f29e559]: WITH pgrst_source AS ( SELECT "public"."visits"."id", "public"."visits"."visit_id", "public"."visits"."appointment_with", "public"."visits"."reason_for_visit" FROM "public"."visits" WHERE "public"."visits"."id" = $1 LIMIT $2 OFFSET $3 ) SELECT null::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t)->0, 'null') AS body, nullif(current_setting('response.headers', true), '') AS response_headers, nullif(current_setting('response.status', true), '') AS response_status, '' AS response_inserted FROM ( SELECT * FROM pgrst_source ) _postgrest_t
+                  - 'row "1782908546344000 NULL invalid input syntax for type uuid: \"IH26F28007\" WITH pgrst_source AS ( SELECT \"public\".\"visits\".\"id\", \"public\".\"visits\".\"visit_id\", \"public\".\"visits\".\"appointment_with\", \"public\".\"visits\".\"reason_for_visit\" FROM \"public\".\"visits\" WHERE \"public\".\"visits\".\"id\" = $1 LIMIT $2 OFFSET $3 ) SELECT null::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t)->0, ''null'') AS body, nullif(current_setting(''response.headers'', true), '''') AS response_headers, nullif(current_setting(''response.status'', true), '''') AS response_status, '''' AS response_inserted FROM ( SELECT * FROM pgrst_source ) _postgrest_t" [ref=f29e560] [cursor=pointer]':
+                    - gridcell [ref=f29e561]:
+                      - checkbox [ref=f29e563]
+                    - gridcell "1782908546344000" [ref=f29e564]:
+                      - generic [ref=f29e565]: "1782908546344000"
+                    - gridcell "NULL" [ref=f29e566]:
+                      - generic [ref=f29e567]: "NULL"
+                    - 'gridcell "invalid input syntax for type uuid: \"IH26F28007\"" [ref=f29e568]':
+                      - generic [ref=f29e569]: "invalid input syntax for type uuid: \"IH26F28007\""
+                    - gridcell "WITH pgrst_source AS ( SELECT \"public\".\"visits\".\"id\", \"public\".\"visits\".\"visit_id\", \"public\".\"visits\".\"appointment_with\", \"public\".\"visits\".\"reason_for_visit\" FROM \"public\".\"visits\" WHERE \"public\".\"visits\".\"id\" = $1 LIMIT $2 OFFSET $3 ) SELECT null::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t)->0, 'null') AS body, nullif(current_setting('response.headers', true), '') AS response_headers, nullif(current_setting('response.status', true), '') AS response_status, '' AS response_inserted FROM ( SELECT * FROM pgrst_source ) _postgrest_t" [ref=f29e570]:
+                      - generic [ref=f29e571]: WITH pgrst_source AS ( SELECT "public"."visits"."id", "public"."visits"."visit_id", "public"."visits"."appointment_with", "public"."visits"."reason_for_visit" FROM "public"."visits" WHERE "public"."visits"."id" = $1 LIMIT $2 OFFSET $3 ) SELECT null::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t)->0, 'null') AS body, nullif(current_setting('response.headers', true), '') AS response_headers, nullif(current_setting('response.status', true), '') AS response_status, '' AS response_inserted FROM ( SELECT * FROM pgrst_source ) _postgrest_t
+    - generic [ref=f29e452]:
+      - generic:
+        - img "Background pattern"
+      - generic [ref=f29e453]:
+        - button "Close banner" [ref=f29e455] [cursor=pointer]:
+          - img [ref=f29e457]
+        - generic [ref=f29e460]:
+          - generic [ref=f29e461]:
+            - generic [ref=f29e462]: Beta
+            - generic [ref=f29e464]:
+              - generic [ref=f29e593]:
+                - generic [ref=f29e595]: 02 Jul 26 20:15:00
+                - generic [ref=f29e596]: "400"
+              - generic [ref=f29e598]:
+                - generic [ref=f29e600]: 02 Jul 26 20:14:57
+                - generic [ref=f29e601]: "304"
+              - generic [ref=f29e603]:
+                - generic [ref=f29e605]: 02 Jul 26 20:14:54
+                - generic [ref=f29e606]: "200"
+              - generic [ref=f29e608]:
+                - generic [ref=f29e610]: 02 Jul 26 20:14:51
+                - generic [ref=f29e611]: "201"
+          - generic [ref=f29e485]:
+            - paragraph [ref=f29e486]: Unified Logs is here
+            - paragraph [ref=f29e487]: Search and correlate logs across all of your services from a single place.
+          - link "Explore Unified Logs" [ref=f29e489] [cursor=pointer]:
+            - /url: /dashboard/project/xvkxccqaopbnkvwgyfjv/logs
+            - generic [ref=f29e490]: Explore Unified Logs
+  - alert [ref=f29e491]: Explorer | Logs | drmhope | chatgptnotes's Org | Supabase
+  - generic [ref=f29e492]:
+    - alert
+    - alert

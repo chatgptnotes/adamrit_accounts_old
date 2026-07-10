@@ -1,0 +1,3 @@
+[ -142418ms] [WARNING] prepareForClient in beginLoad() failed. @ chrome://glic/glic.js:360
+[      68ms] [WARNING] prepareForClient in beginLoad() failed. @ chrome://glic/glic.js:360
+[    2188ms] [WARNING] prepareForClient in beginLoad() failed. @ chrome://glic/glic.js:360
