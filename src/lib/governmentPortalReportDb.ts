@@ -12,6 +12,8 @@ import {
 
 const db = supabase as any;
 
+export type GovernmentPortalReportKind = 'under_treatment' | 'claims_to_be_submitted';
+
 export interface SavedGovernmentPortalImport {
   id: string;
   fileName: string;
@@ -187,10 +189,12 @@ async function loadLatestImportWithRows(
   rowSelect: string,
   rowFilter: (query: any) => any,
   rowLimit?: number,
+  reportKind: GovernmentPortalReportKind = 'under_treatment',
 ): Promise<{ header: ImportRow | null; rows: DbReportRow[] }> {
   const { data: imports, error: importsError } = await db
     .from('government_portal_report_imports')
     .select(importSelect)
+    .eq('report_kind', reportKind)
     .order('created_at', { ascending: false })
     .limit(20);
 
@@ -377,6 +381,7 @@ export async function saveGovernmentPortalReport(
   fileName: string,
   report: GovernmentPortalReport,
   reportDateLabel: string,
+  reportKind: GovernmentPortalReportKind = 'under_treatment',
 ): Promise<SaveGovernmentPortalReportResult> {
   const packageSync = emptyPackageSyncResult();
   const { data: header, error: headerError } = await db
@@ -384,6 +389,7 @@ export async function saveGovernmentPortalReport(
     .insert({
       file_name: fileName,
       report_date_label: reportDateLabel,
+      report_kind: reportKind,
       total_rows: report.totalRows,
       count_dialysis: report.counts.dialysis,
       count_general_medical: report.counts.generalMedical,
@@ -411,29 +417,38 @@ export async function saveGovernmentPortalReport(
       throw rowsError;
     }
 
-    try {
-      await syncGovernmentPortalReportToVisits(report);
-    } catch (syncError) {
-      console.error('Error syncing portal report to visits:', syncError);
-    }
+    // Visit/master-package sync is Under Treatment-specific (intimation tracking
+    // for active cases) — skip it for other report kinds like Claims to be
+    // Submitted, which cover cases already past that stage.
+    if (reportKind === 'under_treatment') {
+      try {
+        await syncGovernmentPortalReportToVisits(report);
+      } catch (syncError) {
+        console.error('Error syncing portal report to visits:', syncError);
+      }
 
-    try {
-      Object.assign(packageSync, await syncGovernmentPortalPackagesToMaster(report));
-    } catch (syncError) {
-      console.error('Error syncing portal report packages to master:', syncError);
-      packageSync.error =
-        syncError instanceof Error ? syncError.message : 'Package master sync failed';
+      try {
+        Object.assign(packageSync, await syncGovernmentPortalPackagesToMaster(report));
+      } catch (syncError) {
+        console.error('Error syncing portal report packages to master:', syncError);
+        packageSync.error =
+          syncError instanceof Error ? syncError.message : 'Package master sync failed';
+      }
     }
   }
 
   return { importId, packageSync };
 }
 
-export async function fetchLatestGovernmentPortalReport(): Promise<SavedGovernmentPortalImport | null> {
+export async function fetchLatestGovernmentPortalReport(
+  reportKind: GovernmentPortalReportKind = 'under_treatment',
+): Promise<SavedGovernmentPortalImport | null> {
   const { header, rows } = await loadLatestImportWithRows(
     '*',
     '*',
     (query) => query,
+    undefined,
+    reportKind,
   );
 
   if (!header) return null;
@@ -481,11 +496,13 @@ export async function fetchLatestGovernmentPortalExtensionAlerts(
 }
 
 export async function fetchGovernmentPortalImportHistory(
+  reportKind: GovernmentPortalReportKind = 'under_treatment',
   limit = 20,
 ): Promise<Array<{ id: string; fileName: string; createdAt: string; totalRows: number }>> {
   const { data, error } = await db
     .from('government_portal_report_imports')
     .select('id, file_name, created_at, total_rows')
+    .eq('report_kind', reportKind)
     .order('created_at', { ascending: false })
     .limit(limit);
 

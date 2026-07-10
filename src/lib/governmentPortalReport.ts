@@ -25,7 +25,8 @@ export type GovernmentPortalPatientStatus =
   | 'extension_requested'
   | 'approved'
   | 'rejected'
-  | 'closed';
+  | 'closed'
+  | 'submitted';
 
 export interface GovernmentPortalRow {
   id?: string;

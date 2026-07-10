@@ -4,6 +4,7 @@ import type { ExtractedPreauthCase } from '@/lib/extractPreauthSubmissionList';
 const db = supabase as any;
 
 export type PreauthSubmissionStatus = 'pending' | 'submitted';
+export type PreauthListType = 'to_be_submitted' | 'pending';
 
 export interface PreauthSubmissionRow {
   id: string;
@@ -32,6 +33,7 @@ type DbUploadRow = {
   file_name: string;
   image_url: string;
   uploaded_by: string | null;
+  list_type: PreauthListType;
   created_at: string;
 };
 
@@ -67,9 +69,10 @@ export async function savePreauthSubmissionUpload(
   file: File,
   cases: ExtractedPreauthCase[],
   uploadedBy: string | null,
+  listType: PreauthListType = 'to_be_submitted',
 ): Promise<PreauthSubmissionUpload> {
   const safeName = file.name.replace(/[^a-z0-9.\-_]/gi, '_');
-  const path = `preauth-to-be-submitted/${Date.now()}-${safeName}`;
+  const path = `preauth-${listType}/${Date.now()}-${safeName}`;
   const { error: uploadError } = await supabase.storage.from('uploads').upload(path, file, {
     upsert: false,
     cacheControl: '3600',
@@ -83,6 +86,7 @@ export async function savePreauthSubmissionUpload(
       file_name: file.name,
       image_url: publicUrlData.publicUrl,
       uploaded_by: uploadedBy,
+      list_type: listType,
     })
     .select('*')
     .single();
@@ -114,10 +118,20 @@ export async function savePreauthSubmissionUpload(
   };
 }
 
-export async function fetchPreauthSubmissionUploads(): Promise<PreauthSubmissionUpload[]> {
+export async function fetchPreauthSubmissionUploads(
+  listType: PreauthListType = 'to_be_submitted',
+): Promise<PreauthSubmissionUpload[]> {
   const [{ data: uploads, error: uploadsError }, { data: rows, error: rowsError }] = await Promise.all([
-    db.from('government_portal_preauth_uploads').select('*').order('created_at', { ascending: false }),
-    db.from('government_portal_preauth_rows').select('*').order('created_at', { ascending: true }),
+    db
+      .from('government_portal_preauth_uploads')
+      .select('*')
+      .eq('list_type', listType)
+      .order('created_at', { ascending: false }),
+    db
+      .from('government_portal_preauth_rows')
+      .select('*, government_portal_preauth_uploads!inner(list_type)')
+      .eq('government_portal_preauth_uploads.list_type', listType)
+      .order('created_at', { ascending: true }),
   ]);
   if (uploadsError) throw uploadsError;
   if (rowsError) throw rowsError;
