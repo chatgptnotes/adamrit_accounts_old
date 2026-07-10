@@ -1,17 +1,41 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, CalendarDays, Save } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Plus, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { useCorporateData } from '@/hooks/useCorporateData';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 type DailyValues = Record<number, string>;
+
+interface PatientEntry {
+  id: string;
+  day: number;
+  patient_name: string;
+  panel: string;
+  admission_date: string | null;
+  package_amount: number;
+}
 
 const STATEMENT_TITLES: Record<string, string> = {
   income: 'Income Statement',
@@ -30,6 +54,7 @@ const STATEMENT_ACCENTS: Record<string, string> = {
 };
 
 const table = () => (supabase as any).from('director_matrix_daily_entries');
+const patientTable = () => (supabase as any).from('director_matrix_patient_entries');
 
 function formatDate(year: number, month: number, day: number) {
   return new Date(year, month - 1, day).toLocaleDateString('en-IN', {
@@ -54,6 +79,15 @@ export default function DirectorMatrixDailyEntries() {
   const rowLabel = rowLabelParam ? decodeURIComponent(rowLabelParam) : '';
   const [values, setValues] = useState<DailyValues>({});
   const [savingDay, setSavingDay] = useState<number | null>(null);
+  const [dialogDay, setDialogDay] = useState<number | null>(null);
+  const [patientForm, setPatientForm] = useState({ name: '', panel: 'Private', admissionDate: '', amount: '' });
+  const [savingPatient, setSavingPatient] = useState(false);
+  const { corporateOptions } = useCorporateData();
+
+  const panelOptions = useMemo(() => {
+    const options = corporateOptions.filter(opt => opt.label.toLowerCase() !== 'private');
+    return [{ value: 'Private', label: 'Private' }, ...options];
+  }, [corporateOptions]);
 
   const isValidStatement = Boolean(STATEMENT_TITLES[statementKey]);
   const statementTitle = STATEMENT_TITLES[statementKey] ?? 'Director Matrix';
@@ -77,6 +111,31 @@ export default function DirectorMatrixDailyEntries() {
       return data as { day: number; amount: number }[];
     },
   });
+
+  const { data: patientEntries } = useQuery({
+    queryKey: ['director-matrix-patient-entries', statementKey, rowLabel, year, month],
+    enabled: isValidRoute,
+    queryFn: async () => {
+      const { data, error } = await patientTable()
+        .select('id, day, patient_name, panel, admission_date, package_amount')
+        .eq('statement_key', statementKey)
+        .eq('year', year)
+        .eq('month', month)
+        .eq('row_label', rowLabel)
+        .order('day', { ascending: true })
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      return data as PatientEntry[];
+    },
+  });
+
+  const patientsByDay = useMemo(() => {
+    const grouped: Record<number, PatientEntry[]> = {};
+    for (const entry of patientEntries ?? []) {
+      (grouped[entry.day] ??= []).push(entry);
+    }
+    return grouped;
+  }, [patientEntries]);
 
   useEffect(() => {
     if (!savedEntries) return;
@@ -137,6 +196,99 @@ export default function DirectorMatrixDailyEntries() {
       toast.error(`Could not save day ${day}. Please retry.`);
     } finally {
       setSavingDay(null);
+    }
+  };
+
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: ['director-matrix-daily-totals', statementKey, year] });
+    queryClient.invalidateQueries({ queryKey: ['director-matrix-daily-entries', statementKey, rowLabel, year, month] });
+    queryClient.invalidateQueries({ queryKey: ['director-matrix-patient-entries', statementKey, rowLabel, year, month] });
+  };
+
+  // Keeps the day's revenue in director_matrix_daily_entries equal to the sum of its patient packages.
+  const syncDayTotal = async (day: number, dayTotal: number, hasPatients: boolean) => {
+    if (hasPatients) {
+      const { error } = await table().upsert(
+        {
+          statement_key: statementKey,
+          row_label: rowLabel,
+          year,
+          month,
+          day,
+          amount: dayTotal,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'statement_key,row_label,year,month,day' }
+      );
+      if (error) throw error;
+    } else {
+      const { error } = await table()
+        .delete()
+        .eq('statement_key', statementKey)
+        .eq('year', year)
+        .eq('month', month)
+        .eq('row_label', rowLabel)
+        .eq('day', day);
+      if (error) throw error;
+    }
+  };
+
+  const handleAddPatient = async () => {
+    if (dialogDay === null) return;
+    const name = patientForm.name.trim();
+    const amount = Number(patientForm.amount);
+    if (!name) {
+      toast.error('Enter the patient name.');
+      return;
+    }
+    if (!patientForm.amount || !Number.isFinite(amount) || amount <= 0) {
+      toast.error('Enter a valid package amount.');
+      return;
+    }
+
+    setSavingPatient(true);
+    try {
+      const { error } = await patientTable().insert({
+        statement_key: statementKey,
+        row_label: rowLabel,
+        year,
+        month,
+        day: dialogDay,
+        patient_name: name,
+        panel: patientForm.panel,
+        admission_date: patientForm.admissionDate || null,
+        package_amount: amount,
+      });
+      if (error) throw error;
+
+      const existing = patientsByDay[dialogDay] ?? [];
+      const dayTotal = existing.reduce((sum, p) => sum + Number(p.package_amount || 0), 0) + amount;
+      await syncDayTotal(dialogDay, dayTotal, true);
+
+      invalidateAll();
+      setDialogDay(null);
+      setPatientForm({ name: '', panel: 'Private', admissionDate: '', amount: '' });
+    } catch (error) {
+      console.error('Failed to add patient entry:', error);
+      toast.error('Could not add the patient. Please retry.');
+    } finally {
+      setSavingPatient(false);
+    }
+  };
+
+  const handleDeletePatient = async (entry: PatientEntry) => {
+    try {
+      const { error } = await patientTable().delete().eq('id', entry.id);
+      if (error) throw error;
+
+      const remaining = (patientsByDay[entry.day] ?? []).filter(p => p.id !== entry.id);
+      const dayTotal = remaining.reduce((sum, p) => sum + Number(p.package_amount || 0), 0);
+      await syncDayTotal(entry.day, dayTotal, remaining.length > 0);
+
+      invalidateAll();
+    } catch (error) {
+      console.error('Failed to delete patient entry:', error);
+      toast.error('Could not remove the patient. Please retry.');
     }
   };
 
@@ -204,49 +356,174 @@ export default function DirectorMatrixDailyEntries() {
                   </tr>
                 </thead>
                 <tbody>
-                  {days.map(day => (
-                    <tr key={day}>
-                      <td className="border px-4 py-2 font-medium text-gray-900">
-                        {formatDate(selectedYear, selectedMonth, day)}
-                      </td>
-                      <td className="border px-4 py-2">
-                        <div className="ml-auto max-w-[220px]">
-                          <Label htmlFor={`matrix-day-${day}`} className="sr-only">
-                            Amount for {formatDate(selectedYear, selectedMonth, day)}
-                          </Label>
-                          <Input
-                            id={`matrix-day-${day}`}
-                            type="text"
-                            inputMode="decimal"
-                            placeholder="0"
-                            className="h-9 text-right"
-                            value={values[day] ?? ''}
-                            disabled={isLoading}
-                            onChange={event => handleChange(day, event.target.value)}
-                            onBlur={() => handleBlur(day)}
-                          />
-                        </div>
-                      </td>
-                      <td className="border px-4 py-2 text-xs text-gray-500">
-                        {savingDay === day ? (
-                          <span className="inline-flex items-center gap-1 text-emerald-700">
-                            <Save className="h-3.5 w-3.5" />
-                            Saving
-                          </span>
-                        ) : values[day] ? (
-                          'Saved on blur'
-                        ) : (
-                          'No entry'
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  {days.map(day => {
+                    const dayPatients = patientsByDay[day] ?? [];
+                    const hasPatients = dayPatients.length > 0;
+                    return (
+                      <tr key={day} className="align-top">
+                        <td className="border px-4 py-2 font-medium text-gray-900">
+                          {formatDate(selectedYear, selectedMonth, day)}
+                        </td>
+                        <td className="border px-4 py-2">
+                          <div className="ml-auto max-w-[220px]">
+                            <Label htmlFor={`matrix-day-${day}`} className="sr-only">
+                              Amount for {formatDate(selectedYear, selectedMonth, day)}
+                            </Label>
+                            <Input
+                              id={`matrix-day-${day}`}
+                              type="text"
+                              inputMode="decimal"
+                              placeholder="0"
+                              className="h-9 text-right"
+                              value={values[day] ?? ''}
+                              disabled={isLoading || hasPatients}
+                              onChange={event => handleChange(day, event.target.value)}
+                              onBlur={() => handleBlur(day)}
+                            />
+                            {hasPatients && (
+                              <p className="mt-1 text-right text-[11px] text-gray-400">
+                                Total of {dayPatients.length} patient{dayPatients.length > 1 ? 's' : ''}
+                              </p>
+                            )}
+                          </div>
+                        </td>
+                        <td className="border px-4 py-2 text-xs text-gray-500">
+                          <div className="space-y-1.5">
+                            {dayPatients.map(patient => (
+                              <div
+                                key={patient.id}
+                                className="flex items-center justify-between gap-2 rounded border bg-gray-50 px-2 py-1.5"
+                              >
+                                <div className="min-w-0">
+                                  <p className="truncate font-medium text-gray-900">
+                                    {patient.patient_name}
+                                    <span className="ml-1.5 rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-normal text-gray-700">
+                                      {patient.panel}
+                                    </span>
+                                  </p>
+                                  <p className="text-[11px] text-gray-500">
+                                    {patient.admission_date
+                                      ? `Adm ${new Date(patient.admission_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`
+                                      : 'Adm date not set'}
+                                    {' · '}Package ₹{Number(patient.package_amount).toLocaleString('en-IN')}
+                                  </p>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 shrink-0 text-gray-400 hover:text-rose-600"
+                                  aria-label={`Remove ${patient.patient_name}`}
+                                  onClick={() => handleDeletePatient(patient)}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            ))}
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => {
+                                  setPatientForm(prev => ({
+                                    ...prev,
+                                    admissionDate: `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+                                  }));
+                                  setDialogDay(day);
+                                }}
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                                Add patient
+                              </Button>
+                              {savingDay === day && (
+                                <span className="inline-flex items-center gap-1 text-emerald-700">
+                                  <Save className="h-3.5 w-3.5" />
+                                  Saving
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={dialogDay !== null} onOpenChange={open => !open && setDialogDay(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              Add patient{dialogDay !== null ? ` - ${formatDate(selectedYear, selectedMonth, dialogDay)}` : ''}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="patient-name">Patient name</Label>
+              <Input
+                id="patient-name"
+                value={patientForm.name}
+                onChange={event => setPatientForm(prev => ({ ...prev, name: event.target.value }))}
+                placeholder="Patient name"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Panel / Private</Label>
+              <Select
+                value={patientForm.panel}
+                onValueChange={value => setPatientForm(prev => ({ ...prev, panel: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select panel" />
+                </SelectTrigger>
+                <SelectContent>
+                  {panelOptions.map(option => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="admission-date">Date of admission</Label>
+              <Input
+                id="admission-date"
+                type="date"
+                value={patientForm.admissionDate}
+                onChange={event => setPatientForm(prev => ({ ...prev, admissionDate: event.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="package-amount">Package amount (₹)</Label>
+              <Input
+                id="package-amount"
+                type="text"
+                inputMode="decimal"
+                placeholder="0"
+                value={patientForm.amount}
+                onChange={event => {
+                  const value = event.target.value;
+                  if (value && !/^\d*\.?\d*$/.test(value)) return;
+                  setPatientForm(prev => ({ ...prev, amount: value }));
+                }}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogDay(null)} disabled={savingPatient}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddPatient} disabled={savingPatient}>
+              {savingPatient ? 'Saving...' : 'Add patient'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
