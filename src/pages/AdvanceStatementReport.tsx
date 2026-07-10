@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, type ReactNode } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -70,6 +70,9 @@ const AdvanceStatementReport = () => {
   const includeDischargedPatients = searchParams.get('includeDischarged') === '1';
   const [searchInput, setSearchInput] = useState(searchParamTerm);
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(searchParamTerm);
+  const activeSearchTerm = debouncedSearchTerm.trim().length >= 2
+    ? debouncedSearchTerm.trim()
+    : '';
 
   // Helper to update URL params
   const updateParams = (updates: Record<string, string | null>) => {
@@ -170,10 +173,48 @@ const AdvanceStatementReport = () => {
 
   // Fetch advance statement data
   const { data: allData = [], isLoading } = useQuery({
-    queryKey: ['advance-statement-report-currently-admitted', hospitalConfig?.name, includeDischargedPatients, dateFrom, dateTo],
+    queryKey: [
+      'advance-statement-report-currently-admitted',
+      hospitalConfig?.name,
+      includeDischargedPatients,
+      dateFrom,
+      dateTo,
+      activeSearchTerm,
+    ],
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       console.log('🏥 Fetching advance statement data for hospital:', hospitalConfig?.name);
-      console.log('🔍 Search params:', { debouncedSearchTerm, dateFrom, dateTo, includeDischargedPatients });
+      console.log('🔍 Search params:', { activeSearchTerm, dateFrom, dateTo, includeDischargedPatients });
+
+      let searchOr: string | null = null;
+      let matchingPatientIds: string[] = [];
+      if (activeSearchTerm) {
+        const safeSearch = activeSearchTerm.replace(/[,()]/g, '');
+        let patientSearchQuery = supabase
+          .from('patients')
+          .select('id')
+          .or(`name.ilike.%${safeSearch}%,patients_id.ilike.%${safeSearch}%,registration_id.ilike.%${safeSearch}%`)
+          .limit(100);
+
+        if (hospitalConfig?.name) {
+          patientSearchQuery = patientSearchQuery.eq('hospital_name', hospitalConfig.name);
+        }
+
+        const { data: matchingPatients, error: patientSearchError } = await patientSearchQuery;
+        if (patientSearchError) {
+          console.error('Error searching patients for advance statement report:', patientSearchError);
+        }
+
+        matchingPatientIds = (matchingPatients || [])
+          .map((patient) => patient.id)
+          .filter((id): id is string => Boolean(id));
+
+        const visitSearchParts = [
+          `visit_id.ilike.%${safeSearch}%`,
+          `thumb_registration_no.ilike.%${safeSearch}%`,
+        ];
+        searchOr = visitSearchParts.join(',');
+      }
 
       let query = supabase
         .from('visits')
@@ -244,11 +285,16 @@ const AdvanceStatementReport = () => {
         console.log('🏥 Applied hospital filter for:', hospitalConfig.name);
       }
 
-      // Remove search filter from query - we'll filter on frontend
-      // if (debouncedSearchTerm) {
-      //   console.log('🔍 Applying search filter:', debouncedSearchTerm);
-      //   query = query.or(`visit_id.ilike.%${debouncedSearchTerm}%,patients.name.ilike.%${debouncedSearchTerm}%,patients.patients_id.ilike.%${debouncedSearchTerm}%`);
-      // }
+      if (matchingPatientIds.length > 0) {
+        // Use a direct visit foreign-key filter for patient searches. Combining
+        // patient_id.in(...) with visit-column OR filters is unreliable with
+        // embedded Supabase relationships.
+        query = query.in('patient_id', matchingPatientIds);
+        console.log('Applied patient search filter:', matchingPatientIds.length, 'patients');
+      } else if (searchOr) {
+        query = query.or(searchOr);
+        console.log('Applying server-side search filter:', activeSearchTerm);
+      }
 
       // Apply date filters using admission_date instead of visit_date
       if (dateFrom) {
@@ -268,7 +314,7 @@ const AdvanceStatementReport = () => {
       if (error) {
         console.error('❌ Error fetching advance statement data:', error);
         console.error('Error details:', error.message, error.details, error.hint);
-        console.error('Search term that caused error:', debouncedSearchTerm);
+        console.error('Search term that caused error:', activeSearchTerm);
         throw error;
       }
 
@@ -484,10 +530,10 @@ const AdvanceStatementReport = () => {
     },
   });
 
-  // Filter data on frontend for search
+  // Keep a defensive client-side filter for any fields returned by the query.
   const advanceData = useMemo(
-    () => allData.filter((item) => matchesRowSearchTerm(item, debouncedSearchTerm)),
-    [allData, debouncedSearchTerm]
+    () => allData.filter((item) => matchesRowSearchTerm(item, activeSearchTerm)),
+    [allData, activeSearchTerm]
   );
 
   useEffect(() => {
@@ -497,19 +543,6 @@ const AdvanceStatementReport = () => {
       setSelectedRow(null);
     }
   }, [advanceData, selectedRow]);
-
-  useEffect(() => {
-    const search = normalizeLookupValue(debouncedSearchTerm);
-    if (!search || advanceData.length === 0) return;
-
-    const exactMatch = advanceData.find((item) =>
-      getRowSearchTokens(item).some((token) => normalizeLookupValue(token) === search)
-    );
-
-    if (exactMatch && selectedRow?.id !== exactMatch.id) {
-      setSelectedRow(exactMatch);
-    }
-  }, [advanceData, debouncedSearchTerm, selectedRow]);
 
   // Fetch financial data for print report (bills and advance payments)
   useEffect(() => {
