@@ -1,9 +1,12 @@
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import { CalendarDays } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -21,6 +24,8 @@ interface MonthlyMatrixCardProps {
   footnote?: string;
   /** Database-pulled values per row label, keyed by month index (0-11). */
   systemValues?: Record<string, Record<number, number>>;
+  /** Enables row/month drill-down entries that roll up into the monthly cell. */
+  dailyDrillDown?: boolean;
 }
 
 /**
@@ -29,12 +34,24 @@ interface MonthlyMatrixCardProps {
  * value that will be pulled from the database once the matching source
  * (billing, payroll, vendor ledger...) is wired.
  */
-export function MonthlyMatrixCard({ title, statementKey, icon, accentClass, rows, subtitle, footnote, systemValues }: MonthlyMatrixCardProps) {
+export function MonthlyMatrixCard({
+  title,
+  statementKey,
+  icon,
+  accentClass,
+  rows,
+  subtitle,
+  footnote,
+  systemValues,
+  dailyDrillDown = false,
+}: MonthlyMatrixCardProps) {
   const year = new Date().getFullYear();
+  const navigate = useNavigate();
   const [manualValues, setManualValues] = useState<CellValues>({});
 
   // director_matrix_entries isn't in the generated types yet
   const table = () => (supabase as any).from('director_matrix_entries');
+  const dailyTable = () => (supabase as any).from('director_matrix_daily_entries');
 
   const { data: savedEntries } = useQuery({
     queryKey: ['director-matrix', statementKey, year],
@@ -58,6 +75,34 @@ export function MonthlyMatrixCard({ title, statementKey, icon, accentClass, rows
     }
     setManualValues(seeded);
   }, [savedEntries]);
+
+  const { data: dailyTotals } = useQuery({
+    queryKey: ['director-matrix-daily-totals', statementKey, year],
+    enabled: dailyDrillDown,
+    queryFn: async () => {
+      const { data, error } = await dailyTable()
+        .select('row_label, month, amount')
+        .eq('statement_key', statementKey)
+        .eq('year', year);
+      if (error) throw error;
+
+      const totals: Record<string, Record<number, number>> = {};
+      for (const entry of data ?? []) {
+        const row = entry.row_label as string;
+        const monthIndex = Number(entry.month) - 1;
+        const amount = Number(entry.amount ?? 0);
+        totals[row] = {
+          ...totals[row],
+          [monthIndex]: (totals[row]?.[monthIndex] ?? 0) + amount,
+        };
+      }
+      return totals;
+    },
+  });
+
+  const hasDailyTotal = useMemo(() => {
+    return (row: string, monthIndex: number) => dailyTotals?.[row]?.[monthIndex] !== undefined;
+  }, [dailyTotals]);
 
   const systemValue = (row: string, monthIndex: number): string | null => {
     const v = systemValues?.[row]?.[monthIndex];
@@ -90,6 +135,12 @@ export function MonthlyMatrixCard({ title, statementKey, icon, accentClass, rows
       console.error('Failed to save matrix entry:', error);
       toast.error(`Could not save ${row} — ${MONTHS[monthIndex]}. Please retry.`);
     }
+  };
+
+  const openDailyDetails = (row: string, monthIndex: number) => {
+    navigate(
+      `/director-dashboard/matrix-daily/${statementKey}/${year}/${monthIndex + 1}/${encodeURIComponent(row)}`
+    );
   };
 
   return (
@@ -127,16 +178,40 @@ export function MonthlyMatrixCard({ title, statementKey, icon, accentClass, rows
                   </td>
                   {MONTHS.map((month, monthIndex) => (
                     <td key={month} className="border px-2 py-1.5 align-top">
-                      <Input
-                        type="text"
-                        inputMode="decimal"
-                        placeholder="0"
-                        aria-label={`${title} ${row} ${month} manual amount`}
-                        className="h-8 px-2 text-right text-sm"
-                        value={manualValues[row]?.[monthIndex] ?? ''}
-                        onChange={e => handleChange(row, monthIndex, e.target.value)}
-                        onBlur={() => handleBlur(row, monthIndex)}
-                      />
+                      {dailyDrillDown ? (
+                        <div className="flex items-center gap-1">
+                          <div
+                            className="flex h-8 min-w-0 flex-1 items-center justify-end rounded-md border border-input bg-gray-50 px-2 text-sm font-medium text-gray-900"
+                            aria-label={`${title} ${row} ${month} daily total`}
+                          >
+                            {hasDailyTotal(row, monthIndex)
+                              ? Math.round(dailyTotals?.[row]?.[monthIndex] ?? 0).toLocaleString('en-IN')
+                              : manualValues[row]?.[monthIndex] || '0'}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8 shrink-0"
+                            title={`Open date-wise entries for ${row} ${month}`}
+                            aria-label={`Open date-wise entries for ${row} ${month}`}
+                            onClick={() => openDailyDetails(row, monthIndex)}
+                          >
+                            <CalendarDays className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <Input
+                          type="text"
+                          inputMode="decimal"
+                          placeholder="0"
+                          aria-label={`${title} ${row} ${month} manual amount`}
+                          className="h-8 px-2 text-right text-sm"
+                          value={manualValues[row]?.[monthIndex] ?? ''}
+                          onChange={e => handleChange(row, monthIndex, e.target.value)}
+                          onBlur={() => handleBlur(row, monthIndex)}
+                        />
+                      )}
                       <div
                         className="mt-1 px-2 text-right text-xs text-gray-400"
                         title="Pulled from the software database"
@@ -151,8 +226,10 @@ export function MonthlyMatrixCard({ title, statementKey, icon, accentClass, rows
           </table>
         </div>
         <p className="mt-3 text-xs text-gray-500">
-          Top field: manual entry — saves automatically when you leave the cell. “Sys” shows the
-          value pulled from the software database once the source is connected.
+          {dailyDrillDown
+            ? 'Top field: date-wise total from the detail page. Use the calendar button in a month cell to enter daily entries. '
+            : 'Top field: manual entry — saves automatically when you leave the cell. '}
+          “Sys” shows the value pulled from the software database once the source is connected.
           {footnote ? ` ${footnote}` : ''}
         </p>
       </CardContent>

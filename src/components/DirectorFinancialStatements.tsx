@@ -63,6 +63,7 @@ export function DirectorFinancialStatements() {
         icon={<TrendingUp className="h-5 w-5 text-blue-600" />}
         accentClass="border-l-blue-500"
         rows={INCOME_ROWS}
+        dailyDrillDown
         footnote="Drill-downs planned: Hope IPD income by corporate; OPD income by private / corporate / insurance."
       />
       <MonthlyMatrixCard
@@ -72,6 +73,7 @@ export function DirectorFinancialStatements() {
         accentClass="border-l-emerald-500"
         rows={EXPENSE_ROWS}
         systemValues={labCharges ? { 'Lab charges': labCharges } : undefined}
+        dailyDrillDown
       />
       <MonthlyMatrixCard
         title="Receivables"
@@ -80,6 +82,7 @@ export function DirectorFinancialStatements() {
         icon={<ArrowDownToLine className="h-5 w-5 text-amber-600" />}
         accentClass="border-l-amber-500"
         rows={RECEIVABLE_ROWS}
+        dailyDrillDown
         footnote="Will expand to one row per corporate when the drill-down is built."
       />
       <MonthlyMatrixCard
@@ -89,6 +92,7 @@ export function DirectorFinancialStatements() {
         icon={<ArrowUpFromLine className="h-5 w-5 text-rose-600" />}
         accentClass="border-l-rose-500"
         rows={PAYABLE_ROWS}
+        dailyDrillDown
       />
       <MonthlyMatrixCard
         title="Marketing Executive Revenue"
@@ -97,6 +101,7 @@ export function DirectorFinancialStatements() {
         icon={<Megaphone className="h-5 w-5 text-violet-600" />}
         accentClass="border-l-violet-500"
         rows={marketingRows}
+        dailyDrillDown
       />
     </>
   );

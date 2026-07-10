@@ -25,6 +25,7 @@ const VpsClaudeUsage = lazy(() => import("../pages/VpsClaudeUsage"));
 const Accommodation = lazy(() => import("../pages/Accommodation"));
 const RoomManagement = lazy(() => import("../pages/RoomManagement"));
 const DirectorDashboard = lazy(() => import("../pages/DirectorDashboard"));
+const DirectorMatrixDailyEntries = lazy(() => import("../pages/DirectorMatrixDailyEntries"));
 
 // Import authentication pages
 import LoginPage from "./LoginPage";
@@ -169,7 +170,7 @@ const DeadlineTrackingRoute = () => {
 };
 
 // Director Dashboard route guard
-const DirectorRoute = () => {
+const DirectorRoute = ({ children }: { children?: ReactNode }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const DIRECTOR_EMAILS = ['cmd@hopehospital.com', 'finance@hopehospital.com'];
@@ -191,7 +192,7 @@ const DirectorRoute = () => {
     return null;
   }
 
-  return <Suspense fallback={<PageLoader />}><DirectorDashboard /></Suspense>;
+  return <Suspense fallback={<PageLoader />}>{children ?? <DirectorDashboard />}</Suspense>;
 };
 
 type SuperAdminRouteProps = {
@@ -225,6 +226,14 @@ export const AppRoutes = () => {
         <Route path="/vps-claude-usage" element={<Suspense fallback={<PageLoader />}><VpsClaudeUsage /></Suspense>} />
         <Route path="/dashboard" element={<Index />} />
         <Route path="/director-dashboard" element={<DirectorRoute />} />
+        <Route
+          path="/director-dashboard/matrix-daily/:statementKey/:year/:month/:rowLabel"
+          element={
+            <DirectorRoute>
+              <DirectorMatrixDailyEntries />
+            </DirectorRoute>
+          }
+        />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/signup-simple" element={<SimpleSignup />} />
