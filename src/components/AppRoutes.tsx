@@ -175,7 +175,7 @@ const DirectorRoute = ({ children }: { children?: ReactNode }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const DIRECTOR_EMAILS = ['cmd@hopehospital.com', 'finance@hopehospital.com'];
-  const DIRECTOR_ROLES = ['superadmin', 'super_admin'];
+  const DIRECTOR_ROLES = ['superadmin', 'super_admin', 'front_office', 'billing'];
   const userRole = (user as { role?: string }).role ?? '';
   const userEmail = user?.email?.toLowerCase() || '';
   const normalizedRole = userRole.toLowerCase().trim();

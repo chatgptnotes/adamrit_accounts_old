@@ -92,7 +92,7 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
         // Hide Director Dashboard for non-authorized users
         if (item.title === "Director Dashboard") {
           const DIRECTOR_EMAILS = ['cmd@hopehospital.com', 'finance@hopehospital.com'];
-          const DIRECTOR_ROLES = ['superadmin', 'super_admin'];
+          const DIRECTOR_ROLES = ['superadmin', 'super_admin', 'front_office', 'billing'];
           const userEmail = user?.email?.toLowerCase() || '';
           const userRole = user?.role || '';
           if (!DIRECTOR_EMAILS.includes(userEmail) && !DIRECTOR_ROLES.includes(userRole)) {

@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useCorporateData } from '@/hooks/useCorporateData';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -35,6 +36,13 @@ interface PatientEntry {
   panel: string;
   admission_date: string | null;
   package_amount: number;
+  referee_name: string | null;
+}
+
+interface PatientMatch {
+  name: string;
+  patients_id: string;
+  hospital_name: string | null;
 }
 
 const STATEMENT_TITLES: Record<string, string> = {
@@ -80,9 +88,52 @@ export default function DirectorMatrixDailyEntries() {
   const [values, setValues] = useState<DailyValues>({});
   const [savingDay, setSavingDay] = useState<number | null>(null);
   const [dialogDay, setDialogDay] = useState<number | null>(null);
-  const [patientForm, setPatientForm] = useState({ name: '', panel: 'Private', admissionDate: '', amount: '' });
+  const [patientForm, setPatientForm] = useState({ name: '', panel: 'Private', admissionDate: '', amount: '', referee: '' });
   const [savingPatient, setSavingPatient] = useState(false);
+  const [patientSearch, setPatientSearch] = useState('');
+  const [patientPicked, setPatientPicked] = useState(false);
   const { corporateOptions } = useCorporateData();
+
+  // Debounce the patient-name search so we don't query on every keystroke
+  useEffect(() => {
+    const timer = setTimeout(() => setPatientSearch(patientForm.name), 300);
+    return () => clearTimeout(timer);
+  }, [patientForm.name]);
+
+  const { data: patientMatches } = useQuery({
+    queryKey: ['matrix-patient-search', patientSearch],
+    enabled: dialogDay !== null && !patientPicked && patientSearch.trim().length >= 2,
+    queryFn: async () => {
+      const safe = patientSearch.trim().replace(/[%_,()]/g, '');
+      if (safe.length < 2) return [] as PatientMatch[];
+      // Searches Hope and Ayushman patients alike — no hospital filter.
+      const { data, error } = await (supabase as any)
+        .from('patients')
+        .select('name, patients_id, hospital_name')
+        .or(`name.ilike.%${safe}%,patients_id.ilike.%${safe}%`)
+        .order('name')
+        .limit(10);
+      if (error) throw error;
+      return data as PatientMatch[];
+    },
+  });
+
+  const { data: refereeOptions = [] } = useQuery({
+    queryKey: ['matrix-referee-options'],
+    enabled: dialogDay !== null,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('referees')
+        .select('name, specialty')
+        .order('name');
+      if (error) throw error;
+      return (data as { name: string; specialty: string | null }[]).map(r => ({
+        value: r.name,
+        label: r.specialty ? `${r.name} (${r.specialty})` : r.name,
+        selectedLabel: r.name,
+      }));
+    },
+  });
 
   const panelOptions = useMemo(() => {
     const options = corporateOptions.filter(opt => opt.label.toLowerCase() !== 'private');
@@ -117,7 +168,7 @@ export default function DirectorMatrixDailyEntries() {
     enabled: isValidRoute,
     queryFn: async () => {
       const { data, error } = await patientTable()
-        .select('id, day, patient_name, panel, admission_date, package_amount')
+        .select('id, day, patient_name, panel, admission_date, package_amount, referee_name')
         .eq('statement_key', statementKey)
         .eq('year', year)
         .eq('month', month)
@@ -258,6 +309,7 @@ export default function DirectorMatrixDailyEntries() {
         panel: patientForm.panel,
         admission_date: patientForm.admissionDate || null,
         package_amount: amount,
+        referee_name: patientForm.referee || null,
       });
       if (error) throw error;
 
@@ -267,7 +319,8 @@ export default function DirectorMatrixDailyEntries() {
 
       invalidateAll();
       setDialogDay(null);
-      setPatientForm({ name: '', panel: 'Private', admissionDate: '', amount: '' });
+      setPatientForm({ name: '', panel: 'Private', admissionDate: '', amount: '', referee: '' });
+      setPatientPicked(false);
     } catch (error) {
       console.error('Failed to add patient entry:', error);
       toast.error('Could not add the patient. Please retry.');
@@ -407,6 +460,9 @@ export default function DirectorMatrixDailyEntries() {
                                       : 'Adm date not set'}
                                     {' · '}Package ₹{Number(patient.package_amount).toLocaleString('en-IN')}
                                   </p>
+                                  {patient.referee_name && (
+                                    <p className="text-[11px] text-gray-500">Referee: {patient.referee_name}</p>
+                                  )}
                                 </div>
                                 <Button
                                   variant="ghost"
@@ -464,11 +520,51 @@ export default function DirectorMatrixDailyEntries() {
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label htmlFor="patient-name">Patient name</Label>
-              <Input
-                id="patient-name"
-                value={patientForm.name}
-                onChange={event => setPatientForm(prev => ({ ...prev, name: event.target.value }))}
-                placeholder="Patient name"
+              <div className="relative">
+                <Input
+                  id="patient-name"
+                  value={patientForm.name}
+                  onChange={event => {
+                    setPatientPicked(false);
+                    setPatientForm(prev => ({ ...prev, name: event.target.value }));
+                  }}
+                  placeholder="Search Hope / Ayushman patients"
+                  autoComplete="off"
+                />
+                {!patientPicked && (patientMatches?.length ?? 0) > 0 && (
+                  <div className="absolute z-50 mt-1 max-h-52 w-full overflow-y-auto rounded-md border bg-white shadow-md">
+                    {patientMatches!.map(match => (
+                      <button
+                        key={`${match.patients_id}-${match.hospital_name}`}
+                        type="button"
+                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-gray-100"
+                        onClick={() => {
+                          setPatientForm(prev => ({ ...prev, name: match.name }));
+                          setPatientPicked(true);
+                        }}
+                      >
+                        <span className="min-w-0 truncate">
+                          {match.name}
+                          <span className="ml-1.5 text-xs text-gray-500">{match.patients_id}</span>
+                        </span>
+                        <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] uppercase text-gray-600">
+                          {match.hospital_name || '—'}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Doctor referee</Label>
+              <SearchableSelect
+                options={refereeOptions}
+                value={patientForm.referee}
+                onValueChange={value => setPatientForm(prev => ({ ...prev, referee: value }))}
+                placeholder="Select doctor referee"
+                searchPlaceholder="Search referees..."
+                emptyText="No referee found."
               />
             </div>
             <div className="space-y-1.5">
