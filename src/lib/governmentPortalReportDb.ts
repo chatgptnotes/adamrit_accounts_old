@@ -530,60 +530,14 @@ export async function fetchGovernmentPortalReportById(
 
 type PortalSyncSource = {
   registration_id: string | null;
-  procedure_code: string | null;
   procedure_details: string | null;
   preauth_approved_amount: string | null;
   preauth_initiated_date: string | null;
 };
 
-function buildMasterPackageName(code: string | null, name: string | null): string {
-  return [code?.trim(), name?.trim()].filter(Boolean).join(' - ');
-}
-
-async function resolvePortalPackageName(row: PortalSyncSource): Promise<string> {
-  const procedureCode = row.procedure_code?.trim() || '';
-
-  if (procedureCode) {
-    const { data: yojanaProcedures, error: yojanaError } = await db
-      .from('yojana_mh_procedures')
-      .select('procedure_code, package_name, procedure_name, procedure_label')
-      .eq('procedure_code', procedureCode)
-      .limit(1);
-
-    if (yojanaError) {
-      console.error('Error matching Yojana procedure master:', yojanaError);
-    }
-
-    const yojanaProcedure = yojanaProcedures?.[0];
-    if (yojanaProcedure) {
-      const packageName = buildMasterPackageName(
-        yojanaProcedure.procedure_code,
-        yojanaProcedure.package_name || yojanaProcedure.procedure_name || yojanaProcedure.procedure_label,
-      );
-      if (packageName) return packageName;
-    }
-
-    const { data: pmjayPackages, error: pmjayError } = await db
-      .from('pmjay_mjpjay_packages')
-      .select('treatment_code, treatment_plan')
-      .eq('treatment_code', procedureCode)
-      .eq('is_active', true)
-      .limit(1);
-
-    if (pmjayError) {
-      console.error('Error matching PMJAY/MJPJAY package master:', pmjayError);
-    }
-
-    const pmjayPackage = pmjayPackages?.[0];
-    const pmjayPackageName = buildMasterPackageName(
-      pmjayPackage?.treatment_code || null,
-      pmjayPackage?.treatment_plan || null,
-    );
-    if (pmjayPackageName) return pmjayPackageName;
-  }
-
+function normalizePortalPackageName(raw: string | null): string {
   return [
-    ...new Set((row.procedure_details || '').split('|').map((part) => part.trim()).filter(Boolean)),
+    ...new Set((raw || '').split('|').map((part) => part.trim()).filter(Boolean)),
   ].join(', ');
 }
 
@@ -600,7 +554,7 @@ async function applyPortalRowToVisit(
 ): Promise<boolean> {
   const visitUpdate: Record<string, string> = {};
   // Portal exports repeat the value pipe-separated, e.g. "Severe sepsis|Severe sepsis"
-  const packageName = await resolvePortalPackageName(row);
+  const packageName = normalizePortalPackageName(row.procedure_details);
   if (packageName) visitUpdate.package_name = packageName;
   const amount = (row.preauth_approved_amount || '').replace(/[^0-9.]/g, '');
   if (amount) visitUpdate.package_amount = amount;
@@ -635,7 +589,7 @@ export async function syncPortalDataForRegistrationId(registrationId: string): P
 
   const { data: row, error } = await db
     .from('government_portal_report_rows')
-    .select('registration_id, procedure_code, procedure_details, preauth_approved_amount, preauth_initiated_date')
+    .select('registration_id, procedure_details, preauth_approved_amount, preauth_initiated_date')
     .eq('registration_id', trimmed)
     .order('created_at', { ascending: false })
     .limit(1)
@@ -671,7 +625,6 @@ export async function syncGovernmentPortalReportToVisits(
     if (!registrationId) continue;
     rowsByRegistrationId.set(registrationId, {
       registration_id: registrationId,
-      procedure_code: row.values['Procedure Code'] || null,
       procedure_details: row.values['Procedure Details'] || null,
       preauth_approved_amount: row.values['Preauth Approved Amount'] || null,
       preauth_initiated_date: row.values['Preauth Initiated Date'] || null,

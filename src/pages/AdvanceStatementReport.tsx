@@ -20,7 +20,10 @@ import {
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { BillDocumentsSection } from '@/pages/corporate-bill/BillDocumentsSection';
-import { syncPortalDataForRegistrationId } from '@/lib/governmentPortalReportDb';
+import {
+  fetchLatestGovernmentPortalReport,
+  syncPortalDataForRegistrationId,
+} from '@/lib/governmentPortalReportDb';
 import { toast } from 'sonner';
 import '@/styles/print.css';
 
@@ -56,6 +59,9 @@ const matchesRowSearchTerm = (item: any, searchTerm: string) => {
     normalizeLookupValue(token).includes(search)
   );
 };
+
+const normalizePortalProcedureDetails = (value?: string | null) =>
+  [...new Set((value || '').split('|').map((part) => part.trim()).filter(Boolean))].join(', ');
 
 const AdvanceStatementReport = () => {
   const navigate = useNavigate();
@@ -114,6 +120,11 @@ const AdvanceStatementReport = () => {
   const [packages, setPackages] = useState<Array<{ id: string; name: string }>>([]);
   const [diagnosesList, setDiagnosesList] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedRow, setSelectedRow] = useState<any | null>(null);
+  const { data: latestPortalReport } = useQuery({
+    queryKey: ['latest-government-portal-report-for-advance-statement'],
+    queryFn: () => fetchLatestGovernmentPortalReport(),
+    staleTime: 5 * 60_000,
+  });
 
   // Debounce search term
   useEffect(() => {
@@ -553,11 +564,40 @@ const AdvanceStatementReport = () => {
     [allData, activeSearchTerm]
   );
 
+  const matchedPortalRegistrationIds = useMemo(() => {
+    const ids = (latestPortalReport?.report.rows || [])
+      .map((row) => row.values['Registration ID']?.trim())
+      .filter((value): value is string => Boolean(value));
+    return new Set(ids);
+  }, [latestPortalReport]);
+
+  const portalProcedurePackages = useMemo(() => {
+    const unique = new Map<string, { id: string; name: string }>();
+    for (const row of latestPortalReport?.report.rows || []) {
+      const name = normalizePortalProcedureDetails(row.values['Procedure Details']);
+      if (!name || unique.has(name)) continue;
+      unique.set(name, { id: name, name });
+    }
+    return [...unique.values()];
+  }, [latestPortalReport]);
+
+  const allPackageOptions = useMemo(
+    () => Array.from(new Map([...portalProcedurePackages, ...packages].map((pkg) => [pkg.name, pkg])).values()),
+    [portalProcedurePackages, packages],
+  );
+
+  const isPortalMatchedRegistrationId = (value: string) =>
+    matchedPortalRegistrationIds.has(value.trim());
+
   useEffect(() => {
     if (!selectedRow) return;
-    const stillVisible = advanceData.some((row) => row.id === selectedRow.id);
-    if (!stillVisible) {
+    const refreshedRow = advanceData.find((row) => row.id === selectedRow.id);
+    if (!refreshedRow) {
       setSelectedRow(null);
+      return;
+    }
+    if (refreshedRow !== selectedRow) {
+      setSelectedRow(refreshedRow);
     }
   }, [advanceData, selectedRow]);
 
@@ -1544,22 +1584,32 @@ const AdvanceStatementReport = () => {
                         <TableCell className="text-center">{index + 1}</TableCell>
                         <TableCell>{patientDetails}</TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}>
-                          <Input
-                            defaultValue={(item as any).yojana_registration_id || ''}
-                            placeholder="Registration ID..."
-                            className="h-8 text-xs"
-                            onBlur={(e) => {
-                              const v = e.target.value.trim();
-                              if (v !== ((item as any).yojana_registration_id || '')) {
-                                handleRegistrationIdUpdate(item.id, v);
-                              }
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                (e.target as HTMLInputElement).blur();
-                              }
-                            }}
-                          />
+                          <div
+                            className={
+                              `rounded-md border p-0.5 transition-colors ${
+                                isPortalMatchedRegistrationId((item as any).yojana_registration_id || '')
+                                  ? 'border-emerald-400 bg-emerald-50'
+                                  : 'border-transparent'
+                              }`
+                            }
+                          >
+                            <Input
+                              defaultValue={(item as any).yojana_registration_id || ''}
+                              placeholder="Registration ID..."
+                              className="h-8 border-0 bg-transparent text-xs shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                              onBlur={(e) => {
+                                const v = e.target.value.trim();
+                                if (v !== ((item as any).yojana_registration_id || '')) {
+                                  handleRegistrationIdUpdate(item.id, v);
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  (e.target as HTMLInputElement).blur();
+                                }
+                              }}
+                            />
+                          </div>
                         </TableCell>
                         {hospitalType === 'hope' && (
                           <TableCell>{corporateDisplay}</TableCell>
@@ -1622,7 +1672,7 @@ const AdvanceStatementReport = () => {
                         </TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}>
                           <SearchableSelect
-                            options={packages.map(pkg => ({ value: pkg.name, label: pkg.name }))}
+                            options={allPackageOptions.map(pkg => ({ value: pkg.name, label: pkg.name }))}
                             value={(item as any).package_name || ''}
                             onValueChange={(value) => handlePackageNameUpdate(item.id, value)}
                             placeholder="Select package..."
@@ -1750,7 +1800,7 @@ const AdvanceStatementReport = () => {
                   <h3 className="text-sm font-semibold mb-2">Package</h3>
                   {detailRow('Package Name', (
                     <SearchableSelect
-                      options={packages.map(pkg => ({ value: pkg.name, label: pkg.name }))}
+                      options={allPackageOptions.map(pkg => ({ value: pkg.name, label: pkg.name }))}
                       value={selectedRow.package_name || ''}
                       onValueChange={(value) => {
                         handlePackageNameUpdate(selectedRow.id, value);
