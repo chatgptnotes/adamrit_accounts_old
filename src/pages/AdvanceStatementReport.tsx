@@ -20,7 +20,6 @@ import {
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { BillDocumentsSection } from '@/pages/corporate-bill/BillDocumentsSection';
-import { syncPortalDataForRegistrationId } from '@/lib/governmentPortalReportDb';
 import { toast } from 'sonner';
 import '@/styles/print.css';
 
@@ -129,16 +128,20 @@ const AdvanceStatementReport = () => {
     setSearchInput(searchParamTerm);
   }, [searchParamTerm]);
 
-  // Fetch packages for the searchable dropdown: MJPJAY/PMJAY package master
-  // (the table behind the Government Portal Report data) first, then CGHS surgeries.
+  // Fetch packages for the searchable dropdown from both Yojana masters,
+  // followed by CGHS surgeries.
   useEffect(() => {
     const fetchPackages = async () => {
-      const [pmjayRes, cghsRes] = await Promise.all([
+      const [pmjayRes, yojanaRes, cghsRes] = await Promise.all([
         supabase
           .from('pmjay_mjpjay_packages')
           .select('id, treatment_code, treatment_plan')
           .eq('is_active', true)
           .order('treatment_plan'),
+        supabase
+          .from('yojana_mh_procedures')
+          .select('id, procedure_code, package_code, package_name, procedure_name, procedure_label')
+          .order('package_name'),
         supabase.from('cghs_surgery').select('id, name').eq('is_active', true).order('name'),
       ]);
 
@@ -149,7 +152,20 @@ const AdvanceStatementReport = () => {
         }))
         .filter((p) => p.name);
 
-      setPackages([...pmjay, ...(cghsRes.data || [])]);
+      const yojana = (yojanaRes.data || [])
+        .map((p: any) => ({
+          id: p.id,
+          name: [
+            p.procedure_code,
+            p.package_name || p.procedure_name || p.procedure_label || p.package_code,
+          ].filter(Boolean).join(' - '),
+        }))
+        .filter((p) => p.name);
+
+      const uniquePackages = Array.from(
+        new Map([...yojana, ...pmjay, ...(cghsRes.data || [])].map((pkg) => [pkg.name, pkg])).values(),
+      );
+      setPackages(uniquePackages);
     };
 
     fetchPackages();
@@ -781,20 +797,7 @@ const AdvanceStatementReport = () => {
       return;
     }
 
-    let portalMatched = false;
-    if (value) {
-      try {
-        portalMatched = await syncPortalDataForRegistrationId(value);
-      } catch (syncError) {
-        console.error('Error syncing portal data for Registration ID:', syncError);
-      }
-    }
-
-    toast.success(
-      portalMatched
-        ? 'Registration ID saved — portal data auto-filled'
-        : 'Registration ID saved',
-    );
+    toast.success('Registration ID saved');
     queryClient.invalidateQueries({ queryKey: ['advance-statement-report-currently-admitted'] });
   };
 
