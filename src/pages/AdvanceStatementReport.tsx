@@ -589,6 +589,14 @@ const AdvanceStatementReport = () => {
   const isPortalMatchedRegistrationId = (value: string) =>
     matchedPortalRegistrationIds.has(value.trim());
 
+  const refreshAdvanceStatementData = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['advance-statement-report-currently-admitted'] });
+    await queryClient.refetchQueries({
+      queryKey: ['advance-statement-report-currently-admitted'],
+      type: 'active',
+    });
+  };
+
   useEffect(() => {
     if (!selectedRow) return;
     const refreshedRow = advanceData.find((row) => row.id === selectedRow.id);
@@ -796,7 +804,7 @@ const AdvanceStatementReport = () => {
     if (error) {
       console.error('Error updating package days:', error);
     } else {
-      queryClient.invalidateQueries({ queryKey: ['advance-statement-report-currently-admitted'] });
+      await refreshAdvanceStatementData();
     }
   };
 
@@ -809,7 +817,7 @@ const AdvanceStatementReport = () => {
     if (error) {
       console.error('Error updating package amount:', error);
     } else {
-      queryClient.invalidateQueries({ queryKey: ['advance-statement-report-currently-admitted'] });
+      await refreshAdvanceStatementData();
     }
   };
 
@@ -822,7 +830,7 @@ const AdvanceStatementReport = () => {
     if (error) {
       console.error('Error updating package name:', error);
     } else {
-      queryClient.invalidateQueries({ queryKey: ['advance-statement-report-currently-admitted'] });
+      await refreshAdvanceStatementData();
     }
   };
 
@@ -847,12 +855,17 @@ const AdvanceStatementReport = () => {
       }
     }
 
+    if (selectedRow?.id === visitId) {
+      setSelectedRow({ ...selectedRow, yojana_registration_id: value || null });
+    }
+
+    await refreshAdvanceStatementData();
+
     toast.success(
       portalMatched
         ? 'Registration ID saved — portal data auto-filled'
         : 'Registration ID saved',
     );
-    queryClient.invalidateQueries({ queryKey: ['advance-statement-report-currently-admitted'] });
   };
 
   const handleDiagnosisUpdate = async (visitId: string, diagnosisId: string) => {
