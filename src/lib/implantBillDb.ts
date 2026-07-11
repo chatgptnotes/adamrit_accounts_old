@@ -17,6 +17,7 @@ export interface SavedImplantBill {
   billDate: string | null;
   vendorName: string;
   vendorAddress: string;
+  referenceLink: string;
   items: ImplantBillItem[];
   totalAmount: number;
 }
@@ -47,6 +48,7 @@ export async function fetchImplantBillByVisit(visitId: string): Promise<SavedImp
     billDate: data.bill_date,
     vendorName: data.vendor_name || '',
     vendorAddress: data.vendor_address || '',
+    referenceLink: data.reference_link || '',
     items: (data.items || []) as ImplantBillItem[],
     totalAmount: Number(data.total_amount) || 0,
   };
@@ -68,6 +70,7 @@ export async function saveImplantBill(payload: {
   billDate: string;
   vendorName: string;
   vendorAddress: string;
+  referenceLink: string;
   items: ImplantBillItem[];
   totalAmount: number;
 }): Promise<void> {
@@ -85,6 +88,7 @@ export async function saveImplantBill(payload: {
     bill_date: payload.billDate || null,
     vendor_name: payload.vendorName,
     vendor_address: payload.vendorAddress,
+    reference_link: payload.referenceLink || null,
     items: payload.items,
     total_amount: payload.totalAmount,
     updated_at: new Date().toISOString(),

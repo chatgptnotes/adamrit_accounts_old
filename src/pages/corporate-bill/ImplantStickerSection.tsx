@@ -23,6 +23,7 @@ interface StickerDetails {
   brandName: string;
   manufacturerName: string;
   manufacturerAddress: string;
+  referenceLink: string;
   primaryCatNo: string;
   primaryQuantity: string;
   primaryMrp: string;
@@ -49,6 +50,7 @@ const makeDefaultDetails = (implantName: string): StickerDetails => ({
   manufacturerName: 'YOGESHWAR IMPLANT (I) PVT LTD',
   manufacturerAddress:
     'Sr.No.91 Hissa No.1 A R Building,\nShobha Complex, Rajkamal Compound,\nKalher village, Tal. Bhiwandi-14\nDistrict: Thane-421302\nMob: 9321142084',
+  referenceLink: 'https://docs.google.com/drawings/d/1WdiUCtap-FuRiKIDNkXeM7LnP_gt3PAWisVIZ-ps_tE/edit',
   primaryCatNo: '2435',
   primaryQuantity: '01 Plate & 03 PC Screw',
   primaryMrp: '20000-PER PC',
@@ -393,6 +395,7 @@ export function ImplantStickerSection({
           .brand-strip span { position: relative; color: #dff6ff; font-size: 14pt; font-weight: 900; line-height: 1; letter-spacing: .26em; }
           .brand-strip sup { position: absolute; top: -2.5mm; right: -3.5mm; color: #fff; font-size: 5pt; }
           .mfg-date { position: absolute; bottom: 2mm; left: 50%; transform: translateX(-50%); color: #475569; font-size: 7pt; font-weight: 800; }
+          .ref-link { position: absolute; left: 4mm; right: 4mm; bottom: 1.2mm; color: #64748b; font-size: 5.5pt; font-weight: 700; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
           .summary { width: 142mm; margin: 5mm auto 0; display: grid; grid-template-columns: 1fr 1fr; gap: 2mm 8mm; font-size: 9pt; font-weight: 700; }
           .summary .wide { grid-column: 1 / -1; }
           @page { size: A4 portrait; margin: 10mm; }
@@ -424,6 +427,7 @@ export function ImplantStickerSection({
             <div>Batch Numbers: ${escapeHtml(batchNumbers)}</div>
             <div>Date of surgery: ${escapeHtml(surgeryDateLabel)}</div>
             <div class="wide">Name of Implant: ${escapeHtml(surgeryName)}</div>
+            <div class="wide">Reference Link: ${escapeHtml(details.referenceLink)}</div>
           </div>
         </main>
       </body>
@@ -503,6 +507,7 @@ export function ImplantStickerSection({
             <div><strong>Batch Numbers:</strong> {batchNumbers}</div>
             <div><strong>Date of surgery:</strong> {surgeryDateLabel}</div>
             <div className="col-span-2"><strong>Name of Implant:</strong> {surgeryName}</div>
+            <div className="col-span-2 break-all"><strong>Reference Link:</strong> {details.referenceLink}</div>
           </div>
         </div>
 
@@ -521,6 +526,7 @@ export function ImplantStickerSection({
           <Field label="Brand" value={details.brandName} onChange={(value) => updateDetail('brandName', value)} />
           <Field label="Manufacturer" value={details.manufacturerName} onChange={(value) => updateDetail('manufacturerName', value)} />
           <TextareaField label="Address" value={details.manufacturerAddress} onChange={(value) => updateDetail('manufacturerAddress', value)} rows={5} />
+          <Field label="Reference Link" value={details.referenceLink} onChange={(value) => updateDetail('referenceLink', value)} />
           <Field label="Primary Cat No." value={details.primaryCatNo} onChange={(value) => updateDetail('primaryCatNo', value)} />
           <Field label="Primary Qty" value={details.primaryQuantity} onChange={(value) => updateDetail('primaryQuantity', value)} />
           <Field label="Primary MRP" value={details.primaryMrp} onChange={(value) => updateDetail('primaryMrp', value)} />

@@ -18,6 +18,7 @@ interface ImplantBillSectionProps {
 const VENDOR_NAME = 'M.L. ENTERPRISES';
 const VENDOR_ADDRESS = 'B-6, PLOT NO. 3, CHAYA COMPLEX, WATHODA RING ROAD, NAGPUR';
 const VENDOR_PHONE = 'TEL. 0712-2715156';
+const DEFAULT_REFERENCE_LINK = 'https://docs.google.com/document/d/1kmDCQDuONP2-_lUYSL_vr9IQedsUrEtCRNieAIRVe0E/edit?tab=t.0';
 const HOSPITAL_LINE_1 = 'Hope Hospital, 02, Tekanaka, Kamptee Road,';
 const HOSPITAL_LINE_2 = 'Nagpur-440017';
 
@@ -64,6 +65,7 @@ export function ImplantBillSection({
   const [billNo, setBillNo] = useState(0);
   const [billDate, setBillDate] = useState(defaultBillDate);
   const [billPatientName, setBillPatientName] = useState(patientName);
+  const [referenceLink, setReferenceLink] = useState(DEFAULT_REFERENCE_LINK);
   const [items, setItems] = useState<ImplantBillItem[]>(() => defaultItems(defaultImplantName));
 
   useEffect(() => {
@@ -76,12 +78,14 @@ export function ImplantBillSection({
         if (saved) {
           setBillNo(saved.billNo);
           setBillDate(saved.billDate || defaultBillDate);
+          setReferenceLink(saved.referenceLink || DEFAULT_REFERENCE_LINK);
           setItems(saved.items.length ? saved.items : defaultItems(defaultImplantName));
         } else {
           const nextNo = await fetchNextImplantBillNo();
           if (cancelled) return;
           setBillNo(nextNo || 1244);
           setBillDate(defaultBillDate);
+          setReferenceLink(DEFAULT_REFERENCE_LINK);
           setItems(defaultItems(defaultImplantName));
         }
         setBillPatientName(patientName || '');
@@ -130,6 +134,7 @@ export function ImplantBillSection({
         billDate,
         vendorName: VENDOR_NAME,
         vendorAddress: VENDOR_ADDRESS,
+        referenceLink,
         items: activeItems,
         totalAmount: total,
       });
@@ -168,6 +173,7 @@ export function ImplantBillSection({
             .title { text-align: center; font-size: 30pt; font-weight: 700; letter-spacing: .01em; }
             .vendor-address { text-align: center; font-size: 14pt; font-weight: 700; margin-top: 8px; }
             .vendor-phone { text-align: center; font-size: 13pt; font-weight: 700; margin-top: 4px; }
+            .reference-link { text-align: center; font-size: 9pt; font-family: Arial, sans-serif; font-weight: 700; color: #475569; margin-top: 6px; word-break: break-all; }
             .top-box { display: grid; grid-template-columns: 1.55fr 1fr; border: 1px solid #000; min-height: 116px; margin-top: 6px; }
             .top-left { border-right: 1px solid #000; padding: 10px 12px; font-size: 15pt; line-height: 1.25; }
             .top-right { padding: 10px 12px; font-size: 15pt; line-height: 1.35; }
@@ -212,6 +218,7 @@ export function ImplantBillSection({
             <div class="title">${VENDOR_NAME}</div>
             <div class="vendor-address">${VENDOR_ADDRESS}</div>
             <div class="vendor-phone">${VENDOR_PHONE}</div>
+            <div class="reference-link">Reference Link: ${escapeHtml(referenceLink)}</div>
             <div class="top-box">
               <div class="top-left">
                 <div>M/S&nbsp;&nbsp;&nbsp;<strong>${escapeHtml(billPatientName)}</strong></div>
@@ -297,6 +304,9 @@ export function ImplantBillSection({
           <div className="text-center text-[40px] font-bold leading-none tracking-wide">{VENDOR_NAME}</div>
           <div className="mt-3 text-center text-[18px] font-bold">{VENDOR_ADDRESS}</div>
           <div className="mt-1 text-center text-[17px] font-bold">{VENDOR_PHONE}</div>
+          <div className="mt-1 break-all text-center text-[11px] font-semibold text-slate-600">
+            Reference Link: {referenceLink}
+          </div>
 
           <div className="mt-2 grid min-h-[116px] grid-cols-[1.55fr_1fr] border border-black">
             <div className="border-r border-black p-3 text-[20px] leading-tight">
@@ -331,6 +341,17 @@ export function ImplantBillSection({
                 />
               </label>
             </div>
+          </div>
+
+          <div className="mt-4">
+            <label className="block space-y-1 text-sm">
+              <span className="block text-xs font-semibold text-gray-500">Reference Link</span>
+              <input
+                value={referenceLink}
+                onChange={(event) => setReferenceLink(event.target.value)}
+                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+              />
+            </label>
           </div>
 
           <div className="mt-7 grid grid-cols-[1fr_105px_105px_115px] border border-black">
