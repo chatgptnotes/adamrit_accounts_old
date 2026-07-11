@@ -14,6 +14,7 @@ export const PATIENT_DOC_CATEGORIES = [
   { id: "ot_photos", label: "OT Photos" },
   { id: "implant_invoice", label: "Implant Invoice" },
   { id: "implant_sticker", label: "Implant Sticker" },
+  { id: "discharge_summary", label: "Discharge Summary" },
 ] as const;
 
 export type PatientDocCategory =

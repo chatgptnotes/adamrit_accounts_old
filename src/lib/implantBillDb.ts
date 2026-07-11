@@ -27,6 +27,7 @@ export interface SavedImplantSticker {
   batchNumbers: string;
   surgeryDate: string | null;
   surgeryName: string;
+  details: Record<string, string>;
 }
 
 export async function fetchImplantBillByVisit(visitId: string): Promise<SavedImplantBill | null> {
@@ -114,6 +115,7 @@ export async function fetchImplantStickerByVisit(visitId: string): Promise<Saved
     batchNumbers: data.batch_numbers || '',
     surgeryDate: data.surgery_date,
     surgeryName: data.surgery_name || '',
+    details: (data.details || {}) as Record<string, string>,
   };
 }
 
@@ -122,6 +124,7 @@ export async function saveImplantSticker(payload: {
   batchNumbers: string;
   surgeryDate: string;
   surgeryName: string;
+  details?: Record<string, string>;
 }): Promise<void> {
   const { data: existing, error: existingError } = await db
     .from('implant_stickers')
@@ -136,6 +139,7 @@ export async function saveImplantSticker(payload: {
     batch_numbers: payload.batchNumbers,
     surgery_date: payload.surgeryDate || null,
     surgery_name: payload.surgeryName,
+    details: payload.details || {},
     updated_at: new Date().toISOString(),
   };
 

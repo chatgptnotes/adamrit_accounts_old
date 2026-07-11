@@ -333,8 +333,7 @@ const CorporateBill = () => {
         {actualVisitId && (
           <ImplantBillSection
             visitId={actualVisitId}
-            hospitalName={hospitalName}
-            hospitalAddress={hospitalConfig?.contactInfo?.address || ''}
+            patientName={patientInfo.patientName || ''}
             defaultBillDate={surgeryDate}
             defaultImplantName={implantName}
           />

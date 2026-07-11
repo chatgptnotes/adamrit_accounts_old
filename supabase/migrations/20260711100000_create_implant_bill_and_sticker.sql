@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS public.implant_stickers (
   batch_numbers TEXT,
   surgery_date DATE,
   surgery_name TEXT,
+  details JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

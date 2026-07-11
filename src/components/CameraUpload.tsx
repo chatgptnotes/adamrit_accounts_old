@@ -87,7 +87,8 @@ type BillDocumentCategory =
   | 'ot_notes'
   | 'ot_photos'
   | 'implant_invoice'
-  | 'implant_sticker';
+  | 'implant_sticker'
+  | 'discharge_summary';
 
 type ClinicalUploadCategory =
   | 'prescription'
@@ -141,6 +142,7 @@ const BILL_DOCUMENT_OPTIONS: { value: BillDocumentCategory; label: string }[] = 
   { value: 'ot_photos', label: 'OT Photos' },
   { value: 'implant_invoice', label: 'Implant Invoice' },
   { value: 'implant_sticker', label: 'Implant Sticker' },
+  { value: 'discharge_summary', label: 'Discharge Summary' },
 ];
 
 const CLINICAL_UPLOAD_OPTIONS: { value: ClinicalUploadCategory; label: string }[] = [
@@ -505,7 +507,7 @@ Return ONLY valid JSON with these fields:
 {
   "patientName": string or null,
   "patientId": string or null,
-  "category": one of "treatment_sheet"|"monitor_chart"|"dialysis"|"lab_investigation"|"radiology_investigation"|"ot_notes"|"ot_photos"|"implant_invoice"|"implant_sticker"|"report"|"prescription"|"opd_summary"|"xray"|"mri_report"|"ct_scan_report"|"document"|"photo"|"id_proof" or null,
+  "category": one of "treatment_sheet"|"monitor_chart"|"dialysis"|"lab_investigation"|"radiology_investigation"|"ot_notes"|"ot_photos"|"implant_invoice"|"implant_sticker"|"discharge_summary"|"report"|"prescription"|"opd_summary"|"xray"|"mri_report"|"ct_scan_report"|"document"|"photo"|"id_proof" or null,
   "notes": string or null
 }
 
@@ -518,6 +520,7 @@ Category mapping hints:
 - OT photos, operation theatre photos: "ot_photos"
 - Implant invoice: "implant_invoice"
 - Implant sticker: "implant_sticker"
+- Discharge summary: "discharge_summary"
 - MRI report: "mri_report"
 - CT scan report: "ct_scan_report"
 - OPD summary, OPD consultation: "opd_summary"
@@ -526,7 +529,7 @@ Category mapping hints:
 - Blood test, lab report, pathology → "report"
 - Treatment sheet, treatment chart, medication chart, drug chart, nursing chart → "treatment_sheet"
 - Prescription, medication list, doctor prescription → "prescription"
-- Discharge summary, referral letter, consent form → "document"
+- Referral letter, consent form → "document"
 - Patient photo, wound photo → "photo"
 
 Extract patient name if mentioned. Extract any ID/UHID if mentioned. Put the document type description in "notes".`;
