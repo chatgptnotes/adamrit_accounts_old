@@ -6,6 +6,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
 import { isUuid } from '@/utils/visitId';
 import { BillDocumentsSection } from '@/pages/corporate-bill/BillDocumentsSection';
+import { ImplantBillSection } from '@/pages/corporate-bill/ImplantBillSection';
+import { ImplantStickerSection } from '@/pages/corporate-bill/ImplantStickerSection';
 
 const CorporateBill = () => {
   const { hospitalConfig } = useAuth();
@@ -16,6 +18,9 @@ const CorporateBill = () => {
   const [patientId, setPatientId] = useState<string | undefined>();
   const [diagnosis, setDiagnosis] = useState('');
   const [rows, setRows] = useState([{ item: '', procedure: '', rate: '', qty: '', amount: '' }]);
+  const [surgeryDate, setSurgeryDate] = useState('');
+  const [implantName, setImplantName] = useState('');
+  const [actualVisitId, setActualVisitId] = useState('');
 
   useEffect(() => {
     if (visitId) fetchBillData();
@@ -39,6 +44,9 @@ const CorporateBill = () => {
       const patient = visit.patients;
       setPatientId(patient?.id);
       const actualVisitId = visit.visit_id || visitId;
+      setActualVisitId(actualVisitId);
+      setSurgeryDate(visit.surgery_date ? format(new Date(visit.surgery_date), 'yyyy-MM-dd') : '');
+      setImplantName(visit.package_name || '');
 
       // Fetch bill number from bills table
       const { data: billData } = await supabase
@@ -52,6 +60,8 @@ const CorporateBill = () => {
 
       setPatientInfo({
         patientName: patient?.name || '',
+        age: patient?.age || '',
+        gender: patient?.gender || '',
         ageSex: `${patient?.age || ''}Y / ${patient?.gender || ''}`,
         address: patient?.address || '',
         dateOfRegistration: patient?.created_at ? format(new Date(patient.created_at), 'dd-MM-yyyy') : '',
@@ -318,6 +328,35 @@ const CorporateBill = () => {
           </div>
         </div>
       </div>
+
+        {/* Implant Bill (vendor invoice for implants used in this surgery) */}
+        {actualVisitId && (
+          <ImplantBillSection
+            visitId={actualVisitId}
+            hospitalName={hospitalName}
+            hospitalAddress={hospitalConfig?.contactInfo?.address || ''}
+            defaultBillDate={surgeryDate}
+            defaultImplantName={implantName}
+          />
+        )}
+
+        {/* Implant Sticker (patient-header cover sheet for pasting the implant pouch sticker) */}
+        {actualVisitId && (
+          <ImplantStickerSection
+            visitId={actualVisitId}
+            patient={{
+              patientName: patientInfo.patientName || '',
+              patientId: patientInfo.registrationNo || '',
+              age: patientInfo.age ? `${patientInfo.age}` : '',
+              sex: patientInfo.gender || '',
+              admissionDate: patientInfo.dateOfRegistration || '',
+              dischargeDate: patientInfo.dateOfDischarge || '',
+              hospitalName,
+            }}
+            defaultSurgeryDate={surgeryDate}
+            defaultSurgeryName={implantName}
+          />
+        )}
 
         {/* Documents side panel (hidden on print) */}
         <aside className="print:hidden w-full max-w-full shrink-0 xl:w-[340px]">
