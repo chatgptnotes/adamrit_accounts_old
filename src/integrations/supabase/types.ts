@@ -3248,6 +3248,7 @@ export type Database = {
           entry_date: string
           hospital_type: string
           id: string
+          is_hidden: boolean
           notes: string | null
           patient_name: string
           rm_name: string | null
@@ -3262,6 +3263,7 @@ export type Database = {
           entry_date?: string
           hospital_type: string
           id?: string
+          is_hidden?: boolean
           notes?: string | null
           patient_name: string
           rm_name?: string | null
@@ -3276,6 +3278,7 @@ export type Database = {
           entry_date?: string
           hospital_type?: string
           id?: string
+          is_hidden?: boolean
           notes?: string | null
           patient_name?: string
           rm_name?: string | null
@@ -3291,6 +3294,27 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      daily_revenue_report_approvals: {
+        Row: {
+          approved_at: string
+          approved_by_email: string | null
+          created_at: string
+          entry_date: string
+        }
+        Insert: {
+          approved_at?: string
+          approved_by_email?: string | null
+          created_at?: string
+          entry_date: string
+        }
+        Update: {
+          approved_at?: string
+          approved_by_email?: string | null
+          created_at?: string
+          entry_date?: string
+        }
+        Relationships: []
       }
       death_certificates: {
         Row: {

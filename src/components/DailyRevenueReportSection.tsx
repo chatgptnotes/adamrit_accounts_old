@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
-import { Edit2, Eye, Plus, Printer, Trash2, Users, Save } from 'lucide-react';
+import { CheckCircle2, Edit2, Eye, EyeOff, Plus, Printer, RotateCcw, Trash2, Users, Save } from 'lucide-react';
 
 interface VisitRow {
   id: string;
@@ -33,6 +33,7 @@ interface OverrideRow {
   cost: number;
   cut: number;
   hospital_type: string;
+  is_hidden: boolean;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -56,6 +57,7 @@ interface DisplayRow {
   cutIsSuggested: boolean; // true when cut was computed from default %, not saved
   cost_source: CostSource;
   isManual: boolean;
+  isHidden: boolean;
   category: RowCategory;
 }
 
@@ -127,6 +129,7 @@ export function DailyRevenueReportSection() {
   // Default cut % applied to rows without a saved cut. Persists in localStorage.
   const [detailsRow, setDetailsRow] = useState<DisplayRow | null>(null);
   const [onlyWithRm, setOnlyWithRm] = useState<boolean>(true);
+  const [showHidden, setShowHidden] = useState<boolean>(false);
   const [patientTypeFilter, setPatientTypeFilter] = useState<PatientTypeFilter>('OPD');
 
   const [defaultCutPercent, setDefaultCutPercent] = useState<number>(() => {
@@ -251,6 +254,24 @@ export function DailyRevenueReportSection() {
     },
   });
 
+  // Approval is date-specific: after approval, that day's report becomes a
+  // read-only record. A separate table is used because a report can contain
+  // visits that do not have a saved override row yet.
+  const approvalQuery = useQuery({
+    queryKey: ['dailyRevenueApproval', reportDate],
+    queryFn: async (): Promise<{ approved_at: string; approved_by_email: string | null } | null> => {
+      const { data, error } = await supabase
+        .from('daily_revenue_report_approvals' as never)
+        .select('approved_at, approved_by_email')
+        .eq('entry_date', reportDate)
+        .maybeSingle();
+      if (error) throw error;
+      return data as unknown as { approved_at: string; approved_by_email: string | null } | null;
+    },
+  });
+
+  const isApproved = Boolean(approvalQuery.data?.approved_at);
+
   const rows: DisplayRow[] = useMemo(() => {
     const visits = visitsQuery.data ?? [];
     const overrides = overridesQuery.data ?? [];
@@ -309,6 +330,7 @@ export function DailyRevenueReportSection() {
         cutIsSuggested: !hasSavedCut && suggestedCut > 0,
         cost_source,
         isManual: false,
+        isHidden: Boolean(o?.is_hidden),
         category: rowIsDirect ? 'direct' : 'main',
       };
     });
@@ -332,6 +354,7 @@ export function DailyRevenueReportSection() {
           cutIsSuggested: false,
           cost_source: 'override' as const,
           isManual: true,
+          isHidden: Boolean(o.is_hidden),
           category: rowIsDirect ? 'direct' : 'manual',
         };
       });
@@ -343,8 +366,11 @@ export function DailyRevenueReportSection() {
     if (onlyWithRm) {
       all = all.filter((r) => !isDirect(r.rm_name));
     }
+    if (!showHidden) {
+      all = all.filter((r) => !r.isHidden);
+    }
     return all;
-  }, [visitsQuery.data, overridesQuery.data, advanceQuery.data, finalPayQuery.data, defaultCutPercent, onlyWithRm, patientTypeFilter]);
+  }, [visitsQuery.data, overridesQuery.data, advanceQuery.data, finalPayQuery.data, defaultCutPercent, onlyWithRm, patientTypeFilter, showHidden]);
 
   const totals = useMemo(
     () => rows.reduce((acc, r) => ({ cost: acc.cost + r.cost, cut: acc.cut + r.cut }), { cost: 0, cut: 0 }),
@@ -374,10 +400,12 @@ export function DailyRevenueReportSection() {
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['dailyRevenueOverrides'] });
     queryClient.invalidateQueries({ queryKey: ['dailyRevenueVisits'] });
+    queryClient.invalidateQueries({ queryKey: ['dailyRevenueApproval'] });
   };
 
   const saveCutMutation = useMutation({
     mutationFn: async (row: DisplayRow) => {
+      if (isApproved) throw new Error('This report has already been approved and is locked');
       const cost = parseFloat(draftCost || '0');
       const cut = parseFloat(draftCut || '0');
       if (isNaN(cost) || cost < 0) throw new Error('Cost must be ≥ 0');
@@ -442,6 +470,7 @@ export function DailyRevenueReportSection() {
 
   const addManualMutation = useMutation({
     mutationFn: async (data: ManualFormData) => {
+      if (isApproved) throw new Error('This report has already been approved and is locked');
       if (!data.patient_name.trim()) throw new Error('Patient name is required');
       const cost = parseFloat(data.cost || '0');
       const cut = parseFloat(data.cut || '0');
@@ -473,6 +502,7 @@ export function DailyRevenueReportSection() {
 
   const updateManualMutation = useMutation({
     mutationFn: async (data: ManualFormData) => {
+      if (isApproved) throw new Error('This report has already been approved and is locked');
       if (!manualEditId) throw new Error('No row selected');
       const cost = parseFloat(data.cost || '0');
       const cut = parseFloat(data.cut || '0');
@@ -502,6 +532,7 @@ export function DailyRevenueReportSection() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
+      if (isApproved) throw new Error('This report has already been approved and is locked');
       const { error } = await supabase
         .from('daily_revenue_entries' as never)
         .delete()
@@ -520,6 +551,7 @@ export function DailyRevenueReportSection() {
   // previously-saved cut. Direct rows are skipped (their cut stays 0).
   const applyDefaultPercentMutation = useMutation({
     mutationFn: async () => {
+      if (isApproved) throw new Error('This report has already been approved and is locked');
       const targets = rows.filter((r) => !isDirect(r.rm_name) && r.cost > 0);
       let updated = 0;
       let inserted = 0;
@@ -562,7 +594,80 @@ export function DailyRevenueReportSection() {
     onError: (err) => toast.error(getErrorMessage(err)),
   });
 
+  const toggleHiddenMutation = useMutation({
+    mutationFn: async (row: DisplayRow) => {
+      if (isApproved) throw new Error('This report has already been approved and is locked');
+
+      if (row.overrideId) {
+        const { error } = await supabase
+          .from('daily_revenue_entries' as never)
+          .update({ is_hidden: !row.isHidden, updated_at: new Date().toISOString() } as never)
+          .eq('id', row.overrideId);
+        if (error) throw error;
+        return !row.isHidden;
+      }
+
+      if (!row.visitId) throw new Error('Only saved report rows can be hidden');
+
+      // A zero-value override carries just the hidden flag. It intentionally
+      // leaves the live cost and suggested cut unchanged when restored.
+      const { error } = await supabase
+        .from('daily_revenue_entries' as never)
+        .insert([{
+          entry_date: reportDate,
+          visit_id: row.visitId,
+          patient_name: row.patient_name,
+          department: row.department || null,
+          rm_name: row.rm_name || null,
+          cost: 0,
+          cut: 0,
+          hospital_type: row.hospital || hospitalType || 'hope',
+          is_hidden: true,
+        } as never]);
+      if (error) throw error;
+      return true;
+    },
+    onSuccess: (isNowHidden) => {
+      invalidate();
+      toast.success(isNowHidden ? 'Patient hidden from this report' : 'Patient restored to this report');
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async () => {
+      if (isApproved) return;
+
+      // Do not use upsert here. Some existing deployments have the approval
+      // table without its entry_date unique constraint reflected in PostgREST's
+      // schema cache, which makes `on_conflict=entry_date` return HTTP 409.
+      const { data: existing, error: existingError } = await supabase
+        .from('daily_revenue_report_approvals' as never)
+        .select('entry_date')
+        .eq('entry_date', reportDate)
+        .maybeSingle();
+      if (existingError) throw existingError;
+      if (existing) return;
+
+      const { error } = await supabase
+        .from('daily_revenue_report_approvals' as never)
+        .insert({
+          entry_date: reportDate,
+          approved_at: new Date().toISOString(),
+          approved_by_email: user?.email ?? null,
+        } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setEditingCutId(null);
+      invalidate();
+      toast.success('Report approved. Editing is now disabled.');
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
   const openInlineEdit = (row: DisplayRow) => {
+    if (isApproved) return;
     setEditingCutId(row.key);
     setDraftCost(String(row.cost));
     setDraftCut(String(row.cut));
@@ -574,12 +679,14 @@ export function DailyRevenueReportSection() {
   };
 
   const openManualAdd = () => {
+    if (isApproved) return;
     setManualEditId(null);
     setManualForm(initialManual);
     setIsManualDialogOpen(true);
   };
 
   const openManualEdit = (row: DisplayRow) => {
+    if (isApproved) return;
     if (!row.overrideId) return;
     setManualEditId(row.overrideId);
     setManualForm({
@@ -857,8 +964,8 @@ export function DailyRevenueReportSection() {
     };
   };
 
-  const isLoading = visitsQuery.isLoading || overridesQuery.isLoading;
-  const error = visitsQuery.error ?? overridesQuery.error;
+  const isLoading = visitsQuery.isLoading || overridesQuery.isLoading || approvalQuery.isLoading;
+  const error = visitsQuery.error ?? overridesQuery.error ?? approvalQuery.error;
 
   return (
     <Card id="daily-revenue-report" className="border-l-4 border-l-emerald-500">
@@ -894,6 +1001,15 @@ export function DailyRevenueReportSection() {
             />
             Only with RM
           </label>
+          <label className="flex items-center gap-1 text-sm select-none cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showHidden}
+              onChange={(e) => setShowHidden(e.target.checked)}
+              className="h-4 w-4"
+            />
+            Show hidden
+          </label>
           <Label htmlFor="default_cut_pct" className="text-sm">Default Cut %</Label>
           <Input
             id="default_cut_pct"
@@ -910,7 +1026,7 @@ export function DailyRevenueReportSection() {
             variant="outline"
             size="sm"
             onClick={() => applyDefaultPercentMutation.mutate()}
-            disabled={applyDefaultPercentMutation.isPending || rows.length === 0}
+            disabled={isApproved || applyDefaultPercentMutation.isPending || rows.length === 0}
             title={`Recalculate every visible non-Direct row's cut to ${defaultCutPercent}% of its cost. Overwrites any saved values.`}
           >
             {applyDefaultPercentMutation.isPending ? 'Applying...' : 'Apply %'}
@@ -926,9 +1042,14 @@ export function DailyRevenueReportSection() {
           <Button variant="outline" size="sm" className="gap-2" onClick={handlePrint}>
             <Printer className="h-4 w-4" /> Print
           </Button>
-          <Button size="sm" variant="outline" className="gap-2" onClick={openManualAdd}>
+          <Button size="sm" variant="outline" className="gap-2" onClick={openManualAdd} disabled={isApproved}>
             <Plus className="h-4 w-4" /> Add Manual
           </Button>
+          {isApproved && (
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
+              <CheckCircle2 className="h-4 w-4" /> Approved
+            </span>
+          )}
         </div>
       </CardHeader>
       <CardContent>
@@ -980,7 +1101,7 @@ export function DailyRevenueReportSection() {
                         const idx = runningIdx;
                         const editing = editingCutId === r.key;
                         return (
-                          <TableRow key={r.key} className="hover:bg-gray-50">
+                          <TableRow key={r.key} className={`hover:bg-gray-50 ${r.isHidden ? 'bg-amber-50/70 opacity-75' : ''}`}>
                             <TableCell>{idx}</TableCell>
                             <TableCell className="font-medium">
                               <span className="inline-flex items-center gap-1.5">
@@ -992,6 +1113,7 @@ export function DailyRevenueReportSection() {
                                   <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-orange-100 text-orange-700">IPD</span>
                                 )}
                                 {r.isManual && <span className="text-xs text-gray-500">(manual)</span>}
+                                {r.isHidden && <span className="text-xs font-medium text-amber-700">(hidden)</span>}
                               </span>
                             </TableCell>
                             <TableCell>
@@ -1083,12 +1205,12 @@ export function DailyRevenueReportSection() {
                                     variant="ghost"
                                     size="sm"
                                     aria-label="Save"
-                                    disabled={saveCutMutation.isPending}
+                                    disabled={isApproved || saveCutMutation.isPending}
                                     onClick={() => saveCutMutation.mutate(r)}
                                   >
                                     <Save className="h-4 w-4 text-green-600" />
                                   </Button>
-                                  <Button variant="ghost" size="sm" aria-label="Cancel" onClick={() => setEditingCutId(null)}>
+                                  <Button variant="ghost" size="sm" aria-label="Cancel" disabled={isApproved} onClick={() => setEditingCutId(null)}>
                                     <span className="text-xs">Cancel</span>
                                   </Button>
                                 </>
@@ -1097,15 +1219,32 @@ export function DailyRevenueReportSection() {
                                   <Button variant="ghost" size="sm" aria-label="View patient details" onClick={() => setDetailsRow(r)}>
                                     <Eye className="h-4 w-4 text-emerald-600" />
                                   </Button>
-                                  <Button variant="ghost" size="sm" aria-label="Edit cost/cut" onClick={() => openInlineEdit(r)}>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    aria-label="Edit cost/cut"
+                                    onClick={() => openInlineEdit(r)}
+                                    disabled={isApproved}
+                                    title={isApproved ? 'This approved report is locked' : 'Edit cost/cut'}
+                                  >
                                     <Edit2 className="h-4 w-4 text-blue-600" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    aria-label={r.isHidden ? 'Restore patient' : 'Hide patient'}
+                                    onClick={() => toggleHiddenMutation.mutate(r)}
+                                    disabled={isApproved || toggleHiddenMutation.isPending}
+                                    title={isApproved ? 'This approved report is locked' : r.isHidden ? 'Restore patient' : 'Hide patient'}
+                                  >
+                                    {r.isHidden ? <RotateCcw className="h-4 w-4 text-emerald-600" /> : <EyeOff className="h-4 w-4 text-amber-600" />}
                                   </Button>
                                   {r.isManual && r.overrideId && (
                                     <>
-                                      <Button variant="ghost" size="sm" aria-label="Full edit" onClick={() => openManualEdit(r)}>
+                                      <Button variant="ghost" size="sm" aria-label="Full edit" onClick={() => openManualEdit(r)} disabled={isApproved}>
                                         <span className="text-xs text-gray-600">Edit</span>
                                       </Button>
-                                      <Button variant="ghost" size="sm" aria-label="Delete" onClick={() => setDeleteId(r.overrideId!)}>
+                                      <Button variant="ghost" size="sm" aria-label="Delete" onClick={() => setDeleteId(r.overrideId!)} disabled={isApproved}>
                                         <Trash2 className="h-4 w-4 text-red-600" />
                                       </Button>
                                     </>
@@ -1131,7 +1270,17 @@ export function DailyRevenueReportSection() {
                   <TableCell colSpan={5} className="text-right">Grand Total</TableCell>
                   <TableCell className="text-right">Rs {formatINR(totals.cost)}</TableCell>
                   <TableCell className="text-right">Rs {formatINR(totals.cut)}</TableCell>
-                  <TableCell className="print:hidden" />
+                  <TableCell className="print:hidden text-right">
+                    <Button
+                      size="sm"
+                      onClick={() => approveMutation.mutate()}
+                      disabled={isApproved || approveMutation.isPending}
+                      className="gap-1 bg-emerald-600 hover:bg-emerald-700"
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      {isApproved ? 'Approved' : approveMutation.isPending ? 'Approving...' : 'Approve'}
+                    </Button>
+                  </TableCell>
                 </TableRow>
               </TableBody>
             </Table>

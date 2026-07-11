@@ -37,6 +37,11 @@ const TodaysOpd = () => {
     referral_payment_status: string | null;
   }>>>({});
 
+  // Net amount paid by the patient for each visit. This is deliberately kept
+  // separate from DOA payments: the latter are payments made to a referrer,
+  // not payments received from the patient.
+  const [patientPaidTotals, setPatientPaidTotals] = useState<Record<string, number>>({});
+
   // URL-persisted state
   const searchTerm = searchParams.get('search') || '';
   const corporateFilter = searchParams.get('corporate') || '';
@@ -213,27 +218,46 @@ const TodaysOpd = () => {
     total: filteredPatients.length
   };
 
-  // Fetch DOA payments for referral report
+  // Fetch payment data for the referral report.
   useEffect(() => {
-    const fetchDoaPayments = async () => {
-      if (!opdPatients || opdPatients.length === 0) return;
+    const fetchReferralReportPayments = async () => {
+      if (!opdPatients || opdPatients.length === 0) {
+        setDoaPayments({});
+        setPatientPaidTotals({});
+        return;
+      }
 
       const visitUuids = opdPatients.map((p: any) => p.id).filter(Boolean) as string[];
-      if (visitUuids.length === 0) return;
+      const visitIds = opdPatients.map((p: any) => p.visit_id).filter(Boolean) as string[];
+      if (visitUuids.length === 0 || visitIds.length === 0) {
+        setDoaPayments({});
+        setPatientPaidTotals({});
+        return;
+      }
 
       try {
-        const { data: doaData, error: doaError } = await supabase
-          .from('referee_doa_payments')
-          .select('visit_id, amount, payment_date, notes, referral_payment_status')
-          .in('visit_id', visitUuids)
-          .order('payment_date', { ascending: false });
+        const [doaResult, advanceResult, finalResult] = await Promise.all([
+          supabase
+            .from('referee_doa_payments')
+            .select('visit_id, amount, payment_date, notes, referral_payment_status')
+            .in('visit_id', visitUuids)
+            .order('payment_date', { ascending: false }),
+          supabase
+            .from('advance_payment')
+            .select('visit_id, advance_amount, is_refund')
+            .in('visit_id', visitIds)
+            .eq('status', 'ACTIVE'),
+          supabase
+            .from('final_payments')
+            .select('visit_id, amount')
+            .in('visit_id', visitIds),
+        ]);
+
+        const { data: doaData, error: doaError } = doaResult;
 
         if (doaError) {
           console.error('Error fetching DOA payments:', doaError);
-          return;
-        }
-
-        if (doaData) {
+        } else if (doaData) {
           const doaByVisit: Record<string, Array<{
             amount: number;
             payment_date: string;
@@ -255,12 +279,35 @@ const TodaysOpd = () => {
           });
           setDoaPayments(doaByVisit);
         }
+
+        if (advanceResult.error) {
+          console.error('Error fetching advance payments for referral report:', advanceResult.error);
+        }
+        if (finalResult.error) {
+          console.error('Error fetching final payments for referral report:', finalResult.error);
+        }
+
+        // An advance refund is stored as a separate advance_payment row. Deduct
+        // it so the report shows the net amount actually retained for the visit.
+        const paidTotals: Record<string, number> = {};
+        (advanceResult.data || []).forEach((payment) => {
+          if (!payment.visit_id) return;
+          const amount = Number(payment.advance_amount) || 0;
+          paidTotals[payment.visit_id] = (paidTotals[payment.visit_id] || 0) +
+            (payment.is_refund ? -amount : amount);
+        });
+        (finalResult.data || []).forEach((payment) => {
+          if (!payment.visit_id) return;
+          paidTotals[payment.visit_id] = (paidTotals[payment.visit_id] || 0) +
+            (Number(payment.amount) || 0);
+        });
+        setPatientPaidTotals(paidTotals);
       } catch (error) {
-        console.error('Error fetching DOA payments:', error);
+        console.error('Error fetching referral report payments:', error);
       }
     };
 
-    fetchDoaPayments();
+    fetchReferralReportPayments();
   }, [opdPatients]);
 
   const handlePrintList = () => {
@@ -374,6 +421,11 @@ const TodaysOpd = () => {
     }
     return true;
   });
+
+  const getRefereeDoaAmount = (patient: { visit_id?: string | null }) => {
+    const totalPaid = patientPaidTotals[patient.visit_id || ''];
+    return totalPaid === undefined ? undefined : totalPaid * 0.25;
+  };
 
   // Open Unpaid Referral Report Modal
   const handleOpenUnpaidReport = () => {
@@ -582,7 +634,7 @@ const TodaysOpd = () => {
                   <TableHead>Visit ID</TableHead>
                   <TableHead>Patient Name</TableHead>
                   <TableHead>Referral Doctor/Relationship Manager</TableHead>
-                  <TableHead>Referee DOA Amt Paid</TableHead>
+                  <TableHead>Referee DOA Amt (25%)</TableHead>
                   <TableHead>Total Amount Paid</TableHead>
                   <TableHead>Payment Status</TableHead>
                 </TableRow>
@@ -600,19 +652,13 @@ const TodaysOpd = () => {
                       )}
                     </TableCell>
                     <TableCell>
-                      {doaPayments[patient.id]?.length > 0 ? (
-                        <div className="space-y-1">
-                          {doaPayments[patient.id].map((payment, idx) => (
-                            <div key={idx} className="text-sm">
-                              ₹{payment.amount.toLocaleString()} ({format(new Date(payment.payment_date), 'dd MMM')})
-                            </div>
-                          ))}
-                        </div>
-                      ) : '-'}
+                      {getRefereeDoaAmount(patient) !== undefined
+                        ? `₹${getRefereeDoaAmount(patient)!.toLocaleString()}`
+                        : '-'}
                     </TableCell>
                     <TableCell>
-                      {doaPayments[patient.id]?.length > 0
-                        ? `₹${doaPayments[patient.id].reduce((sum, p) => sum + p.amount, 0).toLocaleString()}`
+                      {patientPaidTotals[patient.visit_id || ''] !== undefined
+                        ? `₹${patientPaidTotals[patient.visit_id || ''].toLocaleString()}`
                         : '-'}
                     </TableCell>
                     <TableCell>{doaPayments[patient.id]?.[0]?.referral_payment_status || '-'}</TableCell>
@@ -654,7 +700,7 @@ const TodaysOpd = () => {
                   <TableHead>Visit ID</TableHead>
                   <TableHead>Patient Name</TableHead>
                   <TableHead>Referral Doctor/Relationship Manager</TableHead>
-                  <TableHead>Referee DOA Amt Paid</TableHead>
+                  <TableHead>Referee DOA Amt (25%)</TableHead>
                   <TableHead>Total Amount Paid</TableHead>
                   <TableHead>Payment Status</TableHead>
                 </TableRow>
@@ -672,19 +718,13 @@ const TodaysOpd = () => {
                       )}
                     </TableCell>
                     <TableCell>
-                      {doaPayments[patient.id]?.length > 0 ? (
-                        <div className="space-y-1">
-                          {doaPayments[patient.id].map((payment, idx) => (
-                            <div key={idx} className="text-sm">
-                              ₹{payment.amount.toLocaleString()} ({format(new Date(payment.payment_date), 'dd MMM')})
-                            </div>
-                          ))}
-                        </div>
-                      ) : '-'}
+                      {getRefereeDoaAmount(patient) !== undefined
+                        ? `₹${getRefereeDoaAmount(patient)!.toLocaleString()}`
+                        : '-'}
                     </TableCell>
                     <TableCell>
-                      {doaPayments[patient.id]?.length > 0
-                        ? `₹${doaPayments[patient.id].reduce((sum, p) => sum + p.amount, 0).toLocaleString()}`
+                      {patientPaidTotals[patient.visit_id || ''] !== undefined
+                        ? `₹${patientPaidTotals[patient.visit_id || ''].toLocaleString()}`
                         : '-'}
                     </TableCell>
                     <TableCell className="text-red-600 font-medium">{doaPayments[patient.id]?.[0]?.referral_payment_status || '-'}</TableCell>
