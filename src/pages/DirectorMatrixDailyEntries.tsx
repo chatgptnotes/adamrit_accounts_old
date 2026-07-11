@@ -61,6 +61,30 @@ const STATEMENT_ACCENTS: Record<string, string> = {
   marketing_revenue: 'border-l-violet-500',
 };
 
+type EntityKind = 'patient' | 'staff' | 'vendor';
+
+interface EntityConfig {
+  kind: EntityKind;
+  label: string; // "Patient", "Staff", "Vendor"
+  /** Panel / admission date / referee only make sense for patient-linked revenue rows. */
+  showPatientFields: boolean;
+}
+
+// Expense rows track WHO got paid, not which patient — "Salary" breaks down by
+// staff member, every other expense row (Rent, Lab charges, Implant vendors,
+// Electricity bill, etc.) breaks down by vendor. Everything else (income,
+// receivables, payables, marketing revenue) keeps the original patient-linked
+// breakdown with panel/admission date/referee.
+function getEntityConfig(statementKey: string, rowLabel: string): EntityConfig {
+  if (statementKey === 'expense') {
+    if (rowLabel.trim().toLowerCase() === 'salary') {
+      return { kind: 'staff', label: 'Staff', showPatientFields: false };
+    }
+    return { kind: 'vendor', label: 'Vendor', showPatientFields: false };
+  }
+  return { kind: 'patient', label: 'Patient', showPatientFields: true };
+}
+
 const table = () => (supabase as any).from('director_matrix_daily_entries');
 const patientTable = () => (supabase as any).from('director_matrix_patient_entries');
 
@@ -85,6 +109,7 @@ export default function DirectorMatrixDailyEntries() {
   const year = parsePositiveInt(yearParam);
   const month = parsePositiveInt(monthParam);
   const rowLabel = rowLabelParam ? decodeURIComponent(rowLabelParam) : '';
+  const entityConfig = getEntityConfig(statementKey, rowLabel);
   const [values, setValues] = useState<DailyValues>({});
   const [savingDay, setSavingDay] = useState<number | null>(null);
   const [dialogDay, setDialogDay] = useState<number | null>(null);
@@ -102,7 +127,7 @@ export default function DirectorMatrixDailyEntries() {
 
   const { data: patientMatches } = useQuery({
     queryKey: ['matrix-patient-search', patientSearch],
-    enabled: dialogDay !== null && !patientPicked && patientSearch.trim().length >= 2,
+    enabled: dialogDay !== null && entityConfig.kind === 'patient' && !patientPicked && patientSearch.trim().length >= 2,
     queryFn: async () => {
       const safe = patientSearch.trim().replace(/[%_,()]/g, '');
       if (safe.length < 2) return [] as PatientMatch[];
@@ -120,7 +145,7 @@ export default function DirectorMatrixDailyEntries() {
 
   const { data: refereeOptions = [] } = useQuery({
     queryKey: ['matrix-referee-options'],
-    enabled: dialogDay !== null,
+    enabled: dialogDay !== null && entityConfig.kind === 'patient',
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from('referees')
@@ -289,11 +314,11 @@ export default function DirectorMatrixDailyEntries() {
     const name = patientForm.name.trim();
     const amount = Number(patientForm.amount);
     if (!name) {
-      toast.error('Enter the patient name.');
+      toast.error(`Enter the ${entityConfig.label.toLowerCase()} name.`);
       return;
     }
     if (!patientForm.amount || !Number.isFinite(amount) || amount <= 0) {
-      toast.error('Enter a valid package amount.');
+      toast.error('Enter a valid amount.');
       return;
     }
 
@@ -306,10 +331,10 @@ export default function DirectorMatrixDailyEntries() {
         month,
         day: dialogDay,
         patient_name: name,
-        panel: patientForm.panel,
-        admission_date: patientForm.admissionDate || null,
+        panel: entityConfig.showPatientFields ? patientForm.panel : null,
+        admission_date: entityConfig.showPatientFields ? (patientForm.admissionDate || null) : null,
         package_amount: amount,
-        referee_name: patientForm.referee || null,
+        referee_name: entityConfig.showPatientFields ? (patientForm.referee || null) : null,
       });
       if (error) throw error;
 
@@ -435,7 +460,9 @@ export default function DirectorMatrixDailyEntries() {
                             />
                             {hasPatients && (
                               <p className="mt-1 text-right text-[11px] text-gray-400">
-                                Total of {dayPatients.length} patient{dayPatients.length > 1 ? 's' : ''}
+                                Total of {dayPatients.length} {entityConfig.showPatientFields
+                                  ? `patient${dayPatients.length > 1 ? 's' : ''}`
+                                  : `entr${dayPatients.length > 1 ? 'ies' : 'y'}`}
                               </p>
                             )}
                           </div>
@@ -450,17 +477,25 @@ export default function DirectorMatrixDailyEntries() {
                                 <div className="min-w-0">
                                   <p className="truncate font-medium text-gray-900">
                                     {patient.patient_name}
-                                    <span className="ml-1.5 rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-normal text-gray-700">
-                                      {patient.panel}
-                                    </span>
+                                    {entityConfig.showPatientFields && patient.panel && (
+                                      <span className="ml-1.5 rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-normal text-gray-700">
+                                        {patient.panel}
+                                      </span>
+                                    )}
                                   </p>
-                                  <p className="text-[11px] text-gray-500">
-                                    {patient.admission_date
-                                      ? `Adm ${new Date(patient.admission_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`
-                                      : 'Adm date not set'}
-                                    {' · '}Package ₹{Number(patient.package_amount).toLocaleString('en-IN')}
-                                  </p>
-                                  {patient.referee_name && (
+                                  {entityConfig.showPatientFields ? (
+                                    <p className="text-[11px] text-gray-500">
+                                      {patient.admission_date
+                                        ? `Adm ${new Date(patient.admission_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`
+                                        : 'Adm date not set'}
+                                      {' · '}Package ₹{Number(patient.package_amount).toLocaleString('en-IN')}
+                                    </p>
+                                  ) : (
+                                    <p className="text-[11px] text-gray-500">
+                                      ₹{Number(patient.package_amount).toLocaleString('en-IN')}
+                                    </p>
+                                  )}
+                                  {entityConfig.showPatientFields && patient.referee_name && (
                                     <p className="text-[11px] text-gray-500">Referee: {patient.referee_name}</p>
                                   )}
                                 </div>
@@ -489,7 +524,7 @@ export default function DirectorMatrixDailyEntries() {
                                 }}
                               >
                                 <Plus className="h-3.5 w-3.5" />
-                                Add patient
+                                Add {entityConfig.label.toLowerCase()}
                               </Button>
                               {savingDay === day && (
                                 <span className="inline-flex items-center gap-1 text-emerald-700">
@@ -514,88 +549,102 @@ export default function DirectorMatrixDailyEntries() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              Add patient{dialogDay !== null ? ` - ${formatDate(selectedYear, selectedMonth, dialogDay)}` : ''}
+              Add {entityConfig.label.toLowerCase()}{dialogDay !== null ? ` - ${formatDate(selectedYear, selectedMonth, dialogDay)}` : ''}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="patient-name">Patient name</Label>
-              <div className="relative">
+              <Label htmlFor="patient-name">{entityConfig.label} name</Label>
+              {entityConfig.showPatientFields ? (
+                <div className="relative">
+                  <Input
+                    id="patient-name"
+                    value={patientForm.name}
+                    onChange={event => {
+                      setPatientPicked(false);
+                      setPatientForm(prev => ({ ...prev, name: event.target.value }));
+                    }}
+                    placeholder="Search Hope / Ayushman patients"
+                    autoComplete="off"
+                  />
+                  {!patientPicked && (patientMatches?.length ?? 0) > 0 && (
+                    <div className="absolute z-50 mt-1 max-h-52 w-full overflow-y-auto rounded-md border bg-white shadow-md">
+                      {patientMatches!.map(match => (
+                        <button
+                          key={`${match.patients_id}-${match.hospital_name}`}
+                          type="button"
+                          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-gray-100"
+                          onClick={() => {
+                            setPatientForm(prev => ({ ...prev, name: match.name }));
+                            setPatientPicked(true);
+                          }}
+                        >
+                          <span className="min-w-0 truncate">
+                            {match.name}
+                            <span className="ml-1.5 text-xs text-gray-500">{match.patients_id}</span>
+                          </span>
+                          <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] uppercase text-gray-600">
+                            {match.hospital_name || '—'}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
                 <Input
                   id="patient-name"
                   value={patientForm.name}
-                  onChange={event => {
-                    setPatientPicked(false);
-                    setPatientForm(prev => ({ ...prev, name: event.target.value }));
-                  }}
-                  placeholder="Search Hope / Ayushman patients"
+                  onChange={event => setPatientForm(prev => ({ ...prev, name: event.target.value }))}
+                  placeholder={`${entityConfig.label} name`}
                   autoComplete="off"
                 />
-                {!patientPicked && (patientMatches?.length ?? 0) > 0 && (
-                  <div className="absolute z-50 mt-1 max-h-52 w-full overflow-y-auto rounded-md border bg-white shadow-md">
-                    {patientMatches!.map(match => (
-                      <button
-                        key={`${match.patients_id}-${match.hospital_name}`}
-                        type="button"
-                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-gray-100"
-                        onClick={() => {
-                          setPatientForm(prev => ({ ...prev, name: match.name }));
-                          setPatientPicked(true);
-                        }}
-                      >
-                        <span className="min-w-0 truncate">
-                          {match.name}
-                          <span className="ml-1.5 text-xs text-gray-500">{match.patients_id}</span>
-                        </span>
-                        <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] uppercase text-gray-600">
-                          {match.hospital_name || '—'}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              )}
             </div>
+            {entityConfig.showPatientFields && (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Doctor referee</Label>
+                  <SearchableSelect
+                    options={refereeOptions}
+                    value={patientForm.referee}
+                    onValueChange={value => setPatientForm(prev => ({ ...prev, referee: value }))}
+                    placeholder="Select doctor referee"
+                    searchPlaceholder="Search referees..."
+                    emptyText="No referee found."
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Panel / Private</Label>
+                  <Select
+                    value={patientForm.panel}
+                    onValueChange={value => setPatientForm(prev => ({ ...prev, panel: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select panel" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {panelOptions.map(option => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="admission-date">Date of admission</Label>
+                  <Input
+                    id="admission-date"
+                    type="date"
+                    value={patientForm.admissionDate}
+                    onChange={event => setPatientForm(prev => ({ ...prev, admissionDate: event.target.value }))}
+                  />
+                </div>
+              </>
+            )}
             <div className="space-y-1.5">
-              <Label>Doctor referee</Label>
-              <SearchableSelect
-                options={refereeOptions}
-                value={patientForm.referee}
-                onValueChange={value => setPatientForm(prev => ({ ...prev, referee: value }))}
-                placeholder="Select doctor referee"
-                searchPlaceholder="Search referees..."
-                emptyText="No referee found."
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Panel / Private</Label>
-              <Select
-                value={patientForm.panel}
-                onValueChange={value => setPatientForm(prev => ({ ...prev, panel: value }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select panel" />
-                </SelectTrigger>
-                <SelectContent>
-                  {panelOptions.map(option => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="admission-date">Date of admission</Label>
-              <Input
-                id="admission-date"
-                type="date"
-                value={patientForm.admissionDate}
-                onChange={event => setPatientForm(prev => ({ ...prev, admissionDate: event.target.value }))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="package-amount">Package amount (₹)</Label>
+              <Label htmlFor="package-amount">Amount (₹)</Label>
               <Input
                 id="package-amount"
                 type="text"
@@ -615,7 +664,7 @@ export default function DirectorMatrixDailyEntries() {
               Cancel
             </Button>
             <Button onClick={handleAddPatient} disabled={savingPatient}>
-              {savingPatient ? 'Saving...' : 'Add patient'}
+              {savingPatient ? 'Saving...' : `Add ${entityConfig.label.toLowerCase()}`}
             </Button>
           </DialogFooter>
         </DialogContent>
