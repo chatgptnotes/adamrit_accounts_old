@@ -12304,6 +12304,7 @@ export type Database = {
           created_at: string | null
           diagnosis: string | null
           diagnosis_code: string | null
+          anaesthesia_type: string | null
           id: string
           is_active: boolean | null
           package_price: number | null
@@ -12319,6 +12320,7 @@ export type Database = {
           created_at?: string | null
           diagnosis?: string | null
           diagnosis_code?: string | null
+          anaesthesia_type?: string | null
           id?: string
           is_active?: boolean | null
           package_price?: number | null
@@ -12334,6 +12336,7 @@ export type Database = {
           created_at?: string | null
           diagnosis?: string | null
           diagnosis_code?: string | null
+          anaesthesia_type?: string | null
           id?: string
           is_active?: boolean | null
           package_price?: number | null
@@ -12345,6 +12348,116 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      pmjay_mjpjay_package_anaesthetists: {
+        Row: {
+          anaesthetist_name: string
+          created_at: string
+          id: string
+          package_id: string
+        }
+        Insert: {
+          anaesthetist_name: string
+          created_at?: string
+          id?: string
+          package_id: string
+        }
+        Update: {
+          anaesthetist_name?: string
+          created_at?: string
+          id?: string
+          package_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pmjay_mjpjay_package_anaesthetists_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "pmjay_mjpjay_packages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pmjay_mjpjay_package_implants: {
+        Row: {
+          created_at: string
+          id: string
+          implant_id: string | null
+          implant_name: string
+          package_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          implant_id?: string | null
+          implant_name: string
+          package_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          implant_id?: string | null
+          implant_name?: string
+          package_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pmjay_mjpjay_package_implants_implant_id_fkey"
+            columns: ["implant_id"]
+            isOneToOne: false
+            referencedRelation: "implants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pmjay_mjpjay_package_implants_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "pmjay_mjpjay_packages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pmjay_mjpjay_package_surgeons: {
+        Row: {
+          created_at: string
+          id: string
+          package_id: string
+          surgeon_department: string | null
+          surgeon_id: string | null
+          surgeon_name: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          package_id: string
+          surgeon_department?: string | null
+          surgeon_id?: string | null
+          surgeon_name: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          package_id?: string
+          surgeon_department?: string | null
+          surgeon_id?: string | null
+          surgeon_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pmjay_mjpjay_package_surgeons_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "pmjay_mjpjay_packages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pmjay_mjpjay_package_surgeons_surgeon_id_fkey"
+            columns: ["surgeon_id"]
+            isOneToOne: false
+            referencedRelation: "hope_surgeons"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       post_surgical_consultations: {
         Row: {

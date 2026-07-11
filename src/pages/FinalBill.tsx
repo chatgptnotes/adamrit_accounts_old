@@ -553,6 +553,64 @@ type VisitContextRecord = {
   patients?: any;
 };
 
+type OTStaffMaster = {
+  id: string;
+  name: string;
+  specialty?: string | null;
+  department?: string | null;
+};
+
+const normalizeOTMatchValue = (value?: string | null) =>
+  (value || '')
+    .toLowerCase()
+    .replace(/anaesthesia|anesthesia/g, 'anaesthesiology')
+    .replace(/orthopa?edics/g, 'orthopedics')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+const getOTProcedureSearchText = (surgery: any) => [
+  surgery?.yojana_mh_procedures?.specialty,
+  surgery?.yojana_mh_procedures?.specialty_code,
+  surgery?.yojana_mh_procedures?.procedure_name,
+  surgery?.yojana_mh_procedures?.package_name,
+  surgery?.cghs_surgery?.category,
+  surgery?.cghs_surgery?.name,
+  surgery?.name,
+].filter(Boolean).map(normalizeOTMatchValue).join(' ');
+
+const findOTStaffForProcedure = (staff: OTStaffMaster[], surgery: any) => {
+  const target = getOTProcedureSearchText(surgery);
+  if (!target || staff.length === 0) return undefined;
+
+  const targetTokens = new Set(target.split(/\s+/).filter(token => token.length > 2));
+  const bestMatch = staff
+    .map((person, index) => {
+      const department = normalizeOTMatchValue(person.department);
+      const specialty = normalizeOTMatchValue(person.specialty);
+      const personText = `${department} ${specialty}`.trim();
+      const personTokens = personText.split(/\s+/).filter(token => token.length > 2);
+      const overlap = personTokens.filter(token => targetTokens.has(token)).length;
+      const exactDepartment = department && target.includes(department) ? 12 : 0;
+      const exactSpecialty = specialty && target.includes(specialty) ? 10 : 0;
+      return { person, score: exactDepartment + exactSpecialty + overlap, index };
+    })
+    .sort((a, b) => b.score - a.score || a.index - b.index)[0];
+  return bestMatch && bestMatch.score > 0 ? bestMatch.person : undefined;
+};
+
+const deriveOTAnaesthesiaType = (anaesthetist?: OTStaffMaster, savedType?: string | null) => {
+  if (savedType) return savedType;
+  const specialty = anaesthetist?.specialty || '';
+  if (/spinal/i.test(specialty)) return 'Spinal Anesthesia';
+  if (/epidural/i.test(specialty)) return 'Epidural Anesthesia';
+  if (/regional/i.test(specialty)) return 'Regional Anesthesia';
+  if (/local/i.test(specialty)) return 'Local Anesthesia';
+  if (/sedation|mac/i.test(specialty)) return 'Sedation/MAC';
+  if (/nerve block/i.test(specialty)) return 'Nerve Block';
+  if (/general/i.test(specialty)) return 'General Anesthesia';
+  return '';
+};
+
 const FinalBill = () => {
   const { visitId } = useParams<{ visitId: string }>();
   const navigate = useNavigate();
@@ -561,8 +619,8 @@ const FinalBill = () => {
   const queryClient = useQueryClient();
   const { hospitalConfig, user, isAdmin } = useAuth();
   const [showHiddenLabTests, setShowHiddenLabTests] = useState(false);
-  const [surgeons, setSurgeons] = useState<{ id: string; name: string }[]>([]);
-  const [anaesthetists, setAnaesthetists] = useState<{ id: string; name: string }[]>([]);
+  const [surgeons, setSurgeons] = useState<OTStaffMaster[]>([]);
+  const [anaesthetists, setAnaesthetists] = useState<OTStaffMaster[]>([]);
   const [implantsList, setImplantsList] = useState<{ id: string; name: string }[]>([]);
   const [pathologyNote, setPathologyNote] = useState("");
   const [hiddenFields, setHiddenFields] = useState<string[]>([]);
@@ -789,36 +847,34 @@ const FinalBill = () => {
 
   useEffect(() => {
     const fetchSurgeons = async () => {
-      const tableName = hospitalConfig?.name === 'hope' ? 'hope_surgeons' : 'ayushman_surgeons';
-      const { data, error } = await supabase
-        .from(tableName)
-        .select('id, name');
-
-      if (error) {
-        console.error("Error fetching surgeons:", error);
-        toast.error("Failed to fetch surgeons.");
-      } else if (data) {
-        setSurgeons(data);
+      const tableNames = hospitalConfig?.name === 'hope'
+        ? ['hope_surgeons', 'hope_consultants']
+        : ['ayushman_surgeons', 'ayushman_consultants'];
+      const results = await Promise.all(tableNames.map(tableName =>
+        supabase.from(tableName).select('id, name, specialty, department')
+      ));
+      const failed = results.find(result => result.error);
+      if (failed?.error) {
+        console.error("Error fetching surgeon/consultant masters:", failed.error);
       }
+      const merged = results
+        .flatMap(result => result.data || [])
+        .filter((person, index, list) => list.findIndex(item => item.name === person.name) === index);
+      setSurgeons(merged);
+      if (merged.length === 0 && failed?.error) toast.error("Failed to fetch surgeon/consultant masters.");
     };
 
     const fetchAnaesthetists = async () => {
       const tableName = hospitalConfig?.name === 'hope' ? 'hope_anaesthetists' : 'ayushman_anaesthetists';
       const { data, error } = await supabase
         .from(tableName)
-        .select('name, specialty');
+        .select('id, name, specialty, department');
 
       if (error) {
         console.error("Error fetching anaesthetists:", error);
         toast.error("Failed to fetch anaesthetists.");
       } else if (data) {
-        // Transform data to match expected format (using name as both id and name)
-        const transformedData = data.map(item => ({
-          id: item.name, // Use name as id since there's no id column
-          name: item.name,
-          specialty: item.specialty
-        }));
-        setAnaesthetists(transformedData);
+        setAnaesthetists(data);
       }
     };
 
@@ -2517,6 +2573,172 @@ const FinalBill = () => {
   // Shared description for all surgeries
   const [sharedDescription, setSharedDescription] = useState('');
 
+  const formatOtNotesAsParagraphs = (text: string): string => {
+    const normalized = (text || '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\t/g, ' ')
+      .replace(/[ \u00A0]+/g, ' ')
+      .trim();
+
+    if (!normalized) return '';
+
+    const lines = normalized
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean);
+
+    const paragraphs: string[] = [];
+    let currentHeading = '';
+    let currentItems: string[] = [];
+    let currentParagraph: string[] = [];
+    let mode: 'paragraph' | 'bullets' | null = null;
+
+    const flushBulletParagraph = () => {
+      if (!currentHeading && currentItems.length === 0) return;
+
+      const content = currentItems.join(', ').replace(/\s+/g, ' ').trim();
+      const paragraph = [currentHeading, content].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+      if (paragraph) {
+        paragraphs.push(paragraph.replace(/[.,;:]+$/, '') + '.');
+      }
+
+      currentHeading = '';
+      currentItems = [];
+    };
+
+    const flushParagraph = () => {
+      const paragraph = currentParagraph.join(' ').replace(/\s+/g, ' ').trim();
+      if (paragraph) {
+        paragraphs.push(paragraph.replace(/\s+([,.;:])/g, '$1'));
+      }
+      currentParagraph = [];
+    };
+
+    for (const line of lines) {
+      const bulletMatch = line.match(/^[-•*]\s*(.+)$/) || line.match(/^\d+[\).\]]\s*(.+)$/);
+      const headingMatch = line.match(/^[A-Z][A-Z\s/&()-]{2,}:$/) || line.match(/^[A-Za-z][A-Za-z\s/&()-]{2,}:$/);
+
+      if (bulletMatch) {
+        if (mode === 'paragraph') {
+          flushParagraph();
+        }
+        mode = 'bullets';
+        currentItems.push(bulletMatch[1].trim());
+        continue;
+      }
+
+      if (headingMatch) {
+        const heading = headingMatch[0].replace(/:$/, '').trim();
+        if (mode === 'bullets') {
+          currentHeading = currentHeading || `${heading}:`;
+        } else {
+          if (currentParagraph.length > 0) {
+            flushParagraph();
+          }
+          currentHeading = `${heading}:`;
+          mode = 'bullets';
+        }
+        continue;
+      }
+
+      if (mode === 'bullets') {
+        currentItems.push(line);
+      } else {
+        mode = 'paragraph';
+        currentParagraph.push(line);
+      }
+    }
+
+    if (mode === 'bullets') {
+      flushBulletParagraph();
+    } else {
+      flushParagraph();
+    }
+
+    return paragraphs.join('\n\n').trim();
+  };
+
+  const formatOtNotesAsParagraphsV2 = (text: string): string => {
+    const normalized = (text || '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\t/g, ' ')
+      .replace(/[ \u00A0]+/g, ' ')
+      .trim();
+
+    if (!normalized) return '';
+
+    const lines = normalized.split('\n').map(line => line.trim()).filter(Boolean);
+    const cleanedLines = lines.map((line) => {
+      const titled = line.match(/^=+\s*(.*?)\s*=+$/);
+      if (titled) {
+        return `${titled[1].replace(/\s+/g, ' ').trim()}:`;
+      }
+
+      return line
+        .replace(/^[-*\u2022]\s*/, '')
+        .replace(/^\d+[\).\]]\s*/, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }).filter(Boolean);
+
+    return cleanedLines
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .replace(/\s+([,.;:])/g, '$1')
+      .trim();
+  };
+
+  const buildSafeOtNarrative = (patientName?: string) => {
+    const intro = 'The operative note documents the following:';
+
+    const sentences = otNotesDataList
+      .filter((surgery) =>
+        Boolean(
+          surgery.date ||
+          surgery.procedure ||
+          surgery.surgeons.length > 0 ||
+          surgery.anaesthetist ||
+          surgery.anaesthesia ||
+          surgery.implant ||
+          surgery.alias
+        )
+      )
+      .map((surgery, index) => {
+        const procedureText = (surgery.alias || surgery.procedure || '').trim();
+        const details: string[] = [];
+
+        if (surgery.date) {
+          const surgeryDate = new Date(surgery.date);
+          details.push(
+            !Number.isNaN(surgeryDate.getTime())
+              ? `dated ${format(surgeryDate, 'd MMMM yyyy')} at ${format(surgeryDate, 'h:mm a')}`
+              : `dated ${surgery.date}`
+          );
+        }
+
+        if (surgery.surgeons.length > 0) {
+          details.push(`performed by ${surgery.surgeons.join(', ')}`);
+        }
+
+        if (surgery.anaesthetist) {
+          details.push(`with ${surgery.anaesthetist} as the anesthetist`);
+        }
+
+        if (surgery.anaesthesia) {
+          details.push(`under ${surgery.anaesthesia} anesthesia`);
+        }
+
+        if (surgery.implant) {
+          details.push(`implant ${surgery.implant}`);
+        }
+
+        const sentenceStart = `Surgery ${index + 1}${procedureText ? ` involved ${procedureText}` : ' was documented'}`;
+        return `${sentenceStart}${details.length > 0 ? `, ${details.join(', ')}` : ''}.`;
+      });
+
+    return [intro, ...sentences].join(' ').trim();
+  };
+
   // State to track saved OT notes data (for restoring implant and other fields)
   const [savedOtNotesData, setSavedOtNotesData] = useState<any[]>([]);
 
@@ -2602,7 +2824,7 @@ const FinalBill = () => {
 
         // Only load shared description from saved OT notes
         // Procedure names will come from Surgery Details via auto-populate
-        setSharedDescription(otNotesRecords[0].description || '');
+        setSharedDescription(formatOtNotesAsParagraphsV2(otNotesRecords[0].description || ''));
 
         // Store full records so auto-populate can restore implant and other fields
         setSavedOtNotesData(otNotesRecords);
@@ -2643,9 +2865,17 @@ const FinalBill = () => {
         // Handle both patientInfo.surgeries and savedSurgeries structure
         // Use fallback to savedSurgeries when cghs_surgery is null
         const savedSurgery = savedSurgeries?.find((s: any) => s.id === surgery.id);
-        const surgeryName = surgery.cghs_surgery?.name || savedSurgery?.name || surgery.name || '';
-        const surgeryCode = surgery.cghs_surgery?.code || savedSurgery?.code || surgery.code || '';
+        const surgeryName = surgery.cghs_surgery?.name || surgery.yojana_mh_procedures?.procedure_name || surgery.yojana_mh_procedures?.package_name || savedSurgery?.name || surgery.name || '';
+        const surgeryCode = surgery.cghs_surgery?.code || surgery.yojana_mh_procedures?.procedure_code || savedSurgery?.code || surgery.code || '';
         const procedureName = surgeryName ? `${surgeryName} (${surgeryCode})` : '';
+
+        const surgeonMaster = findOTStaffForProcedure(surgeons, surgery);
+        const anaesthetistMaster = findOTStaffForProcedure(anaesthetists, surgery) ||
+          anaesthetists.find(person => /general/i.test(person.specialty || ''));
+        const storedSurgeon = surgery.surgeon_name || surgery.surgeon || '';
+        const defaultSurgeons = storedSurgeon
+          ? storedSurgeon.split(',').map((name: string) => name.trim()).filter(Boolean)
+          : surgeonMaster?.name ? [surgeonMaster.name] : [];
 
         // Find matching saved OT note by index or procedure name to restore saved values
         const savedNote = savedOtNotesData[index] ||
@@ -2661,9 +2891,9 @@ const FinalBill = () => {
           id: crypto.randomUUID(),
           date: savedNote?.date ? new Date(savedNote.date).toISOString().slice(0, 16) : new Date().toISOString().slice(0, 16),
           procedure: procedureName,
-          surgeons: savedNote?.surgeon ? savedNote.surgeon.split(', ').filter(Boolean) : [],
-          anaesthetist: savedNote?.anaesthetist || '',
-          anaesthesia: savedNote?.anaesthesia || '',
+          surgeons: savedNote?.surgeon ? savedNote.surgeon.split(', ').filter(Boolean) : defaultSurgeons,
+          anaesthetist: savedNote?.anaesthetist || surgery.anaesthetist_name || anaesthetistMaster?.name || '',
+          anaesthesia: savedNote?.anaesthesia || surgery.anaesthesia_type || deriveOTAnaesthesiaType(anaesthetistMaster),
           implant: savedNote?.implant || '',
           alias: savedNote?.alias || ''
         };
@@ -2672,7 +2902,7 @@ const FinalBill = () => {
       setOtNotesDataList(newForms);
     } else {
     }
-  }, [patientInfo, savedSurgeries, savedOtNotesData]);
+  }, [patientInfo, savedSurgeries, savedOtNotesData, surgeons, anaesthetists]);
 
   // State for treatment log data (simplified - no date functionality)
   const [treatmentLogData, setTreatmentLogData] = useState<{ [key: number]: { date: string, accommodation: string, medication: string, labAndRadiology: string } }>({});
@@ -4024,6 +4254,14 @@ const FinalBill = () => {
             name,
             code,
             NABH_NABL_Rate
+          ),
+          yojana_mh_procedures:yojana_procedure_id (
+            procedure_name,
+            procedure_code,
+            package_name,
+            specialty,
+            specialty_code,
+            medical_or_surgical
           )
         `)
         .eq('visit_id', visitData.id);
@@ -4270,13 +4508,6 @@ const FinalBill = () => {
 
   // Function to generate final discharge summary using AI
   const generateFinalDischargeSummary = async () => {
-    // Check if OpenAI API key is available
-    const openaiApiKey = import.meta.env.VITE_OPENAI_API_KEY;
-    if (!openaiApiKey) {
-      toast.error('OpenAI API key not configured. Please add VITE_OPENAI_API_KEY to your environment variables.');
-      return;
-    }
-
     // Check if we have patient data from internal data
     const hasInternalData = allPatientData.trim();
 
@@ -4398,35 +4629,11 @@ Patient Data from Internal System: ${allPatientData}
 
 Data Source: Internal Hospital System Only`;
 
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_OPENAI_API_KEY}`
-        },
-        body: JSON.stringify({
-          model: 'gpt-3.5-turbo',
-          messages: [
-            {
-              role: 'system',
-              content: 'You are an expert medical professional specializing in creating comprehensive discharge summaries. Generate detailed, professional medical documentation based on the provided patient data.'
-            },
-            {
-              role: 'user',
-              content: aiPrompt
-            }
-          ],
-          max_tokens: 3000,
-          temperature: 0.7
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`OpenAI API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const generatedSummary = data.choices[0].message.content;
+      const generatedSummary = await callVpsClaude(
+        'You are an expert medical professional specializing in creating comprehensive discharge summaries. Generate detailed, professional medical documentation based on the provided patient data.\n\n' +
+          aiPrompt,
+        'opus',
+      );
 
       setFinalDischargeSummary(generatedSummary);
       toast.success('Professional discharge summary generated successfully!');
@@ -5247,10 +5454,9 @@ Generated on: ${new Date().toLocaleDateString('en-IN')}`);
       return;
     }
 
-    // Check if Gemini API key is available (only needed when not on the VPS backend)
-    const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (LLM_BACKEND !== 'vps' && !geminiApiKey) {
-      toast.error('Gemini API key not configured. Please add VITE_GEMINI_API_KEY to your environment variables.');
+    const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY?.trim();
+    if (!geminiApiKey || geminiApiKey === 'your_gemini_api_key_here') {
+      toast.error('Gemini API key is not configured. Add VITE_GEMINI_API_KEY and restart the dev server.');
       return;
     }
 
@@ -5290,6 +5496,11 @@ Generated on: ${new Date().toLocaleDateString('en-IN')}`);
             code,
             NABH_NABL_Rate,
             description
+          ),
+          yojana_mh_procedures:yojana_procedure_id (
+            procedure_name,
+            procedure_code,
+            package_name
           )
         `)
         .eq('visit_id', visitData.id);
@@ -5317,12 +5528,6 @@ Description: ${surgery.cghs_surgery?.description || 'Standard surgical procedure
         return;
       }
 
-      // Extract alias lines from surgeries (to display at top of description)
-      const aliasLines = otNotesDataList
-        .filter(s => s.alias?.trim())
-        .map((s, i) => otNotesDataList.length > 1 ? `Surgery ${i + 1}: ${s.alias}` : s.alias)
-        .join('\n');
-
       // Generate ONE combined description for all surgeries (using alias instead of procedure)
       const allSurgeriesInfo = otNotesDataList.map((surgery, index) => `
 Surgery ${index + 1}:
@@ -5333,17 +5538,35 @@ Surgery ${index + 1}:
 - Implant: ${surgery.implant || 'N/A'}
 - Date: ${surgery.date || new Date().toISOString()}`).join('\n');
 
-      const surgeryPrompt = `Write a brief 3-4 line surgical summary. Must include all details below:
+      const packageTitles = surgeryData.map((surgery: any, index: number) => {
+        const packageName = surgery.yojana_mh_procedures?.package_name;
+        const procedureName = surgery.yojana_mh_procedures?.procedure_name || surgery.cghs_surgery?.name;
+        return `Surgery ${index + 1} title: ${packageName || procedureName || 'Surgical procedure'}`;
+      }).join('\n');
 
-PATIENT: ${visitData.patients?.name || '[Patient Name]'} (Age: ${visitData.patients?.age || '[Age]'})
+      const surgeryPrompt = `Write a detailed operative note draft using standard procedure-appropriate language based on the selected surgery data below.
+
+TITLE REQUIREMENT:
+${packageTitles}
+
+The note must address cleaning and draping under aseptic precautions, incision and approach, patient positioning, structures retracted or protected, implant used, operative precautions, image intensifier use when relevant, cleaning and dressing, cast or plaster application when relevant, and post-operative precautions and advice.
+
+Start each surgery with its package/procedure title as a heading on its own line. Include the surgeon, anaesthetist, and type of anaesthesia.
+
+Do not invent patient-specific findings, measurements, blood loss, specimens, complications, timings, or outcomes. Use standard defaults for the named procedure and state when an item is not applicable.
 
 SURGERIES:
 ${allSurgeriesInfo}
 
-INSTRUCTIONS: Write exactly 3-4 lines. Include procedure name, surgeon name, type of anaesthesia, and post-operative condition. Use formal medical language. No bullet points or numbering. Write as a continuous paragraph.`;
+INSTRUCTIONS:
+- Use formal clinical language and keep the tone factual and professional.
+- Preserve names, dates, and procedure wording exactly as provided.
+- Do not invent patient-specific findings, measurements, blood loss, specimens, complications, timings, or outcomes.
+- Use continuous prose under each title; do not use bullet points or numbering.
+- End with standard post-operative precautions and advice.`;
 
 
-      const opNotesPrompt = 'You are a medical documentation specialist. Generate ONLY 3-4 lines of clinical summary.\n\n' + surgeryPrompt;
+      const opNotesPrompt = 'You are a medical documentation specialist. Generate a detailed operative note draft with multiple titled sections.\n\n' + surgeryPrompt;
 
       let generatedText: string | undefined;
       if (LLM_BACKEND === 'vps') {
@@ -5365,7 +5588,7 @@ INSTRUCTIONS: Write exactly 3-4 lines. Include procedure name, surgeon name, typ
             }],
             generationConfig: {
               temperature: 0.5,
-              maxOutputTokens: 800
+              maxOutputTokens: 1400
             }
           })
         });
@@ -5383,13 +5606,8 @@ INSTRUCTIONS: Write exactly 3-4 lines. Include procedure name, surgeon name, typ
         throw new Error('No response from the AI service');
       }
 
-      // Combine alias lines at top with AI-generated summary below
-      const finalDescription = aliasLines
-        ? `${aliasLines}\n\n${generatedText}`
-        : generatedText;
-
       // Set the single shared description
-      setSharedDescription(finalDescription);
+      setSharedDescription(generatedText.trim());
       toast.success('AI surgery notes generated successfully!');
 
     } catch (error) {
@@ -5409,41 +5627,7 @@ INSTRUCTIONS: Write exactly 3-4 lines. Include procedure name, surgeon name, typ
       }
 
       // Fallback combined surgery notes
-      const fallbackNotes = otNotesDataList.map((surgery, index) => `
-=== SURGERY ${index + 1} ===
-PROCEDURE: ${surgery.procedure}
-SURGEON: ${surgery.surgeons.join(', ')}
-ANAESTHETIST: ${surgery.anaesthetist}
-ANAESTHESIA: ${surgery.anaesthesia || 'General Anaesthesia'}
-IMPLANT: ${surgery.implant || 'N/A'}
-
-PRE-OPERATIVE DIAGNOSIS: ${surgery.procedure}
-
-OPERATIVE FINDINGS:
-- Patient positioned appropriately
-- Surgical site prepared and draped in sterile fashion
-
-PROCEDURE DETAILS:
-- Standard surgical approach utilized
-- Careful dissection performed
-- Appropriate surgical technique employed
-- Hemostasis achieved
-
-IMPLANTS USED:
-- Standard surgical implants as required
-- Quantity: As per surgical requirement
-`).join('\n') + `
-POST-OPERATIVE CONDITION:
-- Patient stable
-- No immediate complications
-- Wound closed in layers
-
-INSTRUCTIONS:
-- Post-operative monitoring
-- Appropriate pain management
-- Follow-up as scheduled`;
-
-      setSharedDescription(fallbackNotes);
+      setSharedDescription(formatOtNotesAsParagraphsV2(buildSafeOtNarrative()));
     } finally {
       setIsGeneratingSurgeryNotes(false);
     }
@@ -5520,8 +5704,8 @@ INSTRUCTIONS:
         if (patientInfo && patientInfo.surgeries && patientInfo.surgeries[index]) {
           const surgery = patientInfo.surgeries[index];
           surgeryDetails = {
-            surgery_name: surgery.cghs_surgery?.name || surgery.surgery_name || '',
-            surgery_code: surgery.cghs_surgery?.code || surgery.surgery_code || '',
+            surgery_name: surgery.cghs_surgery?.name || surgery.yojana_mh_procedures?.procedure_name || surgery.yojana_mh_procedures?.package_name || surgery.surgery_name || '',
+            surgery_code: surgery.cghs_surgery?.code || surgery.yojana_mh_procedures?.procedure_code || surgery.surgery_code || '',
             surgery_rate: parseFloat(surgery.cghs_surgery?.NABH_NABL_Rate) || surgery.surgery_rate || 0,
             surgery_status: surgery.sanction_status || surgery.surgery_status || 'Sanctioned'
           };
@@ -5570,7 +5754,7 @@ INSTRUCTIONS:
           alias: surgery.alias,
 
           // Description (shared for all surgeries)
-          description: sharedDescription,
+          description: sharedDescription.trim(),
 
           // Meta fields
           ai_generated: false,
@@ -12195,7 +12379,11 @@ INSTRUCTIONS:
           ),
           yojana_mh_procedures:yojana_procedure_id (
             procedure_name,
-            procedure_code
+            procedure_code,
+            package_name,
+            specialty,
+            specialty_code,
+            medical_or_surgical
           )
         `)
         .eq('visit_id', visitData.id);
@@ -12335,7 +12523,11 @@ INSTRUCTIONS:
           is_primary: visitSurgery.is_primary || false,
           status: visitSurgery.status || 'planned',
           sanction_status: visitSurgery.sanction_status || 'Not Sanctioned',
-          notes: visitSurgery.notes || ''
+          notes: visitSurgery.notes || '',
+          yojana_mh_procedures: visitSurgery.yojana_mh_procedures || null,
+          cghs_surgery: visitSurgery.cghs_surgery || null,
+          anaesthetist_name: visitSurgery.anaesthetist_name || '',
+          anaesthesia_type: visitSurgery.anaesthesia_type || ''
         };
       });
 
@@ -12716,13 +12908,6 @@ INSTRUCTIONS:
 
   // Function to generate clinical recommendations using OpenAI
   const generateClinicalRecommendations = async (surgeryName: string, diagnosisName: string = '') => {
-    // Check if OpenAI API key is available
-    const openaiApiKey = import.meta.env.VITE_OPENAI_API_KEY;
-    if (!openaiApiKey) {
-      toast.error('OpenAI API key not configured. Please add VITE_OPENAI_API_KEY to your environment variables.');
-      throw new Error('OpenAI API key not configured');
-    }
-
     try {
       const prompt = `For a patient undergoing ${surgeryName}${diagnosisName ? ` with diagnosis of ${diagnosisName}` : ''}, provide clinical recommendations based on CGHS surgical procedures and complications knowledge:
 
@@ -12742,154 +12927,13 @@ Format the response as JSON:
   "medications": ["medication1", "medication2", "medication3", "medication4"]
 }`;
 
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_OPENAI_API_KEY}`
-        },
-        body: JSON.stringify({
-          model: 'gpt-3.5-turbo',
-          messages: [
-            {
-              role: 'system',
-              content: `You are a medical expert with comprehensive knowledge of CGHS surgical procedures and complications. You must search and select from the following CGHS knowledge base to provide accurate clinical recommendations.
+      const recommendations = JSON.parse(
+        await callVpsClaude(
+          `You are a medical expert with comprehensive knowledge of CGHS surgical procedures and complications. Return ONLY valid JSON matching the requested schema.\n\n${prompt}`,
+          'opus',
+        ),
+      );
 
-                    # CGHS SURGICAL PROCEDURES - COMPREHENSIVE MAPPING
-
-                    ## 1. HERNIA SURGERIES
-
-                    **A. Inguinal Herniorrhaphy**
-                    Complications: Mesh Infection with Sepsis, Strangulated Hernia with Bowel Resection, Complete Wound Dehiscence, Recurrent Hernia Requiring Revision
-                    Lab Tests: Procalcitonin & Blood Culture & Sensitivity, Arterial Blood Gas & Serum Lactate, Wound Swab Culture & Albumin & Total Protein, Collagen Disorder Panel & Genetic Testing
-                    Radiology: Contrast CT Abdomen & Pelvis, Dynamic MRI Abdomen, Wound Ultrasound with Doppler, CT with 3D Reconstruction
-                    Medications: Meropenem & Tigecycline, Piperacillin-Tazobactam & Metronidazole, Collagenase & Human Albumin, Polypropylene Mesh & Fibrin Glue
-
-                    **B. Femoral Hernia Repair**
-                    Complications: Strangulated Hernia with Bowel Resection, Deep Vein Thrombosis, MRSA Infection, Complete Wound Dehiscence
-                    Lab Tests: D-Dimer & Comprehensive Metabolic Panel, MRSA PCR Testing & Vancomycin Trough Levels, Thrombophilia Profile & Protein C & S, Tissue Culture & Vitamin Panel
-                    Radiology: CT Angiography Abdomen, Venous Doppler Bilateral, Tagged WBC Scan, MRI Soft Tissue
-                    Medications: Octreotide & Parenteral Nutrition Solution, Enoxaparin & Rivaroxaban, Vancomycin & Linezolid, Recombinant Growth Factor & Human Albumin
-
-                    **C. Inguinal Herniotomy**
-                    Complications: Wound Infection, Testicular Atrophy, Recurrent Hernia, Nerve Injury
-                    Lab Tests: CBC with Differential, Wound Culture & Sensitivity, Testosterone Levels, Inflammatory Markers Panel
-                    Radiology: Ultrasound Inguinal Region, Scrotal Ultrasound with Doppler, MRI Pelvis
-                    Medications: Cefazolin & Clindamycin, Testosterone Cypionate & Human Chorionic Gonadotropin, Polypropylene Mesh & Cyanoacrylate Glue, Bupivacaine & Lidocaine
-
-                    ## 2. UROLOGICAL PROCEDURES
-
-                    **A. PCNL (Percutaneous Nephrolithotomy)**
-                    Complications: Massive Hemorrhage, Pleural Injury/Hydrothorax, Renal Artery Pseudoaneurysm, Urosepsis with Multi-organ Failure, Colonic Perforation
-                    Lab Tests: Coagulation Profile & Thromboelastography, Pleural Fluid Analysis & ABG, Blood Culture Multiple Sets & Procalcitonin, Renal Function Tests
-                    Radiology: CT Angiography Renal, HRCT Chest, Selective Renal Angiography, CT Abdomen Emergency
-                    Medications: Tranexamic Acid & Recombinant Factor VIIa, Talc & Doxycycline, Covered Stent Graft & Platinum Coils, Meropenem & Norepinephrine
-
-                    **B. URSL (Ureteroscopic Lithotripsy)**
-                    Complications: Ureteral Perforation, Steinstrasse, Urosepsis, Ureteral Stricture
-                    Lab Tests: Urine Culture & Sensitivity, Renal Function Tests, CBC & Procalcitonin, Serum Electrolytes
-                    Radiology: CT KUB Non-contrast, Retrograde Pyelogram, MAG3 Renal Scan, CT Urography
-                    Medications: Double-J Stent & Tamsulosin, Ciprofloxacin & Diclofenac, Tramadol & Hyoscine Butylbromide, Balloon Catheter & Mitomycin C
-
-                    **C. Hydrocele Operation**
-                    Complications: Scrotal Hematoma, Wound Infection, Recurrent Hydrocele, Testicular Atrophy
-                    Lab Tests: CBC & Coagulation Studies, Wound Culture, Testosterone Levels, Inflammatory Markers
-                    Radiology: Scrotal Ultrasound with Doppler, MRI Scrotum
-                    Medications: Tranexamic Acid & Gelfoam, Cefuroxime & Povidone Iodine, Sodium Tetradecyl Sulfate & Ethanol, Testosterone Enanthate & Clomiphene Citrate
-
-                    ## 3. VASCULAR PROCEDURES
-
-                    **A. Laser Ablation of Varicose Veins**
-                    Complications: Deep Vein Thrombosis, Pulmonary Embolism, Skin Burns, Nerve Injury
-                    Lab Tests: D-Dimer & Thrombophilia Profile, Troponin I & Pro-BNP, Coagulation Studies, CBC
-                    Radiology: Venous Doppler Bilateral, CT Venography, CT Pulmonary Angiography
-                    Medications: Enoxaparin & Alteplase, Compression Stockings & IVC Filter Device, Silver Sulfadiazine & Mupirocin, Bupivacaine & Gabapentin
-
-                    **B. Cardiac Catheterisation**
-                    Complications: Vascular Access Complications, Coronary Artery Dissection, Contrast Nephropathy, Arrhythmias
-                    Lab Tests: Troponin I & CK-MB, Renal Function Tests Serial, Coagulation Profile, CBC & Electrolytes
-                    Radiology: Vascular Ultrasound at Access Site, CT Angiography, Echocardiography, Chest X-ray
-                    Medications: Collagen Plug & Compression Device, Drug-Eluting Stent & Clopidogrel, N-Acetylcysteine & Normal Saline, Amiodarone & Temporary Pacemaker
-
-                    ## 4. PLASTIC/RECONSTRUCTIVE SURGERY
-
-                    **A. Flap Reconstructive Surgery**
-                    Complications: Total Flap Necrosis, Partial Flap Loss, Infection, Hematoma/Seroma
-                    Lab Tests: Tissue Oxygen Saturation, Angiogenic Markers, Blood Culture & Wound Culture, Nutritional Assessment Panel
-                    Radiology: CT Angiography, Indocyanine Green Angiography, MR Angiography, Laser Doppler Flowmetry
-                    Medications: Hyperbaric Oxygen & Platelet-Derived Growth Factor, Heparin & Collagenase, Vancomycin & Fluconazole, Jackson-Pratt Drain & Compression Garment
-
-                    **B. Skin Grafting**
-                    Complications: Graft Failure, Infection, Contracture, Donor Site Complications
-                    Lab Tests: Wound Culture & Sensitivity, CBC & Albumin, Inflammatory Markers, Nutritional Panel
-                    Radiology: Wound Ultrasound, MRI Soft Tissue, Thermography
-                    Medications: Fibrin Glue & Hydrocolloid Dressing, Cefazolin & Chlorhexidine, Triamcinolone & Silicone Gel, Calcium Alginate & Morphine
-
-                    ## 5. ORTHOPEDIC PROCEDURES
-
-                    **A. ORIF (Open Reduction Internal Fixation)**
-                    Complications: Implant Failure/Breakage, Fat Embolism Syndrome, Deep Infection/Osteomyelitis, Non-union/Malunion
-                    Lab Tests: Metal Ion Levels, ABG for Fat Embolism, ESR & CRP & Procalcitonin, Bone Turnover Markers
-                    Radiology: CT with Metal Artifact Reduction, HRCT Chest, SPECT-CT, MRI with Metal Suppression
-                    Medications: Titanium Implant & Bone Morphogenetic Protein, Oxygen Therapy & Methylprednisolone, Vancomycin & Collagenase, Autologous Bone Graft & Recombinant Growth Factor
-
-                    **B. Tendon Repair**
-                    Complications: Tendon Re-rupture, Adhesions, Infection, Nerve Injury
-                    Lab Tests: CBC & ESR & CRP, Wound Culture, Rheumatological Panel
-                    Radiology: MRI of Affected Area, Ultrasound with Dynamic Assessment, CT for bone involvement
-                    Medications: Polydioxanone Suture & Fibrin Glue, Hyaluronic Acid & Range of Motion Exercises, Cefazolin & Povidone Iodine, Nerve Conduit & Pregabalin
-
-                    ## 6. GENERAL SURGERY
-
-                    **A. Exploratory Laparotomy**
-                    Complications: Anastomotic Leak, Wound Dehiscence, Intra-abdominal Abscess, Ileus/Bowel Obstruction
-                    Lab Tests: Drain Fluid Amylase, CRP Daily & Procalcitonin, Blood Culture, Comprehensive Metabolic Panel
-                    Radiology: CT Abdomen with Oral Contrast, Gastrografin Study, MRI Abdomen, Fluoroscopy
-                    Medications: Piperacillin-Tazobactam & Total Parenteral Nutrition, Vacuum-Assisted Closure & Surgical Mesh, Percutaneous Drain & Fluconazole, Metoclopramide & Nasogastric Decompression
-
-                    **B. Hepatic Abscess (Pigtail Insertion)**
-                    Complications: Catheter Dislodgement, Bleeding, Biliary Injury, Sepsis
-                    Lab Tests: Abscess Fluid Culture & Sensitivity, LFT & Coagulation Profile, Blood Culture & Procalcitonin, Amoebic Serology
-                    Radiology: CT Abdomen Triple Phase, Ultrasound Guided, MRCP, Chest X-ray
-                    Medications: Pigtail Catheter & Catheter Lock Solution, Tranexamic Acid & Fresh Frozen Plasma, Biliary Stent & ERCP Contrast, Meropenem & Metronidazole
-
-                    ## 7. COLORECTAL PROCEDURES
-
-                    **A. Laser Haemorrhoidectomy**
-                    Complications: Massive Bleeding, Anal Stenosis, Incontinence, Abscess Formation
-                    Lab Tests: CBC Serial, Coagulation Profile, Type & Cross Match, Inflammatory Markers
-                    Radiology: Anoscopy/Sigmoidoscopy, MRI Pelvis, Endoanal Ultrasound
-                    Medications: Tranexamic Acid & Packed Red Blood Cells, Anal Dilator & Lactulose, Sphincter Repair Kit & Biofeedback Device, Ciprofloxacin & Drainage Tube
-
-                    **B. Fistula Procedures (SLOFT)**
-                    Complications: Recurrent Fistula, Incontinence, Abscess Formation, Bleeding
-                    Lab Tests: Pus Culture & Sensitivity, CBC & ESR & CRP, TB Workup
-                    Radiology: MRI Fistulogram, Endoanal Ultrasound, CT Pelvis, Examination Under Anesthesia
-                    Medications: Fistula Plug & Seton Suture, Sphincter Repair Material & Biofeedback System, Rifampin & Isoniazid, Gelfoam & Calcium Alginate
-
-                    You must select complications, lab tests, radiology procedures, and medications ONLY from this comprehensive CGHS knowledge base. Focus on expensive, high-level clinical inputs appropriate for complex surgical cases.
-
-                    note: don't forget to write abnormal investigations in the discharge summery`
-            },
-            {
-              role: 'user',
-              content: prompt
-            }
-          ],
-          max_tokens: 1000,
-          temperature: 0.7
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`OpenAI API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const content = data.choices[0].message.content;
-
-      // Parse JSON response
-      const recommendations = JSON.parse(content);
       return recommendations;
     } catch (error) {
       console.error('Error generating clinical recommendations:', error);
@@ -16840,6 +16884,17 @@ Dr. Murali B K
                             </button>
                           </div>
 
+                          {/* OT header: patient identity stays outside the operative narrative. */}
+                          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                            <h6 className="font-semibold text-blue-800 mb-2">Patient Details</h6>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-2 text-xs text-gray-700">
+                              <div><span className="font-medium">Patient Name:</span> {patientInfo?.name || visitData?.patients?.name || patientData.name || 'N/A'}</div>
+                              <div><span className="font-medium">Patient ID:</span> {patientInfo?.patients_id || visitData?.patients?.patients_id || patientData.registrationNo || 'N/A'}</div>
+                              <div><span className="font-medium">Age:</span> {patientInfo?.age || visitData?.patients?.age || patientData.age || 'N/A'}</div>
+                              <div><span className="font-medium">Gender:</span> {patientInfo?.gender || patientInfo?.sex || visitData?.patients?.gender || visitData?.patients?.sex || patientData.sex || 'N/A'}</div>
+                            </div>
+                          </div>
+
                           {/* Surgery Information */}
                           <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
                             <h6 className="font-semibold text-green-800 mb-2">Surgery Details</h6>
@@ -16850,8 +16905,8 @@ Dr. Murali B K
                                 return (
                                   <div key={`patient-surgery-${index}`} className="mb-2 p-2 bg-white rounded border">
                                     <div className="text-xs">
-                                      <div><span className="font-medium">Surgery:</span> {surgery.cghs_surgery?.name || savedSurgery?.name || 'N/A'}</div>
-                                      <div><span className="font-medium">Code:</span> {surgery.cghs_surgery?.code || savedSurgery?.code || 'N/A'}</div>
+                                      <div><span className="font-medium">Surgery:</span> {surgery.cghs_surgery?.name || surgery.yojana_mh_procedures?.procedure_name || surgery.yojana_mh_procedures?.package_name || savedSurgery?.name || 'N/A'}</div>
+                                      <div><span className="font-medium">Code:</span> {surgery.cghs_surgery?.code || surgery.yojana_mh_procedures?.procedure_code || savedSurgery?.code || 'N/A'}</div>
                                       <div><span className="font-medium">Rate:</span> ₹{surgery.cghs_surgery?.NABH_NABL_Rate || savedSurgery?.nabh_nabl_rate || 'N/A'}</div>
                                       <div><span className="font-medium">Status:</span> {surgery.sanction_status || 'Not Sanctioned'}</div>
                                     </div>
@@ -17001,6 +17056,13 @@ Dr. Murali B K
                                   onChange={(e) => updateSurgeryField(surgeryForm.id, 'anaesthesia', e.target.value)}
                                 >
                                   <option value="">Select Anaesthesia Type</option>
+                                  {surgeryForm.anaesthesia && ![
+                                    'General Anesthesia', 'Regional Anesthesia', 'Local Anesthesia', 'Spinal Anesthesia',
+                                    'Epidural Anesthesia', 'Combined Spinal-Epidural', 'Sedation/MAC', 'Nerve Block',
+                                    'Topical Anesthesia', 'IV Sedation', 'Conscious Sedation'
+                                  ].includes(surgeryForm.anaesthesia) && (
+                                    <option value={surgeryForm.anaesthesia}>{surgeryForm.anaesthesia}</option>
+                                  )}
                                   <option value="General Anesthesia">General Anesthesia</option>
                                   <option value="Regional Anesthesia">Regional Anesthesia</option>
                                   <option value="Local Anesthesia">Local Anesthesia</option>
@@ -17130,7 +17192,7 @@ Dr. Murali B K
                                     }).join('');
 
                                     // Single shared description
-                                    const descriptionContent = (sharedDescription || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                                    const descriptionContent = formatOtNotesAsParagraphsV2(sharedDescription || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
                                     printWindow.document.write(
                                       '<html>' +
@@ -17139,6 +17201,8 @@ Dr. Murali B K
                                       '<style>' +
                                       'body { font-family: Arial, sans-serif; margin: 20px; line-height: 1.6; }' +
                                       '.header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }' +
+                                      '.patient-header { text-align: left; border: 1px solid #bbb; padding: 8px 12px; margin: 10px 0; }' +
+                                      '.patient-header p { margin: 3px 0; }' +
                                       '.surgery-section { margin-bottom: 15px; padding: 10px; background: #f9f9f9; border-radius: 5px; border: 1px solid #ddd; }' +
                                       '.surgery-section h3 { color: #333; margin-bottom: 10px; margin-top: 0; }' +
                                       '.surgery-info { margin-bottom: 0; }' +
@@ -17150,13 +17214,18 @@ Dr. Murali B K
                                       '<body>' +
                                       '<div class="header">' +
                                       '<h2>OPERATION THEATRE NOTES</h2>' +
+                                      '<div class="patient-header">' +
+                                      '<p><strong>Patient Name:</strong> ' + (patientInfo?.name || visitData?.patients?.name || patientData.name || 'N/A') + '</p>' +
+                                      '<p><strong>Patient ID:</strong> ' + (patientInfo?.patients_id || visitData?.patients?.patients_id || patientData.registrationNo || 'N/A') + '</p>' +
+                                      '<p><strong>Age / Gender:</strong> ' + (patientInfo?.age || visitData?.patients?.age || patientData.age || 'N/A') + ' / ' + (patientInfo?.gender || patientInfo?.sex || visitData?.patients?.gender || visitData?.patients?.sex || patientData.sex || 'N/A') + '</p>' +
+                                      '</div>' +
                                       '<p>Total Surgeries: ' + otNotesDataList.length + '</p>' +
                                       '</div>' +
                                       '<h3>Surgeries Performed:</h3>' +
                                       surgeriesInfoContent +
                                       '<div class="description-section">' +
                                       '<h3>OT Notes / Description:</h3>' +
-                                      '<pre style="white-space: pre-wrap; font-family: Arial, sans-serif; margin: 0;">' + descriptionContent + '</pre>' +
+                                      '<div style="white-space: normal; font-family: Arial, sans-serif; margin: 0; line-height: 1.7; text-align: left;">' + descriptionContent + '</div>' +
                                       '</div>' +
                                       '</body>' +
                                       '</html>'
