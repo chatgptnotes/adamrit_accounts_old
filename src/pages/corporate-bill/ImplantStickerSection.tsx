@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { fetchImplantStickerByVisit, saveImplantSticker } from '@/lib/implantBillDb';
 
@@ -67,10 +67,11 @@ const normalizeDetails = (details: Record<string, string> | undefined, implantNa
 });
 
 const barcodeBars = Array.from({ length: 34 }, (_, index) => (index % 5 === 0 ? 3 : index % 3 === 0 ? 2 : 1));
+const barcodeHtml = () => barcodeBars.map((width) => `<span style="width:${width}px"></span>`).join('');
 
 function Barcode({ value }: { value: string }) {
   return (
-    <div className="inline-flex h-[18px] items-stretch gap-[2px] bg-white px-1 py-[2px] align-middle">
+    <div className="inline-flex h-[18px] items-stretch gap-[2px] rounded border border-slate-300 bg-white px-1 py-[2px] align-middle">
       {barcodeBars.map((width, index) => (
         <span key={`${value}-${index}`} className="bg-black" style={{ width }} />
       ))}
@@ -95,7 +96,7 @@ function NonSterileIcon() {
 
 function FactoryIcon() {
   return (
-    <div className="flex h-11 w-12 flex-col items-center justify-center bg-black text-white">
+    <div className="flex h-11 w-12 flex-col items-center justify-center rounded bg-slate-950 text-white">
       <div className="mb-[2px] flex h-5 w-8 items-end gap-[2px]">
         <span className="h-3 w-2 bg-white" />
         <span className="h-5 w-2 bg-white" />
@@ -109,7 +110,7 @@ function FactoryIcon() {
 
 function ManufacturerLogo() {
   return (
-    <div className="relative h-9 w-9 overflow-hidden rounded bg-white">
+    <div className="relative h-9 w-9 overflow-hidden rounded border border-slate-300 bg-white shadow-sm">
       <div className="absolute inset-y-0 right-0 w-3 bg-[#8cc63f]" />
       <div className="absolute left-1 top-1 h-7 w-7 rounded-full border-[5px] border-[#2d5aa3]" />
       <div className="absolute left-[14px] top-[12px] h-3 w-3 rounded-full bg-[#5d6a7a]" />
@@ -119,7 +120,7 @@ function ManufacturerLogo() {
 
 function BrandStrip({ brandName }: { brandName: string }) {
   return (
-    <div className="flex h-11 items-center justify-around border border-[#00ff55] bg-[#0900ff]">
+    <div className="flex h-11 items-center justify-around border-t border-[#00ff55] bg-[#0616d8]">
       {[0, 1, 2].map((item) => (
         <span key={item} className="relative text-[24px] font-black leading-none text-[#39ff14]">
           {brandName}
@@ -146,20 +147,20 @@ function ImplantLabelBlock({
   batchNo: string;
 }) {
   return (
-    <section className="relative mx-auto h-[222px] w-[455px] bg-black text-white">
-      <div className="absolute left-[128px] top-0 flex items-center gap-1 text-[10px] font-bold">
+    <section className="relative mx-auto h-[222px] w-[455px] overflow-hidden rounded-md border border-slate-900 bg-white text-slate-950 shadow-sm">
+      <div className="absolute left-[128px] top-3 flex items-center gap-2 text-[10px] font-bold text-slate-700">
         <Barcode value={batchNo} />
         <span>{catNo}</span>
       </div>
 
-      <div className="absolute left-[16px] top-[38px] w-[270px] text-[11px] leading-tight">
-        <div className="font-bold">CAT NO. {catNo}</div>
-        <div className="mt-2 text-[14px] font-semibold">{implantName}</div>
-        <div className="mt-3 font-bold">ITEM: {implantName}</div>
-        <div className="mt-2 font-bold">QTY: {quantity}</div>
-        <div className="mt-2 font-bold">MRP: {mrp}</div>
-        <div className="mt-2 font-bold">BATCH No: {batchNo}</div>
-        <div className="mt-2 text-[9px] font-bold">{details.mfgLicenceNo}</div>
+      <div className="absolute left-[16px] top-[42px] w-[270px] text-[11px] leading-tight">
+        <div className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">CAT NO. {catNo}</div>
+        <div className="mt-2 text-[16px] font-black text-slate-950">{implantName}</div>
+        <div className="mt-3 font-bold text-slate-700">ITEM: <span className="text-slate-950">{implantName}</span></div>
+        <div className="mt-2 font-bold text-slate-700">QTY: <span className="text-slate-950">{quantity}</span></div>
+        <div className="mt-2 font-bold text-slate-700">MRP: <span className="text-slate-950">{mrp}</span></div>
+        <div className="mt-2 font-bold text-slate-700">BATCH No: <span className="text-slate-950">{batchNo}</span></div>
+        <div className="mt-2 text-[9px] font-bold text-slate-600">{details.mfgLicenceNo}</div>
       </div>
 
       <div className="absolute left-[205px] top-[62px] flex items-end gap-3">
@@ -170,17 +171,17 @@ function ImplantLabelBlock({
       <div className="absolute right-[56px] top-[44px]">
         <ManufacturerLogo />
       </div>
-      <div className="absolute right-4 top-[92px] origin-top-right rotate-[-90deg] whitespace-nowrap text-[10px] font-bold text-[#0a31ff]">
+      <div className="absolute right-4 top-[94px] origin-top-right rotate-[-90deg] whitespace-nowrap text-[10px] font-extrabold text-[#0a31ff]">
         {details.manufacturerName}
       </div>
-      <div className="absolute right-1 top-[92px] origin-top-right rotate-[-90deg] whitespace-nowrap text-[7px] font-bold text-[#0a31ff]">
+      <div className="absolute right-1 top-[94px] origin-top-right rotate-[-90deg] whitespace-nowrap text-[7px] font-bold text-[#0a31ff]">
         {details.manufacturerAddress}
       </div>
 
-      <div className="absolute bottom-[36px] left-0 right-0">
+      <div className="absolute bottom-[30px] left-0 right-0">
         <BrandStrip brandName={details.brandName} />
       </div>
-      <div className="absolute bottom-1 left-[140px] text-[9px] font-bold">{details.mfgDate}</div>
+      <div className="absolute bottom-2 left-[150px] text-[9px] font-bold text-slate-600">{details.mfgDate}</div>
     </section>
   );
 }
@@ -212,7 +213,6 @@ export function ImplantStickerSection({
   defaultSurgeryDate,
   defaultSurgeryName,
 }: ImplantStickerSectionProps) {
-  const printRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [batchNumbers, setBatchNumbers] = useState('');
@@ -259,6 +259,126 @@ export function ImplantStickerSection({
     setDetails((current) => ({ ...current, [key]: value }));
   };
 
+  const renderPrintLabel = ({
+    implantName,
+    catNo,
+    quantity,
+    mrp,
+    batchNo,
+  }: {
+    implantName: string;
+    catNo: string;
+    quantity: string;
+    mrp: string;
+    batchNo: string;
+  }) => `
+    <section class="label">
+      <div class="barcode-row"><div class="barcode">${barcodeHtml()}</div><strong>${escapeHtml(catNo)}</strong></div>
+      <div class="copy">
+        <div class="meta">CAT NO. ${escapeHtml(catNo)}</div>
+        <h3>${escapeHtml(implantName)}</h3>
+        <p><strong>ITEM:</strong> ${escapeHtml(implantName)}</p>
+        <p><strong>QTY:</strong> ${escapeHtml(quantity)}</p>
+        <p><strong>MRP:</strong> ${escapeHtml(mrp)}</p>
+        <p><strong>BATCH No:</strong> ${escapeHtml(batchNo)}</p>
+        <p class="licence">${escapeHtml(details.mfgLicenceNo)}</p>
+      </div>
+      <div class="symbols">
+        <div class="non-sterile"><span>NON<br/>STERILE</span></div>
+        <div class="factory"><div class="factory-bars"><i></i><i></i><i></i></div><span>DESIGN</span><span>FACTORY</span></div>
+      </div>
+      <div class="mark"><div class="mark-green"></div><div class="mark-ring"></div><div class="mark-dot"></div></div>
+      <div class="maker">${escapeHtml(details.manufacturerName)}</div>
+      <div class="maker-address">${escapeHtml(details.manufacturerAddress)}</div>
+      <div class="brand-strip">
+        <span>${escapeHtml(details.brandName)}<sup>R</sup></span>
+        <span>${escapeHtml(details.brandName)}<sup>R</sup></span>
+        <span>${escapeHtml(details.brandName)}<sup>R</sup></span>
+      </div>
+      <div class="mfg-date">${escapeHtml(details.mfgDate)}</div>
+    </section>
+  `;
+
+  const renderPrintHtml = () => `
+    <html>
+      <head>
+        <title>Implant Sticker - ${escapeHtml(patient.patientName)}</title>
+        <style>
+          body { margin: 0; background: white; color: #0f172a; font-family: Arial, sans-serif; }
+          .page { width: 180mm; margin: 0 auto; padding: 10mm 0; }
+          .hospital { text-align: center; margin-bottom: 6mm; }
+          .hospital h2 { margin: 0; font-size: 18pt; line-height: 1.15; }
+          .hospital p { margin: 3px 0 0; font-size: 9pt; font-weight: 700; }
+          .sheet { width: 142mm; margin: 0 auto; border: 1px solid #cbd5e1; border-radius: 10px; background: #f8fafc; padding: 7mm; }
+          .label { position: relative; height: 56mm; margin: 0 auto 7mm; overflow: hidden; border: 1.2px solid #111827; border-radius: 8px; background: #fff; box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12); }
+          .label:last-child { margin-bottom: 0; }
+          .barcode-row { position: absolute; top: 4mm; left: 44mm; display: flex; align-items: center; gap: 3mm; font-size: 8pt; color: #475569; }
+          .barcode { display: inline-flex; height: 5mm; align-items: stretch; gap: .5mm; border: 1px solid #cbd5e1; border-radius: 3px; background: #fff; padding: .8mm 1mm; }
+          .barcode span { display: block; background: #000; }
+          .copy { position: absolute; left: 6mm; top: 13mm; width: 78mm; font-size: 8pt; font-weight: 700; line-height: 1.3; }
+          .copy .meta { font-size: 7.5pt; letter-spacing: .12em; text-transform: uppercase; color: #64748b; }
+          .copy h3 { margin: 1.5mm 0 2.5mm; font-size: 12pt; line-height: 1.1; color: #020617; }
+          .copy p { margin: 1.2mm 0; color: #334155; }
+          .copy strong { color: #020617; }
+          .copy .licence { margin-top: 1.8mm; font-size: 7pt; color: #475569; }
+          .symbols { position: absolute; top: 19mm; left: 83mm; display: flex; align-items: center; gap: 3mm; }
+          .non-sterile { position: relative; width: 12mm; height: 12mm; display: grid; place-items: center; background: #fff; color: #000; }
+          .non-sterile:before { content: ""; position: absolute; inset: 1.8mm; border: 1px solid #111; transform: rotate(45deg); }
+          .non-sterile span { position: relative; font-size: 5pt; font-weight: 800; text-align: center; line-height: 1; }
+          .factory { width: 13mm; height: 12mm; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 3px; background: #020617; color: #fff; }
+          .factory-bars { height: 5mm; display: flex; align-items: flex-end; gap: .8mm; margin-bottom: .6mm; }
+          .factory-bars i { display: block; width: 2mm; background: #fff; }
+          .factory-bars i:nth-child(1) { height: 3mm; }
+          .factory-bars i:nth-child(2) { height: 5mm; }
+          .factory-bars i:nth-child(3) { height: 2mm; }
+          .factory span { font-size: 4.5pt; font-weight: 800; line-height: 1; }
+          .mark { position: absolute; top: 15mm; right: 23mm; width: 10mm; height: 10mm; overflow: hidden; border: 1px solid #cbd5e1; border-radius: 3px; background: #fff; }
+          .mark-green { position: absolute; inset: 0 0 0 auto; width: 3.2mm; background: #8cc63f; }
+          .mark-ring { position: absolute; left: 1.3mm; top: 1.3mm; width: 6.8mm; height: 6.8mm; border: 1.5mm solid #2d5aa3; border-radius: 999px; }
+          .mark-dot { position: absolute; left: 4.4mm; top: 4mm; width: 3mm; height: 3mm; border-radius: 999px; background: #5d6a7a; }
+          .maker { position: absolute; right: 6mm; top: 33mm; transform: rotate(-90deg); transform-origin: top right; white-space: nowrap; color: #0a31ff; font-size: 7pt; font-weight: 900; }
+          .maker-address { position: absolute; right: 2.5mm; top: 33mm; transform: rotate(-90deg); transform-origin: top right; white-space: nowrap; color: #0a31ff; font-size: 5pt; font-weight: 700; }
+          .brand-strip { position: absolute; left: 0; right: 0; bottom: 8mm; height: 11mm; display: flex; align-items: center; justify-content: space-around; border-top: 1px solid #00ff55; background: #0616d8; }
+          .brand-strip span { position: relative; color: #39ff14; font-size: 17pt; font-weight: 900; line-height: 1; }
+          .brand-strip sup { position: absolute; top: -2.5mm; right: -3.5mm; color: #fff; font-size: 5pt; }
+          .mfg-date { position: absolute; bottom: 2mm; left: 50%; transform: translateX(-50%); color: #475569; font-size: 7pt; font-weight: 800; }
+          .summary { width: 142mm; margin: 5mm auto 0; display: grid; grid-template-columns: 1fr 1fr; gap: 2mm 8mm; font-size: 9pt; font-weight: 700; }
+          .summary .wide { grid-column: 1 / -1; }
+          @page { size: A4 portrait; margin: 10mm; }
+        </style>
+      </head>
+      <body>
+        <main class="page">
+          <div class="hospital">
+            <h2>${escapeHtml(patient.hospitalName)}</h2>
+            <p>${escapeHtml(patient.patientName)} | ${escapeHtml(patient.patientId)} | DOA ${escapeHtml(patient.admissionDate)}</p>
+          </div>
+          <div class="sheet">
+            ${renderPrintLabel({
+              implantName: surgeryName || defaultSurgeryName || details.secondaryImplantName,
+              catNo: details.primaryCatNo,
+              quantity: details.primaryQuantity,
+              mrp: details.primaryMrp,
+              batchNo: details.primaryBatchNo,
+            })}
+            ${renderPrintLabel({
+              implantName: details.secondaryImplantName,
+              catNo: details.secondaryCatNo,
+              quantity: details.secondaryQuantity,
+              mrp: details.secondaryMrp,
+              batchNo: details.secondaryBatchNo,
+            })}
+          </div>
+          <div class="summary">
+            <div>Batch Numbers: ${escapeHtml(batchNumbers)}</div>
+            <div>Date of surgery: ${escapeHtml(surgeryDateLabel)}</div>
+            <div class="wide">Name of Implant: ${escapeHtml(surgeryName)}</div>
+          </div>
+        </main>
+      </body>
+    </html>
+  `;
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -274,24 +394,8 @@ export function ImplantStickerSection({
 
   const handlePrint = () => {
     const printWindow = window.open('', '_blank');
-    if (!printWindow || !printRef.current) return;
-    const styles = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))
-      .map((node) => node.outerHTML)
-      .join('');
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Implant Sticker - ${escapeHtml(patient.patientName)}</title>
-          ${styles}
-          <style>
-            body { font-family: Arial, sans-serif; margin: 0; padding: 18px; background: white; }
-            @page { size: A4 portrait; margin: 10mm; }
-            @media print { body { padding: 0; } }
-          </style>
-        </head>
-        <body>${printRef.current.outerHTML}</body>
-      </html>
-    `);
+    if (!printWindow) return;
+    printWindow.document.write(renderPrintHtml());
     printWindow.document.close();
     printWindow.focus();
     printWindow.print();
@@ -318,13 +422,13 @@ export function ImplantStickerSection({
           </button>
         </div>
 
-        <div ref={printRef} className="bg-white p-4 text-black">
+        <div className="bg-white p-4 text-black">
           <div className="mb-3 text-center">
             <h2 className="text-lg font-bold tracking-wide">{patient.hospitalName}</h2>
             <div className="text-xs font-semibold">{patient.patientName} | {patient.patientId} | DOA {patient.admissionDate}</div>
           </div>
 
-          <div className="mx-auto w-[520px] max-w-full bg-black px-8 py-5">
+          <div className="mx-auto w-[560px] max-w-full rounded-xl border border-slate-200 bg-slate-50 px-8 py-5 shadow-sm">
             <ImplantLabelBlock
               details={details}
               implantName={surgeryName || defaultSurgeryName || details.secondaryImplantName}

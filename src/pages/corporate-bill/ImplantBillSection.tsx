@@ -164,7 +164,7 @@ export function ImplantBillSection({
           <title>Implant Bill - ${billNo}</title>
           <style>
             body { margin: 0; background: white; color: #000; font-family: "Times New Roman", serif; }
-            .bill-page { width: 190mm; margin: 0 auto; padding: 12mm 0; }
+            .bill-page { width: 190mm; margin: 0 auto; padding: 8mm 0; }
             .title { text-align: center; font-size: 30pt; font-weight: 700; letter-spacing: .01em; }
             .vendor-address { text-align: center; font-size: 14pt; font-weight: 700; margin-top: 8px; }
             .vendor-phone { text-align: center; font-size: 13pt; font-weight: 700; margin-top: 4px; }
@@ -173,9 +173,21 @@ export function ImplantBillSection({
             .top-right { padding: 10px 12px; font-size: 15pt; line-height: 1.35; }
             .under { display: inline-block; border-bottom: 1px solid #000; min-width: 342px; }
             .wide-line { border-bottom: 2px solid #000; height: 44px; margin-top: 12px; }
-            .item-grid { display: grid; grid-template-columns: 1fr 28mm 28mm 32mm; border: 1px solid #000; border-top: 0; min-height: 129mm; }
+            .item-grid { display: grid; grid-template-columns: 1fr 28mm 28mm 32mm; border: 1px solid #000; border-top: 0; min-height: 121mm; }
             .head { display: contents; }
-            .head > div { background: #000; color: #fff; text-align: center; padding: 10px 4px; font-size: 14pt; font-weight: 700; border-bottom: 1px solid #000; }
+            .head > div {
+              background: #eef2f6;
+              color: #111827;
+              text-align: center;
+              padding: 7px 4px;
+              font-family: Arial, sans-serif;
+              font-size: 10pt;
+              font-weight: 800;
+              letter-spacing: .08em;
+              text-transform: uppercase;
+              border-top: 1px solid #000;
+              border-bottom: 1px solid #000;
+            }
             .col-border { border-left: 1px solid #000; }
             .items { display: contents; }
             .bill-item { display: contents; }
@@ -214,7 +226,7 @@ export function ImplantBillSection({
             </div>
             <div class="item-grid">
               <div class="head">
-                <div>DESCRIPTION</div><div class="col-border">QUANTITY</div><div class="col-border">RATE</div><div class="col-border">AMOUNT</div>
+                <div>Description</div><div class="col-border">Qty</div><div class="col-border">Rate</div><div class="col-border">Amount</div>
               </div>
               <div class="items">${rows}</div>
             </div>
@@ -322,10 +334,30 @@ export function ImplantBillSection({
           </div>
 
           <div className="mt-7 grid grid-cols-[1fr_105px_105px_115px] border border-black">
-            <div className="bg-black py-3 text-center text-[20px] font-bold text-white">DESCRIPTION</div>
-            <div className="border-l border-black bg-black py-3 text-center text-[20px] font-bold text-white">QUANTITY</div>
-            <div className="border-l border-black bg-black py-3 text-center text-[20px] font-bold text-white">RATE</div>
-            <div className="border-l border-black bg-black py-3 text-center text-[20px] font-bold text-white">AMOUNT</div>
+            <div
+              className="border-y border-black bg-slate-100 py-2 text-center text-[13px] font-extrabold uppercase tracking-[0.08em] text-slate-900"
+              style={{ fontFamily: 'Arial, sans-serif' }}
+            >
+              Description
+            </div>
+            <div
+              className="border-y border-l border-black bg-slate-100 py-2 text-center text-[13px] font-extrabold uppercase tracking-[0.08em] text-slate-900"
+              style={{ fontFamily: 'Arial, sans-serif' }}
+            >
+              Qty
+            </div>
+            <div
+              className="border-y border-l border-black bg-slate-100 py-2 text-center text-[13px] font-extrabold uppercase tracking-[0.08em] text-slate-900"
+              style={{ fontFamily: 'Arial, sans-serif' }}
+            >
+              Rate
+            </div>
+            <div
+              className="border-y border-l border-black bg-slate-100 py-2 text-center text-[13px] font-extrabold uppercase tracking-[0.08em] text-slate-900"
+              style={{ fontFamily: 'Arial, sans-serif' }}
+            >
+              Amount
+            </div>
 
             <div className="min-h-[465px] px-8 py-8">
               {items.map((item, index) => (
