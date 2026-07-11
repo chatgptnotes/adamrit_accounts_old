@@ -560,6 +560,17 @@ type OTStaffMaster = {
   department?: string | null;
 };
 
+type OtNotesFormRow = {
+  id: string;
+  date: string;
+  procedure: string;
+  surgeons: string[];
+  anaesthetist: string;
+  anaesthesia: string;
+  implant: string;
+  alias: string;
+};
+
 const normalizeOTMatchValue = (value?: string | null) =>
   (value || '')
     .toLowerCase()
@@ -868,13 +879,20 @@ const FinalBill = () => {
       const tableName = hospitalConfig?.name === 'hope' ? 'hope_anaesthetists' : 'ayushman_anaesthetists';
       const { data, error } = await supabase
         .from(tableName)
-        .select('id, name, specialty, department');
+        .select('name, specialty');
 
       if (error) {
         console.error("Error fetching anaesthetists:", error);
         toast.error("Failed to fetch anaesthetists.");
       } else if (data) {
-        setAnaesthetists(data);
+        setAnaesthetists(
+          data.map((item) => ({
+            id: item.name,
+            name: item.name,
+            specialty: item.specialty || null,
+            department: item.specialty || null,
+          }))
+        );
       }
     };
 
@@ -2550,16 +2568,7 @@ const FinalBill = () => {
   }, [visitId]);
 
   // OT Notes state - Support for multiple surgeries (description is shared)
-  const [otNotesDataList, setOtNotesDataList] = useState<Array<{
-    id: string;
-    date: string;
-    procedure: string;
-    surgeons: string[];
-    anaesthetist: string;
-    anaesthesia: string;
-    implant: string;
-    alias: string;
-  }>>([{
+  const [otNotesDataList, setOtNotesDataList] = useState<OtNotesFormRow[]>([{
     id: crypto.randomUUID(),
     date: new Date().toISOString().slice(0, 16),
     procedure: '',
@@ -2737,6 +2746,199 @@ const FinalBill = () => {
       });
 
     return [intro, ...sentences].join(' ').trim();
+  };
+
+  const getOtNotesPatientSummary = () => ({
+    hospitalName:
+      hospitalConfig?.full_name ||
+      hospitalConfig?.hospital_name ||
+      hospitalConfig?.name ||
+      'Hospital',
+    patientName:
+      patientInfo?.name ||
+      visitData?.patients?.name ||
+      patientData.name ||
+      'N/A',
+    patientId:
+      patientInfo?.patients_id ||
+      visitData?.patients?.patients_id ||
+      patientData.registrationNo ||
+      'N/A',
+    ageGender:
+      `${patientInfo?.age || visitData?.patients?.age || patientData.age || 'N/A'} / ${patientInfo?.gender || patientInfo?.sex || visitData?.patients?.gender || visitData?.patients?.sex || patientData.sex || 'N/A'}`,
+  });
+
+  const buildOtNotesPdfFileName = (patientName: string) => {
+    const safePatient = (patientName || 'patient').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const safeVisit = (visitId || 'visit').replace(/[^a-zA-Z0-9._-]/g, '_');
+    return `${safePatient}_${safeVisit}_OT_Notes.pdf`;
+  };
+
+  const generateOtNotesPdfBlob = async (
+    surgeries: OtNotesFormRow[],
+    description: string,
+    patientSummary: ReturnType<typeof getOtNotesPatientSummary>
+  ) => {
+    const jsPDF = (await import('jspdf')).default;
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 14;
+    const contentWidth = pageWidth - margin * 2;
+    let y = 18;
+
+    const ensureSpace = (needed: number) => {
+      if (y + needed <= pageHeight - margin) return;
+      doc.addPage();
+      y = margin;
+    };
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.text(patientSummary.hospitalName, pageWidth / 2, y, { align: 'center' });
+    y += 8;
+    doc.setFontSize(14);
+    doc.text('Operation Theatre Notes', pageWidth / 2, y, { align: 'center' });
+    y += 10;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    doc.text(`Patient Name: ${patientSummary.patientName}`, margin, y);
+    y += 6;
+    doc.text(`Patient ID: ${patientSummary.patientId}`, margin, y);
+    y += 6;
+    doc.text(`Age / Gender: ${patientSummary.ageGender}`, margin, y);
+    y += 6;
+    doc.text(`Total Surgeries: ${surgeries.length}`, margin, y);
+    y += 10;
+
+    surgeries.forEach((surgery, index) => {
+      ensureSpace(36);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.text(`Surgery ${index + 1}${surgery.procedure ? `: ${surgery.procedure}` : ''}`, margin, y);
+      y += 7;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(11);
+      const surgeryLines = [
+        `Date: ${surgery.date || 'N/A'}`,
+        `Procedure: ${surgery.procedure || 'N/A'}`,
+        `Alias: ${surgery.alias || 'N/A'}`,
+        `Surgeon: ${surgery.surgeons.join(', ') || 'N/A'}`,
+        `Anaesthetist: ${surgery.anaesthetist || 'N/A'}`,
+        `Anaesthesia: ${surgery.anaesthesia || 'N/A'}`,
+        `Implant: ${surgery.implant || 'N/A'}`,
+      ];
+
+      for (const line of surgeryLines) {
+        ensureSpace(6);
+        const wrapped = doc.splitTextToSize(line, contentWidth);
+        doc.text(wrapped, margin, y);
+        y += wrapped.length * 5;
+      }
+      y += 4;
+    });
+
+    const normalizedDescription = formatOtNotesAsParagraphsV2(description || '');
+    ensureSpace(14);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text('OT Notes / Description', margin, y);
+    y += 7;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+
+    const descriptionLines = doc.splitTextToSize(normalizedDescription || 'No OT notes description provided.', contentWidth);
+    for (const line of descriptionLines) {
+      ensureSpace(6);
+      doc.text(line, margin, y);
+      y += 5;
+    }
+
+    return doc.output('blob');
+  };
+
+  const syncOtNotesPdfToDocuments = async (
+    patientId: string,
+    patientName: string,
+    surgeries: OtNotesFormRow[],
+    description: string
+  ) => {
+    const patientSummary = getOtNotesPatientSummary();
+    const pdfBlob = await generateOtNotesPdfBlob(surgeries, description, patientSummary);
+    const fileName = buildOtNotesPdfFileName(patientName);
+    const notesMarker = `AUTO_GENERATED_OT_NOTES_PDF|visit:${visitId || ''}|source:final_bill`;
+
+    const { data: existingDocs, error: existingDocsError } = await (supabase as any)
+      .from('file_uploads')
+      .select('id, storage_path')
+      .eq('patient_id', patientId)
+      .eq('category', 'ot_notes')
+      .like('notes', 'AUTO_GENERATED_OT_NOTES_PDF|%');
+
+    if (existingDocsError) {
+      throw existingDocsError;
+    }
+
+    const existingPaths = (existingDocs || [])
+      .map((doc: any) => doc.storage_path)
+      .filter(Boolean);
+
+    if (existingPaths.length > 0) {
+      const { error: removeStorageError } = await supabase.storage.from('uploads').remove(existingPaths);
+      if (removeStorageError) {
+        throw removeStorageError;
+      }
+    }
+
+    if ((existingDocs || []).length > 0) {
+      const existingIds = existingDocs.map((doc: any) => doc.id);
+      const { error: deleteDocsError } = await (supabase as any)
+        .from('file_uploads')
+        .delete()
+        .in('id', existingIds);
+      if (deleteDocsError) {
+        throw deleteDocsError;
+      }
+    }
+
+    const storagePath = `uploads/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const pdfFile = new File([pdfBlob], fileName, { type: 'application/pdf' });
+
+    const { error: storageError } = await supabase.storage
+      .from('uploads')
+      .upload(storagePath, pdfFile, { contentType: 'application/pdf' });
+
+    if (storageError) {
+      throw storageError;
+    }
+
+    const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(storagePath);
+    const publicUrl = urlData?.publicUrl || '';
+
+    const { error: insertError } = await (supabase as any)
+      .from('file_uploads')
+      .insert({
+        file_name: fileName,
+        file_url: publicUrl,
+        file_type: 'application/pdf',
+        file_size: pdfFile.size,
+        storage_path: storagePath,
+        category: 'ot_notes',
+        patient_id: patientId,
+        patient_name: patientName,
+        notes: notesMarker,
+        uploaded_by: user?.id || null,
+        status: 'completed',
+      });
+
+    if (insertError) {
+      throw insertError;
+    }
+
+    queryClient.invalidateQueries({ queryKey: ['bill-patient-docs', patientId] });
+    queryClient.invalidateQueries({ queryKey: ['tablet-patient-docs', patientId, 'ot_notes'] });
   };
 
   // State to track saved OT notes data (for restoring implant and other fields)
@@ -5773,6 +5975,20 @@ INSTRUCTIONS:
           setIsSavingOtNotes(false);
           return;
         }
+      }
+
+      try {
+        await syncOtNotesPdfToDocuments(
+          visitData.patient_id,
+          patientName,
+          surgeriesWithData,
+          sharedDescription.trim()
+        );
+      } catch (documentSyncError) {
+        console.error('Error syncing OT Notes PDF to documents:', documentSyncError);
+        toast.error('OT Notes saved, but OT Notes PDF could not be added to Documents & Photos.');
+        setIsSavingOtNotes(false);
+        return;
       }
 
       toast.success(`✅ ${surgeriesWithData.length} OT Notes saved successfully to database!`);
