@@ -47,7 +47,8 @@ const escapeHtml = (value: string) =>
 const makeDefaultDetails = (implantName: string): StickerDetails => ({
   brandName: 'YIPL',
   manufacturerName: 'YOGESHWAR IMPLANT (I) PVT LTD',
-  manufacturerAddress: 'Address as per manufacturer label',
+  manufacturerAddress:
+    'Sr.No.91 Hissa No.1 A R Building,\nShobha Complex, Rajkamal Compound,\nKalher village, Tal. Bhiwandi-14\nDistrict: Thane-421302\nMob: 9321142084',
   primaryCatNo: '2435',
   primaryQuantity: '01 Plate & 03 PC Screw',
   primaryMrp: '20000-PER PC',
@@ -68,6 +69,8 @@ const normalizeDetails = (details: Record<string, string> | undefined, implantNa
 
 const barcodeBars = Array.from({ length: 34 }, (_, index) => (index % 5 === 0 ? 3 : index % 3 === 0 ? 2 : 1));
 const barcodeHtml = () => barcodeBars.map((width) => `<span style="width:${width}px"></span>`).join('');
+
+const formatMultilineHtml = (value: string) => escapeHtml(value).replace(/\n/g, '<br />');
 
 function Barcode({ value }: { value: string }) {
   return (
@@ -110,19 +113,19 @@ function FactoryIcon() {
 
 function ManufacturerLogo() {
   return (
-    <div className="relative h-9 w-9 overflow-hidden rounded border border-slate-300 bg-white shadow-sm">
+    <div className="relative h-10 w-10 overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm">
       <div className="absolute inset-y-0 right-0 w-3 bg-[#8cc63f]" />
-      <div className="absolute left-1 top-1 h-7 w-7 rounded-full border-[5px] border-[#2d5aa3]" />
-      <div className="absolute left-[14px] top-[12px] h-3 w-3 rounded-full bg-[#5d6a7a]" />
+      <div className="absolute left-1.5 top-1.5 h-7 w-7 rounded-full border-[5px] border-[#3764b3]" />
+      <div className="absolute left-[15px] top-[13px] h-3 w-3 rounded-full bg-[#5d6a7a]" />
     </div>
   );
 }
 
 function BrandStrip({ brandName }: { brandName: string }) {
   return (
-    <div className="flex h-11 items-center justify-around border-t border-[#00ff55] bg-[#0616d8]">
+    <div className="flex h-10 items-center justify-around border-t border-[#7bb6ff] bg-[#2f6ff2]">
       {[0, 1, 2].map((item) => (
-        <span key={item} className="relative text-[24px] font-black leading-none text-[#39ff14]">
+        <span key={item} className="relative text-[22px] font-black leading-none tracking-[0.18em] text-[#dff6ff]">
           {brandName}
           <sup className="absolute -right-3 -top-2 text-[8px] text-white">R</sup>
         </span>
@@ -168,13 +171,13 @@ function ImplantLabelBlock({
         <FactoryIcon />
       </div>
 
-      <div className="absolute right-[56px] top-[44px]">
+      <div className="absolute right-[58px] top-[42px]">
         <ManufacturerLogo />
       </div>
-      <div className="absolute right-4 top-[94px] origin-top-right rotate-[-90deg] whitespace-nowrap text-[10px] font-extrabold text-[#0a31ff]">
+      <div className="absolute right-4 top-[94px] origin-top-right rotate-[-90deg] whitespace-nowrap text-[10px] font-extrabold tracking-[0.14em] text-[#315ef2]">
         {details.manufacturerName}
       </div>
-      <div className="absolute right-1 top-[94px] origin-top-right rotate-[-90deg] whitespace-nowrap text-[7px] font-bold text-[#0a31ff]">
+      <div className="absolute right-1 top-[94px] origin-top-right rotate-[-90deg] whitespace-pre-line text-[7px] font-bold leading-[1.15] tracking-[0.06em] text-[#4f7df0]">
         {details.manufacturerAddress}
       </div>
 
@@ -202,6 +205,30 @@ function Field({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+      />
+    </label>
+  );
+}
+
+function TextareaField({
+  label,
+  value,
+  onChange,
+  rows = 4,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  rows?: number;
+}) {
+  return (
+    <label className="block space-y-1">
+      <span className="block text-xs font-semibold text-gray-500">{label}</span>
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        rows={rows}
+        className="w-full rounded border border-gray-300 px-2 py-1 text-sm leading-5"
       />
     </label>
   );
@@ -289,7 +316,7 @@ export function ImplantStickerSection({
       </div>
       <div class="mark"><div class="mark-green"></div><div class="mark-ring"></div><div class="mark-dot"></div></div>
       <div class="maker">${escapeHtml(details.manufacturerName)}</div>
-      <div class="maker-address">${escapeHtml(details.manufacturerAddress)}</div>
+      <div class="maker-address">${formatMultilineHtml(details.manufacturerAddress)}</div>
       <div class="brand-strip">
         <span>${escapeHtml(details.brandName)}<sup>R</sup></span>
         <span>${escapeHtml(details.brandName)}<sup>R</sup></span>
@@ -336,10 +363,10 @@ export function ImplantStickerSection({
           .mark-green { position: absolute; inset: 0 0 0 auto; width: 3.2mm; background: #8cc63f; }
           .mark-ring { position: absolute; left: 1.3mm; top: 1.3mm; width: 6.8mm; height: 6.8mm; border: 1.5mm solid #2d5aa3; border-radius: 999px; }
           .mark-dot { position: absolute; left: 4.4mm; top: 4mm; width: 3mm; height: 3mm; border-radius: 999px; background: #5d6a7a; }
-          .maker { position: absolute; right: 6mm; top: 33mm; transform: rotate(-90deg); transform-origin: top right; white-space: nowrap; color: #0a31ff; font-size: 7pt; font-weight: 900; }
-          .maker-address { position: absolute; right: 2.5mm; top: 33mm; transform: rotate(-90deg); transform-origin: top right; white-space: nowrap; color: #0a31ff; font-size: 5pt; font-weight: 700; }
-          .brand-strip { position: absolute; left: 0; right: 0; bottom: 8mm; height: 11mm; display: flex; align-items: center; justify-content: space-around; border-top: 1px solid #00ff55; background: #0616d8; }
-          .brand-strip span { position: relative; color: #39ff14; font-size: 17pt; font-weight: 900; line-height: 1; }
+          .maker { position: absolute; right: 6mm; top: 33mm; transform: rotate(-90deg); transform-origin: top right; white-space: nowrap; color: #315ef2; font-size: 7.5pt; font-weight: 900; letter-spacing: .08em; }
+          .maker-address { position: absolute; right: 2.5mm; top: 33mm; transform: rotate(-90deg); transform-origin: top right; white-space: pre-line; color: #4f7df0; font-size: 5pt; font-weight: 700; line-height: 1.15; letter-spacing: .04em; }
+          .brand-strip { position: absolute; left: 0; right: 0; bottom: 8mm; height: 10mm; display: flex; align-items: center; justify-content: space-around; border-top: 1px solid #7bb6ff; background: #2f6ff2; }
+          .brand-strip span { position: relative; color: #dff6ff; font-size: 16pt; font-weight: 900; line-height: 1; letter-spacing: .18em; }
           .brand-strip sup { position: absolute; top: -2.5mm; right: -3.5mm; color: #fff; font-size: 5pt; }
           .mfg-date { position: absolute; bottom: 2mm; left: 50%; transform: translateX(-50%); color: #475569; font-size: 7pt; font-weight: 800; }
           .summary { width: 142mm; margin: 5mm auto 0; display: grid; grid-template-columns: 1fr 1fr; gap: 2mm 8mm; font-size: 9pt; font-weight: 700; }
@@ -469,7 +496,7 @@ export function ImplantStickerSection({
           </label>
           <Field label="Brand" value={details.brandName} onChange={(value) => updateDetail('brandName', value)} />
           <Field label="Manufacturer" value={details.manufacturerName} onChange={(value) => updateDetail('manufacturerName', value)} />
-          <Field label="Address" value={details.manufacturerAddress} onChange={(value) => updateDetail('manufacturerAddress', value)} />
+          <TextareaField label="Address" value={details.manufacturerAddress} onChange={(value) => updateDetail('manufacturerAddress', value)} rows={5} />
           <Field label="Primary Cat No." value={details.primaryCatNo} onChange={(value) => updateDetail('primaryCatNo', value)} />
           <Field label="Primary Qty" value={details.primaryQuantity} onChange={(value) => updateDetail('primaryQuantity', value)} />
           <Field label="Primary MRP" value={details.primaryMrp} onChange={(value) => updateDetail('primaryMrp', value)} />
