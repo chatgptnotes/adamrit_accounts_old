@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { amountInWords } from '@/lib/amountInWords';
 import {
@@ -53,6 +54,40 @@ const escapeHtml = (value: string) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+
+function LinkField({
+  label,
+  value,
+  onChange,
+  onCopy,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  onCopy: () => void;
+}) {
+  return (
+    <label className="block space-y-1 text-sm">
+      <span className="block text-xs font-semibold text-gray-500">{label}</span>
+      <div className="flex items-stretch gap-2">
+        <input
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="min-w-0 flex-1 rounded border border-gray-300 px-2 py-1 text-sm"
+        />
+        <button
+          type="button"
+          onClick={onCopy}
+          className="inline-flex h-9 w-9 items-center justify-center rounded border border-gray-300 bg-white text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+          title="Copy link"
+          aria-label="Copy link"
+        >
+          <Copy className="h-4 w-4" />
+        </button>
+      </div>
+    </label>
+  );
+}
 
 export function ImplantBillSection({
   visitId,
@@ -144,6 +179,16 @@ export function ImplantBillSection({
       toast.error('Could not save the implant bill.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleCopyReferenceLink = async () => {
+    try {
+      await navigator.clipboard.writeText(referenceLink || '');
+      toast.success('Reference link copied.');
+    } catch (error) {
+      console.error('Failed to copy reference link:', error);
+      toast.error('Could not copy the reference link.');
     }
   };
 
@@ -344,14 +389,12 @@ export function ImplantBillSection({
           </div>
 
           <div className="mt-4">
-            <label className="block space-y-1 text-sm">
-              <span className="block text-xs font-semibold text-gray-500">Reference Link</span>
-              <input
-                value={referenceLink}
-                onChange={(event) => setReferenceLink(event.target.value)}
-                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-              />
-            </label>
+            <LinkField
+              label="Reference Link"
+              value={referenceLink}
+              onChange={setReferenceLink}
+              onCopy={handleCopyReferenceLink}
+            />
           </div>
 
           <div className="mt-7 grid grid-cols-[1fr_105px_105px_115px] border border-black">

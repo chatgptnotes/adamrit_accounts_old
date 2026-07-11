@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SearchableSelect, type SearchableSelectOption } from '@/components/ui/searchable-select';
 import { MultiSelectDropdown } from '@/components/EditPatientDialog/MultiSelectDropdown';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 
 type PmjayPackageRow = {
   id: string;
@@ -133,6 +134,30 @@ const splitDelimitedList = (input: unknown) =>
 const pickText = (...values: Array<unknown>) =>
   values.map((value) => asText(value).trim()).find((value) => value && value.length > 0) || '';
 
+const inferDepartment = (record: EnrichedPackage): string => {
+  const haystack = [
+    record.treatment_code,
+    record.treatment_plan,
+    record.diagnosis_code,
+    record.diagnosis,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  if (/\bdialysis\b|\bhaemodialysis\b|\bhemodialysis\b|\brenal\b/.test(haystack)) return 'Nephrology';
+  if (/neuro|brain|crani|cerebral|stroke|head injury|spine|laminectomy|discectomy/.test(haystack)) return 'Neurosurgery';
+  if (/ortho|fracture|plate|nailing|fixation|arthros|tendon|bone|pelviacetabular|elbow|forearm/.test(haystack)) return 'Orthopedics';
+  if (/cardio|angioplasty|ptca|pacemaker|coronary|stent|stenting|angiogram/.test(haystack)) return 'Cardiology';
+  if (/uro|renal tumor|pcnl|ureter|ureteric|cysto|prostate|bladder|kidney|stenting including cystoscopy/.test(haystack)) return 'Urology';
+  if (/hysterectomy|gyne|obstet|obg|pelvic|salpingo|omentectomy/.test(haystack)) return 'Gynecology';
+  if (/oncology|tumou?r|cancer|chemotherapy|cyclophosphamide/.test(haystack)) return 'Oncology';
+  if (/ent|ear|nose|throat|mastoid|otitis|tonsil|sinus/.test(haystack)) return 'ENT';
+  if (/laparotomy|hernia|append|gastro|lap\./.test(haystack)) return 'General Surgery';
+  if (/medical|medicine|dehydration|sepsis|ketoacidosis|stroke|hyponatremia|thrombocytopenia/.test(haystack)) return 'General Medicine';
+  return record.category || 'Unclassified';
+};
+
 const isMissingRelationError = (error: unknown) =>
   Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: string }).code === '42P01');
 
@@ -187,6 +212,7 @@ const PmjayMjpjayMaster = () => {
   const [editForm, setEditForm] = useState<PackageFormState>(EMPTY_FORM);
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
   const [priceInput, setPriceInput] = useState('');
+  const selectedDepartment = viewingRecord ? inferDepartment(viewingRecord) : '';
 
   const { data: surgeons = [] } = useQuery({
     queryKey: ['hope-surgeons-options'],
@@ -910,7 +936,16 @@ const PmjayMjpjayMaster = () => {
                   {packageRows.map((record) => (
                     <tr
                       key={record.id}
-                      className={`border-b hover:bg-gray-50 ${!record.is_active ? 'bg-gray-100 opacity-60' : ''}`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setViewingRecord(record)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setViewingRecord(record);
+                        }
+                      }}
+                      className={`cursor-pointer border-b hover:bg-gray-50 ${!record.is_active ? 'bg-gray-100 opacity-60' : ''}`}
                     >
                       <td className="max-w-[220px] truncate p-3 font-medium text-gray-900" title={record.treatment_plan || ''}>
                         {record.treatment_plan || '-'}
@@ -956,6 +991,8 @@ const PmjayMjpjayMaster = () => {
                             autoFocus
                             type="number"
                             value={priceInput}
+                            onClick={(event) => event.stopPropagation()}
+                            onMouseDown={(event) => event.stopPropagation()}
                             onChange={(e) => setPriceInput(e.target.value)}
                             onBlur={() => saveInlinePrice(record.id)}
                             onKeyDown={(e) => {
@@ -973,7 +1010,8 @@ const PmjayMjpjayMaster = () => {
                             className={`cursor-pointer font-semibold ${
                               record.package_price != null ? 'text-green-700' : 'text-sm italic text-gray-400'
                             }`}
-                            onClick={() => {
+                            onClick={(event) => {
+                              event.stopPropagation();
                               setEditingPriceId(record.id);
                               setPriceInput(record.package_price?.toString() || '');
                             }}
@@ -1300,68 +1338,86 @@ const PmjayMjpjayMaster = () => {
         </div>
       )}
 
-      {viewingRecord && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="mx-4 max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-lg bg-white p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-xl font-bold">Package Details</h2>
-              <button onClick={() => setViewingRecord(null)}>
-                <X className="h-6 w-6 text-gray-500" />
-              </button>
-            </div>
+      <Sheet open={!!viewingRecord} onOpenChange={(open) => !open && setViewingRecord(null)}>
+        <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
+          {viewingRecord && (
+            <div className="space-y-6 pt-2">
+              <SheetHeader className="space-y-2 pr-8 text-left">
+                <SheetTitle className="text-2xl font-bold">
+                  {viewingRecord.treatment_plan || viewingRecord.treatment_code || 'Package Details'}
+                </SheetTitle>
+                <SheetDescription className="text-sm text-muted-foreground">
+                  Full record details and hidden metadata for this package.
+                </SheetDescription>
+              </SheetHeader>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              {[
-                ['Scheme', viewingRecord.scheme],
-                ['Yojna Package Name', viewingRecord.treatment_plan],
-                ['Treatment Code', viewingRecord.treatment_code],
-                ['Diag. Code', viewingRecord.diagnosis_code],
-                ['Diagnosis', viewingRecord.diagnosis],
-                ['Category', viewingRecord.category],
-                ['Package Price', formatPrice(viewingRecord.package_price)],
-                ['Anaesthesia Type', viewingRecord.anaesthesia_type],
-                ['Remark', viewingRecord.remark],
-                ['Patient Example', viewingRecord.patient_name_example],
-                ['Created', viewingRecord.created_at ? new Date(viewingRecord.created_at).toLocaleDateString() : '-'],
-              ].map(([label, value]) => (
-                <div key={label}>
-                  <Label className="block text-sm font-medium text-gray-700">{label}</Label>
-                  <p className="mt-1 text-sm text-gray-900">{value || '-'}</p>
+              <div className="flex flex-wrap gap-2">
+                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${viewingRecord.scheme === 'PMJAY' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-800'}`}>
+                  {viewingRecord.scheme}
+                </span>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                  {selectedDepartment}
+                </span>
+                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${viewingRecord.is_active ? 'bg-blue-100 text-blue-700' : 'bg-rose-100 text-rose-700'}`}>
+                  {viewingRecord.is_active ? 'Active' : 'Inactive'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {[
+                  ['Scheme', viewingRecord.scheme],
+                  ['Yojna Package Name', viewingRecord.treatment_plan],
+                  ['Treatment Code', viewingRecord.treatment_code],
+                  ['Diag. Code', viewingRecord.diagnosis_code],
+                  ['Diagnosis', viewingRecord.diagnosis],
+                  ['Category', viewingRecord.category],
+                  ['Package Price', formatPrice(viewingRecord.package_price)],
+                  ['Anaesthesia Type', viewingRecord.anaesthesia_type],
+                  ['Remark', viewingRecord.remark],
+                  ['Patient Example', viewingRecord.patient_name_example],
+                  ['Created', viewingRecord.created_at ? new Date(viewingRecord.created_at).toLocaleString() : '-'],
+                ].map(([label, value]) => (
+                  <div key={label} className={label === 'Yojna Package Name' || label === 'Diagnosis' ? 'md:col-span-2' : ''}>
+                    <Label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</Label>
+                    <p className="mt-1 break-words text-sm text-slate-900">{value || '-'}</p>
+                  </div>
+                ))}
+
+                <div className="md:col-span-2">
+                  <Label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Surgeon Name</Label>
+                  <p className="mt-1 break-words text-sm text-slate-900">{joinList(viewingRecord.surgeon_names)}</p>
                 </div>
-              ))}
 
-              <div className="md:col-span-2">
-                <Label className="block text-sm font-medium text-gray-700">Surgeon Name</Label>
-                <p className="mt-1 text-sm text-gray-900">{joinList(viewingRecord.surgeon_names)}</p>
+                <div className="md:col-span-2">
+                  <Label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Department Name</Label>
+                  <p className="mt-1 break-words text-sm text-slate-900">{joinList(viewingRecord.surgeon_departments)}</p>
+                </div>
+
+                <div className="md:col-span-2">
+                  <Label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Anaesthetists</Label>
+                  <p className="mt-1 break-words text-sm text-slate-900">{joinList(viewingRecord.anaesthetist_names)}</p>
+                </div>
+
+                <div className="md:col-span-2">
+                  <Label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Implant</Label>
+                  <p className="mt-1 break-words text-sm text-slate-900">{joinList(viewingRecord.implant_names)}</p>
+                </div>
               </div>
 
-              <div className="md:col-span-2">
-                <Label className="block text-sm font-medium text-gray-700">Department Name</Label>
-                <p className="mt-1 text-sm text-gray-900">{joinList(viewingRecord.surgeon_departments)}</p>
+              <div className="rounded-lg border bg-slate-50 p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Department Notes</div>
+                <p className="mt-2 text-sm text-slate-700">
+                  This package is grouped under <span className="font-semibold text-slate-900">{selectedDepartment}</span> based on the procedure code and package name. The table keeps the name truncated; the sidebar shows the full record.
+                </p>
               </div>
 
-              <div className="md:col-span-2">
-                <Label className="block text-sm font-medium text-gray-700">Anaesthetists</Label>
-                <p className="mt-1 text-sm text-gray-900">{joinList(viewingRecord.anaesthetist_names)}</p>
-              </div>
-
-              <div className="md:col-span-2">
-                <Label className="block text-sm font-medium text-gray-700">Implant</Label>
-                <p className="mt-1 text-sm text-gray-900">{joinList(viewingRecord.implant_names)}</p>
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={() => setViewingRecord(null)}>Close</Button>
               </div>
             </div>
-
-            <div className="mt-6 flex justify-end">
-              <button
-                onClick={() => setViewingRecord(null)}
-                className="rounded-lg bg-gray-600 px-4 py-2 text-white hover:bg-gray-700"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          )}
+        </SheetContent>
+      </Sheet>
 
       {editingRecord && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
