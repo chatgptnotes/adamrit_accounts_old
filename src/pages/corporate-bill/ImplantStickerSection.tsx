@@ -123,15 +123,21 @@ function ManufacturerLogo() {
 
 function ManufacturerRail({ details }: { details: StickerDetails }) {
   return (
-    <div className="absolute right-[8px] top-[42px] flex h-[134px] w-[54px] flex-col items-center rounded-l-md border border-slate-200 bg-slate-50 px-[5px] py-[6px] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <div className="absolute right-[7px] top-[42px] flex h-[138px] w-[60px] flex-col items-center overflow-hidden rounded-l-md border border-slate-200 bg-slate-50 px-[6px] py-[7px] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       <ManufacturerLogo />
       <div className="mt-2 flex flex-1 items-center justify-center">
-        <span className="rotate-180 whitespace-nowrap [writing-mode:vertical-rl] [text-orientation:mixed] text-[9px] font-extrabold leading-none tracking-[0.18em] text-[#315ef2]">
+        <span
+          className="whitespace-nowrap [writing-mode:vertical-rl] [text-orientation:mixed] text-[9px] font-extrabold leading-none tracking-[0.12em] text-[#315ef2]"
+          style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}
+        >
           {details.manufacturerName}
         </span>
       </div>
       <div className="mt-1 flex flex-1 items-center justify-center">
-        <span className="rotate-180 whitespace-pre-line [writing-mode:vertical-rl] [text-orientation:mixed] text-[6px] font-bold leading-[1.1] tracking-[0.08em] text-[#4f7df0]">
+        <span
+          className="whitespace-pre-line [writing-mode:vertical-rl] [text-orientation:mixed] text-[6px] font-bold leading-[1.08] tracking-[0.05em] text-[#4f7df0]"
+          style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}
+        >
           {details.manufacturerAddress}
         </span>
       </div>
@@ -376,15 +382,15 @@ export function ImplantStickerSection({
           .mark-green { position: absolute; inset: 0 0 0 auto; width: 3.2mm; background: #8cc63f; }
           .mark-ring { position: absolute; left: 1.3mm; top: 1.3mm; width: 6.8mm; height: 6.8mm; border: 1.5mm solid #2d5aa3; border-radius: 999px; }
           .mark-dot { position: absolute; left: 4.4mm; top: 4mm; width: 3mm; height: 3mm; border-radius: 999px; background: #5d6a7a; }
-          .maker-rail { position: absolute; right: 2.5mm; top: 11mm; display: flex; width: 15mm; height: 35mm; flex-direction: column; align-items: center; border: 1px solid #e2e8f0; border-right: 0; border-radius: 4px 0 0 4px; background: #f8fafc; padding: 1.2mm; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
-          .maker-logo { width: 8.8mm; height: 8.8mm; overflow: hidden; border: 1px solid #cbd5e1; border-radius: 2.2mm; background: #fff; position: relative; flex: 0 0 auto; }
+          .maker-rail { position: absolute; right: 2.5mm; top: 11mm; display: flex; width: 17mm; height: 35mm; flex-direction: column; align-items: center; overflow: hidden; border: 1px solid #e2e8f0; border-right: 0; border-radius: 4px 0 0 4px; background: #f8fafc; padding: 1.2mm; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+          .maker-logo { width: 8.2mm; height: 8.2mm; overflow: hidden; border: 1px solid #cbd5e1; border-radius: 2mm; background: #fff; position: relative; flex: 0 0 auto; }
           .maker-logo:before { content: ""; position: absolute; inset: 0 0 0 auto; width: 2.8mm; background: #8cc63f; }
-          .maker-logo-mark { position: absolute; left: 1.2mm; top: 1.2mm; width: 5.4mm; height: 5.4mm; border: 1.3mm solid #3764b3; border-radius: 999px; }
-          .maker-logo-mark:after { content: ""; position: absolute; left: 1.8mm; top: 1.8mm; width: 1.4mm; height: 1.4mm; border-radius: 999px; background: #5d6a7a; }
-          .maker-name { margin-top: 1.8mm; color: #315ef2; font-size: 6.8pt; font-weight: 900; letter-spacing: .18em; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); white-space: nowrap; line-height: 1; }
-          .maker-address { margin-top: 1.2mm; color: #4f7df0; font-size: 4.8pt; font-weight: 700; letter-spacing: .05em; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); white-space: pre-line; line-height: 1.08; }
+          .maker-logo-mark { position: absolute; left: 1.1mm; top: 1.1mm; width: 5mm; height: 5mm; border: 1.2mm solid #3764b3; border-radius: 999px; }
+          .maker-logo-mark:after { content: ""; position: absolute; left: 1.7mm; top: 1.7mm; width: 1.3mm; height: 1.3mm; border-radius: 999px; background: #5d6a7a; }
+          .maker-name { margin-top: 1.8mm; color: #315ef2; font-family: Arial, Helvetica, sans-serif; font-size: 6.4pt; font-weight: 900; letter-spacing: .12em; writing-mode: vertical-rl; text-orientation: mixed; white-space: nowrap; line-height: 1; }
+          .maker-address { margin-top: 1.2mm; color: #4f7df0; font-family: Arial, Helvetica, sans-serif; font-size: 4.8pt; font-weight: 700; letter-spacing: .05em; writing-mode: vertical-rl; text-orientation: mixed; white-space: pre-line; line-height: 1.05; }
           .brand-strip { position: absolute; left: 0; right: 0; bottom: 8mm; height: 10mm; display: flex; align-items: center; justify-content: space-around; border-top: 1px solid #7bb6ff; background: #2f6ff2; }
-          .brand-strip span { position: relative; color: #dff6ff; font-size: 15pt; font-weight: 900; line-height: 1; letter-spacing: .22em; }
+          .brand-strip span { position: relative; color: #dff6ff; font-size: 14pt; font-weight: 900; line-height: 1; letter-spacing: .26em; }
           .brand-strip sup { position: absolute; top: -2.5mm; right: -3.5mm; color: #fff; font-size: 5pt; }
           .mfg-date { position: absolute; bottom: 2mm; left: 50%; transform: translateX(-50%); color: #475569; font-size: 7pt; font-weight: 800; }
           .summary { width: 142mm; margin: 5mm auto 0; display: grid; grid-template-columns: 1fr 1fr; gap: 2mm 8mm; font-size: 9pt; font-weight: 700; }
