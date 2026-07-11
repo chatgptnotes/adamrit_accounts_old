@@ -70,13 +70,13 @@ interface EntityConfig {
   showPatientFields: boolean;
 }
 
-// Expense rows track WHO got paid, not which patient — "Salary" breaks down by
-// staff member, every other expense row (Rent, Lab charges, Implant vendors,
-// Electricity bill, etc.) breaks down by vendor. Everything else (income,
-// receivables, payables, marketing revenue) keeps the original patient-linked
-// breakdown with panel/admission date/referee.
+// Expense and Payables rows track WHO got paid, not which patient — "Salary"
+// breaks down by staff member, every other expense/payables row (Rent, Lab
+// charges, Electricity bill, Implant vendors, Doctors, Pharmacy vendors, etc.)
+// breaks down by vendor. Income/Receivables/Marketing Revenue keep the
+// original patient-linked breakdown with panel/admission date/referee.
 function getEntityConfig(statementKey: string, rowLabel: string): EntityConfig {
-  if (statementKey === 'expense') {
+  if (statementKey === 'expense' || statementKey === 'payables') {
     if (rowLabel.trim().toLowerCase() === 'salary') {
       return { kind: 'staff', label: 'Staff', showPatientFields: false };
     }
