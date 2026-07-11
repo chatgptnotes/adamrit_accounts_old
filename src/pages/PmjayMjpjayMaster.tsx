@@ -198,6 +198,21 @@ const inferDepartment = (record: EnrichedPackage): string => {
   return record.category || 'Unclassified';
 };
 
+const LEGACY_CATEGORY_VALUES = new Set(['CONSERVATIVE', 'SURGICAL']);
+
+const getDisplayCategory = (record: EnrichedPackage): string => {
+  const stored = record.category?.trim() || '';
+  if (stored && !LEGACY_CATEGORY_VALUES.has(stored.toUpperCase())) {
+    return stored;
+  }
+  return inferDepartment(record);
+};
+
+const getStoredOrDisplayCategory = (record: EnrichedPackage): string => {
+  const stored = record.category?.trim() || '';
+  return stored && !LEGACY_CATEGORY_VALUES.has(stored.toUpperCase()) ? stored : inferDepartment(record);
+};
+
 const isMissingRelationError = (error: unknown) =>
   Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: string }).code === '42P01');
 
@@ -1005,7 +1020,7 @@ const PmjayMjpjayMaster = () => {
                           {record.scheme}
                         </span>
                       </td>
-                      <td className="p-3 text-sm text-gray-600">{record.category || '-'}</td>
+                      <td className="p-3 text-sm text-gray-600">{getDisplayCategory(record) || '-'}</td>
                       <td className="max-w-[220px] truncate p-3 text-sm text-gray-600" title={joinList(record.surgeon_names)}>
                         {joinList(record.surgeon_names)}
                       </td>
@@ -1404,7 +1419,7 @@ const PmjayMjpjayMaster = () => {
                   ['Treatment Code', viewingRecord.treatment_code],
                   ['Diag. Code', viewingRecord.diagnosis_code],
                   ['Diagnosis', viewingRecord.diagnosis],
-                  ['Category', viewingRecord.category],
+                  ['Category', getStoredOrDisplayCategory(viewingRecord)],
                   ['Package Price', formatPrice(viewingRecord.package_price)],
                   ['Anaesthesia Type', viewingRecord.anaesthesia_type],
                   ['Remark', viewingRecord.remark],
