@@ -119,6 +119,34 @@ const ANAESTHESIA_OPTIONS: SearchableSelectOption[] = [
   },
 ];
 
+const PACKAGE_CATEGORY_OPTIONS: SearchableSelectOption[] = [
+  'Burns Management',
+  'Cardio-thoracic & Vascular surgery',
+  'Cardiology',
+  'Emergency Room Packages (Care requiring less than 12 hrs stay)',
+  'General Medicine',
+  'General Surgery',
+  'High end Diagnostics',
+  'High end Medicine',
+  'High end procedures',
+  'Interventional Neuroradiology',
+  'Mental Disorders Packages',
+  'Neo-natal care Packages',
+  'Neuro Surgery',
+  'Obstetrics & Gynaecology',
+  'Ophthalmology',
+  'Orthopaedics',
+  'Otorhinolaryngology',
+  'Paediatric Medical management',
+  'Paediatric Surgery',
+  'Plastic & reconstructive Surgery',
+  'Polytrauma',
+  'Surgical Oncology',
+  'Urology',
+  'CONSERVATIVE',
+  'SURGICAL',
+].map((label) => ({ value: label, label }));
+
 const joinList = (items: string[]) => (items.length > 0 ? items.join(', ') : '-');
 
 const asText = (value: unknown) => (value == null ? '' : String(value));
@@ -145,16 +173,28 @@ const inferDepartment = (record: EnrichedPackage): string => {
     .join(' ')
     .toLowerCase();
 
-  if (/\bdialysis\b|\bhaemodialysis\b|\bhemodialysis\b|\brenal\b/.test(haystack)) return 'Nephrology';
-  if (/neuro|brain|crani|cerebral|stroke|head injury|spine|laminectomy|discectomy/.test(haystack)) return 'Neurosurgery';
-  if (/ortho|fracture|plate|nailing|fixation|arthros|tendon|bone|pelviacetabular|elbow|forearm/.test(haystack)) return 'Orthopedics';
+  if (/\bburn\b|\bburns\b|\bskin graft\b/.test(haystack)) return 'Burns Management';
+  if (/vascular|cardio.?thoracic|cabg|coronary bypass|aortic|aneurysm/.test(haystack)) return 'Cardio-thoracic & Vascular surgery';
   if (/cardio|angioplasty|ptca|pacemaker|coronary|stent|stenting|angiogram/.test(haystack)) return 'Cardiology';
-  if (/uro|renal tumor|pcnl|ureter|ureteric|cysto|prostate|bladder|kidney|stenting including cystoscopy/.test(haystack)) return 'Urology';
-  if (/hysterectomy|gyne|obstet|obg|pelvic|salpingo|omentectomy/.test(haystack)) return 'Gynecology';
-  if (/oncology|tumou?r|cancer|chemotherapy|cyclophosphamide/.test(haystack)) return 'Oncology';
-  if (/ent|ear|nose|throat|mastoid|otitis|tonsil|sinus/.test(haystack)) return 'ENT';
+  if (/emergency room|er package|care requiring less than 12 hrs stay|short stay emergency/.test(haystack)) return 'Emergency Room Packages (Care requiring less than 12 hrs stay)';
+  if (/dialysis|haemodialysis|hemodialysis|renal/.test(haystack)) return 'General Medicine';
+  if (/medicine|dehydration|sepsis|ketoacidosis|stroke|hyponatremia|thrombocytopenia/.test(haystack)) return 'General Medicine';
   if (/laparotomy|hernia|append|gastro|lap\./.test(haystack)) return 'General Surgery';
-  if (/medical|medicine|dehydration|sepsis|ketoacidosis|stroke|hyponatremia|thrombocytopenia/.test(haystack)) return 'General Medicine';
+  if (/diagnostic|ct scan|mri|pet scan|endoscopy|colonoscopy|echocardiogram/.test(haystack)) return 'High end Diagnostics';
+  if (/oncology|tumou?r|cancer|chemotherapy|cyclophosphamide/.test(haystack)) return 'Surgical Oncology';
+  if (/interventional neuroradiology|angiography|embolization|thrombectomy/.test(haystack)) return 'Interventional Neuroradiology';
+  if (/psychiatr|mental|depression|schizoph|bipolar|anxiety/.test(haystack)) return 'Mental Disorders Packages';
+  if (/neonatal|neo-natal|nicu|preterm|premature/.test(haystack)) return 'Neo-natal care Packages';
+  if (/neuro|brain|crani|cerebral|stroke|head injury|spine|laminectomy|discectomy/.test(haystack)) return 'Neuro Surgery';
+  if (/hysterectomy|gyne|obstet|obg|pelvic|salpingo|omentectomy/.test(haystack)) return 'Obstetrics & Gynaecology';
+  if (/ophthal|eye|cataract|retina|glaucoma/.test(haystack)) return 'Ophthalmology';
+  if (/ortho|fracture|plate|nailing|fixation|arthros|tendon|bone|pelviacetabular|elbow|forearm/.test(haystack)) return 'Orthopaedics';
+  if (/ent|ear|nose|throat|mastoid|otitis|tonsil|sinus|laryng/.test(haystack)) return 'Otorhinolaryngology';
+  if (/paediatric medical|pediatric medical|child medicine|neonatal medicine/.test(haystack)) return 'Paediatric Medical management';
+  if (/paediatric surgery|pediatric surgery|child surgery/.test(haystack)) return 'Paediatric Surgery';
+  if (/plastic|reconstructive|flap|cleft|burn scar/.test(haystack)) return 'Plastic & reconstructive Surgery';
+  if (/polytrauma|multiple trauma|trauma/.test(haystack)) return 'Polytrauma';
+  if (/urology|uro|renal tumor|pcnl|ureter|ureteric|cysto|prostate|bladder|kidney|stenting including cystoscopy/.test(haystack)) return 'Urology';
   return record.category || 'Unclassified';
 };
 
@@ -802,8 +842,6 @@ const PmjayMjpjayMaster = () => {
   const endItem = Math.min(currentPage * itemsPerPage, totalCount);
 
   const schemeOptions = ['PMJAY', 'MJPJAY'];
-  const categoryOptions = ['CONSERVATIVE', 'SURGICAL'];
-
   return (
     <div className="container mx-auto px-4 py-6">
       <div className="mb-6 flex items-start justify-between gap-4">
@@ -1161,18 +1199,14 @@ const PmjayMjpjayMaster = () => {
 
                 <div>
                   <Label className="mb-2 block text-sm font-medium text-gray-700">Category</Label>
-                  <Select value={createForm.category} onValueChange={(value) => setCreateForm((prev) => ({ ...prev, category: value }))}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categoryOptions.map((option) => (
-                        <SelectItem key={option} value={option}>
-                          {option}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <SearchableSelect
+                    options={PACKAGE_CATEGORY_OPTIONS}
+                    value={createForm.category}
+                    onValueChange={(value) => setCreateForm((prev) => ({ ...prev, category: value }))}
+                    placeholder="Select category"
+                    searchPlaceholder="Search category..."
+                    emptyText="No category found."
+                  />
                 </div>
 
                 <div>
@@ -1449,18 +1483,14 @@ const PmjayMjpjayMaster = () => {
 
                 <div>
                   <Label className="mb-2 block text-sm font-medium text-gray-700">Category</Label>
-                  <Select value={editForm.category} onValueChange={(value) => setEditForm((prev) => ({ ...prev, category: value }))}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categoryOptions.map((option) => (
-                        <SelectItem key={option} value={option}>
-                          {option}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <SearchableSelect
+                    options={PACKAGE_CATEGORY_OPTIONS}
+                    value={editForm.category}
+                    onValueChange={(value) => setEditForm((prev) => ({ ...prev, category: value }))}
+                    placeholder="Select category"
+                    searchPlaceholder="Search category..."
+                    emptyText="No category found."
+                  />
                 </div>
 
                 <div>
