@@ -213,6 +213,10 @@ const getStoredOrDisplayCategory = (record: EnrichedPackage): string => {
   return stored && !LEGACY_CATEGORY_VALUES.has(stored.toUpperCase()) ? stored : inferDepartment(record);
 };
 
+const CATEGORY_SORT_ORDER = PACKAGE_CATEGORY_OPTIONS.map((option) => option.label);
+
+const getCategoryGroup = (record: EnrichedPackage): string => getDisplayCategory(record) || 'Unclassified';
+
 const isMissingRelationError = (error: unknown) =>
   Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: string }).code === '42P01');
 
@@ -434,6 +438,32 @@ const PmjayMjpjayMaster = () => {
   const packageRows = packageQuery.data || [];
   const isLoading = packageQuery.isLoading;
   const error = packageQuery.error;
+  const groupedPackageSections = useMemo(() => {
+    const categoryToRows = new Map<string, EnrichedPackage[]>();
+
+    packageRows.forEach((record) => {
+      const category = getCategoryGroup(record);
+      const existing = categoryToRows.get(category) || [];
+      existing.push(record);
+      categoryToRows.set(category, existing);
+    });
+
+    const categoryWeight = (category: string) => {
+      const weight = CATEGORY_SORT_ORDER.indexOf(category);
+      return weight === -1 ? Number.MAX_SAFE_INTEGER : weight;
+    };
+
+    return [...categoryToRows.entries()]
+      .map(([category, records]) => ({
+        category,
+        records,
+      }))
+      .sort((left, right) => {
+        const weightDiff = categoryWeight(left.category) - categoryWeight(right.category);
+        if (weightDiff !== 0) return weightDiff;
+        return left.category.localeCompare(right.category);
+      });
+  }, [packageRows]);
 
   const normalizeSelections = (form: PackageFormState) => ({
     surgeons: [...new Set(form.surgeon_names.map((name) => name.trim()).filter(Boolean))],
@@ -964,164 +994,177 @@ const PmjayMjpjayMaster = () => {
               Error loading records.
             </div>
           ) : packageRows.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="border-b">
-                    <th className="p-3 text-left font-semibold text-gray-700">Yojna Package Name</th>
-                    <th className="p-3 text-left font-semibold text-gray-700">Treatment Code</th>
-                    <th className="p-3 text-left font-semibold text-gray-700">Diag. Code</th>
-                    <th className="p-3 text-left font-semibold text-gray-700">Diagnosis</th>
-                    <th className="p-3 text-left font-semibold text-gray-700">Scheme</th>
-                    <th className="p-3 text-left font-semibold text-gray-700">Category</th>
-                    <th className="p-3 text-left font-semibold text-gray-700">Surgeon Name</th>
-                    <th className="p-3 text-left font-semibold text-gray-700">Department Name</th>
-                    <th className="p-3 text-left font-semibold text-gray-700">Anaesthetists</th>
-                    <th className="p-3 text-left font-semibold text-gray-700">Type of Anaesthesia</th>
-                    <th className="p-3 text-left font-semibold text-gray-700">Implant</th>
-                    <th className="p-3 text-left font-semibold text-gray-700">Package Price</th>
-                    <th className="p-3 text-left font-semibold text-gray-700">Remark</th>
-                    <th className="p-3 text-left font-semibold text-gray-700">Created</th>
-                    <th className="p-3 text-left font-semibold text-gray-700">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {packageRows.map((record) => (
-                    <tr
-                      key={record.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setViewingRecord(record)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          setViewingRecord(record);
-                        }
-                      }}
-                      className={`cursor-pointer border-b hover:bg-gray-50 ${!record.is_active ? 'bg-gray-100 opacity-60' : ''}`}
-                    >
-                      <td className="max-w-[220px] truncate p-3 font-medium text-gray-900" title={record.treatment_plan || ''}>
-                        {record.treatment_plan || '-'}
-                        {!record.is_active && <span className="ml-2 text-xs text-red-500">(Inactive)</span>}
-                      </td>
-                      <td className="p-3 font-mono text-gray-600">{record.treatment_code || '-'}</td>
-                      <td className="p-3 font-mono text-gray-600">{record.diagnosis_code || '-'}</td>
-                      <td className="max-w-[220px] truncate p-3 text-gray-600" title={record.diagnosis || ''}>
-                        {record.diagnosis || '-'}
-                      </td>
-                      <td className="p-3">
-                        <span
-                          className={`rounded px-2 py-0.5 text-xs font-semibold ${
-                            record.scheme === 'PMJAY'
-                              ? 'bg-green-100 text-green-700'
-                              : 'bg-yellow-100 text-yellow-700'
-                          }`}
-                        >
-                          {record.scheme}
-                        </span>
-                      </td>
-                      <td className="p-3 text-sm text-gray-600">{getDisplayCategory(record) || '-'}</td>
-                      <td className="max-w-[220px] truncate p-3 text-sm text-gray-600" title={joinList(record.surgeon_names)}>
-                        {joinList(record.surgeon_names)}
-                      </td>
-                      <td className="max-w-[220px] truncate p-3 text-sm text-gray-600" title={joinList(record.surgeon_departments)}>
-                        {joinList(record.surgeon_departments)}
-                      </td>
-                      <td className="max-w-[220px] truncate p-3 text-sm text-gray-600" title={joinList(record.anaesthetist_names)}>
-                        {joinList(record.anaesthetist_names)}
-                      </td>
-                      <td className="p-3 text-sm text-gray-600">
-                        {ANAESTHESIA_OPTIONS.find((option) => option.value === record.anaesthesia_type)?.selectedLabel ||
-                          record.anaesthesia_type ||
-                          '-'}
-                      </td>
-                      <td className="max-w-[220px] truncate p-3 text-sm text-gray-600" title={joinList(record.implant_names)}>
-                        {joinList(record.implant_names)}
-                      </td>
-                      <td className="p-3">
-                        {editingPriceId === record.id ? (
-                          <input
-                            autoFocus
-                            type="number"
-                            value={priceInput}
-                            onClick={(event) => event.stopPropagation()}
-                            onMouseDown={(event) => event.stopPropagation()}
-                            onChange={(e) => setPriceInput(e.target.value)}
-                            onBlur={() => saveInlinePrice(record.id)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') saveInlinePrice(record.id);
-                              if (e.key === 'Escape') {
-                                setEditingPriceId(null);
-                                setPriceInput('');
+            <div className="space-y-4">
+              {groupedPackageSections.map(({ category, records }) => (
+                <details key={category} open className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-slate-900">{category}</div>
+                      <div className="text-xs text-slate-500">{records.length} package{records.length === 1 ? '' : 's'}</div>
+                    </div>
+                    <div className="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600 shadow-sm">
+                      {records.length}
+                    </div>
+                  </summary>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="border-b bg-slate-100">
+                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Yojna Package Name</th>
+                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Treatment Code</th>
+                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Diag. Code</th>
+                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Diagnosis</th>
+                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Scheme</th>
+                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Surgeon Name</th>
+                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Department Name</th>
+                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Anaesthetists</th>
+                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Type of Anaesthesia</th>
+                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Implant</th>
+                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Package Price</th>
+                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Remark</th>
+                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Created</th>
+                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {records.map((record) => (
+                          <tr
+                            key={record.id}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => setViewingRecord(record)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                setViewingRecord(record);
                               }
                             }}
-                            className="w-28 rounded border border-blue-400 px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                            placeholder="Enter price"
-                          />
-                        ) : (
-                          <span
-                            className={`cursor-pointer font-semibold ${
-                              record.package_price != null ? 'text-green-700' : 'text-sm italic text-gray-400'
-                            }`}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setEditingPriceId(record.id);
-                              setPriceInput(record.package_price?.toString() || '');
-                            }}
-                            title="Click to enter price"
+                            className={`cursor-pointer border-b last:border-b-0 hover:bg-slate-50 ${!record.is_active ? 'bg-gray-100 opacity-60' : ''}`}
                           >
-                            {formatPrice(record.package_price)}
-                          </span>
-                        )}
-                      </td>
-                      <td className="max-w-[200px] truncate p-3 text-sm text-gray-600" title={record.remark || ''}>
-                        {record.remark || '-'}
-                      </td>
-                      <td className="p-3 text-sm text-gray-600">
-                        {record.created_at ? new Date(record.created_at).toLocaleDateString() : '-'}
-                      </td>
-                      <td className="p-3">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => setViewingRecord(record)}
-                            className="p-1 text-blue-600 hover:text-blue-800"
-                            title="View"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </button>
-                          {canEditMasters && (
-                            <button
-                              onClick={() => openEditModal(record)}
-                              className="p-1 text-green-600 hover:text-green-800"
-                              title="Edit"
-                            >
-                              <Edit className="h-4 w-4" />
-                            </button>
-                          )}
-                          {canEditMasters && (
-                            <button
-                              onClick={() => handleToggleActive(record)}
-                              className="p-1 text-orange-600 hover:text-orange-800"
-                              title={record.is_active ? 'Deactivate' : 'Activate'}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </button>
-                          )}
-                          {canEditMasters && (
-                            <button
-                              onClick={() => setDeletingRecord(record)}
-                              className="p-1 text-red-600 hover:text-red-800"
-                              title="Delete"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                            <td className="max-w-[240px] truncate p-3 font-medium text-slate-900" title={record.treatment_plan || ''}>
+                              {record.treatment_plan || '-'}
+                              {!record.is_active && <span className="ml-2 text-xs text-red-500">(Inactive)</span>}
+                            </td>
+                            <td className="p-3 font-mono text-slate-600">{record.treatment_code || '-'}</td>
+                            <td className="p-3 font-mono text-slate-600">{record.diagnosis_code || '-'}</td>
+                            <td className="max-w-[240px] truncate p-3 text-slate-600" title={record.diagnosis || ''}>
+                              {record.diagnosis || '-'}
+                            </td>
+                            <td className="p-3">
+                              <span
+                                className={`rounded px-2 py-0.5 text-xs font-semibold ${
+                                  record.scheme === 'PMJAY'
+                                    ? 'bg-green-100 text-green-700'
+                                    : 'bg-yellow-100 text-yellow-700'
+                                }`}
+                              >
+                                {record.scheme}
+                              </span>
+                            </td>
+                            <td className="max-w-[220px] truncate p-3 text-sm text-slate-600" title={joinList(record.surgeon_names)}>
+                              {joinList(record.surgeon_names)}
+                            </td>
+                            <td className="max-w-[220px] truncate p-3 text-sm text-slate-600" title={joinList(record.surgeon_departments)}>
+                              {joinList(record.surgeon_departments)}
+                            </td>
+                            <td className="max-w-[220px] truncate p-3 text-sm text-slate-600" title={joinList(record.anaesthetist_names)}>
+                              {joinList(record.anaesthetist_names)}
+                            </td>
+                            <td className="p-3 text-sm text-slate-600">
+                              {ANAESTHESIA_OPTIONS.find((option) => option.value === record.anaesthesia_type)?.selectedLabel ||
+                                record.anaesthesia_type ||
+                                '-'}
+                            </td>
+                            <td className="max-w-[220px] truncate p-3 text-sm text-slate-600" title={joinList(record.implant_names)}>
+                              {joinList(record.implant_names)}
+                            </td>
+                            <td className="p-3">
+                              {editingPriceId === record.id ? (
+                                <input
+                                  autoFocus
+                                  type="number"
+                                  value={priceInput}
+                                  onClick={(event) => event.stopPropagation()}
+                                  onMouseDown={(event) => event.stopPropagation()}
+                                  onChange={(e) => setPriceInput(e.target.value)}
+                                  onBlur={() => saveInlinePrice(record.id)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') saveInlinePrice(record.id);
+                                    if (e.key === 'Escape') {
+                                      setEditingPriceId(null);
+                                      setPriceInput('');
+                                    }
+                                  }}
+                                  className="w-28 rounded border border-blue-400 px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                  placeholder="Enter price"
+                                />
+                              ) : (
+                                <span
+                                  className={`cursor-pointer font-semibold ${
+                                    record.package_price != null ? 'text-green-700' : 'text-sm italic text-gray-400'
+                                  }`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setEditingPriceId(record.id);
+                                    setPriceInput(record.package_price?.toString() || '');
+                                  }}
+                                  title="Click to enter price"
+                                >
+                                  {formatPrice(record.package_price)}
+                                </span>
+                              )}
+                            </td>
+                            <td className="max-w-[200px] truncate p-3 text-sm text-slate-600" title={record.remark || ''}>
+                              {record.remark || '-'}
+                            </td>
+                            <td className="p-3 text-sm text-slate-600">
+                              {record.created_at ? new Date(record.created_at).toLocaleDateString() : '-'}
+                            </td>
+                            <td className="p-3">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => setViewingRecord(record)}
+                                  className="p-1 text-blue-600 hover:text-blue-800"
+                                  title="View"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </button>
+                                {canEditMasters && (
+                                  <button
+                                    onClick={() => openEditModal(record)}
+                                    className="p-1 text-green-600 hover:text-green-800"
+                                    title="Edit"
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </button>
+                                )}
+                                {canEditMasters && (
+                                  <button
+                                    onClick={() => handleToggleActive(record)}
+                                    className="p-1 text-orange-600 hover:text-orange-800"
+                                    title={record.is_active ? 'Deactivate' : 'Activate'}
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                  </button>
+                                )}
+                                {canEditMasters && (
+                                  <button
+                                    onClick={() => setDeletingRecord(record)}
+                                    className="p-1 text-red-600 hover:text-red-800"
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              ))}
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-8 text-gray-500">
