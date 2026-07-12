@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SearchableSelect, type SearchableSelectOption } from '@/components/ui/searchable-select';
 import { MultiSelectDropdown } from '@/components/EditPatientDialog/MultiSelectDropdown';
@@ -752,7 +753,7 @@ const PmjayMjpjayMaster = () => {
         'Type of Anaesthesia': row.anaesthesia_type || '',
         Implant: implantNames.join(', '),
         'Package Price': row.package_price || '',
-        Remark: row.remark || '',
+        'OT Notes': row.remark || '',
         'Patient Example': row.patient_name_example || '',
         Created: row.created_at || '',
       };
@@ -766,7 +767,7 @@ const PmjayMjpjayMaster = () => {
 
   const importRowToForm = (row: Record<string, any>): PackageFormState => ({
     scheme: asText(row.Scheme || row.scheme || 'PMJAY'),
-    remark: asText(row.Remark || row.remark || ''),
+    remark: asText(row['OT Notes'] || row.Remark || row.remark || ''),
     diagnosis_code: asText(row['Diag. Code'] || row['Diagnosis Code'] || row.diagnosis_code || ''),
     diagnosis: asText(row.Diagnosis || row.diagnosis || ''),
     treatment_code: asText(row['Treatment Code'] || row.treatment_code || ''),
@@ -1011,7 +1012,6 @@ const PmjayMjpjayMaster = () => {
                       <thead>
                         <tr className="border-b bg-slate-100">
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Yojna Package Name</th>
-                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Treatment Code</th>
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Diag. Code</th>
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Diagnosis</th>
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Scheme</th>
@@ -1020,8 +1020,8 @@ const PmjayMjpjayMaster = () => {
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Anaesthetists</th>
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Type of Anaesthesia</th>
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Implant</th>
-                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Package Price</th>
-                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Remark</th>
+                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">OT Notes</th>
+                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Treatment Code</th>
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Created</th>
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
                         </tr>
@@ -1041,11 +1041,51 @@ const PmjayMjpjayMaster = () => {
                             }}
                             className={`cursor-pointer border-b last:border-b-0 hover:bg-slate-50 ${!record.is_active ? 'bg-gray-100 opacity-60' : ''}`}
                           >
-                            <td className="max-w-[240px] truncate p-3 font-medium text-slate-900" title={record.treatment_plan || ''}>
-                              {record.treatment_plan || '-'}
-                              {!record.is_active && <span className="ml-2 text-xs text-red-500">(Inactive)</span>}
+                            <td className="min-w-[340px] p-3 align-top">
+                              <div className="space-y-1">
+                                <div className="whitespace-normal break-words text-sm font-medium leading-5 text-slate-900" title={record.treatment_plan || ''}>
+                                  {record.treatment_plan || '-'}
+                                </div>
+                                {editingPriceId === record.id ? (
+                                  <input
+                                    autoFocus
+                                    type="number"
+                                    value={priceInput}
+                                    onClick={(event) => event.stopPropagation()}
+                                    onMouseDown={(event) => event.stopPropagation()}
+                                    onChange={(e) => setPriceInput(e.target.value)}
+                                    onBlur={() => saveInlinePrice(record.id)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') saveInlinePrice(record.id);
+                                      if (e.key === 'Escape') {
+                                        setEditingPriceId(null);
+                                        setPriceInput('');
+                                      }
+                                    }}
+                                    className="h-8 w-32 rounded border border-blue-400 px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                    placeholder="Enter amount"
+                                  />
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                      record.package_price != null
+                                        ? 'bg-emerald-100 text-emerald-700'
+                                        : 'bg-slate-100 text-slate-500'
+                                    }`}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setEditingPriceId(record.id);
+                                      setPriceInput(record.package_price?.toString() || '');
+                                    }}
+                                    title="Click to edit package amount"
+                                  >
+                                    {formatPrice(record.package_price)}
+                                  </button>
+                                )}
+                                {!record.is_active && <span className="block text-xs text-red-500">(Inactive)</span>}
+                              </div>
                             </td>
-                            <td className="p-3 font-mono text-slate-600">{record.treatment_code || '-'}</td>
                             <td className="p-3 font-mono text-slate-600">{record.diagnosis_code || '-'}</td>
                             <td className="max-w-[240px] truncate p-3 text-slate-600" title={record.diagnosis || ''}>
                               {record.diagnosis || '-'}
@@ -1078,45 +1118,10 @@ const PmjayMjpjayMaster = () => {
                             <td className="max-w-[220px] truncate p-3 text-sm text-slate-600" title={joinList(record.implant_names)}>
                               {joinList(record.implant_names)}
                             </td>
-                            <td className="p-3">
-                              {editingPriceId === record.id ? (
-                                <input
-                                  autoFocus
-                                  type="number"
-                                  value={priceInput}
-                                  onClick={(event) => event.stopPropagation()}
-                                  onMouseDown={(event) => event.stopPropagation()}
-                                  onChange={(e) => setPriceInput(e.target.value)}
-                                  onBlur={() => saveInlinePrice(record.id)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') saveInlinePrice(record.id);
-                                    if (e.key === 'Escape') {
-                                      setEditingPriceId(null);
-                                      setPriceInput('');
-                                    }
-                                  }}
-                                  className="w-28 rounded border border-blue-400 px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                  placeholder="Enter price"
-                                />
-                              ) : (
-                                <span
-                                  className={`cursor-pointer font-semibold ${
-                                    record.package_price != null ? 'text-green-700' : 'text-sm italic text-gray-400'
-                                  }`}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    setEditingPriceId(record.id);
-                                    setPriceInput(record.package_price?.toString() || '');
-                                  }}
-                                  title="Click to enter price"
-                                >
-                                  {formatPrice(record.package_price)}
-                                </span>
-                              )}
+                            <td className="max-w-[280px] p-3 align-top text-sm text-slate-600" title={record.remark || ''}>
+                              <div className="whitespace-pre-line break-words leading-5">{record.remark || '-'}</div>
                             </td>
-                            <td className="max-w-[200px] truncate p-3 text-sm text-slate-600" title={record.remark || ''}>
-                              {record.remark || '-'}
-                            </td>
+                            <td className="p-3 font-mono text-sm text-slate-600">{record.treatment_code || '-'}</td>
                             <td className="p-3 text-sm text-slate-600">
                               {record.created_at ? new Date(record.created_at).toLocaleDateString() : '-'}
                             </td>
@@ -1390,12 +1395,13 @@ const PmjayMjpjayMaster = () => {
                   />
                 </div>
 
-                <div>
-                  <Label className="mb-2 block text-sm font-medium text-gray-700">Remark</Label>
-                  <Input
+                <div className="md:col-span-2">
+                  <Label className="mb-2 block text-sm font-medium text-gray-700">OT Notes</Label>
+                  <Textarea
                     value={createForm.remark}
                     onChange={(e) => setCreateForm((prev) => ({ ...prev, remark: e.target.value }))}
-                    placeholder="Optional remark"
+                    placeholder="Detailed OT notes for this package"
+                    rows={4}
                   />
                 </div>
 
@@ -1459,19 +1465,19 @@ const PmjayMjpjayMaster = () => {
                 {[
                   ['Scheme', viewingRecord.scheme],
                   ['Yojna Package Name', viewingRecord.treatment_plan],
-                  ['Treatment Code', viewingRecord.treatment_code],
+                  ['Package Price', formatPrice(viewingRecord.package_price)],
                   ['Diag. Code', viewingRecord.diagnosis_code],
                   ['Diagnosis', viewingRecord.diagnosis],
                   ['Category', getStoredOrDisplayCategory(viewingRecord)],
-                  ['Package Price', formatPrice(viewingRecord.package_price)],
                   ['Anaesthesia Type', viewingRecord.anaesthesia_type],
-                  ['Remark', viewingRecord.remark],
+                  ['OT Notes', viewingRecord.remark],
                   ['Patient Example', viewingRecord.patient_name_example],
+                  ['Treatment Code', viewingRecord.treatment_code],
                   ['Created', viewingRecord.created_at ? new Date(viewingRecord.created_at).toLocaleString() : '-'],
                 ].map(([label, value]) => (
                   <div key={label} className={label === 'Yojna Package Name' || label === 'Diagnosis' ? 'md:col-span-2' : ''}>
                     <Label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</Label>
-                    <p className="mt-1 break-words text-sm text-slate-900">{value || '-'}</p>
+                    <p className={`mt-1 break-words text-sm text-slate-900 ${label === 'OT Notes' ? 'whitespace-pre-line leading-6' : ''}`}>{value || '-'}</p>
                   </div>
                 ))}
 
@@ -1499,7 +1505,7 @@ const PmjayMjpjayMaster = () => {
               <div className="rounded-lg border bg-slate-50 p-4">
                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Department Notes</div>
                 <p className="mt-2 text-sm text-slate-700">
-                  This package is grouped under <span className="font-semibold text-slate-900">{selectedDepartment}</span> based on the procedure code and package name. The table keeps the name truncated; the sidebar shows the full record.
+                  This package is grouped under <span className="font-semibold text-slate-900">{selectedDepartment}</span> based on the procedure code and package name. The table now keeps the full package name readable, places the amount beside it, and moves the treatment code to the end.
                 </p>
               </div>
 
@@ -1669,11 +1675,13 @@ const PmjayMjpjayMaster = () => {
                   />
                 </div>
 
-                <div>
-                  <Label className="mb-2 block text-sm font-medium text-gray-700">Remark</Label>
-                  <Input
+                <div className="md:col-span-2">
+                  <Label className="mb-2 block text-sm font-medium text-gray-700">OT Notes</Label>
+                  <Textarea
                     value={editForm.remark}
                     onChange={(e) => setEditForm((prev) => ({ ...prev, remark: e.target.value }))}
+                    rows={4}
+                    placeholder="Detailed OT notes for this package"
                   />
                 </div>
 
