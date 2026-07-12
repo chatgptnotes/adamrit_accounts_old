@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as XLSX from 'xlsx';
@@ -152,6 +152,8 @@ const joinList = (items: string[]) => (items.length > 0 ? items.join(', ') : '-'
 
 const asText = (value: unknown) => (value == null ? '' : String(value));
 
+const trimOrEmpty = (value: unknown) => asText(value).trim();
+
 const splitDelimitedList = (input: unknown) =>
   [...new Set(
     asText(input)
@@ -218,6 +220,53 @@ const CATEGORY_SORT_ORDER = PACKAGE_CATEGORY_OPTIONS.map((option) => option.labe
 
 const getCategoryGroup = (record: EnrichedPackage): string => getDisplayCategory(record) || 'Unclassified';
 
+type PackageNoteSource = {
+  treatment_plan?: string | null;
+  diagnosis?: string | null;
+  treatment_code?: string | null;
+  category?: string | null;
+  anaesthesia_type?: string | null;
+  package_price?: number | null;
+  patient_name_example?: string | null;
+  surgeon_names?: string[];
+  anaesthetist_names?: string[];
+  implant_names?: string[];
+};
+
+const buildOtNotes = (source: PackageNoteSource) => {
+  const packageName = trimOrEmpty(source.treatment_plan) || trimOrEmpty(source.treatment_code) || 'PMJAY / MJPJAY package';
+  const diagnosis = trimOrEmpty(source.diagnosis) || 'As per hospital records';
+  const treatmentCode = trimOrEmpty(source.treatment_code) || 'As per master';
+  const category = trimOrEmpty(source.category) || 'As per package category';
+  const anaesthesiaType = trimOrEmpty(source.anaesthesia_type) || 'As per anaesthetist assessment';
+  const surgeons = joinList((source.surgeon_names || []).filter(Boolean));
+  const anaesthetists = joinList((source.anaesthetist_names || []).filter(Boolean));
+  const implants = joinList((source.implant_names || []).filter(Boolean));
+  const packageAmount =
+    source.package_price != null && !Number.isNaN(Number(source.package_price))
+      ? `Rs. ${Number(source.package_price).toLocaleString('en-IN')}`
+      : 'As per approved package rate';
+  const patientExample = trimOrEmpty(source.patient_name_example);
+
+  return [
+    'OT NOTES',
+    `Package Name: ${packageName}`,
+    `Diagnosis: ${diagnosis}`,
+    `Treatment Code: ${treatmentCode}`,
+    `Category: ${category}`,
+    `Anaesthesia: ${anaesthesiaType}`,
+    `Surgeon(s): ${surgeons !== '-' ? surgeons : 'As per package mapping'}`,
+    `Anaesthetist(s): ${anaesthetists !== '-' ? anaesthetists : 'As per package mapping'}`,
+    `Implant(s): ${implants !== '-' ? implants : 'As per package requirement'}`,
+    `Package Amount: ${packageAmount}`,
+    patientExample ? `Patient Example: ${patientExample}` : null,
+    'Procedure Note: The approved package procedure is to be performed under strict aseptic precautions, with correct patient/procedure/site verification, appropriate anaesthesia, haemostasis, closure where applicable, dressing, and post-operative transfer in stable condition.',
+    'This is the reusable master OT note for subsequent patients booked under the same PMJAY / MJPJAY package and may be edited for case-specific findings.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+};
+
 const isMissingRelationError = (error: unknown) =>
   Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: string }).code === '42P01');
 
@@ -240,6 +289,7 @@ const PmjayMjpjayMaster = () => {
   const { canEditMasters } = usePermissions();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+  const OT_NOTES_BACKFILL_KEY = 'pmjay_mjpjay_ot_notes_backfill_v1';
 
   const searchTerm = searchParams.get('search') || '';
   const currentPage = parseInt(searchParams.get('page') || '1');
@@ -436,9 +486,141 @@ const PmjayMjpjayMaster = () => {
     },
   });
 
+  const backfillOtNotesMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase
+        .from('pmjay_mjpjay_packages')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      const rows = (data || []) as PmjayPackageRow[];
+      if (rows.length === 0) {
+        return { total: 0, updated: 0 };
+      }
+
+      const packageIds = rows.map((row) => row.id);
+      const [surgeonLinks, anaesthetistLinks, implantLinks] = await Promise.all([
+        safeSelectRows<PackageSurgeonRow>(
+          supabase
+            .from('pmjay_mjpjay_package_surgeons')
+            .select('package_id, surgeon_name, surgeon_department, created_at')
+            .in('package_id', packageIds)
+            .order('created_at', { ascending: true }),
+          'pmjay_mjpjay_package_surgeons',
+        ),
+        safeSelectRows<PackageAnaesthetistRow>(
+          supabase
+            .from('pmjay_mjpjay_package_anaesthetists')
+            .select('package_id, anaesthetist_name, created_at')
+            .in('package_id', packageIds)
+            .order('created_at', { ascending: true }),
+          'pmjay_mjpjay_package_anaesthetists',
+        ),
+        safeSelectRows<PackageImplantRow>(
+          supabase
+            .from('pmjay_mjpjay_package_implants')
+            .select('package_id, implant_name, created_at')
+            .in('package_id', packageIds)
+            .order('created_at', { ascending: true }),
+          'pmjay_mjpjay_package_implants',
+        ),
+      ]);
+
+      const packageToSurgeons = new Map<string, PackageSurgeonRow[]>();
+      surgeonLinks.forEach((row) => {
+        const existing = packageToSurgeons.get(row.package_id) || [];
+        existing.push(row);
+        packageToSurgeons.set(row.package_id, existing);
+      });
+
+      const packageToAnaesthetists = new Map<string, PackageAnaesthetistRow[]>();
+      anaesthetistLinks.forEach((row) => {
+        const existing = packageToAnaesthetists.get(row.package_id) || [];
+        existing.push(row);
+        packageToAnaesthetists.set(row.package_id, existing);
+      });
+
+      const packageToImplants = new Map<string, PackageImplantRow[]>();
+      implantLinks.forEach((row) => {
+        const existing = packageToImplants.get(row.package_id) || [];
+        existing.push(row);
+        packageToImplants.set(row.package_id, existing);
+      });
+
+      const updates = rows
+        .filter((row) => !trimOrEmpty(row.remark))
+        .map((row) => {
+          const surgeonsForPackage = packageToSurgeons.get(row.id) || [];
+          const anaesthetistsForPackage = packageToAnaesthetists.get(row.id) || [];
+          const implantsForPackage = packageToImplants.get(row.id) || [];
+
+          return {
+            id: row.id,
+            remark: buildOtNotes({
+              treatment_plan: row.treatment_plan,
+              diagnosis: row.diagnosis,
+              treatment_code: row.treatment_code,
+              category: row.category,
+              anaesthesia_type: row.anaesthesia_type,
+              package_price: row.package_price,
+              patient_name_example: row.patient_name_example,
+              surgeon_names: [...new Set(surgeonsForPackage.map((item) => item.surgeon_name).filter(Boolean))],
+              anaesthetist_names: [...new Set(anaesthetistsForPackage.map((item) => item.anaesthetist_name).filter(Boolean))],
+              implant_names: [...new Set(implantsForPackage.map((item) => item.implant_name).filter(Boolean))],
+            }),
+          };
+        });
+
+      if (updates.length === 0) {
+        return { total: rows.length, updated: 0 };
+      }
+
+      const chunkSize = 25;
+      for (let index = 0; index < updates.length; index += chunkSize) {
+        const chunk = updates.slice(index, index + chunkSize);
+        const { error: updateError } = await supabase
+          .from('pmjay_mjpjay_packages')
+          .upsert(chunk, { onConflict: 'id' });
+        if (updateError) throw updateError;
+      }
+
+      return { total: rows.length, updated: updates.length };
+    },
+    onSuccess: ({ updated }) => {
+      if (updated > 0) {
+        toast.success(`Generated OT Notes for ${updated} package${updated === 1 ? '' : 's'}`);
+      } else {
+        toast.success('OT Notes are already populated');
+      }
+      queryClient.invalidateQueries({ queryKey: ['pmjay-mjpjay-packages'] });
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(OT_NOTES_BACKFILL_KEY, 'done');
+      }
+    },
+    onError: (e: any) => {
+      toast.error('Failed to generate OT Notes: ' + e.message);
+    },
+  });
+
   const packageRows = packageQuery.data || [];
   const isLoading = packageQuery.isLoading;
   const error = packageQuery.error;
+
+  useEffect(() => {
+    if (!canEditMasters) return;
+    if (typeof window === 'undefined') return;
+    if (window.localStorage.getItem(OT_NOTES_BACKFILL_KEY)) return;
+    if (packageQuery.isLoading || backfillOtNotesMutation.isPending) return;
+
+    const timer = window.setTimeout(() => {
+      backfillOtNotesMutation.mutate();
+    }, 750);
+
+    return () => window.clearTimeout(timer);
+  }, [canEditMasters, packageQuery.isLoading, backfillOtNotesMutation.isPending]);
+
   const groupedPackageSections = useMemo(() => {
     const categoryToRows = new Map<string, EnrichedPackage[]>();
 
@@ -549,7 +731,20 @@ const PmjayMjpjayMaster = () => {
   const savePackage = async (form: PackageFormState, packageId?: string) => {
     const payload = {
       scheme: form.scheme,
-      remark: form.remark.trim() || null,
+      remark:
+        trimOrEmpty(form.remark) ||
+        buildOtNotes({
+          treatment_plan: form.treatment_plan,
+          diagnosis: form.diagnosis,
+          treatment_code: form.treatment_code,
+          category: form.category,
+          anaesthesia_type: form.anaesthesia_type,
+          package_price: form.package_price.trim() ? Number(form.package_price) : null,
+          patient_name_example: form.patient_name_example,
+          surgeon_names: form.surgeon_names,
+          anaesthetist_names: form.anaesthetist_names,
+          implant_names: form.implant_names,
+        }),
       diagnosis_code: form.diagnosis_code.trim() || null,
       diagnosis: form.diagnosis.trim() || null,
       treatment_code: form.treatment_code.trim() || null,
@@ -753,7 +948,20 @@ const PmjayMjpjayMaster = () => {
         'Type of Anaesthesia': row.anaesthesia_type || '',
         Implant: implantNames.join(', '),
         'Package Price': row.package_price || '',
-        'OT Notes': row.remark || '',
+        'OT Notes':
+          trimOrEmpty(row.remark) ||
+          buildOtNotes({
+            treatment_plan: row.treatment_plan,
+            diagnosis: row.diagnosis,
+            treatment_code: row.treatment_code,
+            category: row.category,
+            anaesthesia_type: row.anaesthesia_type,
+            package_price: row.package_price,
+            patient_name_example: row.patient_name_example,
+            surgeon_names: surgeonNames,
+            anaesthetist_names: anaesthetistNames,
+            implant_names: implantNames,
+          }),
         'Patient Example': row.patient_name_example || '',
         Created: row.created_at || '',
       };
@@ -882,6 +1090,21 @@ const PmjayMjpjayMaster = () => {
 
   const formatPrice = (value: number | null | undefined) =>
     value != null ? `Rs ${Number(value).toLocaleString('en-IN')}` : '-';
+
+  const getDisplayOtNotes = (record: EnrichedPackage) =>
+    trimOrEmpty(record.remark) ||
+    buildOtNotes({
+      treatment_plan: record.treatment_plan,
+      diagnosis: record.diagnosis,
+      treatment_code: record.treatment_code,
+      category: record.category,
+      anaesthesia_type: record.anaesthesia_type,
+      package_price: record.package_price,
+      patient_name_example: record.patient_name_example,
+      surgeon_names: record.surgeon_names,
+      anaesthetist_names: record.anaesthetist_names,
+      implant_names: record.implant_names,
+    });
 
   const totalPages = Math.max(1, Math.ceil(totalCount / itemsPerPage));
   const startItem = totalCount === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
@@ -1118,8 +1341,8 @@ const PmjayMjpjayMaster = () => {
                             <td className="max-w-[220px] truncate p-3 text-sm text-slate-600" title={joinList(record.implant_names)}>
                               {joinList(record.implant_names)}
                             </td>
-                            <td className="max-w-[280px] p-3 align-top text-sm text-slate-600" title={record.remark || ''}>
-                              <div className="whitespace-pre-line break-words leading-5">{record.remark || '-'}</div>
+                            <td className="max-w-[280px] p-3 align-top text-sm text-slate-600" title={getDisplayOtNotes(record)}>
+                              <div className="whitespace-pre-line break-words leading-5">{getDisplayOtNotes(record)}</div>
                             </td>
                             <td className="p-3 font-mono text-sm text-slate-600">{record.treatment_code || '-'}</td>
                             <td className="p-3 text-sm text-slate-600">
@@ -1400,7 +1623,7 @@ const PmjayMjpjayMaster = () => {
                   <Textarea
                     value={createForm.remark}
                     onChange={(e) => setCreateForm((prev) => ({ ...prev, remark: e.target.value }))}
-                    placeholder="Detailed OT notes for this package"
+                    placeholder="Leave blank to auto-generate from package data"
                     rows={4}
                   />
                 </div>
@@ -1470,7 +1693,7 @@ const PmjayMjpjayMaster = () => {
                   ['Diagnosis', viewingRecord.diagnosis],
                   ['Category', getStoredOrDisplayCategory(viewingRecord)],
                   ['Anaesthesia Type', viewingRecord.anaesthesia_type],
-                  ['OT Notes', viewingRecord.remark],
+                  ['OT Notes', getDisplayOtNotes(viewingRecord)],
                   ['Patient Example', viewingRecord.patient_name_example],
                   ['Treatment Code', viewingRecord.treatment_code],
                   ['Created', viewingRecord.created_at ? new Date(viewingRecord.created_at).toLocaleString() : '-'],
@@ -1681,7 +1904,7 @@ const PmjayMjpjayMaster = () => {
                     value={editForm.remark}
                     onChange={(e) => setEditForm((prev) => ({ ...prev, remark: e.target.value }))}
                     rows={4}
-                    placeholder="Detailed OT notes for this package"
+                    placeholder="Leave blank to auto-generate from package data"
                   />
                 </div>
 
