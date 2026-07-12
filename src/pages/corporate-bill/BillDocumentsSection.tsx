@@ -620,61 +620,63 @@ export function BillDocumentsSection({
           ) : (
             <>
               <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <div className="grid gap-3 text-sm text-slate-700 md:grid-cols-2 xl:grid-cols-3">
-                  <div>
+                <div className="space-y-3 text-sm text-slate-700">
+                  <div className="flex flex-col gap-0.5">
                     <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                       Patient Name
                     </div>
-                    <div className="mt-1 font-medium text-slate-900">
+                    <div className="font-medium leading-5 text-slate-900 break-words">
                       {patientName || "-"}
                     </div>
                   </div>
-                  <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                      Registration No.
+                  <div className="grid grid-cols-1 gap-3">
+                    <div className="flex flex-col gap-0.5">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Registration No.
+                      </div>
+                      <div className="font-medium leading-5 text-slate-900 break-words">
+                        {registrationNo}
+                      </div>
                     </div>
-                    <div className="mt-1 font-medium text-slate-900">
-                      {registrationNo}
+                    <div className="flex flex-col gap-0.5">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Registration ID
+                      </div>
+                      <div className="font-medium leading-5 text-slate-900 break-all">
+                        {registrationId}
+                      </div>
                     </div>
-                  </div>
-                  <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                      Registration ID
+                    <div className="flex flex-col gap-0.5">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Visit ID
+                      </div>
+                      <div className="font-medium leading-5 text-slate-900 break-all">
+                        {visitId || "-"}
+                      </div>
                     </div>
-                    <div className="mt-1 font-medium text-slate-900 break-all">
-                      {registrationId}
+                    <div className="flex flex-col gap-0.5">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Package Details
+                      </div>
+                      <div className="font-medium leading-5 text-slate-900 break-words">
+                        {packageDisplayName}
+                      </div>
                     </div>
-                  </div>
-                  <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                      Visit ID
+                    <div className="flex flex-col gap-0.5">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Conservative / Surgical
+                      </div>
+                      <div className="font-medium leading-5 text-slate-900">
+                        {packageDisplayType}
+                      </div>
                     </div>
-                    <div className="mt-1 font-medium text-slate-900 break-all">
-                      {visitId || "-"}
-                    </div>
-                  </div>
-                  <div className="md:col-span-2 xl:col-span-1">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                      Package Details
-                    </div>
-                    <div className="mt-1 font-medium text-slate-900">
-                      {packageDisplayName}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                      Conservative / Surgical
-                    </div>
-                    <div className="mt-1 font-medium text-slate-900">
-                      {packageDisplayType}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                      OT Required
-                    </div>
-                    <div className="mt-1 font-medium text-slate-900">
-                      {otRequired}
+                    <div className="flex flex-col gap-0.5">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        OT Required
+                      </div>
+                      <div className="font-medium leading-5 text-slate-900">
+                        {otRequired}
+                      </div>
                     </div>
                   </div>
                 </div>
