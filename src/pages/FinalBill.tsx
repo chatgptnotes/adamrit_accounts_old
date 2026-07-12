@@ -12704,27 +12704,29 @@ INSTRUCTIONS:
           isPrivatePatient
         });
 
-        // Get surgery name with fallbacks: CGHS → Yojana → notes field → Unknown
+        // Get surgery name with fallbacks: CGHS → notes field → legacy Yojana join → Unknown
         let surgeryName = '';
         let surgeryCode = '';
+        let surgeryCategory = '';
 
         if (surgeryDetail?.name) {
           // CGHS surgery
           surgeryName = surgeryDetail.name;
           surgeryCode = surgeryDetail.code || '';
-        } else if (visitSurgery.yojana_mh_procedures?.procedure_name) {
-          // Yojana surgery
-          surgeryName = visitSurgery.yojana_mh_procedures.procedure_name;
-          surgeryCode = visitSurgery.yojana_mh_procedures.procedure_code || '';
         } else if (visitSurgery.notes) {
           // Fallback: read from notes field (saved by FinalBill)
           try {
             const notesData = JSON.parse(visitSurgery.notes);
             surgeryName = notesData.name || '';
             surgeryCode = notesData.code || '';
+            surgeryCategory = notesData.category || '';
           } catch (e) {
             surgeryName = visitSurgery.notes;
           }
+        } else if (visitSurgery.yojana_mh_procedures?.procedure_name) {
+          // Legacy Yojana surgery
+          surgeryName = visitSurgery.yojana_mh_procedures.procedure_name;
+          surgeryCode = visitSurgery.yojana_mh_procedures.procedure_code || '';
         }
 
         if (!surgeryName) {
@@ -12740,6 +12742,7 @@ INSTRUCTIONS:
           status: visitSurgery.status || 'planned',
           sanction_status: visitSurgery.sanction_status || 'Not Sanctioned',
           notes: visitSurgery.notes || '',
+          category: surgeryCategory,
           yojana_mh_procedures: visitSurgery.yojana_mh_procedures || null,
           cghs_surgery: visitSurgery.cghs_surgery || null,
           anaesthetist_name: visitSurgery.anaesthetist_name || '',
@@ -13885,6 +13888,14 @@ Format the response as JSON:
           const ids: string[] = [];
           if (s.surgery_id) ids.push(s.surgery_id);
           if (s.yojana_procedure_id) ids.push(s.yojana_procedure_id);
+          if (s.notes) {
+            try {
+              const parsedNotes = JSON.parse(s.notes);
+              if (parsedNotes?.packageId) ids.push(parsedNotes.packageId);
+            } catch (error) {
+              // Ignore non-JSON notes.
+            }
+          }
           return ids;
         })
       );
@@ -13910,10 +13921,9 @@ Format the response as JSON:
       }
 
       // Prepare data for insertion (only new surgeries).
-      // For Maharashtra Yojana patients (is_yojana: true), the surgery.id is a UUID
-      // from yojana_mh_procedures — it must NOT go into surgery_id (which has a FK to
-      // cghs_surgery).  Instead we store it in yojana_procedure_id and leave surgery_id
-      // as null (the migration 20260407160000 makes surgery_id nullable).
+      // For Maharashtra Yojana package-master selections, the surgery.id comes from
+      // pmjay_mjpjay_packages. This table does not have a dedicated foreign-key column
+      // yet, so we store the selected package metadata in notes and keep both FK columns null.
       const surgeriesToSave = newSurgeries.map((surgery) => {
         const isYojanaSurgery = !!(surgery as any).is_yojana;
         const parsedRate = parseFloat(
@@ -13923,12 +13933,14 @@ Format the response as JSON:
         const surgeryMetadata = JSON.stringify({
           name: surgery.name || '',
           code: surgery.code || '',
-          category: surgery.category || ''
+          category: surgery.category || '',
+          packageId: isYojanaSurgery ? surgery.id : undefined,
+          source: isYojanaSurgery ? 'pmjay_mjpjay_packages' : 'cghs_surgery'
         });
         return {
           visit_id: visitData.id,
           surgery_id: isYojanaSurgery ? null : surgery.id,
-          yojana_procedure_id: isYojanaSurgery ? surgery.id : null,
+          yojana_procedure_id: null,
           is_primary: false,
           status: 'planned',
           sanction_status: surgery.sanction_status || 'Not Sanctioned',
