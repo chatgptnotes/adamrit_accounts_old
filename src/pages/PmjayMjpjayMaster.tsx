@@ -230,13 +230,40 @@ const buildOtNotes = (source: PackageNoteSource) => {
   return [
     'OT NOTES',
     `Package: ${packageName}`,
-    'Procedure Note: The patient should be received in the operating theatre after correct identity, consent, and site verification. Standard monitoring must be attached and the anaesthesia team should proceed as per the peri-operative plan recorded for the case.',
-    'The operative field should be prepared and draped under strict aseptic precautions. The procedure should be carried out using the accepted technique for the approved package, with careful tissue handling, adequate exposure, protection of adjacent structures, and meticulous haemostasis throughout.',
-    'Any required decompression, reduction, fixation, excision, repair, reconstruction, anastomosis, or closure should be completed as indicated by the operative findings and package protocol. Instrument and sponge counts must be verified before closure.',
-    'Wound closure should be performed in layers as appropriate, haemostasis confirmed, dressing applied, and the patient shifted to recovery in a stable condition with post-operative instructions, medications, and follow-up as advised by the treating team.',
+    '',
+    'Procedure Note',
+    '1. Confirm the correct patient, procedure, and operative site before starting the case.',
+    '2. Position the patient appropriately and prepare the operative field under strict aseptic precautions.',
+    '3. Perform the approved package procedure with careful tissue handling, adequate exposure, protection of adjacent structures, and meticulous haemostasis throughout.',
+    '4. Complete any required decompression, reduction, fixation, excision, repair, reconstruction, anastomosis, or closure as indicated by the operative findings and package protocol.',
+    '5. Verify sponge and instrument counts before closure, confirm final haemostasis, apply dressing, and transfer the patient to recovery in a stable condition with post-operative instructions and follow-up advice.',
   ]
     .filter(Boolean)
     .join('\n');
+};
+
+const isLegacyOtRemark = (remark: string) =>
+  /(\*Surgeon:\*\*|\*Anaesthetist:\*\*|Date of Procedure|\*Patient Positioning\*\*|Cleaning and Draping|Incision and Approach|Structures Retracted or Protected|reusable master OT note)/i.test(
+    remark,
+  ) || (!remark.includes('\n') && remark.length > 200);
+
+const parseOtNotes = (notes: string) => {
+  const lines = notes
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const packageLine = lines.find((line) => line.toLowerCase().startsWith('package:')) || '';
+  const procedureIndex = lines.findIndex((line) => line.toLowerCase() === 'procedure note');
+  const steps = lines
+    .slice(procedureIndex >= 0 ? procedureIndex + 1 : 0)
+    .map((line) => line.replace(/^\d+\.\s*/, '').trim())
+    .filter(Boolean);
+
+  return {
+    packageLine: packageLine.replace(/^package:\s*/i, '').trim(),
+    steps,
+  };
 };
 
 const isMissingRelationError = (error: unknown) =>
@@ -911,7 +938,9 @@ const PmjayMjpjayMaster = () => {
     value != null ? `Rs ${Number(value).toLocaleString('en-IN')}` : '-';
 
   const getDisplayOtNotes = (record: EnrichedPackage) =>
-    trimOrEmpty(record.remark) ||
+    (trimOrEmpty(record.remark) && !isLegacyOtRemark(trimOrEmpty(record.remark))
+      ? trimOrEmpty(record.remark)
+      : '') ||
     buildOtNotes({ treatment_plan: record.treatment_plan });
 
   const totalPages = Math.max(1, Math.ceil(totalCount / itemsPerPage));
@@ -1562,17 +1591,54 @@ const PmjayMjpjayMaster = () => {
                   OT Notes
                 </SheetTitle>
                 <SheetDescription className="text-sm text-muted-foreground">
-                  Reusable master note for this package. This is what will be carried forward for later patients using the same package.
+                  Structured package note template for the selected procedure.
                 </SheetDescription>
               </SheetHeader>
 
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                <div className="mb-3 text-sm font-semibold text-slate-900">
-                  {viewingOtNotesRecord.treatment_plan || viewingOtNotesRecord.treatment_code || 'Package'}
-                </div>
-                <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
-                  {getDisplayOtNotes(viewingOtNotesRecord)}
-                </pre>
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_12px_30px_-18px_rgba(15,23,42,0.18)]">
+                {(() => {
+                  const noteText = getDisplayOtNotes(viewingOtNotesRecord);
+                  const { packageLine, steps } = parseOtNotes(noteText);
+
+                  return (
+                    <div className="space-y-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-4">
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                            OT Notes
+                          </div>
+                          <div className="mt-1 text-lg font-semibold text-slate-950">
+                            {packageLine || viewingOtNotesRecord.treatment_plan || viewingOtNotesRecord.treatment_code || 'Package'}
+                          </div>
+                        </div>
+                        <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          Template
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Procedure Note
+                        </div>
+                        <ol className="mt-3 space-y-3">
+                          {steps.map((step, index) => (
+                            <li
+                              key={`${step.slice(0, 24)}-${index}`}
+                              className="flex gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3"
+                            >
+                              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[11px] font-semibold text-white">
+                                {index + 1}
+                              </span>
+                              <p className="text-sm leading-6 text-slate-700">
+                                {step}
+                              </p>
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="flex justify-end">

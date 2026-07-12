@@ -18,6 +18,7 @@ import {
 interface BillDocumentsSectionProps {
   patientId?: string;
   patientName?: string | null;
+  visitId?: string;
 }
 
 function isImage(type: string | null): boolean {
@@ -277,6 +278,7 @@ function CategoryGallery({
 export function BillDocumentsSection({
   patientId,
   patientName,
+  visitId,
 }: BillDocumentsSectionProps) {
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<PatientDocCategory>(
@@ -391,6 +393,37 @@ export function BillDocumentsSection({
               </TabsList>
               {PATIENT_DOC_CATEGORIES.map((cat) => (
                 <TabsContent key={cat.id} value={cat.id}>
+                  {cat.id === "discharge_summary" && (
+                    <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-slate-900">
+                            Generated Discharge Summary
+                          </div>
+                          <p className="mt-1 text-sm text-slate-600">
+                            Open the printable discharge summary for this visit and download or print it from the generated view.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={!visitId}
+                          onClick={() => {
+                            if (!visitId) return;
+                            window.open(`/discharge-summary-print/${visitId}`, "_blank", "noopener,noreferrer");
+                          }}
+                          className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          Generate / Download
+                        </button>
+                      </div>
+                      {!visitId && (
+                        <p className="mt-3 text-xs text-amber-700">
+                          Visit ID is not available on this bill, so the generated discharge summary cannot be opened from here.
+                        </p>
+                      )}
+                    </div>
+                  )}
                   <CategoryGallery
                     items={byCategory.get(cat.id) || []}
                     onView={setViewing}
