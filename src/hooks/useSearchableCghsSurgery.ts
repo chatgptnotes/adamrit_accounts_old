@@ -20,33 +20,33 @@ export const useSearchableCghsSurgery = (patientCorporate?: string) => {
       const corporate = (patientCorporate || '').toLowerCase().trim();
       const isYojana = isMaharashtraYojana(corporate);
 
-      // For Maharashtra Yojana patients, search from yojana_mh_procedures
+      // For Maharashtra Yojana patients, search only from the package master.
       if (isYojana) {
         let query = supabase
-          .from('yojana_mh_procedures')
-          .select('id, procedure_code, procedure_name, package_name, specialty, tier3_rate, level_of_care, los, medical_or_surgical')
-          .order('procedure_name');
+          .from('pmjay_mjpjay_packages')
+          .select('id, treatment_code, treatment_plan, category, package_price, diagnosis, anaesthesia_type, remark')
+          .order('treatment_plan');
 
         if (searchTerm) {
-          query = query.or(`procedure_name.ilike.%${searchTerm}%,package_name.ilike.%${searchTerm}%,procedure_code.ilike.%${searchTerm}%,specialty.ilike.%${searchTerm}%`);
+          query = query.or(`treatment_plan.ilike.%${searchTerm}%,treatment_code.ilike.%${searchTerm}%,category.ilike.%${searchTerm}%,diagnosis.ilike.%${searchTerm}%,anaesthesia_type.ilike.%${searchTerm}%`);
         }
 
         const { data, error } = await query;
         if (error) {
-          console.error('Error fetching Yojana procedures:', error);
+          console.error('Error fetching Yojana package master rows:', error);
           throw error;
         }
 
         return (data || []).map(proc => ({
           id: proc.id,
-          name: proc.procedure_name || proc.package_name || '',
-          code: proc.procedure_code || '',
-          category: proc.specialty || '',
-          description: `${proc.package_name || ''} | LOS: ${proc.los || 'N/A'} | ${proc.level_of_care || ''}`,
-          private: proc.tier3_rate || 0,
-          NABH_NABL_Rate: proc.tier3_rate || 0,
-          selectedRate: proc.tier3_rate || 0,
-          rateSource: 'yojana_mh_tier3',
+          name: proc.treatment_plan || '',
+          code: proc.treatment_code || '',
+          category: proc.category || '',
+          description: [proc.diagnosis, proc.anaesthesia_type, proc.remark].filter(Boolean).join(' | '),
+          private: proc.package_price || 0,
+          NABH_NABL_Rate: proc.package_price || 0,
+          selectedRate: proc.package_price || 0,
+          rateSource: 'pmjay_mjpjay_package_price',
           is_yojana: true
         }));
       }

@@ -12073,33 +12073,33 @@ INSTRUCTIONS:
       const corporate = (patientInfo?.corporate || '').toLowerCase().trim();
       const isYojana = isMaharashtraYojana(corporate);
 
-      // For Maharashtra Yojana patients, search from yojana_mh_procedures tariff
+      // For Maharashtra Yojana patients, search only from the package master.
       if (isYojana) {
         const { data: yojanaData, error: yojanaError } = await supabase
-          .from('yojana_mh_procedures')
-          .select('id, procedure_code, procedure_name, package_name, specialty, specialty_code, tier3_rate, level_of_care, los, medical_or_surgical')
-          .or(`procedure_name.ilike.%${surgerySearchTerm}%,package_name.ilike.%${surgerySearchTerm}%,procedure_code.ilike.%${surgerySearchTerm}%,specialty.ilike.%${surgerySearchTerm}%`)
-          .order('procedure_name')
+          .from('pmjay_mjpjay_packages')
+          .select('id, treatment_code, treatment_plan, category, package_price, diagnosis, anaesthesia_type, remark')
+          .or(`treatment_plan.ilike.%${surgerySearchTerm}%,treatment_code.ilike.%${surgerySearchTerm}%,category.ilike.%${surgerySearchTerm}%,diagnosis.ilike.%${surgerySearchTerm}%,anaesthesia_type.ilike.%${surgerySearchTerm}%`)
+          .order('treatment_plan')
           .limit(15);
 
         if (yojanaError) {
-          console.error('Error fetching Yojana procedures:', yojanaError);
+          console.error('Error fetching Yojana package master rows:', yojanaError);
           return [];
         }
 
-        // Map yojana procedures to the same shape as cghs_surgery for compatibility
+        // Map package master rows to the same shape as cghs_surgery for compatibility.
         return (yojanaData || []).map(proc => ({
           id: proc.id,
-          name: proc.procedure_name || proc.package_name || '',
-          code: proc.procedure_code || '',
-          category: proc.specialty || '',
-          description: `${proc.package_name || ''} | LOS: ${proc.los || 'N/A'} | ${proc.level_of_care || ''} | ${proc.medical_or_surgical || ''}`,
-          private: proc.tier3_rate || 0,
-          NABH_NABL_Rate: proc.tier3_rate || 0,
+          name: proc.treatment_plan || '',
+          code: proc.treatment_code || '',
+          category: proc.category || '',
+          description: [proc.diagnosis, proc.anaesthesia_type, proc.remark].filter(Boolean).join(' | '),
+          private: proc.package_price || 0,
+          NABH_NABL_Rate: proc.package_price || 0,
           Non_NABH_NABL_Rate: 0,
           bhopal_nabh_rate: 0,
-          selectedRate: proc.tier3_rate || 0,
-          rateSource: 'yojana_mh_tier3',
+          selectedRate: proc.package_price || 0,
+          rateSource: 'pmjay_mjpjay_package_price',
           is_yojana: true
         }));
       }
