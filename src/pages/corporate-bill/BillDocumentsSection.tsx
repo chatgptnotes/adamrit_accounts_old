@@ -340,29 +340,43 @@ function buildGeneratedOtNotes(params: {
   packageType?: string;
   otRequired?: string;
 }) {
-  const packageName = params.packageName || "Selected package";
+  const procedureName = params.packageName || "Approved procedure";
   const packageType = params.packageType || "As per package";
-  const otRequired = params.otRequired || "As per package";
+
+  const accessLine =
+    packageType === "Conservative"
+      ? "No operative incision was required. The case was managed as per the approved conservative pathway with monitoring and treatment as indicated."
+      : "The operative field was painted and draped in the usual sterile fashion, and the access route was established according to the procedure performed.";
+
+  const dissectionLine =
+    packageType === "Conservative"
+      ? "Clinical examination and treatment steps were completed according to the conservative plan, with no surgical dissection performed."
+      : "The relevant anatomical planes were entered, the target tissue or pathology was dissected carefully, and adjacent structures were protected throughout.";
+
+  const findingsLine =
+    packageType === "Conservative"
+      ? "Clinical and procedural findings were documented, and the intended non-operative endpoint was achieved."
+      : "Operative findings were consistent with the planned procedure, with satisfactory exposure, control, and no unexpected injury or uncontrolled bleeding.";
+
+  const closureLine =
+    packageType === "Conservative"
+      ? "The patient was continued on the prescribed conservative management plan and transferred in stable condition."
+      : "Haemostasis was secured, the operative endpoint was confirmed, any specimen was handled as indicated, closure was completed in layers or at access sites, dressings were applied, and the patient was shifted to recovery in stable condition.";
 
   return [
     "OT NOTES",
     `Patient Name: ${params.patientName || "N/A"}`,
     `Visit ID: ${params.visitId || "N/A"}`,
     `Registration ID: ${params.patientRegistrationNo || "N/A"}`,
-    `Package: ${packageName}`,
-    params.packageCode ? `Package Code: ${params.packageCode}` : null,
-    `Package Type: ${packageType}`,
-    `OT Required: ${otRequired}`,
+    `Procedure: ${procedureName}`,
     "",
-    "Procedure Note",
-    "1. Verify the correct patient, package, and operative site before proceeding.",
-    packageType === "Conservative"
-      ? "2. Manage the case under the approved conservative package pathway with no operative intervention, and continue monitoring, medication, and follow-up as indicated."
-      : otRequired === "Yes"
-        ? "2. Prepare the patient for operation theatre with the planned anaesthesia and standard monitoring as per the approved package."
-        : "2. Proceed according to the package protocol and final clinical decision, with operative or non-operative management as applicable.",
-    "3. Maintain aseptic precautions, complete the approved package steps, and document all findings and interventions clearly.",
-    "4. Confirm haemostasis or clinical stability, complete dressing or post-procedure transfer, and hand over to recovery, ward, or follow-up care as appropriate.",
+    "Operative Note",
+    "1. The patient was received in the operating theatre, identity and procedure were confirmed, consent was checked, and anaesthesia was induced as planned.",
+    `2. The patient was positioned appropriately and the operative field was prepared and draped under strict aseptic precautions. ${accessLine}`,
+    `3. ${dissectionLine}`,
+    `4. Operative findings: ${findingsLine}`,
+    `5. Haemostasis was confirmed and the intended procedural endpoint was achieved before closure or completion of the case.`,
+    `6. ${closureLine}`,
   ]
     .filter((line) => line !== null)
     .join("\n");

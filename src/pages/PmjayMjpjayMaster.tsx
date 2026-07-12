@@ -236,19 +236,48 @@ const buildOtNoteTheme = (source: PackageNoteSource) => {
     .join(' ')
     .toLowerCase();
 
+  if (/(laparoscopic|laparoscopy|robotic)/.test(haystack) || /cystectomy/.test(haystack)) {
+    const procedure = /cystectomy/.test(haystack)
+      ? 'cystic lesion'
+      : /hysterectomy/.test(haystack)
+        ? 'pelvic organs'
+        : /cholecystectomy/.test(haystack)
+          ? 'gallbladder'
+          : /append/.test(haystack)
+            ? 'appendix'
+            : /hernia/.test(haystack)
+              ? 'hernia sac and defect'
+              : 'target lesion';
+
+    return {
+      access: 'The patient was positioned appropriately for laparoscopy, the abdomen was painted and draped in a sterile fashion, pneumoperitoneum was created, and the initial port was introduced under direct vision. Additional working ports were placed under vision as required.',
+      dissection: `The ${procedure} was identified and carefully dissected from the surrounding tissues using sharp and blunt dissection, with meticulous attention to adjacent bowel, bladder, ureteric, vascular, or other critical structures as applicable.`,
+      confirmation: /cholecystectomy/.test(haystack)
+        ? 'Critical view of safety was obtained, the cystic duct and artery were secured, and the intended anatomical endpoint was achieved without visible leak or bleeding.'
+        : /append/.test(haystack)
+          ? 'The appendiceal base was secured and the specimen was delivered intact, with no residual stump bleeding or contamination seen at completion.'
+          : /hernia/.test(haystack)
+            ? 'The defect was closed or reinforced as planned, the reduced contents were viable, and no active bleeding or bowel compromise was seen.'
+            : /hysterectomy/.test(haystack)
+              ? 'The intended pelvic dissection was completed, the target tissue was removed, and the operative field showed satisfactory haemostasis with preserved adjacent structures.'
+              : 'The intended lesion was completely excised or treated, the operative bed was dry, and no unintended injury or residual target tissue was seen at completion.',
+      closure: 'The specimen was retrieved in a bag where applicable, ports were removed under vision, pneumoperitoneum was released, fascial closure was performed at larger port sites as required, skin was approximated with sutures or staples, dressings were applied, and the patient was shifted to recovery in stable condition.',
+    };
+  }
+
   if (/urology|uro|dj stent|dj stenting|stenting including cystoscopy|ureter|ureteric|pcnl|pyeloplasty|nephrectomy|cysto/.test(haystack)) {
     if (/pcnl/.test(haystack)) {
       return {
-        access: 'Under image guidance, a small flank puncture and tract dilation were performed to reach the pelvicalyceal system; the nephroscope was introduced through the created tract.',
-        dissection: 'The subcutaneous tissues, muscular planes, and collecting system were traversed in a controlled manner, stones were fragmented and cleared, and the ureteric system was inspected for residual obstruction.',
-        confirmation: 'Stone clearance was checked endoscopically and fluoroscopically, drainage was confirmed, and the renal collecting system was seen to be adequately decompressed.',
-        closure: 'The tract was secured as per package protocol, haemostasis was confirmed, skin was closed with appropriate sutures or dressing, and the patient was transferred to recovery in stable condition.',
+        access: 'The patient was positioned prone, the flank was prepared and draped, and access to the pelvicalyceal system was obtained under image guidance with tract creation and dilation.',
+        dissection: 'The collecting system was entered in a controlled manner, the calculi were fragmented and cleared, and the calyceal and ureteric system were inspected for residual obstruction.',
+        confirmation: 'Stone clearance was confirmed endoscopically and fluoroscopically, the renal system was adequately decompressed, and there was no immediate collecting-system injury.',
+        closure: 'The tract was secured, haemostasis was confirmed, the access site was dressed or closed as required, and the patient was transferred to recovery in stable condition.',
       };
     }
 
     if (/pyeloplasty/.test(haystack)) {
       return {
-        access: 'A flank or laparoscopic approach was used as per the package plan, with exposure of the ureteropelvic junction and surrounding perirenal tissues.',
+        access: 'A flank or laparoscopic approach was used, the operative site was painted and draped, and the ureteropelvic junction was exposed with adequate working space.',
         dissection: 'The stenotic ureteropelvic junction was dissected, the fibrotic segment was excised when indicated, the pelvis was mobilised, and the ureter was spatulated to allow a tension-free repair.',
         confirmation: 'The anastomosis was inspected for watertight alignment, free drainage, and absence of twist or tension, with adequate patency demonstrated at completion.',
         closure: 'Meticulous haemostasis was obtained, the repair was completed in layers with absorbable sutures where appropriate, and dressings were applied before recovery transfer.',
@@ -257,7 +286,7 @@ const buildOtNoteTheme = (source: PackageNoteSource) => {
 
     if (/nephrectomy/.test(haystack)) {
       return {
-        access: 'The kidney was approached through the planned open or minimally invasive incision, with layered entry through the skin, subcutaneous tissue, fascia, and muscular planes.',
+        access: 'The kidney was approached through the planned open or minimally invasive incision after the site was painted and draped, with layered entry through the skin, subcutaneous tissue, fascia, and muscular planes.',
         dissection: 'The renal unit and surrounding hilar structures were carefully dissected, the intended segment or tissue was separated from adjacent structures, and vascular control was maintained throughout.',
         confirmation: 'The resected specimen was confirmed, haemostasis at the renal bed and hilum was satisfactory, and no active bleeding or urinary leak was seen at completion.',
         closure: 'After final count verification, layered closure was completed with appropriate absorbable and skin sutures, dressing was applied, and the patient was shifted stable to recovery.',
@@ -265,17 +294,17 @@ const buildOtNoteTheme = (source: PackageNoteSource) => {
     }
 
     return {
-      access: 'No external skin incision was required for this endoscopic urology package; the bladder and ureteric orifice were accessed cystoscopically under direct vision.',
-      dissection: 'The urethra, bladder, and ureteric lumen were inspected, a guidewire was advanced across the ureteric obstruction or target segment, and the double-J stent was deployed in the planned position.',
-      confirmation: 'Correct proximal and distal curl position was confirmed endoscopically and/or fluoroscopically, urine drainage was checked, and no perforation or active bleeding was seen.',
+      access: 'No external cutaneous incision was required for this endoscopic urology procedure; the bladder and ureteric orifice were accessed cystoscopically under direct vision after sterile preparation and draping.',
+      dissection: 'The urethra, bladder, and ureteric lumen were inspected, a guidewire was advanced across the ureteric obstruction or target segment, and the double-J stent or endoscopic treatment was deployed in the planned position.',
+      confirmation: 'Correct proximal and distal curl position or treatment effect was confirmed endoscopically and/or fluoroscopically, urine drainage was checked, and no perforation or active bleeding was seen.',
       closure: 'The bladder was emptied, haemostasis was confirmed, no cutaneous incision required closure, and the patient was transferred in stable condition with the prescribed follow-up plan.',
     };
   }
 
   if (/cardio|angioplasty|ptca|pacemaker|coronary|angiogram|stent/.test(haystack)) {
     return {
-      access: 'Percutaneous vascular access was obtained under sterile precautions, and the target vessel was cannulated using the standard approach for the approved cardiology package.',
-      dissection: 'Guidewire and catheter manipulation were performed across the relevant vascular or coronary segment, with lesion treatment, dilation, or device deployment according to package protocol.',
+      access: 'Percutaneous vascular access was obtained under sterile precautions after painting and draping, and the target vessel was cannulated using the standard approach for the approved cardiology procedure.',
+      dissection: 'Guidewire and catheter manipulation were performed across the relevant vascular or coronary segment, with lesion treatment, dilation, or device deployment according to the operative plan.',
       confirmation: 'Final angiographic or procedural confirmation showed the intended result, with preserved flow, stable device position, and no immediate procedural complication.',
       closure: 'Access-site haemostasis was secured, the puncture site was dressed, and the patient was transferred to recovery in stable condition.',
     };
@@ -283,7 +312,7 @@ const buildOtNoteTheme = (source: PackageNoteSource) => {
 
   if (/neuro|brain|crani|spine|laminectomy|discectomy/.test(haystack)) {
     return {
-      access: 'A standard cranial or posterior spinal incision was made as appropriate for the package, followed by layered exposure of the operative field under strict aseptic precautions.',
+      access: 'A standard cranial or posterior spinal incision was made as appropriate, after the operative field was painted and draped under strict aseptic precautions.',
       dissection: 'The relevant soft tissues, muscle planes, bone window, lamina, disc space, or neural elements were exposed and decompressed carefully according to the planned neurosurgical procedure.',
       confirmation: 'Adequate decompression, restoration of the intended anatomy, haemostasis, and absence of obvious neural compromise were confirmed before closure.',
       closure: 'The wound was irrigated, layered closure was completed with appropriate sutures, dressing was applied, and the patient was moved to recovery in stable condition.',
@@ -292,7 +321,7 @@ const buildOtNoteTheme = (source: PackageNoteSource) => {
 
   if (/ortho|fracture|plate|nailing|fixation|arthros|tendon|bone|joint/.test(haystack)) {
     return {
-      access: 'A skin incision was made over the affected segment, and the subcutaneous tissue, fascia, and muscle were dissected to expose the fracture, joint, or operative bone surface.',
+      access: 'A skin incision was made over the affected segment after painting and draping, and the subcutaneous tissue, fascia, and muscle were dissected to expose the fracture, joint, or operative bone surface.',
       dissection: 'The fracture or joint pathology was reduced, debrided, or prepared as needed, and fixation or reconstruction was completed using the planned orthopaedic technique.',
       confirmation: 'Alignment, stability, and implant position were checked clinically and/or radiologically, with satisfactory correction and haemostasis at the end of the procedure.',
       closure: 'Layered closure was performed with absorbable sutures for deep tissue and appropriate skin sutures or staples, followed by dressing and recovery transfer.',
@@ -301,15 +330,15 @@ const buildOtNoteTheme = (source: PackageNoteSource) => {
 
   if (/general surgery|laparotomy|append|hernia|gastro|chole|lap\./.test(haystack)) {
     return {
-      access: 'A standard abdominal or operative incision was made as per the approved surgical approach, followed by careful entry through the subcutaneous tissues and fascia.',
-      dissection: 'The target bowel, appendix, gallbladder, hernia sac, or other involved structures were dissected, controlled, and treated according to the package plan.',
+      access: 'A standard abdominal or operative incision was made after painting and draping, followed by careful entry through the subcutaneous tissues and fascia.',
+      dissection: 'The target bowel, appendix, gallbladder, hernia sac, or other involved structures were dissected, controlled, and treated according to the operative plan.',
       confirmation: 'The operative field was inspected for completeness of treatment, haemostasis, and absence of leak, with the intended anatomical correction confirmed before closure.',
       closure: 'The wound was closed in layers with appropriate sutures, dressing was applied, and the patient was transferred to recovery in stable condition.',
     };
   }
 
   return {
-    access: 'The operative site was prepared and exposed under strict aseptic precautions with the standard incision or access route for the approved package.',
+    access: 'The operative site was painted and draped under strict aseptic precautions, and the standard incision or access route was used for the procedure.',
     dissection: 'The relevant anatomical planes and target structures were carefully dissected, protected, and treated using the accepted technique for the procedure.',
     confirmation: 'Completion of the intended operative goal, satisfactory haemostasis, and preservation of adjacent structures were confirmed before the case was closed.',
     closure: 'Layered closure was completed with appropriate sutures, dressings were applied, and the patient was shifted to recovery in stable condition.',
@@ -317,21 +346,19 @@ const buildOtNoteTheme = (source: PackageNoteSource) => {
 };
 
 const buildOtNotes = (source: PackageNoteSource) => {
-  const packageName = trimOrEmpty(source.treatment_plan) || 'PMJAY / MJPJAY package';
-  const category = trimOrEmpty(source.category) || 'As per package';
+  const procedureName = trimOrEmpty(source.treatment_plan) || trimOrEmpty(source.treatment_code) || 'Approved procedure';
   const theme = buildOtNoteTheme(source);
 
   return [
     'OT NOTES',
-    `Package: ${packageName}`,
-    `Category: ${category}`,
+    `Procedure: ${procedureName}`,
     '',
-    'Procedure Note',
-    '1. Confirm the correct patient, procedure, operative site, consent, and available imaging or supporting records before starting the case.',
-    '2. Position the patient appropriately and prepare the operative field under strict aseptic precautions with the relevant access route for the package.',
-    `3. ${theme.access}`,
-    `4. ${theme.dissection}`,
-    `5. ${theme.confirmation}`,
+    'Operative Note',
+    '1. The patient was brought to the operating theatre, identity was verified, consent was checked, the site and procedure were confirmed, and anaesthesia was induced as planned.',
+    `2. The patient was positioned appropriately. The operative field was painted, draped, and prepared in the usual sterile fashion. ${theme.access}`,
+    `3. ${theme.dissection}`,
+    `4. Operative findings: ${theme.confirmation}`,
+    '5. Haemostasis was secured, any specimen or excised tissue was handled as indicated, and the operative endpoint was confirmed before closure.',
     `6. ${theme.closure}`,
   ]
     .filter(Boolean)
@@ -344,15 +371,15 @@ const parseOtNotes = (notes: string) => {
     .map((line) => line.trim())
     .filter(Boolean);
 
-  const packageLine = lines.find((line) => line.toLowerCase().startsWith('package:')) || '';
-  const procedureIndex = lines.findIndex((line) => line.toLowerCase() === 'procedure note');
+  const procedureLine = lines.find((line) => line.toLowerCase().startsWith('procedure:')) || '';
+  const procedureIndex = lines.findIndex((line) => line.toLowerCase() === 'operative note');
   const steps = lines
     .slice(procedureIndex >= 0 ? procedureIndex + 1 : 0)
     .map((line) => line.replace(/^\d+\.\s*/, '').trim())
     .filter(Boolean);
 
   return {
-    packageLine: packageLine.replace(/^package:\s*/i, '').trim(),
+    procedureLine: procedureLine.replace(/^procedure:\s*/i, '').trim(),
     steps,
   };
 };
@@ -900,13 +927,11 @@ const PmjayMjpjayMaster = () => {
         'Type of Anaesthesia': row.anaesthesia_type || '',
         Implant: implantNames.join(', '),
         'Package Price': row.package_price || '',
-        'OT Notes':
-          trimOrEmpty(row.remark) ||
-          buildOtNotes({
-            treatment_plan: row.treatment_plan,
-            category: row.category,
-            treatment_code: row.treatment_code,
-          }),
+        'OT Notes': buildOtNotes({
+          treatment_plan: row.treatment_plan,
+          category: row.category,
+          treatment_code: row.treatment_code,
+        }),
         'Patient Example': row.patient_name_example || '',
         Created: row.created_at || '',
       };
@@ -1691,34 +1716,34 @@ const PmjayMjpjayMaster = () => {
                   OT Notes
                 </SheetTitle>
                 <SheetDescription className="text-sm text-muted-foreground">
-                  Structured package note template for the selected procedure.
+                  Structured operative note for the selected procedure.
                 </SheetDescription>
               </SheetHeader>
 
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_12px_30px_-18px_rgba(15,23,42,0.18)]">
                 {(() => {
                   const noteText = getDisplayOtNotes(viewingOtNotesRecord);
-                  const { packageLine, steps } = parseOtNotes(noteText);
+                  const { procedureLine, steps } = parseOtNotes(noteText);
 
                   return (
                     <div className="space-y-4">
                       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-4">
                         <div>
                           <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                            OT Notes
+                            Operative Note
                           </div>
                           <div className="mt-1 text-lg font-semibold text-slate-950">
-                            {packageLine || viewingOtNotesRecord.treatment_plan || viewingOtNotesRecord.treatment_code || 'Package'}
+                            {procedureLine || viewingOtNotesRecord.treatment_plan || viewingOtNotesRecord.treatment_code || 'Procedure'}
                           </div>
                         </div>
                         <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                          Template
+                          Generated
                         </div>
                       </div>
 
                       <div>
                         <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Procedure Note
+                          Operative Steps
                         </div>
                         <ol className="mt-3 space-y-3">
                           {steps.map((step, index) => (
