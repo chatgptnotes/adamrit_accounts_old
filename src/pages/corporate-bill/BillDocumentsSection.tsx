@@ -368,6 +368,28 @@ function buildGeneratedOtNotes(params: {
     .join("\n");
 }
 
+function getPackageDisplayName(
+  packageSummary: PackageSummary | null | undefined,
+  visitPackageName: string | null | undefined,
+) {
+  return (
+    packageSummary?.package_name ||
+    packageSummary?.procedure_name ||
+    packageSummary?.treatment_plan ||
+    visitPackageName ||
+    "Selected package"
+  );
+}
+
+function getPackageDisplayType(packageSummary: PackageSummary | null | undefined) {
+  return normalizePackageType(
+    packageSummary?.medical_or_surgical ||
+      packageSummary?.category ||
+      packageSummary?.level_of_care ||
+      packageSummary?.specialty,
+  );
+}
+
 /** Read-only gallery for one category: thumbnails, click to view, download. */
 function CategoryGallery({
   items,
@@ -481,34 +503,27 @@ export function BillDocumentsSection({
   const docs = usePatientAllDocs(patientId);
   const visitSummary = useBillVisitSummary(visitId);
   const packageSummary = usePackageSummary(visitSummary.data);
+  const packageDisplayName = getPackageDisplayName(packageSummary.data, visitSummary.data?.package_name);
+  const packageDisplayType = getPackageDisplayType(packageSummary.data);
+  const registrationId = patientId || "-";
+  const registrationNo = patientRegistrationNo || "-";
+  const otRequired = deriveOtRequirement(packageDisplayType);
 
   const generatedOtNotes = useMemo(() => {
-    const packageType = normalizePackageType(
-      packageSummary.data?.medical_or_surgical ||
-        packageSummary.data?.category ||
-        packageSummary.data?.level_of_care ||
-        packageSummary.data?.specialty,
-    );
-
     return buildGeneratedOtNotes({
       patientName,
       patientRegistrationNo,
       visitId,
-      packageName:
-        packageSummary.data?.package_name ||
-        packageSummary.data?.procedure_name ||
-        packageSummary.data?.treatment_plan ||
-        visitSummary.data?.package_name ||
-        "Selected package",
+      packageName: packageDisplayName,
       packageCode:
         packageSummary.data?.procedure_code ||
         packageSummary.data?.package_code ||
         packageSummary.data?.treatment_code ||
         null,
-      packageType,
-      otRequired: deriveOtRequirement(packageType),
+      packageType: packageDisplayType,
+      otRequired,
     });
-  }, [packageSummary.data, patientName, patientRegistrationNo, visitId, visitSummary.data]);
+  }, [otRequired, packageDisplayName, packageDisplayType, packageSummary.data, patientName, patientRegistrationNo, visitId]);
 
   const safeName = (patientName || "patient").replace(/[^a-zA-Z0-9._-]/g, "_");
 
@@ -603,7 +618,68 @@ export function BillDocumentsSection({
               Could not load documents. Check the connection.
             </p>
           ) : (
-            <Tabs
+            <>
+              <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="grid gap-3 text-sm text-slate-700 md:grid-cols-2 xl:grid-cols-3">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Patient Name
+                    </div>
+                    <div className="mt-1 font-medium text-slate-900">
+                      {patientName || "-"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Registration No.
+                    </div>
+                    <div className="mt-1 font-medium text-slate-900">
+                      {registrationNo}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Registration ID
+                    </div>
+                    <div className="mt-1 font-medium text-slate-900 break-all">
+                      {registrationId}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Visit ID
+                    </div>
+                    <div className="mt-1 font-medium text-slate-900 break-all">
+                      {visitId || "-"}
+                    </div>
+                  </div>
+                  <div className="md:col-span-2 xl:col-span-1">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Package Details
+                    </div>
+                    <div className="mt-1 font-medium text-slate-900">
+                      {packageDisplayName}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Conservative / Surgical
+                    </div>
+                    <div className="mt-1 font-medium text-slate-900">
+                      {packageDisplayType}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      OT Required
+                    </div>
+                    <div className="mt-1 font-medium text-slate-900">
+                      {otRequired}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <Tabs
               value={activeTab}
               onValueChange={(v) => setActiveTab(v as PatientDocCategory)}
             >
@@ -731,6 +807,7 @@ export function BillDocumentsSection({
                 </TabsContent>
               ))}
             </Tabs>
+            </>
           )}
         </div>
       )}

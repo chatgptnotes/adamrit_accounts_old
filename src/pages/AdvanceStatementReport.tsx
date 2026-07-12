@@ -1909,7 +1909,12 @@ const AdvanceStatementReport = () => {
                   </div>
                 )}
 
-                <BillDocumentsSection patientId={patient?.id} patientName={patient?.name} />
+                <BillDocumentsSection
+                  patientId={patient?.id}
+                  patientName={patient?.name}
+                  patientRegistrationNo={getPrimaryRegistrationNo(selectedRow) || patient?.patients_id || ''}
+                  visitId={selectedRow?.visit_id || patient?.visit_id || ''}
+                />
               </div>
             );
           })()}

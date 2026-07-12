@@ -382,12 +382,12 @@ const PmjayMjpjayMaster = () => {
 
   const searchTerm = searchParams.get('search') || '';
   const currentPage = parseInt(searchParams.get('page') || '1');
-  const itemsPerPage = parseInt(searchParams.get('perPage') || '10');
+  const itemsPerPage = parseInt(searchParams.get('perPage') || '200');
 
   const updateParams = (updates: Record<string, string | null>) => {
     const next = new URLSearchParams(searchParams);
     Object.entries(updates).forEach(([key, value]) => {
-      if (!value || (key === 'page' && value === '1') || (key === 'perPage' && value === '10')) {
+      if (!value || (key === 'page' && value === '1') || (key === 'perPage' && value === '200')) {
         next.delete(key);
       } else {
         next.set(key, value);
@@ -1103,7 +1103,7 @@ const PmjayMjpjayMaster = () => {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {[5, 10, 20, 50, 100].map((count) => (
+                    {[5, 10, 20, 50, 100, 200].map((count) => (
                       <SelectItem key={count} value={String(count)}>
                         {count}
                       </SelectItem>
