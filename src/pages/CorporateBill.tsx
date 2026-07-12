@@ -359,7 +359,12 @@ const CorporateBill = () => {
 
         {/* Documents side panel (hidden on print) */}
         <aside className="print:hidden w-full max-w-full shrink-0 xl:w-[340px]">
-          <BillDocumentsSection patientId={patientId} patientName={patientInfo.patientName} visitId={actualVisitId} />
+          <BillDocumentsSection
+            patientId={patientId}
+            patientName={patientInfo.patientName}
+            patientRegistrationNo={patientInfo.registrationNo}
+            visitId={actualVisitId}
+          />
         </aside>
       </div>
     </div>

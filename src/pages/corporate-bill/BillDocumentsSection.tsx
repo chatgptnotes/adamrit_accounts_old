@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Download, FileText, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -18,6 +18,7 @@ import {
 interface BillDocumentsSectionProps {
   patientId?: string;
   patientName?: string | null;
+  patientRegistrationNo?: string | null;
   visitId?: string;
 }
 
@@ -138,6 +139,56 @@ async function downloadImagesAsPdf(images: PatientDoc[], baseName: string) {
   window.URL.revokeObjectURL(url);
 }
 
+async function downloadTextAsPdf(
+  title: string,
+  lines: string[],
+  baseName: string,
+) {
+  const { default: jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const pageW = 210;
+  const pageH = 297;
+  const margin = 12;
+  const contentW = pageW - margin * 2;
+  const lineHeight = 5.2;
+
+  let y = 18;
+  const addLine = (text: string, fontSize = 10, bold = false) => {
+    const safeText = text.trim();
+    const wrapped = doc.splitTextToSize(safeText, contentW);
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setFontSize(fontSize);
+    for (const line of wrapped) {
+      if (y > pageH - 16) {
+        doc.addPage();
+        y = 18;
+      }
+      doc.text(line, margin, y);
+      y += lineHeight;
+    }
+  };
+
+  addLine(title, 14, true);
+  y += 2;
+  for (const line of lines) {
+    if (!line.trim()) {
+      y += 2.5;
+      continue;
+    }
+    addLine(line, line.startsWith("OT NOTES") ? 12 : 10, line === "OT NOTES");
+  }
+
+  const blob = doc.output("blob");
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${baseName}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
+
 interface CategorizedDoc extends PatientDoc {
   category: string;
 }
@@ -153,6 +204,39 @@ function mapDoc(r: any): CategorizedDoc {
     category: r.category ?? "",
   };
 }
+
+type VisitSummary = {
+  visit_id: string | null;
+  package_name: string | null;
+};
+
+type PackageSummary = {
+  package_name: string | null;
+  procedure_name: string | null;
+  procedure_code: string | null;
+  package_code: string | null;
+  medical_or_surgical: string | null;
+  specialty: string | null;
+  level_of_care: string | null;
+  category: string | null;
+  treatment_plan: string | null;
+  treatment_code: string | null;
+  anaesthesia_type: string | null;
+};
+
+const normalizePackageType = (value: string | null | undefined) => {
+  const text = (value || "").trim().toLowerCase();
+  if (!text) return "As per package";
+  if (text.includes("conservative") || text.includes("medical")) return "Conservative";
+  if (text.includes("surgical")) return "Surgical";
+  return "As per package";
+};
+
+const deriveOtRequirement = (packageType: string) => {
+  if (packageType === "Surgical") return "Yes";
+  if (packageType === "Conservative") return "No";
+  return "As per package";
+};
 
 /** All uploaded docs for a patient, across the 8 profile categories, newest first. */
 function usePatientAllDocs(patientId: string | undefined) {
@@ -176,6 +260,112 @@ function usePatientAllDocs(patientId: string | undefined) {
       return (data || []).map(mapDoc);
     },
   });
+}
+
+function useBillVisitSummary(visitId: string | undefined) {
+  return useQuery({
+    queryKey: ["bill-visit-summary", visitId],
+    enabled: !!visitId,
+    staleTime: 1000 * 15,
+    queryFn: async (): Promise<VisitSummary | null> => {
+      if (!visitId) return null;
+      const { data, error } = await supabase
+        .from("visits")
+        .select("visit_id, package_name")
+        .eq("visit_id", visitId)
+        .maybeSingle();
+      if (error) throw error;
+      return (data || null) as VisitSummary | null;
+    },
+  });
+}
+
+function usePackageSummary(visitSummary: VisitSummary | null | undefined) {
+  return useQuery({
+    queryKey: ["bill-package-summary", visitSummary?.package_name],
+    enabled: !!visitSummary?.package_name,
+    staleTime: 1000 * 15,
+    queryFn: async (): Promise<PackageSummary | null> => {
+      const packageName = visitSummary?.package_name?.trim();
+      if (!packageName) return null;
+
+      const yojanaSelect =
+        "package_name, procedure_name, procedure_code, package_code, medical_or_surgical, specialty, level_of_care";
+      const pmjaySelect =
+        "treatment_plan, treatment_code, category, anaesthesia_type";
+
+      const yojanaExact = await supabase
+        .from("yojana_mh_procedures")
+        .select(yojanaSelect)
+        .eq("package_name", packageName)
+        .maybeSingle();
+      if (yojanaExact.data) return yojanaExact.data as PackageSummary;
+      if (yojanaExact.error && yojanaExact.error.code !== "PGRST116") throw yojanaExact.error;
+
+      const yojanaProcedure = await supabase
+        .from("yojana_mh_procedures")
+        .select(yojanaSelect)
+        .eq("procedure_name", packageName)
+        .maybeSingle();
+      if (yojanaProcedure.data) return yojanaProcedure.data as PackageSummary;
+      if (yojanaProcedure.error && yojanaProcedure.error.code !== "PGRST116") throw yojanaProcedure.error;
+
+      const pmjayExact = await supabase
+        .from("pmjay_mjpjay_packages")
+        .select(pmjaySelect)
+        .eq("treatment_plan", packageName)
+        .maybeSingle();
+      if (pmjayExact.data) return pmjayExact.data as PackageSummary;
+      if (pmjayExact.error && pmjayExact.error.code !== "PGRST116") throw pmjayExact.error;
+
+      const pmjayCode = await supabase
+        .from("pmjay_mjpjay_packages")
+        .select(pmjaySelect)
+        .eq("treatment_code", packageName)
+        .maybeSingle();
+      if (pmjayCode.data) return pmjayCode.data as PackageSummary;
+      if (pmjayCode.error && pmjayCode.error.code !== "PGRST116") throw pmjayCode.error;
+
+      return null;
+    },
+  });
+}
+
+function buildGeneratedOtNotes(params: {
+  patientName?: string | null;
+  patientRegistrationNo?: string | null;
+  visitId?: string | null;
+  packageName?: string | null;
+  packageCode?: string | null;
+  packageType?: string;
+  otRequired?: string;
+}) {
+  const packageName = params.packageName || "Selected package";
+  const packageType = params.packageType || "As per package";
+  const otRequired = params.otRequired || "As per package";
+
+  return [
+    "OT NOTES",
+    `Patient Name: ${params.patientName || "N/A"}`,
+    `Visit ID: ${params.visitId || "N/A"}`,
+    `Registration ID: ${params.patientRegistrationNo || "N/A"}`,
+    `Package: ${packageName}`,
+    params.packageCode ? `Package Code: ${params.packageCode}` : null,
+    `Package Type: ${packageType}`,
+    `OT Required: ${otRequired}`,
+    "",
+    "Procedure Note",
+    "1. Verify the correct patient, package, and operative site before proceeding.",
+    packageType === "Conservative"
+      ? "2. Manage the case under the approved conservative package pathway with no operative intervention, and continue monitoring, medication, and follow-up as indicated."
+      : otRequired === "Yes"
+        ? "2. Prepare the patient for operation theatre with the planned anaesthesia and standard monitoring as per the approved package."
+        : "2. Proceed according to the package protocol and final clinical decision, with operative or non-operative management as applicable.",
+    "3. Maintain aseptic precautions, complete the approved package steps, and document all findings and interventions clearly.",
+    "4. Confirm haemostasis or clinical stability, complete dressing or post-procedure transfer, and hand over to recovery, ward, or follow-up care as appropriate.",
+  ]
+    .filter((line) => line !== null)
+    .join("\n");
 }
 
 /** Read-only gallery for one category: thumbnails, click to view, download. */
@@ -278,6 +468,7 @@ function CategoryGallery({
 export function BillDocumentsSection({
   patientId,
   patientName,
+  patientRegistrationNo,
   visitId,
 }: BillDocumentsSectionProps) {
   const [open, setOpen] = useState(false);
@@ -288,6 +479,36 @@ export function BillDocumentsSection({
   const [pdfBusyCategory, setPdfBusyCategory] = useState<string | null>(null);
   const [pdfBusyDocId, setPdfBusyDocId] = useState<string | null>(null);
   const docs = usePatientAllDocs(patientId);
+  const visitSummary = useBillVisitSummary(visitId);
+  const packageSummary = usePackageSummary(visitSummary.data);
+
+  const generatedOtNotes = useMemo(() => {
+    const packageType = normalizePackageType(
+      packageSummary.data?.medical_or_surgical ||
+        packageSummary.data?.category ||
+        packageSummary.data?.level_of_care ||
+        packageSummary.data?.specialty,
+    );
+
+    return buildGeneratedOtNotes({
+      patientName,
+      patientRegistrationNo,
+      visitId,
+      packageName:
+        packageSummary.data?.package_name ||
+        packageSummary.data?.procedure_name ||
+        packageSummary.data?.treatment_plan ||
+        visitSummary.data?.package_name ||
+        "Selected package",
+      packageCode:
+        packageSummary.data?.procedure_code ||
+        packageSummary.data?.package_code ||
+        packageSummary.data?.treatment_code ||
+        null,
+      packageType,
+      otRequired: deriveOtRequirement(packageType),
+    });
+  }, [packageSummary.data, patientName, patientRegistrationNo, visitId, visitSummary.data]);
 
   const safeName = (patientName || "patient").replace(/[^a-zA-Z0-9._-]/g, "_");
 
@@ -324,6 +545,16 @@ export function BillDocumentsSection({
       alert("Could not generate the PDF. Please try again.");
     } finally {
       setPdfBusyCategory(null);
+    }
+  };
+
+  const handleDownloadGeneratedOtNotes = async () => {
+    const fileNameBase = `${(patientName || "patient").replace(/[^a-zA-Z0-9._-]/g, "_")}_OT_Notes`;
+    try {
+      await downloadTextAsPdf("OT NOTES", generatedOtNotes.split("\n"), fileNameBase);
+    } catch (err) {
+      console.error("OT notes PDF generation failed:", err);
+      alert("Could not generate the OT notes PDF. Please try again.");
     }
   };
 
@@ -422,6 +653,71 @@ export function BillDocumentsSection({
                           Visit ID is not available on this bill, so the generated discharge summary cannot be opened from here.
                         </p>
                       )}
+                    </div>
+                  )}
+                  {cat.id === "ot_notes" && (
+                    <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div className="space-y-3">
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                              Patient Details
+                            </div>
+                            <div className="mt-2 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+                              <div><span className="font-semibold text-slate-900">Name:</span> {patientName || "-"}</div>
+                              <div><span className="font-semibold text-slate-900">Visit ID:</span> {visitId || "-"}</div>
+                              <div><span className="font-semibold text-slate-900">Registration ID:</span> {patientRegistrationNo || "-"}</div>
+                              <div><span className="font-semibold text-slate-900">OT Required:</span> {deriveOtRequirement(normalizePackageType(packageSummary.data?.medical_or_surgical || packageSummary.data?.category || packageSummary.data?.level_of_care || packageSummary.data?.specialty))}</div>
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                              Package Context
+                            </div>
+                            <div className="mt-2 space-y-1 text-sm text-slate-700">
+                              <div>
+                                <span className="font-semibold text-slate-900">Package:</span>{" "}
+                                {packageSummary.data?.package_name ||
+                                  packageSummary.data?.procedure_name ||
+                                  packageSummary.data?.treatment_plan ||
+                                  visitSummary.data?.package_name ||
+                                  "-"}
+                              </div>
+                              <div>
+                                <span className="font-semibold text-slate-900">Type:</span>{" "}
+                                {normalizePackageType(
+                                  packageSummary.data?.medical_or_surgical ||
+                                    packageSummary.data?.category ||
+                                    packageSummary.data?.level_of_care ||
+                                    packageSummary.data?.specialty,
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-2 sm:min-w-[180px]">
+                          <button
+                            type="button"
+                            onClick={handleDownloadGeneratedOtNotes}
+                            className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            Download OT Notes
+                          </button>
+                          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                            Generated automatically from the selected package.
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                          Auto-generated OT Notes
+                        </div>
+                        <pre className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+                          {generatedOtNotes}
+                        </pre>
+                      </div>
                     </div>
                   )}
                   <CategoryGallery
