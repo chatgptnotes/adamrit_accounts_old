@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as XLSX from 'xlsx';
-import { AlertCircle, ChevronLeft, ChevronRight, Download, Edit, Eye, Plus, Shield, Trash2, Upload, X } from 'lucide-react';
+import { AlertCircle, ChevronLeft, ChevronRight, Download, Edit, Eye, FileText, Plus, Shield, Trash2, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { usePermissions } from '@/hooks/usePermissions';
@@ -289,7 +289,6 @@ const PmjayMjpjayMaster = () => {
   const { canEditMasters } = usePermissions();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
-  const OT_NOTES_BACKFILL_KEY = 'pmjay_mjpjay_ot_notes_backfill_v1';
 
   const searchTerm = searchParams.get('search') || '';
   const currentPage = parseInt(searchParams.get('page') || '1');
@@ -322,6 +321,7 @@ const PmjayMjpjayMaster = () => {
   const [editForm, setEditForm] = useState<PackageFormState>(EMPTY_FORM);
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
   const [priceInput, setPriceInput] = useState('');
+  const [viewingOtNotesRecord, setViewingOtNotesRecord] = useState<EnrichedPackage | null>(null);
   const selectedDepartment = viewingRecord ? inferDepartment(viewingRecord) : '';
 
   const { data: surgeons = [] } = useQuery({
@@ -486,140 +486,9 @@ const PmjayMjpjayMaster = () => {
     },
   });
 
-  const backfillOtNotesMutation = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase
-        .from('pmjay_mjpjay_packages')
-        .select('*')
-        .order('created_at', { ascending: true });
-
-      if (error) throw error;
-
-      const rows = (data || []) as PmjayPackageRow[];
-      if (rows.length === 0) {
-        return { total: 0, updated: 0 };
-      }
-
-      const packageIds = rows.map((row) => row.id);
-      const [surgeonLinks, anaesthetistLinks, implantLinks] = await Promise.all([
-        safeSelectRows<PackageSurgeonRow>(
-          supabase
-            .from('pmjay_mjpjay_package_surgeons')
-            .select('package_id, surgeon_name, surgeon_department, created_at')
-            .in('package_id', packageIds)
-            .order('created_at', { ascending: true }),
-          'pmjay_mjpjay_package_surgeons',
-        ),
-        safeSelectRows<PackageAnaesthetistRow>(
-          supabase
-            .from('pmjay_mjpjay_package_anaesthetists')
-            .select('package_id, anaesthetist_name, created_at')
-            .in('package_id', packageIds)
-            .order('created_at', { ascending: true }),
-          'pmjay_mjpjay_package_anaesthetists',
-        ),
-        safeSelectRows<PackageImplantRow>(
-          supabase
-            .from('pmjay_mjpjay_package_implants')
-            .select('package_id, implant_name, created_at')
-            .in('package_id', packageIds)
-            .order('created_at', { ascending: true }),
-          'pmjay_mjpjay_package_implants',
-        ),
-      ]);
-
-      const packageToSurgeons = new Map<string, PackageSurgeonRow[]>();
-      surgeonLinks.forEach((row) => {
-        const existing = packageToSurgeons.get(row.package_id) || [];
-        existing.push(row);
-        packageToSurgeons.set(row.package_id, existing);
-      });
-
-      const packageToAnaesthetists = new Map<string, PackageAnaesthetistRow[]>();
-      anaesthetistLinks.forEach((row) => {
-        const existing = packageToAnaesthetists.get(row.package_id) || [];
-        existing.push(row);
-        packageToAnaesthetists.set(row.package_id, existing);
-      });
-
-      const packageToImplants = new Map<string, PackageImplantRow[]>();
-      implantLinks.forEach((row) => {
-        const existing = packageToImplants.get(row.package_id) || [];
-        existing.push(row);
-        packageToImplants.set(row.package_id, existing);
-      });
-
-      const updates = rows
-        .filter((row) => !trimOrEmpty(row.remark))
-        .map((row) => {
-          const surgeonsForPackage = packageToSurgeons.get(row.id) || [];
-          const anaesthetistsForPackage = packageToAnaesthetists.get(row.id) || [];
-          const implantsForPackage = packageToImplants.get(row.id) || [];
-
-          return {
-            id: row.id,
-            remark: buildOtNotes({
-              treatment_plan: row.treatment_plan,
-              diagnosis: row.diagnosis,
-              treatment_code: row.treatment_code,
-              category: row.category,
-              anaesthesia_type: row.anaesthesia_type,
-              package_price: row.package_price,
-              patient_name_example: row.patient_name_example,
-              surgeon_names: [...new Set(surgeonsForPackage.map((item) => item.surgeon_name).filter(Boolean))],
-              anaesthetist_names: [...new Set(anaesthetistsForPackage.map((item) => item.anaesthetist_name).filter(Boolean))],
-              implant_names: [...new Set(implantsForPackage.map((item) => item.implant_name).filter(Boolean))],
-            }),
-          };
-        });
-
-      if (updates.length === 0) {
-        return { total: rows.length, updated: 0 };
-      }
-
-      const chunkSize = 25;
-      for (let index = 0; index < updates.length; index += chunkSize) {
-        const chunk = updates.slice(index, index + chunkSize);
-        const { error: updateError } = await supabase
-          .from('pmjay_mjpjay_packages')
-          .upsert(chunk, { onConflict: 'id' });
-        if (updateError) throw updateError;
-      }
-
-      return { total: rows.length, updated: updates.length };
-    },
-    onSuccess: ({ updated }) => {
-      if (updated > 0) {
-        toast.success(`Generated OT Notes for ${updated} package${updated === 1 ? '' : 's'}`);
-      } else {
-        toast.success('OT Notes are already populated');
-      }
-      queryClient.invalidateQueries({ queryKey: ['pmjay-mjpjay-packages'] });
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(OT_NOTES_BACKFILL_KEY, 'done');
-      }
-    },
-    onError: (e: any) => {
-      toast.error('Failed to generate OT Notes: ' + e.message);
-    },
-  });
-
   const packageRows = packageQuery.data || [];
   const isLoading = packageQuery.isLoading;
   const error = packageQuery.error;
-
-  useEffect(() => {
-    if (!canEditMasters) return;
-    if (typeof window === 'undefined') return;
-    if (window.localStorage.getItem(OT_NOTES_BACKFILL_KEY)) return;
-    if (packageQuery.isLoading || backfillOtNotesMutation.isPending) return;
-
-    const timer = window.setTimeout(() => {
-      backfillOtNotesMutation.mutate();
-    }, 750);
-
-    return () => window.clearTimeout(timer);
-  }, [canEditMasters, packageQuery.isLoading, backfillOtNotesMutation.isPending]);
 
   const groupedPackageSections = useMemo(() => {
     const categoryToRows = new Map<string, EnrichedPackage[]>();
@@ -1243,7 +1112,6 @@ const PmjayMjpjayMaster = () => {
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Anaesthetists</th>
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Type of Anaesthesia</th>
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Implant</th>
-                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">OT Notes</th>
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Treatment Code</th>
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Created</th>
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
@@ -1341,9 +1209,6 @@ const PmjayMjpjayMaster = () => {
                             <td className="max-w-[220px] truncate p-3 text-sm text-slate-600" title={joinList(record.implant_names)}>
                               {joinList(record.implant_names)}
                             </td>
-                            <td className="max-w-[280px] p-3 align-top text-sm text-slate-600" title={getDisplayOtNotes(record)}>
-                              <div className="whitespace-pre-line break-words leading-5">{getDisplayOtNotes(record)}</div>
-                            </td>
                             <td className="p-3 font-mono text-sm text-slate-600">{record.treatment_code || '-'}</td>
                             <td className="p-3 text-sm text-slate-600">
                               {record.created_at ? new Date(record.created_at).toLocaleDateString() : '-'}
@@ -1356,6 +1221,16 @@ const PmjayMjpjayMaster = () => {
                                   title="View"
                                 >
                                   <Eye className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setViewingOtNotesRecord(record);
+                                  }}
+                                  className="p-1 text-slate-600 hover:text-slate-900"
+                                  title="View OT Notes"
+                                >
+                                  <FileText className="h-4 w-4" />
                                 </button>
                                 {canEditMasters && (
                                   <button
@@ -1693,14 +1568,13 @@ const PmjayMjpjayMaster = () => {
                   ['Diagnosis', viewingRecord.diagnosis],
                   ['Category', getStoredOrDisplayCategory(viewingRecord)],
                   ['Anaesthesia Type', viewingRecord.anaesthesia_type],
-                  ['OT Notes', getDisplayOtNotes(viewingRecord)],
                   ['Patient Example', viewingRecord.patient_name_example],
                   ['Treatment Code', viewingRecord.treatment_code],
                   ['Created', viewingRecord.created_at ? new Date(viewingRecord.created_at).toLocaleString() : '-'],
                 ].map(([label, value]) => (
                   <div key={label} className={label === 'Yojna Package Name' || label === 'Diagnosis' ? 'md:col-span-2' : ''}>
                     <Label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</Label>
-                    <p className={`mt-1 break-words text-sm text-slate-900 ${label === 'OT Notes' ? 'whitespace-pre-line leading-6' : ''}`}>{value || '-'}</p>
+                    <p className="mt-1 break-words text-sm text-slate-900">{value || '-'}</p>
                   </div>
                 ))}
 
@@ -1728,12 +1602,42 @@ const PmjayMjpjayMaster = () => {
               <div className="rounded-lg border bg-slate-50 p-4">
                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Department Notes</div>
                 <p className="mt-2 text-sm text-slate-700">
-                  This package is grouped under <span className="font-semibold text-slate-900">{selectedDepartment}</span> based on the procedure code and package name. The table now keeps the full package name readable, places the amount beside it, and moves the treatment code to the end.
+                  This package is grouped under <span className="font-semibold text-slate-900">{selectedDepartment}</span> based on the procedure code and package name. The table keeps the full package name readable, places the amount beside it, and moves the treatment code to the end. OT notes are available from the notes action on the row.
                 </p>
               </div>
 
               <div className="flex justify-end">
                 <Button variant="outline" onClick={() => setViewingRecord(null)}>Close</Button>
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={!!viewingOtNotesRecord} onOpenChange={(open) => !open && setViewingOtNotesRecord(null)}>
+        <SheetContent side="right" className="w-full sm:max-w-xl overflow-y-auto">
+          {viewingOtNotesRecord && (
+            <div className="space-y-6 pt-2">
+              <SheetHeader className="space-y-2 pr-8 text-left">
+                <SheetTitle className="text-2xl font-bold">
+                  OT Notes
+                </SheetTitle>
+                <SheetDescription className="text-sm text-muted-foreground">
+                  Reusable master note for this package. This is what will be carried forward for later patients using the same package.
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <div className="mb-3 text-sm font-semibold text-slate-900">
+                  {viewingOtNotesRecord.treatment_plan || viewingOtNotesRecord.treatment_code || 'Package'}
+                </div>
+                <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+                  {getDisplayOtNotes(viewingOtNotesRecord)}
+                </pre>
+              </div>
+
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={() => setViewingOtNotesRecord(null)}>Close</Button>
               </div>
             </div>
           )}
