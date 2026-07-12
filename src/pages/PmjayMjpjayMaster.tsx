@@ -178,6 +178,7 @@ const inferDepartment = (record: EnrichedPackage): string => {
 
   if (/\bburn\b|\bburns\b|\bskin graft\b/.test(haystack)) return 'Burns Management';
   if (/vascular|cardio.?thoracic|cabg|coronary bypass|aortic|aneurysm/.test(haystack)) return 'Cardio-thoracic & Vascular surgery';
+  if (/urology|uro|renal tumor|pcnl|ureter|ureteric|cysto|prostate|bladder|kidney|stenting including cystoscopy|dj stent|dj stenting/.test(haystack)) return 'Urology';
   if (/cardio|angioplasty|ptca|pacemaker|coronary|stent|stenting|angiogram/.test(haystack)) return 'Cardiology';
   if (/emergency room|er package|care requiring less than 12 hrs stay|short stay emergency/.test(haystack)) return 'Emergency Room Packages (Care requiring less than 12 hrs stay)';
   if (/dialysis|haemodialysis|hemodialysis|renal/.test(haystack)) return 'General Medicine';
@@ -197,7 +198,6 @@ const inferDepartment = (record: EnrichedPackage): string => {
   if (/paediatric surgery|pediatric surgery|child surgery/.test(haystack)) return 'Paediatric Surgery';
   if (/plastic|reconstructive|flap|cleft|burn scar/.test(haystack)) return 'Plastic & reconstructive Surgery';
   if (/polytrauma|multiple trauma|trauma/.test(haystack)) return 'Polytrauma';
-  if (/urology|uro|renal tumor|pcnl|ureter|ureteric|cysto|prostate|bladder|kidney|stenting including cystoscopy/.test(haystack)) return 'Urology';
   return record.category || 'Unclassified';
 };
 
