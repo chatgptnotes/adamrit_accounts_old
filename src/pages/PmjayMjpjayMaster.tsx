@@ -222,46 +222,18 @@ const getCategoryGroup = (record: EnrichedPackage): string => getDisplayCategory
 
 type PackageNoteSource = {
   treatment_plan?: string | null;
-  diagnosis?: string | null;
-  treatment_code?: string | null;
-  category?: string | null;
-  anaesthesia_type?: string | null;
-  package_price?: number | null;
-  patient_name_example?: string | null;
-  surgeon_names?: string[];
-  anaesthetist_names?: string[];
-  implant_names?: string[];
 };
 
 const buildOtNotes = (source: PackageNoteSource) => {
-  const packageName = trimOrEmpty(source.treatment_plan) || trimOrEmpty(source.treatment_code) || 'PMJAY / MJPJAY package';
-  const diagnosis = trimOrEmpty(source.diagnosis) || 'As per hospital records';
-  const treatmentCode = trimOrEmpty(source.treatment_code) || 'As per master';
-  const category = trimOrEmpty(source.category) || 'As per package category';
-  const anaesthesiaType = trimOrEmpty(source.anaesthesia_type) || 'As per anaesthetist assessment';
-  const surgeons = joinList((source.surgeon_names || []).filter(Boolean));
-  const anaesthetists = joinList((source.anaesthetist_names || []).filter(Boolean));
-  const implants = joinList((source.implant_names || []).filter(Boolean));
-  const packageAmount =
-    source.package_price != null && !Number.isNaN(Number(source.package_price))
-      ? `Rs. ${Number(source.package_price).toLocaleString('en-IN')}`
-      : 'As per approved package rate';
-  const patientExample = trimOrEmpty(source.patient_name_example);
+  const packageName = trimOrEmpty(source.treatment_plan) || 'PMJAY / MJPJAY package';
 
   return [
     'OT NOTES',
-    `Package Name: ${packageName}`,
-    `Diagnosis: ${diagnosis}`,
-    `Treatment Code: ${treatmentCode}`,
-    `Category: ${category}`,
-    `Anaesthesia: ${anaesthesiaType}`,
-    `Surgeon(s): ${surgeons !== '-' ? surgeons : 'As per package mapping'}`,
-    `Anaesthetist(s): ${anaesthetists !== '-' ? anaesthetists : 'As per package mapping'}`,
-    `Implant(s): ${implants !== '-' ? implants : 'As per package requirement'}`,
-    `Package Amount: ${packageAmount}`,
-    patientExample ? `Patient Example: ${patientExample}` : null,
-    'Procedure Note: The approved package procedure is to be performed under strict aseptic precautions, with correct patient/procedure/site verification, appropriate anaesthesia, haemostasis, closure where applicable, dressing, and post-operative transfer in stable condition.',
-    'This is the reusable master OT note for subsequent patients booked under the same PMJAY / MJPJAY package and may be edited for case-specific findings.',
+    `Package: ${packageName}`,
+    'Procedure Note: The patient should be received in the operating theatre after correct identity, consent, and site verification. Standard monitoring must be attached and the anaesthesia team should proceed as per the peri-operative plan recorded for the case.',
+    'The operative field should be prepared and draped under strict aseptic precautions. The procedure should be carried out using the accepted technique for the approved package, with careful tissue handling, adequate exposure, protection of adjacent structures, and meticulous haemostasis throughout.',
+    'Any required decompression, reduction, fixation, excision, repair, reconstruction, anastomosis, or closure should be completed as indicated by the operative findings and package protocol. Instrument and sponge counts must be verified before closure.',
+    'Wound closure should be performed in layers as appropriate, haemostasis confirmed, dressing applied, and the patient shifted to recovery in a stable condition with post-operative instructions, medications, and follow-up as advised by the treating team.',
   ]
     .filter(Boolean)
     .join('\n');
@@ -602,18 +574,7 @@ const PmjayMjpjayMaster = () => {
       scheme: form.scheme,
       remark:
         trimOrEmpty(form.remark) ||
-        buildOtNotes({
-          treatment_plan: form.treatment_plan,
-          diagnosis: form.diagnosis,
-          treatment_code: form.treatment_code,
-          category: form.category,
-          anaesthesia_type: form.anaesthesia_type,
-          package_price: form.package_price.trim() ? Number(form.package_price) : null,
-          patient_name_example: form.patient_name_example,
-          surgeon_names: form.surgeon_names,
-          anaesthetist_names: form.anaesthetist_names,
-          implant_names: form.implant_names,
-        }),
+        buildOtNotes({ treatment_plan: form.treatment_plan }),
       diagnosis_code: form.diagnosis_code.trim() || null,
       diagnosis: form.diagnosis.trim() || null,
       treatment_code: form.treatment_code.trim() || null,
@@ -819,18 +780,7 @@ const PmjayMjpjayMaster = () => {
         'Package Price': row.package_price || '',
         'OT Notes':
           trimOrEmpty(row.remark) ||
-          buildOtNotes({
-            treatment_plan: row.treatment_plan,
-            diagnosis: row.diagnosis,
-            treatment_code: row.treatment_code,
-            category: row.category,
-            anaesthesia_type: row.anaesthesia_type,
-            package_price: row.package_price,
-            patient_name_example: row.patient_name_example,
-            surgeon_names: surgeonNames,
-            anaesthetist_names: anaesthetistNames,
-            implant_names: implantNames,
-          }),
+          buildOtNotes({ treatment_plan: row.treatment_plan }),
         'Patient Example': row.patient_name_example || '',
         Created: row.created_at || '',
       };
@@ -962,18 +912,7 @@ const PmjayMjpjayMaster = () => {
 
   const getDisplayOtNotes = (record: EnrichedPackage) =>
     trimOrEmpty(record.remark) ||
-    buildOtNotes({
-      treatment_plan: record.treatment_plan,
-      diagnosis: record.diagnosis,
-      treatment_code: record.treatment_code,
-      category: record.category,
-      anaesthesia_type: record.anaesthesia_type,
-      package_price: record.package_price,
-      patient_name_example: record.patient_name_example,
-      surgeon_names: record.surgeon_names,
-      anaesthetist_names: record.anaesthetist_names,
-      implant_names: record.implant_names,
-    });
+    buildOtNotes({ treatment_plan: record.treatment_plan });
 
   const totalPages = Math.max(1, Math.ceil(totalCount / itemsPerPage));
   const startItem = totalCount === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
