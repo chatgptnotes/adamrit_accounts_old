@@ -21,6 +21,8 @@ const CorporateBill = () => {
   const [surgeryDate, setSurgeryDate] = useState('');
   const [implantName, setImplantName] = useState('');
   const [actualVisitId, setActualVisitId] = useState('');
+  const [implantBillOpen, setImplantBillOpen] = useState(true);
+  const [implantStickerOpen, setImplantStickerOpen] = useState(true);
 
   useEffect(() => {
     if (visitId) fetchBillData();
@@ -181,9 +183,11 @@ const CorporateBill = () => {
       </div>
 
       {/* Bill + Documents side panel */}
-      <div className="flex flex-wrap items-start justify-center gap-4 print:block xl:flex-nowrap">
+      <div className="flex flex-wrap items-start gap-4 print:block xl:flex-nowrap">
+      {/* Left column: bill + expanded implant sections */}
+      <div className="w-[210mm] max-w-full shrink-0 space-y-4">
       {/* Bill */}
-      <div className="w-[210mm] max-w-full shrink-0 bg-white shadow-lg print:shadow-none print:m-0 print:mx-auto">
+      <div className="bg-white shadow-lg print:shadow-none print:m-0 print:mx-auto">
         <div className="p-6 print:p-4" style={{ fontFamily: 'Arial, sans-serif' }}>
 
           <div className="text-center border-b-2 border-black pb-2 mb-0">
@@ -330,35 +334,50 @@ const CorporateBill = () => {
       </div>
 
         {/* Implant Bill (vendor invoice for implants used in this surgery) */}
-        {actualVisitId && (
-          <ImplantBillSection
-            visitId={actualVisitId}
-            patientName={patientInfo.patientName || ''}
-            defaultBillDate={surgeryDate}
-            defaultImplantName={implantName}
-          />
+        {actualVisitId && implantBillOpen && (
+          <div className="print:hidden bg-white shadow-lg">
+            <div className="flex items-center justify-between px-3 py-2 bg-gray-800 text-white text-sm font-semibold rounded-t-lg">
+              <span>Implant Bill (Vendor Invoice)</span>
+              <button onClick={() => setImplantBillOpen(false)} className="hover:bg-gray-700 px-2 py-0.5 rounded text-xs" title="Minimize">—</button>
+            </div>
+            <ImplantBillSection
+              visitId={actualVisitId}
+              patientName={patientInfo.patientName || ''}
+              defaultBillDate={surgeryDate}
+              defaultImplantName={implantName}
+            />
+          </div>
         )}
 
         {/* Implant Sticker (patient-header cover sheet for pasting the implant pouch sticker) */}
-        {actualVisitId && (
-          <ImplantStickerSection
-            visitId={actualVisitId}
-            patient={{
-              patientName: patientInfo.patientName || '',
-              patientId: patientInfo.registrationNo || '',
-              age: patientInfo.age ? `${patientInfo.age}` : '',
-              sex: patientInfo.gender || '',
-              admissionDate: patientInfo.dateOfRegistration || '',
-              dischargeDate: patientInfo.dateOfDischarge || '',
-              hospitalName,
-            }}
-            defaultSurgeryDate={surgeryDate}
-            defaultSurgeryName={implantName}
-          />
+        {actualVisitId && implantStickerOpen && (
+          <div className="print:hidden bg-white shadow-lg">
+            <div className="flex items-center justify-between px-3 py-2 bg-gray-800 text-white text-sm font-semibold rounded-t-lg">
+              <span>Implant Sticker (Pouch Cover Sheet)</span>
+              <button onClick={() => setImplantStickerOpen(false)} className="hover:bg-gray-700 px-2 py-0.5 rounded text-xs" title="Minimize">—</button>
+            </div>
+            <ImplantStickerSection
+              visitId={actualVisitId}
+              patient={{
+                patientName: patientInfo.patientName || '',
+                patientId: patientInfo.registrationNo || '',
+                age: patientInfo.age ? `${patientInfo.age}` : '',
+                sex: patientInfo.gender || '',
+                admissionDate: patientInfo.dateOfRegistration || '',
+                dischargeDate: patientInfo.dateOfDischarge || '',
+                hospitalName,
+              }}
+              defaultSurgeryDate={surgeryDate}
+              defaultSurgeryName={implantName}
+            />
+          </div>
         )}
+      </div>
 
+        {/* Right column: aside + minimized restore buttons */}
+        <div className="w-full shrink-0 xl:w-[340px] space-y-2">
         {/* Documents side panel (hidden on print) */}
-        <aside className="print:hidden w-full max-w-full shrink-0 xl:w-[340px]">
+        <aside className="print:hidden">
           <BillDocumentsSection
             patientId={patientId}
             patientName={patientInfo.patientName}
@@ -366,6 +385,24 @@ const CorporateBill = () => {
             visitId={actualVisitId}
           />
         </aside>
+
+        {actualVisitId && !implantBillOpen && (
+          <button
+            onClick={() => setImplantBillOpen(true)}
+            className="w-full flex items-center gap-2 bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-gray-700 transition-colors"
+          >
+            ▶ Implant Bill (Vendor Invoice)
+          </button>
+        )}
+        {actualVisitId && !implantStickerOpen && (
+          <button
+            onClick={() => setImplantStickerOpen(true)}
+            className="w-full flex items-center gap-2 bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-gray-700 transition-colors"
+          >
+            ▶ Implant Sticker (Pouch Cover Sheet)
+          </button>
+        )}
+        </div>
       </div>
     </div>
   );
