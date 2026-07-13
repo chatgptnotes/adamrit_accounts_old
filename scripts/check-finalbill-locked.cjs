@@ -22,7 +22,8 @@ const TARGET = path.join(ROOT, 'src/pages/FinalBill.tsx');
 const BASELINE = path.join(__dirname, 'finalbill-baseline.sha256');
 
 function sha256OfFile(p) {
-  return crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+  const content = fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
+  return crypto.createHash('sha256').update(content).digest('hex');
 }
 
 const args = process.argv.slice(2);
