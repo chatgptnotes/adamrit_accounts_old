@@ -78,28 +78,18 @@ function pickPreferredConfig(options: TallyConfigOption[], selectedId?: string) 
   return [...pool].sort(compareConfigPriority)[0] ?? pool[0] ?? null
 }
 
-function formatLastSync(value?: string | null) {
-  if (!value) return 'never synced'
-  return `synced ${new Date(value).toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  })}`
-}
-
-function getConfigLabel(config: TallyConfigOption) {
-  const status = config.is_active === false ? 'inactive' : 'active'
-  return `${config.company_name} (${status}, ${formatLastSync(config.last_sync_at)})`
+function companyKey(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
 function sameCompanyName(left: string, right: string) {
-  return left.trim().replace(/\s+/g, ' ').toLowerCase() === right.trim().replace(/\s+/g, ' ').toLowerCase()
+  return companyKey(left) === companyKey(right)
 }
 
 function dedupeCompanyConfigs(options: TallyConfigOption[]) {
   const seen = new Set<string>()
   return options.filter((option) => {
-    const key = option.company_name.trim().replace(/\s+/g, ' ').toLowerCase()
+    const key = companyKey(option.company_name)
     if (!key || seen.has(key)) return false
     seen.add(key)
     return true
@@ -114,12 +104,10 @@ export default function TallyPage() {
   const [companyId, setCompanyId] = useState('')
   const companyIdRef = useRef('')
   const [configs, setConfigs] = useState<TallyConfigOption[]>([])
-  const [liveCompanies, setLiveCompanies] = useState<string[]>([])
   const [refreshingAll, setRefreshingAll] = useState(false)
 
   const loadLiveCompanies = useCallback(async (targetServerUrl?: string): Promise<string[]> => {
     if (!targetServerUrl) {
-      setLiveCompanies([])
       return []
     }
 
@@ -133,10 +121,8 @@ export default function TallyPage() {
         }),
       })
       const result = await res.json()
-      setLiveCompanies(Array.isArray(result.companies) ? result.companies.filter(Boolean) : [])
       return Array.isArray(result.companies) ? result.companies.filter(Boolean) : []
     } catch {
-      setLiveCompanies([])
       return []
     }
   }, [])
@@ -148,15 +134,17 @@ export default function TallyPage() {
 
     const { data } = await query.order('company_name')
 
-    if (data && data.length > 0) {
-      setConfigs(data)
-      const target = pickPreferredConfig(data, selectId || companyIdRef.current)
+    const activeConfigs = (data || []).filter((config) => config.is_active !== false)
+
+    if (activeConfigs.length > 0) {
+      setConfigs(activeConfigs)
+      const target = pickPreferredConfig(activeConfigs, selectId || companyIdRef.current)
       if (target) {
         setServerUrl(target.server_url || '')
         setCompanyName(target.company_name || '')
         setCompanyId(target.id)
         const serverUrls = Array.from(
-          new Set(data.map((item) => item.server_url).filter(Boolean)),
+          new Set(activeConfigs.map((item) => item.server_url).filter(Boolean)),
         )
         const discoveredByServer = await Promise.all(
           serverUrls.map(async (server_url) => ({
@@ -165,8 +153,7 @@ export default function TallyPage() {
           })),
         )
         const discovered = Array.from(new Set(discoveredByServer.flatMap((item) => item.companies)))
-        setLiveCompanies(discovered)
-        const liveTarget = [...data]
+        const liveTarget = [...activeConfigs]
           .sort(compareConfigPriority)
           .find((config) => discovered.some((company) => sameCompanyName(company, config.company_name)))
         if (liveTarget && !discovered.some((company) => sameCompanyName(company, target.company_name))) {
@@ -174,54 +161,19 @@ export default function TallyPage() {
           setCompanyName(liveTarget.company_name || '')
           setCompanyId(liveTarget.id)
         }
-        const existing = new Set(data.map((item) => item.company_name).filter(Boolean))
-        const missing = discoveredByServer.flatMap(({ server_url, companies }) =>
-          companies
-            .filter((name) => name && !existing.has(name))
-            .map((company_name) => ({ company_name, server_url })),
-        )
-        if (missing.length > 0) {
-          await Promise.all(
-            missing.map(({ company_name, server_url }) =>
-              supabase.from('tally_config').insert({
-                company_name,
-                server_url,
-                is_active: true,
-                auto_sync_enabled: false,
-                sync_interval_minutes: 30,
-                hospital_id: null,
-              })
-            )
-          )
-          const { data: refreshed } = await supabase
-            .from('tally_config')
-            .select('id, server_url, company_name, is_active, last_sync_at, updated_at, created_at')
-            .order('company_name')
-          const refreshedConfigs = refreshed || []
-          setConfigs(refreshedConfigs)
-          const refreshedLiveTarget = [...refreshedConfigs].sort(compareConfigPriority).find((config) =>
-            discovered.some((company) => sameCompanyName(company, config.company_name))
-          )
-          const refreshedTarget = refreshedLiveTarget && !discovered.some((company) => sameCompanyName(company, target.company_name))
-            ? refreshedLiveTarget
-            : pickPreferredConfig(refreshedConfigs, target.id)
-          if (refreshedTarget) {
-            setServerUrl(refreshedTarget.server_url || '')
-            setCompanyName(refreshedTarget.company_name || '')
-            setCompanyId(refreshedTarget.id)
-          }
-        }
       }
     } else {
       setConfigs([])
       setCompanyId('')
       setCompanyName('')
       setServerUrl('')
-      setLiveCompanies([])
     }
   }, [loadLiveCompanies])
 
-  const companyOptions = useMemo(() => dedupeCompanyConfigs([...configs].sort(compareConfigPriority)), [configs])
+  const companyOptions = useMemo(
+    () => dedupeCompanyConfigs(configs.filter((config) => config.is_active !== false).sort(compareConfigPriority)),
+    [configs]
+  )
 
   const handleCompanyChange = useCallback(
     async (selectedId: string) => {
@@ -309,7 +261,7 @@ export default function TallyPage() {
               >
                 {!companyId && <option value="">Select company</option>}
                 {companyOptions.map((config) => (
-                  <option key={config.id} value={config.id}>{getConfigLabel(config)}</option>
+                  <option key={config.id} value={config.id}>{config.company_name}</option>
                 ))}
               </select>
             </div>
@@ -357,7 +309,7 @@ export default function TallyPage() {
 
       {/* Tab Content */}
       <div>
-        {activeTab === 'dashboard' && <TallyDashboard serverUrl={serverUrl} companyName={companyName} companyId={companyId} configs={configs} liveCompanies={liveCompanies} onConfigChange={(newId) => loadConfigs(newId)} />}
+        {activeTab === 'dashboard' && <TallyDashboard serverUrl={serverUrl} companyName={companyName} companyId={companyId} configs={configs} onConfigChange={(newId) => loadConfigs(newId)} />}
         {activeTab === 'ledgers' && <TallyLedgers serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
         {activeTab === 'vouchers' && <TallyVouchers serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
         {activeTab === 'cashbook' && <TallyCashBook serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}

@@ -14,8 +14,7 @@ interface TallyDashboardProps {
   serverUrl: string
   companyName: string
   companyId: string
-  configs: { id: string; server_url: string; company_name: string }[]
-  liveCompanies?: string[]
+  configs: { id: string; server_url: string; company_name: string; is_active?: boolean | null }[]
   onConfigChange?: (newId?: string) => void
 }
 
@@ -29,7 +28,7 @@ function dedupeCompanyNames(options: string[]) {
   })
 }
 
-export default function TallyDashboard({ serverUrl: propServerUrl, companyName: propCompanyName, companyId: propCompanyId, configs = [], liveCompanies = [], onConfigChange }: TallyDashboardProps) {
+export default function TallyDashboard({ serverUrl: propServerUrl, companyName: propCompanyName, companyId: propCompanyId, configs = [], onConfigChange }: TallyDashboardProps) {
   const { hospitalType } = useAuth()
   const [serverUrl, setServerUrl] = useState(propServerUrl ?? '')
   const [isAddingCompany, setIsAddingCompany] = useState(false)
@@ -461,10 +460,12 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
   }
 
   const companyOptions = useMemo(() => {
-    const configNames = (configs || []).map((c) => c.company_name).filter(Boolean)
-    const liveNames = Array.isArray(liveCompanies) ? liveCompanies : (((connectionInfo as any)?.companies || []) as string[])
-    return dedupeCompanyNames([...configNames, ...liveNames])
-  }, [configs, liveCompanies, connectionInfo])
+    const configNames = (configs || [])
+      .filter((config) => config.is_active !== false)
+      .map((config) => config.company_name)
+      .filter(Boolean)
+    return dedupeCompanyNames(configNames)
+  }, [configs])
 
   return (
     <div className="space-y-6">
@@ -529,20 +530,6 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 autoFocus
               />
-            )}
-            {isConnected && connectionInfo?.companies?.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {connectionInfo.companies.map((name: string) => (
-                  <button
-                    key={name}
-                    type="button"
-                    onClick={() => setCompanyName(name)}
-                    className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
-                  >
-                    {name}
-                  </button>
-                ))}
-              </div>
             )}
           </div>
         </div>
