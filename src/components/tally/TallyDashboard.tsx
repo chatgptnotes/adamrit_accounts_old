@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { supabase } from '@/integrations/supabase/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { toast } from 'sonner'
@@ -15,10 +15,21 @@ interface TallyDashboardProps {
   companyName: string
   companyId: string
   configs: { id: string; server_url: string; company_name: string }[]
+  liveCompanies?: string[]
   onConfigChange?: (newId?: string) => void
 }
 
-export default function TallyDashboard({ serverUrl: propServerUrl, companyName: propCompanyName, companyId: propCompanyId, configs = [], onConfigChange }: TallyDashboardProps) {
+function dedupeCompanyNames(options: string[]) {
+  const seen = new Set<string>()
+  return options.filter((option) => {
+    const key = option.trim().replace(/\s+/g, ' ').toLowerCase()
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+export default function TallyDashboard({ serverUrl: propServerUrl, companyName: propCompanyName, companyId: propCompanyId, configs = [], liveCompanies = [], onConfigChange }: TallyDashboardProps) {
   const { hospitalType } = useAuth()
   const [serverUrl, setServerUrl] = useState(propServerUrl ?? '')
   const [isAddingCompany, setIsAddingCompany] = useState(false)
@@ -449,12 +460,11 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
     return new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
   }
 
-  const companyOptions = Array.from(
-    new Set([
-      ...(configs || []).map((c) => c.company_name).filter(Boolean),
-      ...(((connectionInfo as any)?.companies || []) as string[]),
-    ])
-  )
+  const companyOptions = useMemo(() => {
+    const configNames = (configs || []).map((c) => c.company_name).filter(Boolean)
+    const liveNames = Array.isArray(liveCompanies) ? liveCompanies : (((connectionInfo as any)?.companies || []) as string[])
+    return dedupeCompanyNames([...configNames, ...liveNames])
+  }, [configs, liveCompanies, connectionInfo])
 
   return (
     <div className="space-y-6">

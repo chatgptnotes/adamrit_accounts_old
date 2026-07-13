@@ -75,6 +75,20 @@ function getCompanyNames(xml: string): string[] {
   return companies
 }
 
+function buildCompanyCollectionXml(): string {
+  return `<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>List of Companies</ID></HEADER>
+  <BODY><DESC>
+    <STATICVARIABLES><SVIsSimpleCompany>No</SVIsSimpleCompany></STATICVARIABLES>
+    <TDL><TDLMESSAGE>
+      <COLLECTION NAME="List of Companies" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="Yes" ISOPTION="No" ISINTERNAL="No">
+        <TYPE>Company</TYPE><NATIVEMETHOD>Name</NATIVEMETHOD>
+      </COLLECTION>
+    </TDLMESSAGE></TDL>
+  </DESC></BODY>
+</ENVELOPE>`
+}
+
 function normalizedCompanyName(value: string): string {
   return value.trim().replace(/\s+/g, ' ').toLowerCase()
 }
@@ -156,12 +170,7 @@ async function handleTestConnection(body: any) {
   const { serverUrl, companyName } = body
   if (!serverUrl) return { error: 'Missing serverUrl' }
 
-  const xmlBody = `<ENVELOPE>
-  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>List of Companies</ID></HEADER>
-  <BODY><DESC><STATICVARIABLES>
-    <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-  </STATICVARIABLES></DESC></BODY>
-</ENVELOPE>`
+  const xmlBody = buildCompanyCollectionXml()
 
   // Try with 60s timeout, retry once on timeout
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -186,6 +195,9 @@ async function handleTestConnection(body: any) {
 async function handleProxy(body: any) {
   const { serverUrl, xmlBody } = body
   if (!serverUrl || !xmlBody) return { error: 'Missing serverUrl or xmlBody' }
+  if (/<TALLYREQUEST[^>]*>\s*Import(?:\s+Data)?\s*<\/TALLYREQUEST>/i.test(xmlBody)) {
+    return { error: 'Outbound XML imports to Tally are disabled. This installation is read-only from Tally.' }
+  }
   try {
     const response = await fetchFromTally(serverUrl, xmlBody)
     return { response }
@@ -196,96 +208,11 @@ async function handleProxy(body: any) {
 
 // ─── Endpoint: push (create/alter/cancel vouchers & ledgers) ───
 async function handlePush(body: any) {
-  const { action, serverUrl, companyName, companyId, data } = body
-  if (!serverUrl || !companyName || !companyId || !action) return { success: false, error: 'Missing required fields' }
-
-  if (action !== 'create-voucher') {
-    return { success: false, error: `Unsupported push action: ${action}` }
+  void body
+  return {
+    success: false,
+    error: 'Outbound push to Tally is disabled. This installation is read-only from Tally.',
   }
-
-  let config: any
-  try {
-    const { data: savedConfig, error } = await getSupabase()
-      .from('tally_config')
-      .select('id, server_url, company_name, is_active')
-      .eq('id', companyId)
-      .maybeSingle()
-    if (error) throw error
-    config = savedConfig
-  } catch (err: any) {
-    return { success: false, error: `Could not validate Tally company configuration: ${err.message}` }
-  }
-
-  if (!config || config.is_active === false) {
-    return { success: false, error: 'The selected Tally company configuration is inactive or missing' }
-  }
-  let matchesSavedConfig = false
-  try {
-    matchesSavedConfig = normalizedServerUrl(serverUrl) === normalizedServerUrl(config.server_url || '') &&
-      normalizedCompanyName(companyName) === normalizedCompanyName(config.company_name || '')
-  } catch {
-    matchesSavedConfig = false
-  }
-  if (!matchesSavedConfig) {
-    return { success: false, error: 'The selected company does not match its configured Tally server' }
-  }
-
-  try {
-    const companiesXml = `<ENVELOPE>
-  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>List of Companies</ID></HEADER>
-  <BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES></DESC></BODY>
-</ENVELOPE>`
-    const companies = getCompanyNames(await fetchFromTally(serverUrl, companiesXml, 60000))
-    if (!companies.some((name) =>
-      canonicalCompanyKey(name) === canonicalCompanyKey(companyName) ||
-      normalizedCompanyName(name) === normalizedCompanyName(companyName)
-    )) {
-      return { success: false, error: `Company "${companyName}" is not available on the connected Tally server` }
-    }
-  } catch (err: any) {
-    return { success: false, error: `Could not confirm the selected Tally company: ${err.message}` }
-  }
-
-  const voucher = data || {}
-  const voucherType = String(voucher.voucherType || 'Payment').trim()
-  const date = String(voucher.date || '').trim()
-  const voucherNumber = String(voucher.voucherNumber || '').trim()
-  const narration = String(voucher.narration || '').trim()
-  const partyLedger = String(voucher.partyLedger || '').trim()
-  const entries = Array.isArray(voucher.ledgerEntries) ? voucher.ledgerEntries : []
-
-  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return { success: false, error: 'Invalid voucher date' }
-  if (!partyLedger || entries.length < 2) return { success: false, error: 'At least two ledger entries are required' }
-  if (entries.some((entry: any) => !String(entry.ledgerName || '').trim() || !Number.isFinite(Number(entry.amount)) || Number(entry.amount) <= 0)) {
-    return { success: false, error: 'Every ledger entry must have a ledger and a positive amount' }
-  }
-
-  const entriesXml = entries.map((entry: any) => {
-    const amount = entry.isDeemedPositive ? -Math.abs(Number(entry.amount)) : Math.abs(Number(entry.amount))
-    return `<ALLLEDGERENTRIES.LIST>
-      <LEDGERNAME>${escapeXml(String(entry.ledgerName).trim())}</LEDGERNAME>
-      <ISDEEMEDPOSITIVE>${entry.isDeemedPositive ? 'Yes' : 'No'}</ISDEEMEDPOSITIVE>
-      <AMOUNT>${amount}</AMOUNT>
-    </ALLLEDGERENTRIES.LIST>`
-  }).join('')
-
-  const xml = `<ENVELOPE>
-  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
-  <BODY><DESC><STATICVARIABLES><SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY></STATICVARIABLES></DESC>
-    <DATA><TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER VCHTYPE="${escapeXml(voucherType)}" ACTION="Create">
-        <DATE>${formatDate(date)}</DATE>
-        ${voucherNumber ? `<VOUCHERNUMBER>${escapeXml(voucherNumber)}</VOUCHERNUMBER>` : ''}
-        <VOUCHERTYPENAME>${escapeXml(voucherType)}</VOUCHERTYPENAME>
-        <PARTYLEDGERNAME>${escapeXml(partyLedger)}</PARTYLEDGERNAME>
-        <NARRATION>${escapeXml(narration)}</NARRATION>
-        ${entriesXml}
-      </VOUCHER>
-    </TALLYMESSAGE></DATA>
-  </BODY></ENVELOPE>`
-
-  const response = await fetchFromTally(serverUrl, xml, 60000)
-  return parseResponse(response)
 }
 
 // ─── Endpoint: sync (pull from Tally → save to Supabase) ───

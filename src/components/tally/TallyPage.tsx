@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/integrations/supabase/client'
 import {
@@ -23,6 +23,16 @@ import TallyBankReconciliation from '@/components/tally/TallyBankReconciliation'
 import TallyGST from '@/components/tally/TallyGST'
 import TallyCreateVoucher from '@/components/tally/TallyCreateVoucher'
 
+type TallyConfigOption = {
+  id: string
+  server_url: string
+  company_name: string
+  is_active?: boolean | null
+  last_sync_at?: string | null
+  updated_at?: string | null
+  created_at?: string | null
+}
+
 const tabs = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'ledgers', label: 'Ledgers', icon: BookOpen },
@@ -38,13 +48,72 @@ const tabs = [
   { id: 'create-voucher', label: 'Create Voucher', icon: PlusCircle },
 ]
 
+function getTimestamp(value?: string | null) {
+  const parsed = value ? Date.parse(value) : Number.NaN
+  return Number.isNaN(parsed) ? 0 : parsed
+}
+
+function compareConfigPriority(a: TallyConfigOption, b: TallyConfigOption) {
+  const activeDelta = Number(Boolean(b.is_active)) - Number(Boolean(a.is_active))
+  if (activeDelta !== 0) return activeDelta
+
+  const syncDelta = getTimestamp(b.last_sync_at) - getTimestamp(a.last_sync_at)
+  if (syncDelta !== 0) return syncDelta
+
+  const updatedDelta = getTimestamp(b.updated_at) - getTimestamp(a.updated_at)
+  if (updatedDelta !== 0) return updatedDelta
+
+  return getTimestamp(b.created_at) - getTimestamp(a.created_at)
+}
+
+function pickPreferredConfig(options: TallyConfigOption[], selectedId?: string) {
+  if (options.length === 0) return null
+  if (selectedId) {
+    const selected = options.find((option) => option.id === selectedId)
+    if (selected) return selected
+  }
+
+  const activeOptions = options.filter((option) => option.is_active !== false)
+  const pool = activeOptions.length > 0 ? activeOptions : options
+  return [...pool].sort(compareConfigPriority)[0] ?? pool[0] ?? null
+}
+
+function formatLastSync(value?: string | null) {
+  if (!value) return 'never synced'
+  return `synced ${new Date(value).toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })}`
+}
+
+function getConfigLabel(config: TallyConfigOption) {
+  const status = config.is_active === false ? 'inactive' : 'active'
+  return `${config.company_name} (${status}, ${formatLastSync(config.last_sync_at)})`
+}
+
+function sameCompanyName(left: string, right: string) {
+  return left.trim().replace(/\s+/g, ' ').toLowerCase() === right.trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+function dedupeCompanyConfigs(options: TallyConfigOption[]) {
+  const seen = new Set<string>()
+  return options.filter((option) => {
+    const key = option.company_name.trim().replace(/\s+/g, ' ').toLowerCase()
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 export default function TallyPage() {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('dashboard')
   const [serverUrl, setServerUrl] = useState('')
   const [companyName, setCompanyName] = useState('')
   const [companyId, setCompanyId] = useState('')
-  const [configs, setConfigs] = useState<{ id: string; server_url: string; company_name: string }[]>([])
+  const companyIdRef = useRef('')
+  const [configs, setConfigs] = useState<TallyConfigOption[]>([])
   const [liveCompanies, setLiveCompanies] = useState<string[]>([])
   const [refreshingAll, setRefreshingAll] = useState(false)
 
@@ -75,15 +144,13 @@ export default function TallyPage() {
   const loadConfigs = useCallback(async (selectId?: string) => {
     const query = supabase
       .from('tally_config')
-      .select('id, server_url, company_name, is_active')
+      .select('id, server_url, company_name, is_active, last_sync_at, updated_at, created_at')
 
     const { data } = await query.order('company_name')
 
     if (data && data.length > 0) {
       setConfigs(data)
-      const target = selectId
-        ? data.find(c => c.id === selectId) || data[0]
-        : data.find(c => c.id === companyId) || data[0]
+      const target = pickPreferredConfig(data, selectId || companyIdRef.current)
       if (target) {
         setServerUrl(target.server_url || '')
         setCompanyName(target.company_name || '')
@@ -99,6 +166,14 @@ export default function TallyPage() {
         )
         const discovered = Array.from(new Set(discoveredByServer.flatMap((item) => item.companies)))
         setLiveCompanies(discovered)
+        const liveTarget = [...data]
+          .sort(compareConfigPriority)
+          .find((config) => discovered.some((company) => sameCompanyName(company, config.company_name)))
+        if (liveTarget && !discovered.some((company) => sameCompanyName(company, target.company_name))) {
+          setServerUrl(liveTarget.server_url || '')
+          setCompanyName(liveTarget.company_name || '')
+          setCompanyId(liveTarget.id)
+        }
         const existing = new Set(data.map((item) => item.company_name).filter(Boolean))
         const missing = discoveredByServer.flatMap(({ server_url, companies }) =>
           companies
@@ -120,9 +195,21 @@ export default function TallyPage() {
           )
           const { data: refreshed } = await supabase
             .from('tally_config')
-            .select('id, server_url, company_name, is_active')
+            .select('id, server_url, company_name, is_active, last_sync_at, updated_at, created_at')
             .order('company_name')
-          setConfigs(refreshed || [])
+          const refreshedConfigs = refreshed || []
+          setConfigs(refreshedConfigs)
+          const refreshedLiveTarget = [...refreshedConfigs].sort(compareConfigPriority).find((config) =>
+            discovered.some((company) => sameCompanyName(company, config.company_name))
+          )
+          const refreshedTarget = refreshedLiveTarget && !discovered.some((company) => sameCompanyName(company, target.company_name))
+            ? refreshedLiveTarget
+            : pickPreferredConfig(refreshedConfigs, target.id)
+          if (refreshedTarget) {
+            setServerUrl(refreshedTarget.server_url || '')
+            setCompanyName(refreshedTarget.company_name || '')
+            setCompanyId(refreshedTarget.id)
+          }
         }
       }
     } else {
@@ -132,66 +219,30 @@ export default function TallyPage() {
       setServerUrl('')
       setLiveCompanies([])
     }
-  }, [companyId, loadLiveCompanies])
+  }, [loadLiveCompanies])
 
-  const companyOptions = useMemo(
-    () =>
-      Array.from(
-        new Set([
-          ...(configs || []).map((c) => c.company_name).filter(Boolean),
-          ...(liveCompanies || []),
-        ])
-      ),
-    [configs, liveCompanies]
-  )
+  const companyOptions = useMemo(() => dedupeCompanyConfigs([...configs].sort(compareConfigPriority)), [configs])
 
   const handleCompanyChange = useCallback(
-    async (selectedName: string) => {
-      const config = configs.find((c) => c.company_name === selectedName)
+    async (selectedId: string) => {
+      const config = configs.find((c) => c.id === selectedId)
       if (config) {
         setCompanyId(config.id)
         setCompanyName(config.company_name)
         setServerUrl(config.server_url || '')
         await loadLiveCompanies(config.server_url || '')
-        return
       }
-
-      setCompanyName(selectedName)
-      if (!serverUrl) {
-        setCompanyId('')
-        return
-      }
-
-      const { data: inserted, error } = await supabase
-        .from('tally_config')
-        .insert({
-          company_name: selectedName,
-          server_url: serverUrl,
-          is_active: true,
-          auto_sync_enabled: false,
-          sync_interval_minutes: 30,
-          hospital_id: null,
-        })
-        .select('id, server_url, company_name')
-        .single()
-
-      if (error || !inserted) {
-        setCompanyId('')
-        return
-      }
-
-      setCompanyId(inserted.id)
-      setCompanyName(inserted.company_name)
-      setServerUrl(inserted.server_url || serverUrl)
-      setConfigs((current) => [...current, inserted])
-      await loadLiveCompanies(inserted.server_url || serverUrl)
     },
-    [configs, loadLiveCompanies, serverUrl]
+    [configs, loadLiveCompanies]
   )
 
   useEffect(() => {
     loadConfigs()
   }, [loadConfigs])
+
+  useEffect(() => {
+    companyIdRef.current = companyId
+  }, [companyId])
 
   const refreshAll = useCallback(async () => {
     if (!serverUrl || !companyName || !companyId) {
@@ -243,7 +294,7 @@ export default function TallyPage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Tally Integration</h1>
             <p className="text-sm text-gray-500 mt-1">
-              TallyPrime Server two-way sync for Adamrit HMS
+              One-way import from TallyPrime into Adamrit HMS
             </p>
           </div>
         </div>
@@ -252,13 +303,13 @@ export default function TallyPage() {
             <div className="flex items-center gap-2 text-sm text-gray-600 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
               <span>Company:</span>
               <select
-                value={companyName}
+                value={companyId}
                 onChange={(e) => { void handleCompanyChange(e.target.value) }}
                 className="font-medium text-blue-700 bg-transparent border-none outline-none cursor-pointer"
               >
-                {!companyName && <option value="">Select company</option>}
-                {companyOptions.map(name => (
-                  <option key={name} value={name}>{name}</option>
+                {!companyId && <option value="">Select company</option>}
+                {companyOptions.map((config) => (
+                  <option key={config.id} value={config.id}>{getConfigLabel(config)}</option>
                 ))}
               </select>
             </div>
@@ -306,7 +357,7 @@ export default function TallyPage() {
 
       {/* Tab Content */}
       <div>
-        {activeTab === 'dashboard' && <TallyDashboard serverUrl={serverUrl} companyName={companyName} companyId={companyId} configs={configs} onConfigChange={(newId) => loadConfigs(newId)} />}
+        {activeTab === 'dashboard' && <TallyDashboard serverUrl={serverUrl} companyName={companyName} companyId={companyId} configs={configs} liveCompanies={liveCompanies} onConfigChange={(newId) => loadConfigs(newId)} />}
         {activeTab === 'ledgers' && <TallyLedgers serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
         {activeTab === 'vouchers' && <TallyVouchers serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
         {activeTab === 'cashbook' && <TallyCashBook serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
