@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/integrations/supabase/client'
 import {
-  LayoutDashboard, BookOpen, FileText, Package,
+  LayoutDashboard, BookOpen, FileText,
   BarChart3, ArrowUpFromLine, Banknote, Landmark,
   FileBarChart, PlusCircle,
 } from 'lucide-react'
@@ -12,7 +12,6 @@ import { TallyScreen } from '@/components/accounting/tally/TallyChrome'
 import TallyDashboard from '@/components/tally/TallyDashboard'
 import TallyLedgers from '@/components/tally/TallyLedgers'
 import TallyVouchers from '@/components/tally/TallyVouchers'
-import TallyStockItems from '@/components/tally/TallyStockItems'
 import TallyReports from '@/components/tally/TallyReports'
 import TallyBillSync from '@/components/tally/TallyBillSync'
 import TallyCashBook from '@/components/tally/TallyCashBook'
@@ -36,7 +35,6 @@ const tabs = [
   { id: 'vouchers', label: 'Vouchers', icon: FileText },
   { id: 'cashbook', label: 'Cash Book', icon: Banknote },
   { id: 'bankbook', label: 'Bank Book', icon: Landmark },
-  { id: 'stock', label: 'Stock Items', icon: Package },
   { id: 'reports', label: 'Reports', icon: BarChart3 },
   { id: 'gst', label: 'GST', icon: FileBarChart },
   { id: 'billsync', label: 'Bill Sync', icon: ArrowUpFromLine },
@@ -108,6 +106,8 @@ function dedupeCompanyConfigs(options: TallyConfigOption[]) {
 export default function TallyPage() {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('dashboard')
+  const [createVoucherCategory, setCreateVoucherCategory] = useState<'PAYMENT' | 'RECEIPT' | 'JOURNAL' | 'PURCHASE'>('PAYMENT')
+  const [voucherFocus, setVoucherFocus] = useState<'period' | 'type' | null>(null)
   const [serverUrl, setServerUrl] = useState('')
   const [companyName, setCompanyName] = useState('')
   const [companyId, setCompanyId] = useState('')
@@ -325,6 +325,21 @@ export default function TallyPage() {
     void handleCompanyNameChange(next)
   }, [companyNameOptions, companyName, handleCompanyNameChange])
 
+  const openVoucherList = useCallback((focus: 'period' | 'type') => {
+    setVoucherFocus(focus)
+    setActiveTab('vouchers')
+  }, [])
+
+  const openVoucherCreation = useCallback((category: 'PAYMENT' | 'RECEIPT' | 'JOURNAL' | 'PURCHASE') => {
+    setCreateVoucherCategory(category)
+    setActiveTab('create-voucher')
+  }, [])
+
+  const saveTallyView = useCallback(() => {
+    localStorage.setItem('tally-live-default-tab', activeTab)
+    toast.success('Tally Live view saved')
+  }, [activeTab])
+
   const pushToTally = useCallback(async () => {
     if (!serverUrl || !companyName || !companyId) {
       toast.error('Select a Tally company first')
@@ -354,14 +369,14 @@ export default function TallyPage() {
 
   const rail = useMemo(() => [
     { hotkey: 'F1', label: 'Help', onClick: () => window.dispatchEvent(new CustomEvent('tally-help')) },
-    { hotkey: 'F2', label: 'Period', onClick: () => window.dispatchEvent(new CustomEvent('tally-goto', { detail: 'day-book' })) },
+    { hotkey: 'F2', label: 'Period', onClick: () => openVoucherList('period') },
     {
       hotkey: 'F3',
       label: 'Company',
       onClick: () => cycleCompany(),
       disabled: companyOptions.length <= 1,
     },
-    { hotkey: 'F4', label: 'Voucher Type', onClick: () => window.dispatchEvent(new CustomEvent('tally-goto', { detail: 'day-book' })) },
+    { hotkey: 'F4', label: 'Voucher Type', onClick: () => openVoucherList('type') },
     {
       hotkey: 'F5',
       label: refreshingAll ? 'Refreshing...' : 'Refresh All',
@@ -369,19 +384,19 @@ export default function TallyPage() {
       disabled: refreshingAll,
       onClick: () => void refreshAll(),
     },
-    { hotkey: 'F6', label: 'Receipt', onClick: () => window.dispatchEvent(new CustomEvent('tally-open-voucher', { detail: 'RECEIPT' })) },
-    { hotkey: 'F7', label: 'Journal', onClick: () => window.dispatchEvent(new CustomEvent('tally-open-voucher', { detail: 'JOURNAL' })) },
+    { hotkey: 'F6', label: 'Receipt', onClick: () => openVoucherCreation('RECEIPT') },
+    { hotkey: 'F7', label: 'Journal', onClick: () => openVoucherCreation('JOURNAL') },
     {
       hotkey: 'F8',
       label: 'Send to Tally',
       disabled: !companyId,
       onClick: () => void pushToTally(),
     },
-    { hotkey: 'F9', label: 'Purchase', onClick: () => window.dispatchEvent(new CustomEvent('tally-open-voucher', { detail: 'PURCHASE' })) },
+    { hotkey: 'F9', label: 'Purchase', onClick: () => openVoucherCreation('PURCHASE') },
     { label: 'Configure', onClick: () => window.dispatchEvent(new CustomEvent('tally-configure')) },
-    { label: 'Save View', onClick: () => window.dispatchEvent(new CustomEvent('tally-save-view')) },
+    { label: 'Save View', onClick: saveTallyView },
     { hotkey: 'P', label: 'Print', gapBefore: true, onClick: () => window.print() },
-  ], [refreshingAll, companyId, refreshAll, pushToTally, cycleCompany, companyOptions.length])
+  ], [refreshingAll, companyId, refreshAll, pushToTally, cycleCompany, companyOptions.length, openVoucherList, openVoucherCreation, saveTallyView])
 
   return (
     <TallyScreen
@@ -416,6 +431,7 @@ export default function TallyPage() {
               return (
                 <button
                   key={tab.id}
+                  type="button"
                   onClick={() => setActiveTab(tab.id)}
                   className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
                     isActive
@@ -434,14 +450,13 @@ export default function TallyPage() {
         <div key={`${activeTab}-${companyId}-${refreshVersion}`}>
           {activeTab === 'dashboard' && <TallyDashboard serverUrl={serverUrl} companyName={companyName} companyId={companyId} configs={configs} onConfigChange={(newId) => loadConfigs(newId)} />}
           {activeTab === 'ledgers' && <TallyLedgers serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
-          {activeTab === 'vouchers' && <TallyVouchers serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
+          {activeTab === 'vouchers' && <TallyVouchers serverUrl={serverUrl} companyName={companyName} companyId={companyId} focusFilter={voucherFocus} onFocusHandled={() => setVoucherFocus(null)} />}
           {activeTab === 'cashbook' && <TallyCashBook serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
           {activeTab === 'bankbook' && <TallyBankBook serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
-          {activeTab === 'stock' && <TallyStockItems serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
           {activeTab === 'reports' && <TallyReports serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
           {activeTab === 'gst' && <TallyGST serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
           {activeTab === 'billsync' && <TallyBillSync serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
-          {activeTab === 'create-voucher' && <TallyCreateVoucher serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
+          {activeTab === 'create-voucher' && <TallyCreateVoucher serverUrl={serverUrl} companyName={companyName} companyId={companyId} voucherCategory={createVoucherCategory} />}
         </div>
       </div>
     </TallyScreen>

@@ -75,7 +75,7 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
   }, [propServerUrl, propCompanyName, propCompanyId])
 
   useEffect(() => {
-    if (propServerUrl && propCompanyName) void testConnection(propServerUrl, propCompanyName)
+    if (propServerUrl && propCompanyName) void testConnection(propServerUrl, propCompanyName, true)
   }, [propServerUrl, propCompanyName])
 
   useEffect(() => {
@@ -100,11 +100,12 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
 
   async function loadStats() {
     if (!companyName) return
-    const [ledgers, vouchers, stock, reports] = await Promise.all([
+    const [ledgers, vouchers, stock, reports, ledgerBalances] = await Promise.all([
       ( supabase as any).from('tally_ledgers').select('*', { count: 'exact', head: true }).eq('company_id', configId),
       ( supabase as any).from('tally_vouchers').select('*', { count: 'exact', head: true }).eq('company_id', configId),
       ( supabase as any).from('tally_stock_items').select('*', { count: 'exact', head: true }).eq('company_id', configId),
       ( supabase as any).from('tally_reports').select('*', { count: 'exact', head: true }).eq('company_id', configId),
+      (supabase as any).from('tally_ledgers').select('closing_balance, parent_group').eq('company_id', configId),
     ])
     setStats({
       ledgers: ledgers.count || 0,
@@ -113,43 +114,16 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
       reports: reports.count || 0,
     })
 
-    // Load financial snapshot from ledgers
-    const { data: cashLedgers } = await supabase
-      .from('tally_ledgers')
-      .select('name, closing_balance, parent_group')
-      .eq('company_id', configId)
-      .or('parent_group.ilike.%cash%,parent_group.ilike.%bank%')
-      .limit(50)
-
-    if (cashLedgers) {
-      let cash = 0, bank = 0
-      for (const l of cashLedgers) {
-        const pg = (l.parent_group || '').toLowerCase()
-        if (pg.includes('cash')) cash += Math.abs(l.closing_balance || 0)
-        else if (pg.includes('bank')) bank += Math.abs(l.closing_balance || 0)
-      }
-      setFinancials(prev => ({ ...prev, cashInHand: cash, bankBalance: bank }))
+    let cashInHand = 0, bankBalance = 0, receivables = 0, payables = 0
+    for (const ledger of ledgerBalances.data || []) {
+      const group = (ledger.parent_group || '').toLowerCase()
+      const balance = Math.abs(ledger.closing_balance || 0)
+      if (group.includes('cash')) cashInHand += balance
+      else if (group.includes('bank')) bankBalance += balance
+      if (group.includes('sundry debtor')) receivables += balance
+      if (group.includes('sundry creditor')) payables += balance
     }
-
-    const { data: debtors } = await supabase
-      .from('tally_ledgers')
-      .select('closing_balance')
-      .eq('company_id', configId)
-      .ilike('parent_group', '%sundry debtor%')
-      .limit(100)
-
-    const { data: creditors } = await supabase
-      .from('tally_ledgers')
-      .select('closing_balance')
-      .eq('company_id', configId)
-      .ilike('parent_group', '%sundry creditor%')
-      .limit(100)
-
-    setFinancials(prev => ({
-      ...prev,
-      receivables: (debtors || []).reduce((s, l) => s + Math.abs(l.closing_balance || 0), 0),
-      payables: (creditors || []).reduce((s, l) => s + Math.abs(l.closing_balance || 0), 0),
-    }))
+    setFinancials({ cashInHand, bankBalance, receivables, payables })
   }
 
   async function loadSyncLogs() {
@@ -167,7 +141,7 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
     setSyncLogs(data || [])
   }
 
-  async function testConnection(serverUrlOverride?: string, companyNameOverride?: string) {
+  async function testConnection(serverUrlOverride?: string, companyNameOverride?: string, silent = false) {
     setIsTesting(true)
     const normalizedServerUrl = (serverUrlOverride ?? serverUrl).trim()
     const normalizedCompanyName = (companyNameOverride ?? companyName).trim()
@@ -175,7 +149,7 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
       setIsConnected(false)
       setConnectionInfo(null)
       setConnectionError('Enter the Tally server URL first, for example http://192.168.1.10:9000')
-      toast.error('Tally server URL is required')
+      if (!silent) toast.error('Tally server URL is required')
       setIsTesting(false)
       return
     }
@@ -183,7 +157,7 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
       setIsConnected(false)
       setConnectionInfo(null)
       setConnectionError('Select or enter the Tally company name first')
-      toast.error('Tally company name is required')
+      if (!silent) toast.error('Tally company name is required')
       setIsTesting(false)
       return
     }
@@ -206,7 +180,7 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
         if (!companyName.trim() && result.companies?.[0]) {
           setCompanyName(result.companies[0])
         }
-        toast.success(`Connected to TallyPrime! Found ${result.companies.length} company(ies)`)
+        if (!silent) toast.success(`Connected to TallyPrime! Found ${result.companies.length} company(ies)`)
       } else {
         setIsConnected(false)
         setConnectionInfo(null)
@@ -214,12 +188,12 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
           ? `Company "${normalizedCompanyName}" was not found on this Tally server`
           : 'Cannot connect to Tally server')
         setConnectionError(errorMessage)
-        toast.error(errorMessage)
+        if (!silent) toast.error(errorMessage)
       }
     } catch (err) {
       setIsConnected(false)
       setConnectionError('Failed to test connection. Check that the Tally proxy API is deployed and reachable.')
-      toast.error('Failed to test connection. Check that the Tally proxy API is deployed and reachable.')
+      if (!silent) toast.error('Failed to test connection. Check that the Tally proxy API is deployed and reachable.')
     }
     setIsTesting(false)
   }

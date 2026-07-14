@@ -1,12 +1,13 @@
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { supabase } from '@/integrations/supabase/client'
 import { toast } from 'sonner'
 import * as XLSX from 'xlsx'
+import { buildTallyVoucherImportXml, downloadTallyVoucherImport } from '@/lib/tally-voucher-export'
 import {
   FileText, FileSpreadsheet, ArrowDownToLine, ArrowUpFromLine, CheckCircle, XCircle,
   Clock, AlertTriangle, ChevronLeft, ChevronRight, X, Search, Filter,
-  Loader2, Edit3, Trash2, AlertCircle
+  Loader2, Edit3, Trash2, AlertCircle, Download
 } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 
@@ -17,7 +18,11 @@ const VOUCHER_TYPES = [
   'Journal', 'Contra', 'DebitNote', 'CreditNote',
 ]
 
-const SYNC_STATUSES = ['All', 'synced', 'pending', 'failed', 'conflict']
+const SYNC_STATUSES = ['All', 'local', 'synced', 'pending', 'failed', 'conflict']
+
+function companyKey(value: string | null | undefined) {
+  return (value || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+}
 
 function formatCurrency(val: number) {
   return new Intl.NumberFormat('en-IN', {
@@ -53,12 +58,14 @@ function getPartyName(v: any): string {
 
 function StatusBadge({ status }: { status: string }) {
   const styles = {
+    local: 'bg-violet-100 text-violet-700',
     synced: 'bg-green-100 text-green-700',
     pending: 'bg-yellow-100 text-yellow-700',
     failed: 'bg-red-100 text-red-700',
     conflict: 'bg-orange-100 text-orange-700',
   }
   const icons = {
+    local: <FileText className="h-3 w-3" />,
     synced: <CheckCircle className="h-3 w-3" />,
     pending: <Clock className="h-3 w-3" />,
     failed: <XCircle className="h-3 w-3" />,
@@ -73,6 +80,13 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function DirectionBadge({ direction }: { direction: string }) {
+  if (direction === 'adamrit_local') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700">
+        <FileText className="h-3 w-3" /> Adamrit / Local
+      </span>
+    )
+  }
   if (direction === 'from_tally') {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
@@ -385,8 +399,14 @@ function DetailModal({ voucher, onClose, onEdit, onDelete }: { voucher: any; onC
   )
 }
 
-export default function TallyVouchers({ serverUrl, companyName, companyId }: { serverUrl?: string; companyName?: string; companyId?: string }) {
-  const [vouchers, setVouchers] = useState<any[]>([])
+export default function TallyVouchers({ serverUrl, companyName, companyId, focusFilter, onFocusHandled }: {
+  serverUrl?: string
+  companyName?: string
+  companyId?: string
+  focusFilter?: 'period' | 'type' | null
+  onFocusHandled?: () => void
+}) {
+  const [allVouchers, setAllVouchers] = useState<any[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(0)
@@ -397,6 +417,10 @@ export default function TallyVouchers({ serverUrl, companyName, companyId }: { s
   const [typeFilter, setTypeFilter] = useState('All')
   const [statusFilter, setStatusFilter] = useState('All')
   const [showAll, setShowAll] = useState(false)
+  const dateFromRef = useRef<HTMLInputElement>(null)
+  const typeFilterRef = useRef<HTMLSelectElement>(null)
+  const [selectedLocalIds, setSelectedLocalIds] = useState<Set<string>>(new Set())
+  const [exportingXml, setExportingXml] = useState(false)
 
   // Modals
   const [selectedVoucher, setSelectedVoucher] = useState<any>(null)
@@ -406,34 +430,69 @@ export default function TallyVouchers({ serverUrl, companyName, companyId }: { s
   const fetchVouchers = useCallback(async () => {
     setLoading(true)
     try {
-      let query = supabase
-        .from('tally_vouchers')
-        .select('*', { count: 'exact' })
-        .eq('company_id', companyId)
-        .order('date', { ascending: false })
-        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+      const tallyRequest = companyId
+        ? (supabase as any).from('tally_vouchers').select('*').eq('company_id', companyId).order('date', { ascending: false }).limit(2000)
+        : Promise.resolve({ data: [], error: null })
+      const { data: companyRows, error: companyError } = await (supabase as any)
+        .from('companies').select('id, company_name').eq('is_active', true)
+      if (companyError) throw companyError
 
-      if (dateFrom) query = query.gte('date', dateFrom)
-      if (dateTo) query = query.lte('date', dateTo)
-      if (typeFilter !== 'All') query = query.eq('voucher_type', typeFilter)
-      if (statusFilter !== 'All') query = query.eq('sync_status', statusFilter)
-      if (!showAll) query = query.eq('sync_direction', 'to_tally')
+      const accountingCompany = (companyRows || []).find((company: any) => companyKey(company.company_name) === companyKey(companyName))
+      const localRequest = accountingCompany
+        ? (supabase as any)
+            .from('vouchers')
+            .select('id, voucher_number, voucher_date, narration, total_amount, status, created_at, voucher_type:voucher_types(voucher_type_name, voucher_category), voucher_entries(debit_amount, credit_amount, account:chart_of_accounts(account_name))')
+            .eq('company_id', accountingCompany.id)
+            .neq('status', 'CANCELLED')
+            .order('voucher_date', { ascending: false })
+            .limit(2000)
+        : Promise.resolve({ data: [], error: null })
+      const [tallyResult, localResult] = await Promise.all([tallyRequest, localRequest])
+      if (tallyResult.error) throw tallyResult.error
+      if (localResult.error) throw localResult.error
 
-      const { data, count, error } = await query
+      const localVouchers = (localResult.data || []).map((voucher: any) => {
+        const ledger_entries = (voucher.voucher_entries || []).map((entry: any) => ({
+          ledger: entry.account?.account_name || '',
+          amount: Number(entry.debit_amount || entry.credit_amount || 0),
+          is_debit: Number(entry.debit_amount || 0) > 0,
+        }))
+        const party_ledger = ledger_entries.find((entry: any) => {
+          const name = entry.ledger.toLowerCase()
+          return !name.includes('bank') && !name.includes('cash')
+        })?.ledger || ledger_entries[0]?.ledger || null
+        return {
+          id: `adamrit:${voucher.id}`,
+          date: voucher.voucher_date,
+          voucher_number: voucher.voucher_number,
+          voucher_type: voucher.voucher_type?.voucher_type_name || voucher.voucher_type?.voucher_category || 'Voucher',
+          party_ledger,
+          amount: Number(voucher.total_amount || 0),
+          narration: voucher.narration || null,
+          ledger_entries,
+          sync_direction: 'adamrit_local',
+          sync_status: 'local',
+          created_at: voucher.created_at,
+          is_local: true,
+        }
+      })
 
-      if (error) {
-        toast.error('Failed to load vouchers: ' + error.message)
-        setVouchers([])
-        setTotalCount(0)
-      } else {
-        setVouchers(data || [])
-        setTotalCount(count || 0)
-      }
+      let rows = [...(tallyResult.data || []).map((voucher: any) => ({ ...voucher, is_local: false })), ...localVouchers]
+      if (!showAll) rows = rows.filter((voucher) => voucher.is_local)
+      if (dateFrom) rows = rows.filter((voucher) => (voucher.date || '') >= dateFrom)
+      if (dateTo) rows = rows.filter((voucher) => (voucher.date || '') <= dateTo)
+      if (typeFilter !== 'All') rows = rows.filter((voucher) => (voucher.voucher_type || '').toLowerCase().includes(typeFilter.toLowerCase()))
+      if (statusFilter !== 'All') rows = rows.filter((voucher) => voucher.sync_status === statusFilter)
+      rows.sort((a, b) => new Date(b.date || b.created_at || 0).getTime() - new Date(a.date || a.created_at || 0).getTime())
+      setTotalCount(rows.length)
+      setAllVouchers(rows)
     } catch (err) {
       toast.error('Failed to load vouchers')
+      setAllVouchers([])
+      setTotalCount(0)
     }
     setLoading(false)
-  }, [page, dateFrom, dateTo, typeFilter, statusFilter, showAll, companyId])
+  }, [dateFrom, dateTo, typeFilter, statusFilter, showAll, companyId, companyName])
 
   useEffect(() => {
     fetchVouchers()
@@ -444,6 +503,14 @@ export default function TallyVouchers({ serverUrl, companyName, companyId }: { s
     setPage(0)
   }, [dateFrom, dateTo, typeFilter, statusFilter, showAll])
 
+  useEffect(() => {
+    if (!focusFilter) return
+    const target = focusFilter === 'period' ? dateFromRef.current : typeFilterRef.current
+    target?.focus()
+    onFocusHandled?.()
+  }, [focusFilter, onFocusHandled])
+
+  const vouchers = useMemo(() => allVouchers.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [allVouchers, page])
   const totalPages = Math.ceil(totalCount / PAGE_SIZE)
 
   const handleExportExcel = useCallback(() => {
@@ -460,7 +527,7 @@ export default function TallyVouchers({ serverUrl, companyName, companyId }: { s
       'Debit Amount': voucher.sync_direction === 'to_tally' ? Number(voucher.amount || 0) : '',
       'Credit Amount': voucher.sync_direction !== 'to_tally' ? Number(voucher.amount || 0) : '',
       Status: voucher.sync_status || '-',
-      Direction: voucher.sync_direction === 'from_tally' ? 'From Tally' : 'To Tally',
+      Direction: voucher.sync_direction === 'adamrit_local' ? 'Adamrit / Local' : voucher.sync_direction === 'from_tally' ? 'From Tally' : 'To Tally',
       Narration: voucher.narration || '-',
     }))
 
@@ -469,6 +536,97 @@ export default function TallyVouchers({ serverUrl, companyName, companyId }: { s
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Day Book')
     XLSX.writeFile(workbook, `Tally_Vouchers_${companyName || 'Company'}_${new Date().toISOString().split('T')[0]}.xlsx`)
   }, [companyName, vouchers])
+
+  const localVouchersOnPage = vouchers.filter((voucher) => voucher.is_local)
+  const allVisibleLocalSelected = localVouchersOnPage.length > 0 && localVouchersOnPage.every((voucher) => selectedLocalIds.has(voucher.id))
+
+  const toggleLocalVoucher = useCallback((id: string, checked: boolean) => {
+    setSelectedLocalIds((current) => {
+      const next = new Set(current)
+      if (checked) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }, [])
+
+  const toggleAllVisibleLocal = useCallback((checked: boolean) => {
+    setSelectedLocalIds((current) => {
+      const next = new Set(current)
+      localVouchersOnPage.forEach((voucher) => {
+        if (checked) next.add(voucher.id)
+        else next.delete(voucher.id)
+      })
+      return next
+    })
+  }, [localVouchersOnPage])
+
+  const handleExportTallyXml = useCallback(async () => {
+    const selectedIds = Array.from(selectedLocalIds)
+      .filter((id) => id.startsWith('adamrit:'))
+      .map((id) => id.slice('adamrit:'.length))
+    if (!selectedIds.length) {
+      toast.info('Select Adamrit / Local vouchers to export')
+      return
+    }
+
+    setExportingXml(true)
+    try {
+      const { data: companyRows, error: companyError } = await (supabase as any)
+        .from('companies').select('id, company_name').eq('is_active', true)
+      if (companyError) throw companyError
+      const accountingCompany = (companyRows || []).find((company: any) => companyKey(company.company_name) === companyKey(companyName))
+      if (!accountingCompany) throw new Error(`No Adamrit company is linked to ${companyName || 'the selected Tally company'}`)
+
+      const { data, error } = await (supabase as any)
+        .from('vouchers')
+        .select('id, company_id, voucher_number, voucher_date, narration, status, voucher_type:voucher_types(voucher_category), voucher_entries(debit_amount, credit_amount, entry_order, account:chart_of_accounts(account_name))')
+        .in('id', selectedIds)
+      if (error) throw error
+      if ((data || []).length !== selectedIds.length) throw new Error('One or more selected vouchers could not be loaded')
+      if ((data || []).some((voucher: any) => voucher.company_id !== accountingCompany.id)) {
+        throw new Error('Selected vouchers must belong to the currently selected company')
+      }
+
+      const requiredLedgerNames = Array.from(new Set((data || []).flatMap((voucher: any) =>
+        (voucher.voucher_entries || []).map((entry: any) => entry.account?.account_name).filter(Boolean),
+      ))) as string[]
+      if (!requiredLedgerNames.length) throw new Error('Selected vouchers have no ledger entries to export')
+      if (!companyId) throw new Error('Select the target Tally company before exporting')
+      const { data: tallyLedgers, error: ledgerError } = await (supabase as any)
+        .from('tally_ledgers')
+        .select('name')
+        .eq('company_id', companyId)
+        .in('name', requiredLedgerNames)
+      if (ledgerError) throw ledgerError
+      const availableLedgers = new Set((tallyLedgers || []).map((ledger: any) => String(ledger.name).trim().toLowerCase()))
+      const missingLedgers = requiredLedgerNames.filter((name) => !availableLedgers.has(name.trim().toLowerCase()))
+      if (missingLedgers.length) {
+        throw new Error(`These ledgers are not available in the selected Tally company: ${missingLedgers.slice(0, 4).join(', ')}${missingLedgers.length > 4 ? '…' : ''}`)
+      }
+
+      const xml = buildTallyVoucherImportXml((data || []).map((voucher: any) => ({
+        id: voucher.id,
+        voucherNumber: voucher.voucher_number,
+        voucherDate: voucher.voucher_date,
+        voucherCategory: voucher.voucher_type?.voucher_category,
+        narration: voucher.narration,
+        status: voucher.status,
+        entries: (voucher.voucher_entries || []).map((entry: any) => ({
+          accountName: entry.account?.account_name,
+          debitAmount: entry.debit_amount,
+          creditAmount: entry.credit_amount,
+          entryOrder: entry.entry_order,
+        })),
+      })))
+      const safeCompanyName = (accountingCompany.company_name || 'Adamrit').replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '')
+      downloadTallyVoucherImport(`${safeCompanyName}_Tally_Vouchers_${new Date().toISOString().slice(0, 10)}.xml`, xml)
+      toast.success(`Downloaded ${selectedIds.length} Tally voucher(s). Import the XML in TallyPrime.`)
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not create the Tally XML file')
+    } finally {
+      setExportingXml(false)
+    }
+  }, [companyId, companyName, selectedLocalIds])
 
   return (
     <div className="space-y-4">
@@ -482,13 +640,14 @@ export default function TallyVouchers({ serverUrl, companyName, companyId }: { s
           <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-0.5">Show All</label>
-              <p className="text-xs text-gray-400">{showAll ? 'Show all company vouchers' : 'Show Adamrit vouchers only'}</p>
+              <p className="text-xs text-gray-400">{showAll ? 'Show cached Tally and Adamrit vouchers' : 'Show Adamrit vouchers only'}</p>
             </div>
             <Switch checked={showAll} onCheckedChange={setShowAll} />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">From Date</label>
             <input
+              ref={dateFromRef}
               type="date"
               value={dateFrom}
               onChange={e => setDateFrom(e.target.value)}
@@ -507,6 +666,7 @@ export default function TallyVouchers({ serverUrl, companyName, companyId }: { s
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Voucher Type</label>
             <select
+              ref={typeFilterRef}
               value={typeFilter}
               onChange={e => setTypeFilter(e.target.value)}
               className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -544,6 +704,15 @@ export default function TallyVouchers({ serverUrl, companyName, companyId }: { s
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={handleExportTallyXml}
+              disabled={exportingXml || selectedLocalIds.size === 0}
+              className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {exportingXml ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              Download Tally XML {selectedLocalIds.size > 0 ? `(${selectedLocalIds.size})` : ''}
+            </button>
+            <button
+              type="button"
               onClick={handleExportExcel}
               disabled={loading || vouchers.length === 0}
               className="inline-flex items-center gap-2 rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm font-medium text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-50"
@@ -559,6 +728,15 @@ export default function TallyVouchers({ serverUrl, companyName, companyId }: { s
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
+                <th className="w-10 py-2.5 px-3 text-center">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleLocalSelected}
+                    disabled={localVouchersOnPage.length === 0}
+                    onChange={(event) => toggleAllVisibleLocal(event.target.checked)}
+                    aria-label="Select all visible Adamrit vouchers"
+                  />
+                </th>
                 <th className="text-left py-2.5 px-3 text-gray-600 font-medium">Date</th>
                 <th className="text-left py-2.5 px-3 text-gray-600 font-medium">Number</th>
                 <th className="text-left py-2.5 px-3 text-gray-600 font-medium">Type</th>
@@ -572,20 +750,31 @@ export default function TallyVouchers({ serverUrl, companyName, companyId }: { s
             <tbody>
               {!loading && vouchers.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="text-center py-12 text-gray-500">
+                  <td colSpan={9} className="text-center py-12 text-gray-500">
                     <Search className="h-8 w-8 mx-auto mb-2 text-gray-300" />
-                    No vouchers found. Adjust your filters or sync vouchers from Tally.
+                    No vouchers found. Adjust your filters or create a voucher in Adamrit.
                   </td>
                 </tr>
               )}
               {vouchers.map((v, idx) => (
                 <tr
                   key={v.id}
-                  onClick={() => setSelectedVoucher(v)}
-                  className={`border-b border-gray-100 cursor-pointer transition-colors hover:bg-blue-50 ${
+                  onClick={() => !v.is_local && setSelectedVoucher(v)}
+                  className={`border-b border-gray-100 ${v.is_local ? 'cursor-default' : 'cursor-pointer hover:bg-blue-50'} transition-colors ${
                     idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
                   } ${v.is_cancelled ? 'opacity-60 line-through' : ''}`}
                 >
+                  <td className="py-2.5 px-3 text-center">
+                    {v.is_local ? (
+                      <input
+                        type="checkbox"
+                        checked={selectedLocalIds.has(v.id)}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) => toggleLocalVoucher(v.id, event.target.checked)}
+                        aria-label={`Select voucher ${v.voucher_number || v.id}`}
+                      />
+                    ) : null}
+                  </td>
                   <td className="py-2.5 px-3 text-gray-900 whitespace-nowrap">{formatDate(v.date)}</td>
                   <td className="py-2.5 px-3 text-gray-900 font-mono text-xs">{v.voucher_number || '-'}</td>
                   <td className="py-2.5 px-3">

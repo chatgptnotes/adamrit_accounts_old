@@ -41,6 +41,7 @@ interface Account {
   account_code: string;
   account_name: string;
   account_type: string;
+  account_group?: string | null;
 }
 
 // A particulars row (single-amount modes: Payment / Receipt / Contra)
@@ -393,7 +394,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
     queryFn: async () => {
       const { data, error } = await supabase
         .from('chart_of_accounts')
-        .select('id, account_code, account_name, account_type, parent_account_id')
+        .select('id, account_code, account_name, account_type, account_group, parent_account_id')
         .eq('is_active', true)
         .eq('company_id', selectedCompanyId)
         .order('account_code');
@@ -403,6 +404,14 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
       return ((data || []) as (Account & { parent_account_id: string | null })[]).filter((a) => !parents.has(a.id));
     },
   });
+
+  // In payment, receipt and contra vouchers the Account side must be a cash or
+  // bank ledger, matching the account picker in Tally. Particulars still shows
+  // the remaining company ledgers.
+  const cashBankAccounts = useMemo(() => accounts.filter((account) => {
+    const searchable = `${account.account_name} ${account.account_type} ${account.account_group || ''}`.toLowerCase();
+    return searchable.includes('cash') || searchable.includes('bank');
+  }), [accounts]);
 
   // When opened from a Tally shortcut, select the requested voucher category
   // once the active voucher types have loaded. Alteration mode always wins.
@@ -1079,7 +1088,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
               <span className="w-28 shrink-0 font-semibold">Account</span>
               <span>:</span>
               <AccountSearch
-                accounts={accounts}
+                accounts={cashBankAccounts}
                 selected={account}
                 onSelect={(a) => {
                   setAccount(a);
@@ -1105,7 +1114,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
                 <div key={line.key} className="flex items-start gap-2 py-0.5">
                   <div className="flex-1">
                     <AccountSearch
-                      accounts={accounts}
+                      accounts={accounts.filter((candidate) => candidate.id !== account?.id)}
                       selected={line.account}
                       onSelect={(a) => {
                         updatePartLine(line.key, { account: a });

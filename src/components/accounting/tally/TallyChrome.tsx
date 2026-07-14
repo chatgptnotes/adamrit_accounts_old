@@ -390,48 +390,14 @@ interface TallyScreenProps {
 }
 
 export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp = [], bottomBar, onClose, closeLabel, children }) => {
-  const { hospitalConfig, user, switchHospital } = useAuth();
+  const { hospitalConfig } = useAuth();
   const handleClose = onClose ?? (() => window.dispatchEvent(new CustomEvent('tally-escape')));
   const closeText = closeLabel || '← Back';
 
   // Tally keeps every button live — give the common placeholders real actions.
-  const goto = (tab: string) => window.dispatchEvent(new CustomEvent('tally-goto', { detail: tab }));
-  const rail = useMemo(
-    () =>
-      railProp.map((item) => {
-        if (item.onClick || !item.disabled) return item;
-        const on = (onClick: () => void): RailItem => ({ ...item, disabled: false, onClick });
-        switch (item.label) {
-          case 'Company':
-            return on(() => {
-              const others = (Object.keys(HOSPITAL_CONFIGS) as HospitalType[]).filter((h) => h !== user?.hospitalType);
-              if (others.length === 1) {
-                switchHospital(others[0]);
-                toast.success(`Switched to ${HOSPITAL_CONFIGS[others[0]].fullName}`);
-              }
-            });
-          case 'Save View':
-            return on(() => window.dispatchEvent(new CustomEvent('tally-save-view')));
-          case 'Group':
-            return on(() => goto('group-summary'));
-          case 'Ledger-wise':
-            return on(() => goto('ledger-view'));
-          case 'Change View':
-            return on(() => goto('gateway'));
-          case 'Exception Reports':
-            return on(() => goto('exception-reports'));
-          case 'Other Masters':
-            return on(() => goto('masters'));
-          case 'Basis of Values':
-            return on(() => toast.info('Values are shown on accrual basis, from the books of account'));
-          case 'Period':
-            return on(() => toast.info('This report always shows the position as of today'));
-          default:
-            return item;
-        }
-      }),
-    [railProp, user?.hospitalType, switchHospital],
-  );
+  // Callers own rail actions. Disabled items stay disabled and never activate
+  // a fallback screen or action from this shared component.
+  const rail = railProp;
 
   // Bind F-key / letter hotkeys declared by the rail + bottom bar
   useEffect(() => {

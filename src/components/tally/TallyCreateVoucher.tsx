@@ -4,8 +4,11 @@ import { toast } from 'sonner'
 import { PlusCircle, Loader2, CheckCircle2 } from 'lucide-react'
 import { SearchableSelect, type SearchableSelectOption } from '@/components/ui/searchable-select'
 import { isUuid } from '@/utils/visitId'
+import { useCompanies } from '@/hooks/useCompanies'
+import { createAccountingVoucher } from '@/lib/accounting-voucher-service'
 
 interface Ledger {
+  id: string
   name: string
   parent_group: string | null
 }
@@ -35,6 +38,7 @@ interface Props {
   serverUrl: string
   companyName: string
   companyId: string
+  voucherCategory?: 'PAYMENT' | 'RECEIPT' | 'JOURNAL' | 'PURCHASE'
 }
 
 const PAGE_SIZE = 1000
@@ -125,9 +129,11 @@ function getVoucherFlow(voucher: VoucherHistory, accountLedger: string): 'debit'
   return 'debit'
 }
 
-export default function TallyCreateVoucher({ serverUrl, companyName, companyId }: Props) {
+export default function TallyCreateVoucher({ serverUrl, companyName, companyId, voucherCategory = 'PAYMENT' }: Props) {
+  const { data: companies = [] } = useCompanies()
   const [allLedgers, setAllLedgers] = useState<Ledger[]>([])
   const [loadingLedgers, setLoadingLedgers] = useState(false)
+  const [accountingCompanyId, setAccountingCompanyId] = useState('')
 
   const [form, setForm] = useState({
     paymentNo: '',
@@ -142,9 +148,18 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
   const [voucherHistory, setVoucherHistory] = useState<VoucherHistory[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [selectedHistoryId, setSelectedHistoryId] = useState('')
+  const voucherTitle = `${voucherCategory.charAt(0)}${voucherCategory.slice(1).toLowerCase()} Voucher`
+  const cashBankMode = voucherCategory === 'PAYMENT' || voucherCategory === 'RECEIPT'
+
+  useEffect(() => {
+    if (!companies.length) return
+    const key = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const matching = companies.find((item) => key(item.company_name) === key(companyName))
+    setAccountingCompanyId((current) => current || matching?.id || companies[0].id)
+  }, [companies, companyName])
 
   const loadVoucherHistory = useCallback(async () => {
-    if (!companyId) return
+    if (!companyId || !accountingCompanyId) return
 
     setLoadingHistory(true)
     try {
@@ -176,6 +191,7 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
                 voucher_date,
                 narration,
                 total_amount,
+                company_id,
                 status,
                 created_at,
                 patient:patients(name),
@@ -193,7 +209,7 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
           const typeName = voucherType?.voucher_type_name || 'Receipt Voucher'
           const category = voucherType?.voucher_category || ''
 
-          if (!voucher || voucher.status === 'CANCELLED') return
+          if (!voucher || voucher.company_id !== accountingCompanyId || voucher.status === 'CANCELLED') return
           if (category !== 'RECEIPT' && !typeName.toLowerCase().includes('receipt')) return
 
           receiptRows.push({
@@ -231,32 +247,54 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
     } finally {
       setLoadingHistory(false)
     }
-  }, [companyId])
+  }, [companyId, accountingCompanyId])
 
   // ── Ledger fetch ──────────────────────────────────────────────
   const loadLedgers = useCallback(async () => {
     setLoadingLedgers(true)
+    if (!accountingCompanyId) {
+      setAllLedgers([])
+      setLoadingLedgers(false)
+      return
+    }
     const ledgers = await fetchAllPages<Ledger>(() =>
       supabase
-        .from('tally_ledgers')
-        .select('name, parent_group')
-        .eq('company_id', companyId)
-        .order('name')
+        .from('chart_of_accounts')
+        .select('id, account_name, account_group')
+        .eq('company_id', accountingCompanyId)
+        .eq('is_active', true)
+        .order('account_name')
         .limit(1000)
     )
+    const normalized = ledgers.map((ledger: any) => ({
+      id: ledger.id,
+      name: ledger.account_name,
+      parent_group: ledger.account_group,
+    }))
 
-    if (ledgers.length > 0) {
-      setAllLedgers(ledgers)
+    if (normalized.length > 0) {
+      setAllLedgers(normalized)
     } else {
-      toast.warning('No cached ledgers found yet. Use Refresh All in the Tally toolbar to sync from Tally.')
+      toast.warning('No Adamrit ledger accounts are available for this company yet.')
     }
 
     setLoadingLedgers(false)
-  }, [companyId])
+  }, [accountingCompanyId])
 
   useEffect(() => {
-    if (companyId) loadLedgers()
-  }, [companyId, loadLedgers])
+    if (accountingCompanyId) loadLedgers()
+  }, [accountingCompanyId, loadLedgers])
+
+  useEffect(() => {
+    setSelectedHistoryId('')
+    setForm((current) => ({ ...current, account: '', particulars: '' }))
+  }, [accountingCompanyId])
+
+  useEffect(() => {
+    setSelectedHistoryId('')
+    setLastSaved(null)
+    setForm((current) => ({ ...current, paymentNo: '', account: '', amount: '', particulars: '', narration: '' }))
+  }, [voucherCategory])
 
   useEffect(() => {
     loadVoucherHistory()
@@ -268,6 +306,17 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
     label: ledger.parent_group ? `${ledger.name} (${ledger.parent_group})` : ledger.name,
     selectedLabel: ledger.name,
   }))
+
+  const cashBankOptions = ledgerOptions.filter((option) => {
+    const ledger = allLedgers.find((item) => item.name === option.value)
+    const group = (ledger?.parent_group || '').toLowerCase()
+    const name = option.value.toLowerCase()
+    return group.includes('bank') || group.includes('cash') || name.includes('bank') || name.includes('cash')
+  })
+
+  const accountOptions = cashBankMode ? cashBankOptions : ledgerOptions
+
+  const particularsOptions = ledgerOptions.filter((option) => option.value !== form.account)
 
   const accountVoucherHistory = useMemo(
     () => voucherHistory.filter((voucher) => voucherHasLedger(voucher, form.account)),
@@ -369,26 +418,9 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
     }))
   }
 
-  // Generate a readable number from the Tally-backed voucher mirror.
-  async function nextVoucherNo(date: string): Promise<string> {
-    const datePart = date.replace(/-/g, '')
-    const prefix = `PV-${datePart}-`
-    const { data } = await (supabase as any)
-      .from('tally_vouchers')
-      .select('voucher_number')
-      .eq('company_id', companyId)
-      .like('voucher_number', `${prefix}%`)
-      .order('voucher_number', { ascending: false })
-      .limit(1)
-    const lastNo = data?.[0]?.voucher_number as string | undefined
-    const lastSeq = lastNo ? parseInt(lastNo.slice(prefix.length), 10) : 0
-    const seq = String((Number.isFinite(lastSeq) ? lastSeq : 0) + 1).padStart(3, '0')
-    return `${prefix}${seq}`
-  }
-
   // ── Submit ────────────────────────────────────────────────────
   async function handleSubmit() {
-    if (!companyId) { toast.error('Select a company first'); return }
+    if (!accountingCompanyId) { toast.error('Select an Adamrit company first'); return }
     if (!form.account) { toast.error('Select an Account'); return }
     if (!form.particulars) { toast.error('Select Particulars'); return }
     const amount = Number(form.amount)
@@ -396,33 +428,28 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
 
     setSaving(true)
     try {
-      const voucherNo = form.paymentNo.trim() || await nextVoucherNo(form.date)
-      const narration = form.narration.trim() || `Payment #${voucherNo} to ${form.particulars}`
-
-      const { error } = await supabase.from('tally_vouchers').insert({
-        company_id: companyId,
-        voucher_type: 'Payment',
-        voucher_number: voucherNo,
+      const account = allLedgers.find((ledger) => ledger.name === form.account)
+      const particulars = allLedgers.find((ledger) => ledger.name === form.particulars)
+      if (!account || !particulars) throw new Error('Select valid company ledger accounts')
+      const voucher = await createAccountingVoucher({
+        companyId: accountingCompanyId,
+        category: voucherCategory,
         date: form.date,
-        party_ledger: form.particulars,
-        amount,
-        narration,
-        sync_direction: 'to_tally',
-        sync_status: 'pending',
-        ledger_entries: [
-          { ledger: form.particulars, amount, is_debit: true },
-          { ledger: form.account, amount, is_debit: false },
-        ],
-        is_cancelled: false,
-        tally_guid: null,
-        synced_at: null,
-        error_message: null,
+        voucherNumber: form.paymentNo,
+        narration: form.narration || `${voucherTitle} - ${form.particulars}`,
+        entries: voucherCategory === 'RECEIPT'
+          ? [
+              { accountId: account.id, debitAmount: amount, creditAmount: 0 },
+              { accountId: particulars.id, debitAmount: 0, creditAmount: amount },
+            ]
+          : [
+              { accountId: particulars.id, debitAmount: amount, creditAmount: 0 },
+              { accountId: account.id, debitAmount: 0, creditAmount: amount },
+            ],
       })
 
-      if (error) throw error
-
-      toast.success(`Voucher ${voucherNo} saved in Adamrit`)
-      setLastSaved(voucherNo)
+      toast.success(`Voucher ${voucher.voucher_number} saved in Adamrit`)
+      setLastSaved(voucher.voucher_number)
       await loadVoucherHistory()
       setForm({ paymentNo: '', account: form.account, date: form.date, amount: '', particulars: '', narration: '' })
     } catch (err: any) {
@@ -439,18 +466,29 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
       {/* Ledger status bar */}
       <div className="flex items-center justify-between bg-white border rounded-xl px-4 py-3">
         <div className="flex items-center gap-2 text-sm">
-          {loadingLedgers && <><Loader2 className="h-4 w-4 animate-spin text-blue-500" /><span className="text-blue-700">Loading cached ledgers...</span></>}
-          {!loadingLedgers && allLedgers.length > 0 && <><CheckCircle2 className="h-4 w-4 text-green-500" /><span className="text-green-700">Ledgers loaded from Supabase ({allLedgers.length})</span></>}
-          {!loadingLedgers && allLedgers.length === 0 && <span className="text-amber-700">No cached ledgers yet. Use Refresh All in the Tally toolbar to sync from Tally.</span>}
+          {loadingLedgers && <><Loader2 className="h-4 w-4 animate-spin text-blue-500" /><span className="text-blue-700">Loading Adamrit ledger accounts...</span></>}
+          {!loadingLedgers && allLedgers.length > 0 && <><CheckCircle2 className="h-4 w-4 text-green-500" /><span className="text-green-700">Adamrit ledger accounts loaded ({allLedgers.length})</span></>}
+          {!loadingLedgers && allLedgers.length === 0 && <span className="text-amber-700">No Adamrit ledger accounts are available for this company.</span>}
         </div>
       </div>
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(520px,0.95fr)]">
         {/* Form */}
         <div className="bg-white border rounded-xl p-6 space-y-5">
-          <h3 className="text-base font-semibold text-gray-900">New Payment Voucher</h3>
+          <h3 className="text-base font-semibold text-gray-900">New {voucherTitle}</h3>
           <p className="text-xs text-gray-500">This saves in Adamrit first. Export it later and import it into Tally manually.</p>
 
         <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Create for company <span className="text-red-500">*</span></label>
+            <select
+              value={accountingCompanyId}
+              onChange={(event) => setAccountingCompanyId(event.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">Select Adamrit company</option>
+              {companies.map((company) => <option key={company.id} value={company.id}>{company.company_name}</option>)}
+            </select>
+          </div>
           {/* Payment Number */}
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -480,23 +518,23 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
         {/* Account — searchable via datalist */}
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">
-            Account <span className="text-red-500">*</span>
+            {cashBankMode ? 'Account (Cash / Bank)' : 'Credit Account'} <span className="text-red-500">*</span>
           </label>
           <SearchableSelect
-            options={ledgerOptions}
+            options={accountOptions}
             value={form.account}
             onValueChange={(value) => {
               setSelectedHistoryId('')
               setForm(f => ({ ...f, account: value }))
             }}
             placeholder={loadingLedgers ? 'Loading accounts...' : 'Select account'}
-            searchPlaceholder="Search accounts (e.g. Cash, HDFC)..."
+            searchPlaceholder={cashBankMode ? 'Search cash or bank accounts...' : 'Search credit account...'}
             emptyText={loadingLedgers ? 'Loading accounts...' : 'No matching account found'}
             disabled={loadingLedgers || allLedgers.length === 0}
             className="h-11 justify-between"
           />
           {allLedgers.length === 0 && !loadingLedgers && (
-            <p className="text-xs text-amber-600 mt-1">No cached ledgers found yet. Use Refresh All in the Tally toolbar to sync from Tally.</p>
+            <p className="text-xs text-amber-600 mt-1">No Adamrit ledger accounts are available for the selected company.</p>
           )}
         </div>
 
@@ -517,14 +555,14 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
         {/* Particulars — searchable via datalist */}
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">
-            Particulars <span className="text-red-500">*</span>
+            {cashBankMode ? 'Particulars' : 'Debit Account'} <span className="text-red-500">*</span>
           </label>
           <SearchableSelect
-            options={ledgerOptions}
+            options={particularsOptions}
             value={form.particulars}
             onValueChange={(value) => setForm(f => ({ ...f, particulars: value }))}
             placeholder={loadingLedgers ? 'Loading particulars...' : 'Select particulars'}
-            searchPlaceholder="Search particulars (e.g. Salary, Maintenance)..."
+            searchPlaceholder={cashBankMode ? 'Search particulars (e.g. Salary, Maintenance)...' : 'Search debit account...'}
             emptyText={loadingLedgers ? 'Loading particulars...' : 'No matching ledger found'}
             disabled={loadingLedgers || allLedgers.length === 0}
             className="h-11 justify-between"
