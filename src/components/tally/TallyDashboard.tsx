@@ -105,6 +105,7 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
       .select('name, closing_balance, parent_group')
       .eq('company_id', configId)
       .or('parent_group.ilike.%cash%,parent_group.ilike.%bank%')
+      .limit(50)
 
     if (cashLedgers) {
       let cash = 0, bank = 0
@@ -121,12 +122,14 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
       .select('closing_balance')
       .eq('company_id', configId)
       .ilike('parent_group', '%sundry debtor%')
+      .limit(100)
 
     const { data: creditors } = await supabase
       .from('tally_ledgers')
       .select('closing_balance')
       .eq('company_id', configId)
       .ilike('parent_group', '%sundry creditor%')
+      .limit(100)
 
     setFinancials(prev => ({
       ...prev,

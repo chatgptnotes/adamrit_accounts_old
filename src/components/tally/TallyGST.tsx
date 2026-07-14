@@ -90,8 +90,7 @@ export default function TallyGST({ serverUrl, companyName, companyId }) {
       .lte('date', period.to)
       .eq('company_id', companyId)
       .order('date', { ascending: true })
-
-    const vch = vouchers || []
+      .limit(2000)
 
     if (activeTab === 'gstr1') {
       const salesVouchers = vch.filter(v => v.voucher_type === 'Sales')

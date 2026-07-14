@@ -66,6 +66,7 @@ export default function TallyBankBook({ serverUrl, companyName, companyId }) {
         .from('tally_vouchers')
         .select('*')
         .order('date', { ascending: true })
+        .limit(2000)
 
       if (companyId) query = query.eq('company_id', companyId)
       if (dateFrom) query = query.gte('date', dateFrom)

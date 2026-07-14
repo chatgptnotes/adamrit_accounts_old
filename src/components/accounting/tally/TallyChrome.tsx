@@ -385,10 +385,12 @@ interface TallyScreenProps {
   rail?: RailItem[];
   bottomBar?: BottomBarItem[];
   onClose?: () => void;
+  /** Override the close button label (default "✕") */
+  closeLabel?: string;
   children: React.ReactNode;
 }
 
-export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp = [], bottomBar, onClose, children }) => {
+export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp = [], bottomBar, onClose, closeLabel, children }) => {
   const { hospitalConfig, user, switchHospital } = useAuth();
 
   // Tally keeps every button live — give the common placeholders real actions.
@@ -470,7 +472,7 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
         <span className="absolute left-1/2 -translate-x-1/2 font-bold">{hospitalConfig.name} Hospital</span>
         {onClose && (
           <button type="button" onClick={onClose} className="ml-auto px-1 font-bold text-black hover:text-red-600" aria-label="Close">
-            ✕
+            {closeLabel || '✕'}
           </button>
         )}
       </div>

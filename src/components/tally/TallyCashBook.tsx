@@ -63,7 +63,7 @@ export default function TallyCashBook({ serverUrl, companyName, companyId }) {
         .select('*')
         .eq('company_id', companyId)
         .order('date', { ascending: true })
-
+        .limit(2000)
       if (dateFrom) query = query.gte('date', dateFrom)
       if (dateTo) query = query.lte('date', dateTo)
       if (typeFilter !== 'All') query = query.eq('voucher_type', typeFilter)

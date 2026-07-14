@@ -157,6 +157,7 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
           .eq('company_id', companyId)
           .order('date', { ascending: false })
           .order('created_at', { ascending: false })
+          .limit(200)
       )
 
       const receiptRows: VoucherHistory[] = []
@@ -184,6 +185,7 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
               )
             `)
             .order('created_at', { ascending: false })
+            .limit(500)
         )
 
         accountingEntries.forEach((entry: any) => {
@@ -298,6 +300,7 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
         .select('name, parent_group')
         .eq('company_id', companyId)
         .order('name')
+        .limit(1000)
     )
 
     if (ledgers.length > 0) {

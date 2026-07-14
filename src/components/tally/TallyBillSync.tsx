@@ -38,8 +38,7 @@ export default function TallyBillSync({ serverUrl, companyName, companyId }: Tal
       .eq('sync_direction', 'to_tally')
       .eq('company_id', companyId)
       .order('date', { ascending: false })
-
-    if (filter !== 'all') {
+      .limit(1000)
       query = query.eq('sync_status', filter)
     }
 

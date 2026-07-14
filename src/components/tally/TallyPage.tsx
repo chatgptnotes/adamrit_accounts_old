@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/integrations/supabase/client'
 import {
   LayoutDashboard, BookOpen, FileText, Package,
@@ -105,6 +106,7 @@ function dedupeCompanyConfigs(options: TallyConfigOption[]) {
 }
 
 export default function TallyPage() {
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('dashboard')
   const [serverUrl, setServerUrl] = useState('')
   const [companyName, setCompanyName] = useState('')
@@ -373,7 +375,8 @@ export default function TallyPage() {
       title={`Tally Live — ${activeLabel}`}
       centerTitle={companyName || undefined}
       rail={rail}
-      onClose={() => window.dispatchEvent(new CustomEvent('tally-escape'))}
+      closeLabel="← Back"
+      onClose={() => navigate('/dashboard')}
     >
       <div className="space-y-4">
         {/* Company selector */}
