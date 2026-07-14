@@ -68,7 +68,9 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
   // Alt+F focuses the finder, like Tally
   useEffect(() => {
     const onHelp = () => setHelpOpen(true);
+    const onConfigure = () => setConfigOpen(true);
     window.addEventListener('tally-help', onHelp);
+    window.addEventListener('tally-configure', onConfigure);
     const onKey = (e: KeyboardEvent) => {
       if (e.altKey && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault();
@@ -83,6 +85,7 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
     return () => {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('tally-help', onHelp);
+      window.removeEventListener('tally-configure', onConfigure);
     };
   }, []);
 

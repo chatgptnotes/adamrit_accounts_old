@@ -1,25 +1,21 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/integrations/supabase/client'
 import {
   LayoutDashboard, BookOpen, FileText, Package,
-  BarChart3, ArrowUpFromLine, Link2, Banknote, Landmark,
-  Scale, FileBarChart, PlusCircle,
-  RefreshCw, Loader2, ArrowLeft
+  BarChart3, ArrowUpFromLine, Banknote, Landmark,
+  FileBarChart, PlusCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { Button } from '@/components/ui/button'
+import { TallyScreen } from '@/components/accounting/tally/TallyChrome'
 import TallyDashboard from '@/components/tally/TallyDashboard'
 import TallyLedgers from '@/components/tally/TallyLedgers'
 import TallyVouchers from '@/components/tally/TallyVouchers'
 import TallyStockItems from '@/components/tally/TallyStockItems'
 import TallyReports from '@/components/tally/TallyReports'
 import TallyBillSync from '@/components/tally/TallyBillSync'
-import TallyMapping from '@/components/tally/TallyMapping'
 import TallyCashBook from '@/components/tally/TallyCashBook'
 import TallyBankBook from '@/components/tally/TallyBankBook'
-import TallyBankReconciliation from '@/components/tally/TallyBankReconciliation'
 import TallyGST from '@/components/tally/TallyGST'
 import TallyCreateVoucher from '@/components/tally/TallyCreateVoucher'
 
@@ -39,12 +35,10 @@ const tabs = [
   { id: 'vouchers', label: 'Vouchers', icon: FileText },
   { id: 'cashbook', label: 'Cash Book', icon: Banknote },
   { id: 'bankbook', label: 'Bank Book', icon: Landmark },
-  { id: 'reconciliation', label: 'Reconciliation', icon: Scale },
   { id: 'stock', label: 'Stock Items', icon: Package },
   { id: 'reports', label: 'Reports', icon: BarChart3 },
   { id: 'gst', label: 'GST', icon: FileBarChart },
   { id: 'billsync', label: 'Bill Sync', icon: ArrowUpFromLine },
-  { id: 'mapping', label: 'Mapping', icon: Link2 },
   { id: 'create-voucher', label: 'Create Voucher', icon: PlusCircle },
 ]
 
@@ -82,6 +76,20 @@ function companyKey(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
+function formatLastSync(value?: string | null) {
+  if (!value) return 'never synced'
+  return `synced ${new Date(value).toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })}`
+}
+
+function getConfigLabel(config: TallyConfigOption) {
+  const status = config.is_active === false ? 'inactive' : 'active'
+  return `${config.company_name} (${status}, ${formatLastSync(config.last_sync_at)})`
+}
+
 function sameCompanyName(left: string, right: string) {
   return companyKey(left) === companyKey(right)
 }
@@ -97,13 +105,13 @@ function dedupeCompanyConfigs(options: TallyConfigOption[]) {
 }
 
 export default function TallyPage() {
-  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('dashboard')
   const [serverUrl, setServerUrl] = useState('')
   const [companyName, setCompanyName] = useState('')
   const [companyId, setCompanyId] = useState('')
   const companyIdRef = useRef('')
   const [configs, setConfigs] = useState<TallyConfigOption[]>([])
+  const [liveCompanies, setLiveCompanies] = useState<string[]>([])
   const [refreshingAll, setRefreshingAll] = useState(false)
 
   const loadLiveCompanies = useCallback(async (targetServerUrl?: string): Promise<string[]> => {
@@ -161,6 +169,42 @@ export default function TallyPage() {
           setCompanyName(liveTarget.company_name || '')
           setCompanyId(liveTarget.id)
         }
+        setLiveCompanies(discovered)
+        const existing = new Set(data.map((item) => item.company_name).filter(Boolean))
+        const missing = discoveredByServer.flatMap(({ server_url, companies }) =>
+          companies
+            .filter((name) => name && !existing.has(name))
+            .map((company_name) => ({ company_name, server_url })),
+        )
+        if (missing.length > 0) {
+          await Promise.all(
+            missing.map(({ company_name, server_url }) =>
+              supabase.from('tally_config').insert({
+                company_name,
+                server_url,
+                is_active: true,
+                hospital_id: null,
+              })
+            )
+          )
+          const { data: refreshed } = await supabase
+            .from('tally_config')
+            .select('id, server_url, company_name, is_active, last_sync_at, updated_at, created_at')
+            .order('company_name')
+          const refreshedConfigs = refreshed || []
+          setConfigs(refreshedConfigs)
+          const refreshedLiveTarget = refreshedConfigs.find((config) =>
+            discovered.some((company) => sameCompanyName(company, config.company_name))
+          )
+          const refreshedTarget = refreshedLiveTarget && !discovered.some((company) => sameCompanyName(company, target.company_name))
+            ? refreshedLiveTarget
+            : pickPreferredConfig(refreshedConfigs, target.id)
+          if (refreshedTarget) {
+            setServerUrl(refreshedTarget.server_url || '')
+            setCompanyName(refreshedTarget.company_name || '')
+            setCompanyId(refreshedTarget.id)
+          }
+        }
       }
     } else {
       setConfigs([])
@@ -175,9 +219,27 @@ export default function TallyPage() {
     [configs]
   )
 
+  const companyNameOptions = useMemo(
+    () => companyOptions.map(c => c.company_name),
+    [companyOptions]
+  )
+
   const handleCompanyChange = useCallback(
     async (selectedId: string) => {
       const config = configs.find((c) => c.id === selectedId)
+      if (config) {
+        setCompanyId(config.id)
+        setCompanyName(config.company_name)
+        setServerUrl(config.server_url || '')
+        await loadLiveCompanies(config.server_url || '')
+      }
+    },
+    [configs, loadLiveCompanies]
+  )
+
+  const handleCompanyNameChange = useCallback(
+    async (selectedName: string) => {
+      const config = configs.find((c) => c.company_name === selectedName)
       if (config) {
         setCompanyId(config.id)
         setCompanyName(config.company_name)
@@ -197,131 +259,175 @@ export default function TallyPage() {
   }, [companyId])
 
   const refreshAll = useCallback(async () => {
+    setRefreshingAll(true)
+    const targets = configs.filter(c => c.server_url && c.company_name)
+    if (targets.length === 0) {
+      toast.error('No Tally companies configured')
+      setRefreshingAll(false)
+      return
+    }
+    let synced = 0
+    let failed = 0
+
+    for (const cfg of targets) {
+      try {
+        const response = await fetch('/api/tally-proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            endpoint: 'sync',
+            action: 'full',
+            serverUrl: cfg.server_url,
+            companyName: cfg.company_name,
+            companyId: cfg.id,
+          }),
+        })
+        const result = await response.json()
+        if (!response.ok || result.error || result.success === false) {
+          throw new Error(result.error || result.message || 'Sync failed')
+        }
+        synced++
+      } catch (error: any) {
+        failed++
+        toast.error(`${cfg.company_name}: ${error?.message || 'Sync failed'}`)
+      }
+    }
+
+    if (synced > 0) {
+      toast.success(`Refreshed data for ${synced} company(ies)${failed ? `, ${failed} failed` : ''}`)
+    } else if (failed === 0) {
+      toast.error('No valid Tally companies available to refresh')
+    }
+    setRefreshingAll(false)
+  }, [configs])
+
+  const activeLabel = tabs.find(t => t.id === activeTab)?.label || 'Dashboard'
+
+  const cycleCompany = useCallback(() => {
+    if (companyNameOptions.length <= 1) return
+    const idx = companyNameOptions.indexOf(companyName)
+    const next = companyNameOptions[(idx + 1) % companyNameOptions.length]
+    void handleCompanyNameChange(next)
+  }, [companyNameOptions, companyName, handleCompanyNameChange])
+
+  const pushToTally = useCallback(async () => {
     if (!serverUrl || !companyName || !companyId) {
       toast.error('Select a Tally company first')
       return
     }
-
-    setRefreshingAll(true)
     try {
-      const response = await fetch('/api/tally-proxy', {
+      const res = await fetch('/api/tally-proxy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          endpoint: 'sync',
-          action: 'full',
+          endpoint: 'push',
+          action: 'vouchers',
           serverUrl,
           companyName,
           companyId,
         }),
       })
-      const result = await response.json()
-      if (!response.ok || result.error || result.success === false) {
-        throw new Error(result.error || result.message || 'Tally refresh failed')
+      const result = await res.json()
+      if (!res.ok || result.success === false) {
+        throw new Error(result.error || result.message || 'Push to Tally failed')
       }
-      toast.success(`All Tally data refreshed for ${companyName}`)
-      window.location.reload()
+      toast.success(`Pending vouchers pushed to Tally for ${companyName}`)
     } catch (error: any) {
-      toast.error(error?.message || 'Could not refresh Tally data')
-    } finally {
-      setRefreshingAll(false)
+      toast.error(error?.message || 'Could not push vouchers to Tally')
     }
   }, [companyId, companyName, serverUrl])
 
+  const rail = useMemo(() => [
+    { hotkey: 'F1', label: 'Help', onClick: () => window.dispatchEvent(new CustomEvent('tally-help')) },
+    { hotkey: 'F2', label: 'Period', onClick: () => window.dispatchEvent(new CustomEvent('tally-goto', { detail: 'day-book' })) },
+    {
+      hotkey: 'F3',
+      label: 'Company',
+      onClick: () => cycleCompany(),
+      disabled: companyOptions.length <= 1,
+    },
+    { hotkey: 'F4', label: 'Voucher Type', onClick: () => window.dispatchEvent(new CustomEvent('tally-goto', { detail: 'day-book' })) },
+    {
+      hotkey: 'F5',
+      label: refreshingAll ? 'Refreshing...' : 'Refresh All',
+      gapBefore: true,
+      disabled: refreshingAll,
+      onClick: () => void refreshAll(),
+    },
+    { hotkey: 'F6', label: 'Receipt', onClick: () => window.dispatchEvent(new CustomEvent('tally-open-voucher', { detail: 'RECEIPT' })) },
+    { hotkey: 'F7', label: 'Journal', onClick: () => window.dispatchEvent(new CustomEvent('tally-open-voucher', { detail: 'JOURNAL' })) },
+    {
+      hotkey: 'F8',
+      label: 'Send to Tally',
+      disabled: !companyId,
+      onClick: () => void pushToTally(),
+    },
+    { hotkey: 'F9', label: 'Purchase', onClick: () => window.dispatchEvent(new CustomEvent('tally-open-voucher', { detail: 'PURCHASE' })) },
+    { label: 'Configure', onClick: () => window.dispatchEvent(new CustomEvent('tally-configure')) },
+    { label: 'Save View', onClick: () => window.dispatchEvent(new CustomEvent('tally-save-view')) },
+    { hotkey: 'P', label: 'Print', gapBefore: true, onClick: () => window.print() },
+  ], [refreshingAll, companyId, refreshAll, pushToTally, cycleCompany, companyOptions.length])
+
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => navigate('/dashboard')}
-            className="flex items-center gap-2"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Tally Integration</h1>
-            <p className="text-sm text-gray-500 mt-1">
-              One-way import from TallyPrime into Adamrit HMS
-            </p>
+    <TallyScreen
+      title={`Tally Live — ${activeLabel}`}
+      centerTitle={companyName || undefined}
+      rail={rail}
+      onClose={() => window.dispatchEvent(new CustomEvent('tally-escape'))}
+    >
+      <div className="space-y-4">
+        {/* Company selector */}
+        {companyNameOptions.length > 0 && (
+          <div className="flex items-center gap-2 px-2 pt-2 text-[13px]">
+            <span className="text-gray-600">F3:</span>
+            <select
+              value={companyName}
+              onChange={(e) => { void handleCompanyNameChange(e.target.value) }}
+              className="border border-[#9db8d8] bg-white px-2 py-0.5 text-[13px] font-medium text-[#16437e] cursor-pointer focus:outline-none focus:bg-[#fdf6d8]"
+            >
+              {companyNameOptions.map(name => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
           </div>
+        )}
+        {/* Tab Navigation */}
+        <div className="border-b border-gray-200 px-2">
+          <nav className="flex space-x-1 overflow-x-auto" aria-label="Tabs">
+            {tabs.map(tab => {
+              const Icon = tab.icon
+              const isActive = activeTab === tab.id
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+                    isActive
+                      ? 'border-blue-600 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {tab.label}
+                </button>
+              )
+            })}
+          </nav>
         </div>
-        <div className="flex items-center gap-2">
-          {companyOptions.length > 0 ? (
-            <div className="flex items-center gap-2 text-sm text-gray-600 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
-              <span>Company:</span>
-              <select
-                value={companyId}
-                onChange={(e) => { void handleCompanyChange(e.target.value) }}
-                className="font-medium text-blue-700 bg-transparent border-none outline-none cursor-pointer"
-              >
-                {!companyId && <option value="">Select company</option>}
-                {companyOptions.map((config) => (
-                  <option key={config.id} value={config.id}>{config.company_name}</option>
-                ))}
-              </select>
-            </div>
-          ) : companyName ? (
-            <div className="text-sm text-gray-600 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
-              Company: <span className="font-medium text-blue-700">{companyName}</span>
-            </div>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => void refreshAll()}
-            disabled={refreshingAll || !companyId}
-            className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
-            title="Refresh all Tally data for the selected company"
-          >
-            {refreshingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            {refreshingAll ? 'Refreshing...' : 'Refresh All'}
-          </button>
+        {/* Tab Content */}
+        <div>
+          {activeTab === 'dashboard' && <TallyDashboard serverUrl={serverUrl} companyName={companyName} companyId={companyId} configs={configs} onConfigChange={(newId) => loadConfigs(newId)} />}
+          {activeTab === 'ledgers' && <TallyLedgers serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
+          {activeTab === 'vouchers' && <TallyVouchers serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
+          {activeTab === 'cashbook' && <TallyCashBook serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
+          {activeTab === 'bankbook' && <TallyBankBook serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
+          {activeTab === 'stock' && <TallyStockItems serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
+          {activeTab === 'reports' && <TallyReports serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
+          {activeTab === 'gst' && <TallyGST serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
+          {activeTab === 'billsync' && <TallyBillSync serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
+          {activeTab === 'create-voucher' && <TallyCreateVoucher serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
         </div>
       </div>
-
-      {/* Tab Navigation */}
-      <div className="border-b border-gray-200">
-        <nav className="flex space-x-1 overflow-x-auto" aria-label="Tabs">
-          {tabs.map(tab => {
-            const Icon = tab.icon
-            const isActive = activeTab === tab.id
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
-                  isActive
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <Icon className="h-4 w-4" />
-                {tab.label}
-              </button>
-            )
-          })}
-        </nav>
-      </div>
-
-      {/* Tab Content */}
-      <div>
-        {activeTab === 'dashboard' && <TallyDashboard serverUrl={serverUrl} companyName={companyName} companyId={companyId} configs={configs} onConfigChange={(newId) => loadConfigs(newId)} />}
-        {activeTab === 'ledgers' && <TallyLedgers serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
-        {activeTab === 'vouchers' && <TallyVouchers serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
-        {activeTab === 'cashbook' && <TallyCashBook serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
-        {activeTab === 'bankbook' && <TallyBankBook serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
-        {activeTab === 'reconciliation' && <TallyBankReconciliation serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
-        {activeTab === 'stock' && <TallyStockItems serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
-        {activeTab === 'reports' && <TallyReports serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
-        {activeTab === 'gst' && <TallyGST serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
-        {activeTab === 'billsync' && <TallyBillSync serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
-        {activeTab === 'mapping' && <TallyMapping serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
-        {activeTab === 'create-voucher' && <TallyCreateVoucher serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
-      </div>
-    </div>
+    </TallyScreen>
   )
 }

@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '@/integrations/supabase/client'
 import { toast } from 'sonner'
 import {
-  Landmark, RefreshCw, Loader2, Printer, ChevronDown,
+  Landmark, Loader2, Printer, ChevronDown,
   CheckCircle, Clock, XCircle, ChevronLeft, ChevronRight
 } from 'lucide-react'
 
@@ -27,7 +27,6 @@ export default function TallyBankBook({ serverUrl, companyName, companyId }) {
   const [selectedBank, setSelectedBank] = useState('')
   const [vouchers, setVouchers] = useState([])
   const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
   const [openingBalance, setOpeningBalance] = useState(0)
   const [page, setPage] = useState(0)
 
@@ -38,12 +37,13 @@ export default function TallyBankBook({ serverUrl, companyName, companyId }) {
   // Load bank ledgers
   useEffect(() => {
     async function loadBanks() {
-      const { data } = await supabase
+      let q1 = supabase
         .from('tally_ledgers')
         .select('name, opening_balance, closing_balance, parent_group')
-        .eq('company_id', companyId)
         .or('parent_group.ilike.%bank account%,parent_group.ilike.%bank accounts%')
         .order('name')
+      if (companyId) q1 = q1.eq('company_id', companyId)
+      const { data } = await q1
 
       if (data && data.length > 0) {
         setBanks(data)
@@ -65,9 +65,9 @@ export default function TallyBankBook({ serverUrl, companyName, companyId }) {
       let query = supabase
         .from('tally_vouchers')
         .select('*')
-        .eq('company_id', companyId)
         .order('date', { ascending: true })
 
+      if (companyId) query = query.eq('company_id', companyId)
       if (dateFrom) query = query.gte('date', dateFrom)
       if (dateTo) query = query.lte('date', dateTo)
 
@@ -97,41 +97,6 @@ export default function TallyBankBook({ serverUrl, companyName, companyId }) {
   useEffect(() => {
     setPage(0)
   }, [selectedBank, dateFrom, dateTo])
-
-  async function handleRefresh() {
-    if (!serverUrl || !companyName) return
-    setRefreshing(true)
-    try {
-      // Sync ledgers first (needed for bank account list)
-      await fetch('/api/tally-proxy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ endpoint: 'sync', action: 'ledgers', serverUrl, companyName, companyId }),
-      })
-      // Then sync vouchers
-      await fetch('/api/tally-proxy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ endpoint: 'sync', action: 'vouchers', serverUrl, companyName, companyId }),
-      })
-      toast.success('Ledgers & vouchers refreshed from Tally')
-      // Reload banks list since ledgers were synced
-      const { data } = await supabase
-        .from('tally_ledgers')
-        .select('name, opening_balance, closing_balance, parent_group')
-        .eq('company_id', companyId)
-        .or('parent_group.ilike.%bank account%,parent_group.ilike.%bank accounts%')
-        .order('name')
-      if (data && data.length > 0) {
-        setBanks(data)
-        if (!selectedBank) setSelectedBank(data[0].name)
-      }
-      await fetchVouchers()
-    } catch {
-      toast.error('Failed to refresh')
-    }
-    setRefreshing(false)
-  }
 
   const { rows, totalDeposit, totalWithdrawal, closingBalance } = useMemo(() => {
     let runningBalance = Math.abs(openingBalance)
@@ -237,14 +202,6 @@ export default function TallyBankBook({ serverUrl, companyName, companyId }) {
             />
           </div>
           <div className="flex gap-2 ml-auto">
-            <button
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-            >
-              {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              Refresh from Tally
-            </button>
             <button
               onClick={() => window.print()}
               className="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200"

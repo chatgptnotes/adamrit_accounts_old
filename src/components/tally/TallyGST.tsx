@@ -1,9 +1,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/integrations/supabase/client'
-import { toast } from 'sonner'
 import {
-  FileBarChart, RefreshCw, Loader2, Calendar, ChevronDown
+  FileBarChart, Loader2, Calendar, ChevronDown
 } from 'lucide-react'
 
 function formatCurrency(val) {
@@ -43,7 +42,6 @@ function getMonthOptions() {
 export default function TallyGST({ serverUrl, companyName, companyId }) {
   const [activeTab, setActiveTab] = useState('gstr1')
   const [loading, setLoading] = useState(false)
-  const [syncing, setSyncing] = useState(false)
   const months = getMonthOptions()
   const [selectedPeriod, setSelectedPeriod] = useState(0) // index into months
 
@@ -176,29 +174,6 @@ export default function TallyGST({ serverUrl, companyName, companyId }) {
     fetchData()
   }, [fetchData])
 
-  async function handleSync() {
-    if (!serverUrl || !companyName) { toast.error('Configure Tally connection first'); return }
-    setSyncing(true)
-    const actionMap = { gstr1: 'gst-r1', gstr3b: 'gst-r3b', gst_ledger: 'gst-ledger' }
-    try {
-      await fetch('/api/tally-proxy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          endpoint: 'sync',
-          action: actionMap[activeTab],
-          serverUrl, companyName,
-          dateRange: { from: period.from, to: period.to },
-        }),
-      })
-      toast.success('GST data synced from Tally')
-      await fetchData()
-    } catch {
-      toast.error('Failed to sync GST data')
-    }
-    setSyncing(false)
-  }
-
   return (
     <div className="space-y-4">
       {/* Tab Navigation + Period */}
@@ -230,14 +205,6 @@ export default function TallyGST({ serverUrl, companyName, companyId }) {
               </select>
               <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
             </div>
-            <button
-              onClick={handleSync}
-              disabled={syncing}
-              className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-            >
-              {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              Sync from Tally
-            </button>
           </div>
         </div>
       </div>

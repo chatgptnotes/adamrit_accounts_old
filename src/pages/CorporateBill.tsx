@@ -21,6 +21,7 @@ const CorporateBill = () => {
   const [surgeryDate, setSurgeryDate] = useState('');
   const [implantName, setImplantName] = useState('');
   const [actualVisitId, setActualVisitId] = useState('');
+  const [mainBillOpen, setMainBillOpen] = useState(true);
   const [implantBillOpen, setImplantBillOpen] = useState(true);
   const [implantStickerOpen, setImplantStickerOpen] = useState(true);
 
@@ -183,12 +184,26 @@ const CorporateBill = () => {
       </div>
 
       {/* Bill + Documents side panel */}
-      <div className="flex flex-wrap items-start gap-4 print:block xl:flex-nowrap">
+      <div className="flex flex-wrap items-start justify-center gap-4 print:block xl:flex-nowrap">
       {/* Left column: bill + expanded implant sections */}
-      <div className="w-[210mm] max-w-full shrink-0 space-y-4">
+      <div className="mx-auto flex w-[210mm] max-w-full shrink-0 flex-col items-center space-y-4">
       {/* Bill */}
       <div className="bg-white shadow-lg print:shadow-none print:m-0 print:mx-auto">
-        <div className="p-6 print:p-4" style={{ fontFamily: 'Arial, sans-serif' }}>
+        {mainBillOpen && (
+          <div className="print:hidden flex items-center justify-between rounded-t-lg bg-gray-800 px-3 py-2 text-sm font-semibold text-white">
+            <span>Final Bill</span>
+            <button
+              type="button"
+              onClick={() => setMainBillOpen(false)}
+              className="rounded px-2 py-0.5 text-xs hover:bg-gray-700"
+              title="Minimize final bill"
+              aria-label="Minimize final bill"
+            >
+              —
+            </button>
+          </div>
+        )}
+        <div className={mainBillOpen ? 'p-6 print:p-4' : 'hidden print:block p-6 print:p-4'} style={{ fontFamily: 'Arial, sans-serif' }}>
 
           <div className="text-center border-b-2 border-black pb-2 mb-0">
             <h1 className="text-xl font-bold tracking-wide">FINAL BILL</h1>
@@ -376,6 +391,15 @@ const CorporateBill = () => {
 
         {/* Right column: aside + minimized restore buttons */}
         <div className="w-full shrink-0 xl:w-[340px] space-y-2">
+        {actualVisitId && !mainBillOpen && (
+          <button
+            type="button"
+            onClick={() => setMainBillOpen(true)}
+            className="print:hidden w-full flex items-center gap-2 bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-gray-700 transition-colors"
+          >
+            ▶ Final Bill
+          </button>
+        )}
         {/* Documents side panel (hidden on print) */}
         <aside className="print:hidden">
           <BillDocumentsSection

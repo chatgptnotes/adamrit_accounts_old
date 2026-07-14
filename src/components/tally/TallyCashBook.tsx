@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '@/integrations/supabase/client'
 import { toast } from 'sonner'
 import {
-  Banknote, RefreshCw, Loader2, Printer, Calendar,
+  Banknote, Loader2, Printer, Calendar,
   ArrowDownLeft, ArrowUpRight, Filter, ChevronLeft, ChevronRight
 } from 'lucide-react'
 
@@ -25,7 +25,6 @@ function formatDate(d) {
 export default function TallyCashBook({ serverUrl, companyName, companyId }) {
   const [vouchers, setVouchers] = useState([])
   const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
   const [openingBalance, setOpeningBalance] = useState(0)
 
   // Date range: default to full current month (day-by-day sequence)
@@ -133,33 +132,6 @@ export default function TallyCashBook({ serverUrl, companyName, companyId }) {
 
     return () => { supabase.removeChannel(channel) }
   }, [companyId])
-
-  async function handleRefresh() {
-    if (!serverUrl || !companyName) {
-      toast.error('Server URL and company name required')
-      return
-    }
-    setRefreshing(true)
-    try {
-      // Sync ledgers first (needed for cash opening balance)
-      await fetch('/api/tally-proxy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ endpoint: 'sync', action: 'ledgers', serverUrl, companyName, companyId }),
-      })
-      // Then sync vouchers
-      await fetch('/api/tally-proxy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ endpoint: 'sync', action: 'vouchers', serverUrl, companyName, companyId }),
-      })
-      toast.success('Ledgers & vouchers refreshed from Tally')
-      await fetchData()
-    } catch {
-      toast.error('Failed to refresh from Tally')
-    }
-    setRefreshing(false)
-  }
 
   // Compute running balances and totals
   const { rows, totalCashIn, totalCashOut, closingBalance } = useMemo(() => {
@@ -278,14 +250,6 @@ export default function TallyCashBook({ serverUrl, companyName, companyId }) {
             </select>
           </div>
           <div className="flex gap-2 ml-auto">
-            <button
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-            >
-              {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              Refresh from Tally
-            </button>
             <button
               onClick={handlePrint}
               className="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200"

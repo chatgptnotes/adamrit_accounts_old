@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import {
   RefreshCw, Trash2, RotateCcw, Loader2, AlertTriangle,
@@ -30,23 +30,9 @@ export default function TallyRetryQueue() {
   const [items, setItems] = useState<QueueItem[]>([])
   const [processing, setProcessing] = useState(false)
   const [loading, setLoading] = useState(true)
-  const autoProcessRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     loadData()
-
-    // Auto-process queue every 5 minutes
-    autoProcessRef.current = setInterval(async () => {
-      const result = await processRetryQueue()
-      if (result.processed > 0) {
-        toast.info(`Queue auto-processed: ${result.succeeded} succeeded, ${result.failed} failed`)
-        loadData()
-      }
-    }, 5 * 60 * 1000)
-
-    return () => {
-      if (autoProcessRef.current) clearInterval(autoProcessRef.current)
-    }
   }, [])
 
   async function loadData() {

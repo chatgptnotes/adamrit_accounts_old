@@ -231,6 +231,8 @@ interface VoucherEntryProps {
   voucherId?: string;
   /** Called after Accept / Cancel Vch / Delete / Quit in alteration mode */
   onDone?: () => void;
+  /** Select an active voucher type when opening a new voucher from a shortcut. */
+  initialVoucherCategory?: string;
 }
 
 // Against-Ref picker: focus lists the ledger's pending bill refs with
@@ -300,7 +302,7 @@ const RefPicker: React.FC<{ accountId?: string; value: string; onChange: (v: str
   );
 };
 
-const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
+const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialVoucherCategory }) => {
   const queryClient = useQueryClient();
   const { user, hospitalConfig } = useAuth();
   const { canAlter } = useAccountingRights();
@@ -399,6 +401,15 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
       return ((data || []) as (Account & { parent_account_id: string | null })[]).filter((a) => !parents.has(a.id));
     },
   });
+
+  // When opened from a Tally shortcut, select the requested voucher category
+  // once the active voucher types have loaded. Alteration mode always wins.
+  useEffect(() => {
+    if (alterMode || selectedVoucherType || !initialVoucherCategory || voucherTypes.length === 0) return;
+    const requested = initialVoucherCategory.toUpperCase();
+    const matchingType = voucherTypes.find((type) => type.voucher_category?.toUpperCase() === requested);
+    if (matchingType) setSelectedVoucherType(matchingType.id);
+  }, [alterMode, initialVoucherCategory, selectedVoucherType, voucherTypes]);
 
   // Default company: first one, so the screen is immediately usable like Tally
   useEffect(() => {
