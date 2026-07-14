@@ -22,11 +22,25 @@ interface TallyDashboardProps {
 function dedupeCompanyNames(options: string[]) {
   const seen = new Set<string>()
   return options.filter((option) => {
-    const key = option.trim().replace(/\s+/g, ' ').toLowerCase()
+    const key = companyKey(option)
     if (!key || seen.has(key)) return false
     seen.add(key)
     return true
   })
+}
+
+function companyKey(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+function getTimestamp(value?: string | null) {
+  const parsed = value ? Date.parse(value) : Number.NaN
+  return Number.isNaN(parsed) ? 0 : parsed
+}
+
+function isCompanyMismatchError(message: string) {
+  const text = (message || '').toLowerCase()
+  return text.includes('company') && (text.includes('not found') || text.includes('mismatch'))
 }
 
 export default function TallyDashboard({ serverUrl: propServerUrl, companyName: propCompanyName, companyId: propCompanyId, configs = [], liveCompanies = [], onConfigChange }: TallyDashboardProps) {
@@ -229,12 +243,46 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
         updated_at: new Date().toISOString(),
       }
 
-      if (configId) {
-        await ( supabase as any).from('tally_config').update(payload).eq('id', configId)
+      const { data: existingConfigs, error: lookupError } = await (supabase as any)
+        .from('tally_config')
+        .select('id, company_name, is_active, last_sync_at, updated_at, created_at')
+      if (lookupError) throw lookupError
+
+      const currentConfig = (existingConfigs || []).find((config: any) => config.id === configId)
+      const currentMatchesName = currentConfig &&
+        companyKey(currentConfig.company_name || '') === companyKey(companyName)
+      const matchingConfig = (existingConfigs || [])
+        .filter((config: any) => config.id !== configId && companyKey(config.company_name || '') === companyKey(companyName))
+        .sort((left: any, right: any) => {
+          const activeDelta = Number(right.is_active !== false) - Number(left.is_active !== false)
+          if (activeDelta !== 0) return activeDelta
+          const syncDelta = getTimestamp(right.last_sync_at) - getTimestamp(left.last_sync_at)
+          if (syncDelta !== 0) return syncDelta
+          const updatedDelta = getTimestamp(right.updated_at) - getTimestamp(left.updated_at)
+          if (updatedDelta !== 0) return updatedDelta
+          return getTimestamp(right.created_at) - getTimestamp(left.created_at)
+        })[0]
+
+      if (configId && currentMatchesName) {
+        const { error } = await (supabase as any).from('tally_config').update(payload).eq('id', configId)
+        if (error) throw error
+        toast.success('Configuration saved')
+        onConfigChange?.(configId)
+      } else if (matchingConfig) {
+        const { error } = await (supabase as any).from('tally_config').update(payload).eq('id', matchingConfig.id)
+        if (error) throw error
+        setConfigId(matchingConfig.id)
+        setIsAddingCompany(false)
+        toast.success('Existing company configuration reused')
+        onConfigChange?.(matchingConfig.id)
+      } else if (configId) {
+        const { error } = await (supabase as any).from('tally_config').update(payload).eq('id', configId)
+        if (error) throw error
         toast.success('Configuration saved')
         onConfigChange?.(configId)
       } else {
-        const { data } = await ( supabase as any).from('tally_config').insert(payload).select().single()
+        const { data, error } = await (supabase as any).from('tally_config').insert(payload).select().single()
+        if (error) throw error
         if (data) {
           setConfigId(data.id)
           setIsAddingCompany(false)
@@ -242,8 +290,8 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
           onConfigChange?.(data.id)
         }
       }
-    } catch (err) {
-      toast.error('Failed to save configuration')
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to save configuration')
     }
     setIsSaving(false)
   }
@@ -258,6 +306,34 @@ export default function TallyDashboard({ serverUrl: propServerUrl, companyName: 
     toast.info('Enter the new company name and click Save Configuration')
     setTimeout(() => companyInputRef.current?.focus(), 0)
   }
+
+  const connectionState = (() => {
+    if (isConnected) {
+      return {
+        tone: 'green',
+        title: 'Connected to TallyPrime',
+        detail: connectionInfo?.version ? `v${connectionInfo.version}` : 'Connection verified',
+      }
+    }
+
+    if (connectionError) {
+      if (isCompanyMismatchError(connectionError)) {
+        return {
+          tone: 'amber',
+          title: 'Tally company not found',
+          detail: connectionError,
+        }
+      }
+
+      return {
+        tone: 'red',
+        title: 'Tally server is not reachable',
+        detail: connectionError,
+      }
+    }
+
+    return null
+  })()
 
   async function handleDeleteCompany() {
     if (!configId) return
@@ -366,24 +442,28 @@ function getFirstSyncError(log: any): string {
           </div>
         </div>
 
-        {connectionInfo && isConnected && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4 text-sm">
-            <p className="font-medium text-green-800">Connected to TallyPrime (v{connectionInfo.version})</p>
-            {connectionInfo.companies.length > 0 && (
-              <p className="text-green-700 mt-1">
+        {connectionState && (
+          <div
+            className={`mb-4 rounded-lg border p-3 text-sm ${
+              connectionState.tone === 'green'
+                ? 'border-green-200 bg-green-50 text-green-800'
+                : connectionState.tone === 'amber'
+                  ? 'border-amber-200 bg-amber-50 text-amber-900'
+                  : 'border-red-200 bg-red-50 text-red-800'
+            }`}
+          >
+            <p className="font-medium">{connectionState.title}</p>
+            <p className="mt-1">{connectionState.detail}</p>
+            {isConnected && connectionInfo?.companies?.length > 0 && (
+              <p className="mt-2 text-green-700">
                 Companies: {connectionInfo.companies.join(', ')}
               </p>
             )}
-          </div>
-        )}
-
-        {connectionError && !isConnected && (
-          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-            <p className="font-medium">Tally server is not reachable</p>
-            <p className="mt-1">{connectionError}</p>
-            <p className="mt-2 text-red-700">
-              Verify TallyPrime is open on the server PC, the HTTP port is enabled, and firewall/router forwarding allows the deployed Adamrit server to reach this URL.
-            </p>
+            {!isConnected && !isCompanyMismatchError(connectionError) && (
+              <p className="mt-2 text-red-700">
+                Verify TallyPrime is open on the server PC, the HTTP port is enabled, and firewall/router forwarding allows the deployed Adamrit server to reach this URL.
+              </p>
+            )}
           </div>
         )}
 

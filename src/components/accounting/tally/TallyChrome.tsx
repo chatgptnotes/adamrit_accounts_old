@@ -38,7 +38,6 @@ export interface RailItem {
   /** Adds a gap above this item (Tally groups rail buttons) */
   gapBefore?: boolean;
 }
-
 export interface BottomBarItem {
   hotkey: string;
   label: string;
@@ -392,6 +391,8 @@ interface TallyScreenProps {
 
 export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp = [], bottomBar, onClose, closeLabel, children }) => {
   const { hospitalConfig, user, switchHospital } = useAuth();
+  const handleClose = onClose ?? (() => window.dispatchEvent(new CustomEvent('tally-escape')));
+  const closeText = closeLabel || '← Back';
 
   // Tally keeps every button live — give the common placeholders real actions.
   const goto = (tab: string) => window.dispatchEvent(new CustomEvent('tally-goto', { detail: tab }));
@@ -429,20 +430,21 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
             return item;
         }
       }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [railProp, user?.hospitalType],
+    [railProp, user?.hospitalType, switchHospital],
   );
 
   // Bind F-key / letter hotkeys declared by the rail + bottom bar
   useEffect(() => {
     const items = [...rail, ...(bottomBar ?? [])];
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
       const target = e.target as HTMLElement | null;
       const typing = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
       // Tally's Esc: step back one level — close this screen if it can close,
       // otherwise let the page fall back to the Gateway.
       if (e.key === 'Escape' && !typing) {
         e.preventDefault();
+        e.stopPropagation();
         if (onClose) onClose();
         else window.dispatchEvent(new CustomEvent('tally-escape'));
         return;
@@ -454,27 +456,27 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
         // Letter hotkeys only fire outside inputs; F-keys fire anywhere.
         if (isFKey ? e.key.toUpperCase() === hk : !typing && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.toUpperCase() === hk) {
           e.preventDefault();
+          e.stopPropagation();
           item.onClick();
           return;
         }
       }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+    };
   }, [rail, bottomBar, onClose]);
 
   return (
     <div style={TALLY_FONT} className="flex min-h-[calc(100vh-64px)] flex-col border border-[#9db8d8] bg-[#fffefb]">
       {/* Title strip */}
-      <div className="relative flex items-center bg-[#cfe0f1] px-2 py-0.5 text-[13px]">
-        <span className="font-semibold text-black">{title}</span>
+      <div className="relative flex items-center gap-2 bg-[#cfe0f1] px-2 py-0.5 text-[13px] leading-5">
+        <span className="min-w-0 truncate font-semibold text-black">{title}</span>
         <span className="absolute left-1/2 -translate-x-1/2 font-bold">{hospitalConfig.name} Hospital</span>
-        {onClose && (
-          <button type="button" onClick={onClose} className="ml-auto px-1 font-bold text-black hover:text-red-600" aria-label="Close">
-            {closeLabel || '✕'}
-          </button>
-        )}
+        <button type="button" onClick={handleClose} className="ml-auto px-1 font-bold text-black hover:text-red-600" aria-label={closeText}>
+          {closeText}
+        </button>
       </div>
 
       <div className="flex min-h-0 flex-1">
@@ -483,14 +485,14 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
 
         {/* Right button rail */}
         {rail.length > 0 && (
-          <div className="w-44 shrink-0 border-l border-[#9db8d8] bg-[#e4eefa] print:hidden">
+          <div className="w-48 shrink-0 border-l border-[#9db8d8] bg-[#e4eefa] print:hidden">
             {rail.map((item, i) => (
               <div key={`${item.label}-${i}`} className={item.gapBefore ? 'mt-4' : ''}>
                 <button
                   type="button"
                   onClick={item.onClick}
                   disabled={item.disabled || !item.onClick}
-                  className={`block w-full border-b border-white px-2 py-1 text-left text-[13px] ${
+                  className={`flex min-h-8 w-full items-center border-b border-white px-2 py-1 text-left text-[13px] leading-4 ${
                     item.active
                       ? 'bg-[#16437e] font-semibold text-white'
                       : item.disabled || !item.onClick
@@ -499,7 +501,7 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
                   }`}
                 >
                   {item.hotkey && (
-                    <span className={`font-semibold ${item.active ? 'text-white' : 'text-[#1d5aa8]'}`}>
+                    <span className={`inline-flex w-11 shrink-0 font-semibold ${item.active ? 'text-white' : 'text-[#1d5aa8]'}`}>
                       <span className="underline">{item.hotkey}</span>:{' '}
                     </span>
                   )}
@@ -524,9 +526,9 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
               key={b.hotkey}
               type="button"
               onClick={b.onClick}
-              className="border border-[#9db8d8] bg-white px-3 py-0.5 text-[13px] text-black hover:bg-[#fdf6d8]"
+              className="flex min-h-8 items-center border border-[#9db8d8] bg-white px-3 py-0.5 text-[13px] text-black hover:bg-[#fdf6d8]"
             >
-              <span className="font-semibold text-[#1d5aa8]">
+              <span className="inline-flex w-11 shrink-0 font-semibold text-[#1d5aa8]">
                 <span className="underline">{b.hotkey}</span>:
               </span>{' '}
               {b.label}
@@ -543,11 +545,11 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
               type="button"
               onClick={b.onClick}
               disabled={b.disabled || !b.onClick}
-              className={`border border-[#9db8d8] bg-white px-3 py-0.5 text-[13px] ${
+              className={`flex min-h-8 items-center border border-[#9db8d8] bg-white px-3 py-0.5 text-[13px] ${
                 b.disabled || !b.onClick ? 'cursor-default text-[#8fa8c8]' : 'text-black hover:bg-[#fdf6d8]'
               }`}
             >
-              <span className="font-semibold text-[#1d5aa8]">
+              <span className="inline-flex w-11 shrink-0 font-semibold text-[#1d5aa8]">
                 <span className="underline">{b.hotkey}</span>:
               </span>{' '}
               {b.label}
@@ -558,3 +560,5 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
     </div>
   );
 };
+
+

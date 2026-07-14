@@ -115,6 +115,7 @@ export default function TallyPage() {
   const [configs, setConfigs] = useState<TallyConfigOption[]>([])
   const [liveCompanies, setLiveCompanies] = useState<string[]>([])
   const [refreshingAll, setRefreshingAll] = useState(false)
+  const [refreshVersion, setRefreshVersion] = useState(0)
 
   const loadLiveCompanies = useCallback(async (targetServerUrl?: string): Promise<string[]> => {
     if (!targetServerUrl) {
@@ -165,40 +166,65 @@ export default function TallyPage() {
         const discovered = Array.from(new Set(discoveredByServer.flatMap((item) => item.companies)))
         const liveTarget = [...activeConfigs]
           .sort(compareConfigPriority)
-          .find((config) => discovered.some((company) => sameCompanyName(company, config.company_name)))
-        if (liveTarget && !discovered.some((company) => sameCompanyName(company, target.company_name))) {
+          .find((config) => discovered.some((company) => companyKey(company) === companyKey(config.company_name)))
+        if (liveTarget && !discovered.some((company) => companyKey(company) === companyKey(target.company_name))) {
           setServerUrl(liveTarget.server_url || '')
           setCompanyName(liveTarget.company_name || '')
           setCompanyId(liveTarget.id)
         }
         setLiveCompanies(discovered)
-        const existing = new Set(data.map((item) => item.company_name).filter(Boolean))
-        const missing = discoveredByServer.flatMap(({ server_url, companies }) =>
-          companies
-            .filter((name) => name && !existing.has(name))
-            .map((company_name) => ({ company_name, server_url })),
-        )
-        if (missing.length > 0) {
-          await Promise.all(
-            missing.map(({ company_name, server_url }) =>
-              supabase.from('tally_config').insert({
-                company_name,
-                server_url,
+        const discoveredConfigs = new Map<string, { company_name: string; server_url: string }>()
+        for (const { server_url, companies } of discoveredByServer) {
+          for (const company_name of companies) {
+            const key = companyKey(company_name)
+            if (key && !discoveredConfigs.has(key)) {
+              discoveredConfigs.set(key, { company_name, server_url })
+            }
+          }
+        }
+
+        let configsChanged = false
+        for (const [key, discoveredConfig] of discoveredConfigs) {
+          const matches = (data || [])
+            .filter((config) => companyKey(config.company_name) === key)
+            .sort(compareConfigPriority)
+          const activeMatch = matches.find((config) => config.is_active !== false)
+          if (activeMatch) continue
+
+          const archivedMatch = matches[0]
+          const writeResult = archivedMatch
+            ? await (supabase as any).from('tally_config').update({
+                company_name: discoveredConfig.company_name,
+                server_url: discoveredConfig.server_url,
                 is_active: true,
+                auto_sync_enabled: false,
+                updated_at: new Date().toISOString(),
+              }).eq('id', archivedMatch.id)
+            : await (supabase as any).from('tally_config').insert({
+                ...discoveredConfig,
+                is_active: true,
+                auto_sync_enabled: false,
                 hospital_id: null,
               })
-            )
-          )
+
+          if (writeResult.error) {
+            console.error('Failed to reuse discovered Tally company', writeResult.error)
+          } else {
+            configsChanged = true
+          }
+        }
+
+        if (configsChanged) {
           const { data: refreshed } = await supabase
             .from('tally_config')
             .select('id, server_url, company_name, is_active, last_sync_at, updated_at, created_at')
             .order('company_name')
-          const refreshedConfigs = refreshed || []
+          const refreshedConfigs = (refreshed || []).filter((config) => config.is_active !== false)
           setConfigs(refreshedConfigs)
           const refreshedLiveTarget = refreshedConfigs.find((config) =>
-            discovered.some((company) => sameCompanyName(company, config.company_name))
+            discovered.some((company) => companyKey(company) === companyKey(config.company_name))
           )
-          const refreshedTarget = refreshedLiveTarget && !discovered.some((company) => sameCompanyName(company, target.company_name))
+          const refreshedTarget = refreshedLiveTarget && !discovered.some((company) => companyKey(company) === companyKey(target.company_name))
             ? refreshedLiveTarget
             : pickPreferredConfig(refreshedConfigs, target.id)
           if (refreshedTarget) {
@@ -226,30 +252,16 @@ export default function TallyPage() {
     [companyOptions]
   )
 
-  const handleCompanyChange = useCallback(
-    async (selectedId: string) => {
-      const config = configs.find((c) => c.id === selectedId)
-      if (config) {
-        setCompanyId(config.id)
-        setCompanyName(config.company_name)
-        setServerUrl(config.server_url || '')
-        await loadLiveCompanies(config.server_url || '')
-      }
-    },
-    [configs, loadLiveCompanies]
-  )
-
   const handleCompanyNameChange = useCallback(
-    async (selectedName: string) => {
+    (selectedName: string) => {
       const config = configs.find((c) => c.company_name === selectedName)
       if (config) {
         setCompanyId(config.id)
         setCompanyName(config.company_name)
         setServerUrl(config.server_url || '')
-        await loadLiveCompanies(config.server_url || '')
       }
     },
-    [configs, loadLiveCompanies]
+    [configs]
   )
 
   useEffect(() => {
@@ -297,6 +309,7 @@ export default function TallyPage() {
 
     if (synced > 0) {
       toast.success(`Refreshed data for ${synced} company(ies)${failed ? `, ${failed} failed` : ''}`)
+      setRefreshVersion((value) => value + 1)
     } else if (failed === 0) {
       toast.error('No valid Tally companies available to refresh')
     }
@@ -385,7 +398,7 @@ export default function TallyPage() {
             <span className="text-gray-600">F3:</span>
             <select
               value={companyName}
-              onChange={(e) => { void handleCompanyNameChange(e.target.value) }}
+              onChange={(e) => handleCompanyNameChange(e.target.value)}
               className="border border-[#9db8d8] bg-white px-2 py-0.5 text-[13px] font-medium text-[#16437e] cursor-pointer focus:outline-none focus:bg-[#fdf6d8]"
             >
               {companyNameOptions.map(name => (
@@ -418,7 +431,7 @@ export default function TallyPage() {
           </nav>
         </div>
         {/* Tab Content */}
-        <div>
+        <div key={`${activeTab}-${companyId}-${refreshVersion}`}>
           {activeTab === 'dashboard' && <TallyDashboard serverUrl={serverUrl} companyName={companyName} companyId={companyId} configs={configs} onConfigChange={(newId) => loadConfigs(newId)} />}
           {activeTab === 'ledgers' && <TallyLedgers serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
           {activeTab === 'vouchers' && <TallyVouchers serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}

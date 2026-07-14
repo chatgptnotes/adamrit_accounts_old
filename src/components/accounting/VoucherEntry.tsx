@@ -114,7 +114,7 @@ const RAIL_KEYS: { hotkey: string; category: string; label: string }[] = [
   { hotkey: 'F9', category: 'PURCHASE', label: 'Purchase' },
 ];
 
-// Current balance = opening + posted debits − credits, formatted "1,234.00 Dr".
+// Current balance = opening + posted debits - credits, formatted "1,234.00 Dr".
 const balanceLabel = (bal: number | undefined): string => {
   if (bal === undefined) return '';
   if (bal === 0) return '0.00';
@@ -340,7 +340,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
   const narrationRef = useRef<HTMLTextAreaElement | null>(null);
   const dateRef = useRef<HTMLInputElement | null>(null);
 
-  // Current-balance cache per account id (opening + AUTHORISED debits − credits)
+  // Current-balance cache per account id (opening + AUTHORISED debits - credits)
   const [balances, setBalances] = useState<Record<string, number>>({});
   const loadBalance = useCallback(async (accountId: string) => {
     if (accountId in balances) return;
@@ -388,12 +388,14 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
   });
 
   const { data: accounts = [] } = useQuery({
-    queryKey: ['chart_of_accounts_leaves'],
+    queryKey: ['chart_of_accounts_leaves', selectedCompanyId],
+    enabled: !!selectedCompanyId,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('chart_of_accounts')
         .select('id, account_code, account_name, account_type, parent_account_id')
         .eq('is_active', true)
+        .eq('company_id', selectedCompanyId)
         .order('account_code');
       if (error) throw error;
       // Tally never posts to group headers — offer leaf accounts only
@@ -1015,7 +1017,15 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
             {voucherDate > format(new Date(), 'yyyy-MM-dd') && (
               <span className="bg-purple-700 px-2 py-0.5 text-[11px] font-bold text-white">POST-DATED</span>
             )}
-            <Select value={selectedCompanyId} onValueChange={setSelectedCompanyId}>
+            <Select
+              value={selectedCompanyId}
+              onValueChange={(value) => {
+                setSelectedCompanyId(value)
+                setAccount(null)
+                setPartLines([newParticularsLine()])
+                setJournalLines([newJournalLine('Dr'), newJournalLine('Cr')])
+              }}
+            >
               <SelectTrigger className="h-6 w-56 border-gray-300 bg-white text-xs shadow-none">
                 <SelectValue placeholder="Select company" />
               </SelectTrigger>

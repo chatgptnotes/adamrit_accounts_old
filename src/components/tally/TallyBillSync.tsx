@@ -238,7 +238,7 @@ export default function TallyBillSync({ serverUrl, companyName, companyId }: Tal
               onClick={loadVouchers}
               className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 flex items-center gap-1.5"
             >
-              <RefreshCw className="h-4 w-4" /> Refresh
+              <RefreshCw className="h-4 w-4" /> Reload
             </button>
           </div>
         </div>

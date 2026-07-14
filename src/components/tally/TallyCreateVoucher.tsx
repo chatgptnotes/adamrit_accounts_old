@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '@/integrations/supabase/client'
 import { toast } from 'sonner'
-import { PlusCircle, RefreshCw, Loader2, CheckCircle2, WifiOff } from 'lucide-react'
+import { PlusCircle, Loader2, CheckCircle2 } from 'lucide-react'
 import { SearchableSelect, type SearchableSelectOption } from '@/components/ui/searchable-select'
 import { isUuid } from '@/utils/visitId'
 
@@ -9,7 +9,6 @@ interface Ledger {
   name: string
   parent_group: string | null
 }
-
 interface VoucherLedgerEntry {
   ledger?: string
   ledgerName?: string
@@ -129,7 +128,6 @@ function getVoucherFlow(voucher: VoucherHistory, accountLedger: string): 'debit'
 export default function TallyCreateVoucher({ serverUrl, companyName, companyId }: Props) {
   const [allLedgers, setAllLedgers] = useState<Ledger[]>([])
   const [loadingLedgers, setLoadingLedgers] = useState(false)
-  const [tallyOnline, setTallyOnline] = useState<boolean | null>(null)
 
   const [form, setForm] = useState({
     paymentNo: '',
@@ -236,64 +234,8 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
   }, [companyId])
 
   // ── Ledger fetch ──────────────────────────────────────────────
-  const loadLedgers = useCallback(async (forceLive = false) => {
+  const loadLedgers = useCallback(async () => {
     setLoadingLedgers(true)
-    let liveSuccess = false
-
-    const testLiveConnection = async () => {
-      try {
-        const res = await fetch('/api/tally-proxy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            endpoint: 'test-connection',
-            serverUrl,
-            companyName,
-          }),
-        })
-        const result = await res.json()
-        return !!result.connected && result.companyValid === true
-      } catch {
-        return false
-      }
-    }
-
-    // 1. Try to refresh from TallyPrime live
-    if ((forceLive || tallyOnline !== false) && serverUrl && companyName) {
-      try {
-        liveSuccess = await testLiveConnection()
-        if (!liveSuccess) {
-          setTallyOnline(false)
-        } else {
-          const res = await fetch('/api/tally-proxy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            endpoint: 'sync',
-            action: 'ledgers',
-            serverUrl,
-            companyName,
-            companyId,
-          }),
-          })
-          const result = await res.json()
-          if (result.recordsSynced > 0 || result.success) {
-            setTallyOnline(true)
-          } else if (typeof result.message === 'string' && result.message.includes('Sync not available in dev mode')) {
-            // Vite dev has no Supabase service-role sync, but Tally itself is live.
-            setTallyOnline(true)
-          } else {
-            liveSuccess = false
-            setTallyOnline(false)
-          }
-        }
-      } catch {
-        liveSuccess = false
-        setTallyOnline(false)
-      }
-    }
-
-    // 2. Read all tally_ledgers pages (fresh or cached)
     const ledgers = await fetchAllPages<Ledger>(() =>
       supabase
         .from('tally_ledgers')
@@ -305,18 +247,16 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
 
     if (ledgers.length > 0) {
       setAllLedgers(ledgers)
-      if (!liveSuccess) setTallyOnline(false)
-    } else if (!liveSuccess) {
-      setTallyOnline(false)
-      toast.warning('No ledgers found. Make sure Tally is online and sync at least once.')
+    } else {
+      toast.warning('No cached ledgers found yet. Use Refresh All in the Tally toolbar to sync from Tally.')
     }
 
     setLoadingLedgers(false)
-  }, [serverUrl, companyName, companyId, tallyOnline])
+  }, [companyId])
 
   useEffect(() => {
     if (companyId) loadLedgers()
-  }, [companyId])
+  }, [companyId, loadLedgers])
 
   useEffect(() => {
     loadVoucherHistory()
@@ -499,20 +439,11 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
       {/* Ledger status bar */}
       <div className="flex items-center justify-between bg-white border rounded-xl px-4 py-3">
         <div className="flex items-center gap-2 text-sm">
-          {tallyOnline === true && <><CheckCircle2 className="h-4 w-4 text-green-500" /><span className="text-green-700">Ledgers loaded from TallyPrime ({allLedgers.length})</span></>}
-          {tallyOnline === false && <><WifiOff className="h-4 w-4 text-amber-500" /><span className="text-amber-700">Tally offline — showing cached ledgers ({allLedgers.length})</span></>}
-          {tallyOnline === null && loadingLedgers && <><Loader2 className="h-4 w-4 animate-spin text-blue-500" /><span className="text-blue-700">Loading ledgers from TallyPrime…</span></>}
+          {loadingLedgers && <><Loader2 className="h-4 w-4 animate-spin text-blue-500" /><span className="text-blue-700">Loading cached ledgers...</span></>}
+          {!loadingLedgers && allLedgers.length > 0 && <><CheckCircle2 className="h-4 w-4 text-green-500" /><span className="text-green-700">Ledgers loaded from Supabase ({allLedgers.length})</span></>}
+          {!loadingLedgers && allLedgers.length === 0 && <span className="text-amber-700">No cached ledgers yet. Use Refresh All in the Tally toolbar to sync from Tally.</span>}
         </div>
-        <button
-          onClick={() => loadLedgers(true)}
-          disabled={loadingLedgers}
-          className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${loadingLedgers ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
       </div>
-
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(520px,0.95fr)]">
         {/* Form */}
         <div className="bg-white border rounded-xl p-6 space-y-5">
@@ -565,7 +496,7 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
             className="h-11 justify-between"
           />
           {allLedgers.length === 0 && !loadingLedgers && (
-            <p className="text-xs text-amber-600 mt-1">No ledgers found. Make sure Tally is online and click Refresh.</p>
+            <p className="text-xs text-amber-600 mt-1">No cached ledgers found yet. Use Refresh All in the Tally toolbar to sync from Tally.</p>
           )}
         </div>
 
@@ -765,3 +696,4 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId }
     </div>
   )
 }
+

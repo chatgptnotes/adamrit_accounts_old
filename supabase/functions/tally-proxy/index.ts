@@ -19,6 +19,84 @@ function formatDate(dateStr: string): string {
   return (dateStr || '').replace(/-/g, '')
 }
 
+function canonicalCompanyKey(value: string): string {
+  return (value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+function normalizedServerUrl(value: string): string {
+  return new URL(value).toString().replace(/\/$/, '').toLowerCase()
+}
+
+function accountingCompanyKey(value: string): string {
+  return canonicalCompanyKey(value)
+    .replace(/privatelimited/g, 'pvtltd')
+    .replace(/private/g, 'pvt')
+    .replace(/limited/g, 'ltd')
+}
+
+function tallyChartAccountCode(companyId: string, ledgerName: string): string {
+  let hash = 2166136261
+  for (const char of ledgerName) {
+    hash ^= char.charCodeAt(0)
+    hash = Math.imul(hash, 16777619)
+  }
+  return `TL${companyId.replace(/-/g, '').slice(0, 6)}${(hash >>> 0).toString(36).padStart(7, '0').slice(-7)}`
+}
+
+function accountTypeForTallyGroup(parentGroup?: string | null): string {
+  const group = (parentGroup || '').toLowerCase()
+  if (group.includes('bank') || group.includes('cash') || group.includes('debtor') || group.includes('stock')) return 'CURRENT_ASSETS'
+  if (group.includes('fixed asset')) return 'FIXED_ASSETS'
+  if (group.includes('loan')) return 'LONG_TERM_LIABILITIES'
+  if (group.includes('creditor') || group.includes('dutie') || group.includes('liabilit')) return 'CURRENT_LIABILITIES'
+  if (group.includes('capital') || group.includes('reserve')) return 'EQUITY'
+  if (group.includes('income') || group.includes('sale')) return group.includes('direct') ? 'DIRECT_INCOME' : 'INDIRECT_INCOME'
+  if (group.includes('expense') || group.includes('purchase')) return group.includes('direct') ? 'DIRECT_EXPENSES' : 'INDIRECT_EXPENSES'
+  return 'CURRENT_ASSETS'
+}
+
+async function mirrorTallyLedgersToChartAccounts(supabase: any, tallyCompanyName: string, ledgerRows: any[]) {
+  if (ledgerRows.length === 0) return
+
+  const { data: companies, error: companyError } = await supabase
+    .from('companies')
+    .select('id, company_name')
+    .eq('is_active', true)
+  if (companyError) throw companyError
+
+  const company = (companies || []).find((item: any) =>
+    accountingCompanyKey(item.company_name) === accountingCompanyKey(tallyCompanyName),
+  )
+  if (!company) return
+
+  const { data: existing, error: existingError } = await supabase
+    .from('chart_of_accounts')
+    .select('account_name')
+    .eq('company_id', company.id)
+  if (existingError) throw existingError
+
+  const existingNames = new Set((existing || []).map((item: any) => item.account_name.trim().toLowerCase()))
+  const missing = ledgerRows
+    .filter((ledger) => !existingNames.has(ledger.name.trim().toLowerCase()))
+    .map((ledger) => ({
+      company_id: company.id,
+      account_code: tallyChartAccountCode(company.id, ledger.name),
+      account_name: ledger.name,
+      account_type: accountTypeForTallyGroup(ledger.parent_group),
+      account_group: ledger.parent_group || null,
+      opening_balance: Math.abs(Number(ledger.opening_balance) || 0),
+      opening_balance_type: Number(ledger.opening_balance) < 0 ? 'CR' : 'DR',
+      is_active: true,
+    }))
+
+  for (let index = 0; index < missing.length; index += 100) {
+    const { error } = await supabase
+      .from('chart_of_accounts')
+      .upsert(missing.slice(index, index + 100), { onConflict: 'account_code' })
+    if (error) throw error
+  }
+}
+
 function getVal(xml: string, tag: string): string {
   const m = xml.match(new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`, 'i'))
   return m ? m[1].trim() : ''
@@ -38,7 +116,7 @@ function buildExportXml(reportId: string, companyName: string, extraVars = ''): 
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>${reportId}</ID></HEADER>
   <BODY><DESC><STATICVARIABLES>
     <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-    <SVCURRENTCOMPANY>${companyName}</SVCURRENTCOMPANY>
+    <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>
     ${extraVars}
   </STATICVARIABLES></DESC></BODY>
 </ENVELOPE>`
@@ -90,7 +168,7 @@ async function handleTestConnection(body: any) {
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>List of Companies</ID></HEADER>
   <BODY><DESC><STATICVARIABLES>
     <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-    ${companyName ? `<SVCURRENTCOMPANY>${companyName}</SVCURRENTCOMPANY>` : ''}
+    ${companyName ? `<SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>` : ''}
   </STATICVARIABLES></DESC></BODY>
 </ENVELOPE>`
 
@@ -129,21 +207,38 @@ async function handlePush(body: any) {
 }
 
 async function handleSync(body: any) {
-  const { action, serverUrl, companyName, dateRange } = body
-  if (!serverUrl || !companyName || !action) return { error: 'Missing required fields' }
+  let { action, serverUrl, companyName, companyId, dateRange } = body
+  if (!serverUrl || !companyName || !companyId || !action) return { error: 'Missing required fields' }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
   const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   const supabase = createClient(supabaseUrl, supabaseKey)
   const startTime = Date.now()
 
-  // Resolve company_id from companyName (required for correct upsert conflict target)
-  const { data: configRow } = await supabase.from('tally_config').select('id').eq('company_name', companyName).single()
-  const companyId: string | null = configRow?.id ?? null
+  const { data: configRow, error: configError } = await supabase
+    .from('tally_config')
+    .select('id, server_url, company_name, is_active')
+    .eq('id', companyId)
+    .maybeSingle()
+  if (configError) return { error: `Could not validate Tally company configuration: ${configError.message}` }
+  if (!configRow || configRow.is_active === false) return { error: 'The selected Tally company configuration is inactive or missing' }
+
+  let matchesSavedConfig = false
+  try {
+    matchesSavedConfig = normalizedServerUrl(serverUrl) === normalizedServerUrl(configRow.server_url || '') &&
+      canonicalCompanyKey(companyName) === canonicalCompanyKey(configRow.company_name || '')
+  } catch {
+    matchesSavedConfig = false
+  }
+  if (!matchesSavedConfig) return { error: 'The selected company does not match its configured Tally server' }
+
+  serverUrl = configRow.server_url
+  companyName = configRow.company_name
 
   // Create sync log
   const { data: logData } = await supabase.from('tally_sync_log').insert({
     sync_type: action, direction: 'inward', status: 'started',
+    company_id: companyId,
   }).select().single()
   const logId = logData?.id
 
@@ -157,11 +252,12 @@ async function handleSync(body: any) {
         const xml = buildExportXml('List of Ledgers', companyName)
         const response = await fetchFromTally(serverUrl, xml)
         const elements = getAll(response, 'LEDGER')
+        const ledgerRows: any[] = []
         for (const el of elements) {
           try {
             const name = getVal(el, 'NAME') || getAttr(el, 'NAME')
             if (!name) continue
-            await supabase.from('tally_ledgers').upsert({
+            const ledger = {
               company_id: companyId,
               name, tally_guid: getVal(el, 'GUID') || getAttr(el, 'GUID') || null,
               parent_group: getVal(el, 'PARENT'),
@@ -173,9 +269,16 @@ async function handleSync(body: any) {
               gst_number: getVal(el, 'PARTYGSTIN') || null,
               pan_number: getVal(el, 'INCOMETAXNUMBER') || null,
               last_synced_at: new Date().toISOString(),
-            }, { onConflict: 'company_id,name', ignoreDuplicates: false })
+            }
+            await supabase.from('tally_ledgers').upsert(ledger, { onConflict: 'company_id,name', ignoreDuplicates: false })
+            ledgerRows.push(ledger)
             recordsSynced++
           } catch (e: any) { recordsFailed++; errors.push(e.message) }
+        }
+        try {
+          await mirrorTallyLedgersToChartAccounts(supabase, companyName, ledgerRows)
+        } catch (mirrorError: any) {
+          errors.push(`Could not mirror Tally ledgers to voucher accounts: ${mirrorError.message}`)
         }
         break
       }
@@ -337,7 +440,7 @@ async function handleSync(body: any) {
       }
       case 'full': {
         for (const subAction of ['groups', 'ledgers', 'stock', 'vouchers', 'reports']) {
-          const subResult = await handleSync({ action: subAction, serverUrl, companyName, dateRange })
+          const subResult = await handleSync({ action: subAction, serverUrl, companyName, companyId, dateRange })
           recordsSynced += subResult.recordsSynced || 0
           recordsFailed += subResult.recordsFailed || 0
         }
@@ -359,7 +462,7 @@ async function handleSync(body: any) {
       completed_at: new Date().toISOString(), duration_ms: durationMs,
     }).eq('id', logId)
   }
-  await supabase.from('tally_config').update({ last_sync_at: new Date().toISOString() }).eq('is_active', true)
+  await supabase.from('tally_config').update({ last_sync_at: new Date().toISOString() }).eq('id', companyId)
 
   return { success: true, action, recordsSynced, recordsFailed, errors: errors.length > 0 ? errors : undefined, durationMs }
 }
