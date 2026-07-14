@@ -13,8 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Calendar, CalendarDays, Loader2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { geminiGenerateContentUrl, geminiFetch } from "@/lib/gemini";
-import { LLM_BACKEND, callVpsClaude } from "@/lib/vpsClaude";
+import { geminiGenerateContentUrl, geminiFetch, GEMINI_MODEL } from "@/lib/gemini";
 import { downscaleImageForVision } from "@/lib/downscaleImage";
 import { format } from 'date-fns';
 import { useAuth } from '@/contexts/AuthContext';
@@ -37,6 +36,38 @@ interface MedicationRow {
   };
   isSos: boolean;
 }
+
+type GeminiPart = { text: string } | { inline_data: { mime_type: string; data: string } };
+
+const generateGeminiText = async (
+  prompt: string,
+  generationConfig: Record<string, unknown> = {},
+  extraParts: GeminiPart[] = [],
+): Promise<string> => {
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey || apiKey === 'your_gemini_api_key_here') {
+    throw new Error('Gemini API key is not configured (VITE_GEMINI_API_KEY).');
+  }
+
+  const response = await geminiFetch(geminiGenerateContentUrl('', GEMINI_MODEL), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }, ...extraParts] }],
+      generationConfig,
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error?.message || response.statusText || 'Gemini API request failed.');
+  }
+
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (typeof text !== 'string' || !text.trim()) {
+    throw new Error('Gemini returned an empty response.');
+  }
+  return text.trim();
+};
 
 // Helper function to extract value from JSON or return as-is
 const extractValueFromJSON = (data: any): string => {
@@ -1503,7 +1534,7 @@ URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 937
   // every discharge-summary section from the extracted data (overwrite mode).
   const autoFillFromPhotos = async () => {
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (LLM_BACKEND !== 'vps' && (!apiKey || apiKey === 'your_gemini_api_key_here')) {
+    if (!apiKey || apiKey === 'your_gemini_api_key_here') {
       toast({ title: 'AI not configured', description: 'Gemini API key is not set (VITE_GEMINI_API_KEY).', variant: 'destructive' });
       return;
     }
@@ -1515,12 +1546,10 @@ URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 937
     try {
       // Downscale every image and pack them all into ONE vision request.
       const imageParts: { inline_data: { mime_type: string; data: string } }[] = [];
-      const visionImages: { base64: string; mimeType: string }[] = [];
       for (const f of autoFillFiles) {
         try {
           const { base64, mimeType } = await downscaleImageForVision(f);
           imageParts.push({ inline_data: { mime_type: mimeType, data: base64 } });
-          visionImages.push({ base64, mimeType });
         } catch (e) {
           console.warn('Could not process one image:', e);
         }
@@ -1541,27 +1570,11 @@ URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 937
 }
 Rules: Use ONLY information visible in the images for diagnosis, medications, vitals and hospital_stay_notes — do NOT invent medications or treatment. If a field is not present, use an empty string (or empty array for medications). Mark illegible text as [unclear]. Return valid JSON only.`;
 
-      let raw: string;
-      if (LLM_BACKEND === 'vps') {
-        // Vision on VPS Claude Opus (subscription auth). All photos go in one
-        // request. No fallback: a VPS error throws and is caught below.
-        raw = (await callVpsClaude(prompt, 'opus', visionImages)) || '';
-      } else {
-        const res = await geminiFetch(geminiGenerateContentUrl(apiKey), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }, ...imageParts] }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 8192, thinkingConfig: { thinkingBudget: 0 } },
-          }),
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error?.message || res.statusText);
-        }
-        const data = await res.json();
-        raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      }
+      const raw = await generateGeminiText(
+        prompt,
+        { temperature: 0.1, maxOutputTokens: 8192, thinkingConfig: { thinkingBudget: 0 } },
+        imageParts,
+      );
       const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
       let parsed: any;
       try {
@@ -2739,7 +2752,7 @@ Rules: Use ONLY information visible in the images for diagnosis, medications, vi
   </div>
 
   ${(() => {
-    // Try to extract elaborated DIAGNOSIS from ot_notes (ChatGPT response)
+    // Try to extract elaborated DIAGNOSIS from ot_notes (AI response)
     let diagnosis = summaryData.primary_diagnosis || '';
     if (summaryData.ot_notes) {
       const diagMatch = summaryData.ot_notes.match(/^DIAGNOSIS:\s*([\s\S]*?)(?=\nCLINICAL HISTORY:|\n\n)/i);
@@ -4079,7 +4092,7 @@ DD/MM/YYYY:-Test Category: Test1:Value1 unit, Test2:Value2 unit`);
             disabled={isClinicalHistoryGenerating}
             onClick={async () => {
               const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-              if (LLM_BACKEND !== 'vps' && (!apiKey || apiKey === 'your_gemini_api_key_here')) {
+              if (!apiKey || apiKey === 'your_gemini_api_key_here') {
                 toast({ title: 'AI not configured', description: 'Gemini API key is not set (VITE_GEMINI_API_KEY).', variant: 'destructive' });
                 return;
               }
@@ -4090,9 +4103,12 @@ DD/MM/YYYY:-Test Category: Test1:Value1 unit, Test2:Value2 unit`);
               setIsClinicalHistoryGenerating(true);
               try {
                 const prompt = `You are a medical specialist. Elaborate the following presenting complaints into a concise Clinical History / History of Present Illness paragraph of 3 to 4 lines for a doctor reader. Do NOT mention any diagnosis, and do NOT mention the patient's name, age or sex. Use formal medical language. Only elaborate the complaints given — do not invent unrelated findings or investigations.\n\nPresenting complaints:\n${caseSummaryPresentingComplaints.trim()}`;
-                // Generation runs on VPS Claude (Opus). OCR/vision elsewhere on
                 // this page still uses Gemini.
-                const text = await callVpsClaude(prompt, 'opus');
+                const text = await generateGeminiText(prompt, {
+                  temperature: 0.4,
+                  maxOutputTokens: 600,
+                  thinkingConfig: { thinkingBudget: 0 },
+                });
                 setCaseSummaryPresentingComplaints(text.trim());
                 toast({ title: 'Success', description: 'Clinical history elaborated.' });
               } catch (error: any) {
@@ -4147,7 +4163,7 @@ DD/MM/YYYY:-Test Category: Test1:Value1 unit, Test2:Value2 unit`);
             disabled={isStayNotesGenerating}
             onClick={async () => {
               const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-              if (LLM_BACKEND !== 'vps' && (!apiKey || apiKey === 'your_gemini_api_key_here')) {
+              if (!apiKey || apiKey === 'your_gemini_api_key_here') {
                 toast({
                   title: 'AI not configured',
                   description: 'Gemini API key is not set (VITE_GEMINI_API_KEY).',
@@ -4199,21 +4215,11 @@ DD/MM/YYYY:-Test Category: Test1:Value1 unit, Test2:Value2 unit`);
                   try {
                     const blob = await (await fetch((s as any).prescription_image_url)).blob();
                     const { base64, mimeType } = await downscaleImageForVision(blob);
-                    let t: string | undefined;
-                    if (LLM_BACKEND === 'vps') {
-                      t = await callVpsClaude(OCR_PROMPT, 'opus', [{ base64, mimeType }]);
-                    } else {
-                      const ocrRes = await geminiFetch(geminiGenerateContentUrl(apiKey), {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          contents: [{ parts: [{ text: OCR_PROMPT }, { inline_data: { mime_type: mimeType, data: base64 } }] }],
-                          generationConfig: { temperature: 0.1, maxOutputTokens: 4000 },
-                        }),
-                      });
-                      const ocrData = await ocrRes.json();
-                      t = ocrData.candidates?.[0]?.content?.parts?.[0]?.text;
-                    }
+                    const t = await generateGeminiText(
+                      OCR_PROMPT,
+                      { temperature: 0.1, maxOutputTokens: 4000 },
+                      [{ inline_data: { mime_type: mimeType, data: base64 } }],
+                    );
                     if (t && t.trim()) ocrTexts.push(t.trim());
                   } catch (e) {
                     console.warn('Treatment sheet OCR failed for one image:', e);
@@ -4255,9 +4261,12 @@ IMPORTANT — TREATMENT DATA SOURCE: The "TREATMENT SHEET (read via OCR)" below 
                 );
                 const userData = dataParts.join('\n\n');
 
-                // Narrative generation on VPS Claude (Opus); the treatment-sheet
                 // OCR above still runs on Gemini vision.
-                const text = await callVpsClaude(STAY_NOTES_PROMPT + '\n\nPatient data:\n' + userData, 'opus');
+                const text = await generateGeminiText(STAY_NOTES_PROMPT + '\n\nPatient data:\n' + userData, {
+                  temperature: 0.4,
+                  maxOutputTokens: 8192,
+                  thinkingConfig: { thinkingBudget: 0 },
+                });
 
                 // If the note comes back too short (< 4 non-empty lines), expand it
                 // ONCE — elaborating only on the real data, never inventing facts.
@@ -4266,9 +4275,9 @@ IMPORTANT — TREATMENT DATA SOURCE: The "TREATMENT SHEET (read via OCR)" below 
                 if (countLines(finalText) < 4) {
                   const EXPAND_PROMPT = `The following hospital stay note is too brief. Expand it into a fuller, well-structured professional note. CRITICAL: do NOT add any new clinical facts, medications, findings, complications or events — use ONLY the patient data and treatment sheet provided. Elaborate, organise and explain the existing real data more thoroughly; do not invent anything. If the source data is limited, it is acceptable for the note to remain short.`;
                   try {
-                    const expanded = await callVpsClaude(
+                    const expanded = await generateGeminiText(
                       EXPAND_PROMPT + '\n\nPatient data:\n' + userData + '\n\nCurrent note:\n' + finalText,
-                      'opus',
+                      { temperature: 0.4, maxOutputTokens: 8192, thinkingConfig: { thinkingBudget: 0 } },
                     );
                     if (expanded && countLines(expanded) > countLines(finalText)) finalText = expanded;
                   } catch (e) {
@@ -4763,7 +4772,7 @@ IMPORTANT — TREATMENT DATA SOURCE: The "TREATMENT SHEET (read via OCR)" below 
                     // Google returns a generic "API key not valid" that
                     // masks the real problem (the key was never set).
                     const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
-                    if (LLM_BACKEND !== 'vps' && (!geminiApiKey || geminiApiKey === 'your_gemini_api_key_here')) {
+                    if (!geminiApiKey || geminiApiKey === 'your_gemini_api_key_here') {
                       throw new Error(
                         'Gemini API key is not configured. Add VITE_GEMINI_API_KEY=<your-key> to .env and restart the dev server.'
                       );
@@ -4826,8 +4835,11 @@ STRICT RULES:
 - Multiple surgeries: separate paragraphs with one blank line.
 - Output ONLY the description paragraphs — no preamble, no closing remark.`;
 
-                    // Operative-note generation on VPS Claude (Opus).
-                    const generatedDescription = await callVpsClaude(prompt, 'opus');
+                    const generatedDescription = await generateGeminiText(prompt, {
+                      temperature: 0.3,
+                      maxOutputTokens: 4000,
+                      thinkingConfig: { thinkingBudget: 0 },
+                    });
 
                     if (generatedDescription) {
                       setSharedSurgeryDescription(generatedDescription.trim());
@@ -5080,7 +5092,7 @@ STRICT RULES:
                         if (!newTemplateContent.trim()) {
                           toast({
                             title: "Error",
-                            description: "Please add content to send to ChatGPT",
+                            description: "Please add content to send to Gemini",
                             variant: "destructive"
                           });
                           return;
@@ -5165,8 +5177,10 @@ Non-negotiable rules:
 - If surgery was performed, include detailed Operative Notes (minimum 6 sentences).
 - End the document with this exact line, unchanged: URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 9373111709.${conservativeRules}`;
 
-                          // Full discharge-summary generation on VPS Claude (Opus).
-                          const generatedSummary = await callVpsClaude(systemPrompt + '\n\nUser Request:\n' + contentToSend, 'opus');
+                          const generatedSummary = await generateGeminiText(
+                            systemPrompt + '\n\nUser Request:\n' + contentToSend,
+                            { temperature: 0.4, maxOutputTokens: 8192, thinkingConfig: { thinkingBudget: 0 } },
+                          );
 
                           if (generatedSummary) {
                             // Display generated summary in Stay Notes box
@@ -5178,11 +5192,11 @@ Non-negotiable rules:
                             });
 
                           } else {
-                            throw new Error('No response from ChatGPT');
+                            throw new Error('No response from Gemini');
                           }
 
                         } catch (error) {
-                          console.error('❌ ChatGPT Error:', error);
+                          console.error('❌ Gemini Error:', error);
                           toast({
                             title: "Error",
                             description: `Failed to generate summary: ${error.message}`,
