@@ -97,6 +97,86 @@ function canonicalCompanyKey(value: string): string {
   return normalizedCompanyName(value).replace(/[^a-z0-9]/g, '')
 }
 
+// The accounting companies use a few legal-name variants (for example,
+// "Pvt. Ltd." versus "Private Limited").  This key lets a Tally company be
+// matched to the company-scoped chart of accounts used by voucher entry.
+function accountingCompanyKey(value: string): string {
+  return canonicalCompanyKey(value)
+    .replace(/privatelimited/g, 'pvtltd')
+    .replace(/private/g, 'pvt')
+    .replace(/limited/g, 'ltd')
+}
+
+function tallyChartAccountCode(companyId: string, ledgerName: string): string {
+  let hash = 2166136261
+  for (const char of ledgerName) {
+    hash ^= char.charCodeAt(0)
+    hash = Math.imul(hash, 16777619)
+  }
+  return `TL${companyId.replace(/-/g, '').slice(0, 6)}${(hash >>> 0).toString(36).padStart(7, '0').slice(-7)}`
+}
+
+function accountTypeForTallyGroup(parentGroup?: string | null): string {
+  const group = (parentGroup || '').toLowerCase()
+  if (group.includes('bank') || group.includes('cash') || group.includes('debtor') || group.includes('stock')) return 'CURRENT_ASSETS'
+  if (group.includes('fixed asset')) return 'FIXED_ASSETS'
+  if (group.includes('loan')) return 'LONG_TERM_LIABILITIES'
+  if (group.includes('creditor') || group.includes('dutie') || group.includes('liabilit')) return 'CURRENT_LIABILITIES'
+  if (group.includes('capital') || group.includes('reserve')) return 'EQUITY'
+  if (group.includes('income') || group.includes('sale')) return group.includes('direct') ? 'DIRECT_INCOME' : 'INDIRECT_INCOME'
+  if (group.includes('expense') || group.includes('purchase')) return group.includes('direct') ? 'DIRECT_EXPENSES' : 'INDIRECT_EXPENSES'
+  return 'CURRENT_ASSETS'
+}
+
+/**
+ * Voucher entries must reference chart_of_accounts, whereas the Tally pull
+ * stores source ledgers in tally_ledgers. Mirror missing ledgers into the
+ * selected accounting company so they are usable immediately in vouchers.
+ */
+async function mirrorTallyLedgersToChartAccounts(supabase: any, tallyCompanyName: string, ledgerRows: any[]) {
+  if (ledgerRows.length === 0) return { created: 0 }
+
+  const { data: companies, error: companyError } = await supabase
+    .from('companies')
+    .select('id, company_name')
+    .eq('is_active', true)
+  if (companyError) throw companyError
+
+  const company = (companies || []).find((item: any) =>
+    accountingCompanyKey(item.company_name) === accountingCompanyKey(tallyCompanyName),
+  )
+  if (!company) return { created: 0 }
+
+  const { data: existing, error: existingError } = await supabase
+    .from('chart_of_accounts')
+    .select('account_name')
+    .eq('company_id', company.id)
+  if (existingError) throw existingError
+
+  const existingNames = new Set((existing || []).map((item: any) => item.account_name.trim().toLowerCase()))
+  const missing = ledgerRows
+    .filter((ledger) => !existingNames.has(ledger.name.trim().toLowerCase()))
+    .map((ledger) => ({
+      company_id: company.id,
+      account_code: tallyChartAccountCode(company.id, ledger.name),
+      account_name: ledger.name,
+      account_type: accountTypeForTallyGroup(ledger.parent_group),
+      account_group: ledger.parent_group || null,
+      opening_balance: Math.abs(Number(ledger.opening_balance) || 0),
+      opening_balance_type: Number(ledger.opening_balance) < 0 ? 'CR' : 'DR',
+      is_active: true,
+    }))
+
+  for (let index = 0; index < missing.length; index += 100) {
+    const { error } = await supabase
+      .from('chart_of_accounts')
+      .upsert(missing.slice(index, index + 100), { onConflict: 'account_code' })
+    if (error) throw error
+  }
+
+  return { created: missing.length }
+}
+
 function normalizedServerUrl(value: string): string {
   return new URL(normalizeServerUrl(value)).toString().replace(/\/$/, '').toLowerCase()
 }
@@ -217,7 +297,8 @@ async function handlePush(body: any) {
 
 // ─── Endpoint: sync (pull from Tally → save to Supabase) ───
 async function handleSync(body: any) {
-  let { action, serverUrl, companyName, companyId, dateRange } = body
+  const { action, companyId, dateRange } = body
+  let { serverUrl, companyName } = body
   if (!serverUrl || !companyName || !companyId || !action) return { error: 'Missing required fields' }
 
   const { data: config, error: configError } = await getSupabase()
@@ -307,6 +388,11 @@ async function handleSync(body: any) {
           } else {
             recordsSynced += batch.length
           }
+        }
+        try {
+          await mirrorTallyLedgersToChartAccounts(supabase, companyName, allRows)
+        } catch (mirrorError: any) {
+          errors.push(`Could not mirror Tally ledgers to voucher accounts: ${mirrorError.message}`)
         }
         break
       }
