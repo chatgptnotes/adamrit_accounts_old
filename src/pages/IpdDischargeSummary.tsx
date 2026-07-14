@@ -3707,7 +3707,7 @@ DD/MM/YYYY:-Test Category: Test1:Value1 unit, Test2:Value2 unit`);
                       className="bg-blue-600 hover:bg-blue-700"
                       disabled={!patientData?.bill_paid}
                     >
-                      Print Preview
+                      Download PDF
                     </Button>
                   </span>
                 </TooltipTrigger>
@@ -3867,7 +3867,7 @@ DD/MM/YYYY:-Test Category: Test1:Value1 unit, Test2:Value2 unit`);
                     className="bg-blue-600 hover:bg-blue-700"
                     disabled={!patientData?.bill_paid}
                   >
-                    Print Preview
+                    Download PDF
                   </Button>
                 </span>
               </TooltipTrigger>
@@ -5172,9 +5172,9 @@ STRICT RULES:
 
 Non-negotiable rules:
 - Do NOT include patient name, sex, or age anywhere in the document.
-- Minimum 800 words for the full document.
-- Use only Indian brand names for all medications.
-- If surgery was performed, include detailed Operative Notes (minimum 6 sentences).
+- Use only the clinical data supplied in the request. Do not invent facts, findings, events, complications, procedures, medicines, doses, brands, test results, or clinician names.
+- Include operative notes only when a procedure is explicitly recorded in the supplied data.
+- If required information is absent, write "Not recorded" or omit that section.
 - End the document with this exact line, unchanged: URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 9373111709.${conservativeRules}`;
 
                           const generatedSummary = await generateGeminiText(

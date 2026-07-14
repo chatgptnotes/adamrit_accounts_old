@@ -19,6 +19,7 @@ import CurrentlyAdmittedPatients from "../pages/CurrentlyAdmittedPatients";
 // Loaded eagerly (no lazy chunk) so an open tab never hits "Failed to fetch
 // dynamically imported module" after a redeploy.
 import IpdDischargeSummary from "../pages/IpdDischargeSummary";
+import QuickDischargeSummary from "../pages/QuickDischargeSummary";
 
 // Lazy load discharged patients page
 const DischargedPatients = lazy(() => import("../pages/DischargedPatients"));
@@ -345,6 +346,7 @@ export const AppRoutes = () => {
         <Route path="/detailed-invoice" element={<Suspense fallback={<PageLoader />}><DetailedInvoice /></Suspense>} />
         <Route path="/discharge-invoice/:visitId" element={<Suspense fallback={<PageLoader />}><DischargeInvoice /></Suspense>} />
         <Route path="/ipd-discharge-summary/:visitId" element={<IpdDischargeSummary />} />
+        <Route path="/quick-discharge-summary/:visitId" element={<QuickDischargeSummary />} />
         <Route path="/death-certificate/:visitId" element={<Suspense fallback={<PageLoader />}><DeathCertificate /></Suspense>} />
         <Route path="/bill-submission" element={<Suspense fallback={<PageLoader />}><BillSubmission /></Suspense>} />
         <Route path="/bill-aging-statement" element={<Suspense fallback={<PageLoader />}><BillAgingStatement /></Suspense>} />

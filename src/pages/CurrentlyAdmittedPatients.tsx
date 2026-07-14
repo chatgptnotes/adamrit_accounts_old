@@ -508,6 +508,7 @@ const CurrentlyAdmittedPatients = () => {
                     <TableHead className="font-semibold">Thumb Reg. No.</TableHead>
                     <TableHead className="font-semibold">Doctor</TableHead>
                     <TableHead className="font-semibold">Diagnosis</TableHead>
+                    <TableHead className="font-semibold">Discharge Summary</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -574,6 +575,17 @@ const CurrentlyAdmittedPatients = () => {
                       </TableCell>
                       <TableCell>
                         {visit.diagnoses?.name || visit.visit_diagnoses?.map(vd => vd.diagnoses?.name).join(', ') || '-'}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => navigate(`/quick-discharge-summary/${visit.visit_id}`)}
+                          className="flex items-center gap-1"
+                        >
+                          <FileText className="h-4 w-4" />
+                          Generate & Download
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
