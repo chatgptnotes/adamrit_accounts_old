@@ -62,6 +62,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { DiscountTab } from "@/components/DiscountTab"
 import { AdvancePaymentModal } from "@/components/AdvancePaymentModal"
 import { DrugInteractionPanel } from "@/components/pharmacy/DrugInteractionPanel"
+import { withTimeout } from "@/utils/withTimeout"
 
 // This component needs to be created or installed. It is not a standard shadcn/ui component.
 // You can find implementations online or build one yourself.
@@ -625,7 +626,7 @@ const deriveOTAnaesthesiaType = (anaesthetist?: OTStaffMaster, savedType?: strin
 const FinalBill = () => {
   const { visitId } = useParams<{ visitId: string }>();
   const navigate = useNavigate();
-  const { billData, isLoading: isBillLoading, saveBill, isSaving } = useFinalBillData(visitId || '');
+  const { billData, isLoading: isBillLoading, error: billError, refetch: refetchBill, saveBill, isSaving } = useFinalBillData(visitId || '');
   const { generateAccommodationsFromShiftings, isGenerating } = useShiftingAccommodation();
   const queryClient = useQueryClient();
   const { hospitalConfig, user, isAdmin } = useAuth();
@@ -1433,6 +1434,7 @@ const FinalBill = () => {
     isLoading,
     isError,
     error,
+    refetch: refetchVisit,
   } = useQuery({
     queryKey: ["finalBillData", visitId],
     queryFn: async () => {
@@ -1443,20 +1445,24 @@ const FinalBill = () => {
 
         console.log('🔍 Fetching visit data for visitId:', visitId);
 
-        const { data, error } = await supabase
-          .from("visits")
-          .select(
-            `
+        const { data, error } = await withTimeout(
+          supabase
+            .from("visits")
+            .select(
+              `
                 *,
                 patients(*),
                 diagnosis:diagnosis_id (
                   id,
                   name
                 )
-            `
-          )
-          .eq("visit_id", visitId)
-          .single()
+              `
+            )
+            .eq("visit_id", visitId)
+            .single(),
+          15_000,
+          'Loading visit and patient data',
+        );
 
         if (error) {
           console.error("❌ Error fetching visit data:", error);
@@ -1473,9 +1479,7 @@ const FinalBill = () => {
             return null;
           }
 
-          // For other errors, log but return null instead of throwing
-          console.error('Database error, returning null to prevent crash');
-          return null;
+          throw error;
         }
 
         if (!data) {
@@ -1493,7 +1497,7 @@ const FinalBill = () => {
       } catch (err) {
         console.error('❌ Unexpected error in visitData query:', err);
         // Return null instead of throwing to prevent page crash
-        return null;
+        throw err;
       }
     },
     enabled: !!visitId,
@@ -16115,6 +16119,27 @@ Dr. Murali B K
     );
   }
 
+  if (isError || billError) {
+    const message = (error as Error)?.message || (billError as Error)?.message || 'The bill data could not be loaded.';
+    return (
+      <div className="flex h-screen items-center justify-center bg-white">
+        <div className="text-center space-y-4 max-w-md px-6">
+          <p className="text-xl text-red-500 mb-2">Unable to load bill data</p>
+          <p className="text-sm text-gray-600">Visit ID: {visitId}</p>
+          <p className="text-sm text-gray-600">{message}</p>
+          <div className="flex gap-2 justify-center">
+            <Button onClick={() => { void Promise.all([refetchVisit(), refetchBill()]); }} variant="default">
+              Retry
+            </Button>
+            <Button onClick={() => navigate(-1)} variant="outline">
+              Go Back
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (isLoading || isBillLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-white">
@@ -16123,23 +16148,6 @@ Dr. Murali B K
           <p className="text-sm text-gray-600">Visit ID: {visitId}</p>
           <p className="text-sm text-gray-600">isLoading: {isLoading ? 'true' : 'false'}</p>
           <p className="text-sm text-gray-600">isBillLoading: {isBillLoading ? 'true' : 'false'}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-white">
-        <div className="text-center space-y-4">
-          <p className="text-xl text-red-500 mb-2">
-            Error loading bill: {(error as Error).message}
-          </p>
-          <p className="text-sm text-gray-600">Visit ID: {visitId}</p>
-          <p className="text-sm text-gray-600">Please check if this visit ID exists in the database.</p>
-          <Button onClick={() => navigate(-1)} variant="outline">
-            Go Back
-          </Button>
         </div>
       </div>
     );

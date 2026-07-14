@@ -1,6 +1,9 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { withTimeout } from '@/utils/withTimeout';
+
+const FINAL_BILL_REQUEST_TIMEOUT_MS = 15_000;
 
 export interface BillSection {
   id: string;
@@ -50,18 +53,22 @@ export interface BillData {
 export const useFinalBillData = (visitId: string) => {
   const queryClient = useQueryClient();
 
-  const { data: billData, isLoading, error } = useQuery({
+  const { data: billData, isLoading, error, refetch } = useQuery({
     queryKey: ['final-bill', visitId],
     queryFn: async () => {
       try {
         console.log('🔍 Fetching bill data for visit ID:', visitId);
 
         // Get visit dates
-        const { data: visitData, error: visitError } = await supabase
-          .from('visits')
-          .select('patient_id, admission_date, discharge_date, created_at, visit_date')
-          .eq('visit_id', visitId)
-          .single() as { data: any; error: any };
+        const { data: visitData, error: visitError } = await withTimeout(
+          supabase
+            .from('visits')
+            .select('patient_id, admission_date, discharge_date, created_at, visit_date')
+            .eq('visit_id', visitId)
+            .single() as { data: any; error: any },
+          FINAL_BILL_REQUEST_TIMEOUT_MS,
+          'Loading visit data',
+        );
 
         if (visitError) {
           console.error('❌ Error fetching visit:', visitError);
@@ -69,7 +76,7 @@ export const useFinalBillData = (visitId: string) => {
             console.warn(`⚠️ No visit found with visit_id: ${visitId}`);
             return null;
           }
-          return null;
+          throw visitError;
         }
 
         if (!visitData?.patient_id) {
@@ -84,13 +91,17 @@ export const useFinalBillData = (visitId: string) => {
         });
 
         // First try to find bill by visit_id (exact match)
-        const { data: billByVisit } = await supabase
-          .from('bills')
-          .select('*')
-          .eq('visit_id', visitId)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle() as { data: any };
+        const { data: billByVisit } = await withTimeout(
+          supabase
+            .from('bills')
+            .select('*')
+            .eq('visit_id', visitId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle() as { data: any },
+          FINAL_BILL_REQUEST_TIMEOUT_MS,
+          'Loading bill data',
+        );
 
         // Use bill found by visit_id only — no patient_id fallback (would load previous visit's bill)
         const billsData = billByVisit;
@@ -101,22 +112,30 @@ export const useFinalBillData = (visitId: string) => {
 
 
         // Get sections
-        const { data: sectionsData, error: sectionsError } = await supabase
-          .from('bill_sections')
-          .select('*')
-          .eq('bill_id', billsData.id)
-          .order('section_order') as { data: any; error: any };
+        const { data: sectionsData, error: sectionsError } = await withTimeout(
+          supabase
+            .from('bill_sections')
+            .select('*')
+            .eq('bill_id', billsData.id)
+            .order('section_order') as { data: any; error: any },
+          FINAL_BILL_REQUEST_TIMEOUT_MS,
+          'Loading bill sections',
+        );
 
         if (sectionsError) {
           console.error('❌ Error fetching sections:', sectionsError);
         }
 
         // Get line items
-        const { data: lineItemsData, error: lineItemsError } = await supabase
-          .from('bill_line_items')
-          .select('*')
-          .eq('bill_id', billsData.id)
-          .order('item_order') as { data: any; error: any };
+        const { data: lineItemsData, error: lineItemsError } = await withTimeout(
+          supabase
+            .from('bill_line_items')
+            .select('*')
+            .eq('bill_id', billsData.id)
+            .order('item_order') as { data: any; error: any },
+          FINAL_BILL_REQUEST_TIMEOUT_MS,
+          'Loading bill line items',
+        );
 
         if (lineItemsError) {
           console.error('❌ Error fetching line items:', lineItemsError);
@@ -135,7 +154,7 @@ export const useFinalBillData = (visitId: string) => {
         return result;
       } catch (err) {
         console.error('❌ Unexpected error in useFinalBillData:', err);
-        return null;
+        throw err;
       }
     },
     enabled: !!visitId,
@@ -320,6 +339,7 @@ export const useFinalBillData = (visitId: string) => {
     billData,
     isLoading,
     error,
+    refetch,
     saveBill: saveBillMutation.mutate,
     isSaving: saveBillMutation.isPending
   };

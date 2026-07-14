@@ -142,7 +142,7 @@ export default function TelephonyDashboard() {
   });
 
   // ── Recent call logs ──────────────────────────────────────────────────────
-  // DATA SOURCE: call_logs → order created_at desc, limit 50, refetchInterval 30000
+  // DATA SOURCE: call_logs → order created_at desc, limit 50, refetchInterval 60000
   const { data: callLogs, isLoading: logsLoading } = useQuery<CallLog[]>({
     queryKey: ['call-logs'],
     queryFn: async () => {
@@ -154,7 +154,7 @@ export default function TelephonyDashboard() {
       if (error) throw error;
       return (data ?? []) as CallLog[];
     },
-    refetchInterval: 30000,
+    refetchInterval: 60000,
   });
 
   // ── Save call log mutation ─────────────────────────────────────────────────
