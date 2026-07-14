@@ -56,7 +56,13 @@ export const usePatientsCount = (enabled: boolean = true) => {
  * until they're actually needed, especially while unauthenticated.
  */
 export const useCounts = (enabled: boolean = true) => {
-  const { hospitalConfig } = useAuth();
+  const { hospitalConfig, user } = useAuth();
+  const role = user?.role?.toLowerCase().trim() || '';
+  const isAdmin = ['superadmin', 'super_admin', 'admin'].includes(role);
+  const canSeePatients = isAdmin || ['doctor', 'consultant', 'nurse', 'receptionist', 'reception', 'front_office'].includes(role);
+  const canSeePharmacy = isAdmin || ['pharmacy', 'pharmacist'].includes(role);
+  const canSeeLab = isAdmin || ['lab', 'lab_technician'].includes(role);
+  const canSeeRadiology = isAdmin || ['radiology', 'radiology_tech'].includes(role);
 
   const { data: diagnosesCount = 0 } = useQuery({
     queryKey: ['diagnoses-count'],
@@ -64,10 +70,10 @@ export const useCounts = (enabled: boolean = true) => {
     retry: 0,
     refetchOnWindowFocus: false,
     staleTime: COUNT_STALE_TIME,
-    enabled,
+    enabled: enabled && isAdmin,
   });
 
-  const { data: patientsCount = 0 } = usePatientsCount(enabled);
+  const { data: patientsCount = 0 } = usePatientsCount(enabled && canSeePatients);
 
   const { data: usersCount = 0 } = useQuery({
     queryKey: ['users-count'],
@@ -75,7 +81,7 @@ export const useCounts = (enabled: boolean = true) => {
     retry: 0,
     refetchOnWindowFocus: false,
     staleTime: COUNT_STALE_TIME,
-    enabled,
+    enabled: enabled && isAdmin,
   });
 
   const { data: complicationsCount = 0 } = useQuery({
@@ -84,7 +90,7 @@ export const useCounts = (enabled: boolean = true) => {
     retry: 0,
     refetchOnWindowFocus: false,
     staleTime: COUNT_STALE_TIME,
-    enabled,
+    enabled: enabled && isAdmin,
   });
 
   const { data: cghsSurgeryCount = 0 } = useQuery({
@@ -93,7 +99,7 @@ export const useCounts = (enabled: boolean = true) => {
     retry: 0,
     refetchOnWindowFocus: false,
     staleTime: COUNT_STALE_TIME,
-    enabled,
+    enabled: enabled && isAdmin,
   });
 
   const { data: labCount = 0 } = useQuery({
@@ -102,7 +108,7 @@ export const useCounts = (enabled: boolean = true) => {
     retry: 0,
     refetchOnWindowFocus: false,
     staleTime: COUNT_STALE_TIME,
-    enabled,
+    enabled: enabled && canSeeLab,
   });
 
   const { data: radiologyCount = 0 } = useQuery({
@@ -111,7 +117,7 @@ export const useCounts = (enabled: boolean = true) => {
     retry: 0,
     refetchOnWindowFocus: false,
     staleTime: COUNT_STALE_TIME,
-    enabled,
+    enabled: enabled && canSeeRadiology,
   });
 
   const { data: medicationsCount = 0 } = useQuery({
@@ -120,7 +126,7 @@ export const useCounts = (enabled: boolean = true) => {
     retry: 0,
     refetchOnWindowFocus: false,
     staleTime: COUNT_STALE_TIME,
-    enabled,
+    enabled: enabled && isAdmin,
   });
 
   const { data: esicSurgeonsCount = 0 } = useQuery({
@@ -129,7 +135,7 @@ export const useCounts = (enabled: boolean = true) => {
     retry: 0,
     refetchOnWindowFocus: false,
     staleTime: COUNT_STALE_TIME,
-    enabled,
+    enabled: enabled && isAdmin,
   });
 
   const { data: refereesCount = 0 } = useQuery({
@@ -138,7 +144,7 @@ export const useCounts = (enabled: boolean = true) => {
     retry: 0,
     refetchOnWindowFocus: false,
     staleTime: COUNT_STALE_TIME,
-    enabled,
+    enabled: enabled && isAdmin,
   });
 
   const { data: hopeSurgeonsCount = 0 } = useQuery({
@@ -147,7 +153,7 @@ export const useCounts = (enabled: boolean = true) => {
     retry: 0,
     refetchOnWindowFocus: false,
     staleTime: COUNT_STALE_TIME,
-    enabled,
+    enabled: enabled && isAdmin,
   });
 
   const { data: hopeConsultantsCount = 0 } = useQuery({
@@ -156,7 +162,7 @@ export const useCounts = (enabled: boolean = true) => {
     retry: 0,
     refetchOnWindowFocus: false,
     staleTime: COUNT_STALE_TIME,
-    enabled,
+    enabled: enabled && isAdmin,
   });
 
   const { data: hopeAnaesthetistsCount = 0 } = useQuery({
@@ -165,7 +171,7 @@ export const useCounts = (enabled: boolean = true) => {
     retry: 0,
     refetchOnWindowFocus: false,
     staleTime: COUNT_STALE_TIME,
-    enabled,
+    enabled: enabled && isAdmin,
   });
 
   const { data: ayushmanSurgeonsCount = 0 } = useQuery({
@@ -174,7 +180,7 @@ export const useCounts = (enabled: boolean = true) => {
     retry: 0,
     refetchOnWindowFocus: false,
     staleTime: COUNT_STALE_TIME,
-    enabled,
+    enabled: enabled && isAdmin,
   });
 
   const { data: ayushmanConsultantsCount = 0 } = useQuery({
@@ -183,7 +189,7 @@ export const useCounts = (enabled: boolean = true) => {
     retry: 0,
     refetchOnWindowFocus: false,
     staleTime: COUNT_STALE_TIME,
-    enabled,
+    enabled: enabled && isAdmin,
   });
 
   const { data: ayushmanAnaesthetistsCount = 0 } = useQuery({
@@ -192,7 +198,7 @@ export const useCounts = (enabled: boolean = true) => {
     retry: 0,
     refetchOnWindowFocus: false,
     staleTime: COUNT_STALE_TIME,
-    enabled,
+    enabled: enabled && isAdmin,
   });
 
   const { data: pendingPrescriptionsCount = 0 } = useQuery({
@@ -210,9 +216,11 @@ export const useCounts = (enabled: boolean = true) => {
       }
     },
     retry: 0,
-    refetchInterval: enabled ? 60_000 : false,
-    staleTime: 30_000,
-    enabled,
+    // Pharmacy screens own their live notification polling. Keeping this
+    // global sidebar query on a timer multiplies requests for every open tab.
+    refetchInterval: false,
+    staleTime: 5 * 60_000,
+    enabled: enabled && canSeePharmacy,
   });
 
   return {
