@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { startOfDay, endOfDay } from 'date-fns';
 import { DateRange } from 'react-day-picker';
-import { ArrowLeft, ChevronLeft, ChevronRight, ChevronsLeft, FileCheck2, FileText, Loader2, Search } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, ChevronsLeft, ExternalLink, FileCheck2, FileText, Loader2, Search } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { PATIENT_DOC_CATEGORIES } from '@/tablet/hooks/usePatientDocs';
@@ -23,6 +23,7 @@ interface UploadedPatientDocument {
 interface DocumentRow {
   id: string;
   name: string;
+  patientName: string | null;
   done: string[];
   left: string[];
 }
@@ -32,6 +33,15 @@ const UPLOAD_SCAN_SIZE = 400;
 const normalizeValue = (value: string | null | undefined) => value?.trim().replace(/\s+/g, ' ').toLowerCase() || '';
 const canonicalCategoryIds = PATIENT_DOC_CATEGORIES.map((document) => document.id);
 
+// Yojana schemes (MJPJAY/PMJAY and variants) aren't stored under one literal
+// corporate value, so "Yojana" is a keyword match rather than an exact one.
+const isMaharashtraYojana = (corporate: string | null | undefined) => {
+  const value = (corporate || '').toLowerCase().trim();
+  return value.includes('yojana') || value.includes('mjpjy') || value.includes('ayushman') ||
+    value.includes('mahatma jyotiba') || value.includes('pmjay') || value.includes('ab-pmjay') ||
+    value.includes('ab pmjay') || value.includes('maharashtra yojana');
+};
+
 export default function PatientDocumentsReport() {
   const [patients, setPatients] = useState<PatientRecord[]>([]);
   const [documents, setDocuments] = useState<UploadedPatientDocument[]>([]);
@@ -39,6 +49,12 @@ export default function PatientDocumentsReport() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'complete'>('all');
   const [documentFilter, setDocumentFilter] = useState('all');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  // Default view: only discharged Yojana patients. Either can be widened via
+  // the dropdowns (a specific corporate, "all corporates", "all patients", or
+  // "admitted patients" only).
+  const [corporateFilter, setCorporateFilter] = useState('yojana');
+  const [corporateOptions, setCorporateOptions] = useState<string[]>([]);
+  const [patientStatusFilter, setPatientStatusFilter] = useState<'discharged' | 'admitted' | 'all'>('discharged');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasNextPage, setHasNextPage] = useState(false);
@@ -94,8 +110,54 @@ export default function PatientDocumentsReport() {
       }
 
       const candidates = Array.from(patientMap.values());
+
+      // Corporate/discharge status live on patients & visits, not file_uploads,
+      // so resolve them for every candidate before slicing pages — filtering
+      // after slicing would make pagination counts wrong.
+      const allCandidateIds = Array.from(new Set(candidates.map((patient) => patient.patient_id).filter(Boolean) as string[]));
+      const corporateByPatient = new Map<string, string | null>();
+      const dischargedByPatient = new Map<string, boolean>();
+
+      if (allCandidateIds.length) {
+        const [patientsResult, visitsResult] = await Promise.all([
+          supabase.from('patients').select('id, corporate').in('id', allCandidateIds),
+          supabase.from('visits').select('patient_id, discharge_date').in('patient_id', allCandidateIds).order('admission_date', { ascending: false }),
+        ]);
+        if (patientsResult.error) throw patientsResult.error;
+        if (visitsResult.error) throw visitsResult.error;
+        if (!active) return;
+
+        for (const patientRow of patientsResult.data || []) corporateByPatient.set(patientRow.id, patientRow.corporate);
+        // Rows arrive latest-admission-first, so the first row seen per patient is their current/most recent visit.
+        for (const visitRow of visitsResult.data || []) {
+          if (!dischargedByPatient.has(visitRow.patient_id)) dischargedByPatient.set(visitRow.patient_id, !!visitRow.discharge_date);
+        }
+
+        const seenCorporates = Array.from(corporateByPatient.values()).filter(Boolean) as string[];
+        if (seenCorporates.length) {
+          setCorporateOptions((prev) => Array.from(new Set([...prev, ...seenCorporates])).sort());
+        }
+      }
+
+      const filteredCandidates = candidates.filter((patient) => {
+        if (!patient.patient_id) return corporateFilter === 'all' && patientStatusFilter === 'all';
+
+        const corporate = corporateByPatient.get(patient.patient_id) || '';
+        if (corporateFilter === 'yojana' && !isMaharashtraYojana(corporate)) return false;
+        if (corporateFilter !== 'all' && corporateFilter !== 'yojana' && corporate !== corporateFilter) return false;
+
+        if (patientStatusFilter !== 'all') {
+          const isDischarged = dischargedByPatient.get(patient.patient_id);
+          if (isDischarged === undefined) return false; // no visit on record — can't confirm, exclude under a strict filter
+          if (patientStatusFilter === 'discharged' && !isDischarged) return false;
+          if (patientStatusFilter === 'admitted' && isDischarged) return false;
+        }
+
+        return true;
+      });
+
       const start = (currentPage - 1) * PAGE_SIZE;
-      const pagePatients = candidates.slice(start, start + PAGE_SIZE);
+      const pagePatients = filteredCandidates.slice(start, start + PAGE_SIZE);
       const patientIds = Array.from(new Set(pagePatients.map((patient) => patient.patient_id).filter(Boolean) as string[]));
       const patientNames = Array.from(new Set(pagePatients.map((patient) => patient.patient_name).filter(Boolean) as string[]));
 
@@ -113,7 +175,7 @@ export default function PatientDocumentsReport() {
 
       setPatients(pagePatients);
       setDocuments([...(results[0].data || []), ...(results[1].data || [])] as UploadedPatientDocument[]);
-      setHasNextPage((scanResult.data || []).length === scanLimit && candidates.length > start + PAGE_SIZE);
+      setHasNextPage((scanResult.data || []).length === scanLimit && filteredCandidates.length > start + PAGE_SIZE);
       setLoading(false);
     };
 
@@ -126,7 +188,7 @@ export default function PatientDocumentsReport() {
     });
 
     return () => { active = false; };
-  }, [currentPage, search, dateRange]);
+  }, [currentPage, search, dateRange, corporateFilter, patientStatusFilter]);
 
   const rows = useMemo<DocumentRow[]>(() => {
     const documentsByPatient = new Map<string, UploadedPatientDocument[]>();
@@ -148,6 +210,7 @@ export default function PatientDocumentsReport() {
       return {
         id: patient.patient_id || patient.patient_name || 'unknown-patient',
         name: patient.patient_name || patient.patient_id || 'Unnamed patient',
+        patientName: patient.patient_name,
         done,
         left,
       };
@@ -167,10 +230,12 @@ export default function PatientDocumentsReport() {
       </div>
 
       <div className="mb-6 flex justify-end">
-        <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-[minmax(0,18rem)_12rem_16rem_auto]">
+        <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <div className="relative min-w-0"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" /><Input value={search} onChange={(event) => { setSearch(event.target.value); resetPage(); }} placeholder="Search patient / ID" className="h-10 w-full pl-9" /></div>
           <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as typeof statusFilter); resetPage(); }} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-primary/30"><option value="all">All statuses</option><option value="pending">Documents pending</option><option value="complete">All documents complete</option></select>
           <select value={documentFilter} onChange={(event) => { setDocumentFilter(event.target.value); resetPage(); }} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-primary/30"><option value="all">Any uploaded document</option>{PATIENT_DOC_CATEGORIES.map((document) => <option key={document.id} value={document.label}>{document.label}</option>)}</select>
+          <select value={corporateFilter} onChange={(event) => { setCorporateFilter(event.target.value); resetPage(); }} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-primary/30"><option value="yojana">Yojana patients</option><option value="all">All corporates</option>{corporateOptions.map((corporate) => <option key={corporate} value={corporate}>{corporate}</option>)}</select>
+          <select value={patientStatusFilter} onChange={(event) => { setPatientStatusFilter(event.target.value as typeof patientStatusFilter); resetPage(); }} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-primary/30"><option value="discharged">Discharged patients</option><option value="all">All patients</option><option value="admitted">Admitted patients only</option></select>
           <DateRangePicker date={dateRange} onDateChange={(range) => { setDateRange(range); resetPage(); }} />
         </div>
       </div>
@@ -178,14 +243,14 @@ export default function PatientDocumentsReport() {
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50 px-5 py-3 text-sm text-gray-500">
           <span>{rows.length ? `Showing ${(currentPage - 1) * PAGE_SIZE + 1}–${(currentPage - 1) * PAGE_SIZE + rows.length} uploaded patients` : 'No uploaded patients'}</span>
-          {(search || statusFilter !== 'all' || documentFilter !== 'all' || dateRange) && <button type="button" onClick={() => { setSearch(''); setStatusFilter('all'); setDocumentFilter('all'); setDateRange(undefined); resetPage(); }} className="font-medium text-primary hover:underline">Clear filters</button>}
+          {(search || statusFilter !== 'all' || documentFilter !== 'all' || dateRange || corporateFilter !== 'yojana' || patientStatusFilter !== 'discharged') && <button type="button" onClick={() => { setSearch(''); setStatusFilter('all'); setDocumentFilter('all'); setDateRange(undefined); setCorporateFilter('yojana'); setPatientStatusFilter('discharged'); resetPage(); }} className="font-medium text-primary hover:underline">Clear filters</button>}
         </div>
-        <div className="overflow-x-auto"><table className="min-w-[900px] w-full table-fixed divide-y divide-gray-200"><thead className="bg-gray-50"><tr><th className="w-1/4 px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Patient Name</th><th className="w-[37.5%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Documents Done</th><th className="w-[37.5%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Documents Left</th></tr></thead>
+        <div className="overflow-x-auto"><table className="min-w-[980px] w-full table-fixed divide-y divide-gray-200"><thead className="bg-gray-50"><tr><th className="w-1/5 px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Patient Name</th><th className="w-[35%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Documents Done</th><th className="w-[35%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Documents Left</th><th className="w-[10%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Actions</th></tr></thead>
           <tbody className="divide-y divide-gray-100">
-            {loading && <tr><td colSpan={3} className="px-5 py-12 text-center text-gray-500"><Loader2 className="mr-2 inline-block h-5 w-5 animate-spin" />Loading patient documents...</td></tr>}
-            {!loading && error && <tr><td colSpan={3} className="px-5 py-12 text-center text-red-600">{error}</td></tr>}
-            {!loading && !error && rows.map((row) => <tr key={row.id} className="align-top hover:bg-gray-50"><td className="px-5 py-4"><div className="font-semibold text-gray-800">{row.name}</div>{row.done.length > 0 && row.left.length > 0 && <span className="mt-2 inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">Partially complete</span>}</td><td className="px-5 py-4"><CountBadge count={row.done.length} tone="done" />{row.done.length ? <DocumentList items={row.done} tone="done" /> : <span className="mt-2 block text-sm text-gray-400">None</span>}</td><td className="px-5 py-4"><CountBadge count={row.left.length} tone="left" />{row.left.length ? <DocumentList items={row.left} tone="left" /> : <span className="mt-2 block text-sm font-medium text-green-600">All required documents complete</span>}</td></tr>)}
-            {!loading && !error && rows.length === 0 && <tr><td colSpan={3} className="px-5 py-12 text-center text-gray-500">No patients found.</td></tr>}
+            {loading && <tr><td colSpan={4} className="px-5 py-12 text-center text-gray-500"><Loader2 className="mr-2 inline-block h-5 w-5 animate-spin" />Loading patient documents...</td></tr>}
+            {!loading && error && <tr><td colSpan={4} className="px-5 py-12 text-center text-red-600">{error}</td></tr>}
+            {!loading && !error && rows.map((row) => <tr key={row.id} className="align-top hover:bg-gray-50"><td className="px-5 py-4"><div className="font-semibold text-gray-800">{row.name}</div>{row.done.length > 0 && row.left.length > 0 && <span className="mt-2 inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">Partially complete</span>}</td><td className="px-5 py-4"><CountBadge count={row.done.length} tone="done" />{row.done.length ? <DocumentList items={row.done} tone="done" /> : <span className="mt-2 block text-sm text-gray-400">None</span>}</td><td className="px-5 py-4"><CountBadge count={row.left.length} tone="left" />{row.left.length ? <DocumentList items={row.left} tone="left" /> : <span className="mt-2 block text-sm font-medium text-green-600">All required documents complete</span>}</td><td className="px-5 py-4">{row.patientName && <Link to={`/advance-statement-report?search=${encodeURIComponent(row.patientName)}&includeDischarged=1`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs font-medium text-primary hover:bg-primary/5" title="View registration ID and other details in Advance Statement Report"><ExternalLink className="h-3.5 w-3.5" />Details</Link>}</td></tr>)}
+            {!loading && !error && rows.length === 0 && <tr><td colSpan={4} className="px-5 py-12 text-center text-gray-500">No patients found.</td></tr>}
           </tbody></table></div>
       </div>
 
