@@ -566,7 +566,7 @@ const AdvanceStatementReport = () => {
 
   const matchedPortalRegistrationIds = useMemo(() => {
     const ids = (latestPortalReport?.report.rows || [])
-      .map((row) => row.values['Registration ID']?.trim())
+      .map((row) => normalizeLookupValue(row.values['Registration ID']))
       .filter((value): value is string => Boolean(value));
     return new Set(ids);
   }, [latestPortalReport]);
@@ -587,7 +587,7 @@ const AdvanceStatementReport = () => {
   );
 
   const isPortalMatchedRegistrationId = (value: string) =>
-    matchedPortalRegistrationIds.has(value.trim());
+    matchedPortalRegistrationIds.has(normalizeLookupValue(value));
 
   const refreshAdvanceStatementData = async () => {
     await queryClient.invalidateQueries({ queryKey: ['advance-statement-report-currently-admitted'] });
@@ -835,9 +835,10 @@ const AdvanceStatementReport = () => {
   };
 
   const handleRegistrationIdUpdate = async (visitId: string, value: string) => {
+    const normalizedValue = value.trim().toUpperCase();
     const { error } = await supabase
       .from('visits')
-      .update({ yojana_registration_id: value || null })
+      .update({ yojana_registration_id: normalizedValue || null })
       .eq('id', visitId);
 
     if (error) {
@@ -847,16 +848,16 @@ const AdvanceStatementReport = () => {
     }
 
     let portalMatched = false;
-    if (value) {
+    if (normalizedValue) {
       try {
-        portalMatched = await syncPortalDataForRegistrationId(value);
+        portalMatched = await syncPortalDataForRegistrationId(normalizedValue);
       } catch (syncError) {
         console.error('Error syncing portal data for Registration ID:', syncError);
       }
     }
 
     if (selectedRow?.id === visitId) {
-      setSelectedRow({ ...selectedRow, yojana_registration_id: value || null });
+      setSelectedRow({ ...selectedRow, yojana_registration_id: normalizedValue || null });
     }
 
     await refreshAdvanceStatementData();

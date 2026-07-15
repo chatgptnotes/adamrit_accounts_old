@@ -12,6 +12,9 @@ import {
 
 const db = supabase as any;
 
+const normalizeRegistrationId = (value: string | null | undefined) =>
+  (value || '').trim().toUpperCase();
+
 export type GovernmentPortalReportKind = 'under_treatment' | 'claims_to_be_submitted';
 
 export interface SavedGovernmentPortalImport {
@@ -54,6 +57,7 @@ export interface GovernmentPortalPackageSyncResult {
 export interface SaveGovernmentPortalReportResult {
   importId: string;
   packageSync: GovernmentPortalPackageSyncResult;
+  skippedDuplicates: number;
 }
 
 type ImportRow = {
@@ -105,7 +109,7 @@ function rowToDbRecord(importId: string, row: GovernmentPortalRow) {
     import_id: importId,
     row_number: row.rowNumber,
     status: row.status || 'pending',
-    registration_id: row.values['Registration ID'] || null,
+    registration_id: normalizeRegistrationId(row.values['Registration ID']) || null,
     program_id: row.values['Program ID'] || null,
     beneficiary_name: row.values['Beneficiary Name'] || null,
     case_type: row.values['Case Type'] || null,
@@ -384,6 +388,8 @@ export async function saveGovernmentPortalReport(
   reportKind: GovernmentPortalReportKind = 'under_treatment',
 ): Promise<SaveGovernmentPortalReportResult> {
   const packageSync = emptyPackageSyncResult();
+  let skippedDuplicates = 0;
+
   const { data: header, error: headerError } = await db
     .from('government_portal_report_imports')
     .insert({
@@ -410,16 +416,60 @@ export async function saveGovernmentPortalReport(
   const importId = header.id as string;
 
   if (report.rows.length > 0) {
-    const payload = report.rows.map((row) => rowToDbRecord(importId, row));
-    const { error: rowsError } = await db.from('government_portal_report_rows').insert(payload);
-    if (rowsError) {
-      await db.from('government_portal_report_imports').delete().eq('id', importId);
-      throw rowsError;
+    const existingRows = await fetchAllRows<{ registration_id: string | null }>((from, to) =>
+      db
+        .from('government_portal_report_rows')
+        .select('registration_id')
+        .not('registration_id', 'is', null)
+        .range(from, to),
+    );
+
+    const existingIds = new Set<string>();
+    for (const row of existingRows) {
+      if (row.registration_id) {
+        existingIds.add(row.registration_id.trim().toUpperCase());
+      }
     }
 
-    // Visit/master-package sync is Under Treatment-specific (intimation tracking
-    // for active cases) — skip it for other report kinds like Claims to be
-    // Submitted, which cover cases already past that stage.
+    const dedupedRows = report.rows.filter((row) => {
+      const regId = row.values['Registration ID'].trim().toUpperCase();
+      if (regId && existingIds.has(regId)) {
+        skippedDuplicates += 1;
+        return false;
+      }
+      return true;
+    });
+
+    if (dedupedRows.length > 0) {
+      const payload = dedupedRows.map((row) => rowToDbRecord(importId, row));
+      const { error: rowsError } = await db.from('government_portal_report_rows').insert(payload);
+      if (rowsError) {
+        const isDuplicateError =
+          rowsError.code === '23505' ||
+          (rowsError.message && rowsError.message.includes('unique'));
+        if (isDuplicateError) {
+          for (const record of payload) {
+            const { error: singleError } = await db
+              .from('government_portal_report_rows')
+              .insert(record);
+            if (singleError) {
+              if (
+                singleError.code === '23505' ||
+                (singleError.message && singleError.message.includes('unique'))
+              ) {
+                skippedDuplicates += 1;
+              } else {
+                console.error('Unexpected insert error during dedup fallback:', singleError);
+              }
+            }
+          }
+        } else {
+          await db.from('government_portal_report_imports').delete().eq('id', importId);
+          throw rowsError;
+        }
+      }
+    }
+
     if (reportKind === 'under_treatment') {
       try {
         await syncGovernmentPortalReportToVisits(report);
@@ -437,7 +487,7 @@ export async function saveGovernmentPortalReport(
     }
   }
 
-  return { importId, packageSync };
+  return { importId, packageSync, skippedDuplicates };
 }
 
 export async function fetchLatestGovernmentPortalReport(
@@ -656,7 +706,7 @@ export async function syncPortalDataForRegistrationId(registrationId: string): P
   const { data: row, error } = await db
     .from('government_portal_report_rows')
     .select('registration_id, program_id, case_type, procedure_code, procedure_details, preauth_approved_amount, preauth_initiated_date, beneficiary_name')
-    .eq('registration_id', trimmed)
+    .ilike('registration_id', trimmed)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -667,7 +717,7 @@ export async function syncPortalDataForRegistrationId(registrationId: string): P
   const { data: visits, error: visitsError } = await db
     .from('visits')
     .select('id, visit_id')
-    .eq('yojana_registration_id', trimmed);
+    .ilike('yojana_registration_id', trimmed);
 
   if (visitsError) throw visitsError;
 
@@ -687,7 +737,7 @@ export async function syncGovernmentPortalReportToVisits(
 ): Promise<number> {
   const rowsByRegistrationId = new Map<string, PortalSyncSource>();
   for (const row of report.rows) {
-    const registrationId = (row.values['Registration ID'] || '').trim();
+    const registrationId = normalizeRegistrationId(row.values['Registration ID']);
     if (!registrationId) continue;
     rowsByRegistrationId.set(registrationId, {
       registration_id: registrationId,
@@ -703,16 +753,20 @@ export async function syncGovernmentPortalReportToVisits(
 
   if (rowsByRegistrationId.size === 0) return 0;
 
+  const registrationFilters = [...rowsByRegistrationId.keys()]
+    .map((registrationId) => `yojana_registration_id.ilike.${registrationId}`)
+    .join(',');
+
   const { data: visits, error } = await db
     .from('visits')
     .select('id, visit_id, yojana_registration_id')
-    .in('yojana_registration_id', [...rowsByRegistrationId.keys()]);
+    .or(registrationFilters);
 
   if (error) throw error;
 
   let updated = 0;
   for (const visit of visits || []) {
-    const row = rowsByRegistrationId.get((visit.yojana_registration_id || '').trim());
+    const row = rowsByRegistrationId.get(normalizeRegistrationId(visit.yojana_registration_id));
     if (!row) continue;
     if (await applyPortalRowToVisit(visit, row)) updated += 1;
   }
