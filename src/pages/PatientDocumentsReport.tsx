@@ -28,8 +28,12 @@ interface DocumentRow {
   left: string[];
 }
 
-const PAGE_SIZE = 10;
-const UPLOAD_SCAN_SIZE = 400;
+const PAGE_SIZE_OPTIONS = [10, 20, 30, 40];
+const DEFAULT_PAGE_SIZE = 10;
+// Comfortably above the current canonical-category upload count (~5k) so a
+// single scan covers every matching patient; pagination below just re-slices
+// the result instead of re-querying per page.
+const UPLOAD_SCAN_SIZE = 20000;
 const normalizeValue = (value: string | null | undefined) => value?.trim().replace(/\s+/g, ' ').toLowerCase() || '';
 const canonicalCategoryIds = PATIENT_DOC_CATEGORIES.map((document) => document.id);
 
@@ -51,8 +55,7 @@ const isMaharashtraYojana = (corporate: string | null | undefined) => {
 };
 
 export default function PatientDocumentsReport() {
-  const [patients, setPatients] = useState<PatientRecord[]>([]);
-  const [documents, setDocuments] = useState<UploadedPatientDocument[]>([]);
+  const [allRows, setAllRows] = useState<DocumentRow[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'complete'>('all');
   const [documentFilter, setDocumentFilter] = useState('all');
@@ -63,11 +66,9 @@ export default function PatientDocumentsReport() {
   const [corporateFilter, setCorporateFilter] = useState('yojana');
   const [corporateOptions, setCorporateOptions] = useState<string[]>([]);
   const [patientStatusFilter, setPatientStatusFilter] = useState<'discharged' | 'admitted' | 'all'>('discharged');
-  const [surgeryPatientIds, setSurgeryPatientIds] = useState<Set<string>>(new Set());
-  const [dialysisPatientIds, setDialysisPatientIds] = useState<Set<string>>(new Set());
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [hasNextPage, setHasNextPage] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const currentPage = Math.max(1, Number(searchParams.get('page') || '1'));
 
@@ -88,13 +89,12 @@ export default function PatientDocumentsReport() {
 
       // This is deliberately the same source as Documents & Photos. It avoids
       // the slow summary RPC that was timing out on the report page.
-      const scanLimit = currentPage * UPLOAD_SCAN_SIZE;
       let query = supabase
         .from('file_uploads')
         .select('patient_id, patient_name, category, created_at')
         .in('category', canonicalCategoryIds)
         .order('created_at', { ascending: false })
-        .range(0, scanLimit - 1);
+        .range(0, UPLOAD_SCAN_SIZE - 1);
 
       const searchTerm = search.trim().replace(/[,%()]/g, '');
       if (searchTerm) {
@@ -112,8 +112,10 @@ export default function PatientDocumentsReport() {
       if (scanResult.error) throw scanResult.error;
       if (!active) return;
 
+      const uploads = (scanResult.data || []) as UploadedPatientDocument[];
+
       const patientMap = new Map<string, PatientRecord>();
-      for (const upload of (scanResult.data || []) as UploadedPatientDocument[]) {
+      for (const upload of uploads) {
         const key = normalizeValue(upload.patient_id) || `name:${normalizeValue(upload.patient_name)}`;
         if (!key || patientMap.has(key)) continue;
         patientMap.set(key, { patient_id: upload.patient_id, patient_name: upload.patient_name });
@@ -121,20 +123,27 @@ export default function PatientDocumentsReport() {
 
       const candidates = Array.from(patientMap.values());
 
-      // Corporate/discharge status live on patients & visits, not file_uploads,
-      // so resolve them for every candidate before slicing pages — filtering
-      // after slicing would make pagination counts wrong.
+      // Corporate/discharge/surgery/dialysis status live on patients & visits,
+      // not file_uploads, so resolve them for every candidate up front — this
+      // lets the pending/complete status and page count below reflect every
+      // matching patient, not just whichever page happened to load first.
       const allCandidateIds = Array.from(new Set(candidates.map((patient) => patient.patient_id).filter(Boolean) as string[]));
       const corporateByPatient = new Map<string, string | null>();
       const dischargedByPatient = new Map<string, boolean>();
+      const surgeryPatientIds = new Set<string>();
+      const dialysisPatientIds = new Set<string>();
 
       if (allCandidateIds.length) {
-        const [patientsResult, visitsResult] = await Promise.all([
+        const [patientsResult, visitsResult, surgeryResult, dialysisResult] = await Promise.all([
           supabase.from('patients').select('id, corporate').in('id', allCandidateIds),
           supabase.from('visits').select('patient_id, discharge_date').in('patient_id', allCandidateIds).order('admission_date', { ascending: false }),
+          supabase.from('visits').select('patient_id').in('patient_id', allCandidateIds).not('surgery_date', 'is', null),
+          supabase.from('dialysis_sessions').select('patient_id').in('patient_id', allCandidateIds),
         ]);
         if (patientsResult.error) throw patientsResult.error;
         if (visitsResult.error) throw visitsResult.error;
+        if (surgeryResult.error) throw surgeryResult.error;
+        if (dialysisResult.error) throw dialysisResult.error;
         if (!active) return;
 
         for (const patientRow of patientsResult.data || []) corporateByPatient.set(patientRow.id, patientRow.corporate);
@@ -142,6 +151,8 @@ export default function PatientDocumentsReport() {
         for (const visitRow of visitsResult.data || []) {
           if (!dischargedByPatient.has(visitRow.patient_id)) dischargedByPatient.set(visitRow.patient_id, !!visitRow.discharge_date);
         }
+        for (const row of surgeryResult.data || []) if (row.patient_id) surgeryPatientIds.add(row.patient_id);
+        for (const row of dialysisResult.data || []) if (row.patient_id) dialysisPatientIds.add(row.patient_id);
 
         const seenCorporates = Array.from(corporateByPatient.values()).filter(Boolean) as string[];
         if (seenCorporates.length) {
@@ -166,86 +177,65 @@ export default function PatientDocumentsReport() {
         return true;
       });
 
-      const start = (currentPage - 1) * PAGE_SIZE;
-      const pagePatients = filteredCandidates.slice(start, start + PAGE_SIZE);
-      const patientIds = Array.from(new Set(pagePatients.map((patient) => patient.patient_id).filter(Boolean) as string[]));
-      const patientNames = Array.from(new Set(pagePatients.map((patient) => patient.patient_name).filter(Boolean) as string[]));
+      const documentsByPatient = new Map<string, UploadedPatientDocument[]>();
+      for (const upload of uploads) {
+        if (!upload.category) continue;
+        for (const key of [normalizeValue(upload.patient_id), `name:${normalizeValue(upload.patient_name)}`].filter(Boolean)) {
+          documentsByPatient.set(key, [...(documentsByPatient.get(key) || []), upload]);
+        }
+      }
 
-      const results = await Promise.all([
-        patientIds.length
-          ? (() => { let q = supabase.from('file_uploads').select('patient_id, patient_name, category, created_at').in('patient_id', patientIds).in('category', canonicalCategoryIds); if (dateRange?.from) q = q.gte('created_at', startOfDay(dateRange.from).toISOString()); if (dateRange?.to) q = q.lte('created_at', endOfDay(dateRange.to).toISOString()); return q; })()
-          : Promise.resolve({ data: [], error: null }),
-        patientNames.length
-          ? (() => { let q = supabase.from('file_uploads').select('patient_id, patient_name, category, created_at').in('patient_name', patientNames).in('category', canonicalCategoryIds); if (dateRange?.from) q = q.gte('created_at', startOfDay(dateRange.from).toISOString()); if (dateRange?.to) q = q.lte('created_at', endOfDay(dateRange.to).toISOString()); return q; })()
-          : Promise.resolve({ data: [], error: null }),
-        patientIds.length
-          ? supabase.from('visits').select('patient_id').in('patient_id', patientIds).not('surgery_date', 'is', null)
-          : Promise.resolve({ data: [], error: null }),
-        patientIds.length
-          ? supabase.from('dialysis_sessions').select('patient_id').in('patient_id', patientIds)
-          : Promise.resolve({ data: [], error: null }),
-      ]);
-      const documentsError = results.find((result) => result.error)?.error;
-      if (documentsError) throw documentsError;
-      if (!active) return;
+      const computedRows = filteredCandidates.map((patient) => {
+        const patientUploads = [
+          ...(documentsByPatient.get(normalizeValue(patient.patient_id)) || []),
+          ...(documentsByPatient.get(`name:${normalizeValue(patient.patient_name)}`) || []),
+        ];
+        const uploadedCategories = new Set(patientUploads.map((upload) => normalizeValue(upload.category)));
+        const needsSurgeryDocs = !!(patient.patient_id && surgeryPatientIds.has(patient.patient_id));
+        const needsDialysisDocs = !!(patient.patient_id && dialysisPatientIds.has(patient.patient_id));
+        const done = PATIENT_DOC_CATEGORIES.filter((document) => uploadedCategories.has(normalizeValue(document.id))).map((document) => document.label);
+        const left = PATIENT_DOC_CATEGORIES.filter((document) => {
+          if (uploadedCategories.has(normalizeValue(document.id))) return false;
+          if (CORE_DOCUMENT_IDS.includes(document.id)) return true;
+          if (SURGERY_DOCUMENT_IDS.includes(document.id)) return needsSurgeryDocs;
+          if (DIALYSIS_DOCUMENT_IDS.includes(document.id)) return needsDialysisDocs;
+          return false;
+        }).map((document) => document.label);
+        return {
+          id: patient.patient_id || patient.patient_name || 'unknown-patient',
+          name: patient.patient_name || patient.patient_id || 'Unnamed patient',
+          patientName: patient.patient_name,
+          done,
+          left,
+        };
+      });
 
-      setPatients(pagePatients);
-      setDocuments([...(results[0].data || []), ...(results[1].data || [])] as UploadedPatientDocument[]);
-      setSurgeryPatientIds(new Set((results[2].data || []).map((row: { patient_id: string | null }) => row.patient_id).filter(Boolean) as string[]));
-      setDialysisPatientIds(new Set((results[3].data || []).map((row: { patient_id: string | null }) => row.patient_id).filter(Boolean) as string[]));
-      setHasNextPage((scanResult.data || []).length === scanLimit && filteredCandidates.length > start + PAGE_SIZE);
+      setAllRows(computedRows);
       setLoading(false);
     };
 
     load().catch((loadError) => {
       if (!active) return;
-      setPatients([]);
-      setDocuments([]);
+      setAllRows([]);
       setError(loadError instanceof Error ? loadError.message : 'Unable to load patient documents.');
       setLoading(false);
     });
 
     return () => { active = false; };
-  }, [currentPage, search, dateRange, corporateFilter, patientStatusFilter]);
+  }, [search, dateRange, corporateFilter, patientStatusFilter]);
 
-  const rows = useMemo<DocumentRow[]>(() => {
-    const documentsByPatient = new Map<string, UploadedPatientDocument[]>();
-    for (const document of documents) {
-      if (!document.category) continue;
-      for (const key of [normalizeValue(document.patient_id), `name:${normalizeValue(document.patient_name)}`].filter(Boolean)) {
-        documentsByPatient.set(key, [...(documentsByPatient.get(key) || []), document]);
-      }
-    }
+  const filteredRows = useMemo(() => allRows.filter((row) => {
+    if (statusFilter === 'pending' && row.left.length === 0) return false;
+    if (statusFilter === 'complete' && row.left.length > 0) return false;
+    return documentFilter === 'all' || row.done.includes(documentFilter);
+  }), [allRows, statusFilter, documentFilter]);
 
-    return patients.map((patient) => {
-      const patientDocuments = [
-        ...(documentsByPatient.get(normalizeValue(patient.patient_id)) || []),
-        ...(documentsByPatient.get(`name:${normalizeValue(patient.patient_name)}`) || []),
-      ];
-      const uploadedCategories = new Set(patientDocuments.map((document) => normalizeValue(document.category)));
-      const needsSurgeryDocs = !!(patient.patient_id && surgeryPatientIds.has(patient.patient_id));
-      const needsDialysisDocs = !!(patient.patient_id && dialysisPatientIds.has(patient.patient_id));
-      const done = PATIENT_DOC_CATEGORIES.filter((document) => uploadedCategories.has(normalizeValue(document.id))).map((document) => document.label);
-      const left = PATIENT_DOC_CATEGORIES.filter((document) => {
-        if (uploadedCategories.has(normalizeValue(document.id))) return false;
-        if (CORE_DOCUMENT_IDS.includes(document.id)) return true;
-        if (SURGERY_DOCUMENT_IDS.includes(document.id)) return needsSurgeryDocs;
-        if (DIALYSIS_DOCUMENT_IDS.includes(document.id)) return needsDialysisDocs;
-        return false;
-      }).map((document) => document.label);
-      return {
-        id: patient.patient_id || patient.patient_name || 'unknown-patient',
-        name: patient.patient_name || patient.patient_id || 'Unnamed patient',
-        patientName: patient.patient_name,
-        done,
-        left,
-      };
-    }).filter((row) => {
-      if (statusFilter === 'pending' && row.left.length === 0) return false;
-      if (statusFilter === 'complete' && row.left.length > 0) return false;
-      return documentFilter === 'all' || row.done.includes(documentFilter);
-    });
-  }, [documents, patients, statusFilter, documentFilter, surgeryPatientIds, dialysisPatientIds]);
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const rows = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return filteredRows.slice(start, start + pageSize);
+  }, [filteredRows, safePage, pageSize]);
 
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-6">
@@ -268,7 +258,7 @@ export default function PatientDocumentsReport() {
 
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50 px-5 py-3 text-sm text-gray-500">
-          <span>{rows.length ? `Showing ${(currentPage - 1) * PAGE_SIZE + 1}–${(currentPage - 1) * PAGE_SIZE + rows.length} uploaded patients` : 'No uploaded patients'}</span>
+          <span>{rows.length ? `Showing ${(safePage - 1) * pageSize + 1}–${(safePage - 1) * pageSize + rows.length} of ${filteredRows.length} uploaded patients` : 'No uploaded patients'}</span>
           {(search || statusFilter !== 'all' || documentFilter !== 'all' || dateRange || corporateFilter !== 'yojana' || patientStatusFilter !== 'discharged') && <button type="button" onClick={() => { setSearch(''); setStatusFilter('all'); setDocumentFilter('all'); setDateRange(undefined); setCorporateFilter('yojana'); setPatientStatusFilter('discharged'); resetPage(); }} className="font-medium text-primary hover:underline">Clear filters</button>}
         </div>
         <div className="overflow-x-auto"><table className="min-w-[980px] w-full table-fixed divide-y divide-gray-200"><thead className="bg-gray-50"><tr><th className="w-1/5 px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Patient Name</th><th className="w-[35%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Documents Done</th><th className="w-[35%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Documents Left</th><th className="w-[10%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Actions</th></tr></thead>
@@ -280,7 +270,14 @@ export default function PatientDocumentsReport() {
           </tbody></table></div>
       </div>
 
-      {!loading && !error && (currentPage > 1 || hasNextPage) && <div className="mt-4 flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm"><span className="text-sm text-gray-500">Page {currentPage}</span><div className="flex items-center gap-1"><button type="button" onClick={() => goToPage(1)} disabled={currentPage === 1} className="rounded-md border p-2 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40" aria-label="First page"><ChevronsLeft className="h-4 w-4" /></button><button type="button" onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 1} className="rounded-md border p-2 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Previous page"><ChevronLeft className="h-4 w-4" /></button><button type="button" onClick={() => goToPage(currentPage + 1)} disabled={!hasNextPage} className="rounded-md border p-2 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Next page"><ChevronRight className="h-4 w-4" /></button></div></div>}
+      {!loading && !error && filteredRows.length > 0 && <div className="mt-4 flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+        <div className="flex items-center gap-2 text-sm text-gray-500">
+          <label htmlFor="page-size">Rows per page</label>
+          <select id="page-size" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); resetPage(); }} className="h-8 rounded-md border border-input bg-background px-2 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-primary/30">{PAGE_SIZE_OPTIONS.map((size) => <option key={size} value={size}>{size}</option>)}</select>
+        </div>
+        <span className="text-sm text-gray-500">Page {safePage} of {totalPages}</span>
+        <div className="flex items-center gap-1"><button type="button" onClick={() => goToPage(1)} disabled={safePage === 1} className="rounded-md border p-2 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40" aria-label="First page"><ChevronsLeft className="h-4 w-4" /></button><button type="button" onClick={() => goToPage(safePage - 1)} disabled={safePage === 1} className="rounded-md border p-2 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Previous page"><ChevronLeft className="h-4 w-4" /></button><button type="button" onClick={() => goToPage(safePage + 1)} disabled={safePage >= totalPages} className="rounded-md border p-2 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Next page"><ChevronRight className="h-4 w-4" /></button></div>
+      </div>}
     </div>
   );
 }
