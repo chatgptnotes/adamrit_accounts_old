@@ -33,6 +33,14 @@ const UPLOAD_SCAN_SIZE = 400;
 const normalizeValue = (value: string | null | undefined) => value?.trim().replace(/\s+/g, ' ').toLowerCase() || '';
 const canonicalCategoryIds = PATIENT_DOC_CATEGORIES.map((document) => document.id);
 
+// Every patient needs these. The rest are situational — a patient never
+// admitted for surgery or dialysis will never have them, so counting them
+// as "pending" made almost every patient look incomplete regardless of
+// whether their actually-required documents were done.
+const CORE_DOCUMENT_IDS = ['treatment_sheet', 'monitor_chart', 'lab_investigation', 'radiology_investigation', 'discharge_summary'];
+const SURGERY_DOCUMENT_IDS = ['ot_notes', 'ot_photos', 'implant_invoice', 'implant_sticker'];
+const DIALYSIS_DOCUMENT_IDS = ['dialysis'];
+
 // Yojana schemes (MJPJAY/PMJAY and variants) aren't stored under one literal
 // corporate value, so "Yojana" is a keyword match rather than an exact one.
 const isMaharashtraYojana = (corporate: string | null | undefined) => {
@@ -55,6 +63,8 @@ export default function PatientDocumentsReport() {
   const [corporateFilter, setCorporateFilter] = useState('yojana');
   const [corporateOptions, setCorporateOptions] = useState<string[]>([]);
   const [patientStatusFilter, setPatientStatusFilter] = useState<'discharged' | 'admitted' | 'all'>('discharged');
+  const [surgeryPatientIds, setSurgeryPatientIds] = useState<Set<string>>(new Set());
+  const [dialysisPatientIds, setDialysisPatientIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasNextPage, setHasNextPage] = useState(false);
@@ -168,6 +178,12 @@ export default function PatientDocumentsReport() {
         patientNames.length
           ? (() => { let q = supabase.from('file_uploads').select('patient_id, patient_name, category, created_at').in('patient_name', patientNames).in('category', canonicalCategoryIds); if (dateRange?.from) q = q.gte('created_at', startOfDay(dateRange.from).toISOString()); if (dateRange?.to) q = q.lte('created_at', endOfDay(dateRange.to).toISOString()); return q; })()
           : Promise.resolve({ data: [], error: null }),
+        patientIds.length
+          ? supabase.from('visits').select('patient_id').in('patient_id', patientIds).not('surgery_date', 'is', null)
+          : Promise.resolve({ data: [], error: null }),
+        patientIds.length
+          ? supabase.from('dialysis_sessions').select('patient_id').in('patient_id', patientIds)
+          : Promise.resolve({ data: [], error: null }),
       ]);
       const documentsError = results.find((result) => result.error)?.error;
       if (documentsError) throw documentsError;
@@ -175,6 +191,8 @@ export default function PatientDocumentsReport() {
 
       setPatients(pagePatients);
       setDocuments([...(results[0].data || []), ...(results[1].data || [])] as UploadedPatientDocument[]);
+      setSurgeryPatientIds(new Set((results[2].data || []).map((row: { patient_id: string | null }) => row.patient_id).filter(Boolean) as string[]));
+      setDialysisPatientIds(new Set((results[3].data || []).map((row: { patient_id: string | null }) => row.patient_id).filter(Boolean) as string[]));
       setHasNextPage((scanResult.data || []).length === scanLimit && filteredCandidates.length > start + PAGE_SIZE);
       setLoading(false);
     };
@@ -205,8 +223,16 @@ export default function PatientDocumentsReport() {
         ...(documentsByPatient.get(`name:${normalizeValue(patient.patient_name)}`) || []),
       ];
       const uploadedCategories = new Set(patientDocuments.map((document) => normalizeValue(document.category)));
+      const needsSurgeryDocs = !!(patient.patient_id && surgeryPatientIds.has(patient.patient_id));
+      const needsDialysisDocs = !!(patient.patient_id && dialysisPatientIds.has(patient.patient_id));
       const done = PATIENT_DOC_CATEGORIES.filter((document) => uploadedCategories.has(normalizeValue(document.id))).map((document) => document.label);
-      const left = PATIENT_DOC_CATEGORIES.filter((document) => !uploadedCategories.has(normalizeValue(document.id))).map((document) => document.label);
+      const left = PATIENT_DOC_CATEGORIES.filter((document) => {
+        if (uploadedCategories.has(normalizeValue(document.id))) return false;
+        if (CORE_DOCUMENT_IDS.includes(document.id)) return true;
+        if (SURGERY_DOCUMENT_IDS.includes(document.id)) return needsSurgeryDocs;
+        if (DIALYSIS_DOCUMENT_IDS.includes(document.id)) return needsDialysisDocs;
+        return false;
+      }).map((document) => document.label);
       return {
         id: patient.patient_id || patient.patient_name || 'unknown-patient',
         name: patient.patient_name || patient.patient_id || 'Unnamed patient',
@@ -219,7 +245,7 @@ export default function PatientDocumentsReport() {
       if (statusFilter === 'complete' && row.left.length > 0) return false;
       return documentFilter === 'all' || row.done.includes(documentFilter);
     });
-  }, [documents, patients, statusFilter, documentFilter]);
+  }, [documents, patients, statusFilter, documentFilter, surgeryPatientIds, dialysisPatientIds]);
 
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-6">
