@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
+import { startOfDay, endOfDay } from 'date-fns';
+import { DateRange } from 'react-day-picker';
 import { ArrowLeft, ChevronLeft, ChevronRight, ChevronsLeft, FileCheck2, FileText, Loader2, Search } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { PATIENT_DOC_CATEGORIES } from '@/tablet/hooks/usePatientDocs';
 import { Input } from '@/components/ui/input';
+import { DateRangePicker } from '@/components/ui/date-range-picker';
 
 interface PatientRecord {
   patient_id: string | null;
@@ -35,6 +38,7 @@ export default function PatientDocumentsReport() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'complete'>('all');
   const [documentFilter, setDocumentFilter] = useState('all');
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasNextPage, setHasNextPage] = useState(false);
@@ -71,6 +75,13 @@ export default function PatientDocumentsReport() {
         query = query.or(`patient_name.ilike.%${searchTerm}%,patient_id.ilike.%${searchTerm}%`);
       }
 
+      if (dateRange?.from) {
+        query = query.gte('created_at', startOfDay(dateRange.from).toISOString());
+      }
+      if (dateRange?.to) {
+        query = query.lte('created_at', endOfDay(dateRange.to).toISOString());
+      }
+
       const scanResult = await query;
       if (scanResult.error) throw scanResult.error;
       if (!active) return;
@@ -90,10 +101,10 @@ export default function PatientDocumentsReport() {
 
       const results = await Promise.all([
         patientIds.length
-          ? supabase.from('file_uploads').select('patient_id, patient_name, category, created_at').in('patient_id', patientIds).in('category', canonicalCategoryIds)
+          ? (() => { let q = supabase.from('file_uploads').select('patient_id, patient_name, category, created_at').in('patient_id', patientIds).in('category', canonicalCategoryIds); if (dateRange?.from) q = q.gte('created_at', startOfDay(dateRange.from).toISOString()); if (dateRange?.to) q = q.lte('created_at', endOfDay(dateRange.to).toISOString()); return q; })()
           : Promise.resolve({ data: [], error: null }),
         patientNames.length
-          ? supabase.from('file_uploads').select('patient_id, patient_name, category, created_at').in('patient_name', patientNames).in('category', canonicalCategoryIds)
+          ? (() => { let q = supabase.from('file_uploads').select('patient_id, patient_name, category, created_at').in('patient_name', patientNames).in('category', canonicalCategoryIds); if (dateRange?.from) q = q.gte('created_at', startOfDay(dateRange.from).toISOString()); if (dateRange?.to) q = q.lte('created_at', endOfDay(dateRange.to).toISOString()); return q; })()
           : Promise.resolve({ data: [], error: null }),
       ]);
       const documentsError = results.find((result) => result.error)?.error;
@@ -115,7 +126,7 @@ export default function PatientDocumentsReport() {
     });
 
     return () => { active = false; };
-  }, [currentPage, search]);
+  }, [currentPage, search, dateRange]);
 
   const rows = useMemo<DocumentRow[]>(() => {
     const documentsByPatient = new Map<string, UploadedPatientDocument[]>();
@@ -156,17 +167,18 @@ export default function PatientDocumentsReport() {
       </div>
 
       <div className="mb-6 flex justify-end">
-        <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-[minmax(0,18rem)_12rem_16rem]">
+        <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-[minmax(0,18rem)_12rem_16rem_auto]">
           <div className="relative min-w-0"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" /><Input value={search} onChange={(event) => { setSearch(event.target.value); resetPage(); }} placeholder="Search patient / ID" className="h-10 w-full pl-9" /></div>
           <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as typeof statusFilter); resetPage(); }} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-primary/30"><option value="all">All statuses</option><option value="pending">Documents pending</option><option value="complete">All documents complete</option></select>
           <select value={documentFilter} onChange={(event) => { setDocumentFilter(event.target.value); resetPage(); }} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-primary/30"><option value="all">Any uploaded document</option>{PATIENT_DOC_CATEGORIES.map((document) => <option key={document.id} value={document.label}>{document.label}</option>)}</select>
+          <DateRangePicker date={dateRange} onDateChange={(range) => { setDateRange(range); resetPage(); }} />
         </div>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50 px-5 py-3 text-sm text-gray-500">
           <span>{rows.length ? `Showing ${(currentPage - 1) * PAGE_SIZE + 1}–${(currentPage - 1) * PAGE_SIZE + rows.length} uploaded patients` : 'No uploaded patients'}</span>
-          {(search || statusFilter !== 'all' || documentFilter !== 'all') && <button type="button" onClick={() => { setSearch(''); setStatusFilter('all'); setDocumentFilter('all'); resetPage(); }} className="font-medium text-primary hover:underline">Clear filters</button>}
+          {(search || statusFilter !== 'all' || documentFilter !== 'all' || dateRange) && <button type="button" onClick={() => { setSearch(''); setStatusFilter('all'); setDocumentFilter('all'); setDateRange(undefined); resetPage(); }} className="font-medium text-primary hover:underline">Clear filters</button>}
         </div>
         <div className="overflow-x-auto"><table className="min-w-[900px] w-full table-fixed divide-y divide-gray-200"><thead className="bg-gray-50"><tr><th className="w-1/4 px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Patient Name</th><th className="w-[37.5%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Documents Done</th><th className="w-[37.5%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Documents Left</th></tr></thead>
           <tbody className="divide-y divide-gray-100">
