@@ -204,7 +204,6 @@ const DIRECTOR_EMAILS = ["cmd@hopehospital.com", "finance@hopehospital.com"];
 const HIDDEN_MODULE_IDS = new Set([
   "occupancy",
   "icu-admission",
-  "advance",
   "requisition",
   "gate-pass",
   "discharge-summary",
