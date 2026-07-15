@@ -181,9 +181,11 @@ const CorporateBill = () => {
       </div>
 
       {/* Bill + Documents side panel */}
-      <div className="flex flex-wrap items-start justify-center gap-4 print:block xl:flex-nowrap">
+      <div className="grid items-start gap-4 print:block xl:grid-cols-[minmax(0,1fr)_340px]">
+        <main className="min-w-0 space-y-4">
       {/* Bill */}
-      <div className="w-[210mm] max-w-full shrink-0 bg-white shadow-lg print:shadow-none print:m-0 print:mx-auto">
+      <div className="overflow-x-auto print:overflow-visible">
+      <div className="mx-auto w-[210mm] max-w-full shrink-0 bg-white shadow-lg print:shadow-none print:m-0 print:mx-auto">
         <div className="p-6 print:p-4" style={{ fontFamily: 'Arial, sans-serif' }}>
 
           <div className="text-center border-b-2 border-black pb-2 mb-0">
@@ -328,6 +330,7 @@ const CorporateBill = () => {
           </div>
         </div>
       </div>
+      </div>
 
         {/* Implant Bill (vendor invoice for implants used in this surgery) */}
         {actualVisitId && (
@@ -356,9 +359,10 @@ const CorporateBill = () => {
             defaultSurgeryName={implantName}
           />
         )}
+        </main>
 
         {/* Documents side panel (hidden on print) */}
-        <aside className="print:hidden w-full max-w-full shrink-0 xl:w-[340px]">
+        <aside className="print:hidden min-w-0 xl:sticky xl:top-4">
           <BillDocumentsSection
             patientId={patientId}
             patientName={patientInfo.patientName}

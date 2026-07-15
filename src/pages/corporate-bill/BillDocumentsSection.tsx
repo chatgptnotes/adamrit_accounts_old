@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Download, FileText, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { isUuid } from "@/utils/visitId";
 import {
   Dialog,
   DialogContent,
@@ -206,8 +208,16 @@ function mapDoc(r: any): CategorizedDoc {
 }
 
 type VisitSummary = {
+  id: string | null;
   visit_id: string | null;
+  patient_id?: string | null;
   package_name: string | null;
+  appointment_with?: string | null;
+  patients?: {
+    age?: string | number | null;
+    gender?: string | null;
+    patients_id?: string | null;
+  } | null;
 };
 
 type PackageSummary = {
@@ -237,6 +247,100 @@ const deriveOtRequirement = (packageType: string) => {
   if (packageType === "Conservative") return "No";
   return "As per package";
 };
+
+type LabReportRow = {
+  id: string;
+  groupName: string;
+  investigation: string;
+  result: string;
+  unit: string;
+  referenceRange: string;
+  status: string;
+  remarks: string;
+  isAbnormal: boolean;
+  orderedAt: string | null;
+  reportedAt: string | null;
+};
+
+type LabReportData = {
+  visitUuid: string | null;
+  rows: LabReportRow[];
+  sourceVisitCount: number;
+};
+
+const normalizeText = (value: unknown) => String(value || "").trim();
+
+const normalizeKey = (value: unknown) =>
+  normalizeText(value).toLowerCase().replace(/\s+/g, " ");
+
+const extractResultValue = (data: unknown): string => {
+  if (data === null || data === undefined) return "";
+  if (typeof data === "object" && !Array.isArray(data)) {
+    const value = (data as Record<string, unknown>).value ?? (data as Record<string, unknown>).val;
+    return value === null || value === undefined ? "" : String(value).trim();
+  }
+  if (typeof data !== "string") return String(data).trim();
+
+  const trimmed = data.trim();
+  if (!trimmed) return "";
+  if (!trimmed.includes("{") && !trimmed.includes('"value"')) return trimmed;
+
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object") {
+        const value = parsed.value ?? parsed.val;
+        return value === null || value === undefined ? "" : String(value).trim();
+      }
+    } catch {
+      const match = trimmed.match(/"value"\s*:\s*"?([^",}]+)"?/);
+      if (match) return match[1].trim();
+    }
+  }
+
+  return trimmed;
+};
+
+const formatReportDate = (value: string | null | undefined) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+};
+
+const safeFileName = (value: string) => value.replace(/[^a-zA-Z0-9._-]/g, "_");
+
+function triggerBlobDownload(blob: Blob, fileName: string) {
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
+
+async function loadImageDataUrl(path: string): Promise<string | null> {
+  try {
+    const response = await fetch(path);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(reader.error || new Error("Could not read image"));
+      reader.readAsDataURL(blob);
+    });
+  } catch (err) {
+    console.warn("Could not load PDF letterhead image:", err);
+    return null;
+  }
+}
 
 /** All uploaded docs for a patient, across the 8 profile categories, newest first. */
 function usePatientAllDocs(patientId: string | undefined) {
@@ -269,15 +373,370 @@ function useBillVisitSummary(visitId: string | undefined) {
     staleTime: 1000 * 15,
     queryFn: async (): Promise<VisitSummary | null> => {
       if (!visitId) return null;
-      const { data, error } = await supabase
+      const query = supabase
         .from("visits")
-        .select("visit_id, package_name")
-        .eq("visit_id", visitId)
-        .maybeSingle();
+        .select("id, visit_id, patient_id, package_name, appointment_with, patients(age, gender, patients_id)");
+      const { data, error } = isUuid(visitId)
+        ? await query.eq("id", visitId).maybeSingle()
+        : await query.eq("visit_id", visitId).maybeSingle();
       if (error) throw error;
       return (data || null) as VisitSummary | null;
     },
   });
+}
+
+function useBillLabInvestigations(params: {
+  visitId?: string;
+  visitSummary?: VisitSummary | null;
+  patientId?: string | null;
+  patientName?: string | null;
+}) {
+  return useQuery({
+    queryKey: [
+      "bill-lab-investigations",
+      params.visitId,
+      params.visitSummary?.id,
+      params.patientId,
+      params.patientName,
+    ],
+    enabled: !!params.visitId,
+    staleTime: 1000 * 15,
+    queryFn: async (): Promise<LabReportData> => {
+      const visitId = params.visitId;
+      if (!visitId) return { visitUuid: null, rows: [], sourceVisitCount: 0 };
+
+      let visitUuid = params.visitSummary?.id || null;
+      if (!visitUuid) {
+        const visitQuery = supabase.from("visits").select("id");
+        const { data, error } = isUuid(visitId)
+          ? await visitQuery.eq("id", visitId).maybeSingle()
+          : await visitQuery.eq("visit_id", visitId).maybeSingle();
+        if (error) throw error;
+        visitUuid = data?.id || null;
+      }
+
+      if (!visitUuid) return { visitUuid: null, rows: [], sourceVisitCount: 0 };
+
+      let sourceVisitIds = [visitUuid];
+
+      let { data: visitLabsData, error: visitLabsError } = await supabase
+        .from("visit_labs")
+        .select("id, visit_id, lab_id, status, ordered_date, collected_date, completed_date, result_value, normal_range, notes, created_at, updated_at, is_hidden")
+        .eq("visit_id", visitUuid)
+        .or("is_hidden.is.null,is_hidden.eq.false")
+        .order("ordered_date", { ascending: true });
+      if (visitLabsError) throw visitLabsError;
+
+      if ((visitLabsData || []).length === 0 && params.patientId) {
+        const { data: patientVisits, error: patientVisitsError } = await supabase
+          .from("visits")
+          .select("id, visit_id, created_at")
+          .eq("patient_id", params.patientId)
+          .order("created_at", { ascending: false })
+          .limit(20);
+
+        if (patientVisitsError) {
+          console.warn("Could not load patient visits for lab report fallback:", patientVisitsError);
+        } else {
+          sourceVisitIds = (patientVisits || []).map((visit: any) => visit.id).filter(Boolean);
+
+          if (sourceVisitIds.length > 0) {
+            const fallback = await supabase
+              .from("visit_labs")
+              .select("id, visit_id, lab_id, status, ordered_date, collected_date, completed_date, result_value, normal_range, notes, created_at, updated_at, is_hidden")
+              .in("visit_id", sourceVisitIds)
+              .or("is_hidden.is.null,is_hidden.eq.false")
+              .order("ordered_date", { ascending: false });
+
+            if (fallback.error) {
+              console.warn("Could not load patient-level lab investigations for bill report:", fallback.error);
+            } else {
+              visitLabsData = fallback.data || [];
+            }
+          }
+        }
+      }
+
+      const visitLabs = visitLabsData || [];
+      const labIds = [...new Set(visitLabs.map((row: any) => row.lab_id).filter(Boolean))];
+      const { data: labDetails, error: labDetailsError } = labIds.length
+        ? await supabase
+            .from("lab")
+            .select("id, name, category, sample_type, test_method")
+            .in("id", labIds)
+        : { data: [], error: null };
+      if (labDetailsError) {
+        console.warn("Could not load lab master details for bill report:", labDetailsError);
+      }
+
+      const labMap = new Map((labDetails || []).map((lab: any) => [lab.id, lab]));
+      const visitLabIds = visitLabs.map((row: any) => row.id).filter(Boolean);
+      const resultMap = new Map<string, any>();
+
+      const addResults = (rows: any[] | null | undefined) => {
+        for (const row of rows || []) {
+          if (row?.id && !resultMap.has(row.id)) resultMap.set(row.id, row);
+        }
+      };
+
+      if (visitLabIds.length > 0) {
+        const { data, error } = await supabase
+          .from("lab_results")
+          .select("id, visit_lab_id, visit_id, lab_id, main_test_name, test_name, test_category, result_value, result_unit, reference_range, result_status, comments, is_abnormal, created_at, updated_at, display_order")
+          .in("visit_lab_id", visitLabIds)
+          .order("display_order", { ascending: true })
+          .order("created_at", { ascending: false });
+        if (error) {
+          console.warn("Could not load lab results by visit_lab_id for bill report:", error);
+        } else {
+          addResults(data);
+        }
+      }
+
+      const latestResults = new Map<string, any>();
+      Array.from(resultMap.values())
+        .sort((a, b) => {
+          const aDate = new Date(a.updated_at || a.created_at || 0).getTime();
+          const bDate = new Date(b.updated_at || b.created_at || 0).getTime();
+          return bDate - aDate;
+        })
+        .forEach((result: any) => {
+          const key = [
+            result.visit_lab_id || result.visit_id || "visit",
+            result.lab_id || "lab",
+            normalizeKey(result.main_test_name || result.test_category),
+            normalizeKey(result.test_name),
+          ].join("|");
+          if (!latestResults.has(key)) latestResults.set(key, result);
+        });
+
+      const labResults = Array.from(latestResults.values()).sort((a, b) => {
+        const aOrder = Number(a.display_order ?? 9999);
+        const bOrder = Number(b.display_order ?? 9999);
+        if (aOrder !== bOrder) return aOrder - bOrder;
+        return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+      });
+
+      const rows: LabReportRow[] = [];
+      const matchedResultIds = new Set<string>();
+
+      for (const visitLab of visitLabs) {
+        const lab = labMap.get(visitLab.lab_id);
+        const labName = normalizeText(lab?.name) || "Lab Investigation";
+        const labKey = normalizeKey(labName);
+        const relatedResults = labResults.filter((result: any) => {
+          if (result.visit_lab_id) return result.visit_lab_id === visitLab.id;
+          if (result.lab_id && result.lab_id === visitLab.lab_id) return true;
+          const resultMainKey = normalizeKey(result.main_test_name || result.test_category);
+          return !!resultMainKey && resultMainKey === labKey;
+        });
+
+        if (relatedResults.length > 0) {
+          for (const result of relatedResults) {
+            matchedResultIds.add(result.id);
+            rows.push({
+              id: result.id,
+              groupName: normalizeText(result.main_test_name || result.test_category || labName),
+              investigation: normalizeText(result.test_name || labName),
+              result: extractResultValue(result.result_value),
+              unit: normalizeText(result.result_unit),
+              referenceRange: normalizeText(result.reference_range || visitLab.normal_range),
+              status: normalizeText(result.result_status || visitLab.status),
+              remarks: normalizeText(result.comments || visitLab.notes),
+              isAbnormal: !!result.is_abnormal,
+              orderedAt: visitLab.ordered_date || visitLab.created_at || null,
+              reportedAt: result.updated_at || result.created_at || visitLab.completed_date || null,
+            });
+          }
+          continue;
+        }
+
+        rows.push({
+          id: visitLab.id,
+          groupName: labName,
+          investigation: labName,
+          result: extractResultValue(visitLab.result_value),
+          unit: "",
+          referenceRange: normalizeText(visitLab.normal_range),
+          status: normalizeText(visitLab.status || "Ordered"),
+          remarks: normalizeText(visitLab.notes),
+          isAbnormal: false,
+          orderedAt: visitLab.ordered_date || visitLab.created_at || null,
+          reportedAt: visitLab.completed_date || visitLab.updated_at || null,
+        });
+      }
+
+      for (const result of labResults) {
+        if (matchedResultIds.has(result.id)) continue;
+        rows.push({
+          id: result.id,
+          groupName: normalizeText(result.main_test_name || result.test_category || "Lab Investigation"),
+          investigation: normalizeText(result.test_name || result.main_test_name || "Lab Investigation"),
+          result: extractResultValue(result.result_value),
+          unit: normalizeText(result.result_unit),
+          referenceRange: normalizeText(result.reference_range),
+          status: normalizeText(result.result_status),
+          remarks: normalizeText(result.comments),
+          isAbnormal: !!result.is_abnormal,
+          orderedAt: null,
+          reportedAt: result.updated_at || result.created_at || null,
+        });
+      }
+
+      return {
+        visitUuid,
+        rows,
+        sourceVisitCount: new Set(visitLabs.map((row: any) => row.visit_id).filter(Boolean)).size,
+      };
+    },
+  });
+}
+
+async function buildLabReportPdf(params: {
+  hospitalName: string;
+  hospitalAddress?: string | null;
+  hospitalPhone?: string | null;
+  hospitalEmail?: string | null;
+  primaryColor?: string | null;
+  patientName?: string | null;
+  patientRegistrationNo?: string | null;
+  patientAge?: string | number | null;
+  patientGender?: string | null;
+  visitId?: string | null;
+  consultant?: string | null;
+  rows: LabReportRow[];
+}): Promise<Blob> {
+  const { default: jsPDF } = await import("jspdf");
+  const { default: autoTable } = await import("jspdf-autotable");
+
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const pageW = 210;
+  const pageH = 297;
+  const margin = 14;
+  const contentW = pageW - margin * 2;
+  const accent = params.primaryColor || "#334155";
+  const accentRgb = accent.match(/^#([0-9a-f]{6})$/i)
+    ? [
+        parseInt(accent.slice(1, 3), 16),
+        parseInt(accent.slice(3, 5), 16),
+        parseInt(accent.slice(5, 7), 16),
+      ]
+    : [51, 65, 85];
+  const letterhead = await loadImageDataUrl("/hope-letterhead.png");
+  const letterheadW = pageW;
+  const letterheadH = pageW * (710 / 568);
+
+  const addLetterhead = () => {
+    if (letterhead) {
+      doc.addImage(letterhead, "PNG", 0, 0, letterheadW, letterheadH);
+      return;
+    }
+
+    doc.setDrawColor(accentRgb[0], accentRgb[1], accentRgb[2]);
+    doc.setLineWidth(0.5);
+    doc.line(margin, 31, pageW - margin, 31);
+  };
+
+  addLetterhead();
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.setTextColor(20, 20, 20);
+  doc.text("LAB INVESTIGATION REPORT", pageW / 2, 53, { align: "center" });
+
+  const patientInfo = [
+    ["Patient Name", params.patientName || "-"],
+    ["Registration No.", params.patientRegistrationNo || "-"],
+    ["Visit ID", params.visitId || "-"],
+    ["Age / Gender", `${params.patientAge || "-"} / ${params.patientGender || "-"}`],
+    ["Report Date", new Date().toLocaleDateString("en-IN")],
+    ["Consultant", params.consultant || "-"],
+  ];
+
+  let y = 63;
+  doc.setFontSize(9);
+  patientInfo.forEach(([label, value], index) => {
+    const col = index % 2;
+    const row = Math.floor(index / 2);
+    const x = margin + col * (contentW / 2);
+    const lineY = y + row * 7;
+    doc.setFont("helvetica", "bold");
+    doc.text(`${label}:`, x, lineY);
+    doc.setFont("helvetica", "normal");
+    doc.text(String(value), x + 29, lineY, { maxWidth: contentW / 2 - 31 });
+  });
+
+  y += 25;
+
+  autoTable(doc, {
+    startY: y,
+    margin: { top: 56, right: margin, bottom: 62, left: margin },
+    head: [["Investigation", "Observed Value", "Unit", "Reference Range", "Status", "Reported"]],
+    body: params.rows.map((row) => [
+      row.groupName && row.groupName !== row.investigation
+        ? `${row.groupName}\n${row.investigation}`
+        : row.investigation,
+      row.result || "-",
+      row.unit || "-",
+      row.referenceRange || "-",
+      row.isAbnormal ? `${row.status || "Result"} / Abnormal` : row.status || "-",
+      formatReportDate(row.reportedAt || row.orderedAt),
+    ]),
+    theme: "grid",
+    styles: {
+      font: "helvetica",
+      fontSize: 8,
+      cellPadding: 2,
+      lineColor: [160, 160, 160],
+      lineWidth: 0.15,
+      textColor: [20, 20, 20],
+      valign: "middle",
+    },
+    headStyles: {
+      fillColor: [accentRgb[0], accentRgb[1], accentRgb[2]],
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+      halign: "center",
+    },
+    columnStyles: {
+      0: { cellWidth: 47 },
+      1: { cellWidth: 34, fontStyle: "bold" },
+      2: { cellWidth: 20 },
+      3: { cellWidth: 34 },
+      4: { cellWidth: 26 },
+      5: { cellWidth: 25 },
+    },
+    didParseCell: (data: any) => {
+      if (data.section === "body") {
+        const row = params.rows[data.row.index];
+        if (row?.isAbnormal) {
+          data.cell.styles.textColor = [185, 28, 28];
+          data.cell.styles.fontStyle = "bold";
+        }
+      }
+    },
+    willDrawPage: (data: any) => {
+      if (data.pageNumber > 1) addLetterhead();
+    },
+  });
+
+  const finalY = (doc as any).lastAutoTable?.finalY || y + 20;
+  const signatureY = Math.min(finalY + 25, 231);
+  doc.setDrawColor(80, 80, 80);
+  doc.line(pageW - 72, signatureY, pageW - margin, signatureY);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("Pathologist / Lab In-charge", pageW - 43, signatureY + 5, { align: "center" });
+
+  const pageCount = doc.getNumberOfPages();
+  for (let page = 1; page <= pageCount; page += 1) {
+    doc.setPage(page);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(90, 90, 90);
+    doc.text(`Page ${page} of ${pageCount}`, pageW - margin, pageH - 10, { align: "right" });
+  }
+
+  return doc.output("blob");
 }
 
 function usePackageSummary(visitSummary: VisitSummary | null | undefined) {
@@ -660,22 +1119,33 @@ export function BillDocumentsSection({
   patientRegistrationNo,
   visitId,
 }: BillDocumentsSectionProps) {
+  const { hospitalConfig } = useAuth();
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<PatientDocCategory>(
     PATIENT_DOC_CATEGORIES[0].id,
   );
   const [viewing, setViewing] = useState<PatientDoc | null>(null);
+  const [generatedLabReportUrl, setGeneratedLabReportUrl] = useState<string | null>(null);
   const [pdfBusyCategory, setPdfBusyCategory] = useState<string | null>(null);
   const [pdfBusyDocId, setPdfBusyDocId] = useState<string | null>(null);
+  const [labReportBusy, setLabReportBusy] = useState<"view" | "download" | null>(null);
   const [otNotesView, setOtNotesView] = useState<"auto" | "master">("auto");
   const docs = usePatientAllDocs(patientId);
   const visitSummary = useBillVisitSummary(visitId);
+  const labInvestigations = useBillLabInvestigations({
+    visitId,
+    visitSummary: visitSummary.data,
+    patientId: patientId || visitSummary.data?.patient_id,
+    patientName,
+  });
   const packageSummary = usePackageSummary(visitSummary.data);
   const packageDisplayName = getPackageDisplayName(packageSummary.data, visitSummary.data?.package_name);
   const packageDisplayType = getPackageDisplayType(packageSummary.data);
   const registrationId = patientId || "-";
   const registrationNo = patientRegistrationNo || "-";
   const otRequired = deriveOtRequirement(packageDisplayType);
+  const labRows = labInvestigations.data?.rows || [];
+  const hasGeneratedLabReport = labRows.length > 0;
 
   const generatedOtNotes = useMemo(() => {
     return buildGeneratedOtNotes({
@@ -711,7 +1181,74 @@ export function BillDocumentsSection({
     });
   }, [packageDisplayType, packageSummary.data, visitSummary.data?.package_name]);
 
-  const safeName = (patientName || "patient").replace(/[^a-zA-Z0-9._-]/g, "_");
+  const safeName = safeFileName(patientName || "patient");
+
+  const buildCurrentLabReportPdf = () =>
+    buildLabReportPdf({
+      hospitalName: hospitalConfig?.fullName || "Hospital",
+      hospitalAddress: hospitalConfig?.contactInfo?.address,
+      hospitalPhone: hospitalConfig?.contactInfo?.phone,
+      hospitalEmail: hospitalConfig?.contactInfo?.email,
+      primaryColor: hospitalConfig?.primaryColor,
+      patientName,
+      patientRegistrationNo,
+      patientAge: visitSummary.data?.patients?.age,
+      patientGender: visitSummary.data?.patients?.gender || null,
+      visitId: visitSummary.data?.visit_id || visitId || null,
+      consultant: visitSummary.data?.appointment_with || null,
+      rows: labRows,
+    });
+
+  const openGeneratedLabReport = async () => {
+    if (!hasGeneratedLabReport || labReportBusy) return;
+    setLabReportBusy("view");
+    try {
+      if (generatedLabReportUrl) {
+        window.URL.revokeObjectURL(generatedLabReportUrl);
+        setGeneratedLabReportUrl(null);
+      }
+      const blob = await buildCurrentLabReportPdf();
+      const url = window.URL.createObjectURL(blob);
+      setGeneratedLabReportUrl(url);
+      setViewing({
+        id: "__generated_lab_report__",
+        fileName: `${safeName}_Lab_Investigation_Report.pdf`,
+        fileUrl: url,
+        fileType: "application/pdf",
+        storagePath: null,
+        uploadedAt: new Date().toISOString(),
+        latitude: null,
+        longitude: null,
+      });
+    } catch (err) {
+      console.error("Lab report PDF view failed:", err);
+      alert("Could not open the lab investigation report. Please try again.");
+    } finally {
+      setLabReportBusy(null);
+    }
+  };
+
+  const downloadGeneratedLabReport = async () => {
+    if (!hasGeneratedLabReport || labReportBusy) return;
+    setLabReportBusy("download");
+    try {
+      const blob = await buildCurrentLabReportPdf();
+      triggerBlobDownload(blob, `${safeName}_Lab_Investigation_Report.pdf`);
+    } catch (err) {
+      console.error("Lab report PDF generation failed:", err);
+      alert("Could not generate the lab investigation report. Please try again.");
+    } finally {
+      setLabReportBusy(null);
+    }
+  };
+
+  const closeViewer = () => {
+    if (generatedLabReportUrl) {
+      window.URL.revokeObjectURL(generatedLabReportUrl);
+      setGeneratedLabReportUrl(null);
+    }
+    setViewing(null);
+  };
 
   const handleDownloadOne = async (doc: PatientDoc) => {
     const base = (doc.fileName || "document")
@@ -775,7 +1312,8 @@ export function BillDocumentsSection({
   for (const doc of docs.data || []) {
     if (byCategory.has(doc.category)) byCategory.get(doc.category)!.push(doc);
   }
-  const total = docs.data?.length || 0;
+  const generatedDocCount = hasGeneratedLabReport ? 1 : 0;
+  const total = (docs.data?.length || 0) + generatedDocCount;
 
   return (
     <div className="print:hidden rounded-lg border bg-white shadow-sm">
@@ -883,7 +1421,9 @@ export function BillDocumentsSection({
             >
               <TabsList className="flex h-auto flex-wrap justify-start gap-1">
                 {PATIENT_DOC_CATEGORIES.map((cat) => {
-                  const count = byCategory.get(cat.id)?.length || 0;
+                  const count =
+                    (byCategory.get(cat.id)?.length || 0) +
+                    (cat.id === "lab_investigation" ? generatedDocCount : 0);
                   return (
                     <TabsTrigger key={cat.id} value={cat.id} className="text-xs">
                       {cat.label}
@@ -898,6 +1438,69 @@ export function BillDocumentsSection({
               </TabsList>
               {PATIENT_DOC_CATEGORIES.map((cat) => (
                 <TabsContent key={cat.id} value={cat.id}>
+                  {cat.id === "lab_investigation" && (
+                    <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                            <FileText className="h-4 w-4 text-primary" />
+                            Generated Lab Investigation Report
+                          </div>
+                          <div className="mt-2 grid gap-2 text-xs text-slate-600 sm:grid-cols-3">
+                            <span>
+                              <span className="font-semibold text-slate-800">Investigations:</span>{" "}
+                              {labInvestigations.isLoading ? "Loading" : labRows.length}
+                            </span>
+                            <span>
+                              <span className="font-semibold text-slate-800">Visit:</span>{" "}
+                              {visitSummary.data?.visit_id || visitId || "-"}
+                            </span>
+                            <span>
+                              <span className="font-semibold text-slate-800">Format:</span> PDF
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void openGeneratedLabReport()}
+                            disabled={!hasGeneratedLabReport || labInvestigations.isLoading || labReportBusy !== null}
+                            className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                          >
+                            {labReportBusy === "view" ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <FileText className="h-3.5 w-3.5" />
+                            )}
+                            View PDF
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void downloadGeneratedLabReport()}
+                            disabled={!hasGeneratedLabReport || labInvestigations.isLoading || labReportBusy !== null}
+                            className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                          >
+                            {labReportBusy === "download" ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Download className="h-3.5 w-3.5" />
+                            )}
+                            Download PDF
+                          </button>
+                        </div>
+                      </div>
+                      {labInvestigations.isError && (
+                        <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                          Could not load lab investigations for this visit.
+                        </p>
+                      )}
+                      {!labInvestigations.isLoading && !labInvestigations.isError && !hasGeneratedLabReport && (
+                        <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                          No lab investigations are recorded for this visit.
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {cat.id === "discharge_summary" && (
                     <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1041,7 +1644,7 @@ export function BillDocumentsSection({
       )}
 
       {/* Full-size viewer */}
-      <Dialog open={!!viewing} onOpenChange={(o) => !o && setViewing(null)}>
+      <Dialog open={!!viewing} onOpenChange={(o) => !o && closeViewer()}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle className="truncate pr-6">
