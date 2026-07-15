@@ -200,6 +200,29 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
       return;
     }
 
+    // Warn if this patient already has a visit registered very recently —
+    // catches accidental double-registration without blocking a genuinely
+    // new admission (e.g. a recurring dialysis patient) days/weeks later.
+    if (!editMode) {
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      const { data: recentVisits } = await supabase
+        .from('visits')
+        .select('visit_id, room_allotted, created_at')
+        .eq('patient_id', patient.id)
+        .gte('created_at', twoHoursAgo)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      const recentVisit = recentVisits?.[0];
+      if (recentVisit) {
+        const minutesAgo = Math.max(1, Math.round((Date.now() - new Date(recentVisit.created_at).getTime()) / 60000));
+        const proceed = window.confirm(
+          `${patient.name} already has a visit registered ${minutesAgo} minute(s) ago (Visit ID: ${recentVisit.visit_id}, Room: ${recentVisit.room_allotted || 'N/A'}).\n\nRegister another visit anyway?`
+        );
+        if (!proceed) return;
+      }
+    }
+
     setIsSubmitting(true);
 
     try {
