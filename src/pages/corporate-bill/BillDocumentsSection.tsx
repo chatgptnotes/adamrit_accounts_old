@@ -469,7 +469,7 @@ function useBillLabInvestigations(params: {
         console.warn("Could not load lab master details for bill report:", labDetailsError);
       }
 
-      const labMap = new Map((labDetails || []).map((lab: any) => [lab.id, lab]));
+      const labMap = new Map<string, any>((labDetails || []).map((lab: any) => [lab.id, lab]));
       const visitLabIds = visitLabs.map((row: any) => row.id).filter(Boolean);
       const resultMap = new Map<string, any>();
 
