@@ -1516,6 +1516,7 @@ const AdvanceStatementReport = () => {
                 <TableRow>
                   <TableHead className="w-16">Sr. No.</TableHead>
                   <TableHead className="min-w-[250px]">Patient Details</TableHead>
+                  <TableHead className="min-w-[170px]">Discharge Summary</TableHead>
                   <TableHead className="min-w-[180px]">Registration ID</TableHead>
                   {hospitalType === 'hope' && (
                     <TableHead className="min-w-[150px]">Corporate Type</TableHead>
@@ -1532,13 +1533,13 @@ const AdvanceStatementReport = () => {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={hospitalType === 'hope' ? 11 : 10} className="text-center py-8">
+                    <TableCell colSpan={hospitalType === 'hope' ? 12 : 11} className="text-center py-8">
                       Loading...
                     </TableCell>
                   </TableRow>
                 ) : advanceData.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={hospitalType === 'hope' ? 11 : 10} className="text-center py-8 text-gray-500">
+                    <TableCell colSpan={hospitalType === 'hope' ? 12 : 11} className="text-center py-8 text-gray-500">
                       No data found
                     </TableCell>
                   </TableRow>
@@ -1596,6 +1597,18 @@ const AdvanceStatementReport = () => {
                       >
                         <TableCell className="text-center">{index + 1}</TableCell>
                         <TableCell>{patientDetails}</TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="whitespace-nowrap"
+                            onClick={() => navigate(`/quick-discharge-summary/${item.visit_id}`)}
+                          >
+                            <FileText className="mr-1 h-4 w-4" />
+                            Generate
+                          </Button>
+                        </TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}>
                           <div
                             className={

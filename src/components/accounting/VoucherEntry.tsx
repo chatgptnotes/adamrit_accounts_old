@@ -41,6 +41,7 @@ interface Account {
   account_code: string;
   account_name: string;
   account_type: string;
+  account_group?: string | null;
 }
 
 // A particulars row (single-amount modes: Payment / Receipt / Contra)
@@ -114,7 +115,7 @@ const RAIL_KEYS: { hotkey: string; category: string; label: string }[] = [
   { hotkey: 'F9', category: 'PURCHASE', label: 'Purchase' },
 ];
 
-// Current balance = opening + posted debits − credits, formatted "1,234.00 Dr".
+// Current balance = opening + posted debits - credits, formatted "1,234.00 Dr".
 const balanceLabel = (bal: number | undefined): string => {
   if (bal === undefined) return '';
   if (bal === 0) return '0.00';
@@ -231,6 +232,8 @@ interface VoucherEntryProps {
   voucherId?: string;
   /** Called after Accept / Cancel Vch / Delete / Quit in alteration mode */
   onDone?: () => void;
+  /** Select an active voucher type when opening a new voucher from a shortcut. */
+  initialVoucherCategory?: string;
 }
 
 // Against-Ref picker: focus lists the ledger's pending bill refs with
@@ -300,7 +303,7 @@ const RefPicker: React.FC<{ accountId?: string; value: string; onChange: (v: str
   );
 };
 
-const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
+const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialVoucherCategory }) => {
   const queryClient = useQueryClient();
   const { user, hospitalConfig } = useAuth();
   const { canAlter } = useAccountingRights();
@@ -338,7 +341,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
   const narrationRef = useRef<HTMLTextAreaElement | null>(null);
   const dateRef = useRef<HTMLInputElement | null>(null);
 
-  // Current-balance cache per account id (opening + AUTHORISED debits − credits)
+  // Current-balance cache per account id (opening + AUTHORISED debits - credits)
   const [balances, setBalances] = useState<Record<string, number>>({});
   const loadBalance = useCallback(async (accountId: string) => {
     if (accountId in balances) return;
@@ -386,12 +389,14 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
   });
 
   const { data: accounts = [] } = useQuery({
-    queryKey: ['chart_of_accounts_leaves'],
+    queryKey: ['chart_of_accounts_leaves', selectedCompanyId],
+    enabled: !!selectedCompanyId,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('chart_of_accounts')
-        .select('id, account_code, account_name, account_type, parent_account_id')
+        .select('id, account_code, account_name, account_type, account_group, parent_account_id')
         .eq('is_active', true)
+        .eq('company_id', selectedCompanyId)
         .order('account_code');
       if (error) throw error;
       // Tally never posts to group headers — offer leaf accounts only
@@ -399,6 +404,23 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
       return ((data || []) as (Account & { parent_account_id: string | null })[]).filter((a) => !parents.has(a.id));
     },
   });
+
+  // In payment, receipt and contra vouchers the Account side must be a cash or
+  // bank ledger, matching the account picker in Tally. Particulars still shows
+  // the remaining company ledgers.
+  const cashBankAccounts = useMemo(() => accounts.filter((account) => {
+    const searchable = `${account.account_name} ${account.account_type} ${account.account_group || ''}`.toLowerCase();
+    return searchable.includes('cash') || searchable.includes('bank');
+  }), [accounts]);
+
+  // When opened from a Tally shortcut, select the requested voucher category
+  // once the active voucher types have loaded. Alteration mode always wins.
+  useEffect(() => {
+    if (alterMode || selectedVoucherType || !initialVoucherCategory || voucherTypes.length === 0) return;
+    const requested = initialVoucherCategory.toUpperCase();
+    const matchingType = voucherTypes.find((type) => type.voucher_category?.toUpperCase() === requested);
+    if (matchingType) setSelectedVoucherType(matchingType.id);
+  }, [alterMode, initialVoucherCategory, selectedVoucherType, voucherTypes]);
 
   // Default company: first one, so the screen is immediately usable like Tally
   useEffect(() => {
@@ -1004,7 +1026,15 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
             {voucherDate > format(new Date(), 'yyyy-MM-dd') && (
               <span className="bg-purple-700 px-2 py-0.5 text-[11px] font-bold text-white">POST-DATED</span>
             )}
-            <Select value={selectedCompanyId} onValueChange={setSelectedCompanyId}>
+            <Select
+              value={selectedCompanyId}
+              onValueChange={(value) => {
+                setSelectedCompanyId(value)
+                setAccount(null)
+                setPartLines([newParticularsLine()])
+                setJournalLines([newJournalLine('Dr'), newJournalLine('Cr')])
+              }}
+            >
               <SelectTrigger className="h-6 w-56 border-gray-300 bg-white text-xs shadow-none">
                 <SelectValue placeholder="Select company" />
               </SelectTrigger>
@@ -1058,7 +1088,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
               <span className="w-28 shrink-0 font-semibold">Account</span>
               <span>:</span>
               <AccountSearch
-                accounts={accounts}
+                accounts={cashBankAccounts}
                 selected={account}
                 onSelect={(a) => {
                   setAccount(a);
@@ -1084,7 +1114,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone }) => {
                 <div key={line.key} className="flex items-start gap-2 py-0.5">
                   <div className="flex-1">
                     <AccountSearch
-                      accounts={accounts}
+                      accounts={accounts.filter((candidate) => candidate.id !== account?.id)}
                       selected={line.account}
                       onSelect={(a) => {
                         updatePartLine(line.key, { account: a });

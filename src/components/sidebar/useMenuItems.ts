@@ -40,7 +40,10 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
   const { hospitalType, user } = useAuth();
   const { canManageUsers } = usePermissions();
   const { canAlter: canAccessAccounting } = useAccountingRights();
-  const masterCounts = useMasterCounts(!!user);
+  const userRole = (user?.role || '').toLowerCase().trim();
+  const masterCounts = useMasterCounts(
+    !!user && ['superadmin', 'super_admin', 'admin'].includes(userRole),
+  );
   const {
     diagnosesCount = 0,
     patientsCount = 0,
@@ -61,7 +64,6 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
   } = props;
 
   return useMemo(() => {
-    const userRole = (user?.role || '').toLowerCase().trim();
     const isSuperAdmin = userRole === 'superadmin' || userRole === 'super_admin';
 
     const filtered = menuItems

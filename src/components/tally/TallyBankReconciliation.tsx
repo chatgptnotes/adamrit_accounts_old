@@ -63,7 +63,7 @@ export default function TallyBankReconciliation({ serverUrl, companyName, compan
     setLoading(true)
     try {
       // Tally entries
-      let q = ( supabase as any).from('tally_vouchers').select('*').eq('company_id', companyId).order('date', { ascending: true })
+      let q = ( supabase as any).from('tally_vouchers').select('*').eq('company_id', companyId).order('date', { ascending: true }).limit(2000)
       if (dateFrom) q = q.gte('date', dateFrom)
       if (dateTo) q = q.lte('date', dateTo)
       const { data: vData } = await q

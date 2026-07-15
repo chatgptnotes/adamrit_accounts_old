@@ -150,7 +150,8 @@ function PersonalView({ dept, tokenNumber }: PersonalViewProps) {
         .select('id, token_number, department, patient_name, status, counter_name, called_at, served_at, created_at')
         .eq('department', dept)
         .gte('created_at', todayStart())
-        .order('token_number', { ascending: true });
+        .order('token_number', { ascending: true })
+        .limit(200);
       if (error) throw error;
       setLastUpdated(new Date());
       return (data ?? []) as QueueToken[];
@@ -314,7 +315,8 @@ function OverviewView() {
         .from('queue_tokens')
         .select('id, token_number, department, patient_name, status, counter_name, called_at, served_at, created_at')
         .gte('created_at', todayStart())
-        .order('token_number', { ascending: true });
+        .order('token_number', { ascending: true })
+        .limit(500);
       if (error) throw error;
       setLastUpdated(new Date());
       return (data ?? []) as QueueToken[];

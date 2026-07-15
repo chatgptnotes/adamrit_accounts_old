@@ -42,8 +42,8 @@ export default function TallyMapping({ serverUrl, companyName, companyId }) {
   async function loadData() {
     setLoading(true)
     const [ledgerRes, ccRes] = await Promise.all([
-      ( supabase as any).from('tally_ledgers').select('*').eq('company_id', companyId).order('name'),
-      ( supabase as any).from('tally_cost_centres').select('*').eq('company_id', companyId).order('name'),
+      ( supabase as any).from('tally_ledgers').select('*').eq('company_id', companyId).order('name').limit(2000),
+      ( supabase as any).from('tally_cost_centres').select('*').eq('company_id', companyId).order('name').limit(2000),
     ])
     const l = ledgerRes.data || []
     const c = ccRes.data || []

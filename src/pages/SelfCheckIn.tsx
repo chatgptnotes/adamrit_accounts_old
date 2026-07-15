@@ -66,7 +66,8 @@ export default function SelfCheckIn() {
         .from('queue_tokens')
         .select('department')
         .in('status', ['waiting', 'called'])
-        .gte('created_at', today.toISOString());
+        .gte('created_at', today.toISOString())
+        .limit(500);
       const counts: Record<string, number> = {};
       (data || []).forEach((r: any) => {
         counts[r.department] = (counts[r.department] || 0) + 1;

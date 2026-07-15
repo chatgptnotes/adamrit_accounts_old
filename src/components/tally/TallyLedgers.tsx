@@ -50,6 +50,7 @@ export default function TallyLedgers({ serverUrl, companyName, companyId }) {
       .select('*')
       .eq('company_id', companyId)
       .order('name', { ascending: true })
+      .limit(2000)
 
     if (error) {
       toast.error('Failed to load ledgers')

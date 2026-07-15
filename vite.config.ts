@@ -40,6 +40,20 @@ function tallyProxyPlugin(): Plugin {
     return names;
   }
 
+  function buildCompanyCollectionXml(): string {
+    return `<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>List of Companies</ID></HEADER>
+  <BODY><DESC>
+    <STATICVARIABLES><SVIsSimpleCompany>No</SVIsSimpleCompany></STATICVARIABLES>
+    <TDL><TDLMESSAGE>
+      <COLLECTION NAME="List of Companies" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="Yes" ISOPTION="No" ISINTERNAL="No">
+        <TYPE>Company</TYPE><NATIVEMETHOD>Name</NATIVEMETHOD>
+      </COLLECTION>
+    </TDLMESSAGE></TDL>
+  </DESC></BODY>
+</ENVELOPE>`;
+  }
+
   function canonicalCompanyKey(value: string): string {
     return (value || "").trim().replace(/\s+/g, " ").toLowerCase().replace(/[^a-z0-9]/g, "");
   }
@@ -132,7 +146,7 @@ function tallyProxyPlugin(): Plugin {
             if (!serverUrl) { send({ error: "Missing serverUrl" }); return; }
 
             if (endpoint === "test-connection") {
-              const xml = `<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>List of Companies</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES></DESC></BODY></ENVELOPE>`;
+              const xml = buildCompanyCollectionXml();
               try {
                 const resp = await callTally(serverUrl, xml);
                 const companies = companyNames(resp);
@@ -148,31 +162,17 @@ function tallyProxyPlugin(): Plugin {
             }
 
             if (endpoint === "proxy") {
+              if (/<TALLYREQUEST[^>]*>\s*Import(?:\s+Data)?\s*<\/TALLYREQUEST>/i.test(xmlBody || "")) {
+                send({ error: "Outbound XML imports to Tally are disabled. This installation is read-only from Tally." });
+                return;
+              }
               try { send({ response: await callTally(serverUrl, xmlBody) }); }
               catch (e: any) { send({ error: e.message }); }
               return;
             }
 
             if (endpoint === "push") {
-              if (action !== "create-voucher" || !companyName) {
-                send({ success: false, error: "A validated company and create-voucher action are required" });
-                return;
-              }
-              try {
-                const companiesXml = `<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>List of Companies</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES></DESC></BODY></ENVELOPE>`;
-                const companies = companyNames(await callTally(serverUrl, companiesXml));
-                const normalized = companyName.trim().replace(/\s+/g, " ").toLowerCase();
-                if (!companies.some((name) =>
-                  canonicalCompanyKey(name) === canonicalCompanyKey(companyName) ||
-                  name.trim().replace(/\s+/g, " ").toLowerCase() === normalized
-                )) {
-                  send({ success: false, error: `Company "${companyName}" is not available on the connected Tally server` });
-                  return;
-                }
-                send(parseResp(await callTally(serverUrl, buildVoucherXml(companyName, action, data))));
-              } catch (e: any) {
-                send({ success: false, error: e.message });
-              }
+              send({ success: false, error: "Outbound push to Tally is disabled. This installation is read-only from Tally." });
               return;
             }
 

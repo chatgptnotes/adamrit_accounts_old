@@ -187,12 +187,20 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
   const [activeTab, setActiveTab] = useState<string>(
     () => initialTab ?? localStorage.getItem('accounting-default-tab') ?? 'gateway',
   );
+  const [initialVoucherCategory, setInitialVoucherCategory] = useState<string | undefined>();
   const activeTabRef = React.useRef(activeTab);
   activeTabRef.current = activeTab;
 
   // Rail buttons broadcast navigation / save-view requests
   React.useEffect(() => {
-    const onGoto = (e: Event) => setActiveTab((e as CustomEvent).detail as string);
+    const onGoto = (e: Event) => {
+      setInitialVoucherCategory(undefined);
+      setActiveTab((e as CustomEvent).detail as string);
+    };
+    const onOpenVoucher = (e: Event) => {
+      setInitialVoucherCategory((e as CustomEvent).detail as string);
+      setActiveTab('voucher-entry');
+    };
     const onSave = () => {
       localStorage.setItem('accounting-default-tab', activeTabRef.current);
       import('sonner').then(({ toast }) =>
@@ -200,9 +208,11 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
       );
     };
     window.addEventListener('tally-goto', onGoto);
+    window.addEventListener('tally-open-voucher', onOpenVoucher);
     window.addEventListener('tally-save-view', onSave);
     return () => {
       window.removeEventListener('tally-goto', onGoto);
+      window.removeEventListener('tally-open-voucher', onOpenVoucher);
       window.removeEventListener('tally-save-view', onSave);
     };
   }, []);
@@ -315,7 +325,9 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
           ) : drillGroup ? (
             <GroupSummary head={drillGroup} onOpenLedger={setDrillLedgerId} onClose={() => setDrillGroup(null)} />
           ) : (
-            renderContent(activeTab, setActiveTab, setAlterVoucherId, setDrillGroup, setDrillLedgerId)
+            activeTab === 'voucher-entry'
+              ? <VoucherEntry initialVoucherCategory={initialVoucherCategory} />
+              : renderContent(activeTab, setActiveTab, setAlterVoucherId, setDrillGroup, setDrillLedgerId)
           )}
         </div>
       </main>

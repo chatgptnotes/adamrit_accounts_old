@@ -37,6 +37,7 @@ export default function TallyStockItems({ serverUrl, companyName, companyId }: {
         .select('id, tally_guid, name, stock_group, unit, opening_balance, closing_balance, opening_value, closing_value, rate, gst_rate, hsn_code, last_synced_at')
         .eq('company_id', companyId)
         .order('name', { ascending: true })
+        .limit(2000)
 
       if (error) {
         toast.error('Failed to load stock items: ' + error.message)

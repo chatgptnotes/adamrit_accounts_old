@@ -1,18 +1,10 @@
 
 import React, { useState, useEffect } from 'react'
 import { supabase } from '@/integrations/supabase/client'
-import { toast } from 'sonner'
 import {
-  RefreshCw, Loader2, ChevronDown, ChevronRight, Clock,
+  Loader2, ChevronDown, ChevronRight, Clock,
   BarChart3, Scale, TrendingUp, Users, CreditCard, Calendar
 } from 'lucide-react'
-import {
-  getTrialBalance,
-  getBalanceSheet,
-  getProfitAndLoss,
-  getOutstandingReceivables,
-  getOutstandingPayables,
-} from '@/lib/tally-xml-service'
 import type {
   TrialBalanceEntry,
   BalanceSheetData,
@@ -119,7 +111,6 @@ function asOutstanding(value: unknown): OutstandingEntry[] | null {
 
 export default function TallyReports({ serverUrl, companyName, companyId }: { serverUrl: string; companyName: string; companyId: string }) {
   const [activeTab, setActiveTab] = useState<TabKey>('trial-balance')
-  const [loading, setLoading] = useState(false)
   const [lastFetched, setLastFetched] = useState<Record<TabKey, string | null>>({
     'trial-balance': null, 'balance-sheet': null, 'pnl': null, 'receivables': null, 'payables': null,
   })
@@ -232,74 +223,6 @@ export default function TallyReports({ serverUrl, companyName, companyId }: { se
     }
   }
 
-  async function cacheReport(reportType: string, periodFrom: string, periodTo: string, data: any) {
-    await ( supabase as any).from('tally_reports').insert({
-      company_id: companyId,
-      report_type: reportType,
-      report_date: todayStr(),
-      period_from: periodFrom,
-      period_to: periodTo,
-      data,
-      fetched_at: new Date().toISOString(),
-    })
-  }
-
-  async function fetchReport(tab: TabKey) {
-    if (!serverUrl || !companyName) {
-      toast.error('Server URL and Company Name are required')
-      return
-    }
-    setLoading(true)
-    const now = new Date().toISOString()
-    try {
-      switch (tab) {
-        case 'trial-balance': {
-          const entries = await getTrialBalance(serverUrl, companyName, tbDate)
-          setTrialBalance(entries)
-          setLastFetched(prev => ({ ...prev, 'trial-balance': now }))
-          await cacheReport('trial_balance', tbDate, tbDate, entries)
-          toast.success(`Trial Balance fetched: ${entries.length} ledgers`)
-          break
-        }
-        case 'balance-sheet': {
-          const bs = await getBalanceSheet(serverUrl, companyName, bsDate)
-          setBalanceSheet(bs)
-          setLastFetched(prev => ({ ...prev, 'balance-sheet': now }))
-          await cacheReport('balance_sheet', bsDate, bsDate, bs)
-          toast.success('Balance Sheet fetched successfully')
-          break
-        }
-        case 'pnl': {
-          const pl = await getProfitAndLoss(serverUrl, companyName, pnlFrom, pnlTo)
-          setPnlData(pl)
-          setLastFetched(prev => ({ ...prev, 'pnl': now }))
-          await cacheReport('profit_and_loss', pnlFrom, pnlTo, pl)
-          toast.success('Profit & Loss fetched successfully')
-          break
-        }
-        case 'receivables': {
-          const rec = await getOutstandingReceivables(serverUrl, companyName)
-          setReceivables(rec)
-          setLastFetched(prev => ({ ...prev, 'receivables': now }))
-          await cacheReport('receivables', todayStr(), todayStr(), rec)
-          toast.success(`Receivables fetched: ${rec.length} parties`)
-          break
-        }
-        case 'payables': {
-          const pay = await getOutstandingPayables(serverUrl, companyName)
-          setPayables(pay)
-          setLastFetched(prev => ({ ...prev, 'payables': now }))
-          await cacheReport('payables', todayStr(), todayStr(), pay)
-          toast.success(`Payables fetched: ${pay.length} parties`)
-          break
-        }
-      }
-    } catch (err: any) {
-      toast.error(`Failed to fetch report: ${err.message || 'Unknown error'}`)
-    }
-    setLoading(false)
-  }
-
   function toggleExpand(key: string) {
     setExpanded(prev => ({ ...prev, [key]: !prev[key] }))
   }
@@ -353,7 +276,7 @@ export default function TallyReports({ serverUrl, companyName, companyId }: { se
 
   function renderTrialBalance() {
     if (trialBalance.length === 0) {
-      return <EmptyState message="No Trial Balance data. Click 'Fetch from Tally' to load." />
+      return <EmptyState message="No Trial Balance data. Click Refresh All in the Tally toolbar to load it." />
     }
     const totalDebit = trialBalance.reduce((s, e) => s + e.debit, 0)
     const totalCredit = trialBalance.reduce((s, e) => s + e.credit, 0)
@@ -462,7 +385,7 @@ export default function TallyReports({ serverUrl, companyName, companyId }: { se
 
   function renderBalanceSheet() {
     if (!balanceSheet) {
-      return <EmptyState message="No Balance Sheet data. Click 'Fetch from Tally' to load." />
+      return <EmptyState message="No Balance Sheet data. Click Refresh All in the Tally toolbar to load it." />
     }
     return (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -474,7 +397,7 @@ export default function TallyReports({ serverUrl, companyName, companyId }: { se
 
   function renderPnL() {
     if (!pnlData) {
-      return <EmptyState message="No Profit & Loss data. Click 'Fetch from Tally' to load." />
+      return <EmptyState message="No Profit & Loss data. Click Refresh All in the Tally toolbar to load it." />
     }
     return (
       <div className="space-y-6">
@@ -498,7 +421,7 @@ export default function TallyReports({ serverUrl, companyName, companyId }: { se
   function renderOutstandingTable(entries: OutstandingEntry[], type: 'receivables' | 'payables') {
     if (entries.length === 0) {
       const label = type === 'receivables' ? 'Receivables' : 'Payables'
-      return <EmptyState message={`No Outstanding ${label} data. Click 'Fetch from Tally' to load.`} />
+      return <EmptyState message={`No Outstanding ${label} data. Click Refresh All in the Tally toolbar to load it.`} />
     }
     const grandTotal = entries.reduce((s, e) => s + e.totalAmount, 0)
 
@@ -617,14 +540,6 @@ export default function TallyReports({ serverUrl, companyName, companyId }: { se
                 Last fetched: {formatTimestamp(lastFetched[activeTab])}
               </span>
             )}
-            <button
-              onClick={() => fetchReport(activeTab)}
-              disabled={loading}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 transition-colors"
-            >
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              Fetch from Tally
-            </button>
           </div>
         </div>
 

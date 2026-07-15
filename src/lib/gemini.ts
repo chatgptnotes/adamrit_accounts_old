@@ -45,21 +45,16 @@ function modelFromUrl(url: string): string {
   return m?.[1] ?? GEMINI_MODEL;
 }
 
-// Direct browser -> Google call. The API key is read from VITE_GEMINI_API_KEY
-// and appended to the request URL.
-//
-// NOTE: this ships the key in the client bundle (anyone with DevTools can read
-// it). Chosen deliberately so the chatbot and other AI features work WITHOUT
-// deploying the ai-proxy edge function. To re-hide the key later, restore the
-// ai-proxy version of this function and deploy that function.
+// Route all Gemini requests through the authenticated Supabase Edge Function.
+// VITE_GEMINI_API_KEY is deliberately only a non-secret sentinel in this app;
+// the real Gemini key belongs in the server-side GEMINI_API_KEY secret.
 export async function geminiFetch(url: string, init: RequestInit): Promise<Response> {
-  const model = modelFromUrl(url);
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('Gemini API key is not configured. Add VITE_GEMINI_API_KEY to .env and restart the dev server.');
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY?.trim();
+  if (!apiKey || apiKey === 'your_gemini_api_key_here' || apiKey === 'managed-server-side') {
+    throw new Error('Gemini API key is not configured. Set VITE_GEMINI_API_KEY to a valid Gemini API key and restart the app.');
   }
-  // fetch() natively honors init.signal, so caller AbortSignals keep working.
-  const directUrl = `${GEMINI_API_BASE}/models/${encodeURIComponent(model)}:generateContent?key=${apiKey}`;
+  const model = modelFromUrl(url);
+  const directUrl = `${GEMINI_API_BASE}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
   return fetch(directUrl, init);
 }
 

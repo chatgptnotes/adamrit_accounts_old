@@ -75,12 +75,106 @@ function getCompanyNames(xml: string): string[] {
   return companies
 }
 
+function buildCompanyCollectionXml(): string {
+  return `<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>List of Companies</ID></HEADER>
+  <BODY><DESC>
+    <STATICVARIABLES><SVIsSimpleCompany>No</SVIsSimpleCompany></STATICVARIABLES>
+    <TDL><TDLMESSAGE>
+      <COLLECTION NAME="List of Companies" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="Yes" ISOPTION="No" ISINTERNAL="No">
+        <TYPE>Company</TYPE><NATIVEMETHOD>Name</NATIVEMETHOD>
+      </COLLECTION>
+    </TDLMESSAGE></TDL>
+  </DESC></BODY>
+</ENVELOPE>`
+}
+
 function normalizedCompanyName(value: string): string {
   return value.trim().replace(/\s+/g, ' ').toLowerCase()
 }
 
 function canonicalCompanyKey(value: string): string {
   return normalizedCompanyName(value).replace(/[^a-z0-9]/g, '')
+}
+
+// The accounting companies use a few legal-name variants (for example,
+// "Pvt. Ltd." versus "Private Limited").  This key lets a Tally company be
+// matched to the company-scoped chart of accounts used by voucher entry.
+function accountingCompanyKey(value: string): string {
+  return canonicalCompanyKey(value)
+    .replace(/privatelimited/g, 'pvtltd')
+    .replace(/private/g, 'pvt')
+    .replace(/limited/g, 'ltd')
+}
+
+function tallyChartAccountCode(companyId: string, ledgerName: string): string {
+  let hash = 2166136261
+  for (const char of ledgerName) {
+    hash ^= char.charCodeAt(0)
+    hash = Math.imul(hash, 16777619)
+  }
+  return `TL${companyId.replace(/-/g, '').slice(0, 6)}${(hash >>> 0).toString(36).padStart(7, '0').slice(-7)}`
+}
+
+function accountTypeForTallyGroup(parentGroup?: string | null): string {
+  const group = (parentGroup || '').toLowerCase()
+  if (group.includes('bank') || group.includes('cash') || group.includes('debtor') || group.includes('stock')) return 'CURRENT_ASSETS'
+  if (group.includes('fixed asset')) return 'FIXED_ASSETS'
+  if (group.includes('loan')) return 'LONG_TERM_LIABILITIES'
+  if (group.includes('creditor') || group.includes('dutie') || group.includes('liabilit')) return 'CURRENT_LIABILITIES'
+  if (group.includes('capital') || group.includes('reserve')) return 'EQUITY'
+  if (group.includes('income') || group.includes('sale')) return group.includes('direct') ? 'DIRECT_INCOME' : 'INDIRECT_INCOME'
+  if (group.includes('expense') || group.includes('purchase')) return group.includes('direct') ? 'DIRECT_EXPENSES' : 'INDIRECT_EXPENSES'
+  return 'CURRENT_ASSETS'
+}
+
+/**
+ * Voucher entries must reference chart_of_accounts, whereas the Tally pull
+ * stores source ledgers in tally_ledgers. Mirror missing ledgers into the
+ * selected accounting company so they are usable immediately in vouchers.
+ */
+async function mirrorTallyLedgersToChartAccounts(supabase: any, tallyCompanyName: string, ledgerRows: any[]) {
+  if (ledgerRows.length === 0) return { created: 0 }
+
+  const { data: companies, error: companyError } = await supabase
+    .from('companies')
+    .select('id, company_name')
+    .eq('is_active', true)
+  if (companyError) throw companyError
+
+  const company = (companies || []).find((item: any) =>
+    accountingCompanyKey(item.company_name) === accountingCompanyKey(tallyCompanyName),
+  )
+  if (!company) return { created: 0 }
+
+  const { data: existing, error: existingError } = await supabase
+    .from('chart_of_accounts')
+    .select('account_name')
+    .eq('company_id', company.id)
+  if (existingError) throw existingError
+
+  const existingNames = new Set((existing || []).map((item: any) => item.account_name.trim().toLowerCase()))
+  const missing = ledgerRows
+    .filter((ledger) => !existingNames.has(ledger.name.trim().toLowerCase()))
+    .map((ledger) => ({
+      company_id: company.id,
+      account_code: tallyChartAccountCode(company.id, ledger.name),
+      account_name: ledger.name,
+      account_type: accountTypeForTallyGroup(ledger.parent_group),
+      account_group: ledger.parent_group || null,
+      opening_balance: Math.abs(Number(ledger.opening_balance) || 0),
+      opening_balance_type: Number(ledger.opening_balance) < 0 ? 'CR' : 'DR',
+      is_active: true,
+    }))
+
+  for (let index = 0; index < missing.length; index += 100) {
+    const { error } = await supabase
+      .from('chart_of_accounts')
+      .upsert(missing.slice(index, index + 100), { onConflict: 'account_code' })
+    if (error) throw error
+  }
+
+  return { created: missing.length }
 }
 
 function normalizedServerUrl(value: string): string {
@@ -156,12 +250,7 @@ async function handleTestConnection(body: any) {
   const { serverUrl, companyName } = body
   if (!serverUrl) return { error: 'Missing serverUrl' }
 
-  const xmlBody = `<ENVELOPE>
-  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>List of Companies</ID></HEADER>
-  <BODY><DESC><STATICVARIABLES>
-    <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-  </STATICVARIABLES></DESC></BODY>
-</ENVELOPE>`
+  const xmlBody = buildCompanyCollectionXml()
 
   // Try with 60s timeout, retry once on timeout
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -186,6 +275,9 @@ async function handleTestConnection(body: any) {
 async function handleProxy(body: any) {
   const { serverUrl, xmlBody } = body
   if (!serverUrl || !xmlBody) return { error: 'Missing serverUrl or xmlBody' }
+  if (/<TALLYREQUEST[^>]*>\s*Import(?:\s+Data)?\s*<\/TALLYREQUEST>/i.test(xmlBody)) {
+    return { error: 'Outbound XML imports to Tally are disabled. This installation is read-only from Tally.' }
+  }
   try {
     const response = await fetchFromTally(serverUrl, xmlBody)
     return { response }
@@ -196,101 +288,17 @@ async function handleProxy(body: any) {
 
 // ─── Endpoint: push (create/alter/cancel vouchers & ledgers) ───
 async function handlePush(body: any) {
-  const { action, serverUrl, companyName, companyId, data } = body
-  if (!serverUrl || !companyName || !companyId || !action) return { success: false, error: 'Missing required fields' }
-
-  if (action !== 'create-voucher') {
-    return { success: false, error: `Unsupported push action: ${action}` }
+  void body
+  return {
+    success: false,
+    error: 'Outbound push to Tally is disabled. This installation is read-only from Tally.',
   }
-
-  let config: any
-  try {
-    const { data: savedConfig, error } = await getSupabase()
-      .from('tally_config')
-      .select('id, server_url, company_name, is_active')
-      .eq('id', companyId)
-      .maybeSingle()
-    if (error) throw error
-    config = savedConfig
-  } catch (err: any) {
-    return { success: false, error: `Could not validate Tally company configuration: ${err.message}` }
-  }
-
-  if (!config || config.is_active === false) {
-    return { success: false, error: 'The selected Tally company configuration is inactive or missing' }
-  }
-  let matchesSavedConfig = false
-  try {
-    matchesSavedConfig = normalizedServerUrl(serverUrl) === normalizedServerUrl(config.server_url || '') &&
-      normalizedCompanyName(companyName) === normalizedCompanyName(config.company_name || '')
-  } catch {
-    matchesSavedConfig = false
-  }
-  if (!matchesSavedConfig) {
-    return { success: false, error: 'The selected company does not match its configured Tally server' }
-  }
-
-  try {
-    const companiesXml = `<ENVELOPE>
-  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>List of Companies</ID></HEADER>
-  <BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES></DESC></BODY>
-</ENVELOPE>`
-    const companies = getCompanyNames(await fetchFromTally(serverUrl, companiesXml, 60000))
-    if (!companies.some((name) =>
-      canonicalCompanyKey(name) === canonicalCompanyKey(companyName) ||
-      normalizedCompanyName(name) === normalizedCompanyName(companyName)
-    )) {
-      return { success: false, error: `Company "${companyName}" is not available on the connected Tally server` }
-    }
-  } catch (err: any) {
-    return { success: false, error: `Could not confirm the selected Tally company: ${err.message}` }
-  }
-
-  const voucher = data || {}
-  const voucherType = String(voucher.voucherType || 'Payment').trim()
-  const date = String(voucher.date || '').trim()
-  const voucherNumber = String(voucher.voucherNumber || '').trim()
-  const narration = String(voucher.narration || '').trim()
-  const partyLedger = String(voucher.partyLedger || '').trim()
-  const entries = Array.isArray(voucher.ledgerEntries) ? voucher.ledgerEntries : []
-
-  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return { success: false, error: 'Invalid voucher date' }
-  if (!partyLedger || entries.length < 2) return { success: false, error: 'At least two ledger entries are required' }
-  if (entries.some((entry: any) => !String(entry.ledgerName || '').trim() || !Number.isFinite(Number(entry.amount)) || Number(entry.amount) <= 0)) {
-    return { success: false, error: 'Every ledger entry must have a ledger and a positive amount' }
-  }
-
-  const entriesXml = entries.map((entry: any) => {
-    const amount = entry.isDeemedPositive ? -Math.abs(Number(entry.amount)) : Math.abs(Number(entry.amount))
-    return `<ALLLEDGERENTRIES.LIST>
-      <LEDGERNAME>${escapeXml(String(entry.ledgerName).trim())}</LEDGERNAME>
-      <ISDEEMEDPOSITIVE>${entry.isDeemedPositive ? 'Yes' : 'No'}</ISDEEMEDPOSITIVE>
-      <AMOUNT>${amount}</AMOUNT>
-    </ALLLEDGERENTRIES.LIST>`
-  }).join('')
-
-  const xml = `<ENVELOPE>
-  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
-  <BODY><DESC><STATICVARIABLES><SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY></STATICVARIABLES></DESC>
-    <DATA><TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER VCHTYPE="${escapeXml(voucherType)}" ACTION="Create">
-        <DATE>${formatDate(date)}</DATE>
-        ${voucherNumber ? `<VOUCHERNUMBER>${escapeXml(voucherNumber)}</VOUCHERNUMBER>` : ''}
-        <VOUCHERTYPENAME>${escapeXml(voucherType)}</VOUCHERTYPENAME>
-        <PARTYLEDGERNAME>${escapeXml(partyLedger)}</PARTYLEDGERNAME>
-        <NARRATION>${escapeXml(narration)}</NARRATION>
-        ${entriesXml}
-      </VOUCHER>
-    </TALLYMESSAGE></DATA>
-  </BODY></ENVELOPE>`
-
-  const response = await fetchFromTally(serverUrl, xml, 60000)
-  return parseResponse(response)
 }
 
 // ─── Endpoint: sync (pull from Tally → save to Supabase) ───
 async function handleSync(body: any) {
-  let { action, serverUrl, companyName, companyId, dateRange } = body
+  const { action, companyId, dateRange } = body
+  let { serverUrl, companyName } = body
   if (!serverUrl || !companyName || !companyId || !action) return { error: 'Missing required fields' }
 
   const { data: config, error: configError } = await getSupabase()
@@ -380,6 +388,11 @@ async function handleSync(body: any) {
           } else {
             recordsSynced += batch.length
           }
+        }
+        try {
+          await mirrorTallyLedgersToChartAccounts(supabase, companyName, allRows)
+        } catch (mirrorError: any) {
+          errors.push(`Could not mirror Tally ledgers to voucher accounts: ${mirrorError.message}`)
         }
         break
       }

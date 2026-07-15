@@ -5,9 +5,7 @@ export interface TallyConfig {
   tallyServerUrl: string;
   tallyPort: number;
   companyGuid?: string;
-  syncEnabled: boolean;
   lastSyncTime?: Date;
-  syncFrequency: 'manual' | 'hourly' | 'daily' | 'realtime';
   mappingRules?: TallyMappingRules;
   createdAt?: Date;
   updatedAt?: Date;
