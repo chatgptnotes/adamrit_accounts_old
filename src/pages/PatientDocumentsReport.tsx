@@ -1,0 +1,191 @@
+import { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, ChevronLeft, ChevronRight, ChevronsLeft, FileCheck2, FileText, Loader2, Search } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
+import { PATIENT_DOC_CATEGORIES } from '@/tablet/hooks/usePatientDocs';
+import { Input } from '@/components/ui/input';
+
+interface PatientRecord {
+  patient_id: string | null;
+  patient_name: string | null;
+}
+
+interface UploadedPatientDocument {
+  patient_id: string | null;
+  patient_name: string | null;
+  category: string | null;
+  created_at?: string | null;
+}
+
+interface DocumentRow {
+  id: string;
+  name: string;
+  done: string[];
+  left: string[];
+}
+
+const PAGE_SIZE = 10;
+const UPLOAD_SCAN_SIZE = 400;
+const normalizeValue = (value: string | null | undefined) => value?.trim().replace(/\s+/g, ' ').toLowerCase() || '';
+const canonicalCategoryIds = PATIENT_DOC_CATEGORIES.map((document) => document.id);
+
+export default function PatientDocumentsReport() {
+  const [patients, setPatients] = useState<PatientRecord[]>([]);
+  const [documents, setDocuments] = useState<UploadedPatientDocument[]>([]);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'complete'>('all');
+  const [documentFilter, setDocumentFilter] = useState('all');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [hasNextPage, setHasNextPage] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const currentPage = Math.max(1, Number(searchParams.get('page') || '1'));
+
+  const goToPage = (page: number) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('page', String(Math.max(1, page)));
+    setSearchParams(next, { replace: true });
+  };
+
+  const resetPage = () => goToPage(1);
+
+  useEffect(() => {
+    let active = true;
+
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+
+      // This is deliberately the same source as Documents & Photos. It avoids
+      // the slow summary RPC that was timing out on the report page.
+      const scanLimit = currentPage * UPLOAD_SCAN_SIZE;
+      let query = supabase
+        .from('file_uploads')
+        .select('patient_id, patient_name, category, created_at')
+        .in('category', canonicalCategoryIds)
+        .order('created_at', { ascending: false })
+        .range(0, scanLimit - 1);
+
+      const searchTerm = search.trim().replace(/[,%()]/g, '');
+      if (searchTerm) {
+        query = query.or(`patient_name.ilike.%${searchTerm}%,patient_id.ilike.%${searchTerm}%`);
+      }
+
+      const scanResult = await query;
+      if (scanResult.error) throw scanResult.error;
+      if (!active) return;
+
+      const patientMap = new Map<string, PatientRecord>();
+      for (const upload of (scanResult.data || []) as UploadedPatientDocument[]) {
+        const key = normalizeValue(upload.patient_id) || `name:${normalizeValue(upload.patient_name)}`;
+        if (!key || patientMap.has(key)) continue;
+        patientMap.set(key, { patient_id: upload.patient_id, patient_name: upload.patient_name });
+      }
+
+      const candidates = Array.from(patientMap.values());
+      const start = (currentPage - 1) * PAGE_SIZE;
+      const pagePatients = candidates.slice(start, start + PAGE_SIZE);
+      const patientIds = Array.from(new Set(pagePatients.map((patient) => patient.patient_id).filter(Boolean) as string[]));
+      const patientNames = Array.from(new Set(pagePatients.map((patient) => patient.patient_name).filter(Boolean) as string[]));
+
+      const results = await Promise.all([
+        patientIds.length
+          ? supabase.from('file_uploads').select('patient_id, patient_name, category, created_at').in('patient_id', patientIds).in('category', canonicalCategoryIds)
+          : Promise.resolve({ data: [], error: null }),
+        patientNames.length
+          ? supabase.from('file_uploads').select('patient_id, patient_name, category, created_at').in('patient_name', patientNames).in('category', canonicalCategoryIds)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      const documentsError = results.find((result) => result.error)?.error;
+      if (documentsError) throw documentsError;
+      if (!active) return;
+
+      setPatients(pagePatients);
+      setDocuments([...(results[0].data || []), ...(results[1].data || [])] as UploadedPatientDocument[]);
+      setHasNextPage((scanResult.data || []).length === scanLimit && candidates.length > start + PAGE_SIZE);
+      setLoading(false);
+    };
+
+    load().catch((loadError) => {
+      if (!active) return;
+      setPatients([]);
+      setDocuments([]);
+      setError(loadError instanceof Error ? loadError.message : 'Unable to load patient documents.');
+      setLoading(false);
+    });
+
+    return () => { active = false; };
+  }, [currentPage, search]);
+
+  const rows = useMemo<DocumentRow[]>(() => {
+    const documentsByPatient = new Map<string, UploadedPatientDocument[]>();
+    for (const document of documents) {
+      if (!document.category) continue;
+      for (const key of [normalizeValue(document.patient_id), `name:${normalizeValue(document.patient_name)}`].filter(Boolean)) {
+        documentsByPatient.set(key, [...(documentsByPatient.get(key) || []), document]);
+      }
+    }
+
+    return patients.map((patient) => {
+      const patientDocuments = [
+        ...(documentsByPatient.get(normalizeValue(patient.patient_id)) || []),
+        ...(documentsByPatient.get(`name:${normalizeValue(patient.patient_name)}`) || []),
+      ];
+      const uploadedCategories = new Set(patientDocuments.map((document) => normalizeValue(document.category)));
+      const done = PATIENT_DOC_CATEGORIES.filter((document) => uploadedCategories.has(normalizeValue(document.id))).map((document) => document.label);
+      const left = PATIENT_DOC_CATEGORIES.filter((document) => !uploadedCategories.has(normalizeValue(document.id))).map((document) => document.label);
+      return {
+        id: patient.patient_id || patient.patient_name || 'unknown-patient',
+        name: patient.patient_name || patient.patient_id || 'Unnamed patient',
+        done,
+        left,
+      };
+    }).filter((row) => {
+      if (statusFilter === 'pending' && row.left.length === 0) return false;
+      if (statusFilter === 'complete' && row.left.length > 0) return false;
+      return documentFilter === 'all' || row.done.includes(documentFilter);
+    });
+  }, [documents, patients, statusFilter, documentFilter]);
+
+  return (
+    <div className="mx-auto max-w-7xl p-4 md:p-6">
+      <div className="mb-4 flex items-center gap-3">
+        <Link to="/reports-center" className="rounded-lg p-2 text-gray-500 hover:bg-gray-100" aria-label="Back to Reports Center"><ArrowLeft className="h-5 w-5" /></Link>
+        <div className="rounded-xl bg-primary/10 p-2 text-primary"><FileCheck2 className="h-6 w-6" /></div>
+        <div><h1 className="text-2xl font-bold text-gray-800">Patient Documents</h1><p className="text-sm text-gray-500">Uploaded and pending documents for each patient.</p></div>
+      </div>
+
+      <div className="mb-6 flex justify-end">
+        <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-[minmax(0,18rem)_12rem_16rem]">
+          <div className="relative min-w-0"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" /><Input value={search} onChange={(event) => { setSearch(event.target.value); resetPage(); }} placeholder="Search patient / ID" className="h-10 w-full pl-9" /></div>
+          <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as typeof statusFilter); resetPage(); }} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-primary/30"><option value="all">All statuses</option><option value="pending">Documents pending</option><option value="complete">All documents complete</option></select>
+          <select value={documentFilter} onChange={(event) => { setDocumentFilter(event.target.value); resetPage(); }} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-primary/30"><option value="all">Any uploaded document</option>{PATIENT_DOC_CATEGORIES.map((document) => <option key={document.id} value={document.label}>{document.label}</option>)}</select>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50 px-5 py-3 text-sm text-gray-500">
+          <span>{rows.length ? `Showing ${(currentPage - 1) * PAGE_SIZE + 1}–${(currentPage - 1) * PAGE_SIZE + rows.length} uploaded patients` : 'No uploaded patients'}</span>
+          {(search || statusFilter !== 'all' || documentFilter !== 'all') && <button type="button" onClick={() => { setSearch(''); setStatusFilter('all'); setDocumentFilter('all'); resetPage(); }} className="font-medium text-primary hover:underline">Clear filters</button>}
+        </div>
+        <div className="overflow-x-auto"><table className="min-w-[900px] w-full table-fixed divide-y divide-gray-200"><thead className="bg-gray-50"><tr><th className="w-1/4 px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Patient Name</th><th className="w-[37.5%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Documents Done</th><th className="w-[37.5%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Documents Left</th></tr></thead>
+          <tbody className="divide-y divide-gray-100">
+            {loading && <tr><td colSpan={3} className="px-5 py-12 text-center text-gray-500"><Loader2 className="mr-2 inline-block h-5 w-5 animate-spin" />Loading patient documents...</td></tr>}
+            {!loading && error && <tr><td colSpan={3} className="px-5 py-12 text-center text-red-600">{error}</td></tr>}
+            {!loading && !error && rows.map((row) => <tr key={row.id} className="align-top hover:bg-gray-50"><td className="px-5 py-4"><div className="font-semibold text-gray-800">{row.name}</div>{row.done.length > 0 && row.left.length > 0 && <span className="mt-2 inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">Partially complete</span>}</td><td className="px-5 py-4"><CountBadge count={row.done.length} tone="done" />{row.done.length ? <DocumentList items={row.done} tone="done" /> : <span className="mt-2 block text-sm text-gray-400">None</span>}</td><td className="px-5 py-4"><CountBadge count={row.left.length} tone="left" />{row.left.length ? <DocumentList items={row.left} tone="left" /> : <span className="mt-2 block text-sm font-medium text-green-600">All required documents complete</span>}</td></tr>)}
+            {!loading && !error && rows.length === 0 && <tr><td colSpan={3} className="px-5 py-12 text-center text-gray-500">No patients found.</td></tr>}
+          </tbody></table></div>
+      </div>
+
+      {!loading && !error && (currentPage > 1 || hasNextPage) && <div className="mt-4 flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm"><span className="text-sm text-gray-500">Page {currentPage}</span><div className="flex items-center gap-1"><button type="button" onClick={() => goToPage(1)} disabled={currentPage === 1} className="rounded-md border p-2 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40" aria-label="First page"><ChevronsLeft className="h-4 w-4" /></button><button type="button" onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 1} className="rounded-md border p-2 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Previous page"><ChevronLeft className="h-4 w-4" /></button><button type="button" onClick={() => goToPage(currentPage + 1)} disabled={!hasNextPage} className="rounded-md border p-2 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Next page"><ChevronRight className="h-4 w-4" /></button></div></div>}
+    </div>
+  );
+}
+
+function DocumentList({ items, tone }: { items: string[]; tone: 'done' | 'left' }) {
+  return <ul className={tone === 'left' ? 'mt-2 flex max-h-44 flex-wrap content-start gap-2 overflow-y-auto pr-2 text-sm leading-5' : 'mt-2 max-h-44 space-y-1 overflow-y-auto pr-2 text-sm leading-5'}>{items.map((item) => <li key={item} className={tone === 'left' ? 'flex max-w-full items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700' : 'flex items-start gap-2 text-green-700'}>{tone === 'done' ? <FileCheck2 className="mt-0.5 h-4 w-4 shrink-0" /> : <FileText className="mt-0.5 h-4 w-4 shrink-0" />}<span className={tone === 'left' ? 'break-words' : undefined}>{item}</span></li>)}</ul>;
+}
+
+function CountBadge({ count, tone }: { count: number; tone: 'done' | 'left' }) {
+  return <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${tone === 'done' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>{count} {tone === 'done' ? 'done' : 'left'}</span>;
+}
