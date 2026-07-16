@@ -927,91 +927,111 @@ export default function AdvanceFlow() {
             </>
           </div>
         )}
-        <Dialog open={imagesOpen} onOpenChange={setImagesOpen}>
+        <Dialog
+          open={imagesOpen}
+          onOpenChange={(open) => {
+            setImagesOpen(open);
+            if (!open) setViewingImage(null);
+          }}
+        >
           <DialogContent className="max-w-3xl">
             <DialogHeader>
-              <DialogTitle>Advance images</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <input
-                ref={imageInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                onChange={(e) => {
-                  void handleImageFiles(Array.from(e.target.files || []));
-                  e.target.value = "";
-                }}
-              />
-              <TabletButton
-                className="w-full"
-                disabled={uploadingImages || !patient}
-                onClick={() => imageInputRef.current?.click()}
-              >
-                {uploadingImages ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <Upload className="h-5 w-5" />
-                )}
-                Upload image
-              </TabletButton>
-              {advanceImages.isLoading ? (
-                <div className="flex justify-center py-8">
-                  <Loader2 className="h-7 w-7 animate-spin text-primary" />
-                </div>
-              ) : (advanceImages.data || []).length === 0 ? (
-                <p className="py-8 text-center text-muted-foreground">
-                  No images uploaded yet.
-                </p>
-              ) : (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  {advanceImages.data!.map((doc) => (
-                    <TabletCard key={doc.id} variant="flat" className="p-2">
-                      <button
-                        type="button"
-                        className="block w-full overflow-hidden rounded-xl bg-muted"
-                        onClick={() => setViewingImage(doc)}
-                      >
-                        <img
-                          src={doc.fileUrl}
-                          alt={doc.fileName}
-                          className="h-32 w-full object-cover"
-                          loading="lazy"
-                        />
-                      </button>
-                      <div className="mt-2 flex items-center justify-between gap-2">
-                        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                          {shortDate(doc.uploadedAt)}
-                        </span>
-                        <button
-                          type="button"
-                          aria-label="Download image"
-                          className="rounded-lg p-2 text-foreground/70 hover:bg-accent"
-                          onClick={() => void downloadImage(doc)}
-                        >
-                          <Download className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </TabletCard>
-                  ))}
-                </div>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
-        <Dialog open={!!viewingImage} onOpenChange={(open) => !open && setViewingImage(null)}>
-          <DialogContent className="max-w-3xl">
-            <DialogHeader>
-              <DialogTitle className="truncate pr-6">{viewingImage?.fileName}</DialogTitle>
+              <DialogTitle className="truncate pr-6">
+                {viewingImage ? viewingImage.fileName : "Advance images"}
+              </DialogTitle>
             </DialogHeader>
             {viewingImage ? (
-              <img
-                src={viewingImage.fileUrl}
-                alt={viewingImage.fileName}
-                className="max-h-[70vh] w-full object-contain"
-              />
-            ) : null}
+              <div className="space-y-4">
+                <img
+                  src={viewingImage.fileUrl}
+                  alt={viewingImage.fileName}
+                  className="max-h-[70vh] w-full object-contain"
+                />
+                <div className="flex gap-2">
+                  <TabletButton
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => setViewingImage(null)}
+                  >
+                    Back to images
+                  </TabletButton>
+                  <TabletButton
+                    className="flex-1"
+                    onClick={() => void downloadImage(viewingImage)}
+                  >
+                    <Download className="h-5 w-5" />
+                    Download
+                  </TabletButton>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    void handleImageFiles(Array.from(e.target.files || []));
+                    e.target.value = "";
+                  }}
+                />
+                <TabletButton
+                  className="w-full"
+                  disabled={uploadingImages || !patient}
+                  onClick={() => imageInputRef.current?.click()}
+                >
+                  {uploadingImages ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <Upload className="h-5 w-5" />
+                  )}
+                  Upload image
+                </TabletButton>
+                {advanceImages.isLoading ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-7 w-7 animate-spin text-primary" />
+                  </div>
+                ) : (advanceImages.data || []).length === 0 ? (
+                  <p className="py-8 text-center text-muted-foreground">
+                    No images uploaded yet.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {advanceImages.data!.map((doc) => (
+                      <TabletCard key={doc.id} variant="flat" className="p-2">
+                        <button
+                          type="button"
+                          className="block w-full overflow-hidden rounded-xl bg-muted"
+                          onClick={() => setViewingImage(doc)}
+                        >
+                          <img
+                            src={doc.fileUrl}
+                            alt={doc.fileName}
+                            className="h-32 w-full object-cover"
+                            loading="lazy"
+                          />
+                        </button>
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                            {shortDate(doc.uploadedAt)}
+                          </span>
+                          <button
+                            type="button"
+                            aria-label="Download image"
+                            className="rounded-lg p-2 text-foreground/70 hover:bg-accent"
+                            onClick={() => void downloadImage(doc)}
+                          >
+                            <Download className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </TabletCard>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </DialogContent>
         </Dialog>
       </FlowScaffold>

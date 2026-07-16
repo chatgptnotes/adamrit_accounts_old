@@ -5,6 +5,7 @@ import {
   Bell,
   CalendarClock,
   ClipboardList,
+  ImageIcon,
   Loader2,
   RefreshCw,
 } from "lucide-react";
@@ -27,6 +28,14 @@ import { haptics } from "@/tablet/lib/haptics";
 
 const QUERY_KEY = ["tablet-government-portal-extension-alerts"];
 const SEEN_IMPORT_STORAGE_KEY = "tablet_seen_government_portal_extension_import";
+const ADVANCE_IMAGE_CATEGORY = "advance_image";
+const APPROVAL_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+
+interface AdvanceApprovalRow {
+  id: string;
+  patientName: string;
+  createdAt: string;
+}
 
 const formatProcedure = (row: GovernmentPortalExtensionAlertRow) => {
   if (row.procedureCode && row.procedureDetails) {
@@ -60,10 +69,48 @@ const formatImportedAt = (iso: string | undefined) => {
   }
 };
 
+const formatTimeAgo = (iso: string) => {
+  const timestamp = new Date(iso).getTime();
+  if (!Number.isFinite(timestamp)) return "Recently";
+  const diffMs = Date.now() - timestamp;
+  const diffMinutes = Math.max(0, Math.floor(diffMs / 60000));
+  if (diffMinutes < 1) return "Just now";
+  if (diffMinutes < 60) return `${diffMinutes} min ago`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours} hr ago`;
+  return new Date(iso).toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+async function fetchAdvanceApprovalUploads(): Promise<AdvanceApprovalRow[]> {
+  const sinceIso = new Date(Date.now() - APPROVAL_LOOKBACK_MS).toISOString();
+  const query = (supabase as any)
+    .from("file_uploads")
+    .select("id, patient_name, created_at")
+    .eq("category", ADVANCE_IMAGE_CATEGORY)
+    .gte("created_at", sinceIso)
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  return ((data || []) as any[]).map((row) => ({
+    id: row.id,
+    patientName: row.patient_name || "Patient approval",
+    createdAt: row.created_at,
+  }));
+}
+
 export function GovernmentPortalExtensionBell() {
   const queryClient = useQueryClient();
   const { theme } = useTabletTheme();
   const [open, setOpen] = useState(false);
+  const [selectedView, setSelectedView] = useState<"extensions" | "approvals">("extensions");
   const [seenImportId, setSeenImportId] = useState(() => {
     try {
       return localStorage.getItem(SEEN_IMPORT_STORAGE_KEY) || "";
@@ -74,31 +121,60 @@ export function GovernmentPortalExtensionBell() {
 
   const { data, isFetching, refetch, error } = useQuery({
     queryKey: QUERY_KEY,
-    queryFn: () => fetchLatestGovernmentPortalExtensionAlerts(),
+    queryFn: async () => {
+      const [extensionResult, approvalsResult] = await Promise.allSettled([
+        fetchLatestGovernmentPortalExtensionAlerts(),
+        fetchAdvanceApprovalUploads(),
+      ]);
+
+      const extensionData =
+        extensionResult.status === "fulfilled" ? extensionResult.value : null;
+      const approvalRows =
+        approvalsResult.status === "fulfilled" ? approvalsResult.value : [];
+
+      if (extensionResult.status === "rejected") {
+        throw extensionResult.reason;
+      }
+
+      return {
+        extensionData,
+        approvalRows,
+      };
+    },
     refetchInterval: 5 * 60 * 1000,
     staleTime: 60 * 1000,
   });
 
-  const count = data?.count ?? 0;
-  const rows = data?.rows ?? [];
+  const extensionData = data?.extensionData ?? null;
+  const approvalRows = data?.approvalRows ?? [];
+  const extensionCount = extensionData?.count ?? 0;
+  const approvalCount = approvalRows.length;
+  const count = extensionCount + approvalCount;
+  const rows = extensionData?.rows ?? [];
   const isNewImportWithPendingRows = Boolean(
-    data?.importId && count > 0 && data.importId !== seenImportId,
+    extensionData?.importId && extensionCount > 0 && extensionData.importId !== seenImportId,
   );
   const displayCount = count > 99 ? "99+" : String(count);
-  const importedAt = formatImportedAt(data?.createdAt);
+  const importedAt = formatImportedAt(extensionData?.createdAt);
   const sheetIsLight = theme === "light";
+  const hasExtensions = rows.length > 0;
+  const hasApprovals = approvalRows.length > 0;
 
   const summaryText = useMemo(() => {
-    if (!data) return "No government portal import has been saved yet.";
-    if (count === 0) return `Latest import has no pending extension patients. ${importedAt}.`;
-    return `${count} patient${count === 1 ? "" : "s"} need extension action. ${importedAt}.`;
-  }, [count, data, importedAt]);
+    if (!extensionData && approvalCount === 0) {
+      return "No government portal import has been saved yet.";
+    }
+    if (extensionCount === 0) {
+      return `Latest import has no pending extension patients. ${importedAt}.`;
+    }
+    return `${extensionCount} patient${extensionCount === 1 ? "" : "s"} need extension action. ${importedAt}.`;
+  }, [approvalCount, extensionCount, extensionData, importedAt]);
 
   const markSeen = () => {
-    if (!data?.importId) return;
-    setSeenImportId(data.importId);
+    if (!extensionData?.importId) return;
+    setSeenImportId(extensionData.importId);
     try {
-      localStorage.setItem(SEEN_IMPORT_STORAGE_KEY, data.importId);
+      localStorage.setItem(SEEN_IMPORT_STORAGE_KEY, extensionData.importId);
     } catch {
       // localStorage can be unavailable in private browser modes.
     }
@@ -108,7 +184,17 @@ export function GovernmentPortalExtensionBell() {
     if (open) markSeen();
     // markSeen intentionally reads the latest data when open changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, data?.importId]);
+  }, [open, extensionData?.importId]);
+
+  useEffect(() => {
+    if (hasExtensions) {
+      setSelectedView("extensions");
+    } else if (hasApprovals) {
+      setSelectedView("approvals");
+    } else {
+      setSelectedView("extensions");
+    }
+  }, [hasApprovals, hasExtensions]);
 
   useEffect(() => {
     const refresh = () => {
@@ -139,6 +225,13 @@ export function GovernmentPortalExtensionBell() {
           queryClient.invalidateQueries({ queryKey: QUERY_KEY });
         },
       )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "file_uploads" },
+        () => {
+          queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+        },
+      )
       .subscribe();
 
     return () => {
@@ -154,7 +247,7 @@ export function GovernmentPortalExtensionBell() {
           onClick={() => haptics.tap()}
           aria-label={
             count > 0
-              ? `${count} pending extension patients`
+              ? `${count} total notifications`
               : "No pending extension patients"
           }
           title="Pending extensions"
@@ -224,7 +317,7 @@ export function GovernmentPortalExtensionBell() {
         >
           <CalendarClock className="h-4 w-4 shrink-0" />
           <span className="min-w-0 flex-1 truncate">
-            {data?.fileName ? `${data.fileName} - ${importedAt}` : "Waiting for CSV import"}
+            {extensionData?.fileName ? `${extensionData.fileName} - ${importedAt}` : "Waiting for CSV import"}
           </span>
           <button
             type="button"
@@ -257,7 +350,7 @@ export function GovernmentPortalExtensionBell() {
             >
               Could not load pending extensions. Pull down a fresh import or tap refresh.
             </div>
-          ) : rows.length === 0 ? (
+          ) : rows.length === 0 && approvalRows.length === 0 ? (
             <div
               className={cn(
                 "flex min-h-64 flex-col items-center justify-center rounded-2xl border border-dashed p-6 text-center",
@@ -275,60 +368,202 @@ export function GovernmentPortalExtensionBell() {
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {rows.map((row) => {
-                const amount = formatAmount(row.preauthApprovedAmount);
-                return (
-                  <article
-                    key={`${data?.importId}-${row.rowNumber}-${row.registrationId}`}
-                    className={cn(
-                      "rounded-2xl border p-4",
-                      sheetIsLight
-                        ? "border-slate-200 bg-white shadow-sm"
-                        : "border-slate-800 bg-slate-900/80",
-                    )}
-                  >
-                    <div className="flex items-start gap-3">
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500 text-sm font-bold text-slate-950">
-                        {row.daysSincePreauth ?? "-"}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className={cn("min-w-0 truncate text-sm font-semibold", sheetIsLight ? "text-slate-950" : "text-slate-50")}>
-                            {row.beneficiaryName || "Name not available"}
-                          </h3>
-                          <span
+            <div className="space-y-4">
+              <div
+                className={cn(
+                  "grid grid-cols-2 gap-2 rounded-2xl border p-2",
+                  sheetIsLight ? "border-slate-200 bg-slate-50" : "border-slate-800 bg-slate-900/80",
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => setSelectedView("extensions")}
+                  className={cn(
+                    "rounded-xl px-3 py-2 text-sm font-semibold transition-colors",
+                    selectedView === "extensions"
+                      ? sheetIsLight
+                        ? "bg-white text-slate-950 shadow-sm"
+                        : "bg-slate-800 text-slate-50"
+                      : sheetIsLight
+                        ? "text-slate-600"
+                        : "text-slate-400",
+                  )}
+                >
+                  Pending extensions
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedView("approvals")}
+                  className={cn(
+                    "rounded-xl px-3 py-2 text-sm font-semibold transition-colors",
+                    selectedView === "approvals"
+                      ? sheetIsLight
+                        ? "bg-white text-slate-950 shadow-sm"
+                        : "bg-slate-800 text-slate-50"
+                      : sheetIsLight
+                        ? "text-slate-600"
+                        : "text-slate-400",
+                  )}
+                >
+                  Patient approvals
+                </button>
+              </div>
+
+              {selectedView === "extensions" ? (
+                <section className="space-y-3">
+                  <div className="flex items-center gap-2 px-1">
+                    <AlertTriangle className={cn("h-4 w-4", sheetIsLight ? "text-amber-700" : "text-amber-300")} />
+                    <h3 className={cn("text-sm font-semibold", sheetIsLight ? "text-slate-900" : "text-slate-100")}>
+                      Pending extensions
+                    </h3>
+                  </div>
+                  {rows.length > 0 ? (
+                    rows.map((row) => {
+                      const amount = formatAmount(row.preauthApprovedAmount);
+                      return (
+                        <article
+                          key={`${extensionData?.importId}-${row.rowNumber}-${row.registrationId}`}
+                          className={cn(
+                            "rounded-2xl border p-4",
+                            sheetIsLight
+                              ? "border-slate-200 bg-white shadow-sm"
+                              : "border-slate-800 bg-slate-900/80",
+                          )}
+                        >
+                          <div className="flex items-start gap-3">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500 text-sm font-bold text-slate-950">
+                              {row.daysSincePreauth ?? "-"}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h4 className={cn("min-w-0 truncate text-sm font-semibold", sheetIsLight ? "text-slate-950" : "text-slate-50")}>
+                                  {row.beneficiaryName || "Name not available"}
+                                </h4>
+                                <span
+                                  className={cn(
+                                    "rounded-full px-2 py-0.5 text-[0.65rem] font-semibold",
+                                    sheetIsLight
+                                      ? "bg-amber-100 text-amber-800"
+                                      : "bg-amber-400/15 text-amber-200",
+                                  )}
+                                >
+                                  Extension pending
+                                </span>
+                              </div>
+                              <p className={cn("mt-1 text-xs", sheetIsLight ? "text-slate-600" : "text-slate-400")}>
+                                {row.registrationId || "No Registration ID"} - {row.caseType || "Medical"}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div
                             className={cn(
-                              "rounded-full px-2 py-0.5 text-[0.65rem] font-semibold",
-                              sheetIsLight
-                                ? "bg-amber-100 text-amber-800"
-                                : "bg-amber-400/15 text-amber-200",
+                              "mt-3 space-y-2 border-t pt-3 text-xs",
+                              sheetIsLight ? "border-slate-100 text-slate-600" : "border-slate-800 text-slate-400",
                             )}
                           >
-                            Extension pending
-                          </span>
-                        </div>
-                        <p className={cn("mt-1 text-xs", sheetIsLight ? "text-slate-600" : "text-slate-400")}>
-                          {row.registrationId || "No Registration ID"} - {row.caseType || "Medical"}
-                        </p>
-                      </div>
-                    </div>
-
+                            <p className="line-clamp-2">{formatProcedure(row)}</p>
+                            <div className="flex flex-wrap gap-x-4 gap-y-1">
+                              {row.preauthDateLabel ? <span>Preauth: {row.preauthDateLabel}</span> : null}
+                              {amount ? <span>Approved: {amount}</span> : null}
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })
+                  ) : (
                     <div
                       className={cn(
-                        "mt-3 space-y-2 border-t pt-3 text-xs",
-                        sheetIsLight ? "border-slate-100 text-slate-600" : "border-slate-800 text-slate-400",
+                        "flex min-h-48 flex-col items-center justify-center rounded-2xl border border-dashed p-6 text-center",
+                        sheetIsLight
+                          ? "border-slate-200 bg-slate-50 text-slate-600"
+                          : "border-slate-800 bg-slate-900/70 text-slate-400",
                       )}
                     >
-                      <p className="line-clamp-2">{formatProcedure(row)}</p>
-                      <div className="flex flex-wrap gap-x-4 gap-y-1">
-                        {row.preauthDateLabel ? <span>Preauth: {row.preauthDateLabel}</span> : null}
-                        {amount ? <span>Approved: {amount}</span> : null}
-                      </div>
+                      <ClipboardList className="mb-3 h-8 w-8" />
+                      <p className={cn("text-base font-semibold", sheetIsLight ? "text-slate-900" : "text-slate-100")}>
+                        No pending extensions
+                      </p>
+                      <p className="mt-1 text-sm">
+                        The latest saved government portal import has no patients marked for extension.
+                      </p>
                     </div>
-                  </article>
-                );
-              })}
+                  )}
+                </section>
+              ) : (
+                <section className="space-y-3">
+                  <div className="flex items-center gap-2 px-1 pt-1">
+                    <ImageIcon className={cn("h-4 w-4", sheetIsLight ? "text-sky-700" : "text-sky-300")} />
+                    <h3 className={cn("text-sm font-semibold", sheetIsLight ? "text-slate-900" : "text-slate-100")}>
+                      Patient approvals
+                    </h3>
+                    <span className={cn("text-xs", sheetIsLight ? "text-slate-500" : "text-slate-400")}>
+                      Last 24 hours
+                    </span>
+                  </div>
+                  {approvalRows.length > 0 ? (
+                    approvalRows.map((row) => (
+                      <article
+                        key={row.id}
+                        className={cn(
+                          "rounded-2xl border p-4",
+                          sheetIsLight
+                            ? "border-sky-200 bg-sky-50/70 shadow-sm"
+                            : "border-sky-900/60 bg-sky-950/20",
+                        )}
+                      >
+                        <div className="flex items-start gap-3">
+                          <span
+                            className={cn(
+                              "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+                              sheetIsLight ? "bg-sky-600 text-white" : "bg-sky-500/80 text-slate-950",
+                            )}
+                          >
+                            <ImageIcon className="h-4 w-4" />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h4 className={cn("min-w-0 truncate text-sm font-semibold", sheetIsLight ? "text-slate-950" : "text-slate-50")}>
+                                {row.patientName}
+                              </h4>
+                              <span
+                                className={cn(
+                                  "rounded-full px-2 py-0.5 text-[0.65rem] font-semibold",
+                                  sheetIsLight
+                                    ? "bg-sky-100 text-sky-800"
+                                    : "bg-sky-400/15 text-sky-200",
+                                )}
+                              >
+                                Approval uploaded
+                              </span>
+                            </div>
+                            <p className={cn("mt-1 text-xs", sheetIsLight ? "text-slate-600" : "text-slate-400")}>
+                              {formatTimeAgo(row.createdAt)}
+                            </p>
+                          </div>
+                        </div>
+                      </article>
+                    ))
+                  ) : (
+                    <div
+                      className={cn(
+                        "flex min-h-48 flex-col items-center justify-center rounded-2xl border border-dashed p-6 text-center",
+                        sheetIsLight
+                          ? "border-sky-200 bg-sky-50/50 text-slate-600"
+                          : "border-sky-900/60 bg-sky-950/20 text-slate-400",
+                      )}
+                    >
+                      <ImageIcon className="mb-3 h-8 w-8" />
+                      <p className={cn("text-base font-semibold", sheetIsLight ? "text-slate-900" : "text-slate-100")}>
+                        No patient approvals
+                      </p>
+                      <p className="mt-1 text-sm">
+                        No approval uploads were added in the last 24 hours.
+                      </p>
+                    </div>
+                  )}
+                </section>
+              )}
             </div>
           )}
         </div>
