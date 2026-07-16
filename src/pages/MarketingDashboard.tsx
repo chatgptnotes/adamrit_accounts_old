@@ -10,6 +10,7 @@ import { Camera, Send, Save, Edit2, Users, TrendingUp, Building2, Percent, India
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTileAccess } from '@/hooks/useTileAccess';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useCorporateBulkPayments } from '@/hooks/useCorporateBulkPayments';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -50,6 +51,7 @@ interface ChatMessage {
 export default function MarketingDashboard() {
   const { toast } = useToast();
   const { user, hospitalConfig } = useAuth();
+  const { canSeeTile } = useTileAccess();
 
   // Payment Receipts state
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -762,7 +764,7 @@ Return JSON only:
   return (
     <div className="max-w-4xl mx-auto p-2 md:p-4 space-y-3 md:space-y-4">
       {/* Clinical KPIs + Yesterday's Activity */}
-      <ClinicalKPIs />
+      <ClinicalKPIs canSeeTile={canSeeTile} />
 
       {/* AI Field Assistant Chat - FIRST on mobile */}
       <div className="bg-white border-2 border-blue-400 rounded-xl overflow-hidden shadow-lg md:order-none">
@@ -1053,21 +1055,22 @@ Return JSON only:
             <h1 className="text-lg font-bold text-gray-900 hidden md:block">📊 Marketing Dashboard</h1>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-            <StatCard icon={Users} label="Doctors Today" value={today.doctors_contacted} color="blue" />
-            <StatCard icon={Users} label="Doctors Month" value={monthSum('doctors_contacted')} color="indigo" />
-            <StatCard icon={TrendingUp} label="Admissions Yesterday" value={yesterdayRow?.admissions || 0} color="green" />
-            <StatCard icon={TrendingUp} label="Admissions Month" value={monthSum('admissions')} color="emerald" />
-            <StatCard icon={Percent} label="Occupancy Today" value={currentlyAdmittedCount} color="orange" />
-            <StatCard icon={Percent} label="Avg Occupancy Month" value={`${monthAvg('occupancy_percent').toFixed(0)}%`} color="amber" />
+            {canSeeTile("m-doctors-today") && <StatCard icon={Users} label="Doctors Today" value={today.doctors_contacted} color="blue" />}
+            {canSeeTile("m-doctors-month") && <StatCard icon={Users} label="Doctors Month" value={monthSum('doctors_contacted')} color="indigo" />}
+            {canSeeTile("m-admissions-yesterday") && <StatCard icon={TrendingUp} label="Admissions Yesterday" value={yesterdayRow?.admissions || 0} color="green" />}
+            {canSeeTile("m-admissions-month") && <StatCard icon={TrendingUp} label="Admissions Month" value={monthSum('admissions')} color="emerald" />}
+            {canSeeTile("m-occupancy-today") && <StatCard icon={Percent} label="Occupancy Today" value={currentlyAdmittedCount} color="orange" />}
+            {canSeeTile("m-avg-occupancy-month") && <StatCard icon={Percent} label="Avg Occupancy Month" value={`${monthAvg('occupancy_percent').toFixed(0)}%`} color="amber" />}
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-            <StatCard icon={IndianRupee} label="Revenue Today" value={inr(today.revenue)} color="green" />
-            <StatCard icon={IndianRupee} label="Revenue Month" value={inr(monthSum('revenue'))} color="emerald" />
-            <StatCard icon={IndianRupee} label="Revenue Year" value={inr(yearSum('revenue'))} color="teal" />
+            {canSeeTile("m-revenue-today") && <StatCard icon={IndianRupee} label="Revenue Today" value={inr(today.revenue)} color="green" />}
+            {canSeeTile("m-revenue-month") && <StatCard icon={IndianRupee} label="Revenue Month" value={inr(monthSum('revenue'))} color="emerald" />}
+            {canSeeTile("m-revenue-year") && <StatCard icon={IndianRupee} label="Revenue Year" value={inr(yearSum('revenue'))} color="teal" />}
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-            <StatCard icon={Building2} label="Discharges Yesterday" value={yesterdayRow?.discharges || 0} color="purple" />
-            <StatCard icon={Building2} label="Discharges Month" value={monthSum('discharges')} color="violet" />
+            {canSeeTile("m-discharges-yesterday") && <StatCard icon={Building2} label="Discharges Yesterday" value={yesterdayRow?.discharges || 0} color="purple" />}
+            {canSeeTile("m-discharges-month") && <StatCard icon={Building2} label="Discharges Month" value={monthSum('discharges')} color="violet" />}
+            {canSeeTile("m-todays-plan") && (
             <Card className="bg-white border border-gray-100 shadow-sm col-span-2 md:col-span-1">
               <CardContent className="p-3">
                 <div className="flex items-center gap-2 mb-1">
@@ -1077,6 +1080,7 @@ Return JSON only:
                 <p className="text-sm text-gray-700 line-clamp-3">{today.plan_for_today || 'No plan set'}</p>
               </CardContent>
             </Card>
+            )}
           </div>
         </div>
       </div>

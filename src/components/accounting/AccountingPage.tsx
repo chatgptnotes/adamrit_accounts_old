@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import Dashboard from './Dashboard';
+import { useTileAccess } from '@/hooks/useTileAccess';
 import ChartOfAccounts from './ChartOfAccounts';
 import AccountMasters from './AccountMasters';
 import TallyImportExport from './TallyImportExport';
@@ -111,7 +112,7 @@ const renderContent = (
     case 'gateway':
       return <GatewayOfTally onNavigate={goTo} />;
     case 'dashboard':
-      return <Dashboard onOpenVoucher={openVoucher} />;
+      return <Dashboard onOpenVoucher={openVoucher} canSeeTile={canSeeTile} />;
     case 'chart-of-accounts':
       return <ChartOfAccounts />;
     case 'masters':
@@ -184,6 +185,7 @@ const renderContent = (
  */
 const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
   const navigate = useNavigate();
+  const { canSeeTile } = useTileAccess();
   const [activeTab, setActiveTab] = useState<string>(
     () => initialTab ?? localStorage.getItem('accounting-default-tab') ?? 'gateway',
   );

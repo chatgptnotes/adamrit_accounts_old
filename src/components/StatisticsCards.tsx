@@ -4,13 +4,16 @@ import { Users, FileText, Activity } from 'lucide-react';
 
 interface StatisticsCardsProps {
   totalPatients: number;
+  canSeeTile?: (tileId: string, role?: string | null) => boolean;
 }
 
 export const StatisticsCards: React.FC<StatisticsCardsProps> = ({
-  totalPatients
+  totalPatients,
+  canSeeTile,
 }) => {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      {(!canSeeTile || canSeeTile("d-total-patients")) && (
       <Card>
         <CardContent className="flex items-center justify-center p-6">
           <Users className="h-8 w-8 text-blue-600 mr-3" />
@@ -20,6 +23,8 @@ export const StatisticsCards: React.FC<StatisticsCardsProps> = ({
           </div>
         </CardContent>
       </Card>
+      )}
+      {(!canSeeTile || canSeeTile("d-system-status")) && (
       <Card>
         <CardContent className="flex items-center justify-center p-6">
           <Activity className="h-8 w-8 text-red-600 mr-3" />
@@ -29,6 +34,7 @@ export const StatisticsCards: React.FC<StatisticsCardsProps> = ({
           </div>
         </CardContent>
       </Card>
+      )}
     </div>
   );
 };

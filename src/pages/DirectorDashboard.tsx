@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTileAccess } from '@/hooks/useTileAccess';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -63,6 +64,7 @@ const getErrorMessage = (error: unknown): string => {
 
 export default function DirectorDashboard() {
   const { user } = useAuth();
+  const { canSeeTile } = useTileAccess();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -527,7 +529,7 @@ export default function DirectorDashboard() {
         </div>
       </div>
 
-      <DirectorKpiCards />
+      <DirectorKpiCards canSeeTile={canSeeTile} />
 
       <DepartmentActivityMonitor />
 

@@ -5,6 +5,13 @@ import { format } from "date-fns";
 import { hashPassword } from "@/utils/auth";
 import { logActivity } from "@/lib/activity-logger";
 import { useCompanies } from "@/hooks/useCompanies";
+import { useAuth } from "@/contexts/AuthContext";
+import { useTileAccess } from "@/hooks/useTileAccess";
+import {
+  ALL_ROLES,
+  ALL_TILE_GROUPS,
+  GROUP_LABELS,
+} from "@/config/tileAccess";
 
 // UI Components
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -108,26 +115,6 @@ interface CsvRow {
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-/** All available roles in the system */
-const ALL_ROLES = [
-  "superadmin",
-  "admin",
-  "doctor",
-  "nurse",
-  "receptionist",
-  "lab_technician",
-  "pharmacist",
-  "radiology_tech",
-  "ot_tech",
-  "cath_lab_tech",
-  "marketing",
-  "billing",
-  "housekeeping",
-  "security",
-  "driver",
-  "physiotherapist",
-] as const;
 
 /** Human-readable labels for roles */
 const ROLE_LABELS: Record<string, string> = {
@@ -288,6 +275,9 @@ function generateRandomPassword(): string {
 const UserManagement: React.FC = () => {
   const { toast } = useToast();
   const { data: companies = [] } = useCompanies();
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === "superadmin" || user?.role === "super_admin";
+  const { getAllRules, setTileRoles, resetToDefaults } = useTileAccess();
 
   // ---- Data state ----
   const [users, setUsers] = useState<UserRow[]>([]);
@@ -314,6 +304,7 @@ const UserManagement: React.FC = () => {
 
   // ---- Collapsible Role Access section ----
   const [roleAccessOpen, setRoleAccessOpen] = useState(false);
+  const [tileGroupFilter, setTileGroupFilter] = useState<string>("all");
 
   // -----------------------------------------------------------------------
   // Fetch users
@@ -989,8 +980,9 @@ const UserManagement: React.FC = () => {
         </Card>
 
         {/* ----------------------------------------------------------------
-            Role Access Summary (collapsible)
+            Tile Access Control (superadmin only, collapsible)
         ---------------------------------------------------------------- */}
+        {isSuperAdmin && (
         <Card>
           <CardHeader
             className="cursor-pointer select-none"
@@ -999,7 +991,7 @@ const UserManagement: React.FC = () => {
             <CardTitle className="flex items-center justify-between text-lg">
               <span className="flex items-center gap-2">
                 <Shield className="h-5 w-5 text-blue-600" />
-                Role Access Summary
+                Tile Access Control
               </span>
               {roleAccessOpen ? (
                 <ChevronUp className="h-5 w-5" />
@@ -1009,40 +1001,135 @@ const UserManagement: React.FC = () => {
             </CardTitle>
           </CardHeader>
           {roleAccessOpen && (
-            <CardContent className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-48">Role</TableHead>
-                    <TableHead>Accessible Modules</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {Object.entries(ROLE_ACCESS_MAP).map(([role, modules]) => (
-                    <TableRow key={role}>
-                      <TableCell className="font-medium capitalize">
-                        {ROLE_LABELS[role] || role}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          {modules.map((mod) => (
-                            <Badge
-                              key={mod}
-                              variant="outline"
-                              className="text-xs"
-                            >
-                              {mod}
-                            </Badge>
-                          ))}
-                        </div>
-                      </TableCell>
-                    </TableRow>
+            <CardContent>
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Control which tiles each role can see across the app. Check a box = role can see the tile. Unchecked = role cannot see it.
+                  When a tile has <strong>no roles checked</strong>, it is visible to <strong>all roles</strong>.
+                </p>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">Group:</span>
+                  <button
+                    type="button"
+                    onClick={() => setTileGroupFilter("all")}
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                      tileGroupFilter === "all"
+                        ? "bg-blue-600 text-white"
+                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    }`}
+                  >
+                    All
+                  </button>
+                  {ALL_TILE_GROUPS.map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      onClick={() => setTileGroupFilter(g)}
+                      className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                        tileGroupFilter === g
+                          ? "bg-blue-600 text-white"
+                          : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                      }`}
+                    >
+                      {GROUP_LABELS[g]}
+                    </button>
                   ))}
-                </TableBody>
-              </Table>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <div className="min-w-[800px]">
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="sticky left-0 z-10 bg-white px-3 py-2 text-left text-xs font-semibold text-gray-500 min-w-[180px]">
+                            Tile
+                          </th>
+                          {ALL_ROLES.map((role) => (
+                            <th
+                              key={role}
+                              className="px-2 py-2 text-center text-[10px] font-medium text-gray-500 min-w-[60px]"
+                            >
+                              {ROLE_LABELS[role] || role}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {getAllRules()
+                          .filter(
+                            (r) =>
+                              tileGroupFilter === "all" || r.group === tileGroupFilter,
+                          )
+                          .map((rule) => (
+                            <tr key={rule.id} className="border-b hover:bg-gray-50">
+                              <td className="sticky left-0 z-10 bg-white px-3 py-2">
+                                <div>
+                                  <span className="font-medium text-gray-800">
+                                    {rule.label}
+                                  </span>
+                                  <span className="ml-1 text-[10px] text-gray-400">
+                                    {rule.group}
+                                  </span>
+                                </div>
+                              </td>
+                              {ALL_ROLES.map((role) => {
+                                const isAll = rule.roles === undefined;
+                                const checked = isAll ? false : rule.roles.includes(role);
+                                return (
+                                  <td key={role} className="px-2 py-2 text-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() => {
+                                        const current = rule.roles;
+                                        let next: string[] | undefined;
+                                        if (current === undefined) {
+                                          const others = ALL_ROLES.filter(
+                                            (r) => r !== role,
+                                          );
+                                          next = others;
+                                        } else if (checked) {
+                                          next = current.filter((r) => r !== role);
+                                          if (next.length === 0) next = undefined;
+                                        } else {
+                                          next = [...current, role];
+                                        }
+                                        setTileRoles(rule.id, next);
+                                      }}
+                                      className="h-4 w-4 rounded border-gray-300"
+                                    />
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 pt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      resetToDefaults();
+                      toast({ title: "Tile access reset to defaults" });
+                    }}
+                  >
+                    <RefreshCw className="h-4 w-4 mr-1" />
+                    Reset to Defaults
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    Changes are saved automatically to browser storage.
+                  </span>
+                </div>
+              </div>
             </CardContent>
           )}
         </Card>
+        )}
 
         {/* ----------------------------------------------------------------
             Add / Edit User Dialog

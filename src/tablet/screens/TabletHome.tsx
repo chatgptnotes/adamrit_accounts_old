@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { useTileAccess } from "@/hooks/useTileAccess";
 import { cn } from "@/lib/utils";
 import { modulesForUser } from "@/tablet/config/modules";
 import { TabletWatermark } from "@/tablet/components/TabletWatermark";
@@ -8,7 +9,8 @@ import { TabletWatermark } from "@/tablet/components/TabletWatermark";
 export function TabletHome() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const modules = modulesForUser(user ?? undefined);
+  const { canSeeTile } = useTileAccess();
+  const modules = modulesForUser(user ?? undefined, canSeeTile);
 
   return (
     <div className="relative isolate h-full">

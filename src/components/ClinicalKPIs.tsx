@@ -16,7 +16,11 @@ const fetchKPIsData = async () => {
   return { visits: visitsRes.data || [], accommodations: accommRes.data || [], bills: billsRes.data || [] };
 };
 
-export const ClinicalKPIs = () => {
+interface ClinicalKPIsProps {
+  canSeeTile?: (tileId: string, role?: string | null) => boolean;
+}
+
+export const ClinicalKPIs = ({ canSeeTile }: ClinicalKPIsProps) => {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['clinical-kpis'],
     queryFn: fetchKPIsData,
@@ -45,14 +49,16 @@ export const ClinicalKPIs = () => {
     return { alos, bor, btr, bti, arpp, admissionRate, totalVisits, ipdCount, dischargeCount, totalRevenue, activeIpd };
   })();
 
-  const kpiCards = kpi ? [
-    { title: 'ALOS', subtitle: 'Avg Length of Stay', value: kpi.alos === '—' ? '—' : `${kpi.alos} days`, benchmark: '< 4 days', good: kpi.alos !== '—' && parseFloat(kpi.alos) <= 4, color: 'from-blue-500 to-blue-600', icon: Clock, detail: `${kpi.dischargeCount} total discharges` },
-    { title: 'BOR', subtitle: 'Bed Occupancy Rate', value: `${kpi.bor}%`, benchmark: '75–85% ideal', good: kpi.bor >= 75 && kpi.bor <= 85, color: 'from-purple-500 to-purple-600', icon: BedDouble, detail: `${TOTAL_BEDS} beds configured` },
-    { title: 'BTR', subtitle: 'Bed Turnover Rate', value: kpi.btr === '—' ? '—' : `${kpi.btr}×`, benchmark: '> 4× per month', good: kpi.btr !== '—' && parseFloat(kpi.btr) >= 4, color: 'from-green-500 to-green-600', icon: RotateCcw, detail: `${kpi.dischargeCount} discharges` },
-    { title: 'BTI', subtitle: 'Bed Turnover Interval', value: kpi.bti === '—' ? '—' : `${kpi.bti} days`, benchmark: '< 1 day', good: kpi.bti !== '—' && parseFloat(kpi.bti) <= 1, color: 'from-amber-500 to-amber-600', icon: TrendingUp, detail: 'Empty bed time' },
-    { title: 'ARPP', subtitle: 'Avg Revenue Per Visit', value: `₹${kpi.arpp.toLocaleString('en-IN')}`, benchmark: '> ₹5,000', good: kpi.arpp >= 5000, color: 'from-emerald-500 to-emerald-600', icon: Wallet, detail: `₹${(kpi.totalRevenue / 100000).toFixed(1)}L total` },
-    { title: 'Admission Rate', subtitle: 'IPD Conversion', value: `${kpi.admissionRate}%`, benchmark: '15–25% ideal', good: kpi.admissionRate >= 15 && kpi.admissionRate <= 25, color: 'from-rose-500 to-rose-600', icon: LogIn, detail: `${kpi.ipdCount} of ${kpi.totalVisits} visits` },
+  const allKpiCards = kpi ? [
+    { title: 'ALOS', subtitle: 'Avg Length of Stay', value: kpi.alos === '—' ? '—' : `${kpi.alos} days`, benchmark: '< 4 days', good: kpi.alos !== '—' && parseFloat(kpi.alos) <= 4, color: 'from-blue-500 to-blue-600', icon: Clock, detail: `${kpi.dischargeCount} total discharges`, tileId: 'c-alos' },
+    { title: 'BOR', subtitle: 'Bed Occupancy Rate', value: `${kpi.bor}%`, benchmark: '75–85% ideal', good: kpi.bor >= 75 && kpi.bor <= 85, color: 'from-purple-500 to-purple-600', icon: BedDouble, detail: `${TOTAL_BEDS} beds configured`, tileId: 'c-bor' },
+    { title: 'BTR', subtitle: 'Bed Turnover Rate', value: kpi.btr === '—' ? '—' : `${kpi.btr}×`, benchmark: '> 4× per month', good: kpi.btr !== '—' && parseFloat(kpi.btr) >= 4, color: 'from-green-500 to-green-600', icon: RotateCcw, detail: `${kpi.dischargeCount} discharges`, tileId: 'c-btr' },
+    { title: 'BTI', subtitle: 'Bed Turnover Interval', value: kpi.bti === '—' ? '—' : `${kpi.bti} days`, benchmark: '< 1 day', good: kpi.bti !== '—' && parseFloat(kpi.bti) <= 1, color: 'from-amber-500 to-amber-600', icon: TrendingUp, detail: 'Empty bed time', tileId: 'c-bti' },
+    { title: 'ARPP', subtitle: 'Avg Revenue Per Visit', value: `₹${kpi.arpp.toLocaleString('en-IN')}`, benchmark: '> ₹5,000', good: kpi.arpp >= 5000, color: 'from-emerald-500 to-emerald-600', icon: Wallet, detail: `₹${(kpi.totalRevenue / 100000).toFixed(1)}L total`, tileId: 'c-arpp' },
+    { title: 'Admission Rate', subtitle: 'IPD Conversion', value: `${kpi.admissionRate}%`, benchmark: '15–25% ideal', good: kpi.admissionRate >= 15 && kpi.admissionRate <= 25, color: 'from-rose-500 to-rose-600', icon: LogIn, detail: `${kpi.ipdCount} of ${kpi.totalVisits} visits`, tileId: 'c-admission-rate' },
   ] : [];
+
+  const kpiCards = canSeeTile ? allKpiCards.filter((c) => canSeeTile(c.tileId)) : allKpiCards;
 
   if (isLoading) {
     return <div className="space-y-3 mb-6">

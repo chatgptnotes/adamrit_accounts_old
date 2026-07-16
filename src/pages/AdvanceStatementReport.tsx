@@ -120,10 +120,44 @@ const AdvanceStatementReport = () => {
   const [packages, setPackages] = useState<Array<{ id: string; name: string }>>([]);
   const [diagnosesList, setDiagnosesList] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedRow, setSelectedRow] = useState<any | null>(null);
+  const [selectedImplantId, setSelectedImplantId] = useState('');
+  const [selectedImplantName, setSelectedImplantName] = useState('');
+  const [selectedImplantCost, setSelectedImplantCost] = useState('');
   const { data: latestPortalReport } = useQuery({
     queryKey: ['latest-government-portal-report-for-advance-statement'],
     queryFn: () => fetchLatestGovernmentPortalReport(),
     staleTime: 5 * 60_000,
+  });
+  const { data: implantOptions = [] } = useQuery({
+    queryKey: ['advance-statement-implant-options'],
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('implants')
+        .select('id, name')
+        .order('name');
+      if (error) throw error;
+      return (data || []).map((implant: { id: string; name: string | null }) => ({
+        value: implant.id,
+        label: implant.name || '',
+      })).filter((implant) => implant.label);
+    },
+  });
+  const { data: activeVisitImplant } = useQuery({
+    queryKey: ['advance-statement-active-implant', selectedRow?.id],
+    enabled: !!selectedRow?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('visit_implants')
+        .select('id, implant_id, implant_name, amount')
+        .eq('visit_id', selectedRow.id)
+        .eq('status', 'Active')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
   });
 
   // Debounce search term
@@ -586,8 +620,100 @@ const AdvanceStatementReport = () => {
     [portalProcedurePackages, packages],
   );
 
+  useEffect(() => {
+    if (!selectedRow) {
+      setSelectedImplantId('');
+      setSelectedImplantName('');
+      setSelectedImplantCost('');
+      return;
+    }
+
+    setSelectedImplantId(activeVisitImplant?.implant_id || '');
+    setSelectedImplantName(activeVisitImplant?.implant_name || '');
+    setSelectedImplantCost(
+      activeVisitImplant?.amount !== null && activeVisitImplant?.amount !== undefined
+        ? String(activeVisitImplant.amount)
+        : ''
+    );
+  }, [selectedRow, activeVisitImplant]);
+
   const isPortalMatchedRegistrationId = (value: string) =>
     matchedPortalRegistrationIds.has(normalizeLookupValue(value));
+
+  const handleImplantSave = async () => {
+    if (!selectedRow?.id) {
+      toast.error('No visit selected.');
+      return;
+    }
+
+    const implantName = selectedImplantName.trim();
+    const implantCost = Number(selectedImplantCost);
+
+    if (!implantName) {
+      toast.error('Enter or select an implant name.');
+      return;
+    }
+
+    if (!Number.isFinite(implantCost) || implantCost <= 0) {
+      toast.error('Enter a valid implant cost.');
+      return;
+    }
+
+    try {
+      let implantId = selectedImplantId;
+
+      if (!implantId) {
+        const { data: createdImplant, error: createImplantError } = await supabase
+          .from('implants')
+          .insert({ name: implantName })
+          .select('id')
+          .single();
+
+        if (createImplantError) throw createImplantError;
+        implantId = createdImplant.id;
+        setSelectedImplantId(implantId);
+      }
+
+      if (activeVisitImplant?.id) {
+        const { error: updateError } = await supabase
+          .from('visit_implants')
+          .update({
+            implant_id: implantId,
+            implant_name: implantName,
+            quantity: 1,
+            rate: implantCost,
+            amount: implantCost,
+            status: 'Active',
+          })
+          .eq('id', activeVisitImplant.id);
+
+        if (updateError) throw updateError;
+      } else {
+        const { error: insertError } = await supabase
+          .from('visit_implants')
+          .insert({
+            visit_id: selectedRow.id,
+            implant_id: implantId,
+            implant_name: implantName,
+            quantity: 1,
+            rate: implantCost,
+            amount: implantCost,
+            rate_type: 'private',
+            status: 'Active',
+          });
+
+        if (insertError) throw insertError;
+      }
+
+      await queryClient.invalidateQueries({ queryKey: ['advance-statement-active-implant', selectedRow.id] });
+      await queryClient.invalidateQueries({ queryKey: ['advance-statement-implant-options'] });
+      await refreshAdvanceStatementData();
+      toast.success('Implant saved.');
+    } catch (error) {
+      console.error('Failed to save implant:', error);
+      toast.error('Could not save implant.');
+    }
+  };
 
   const refreshAdvanceStatementData = async () => {
     await queryClient.invalidateQueries({ queryKey: ['advance-statement-report-currently-admitted'] });
@@ -1990,11 +2116,11 @@ const AdvanceStatementReport = () => {
                   {detailRow('Implant Name', (
                     <div className="space-y-2">
                       <SearchableSelect
-                        options={implants.data || []}
+                        options={implantOptions}
                         value={selectedImplantId}
                         onValueChange={(value) => {
                           setSelectedImplantId(value);
-                          const selectedOption = implants.data?.find((opt) => opt.value === value);
+                          const selectedOption = implantOptions.find((opt) => opt.value === value);
                           setSelectedImplantName(selectedOption?.label || '');
                         }}
                         placeholder="Select implant..."

@@ -215,15 +215,18 @@ const HIDDEN_MODULE_IDS = new Set([
 /**
  * Modules visible to a given user. Admins (and unknown roles) see all except
  * the Director tile, which is restricted to superadmin role or director emails.
+ *
+ * If `canSeeTile` is provided (from useTileAccess hook), it overrides the
+ * hardcoded `roles` on each module for dynamic config-based gating.
  */
 export function modulesForUser(
   user: { role?: string; email?: string } | undefined,
+  canSeeTile?: (tileId: string, role?: string | null) => boolean,
 ): TabletModule[] {
   const role = user?.role;
   const email = user?.email?.toLowerCase() ?? "";
   const isDirectorRole = !!role && DIRECTOR_ROLES.includes(role);
   const isDirectorEmail = DIRECTOR_EMAILS.includes(email);
-  const isAdmin = !!role && ADMIN_ROLES.includes(role);
 
   return TABLET_MODULES.filter((m) => {
     if (HIDDEN_MODULE_IDS.has(m.id)) return false;
@@ -233,6 +236,10 @@ export function modulesForUser(
     if (m.id === "referral-register") {
       return canAccessReferralRegister(user);
     }
+    if (canSeeTile) {
+      return canSeeTile(`t-${m.id}`, role);
+    }
+    const isAdmin = !!role && ADMIN_ROLES.includes(role);
     if (!role || isAdmin) return true;
     return !m.roles || m.roles.includes(role);
   });

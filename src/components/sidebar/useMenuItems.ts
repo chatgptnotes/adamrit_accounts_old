@@ -8,8 +8,23 @@ import { isFeatureEnabled } from '@/types/hospital';
 import { useMasterCounts } from '@/hooks/useMasterCounts';
 import { groupForTitle } from './sidebarGroups';
 import { useAccountingRights } from '@/components/accounting/tally/rights';
+import { useTileAccess } from '@/hooks/useTileAccess';
 
 const ADMIN_ROLES = ['superadmin', 'super_admin', 'admin'];
+
+const SIDEBAR_TILE_MAP: Record<string, string> = {
+  'Users': 's-users',
+  'User Management': 's-user-management',
+  'Payment Allocation': 's-payment-allocation',
+  'Director Dashboard': 's-director-dashboard',
+  'Lab Master': 's-lab-master',
+  'Radiology Master': 's-radiology-master',
+  'Surgery': 's-surgery',
+  'Accounting': 's-accounting',
+  'Referral Register': 's-referral-register',
+  'Marketing Dashboard': 's-marketing-dashboard',
+  'Location Master': 's-location-master',
+};
 
 // Tab title -> roles allowed to SEE the count badge on that tab.
 // Tab *visibility* is already handled by the filter below; this only controls
@@ -40,6 +55,7 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
   const { hospitalType, user } = useAuth();
   const { canManageUsers } = usePermissions();
   const { canAlter: canAccessAccounting } = useAccountingRights();
+  const { canSeeTile } = useTileAccess();
   const userRole = (user?.role || '').toLowerCase().trim();
   const masterCounts = useMasterCounts(
     !!user && ['superadmin', 'super_admin', 'admin'].includes(userRole),
@@ -120,6 +136,12 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
 
         if (!hospitalType) return true; // Show all items if no hospital type
 
+        // Dynamic tile-access check (from config)
+        const tileId = SIDEBAR_TILE_MAP[item.title];
+        if (tileId && !canSeeTile(tileId, user?.role)) {
+          return false;
+        }
+
         // Filter menu items based on hospital features
         switch (item.title) {
           case "Pharmacy":
@@ -194,7 +216,7 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
       masterItems: filtered.filter(item => item.section === 'masters'),
     };
   }, [
-    hospitalType, user, canManageUsers, canAccessAccounting, masterCounts, diagnosesCount, patientsCount, usersCount, complicationsCount,
+    hospitalType, user, canManageUsers, canAccessAccounting, canSeeTile, masterCounts, diagnosesCount, patientsCount, usersCount, complicationsCount,
     cghsSurgeryCount, labCount, radiologyCount, medicationCount,
     refereesCount, hopeSurgeonsCount, hopeConsultantsCount, hopeAnaesthetistsCount,
     ayushmanSurgeonsCount, ayushmanConsultantsCount, ayushmanAnaesthetistsCount,

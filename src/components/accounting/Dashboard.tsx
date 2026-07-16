@@ -43,7 +43,7 @@ const tallyDateLabel = (iso: string): string => {
  * expenses with Nett, top expense heads as inline bars, and the latest
  * vouchers, all from the instant account_movements aggregate.
  */
-const Dashboard: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVoucher }) => {
+const Dashboard: React.FC<{ onOpenVoucher?: (id: string) => void; canSeeTile?: (tileId: string, role?: string | null) => boolean }> = ({ onOpenVoucher, canSeeTile }) => {
   const today = format(new Date(), 'yyyy-MM-dd');
   const from = fyStart();
 
@@ -114,7 +114,9 @@ const Dashboard: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenV
 
   const maxExp = S.expenseHeads[0]?.amount || 1;
 
-  const tile = (label: string, value: number, drCr = false) => (
+  const tile = (label: string, value: number, drCr = false, tileId?: string) => {
+    if (canSeeTile && tileId && !canSeeTile(tileId)) return null;
+    return (
     <div className="border border-[#9db8d8] bg-white">
       <div className="bg-[#eef3fa] px-2 py-0.5 text-[11px] font-semibold tracking-wide text-[#16437e]">{label}</div>
       <div className="px-2 py-1.5 text-right font-mono text-[15px] font-bold">
@@ -122,7 +124,8 @@ const Dashboard: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenV
         {drCr ? ` ${value >= 0 ? 'Dr' : 'Cr'}` : ''}
       </div>
     </div>
-  );
+    );
+  };
 
   return (
     <TallyScreen title="Dashboard" rail={[{ hotkey: 'P', label: 'Print', onClick: () => window.print() }]}>
@@ -133,12 +136,12 @@ const Dashboard: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenV
 
         {/* Tiles */}
         <div className="mt-1 grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
-          {tile('Cash-in-Hand', S.cash)}
-          {tile('Bank Accounts', S.bank)}
-          {tile('Income (FY)', S.income)}
-          {tile('Expenses (FY)', S.expense)}
-          {tile(S.nett >= 0 ? 'Nett Profit (FY)' : 'Nett Loss (FY)', S.nett)}
-          {tile('Patient Advance', S.advance)}
+          {tile('Cash-in-Hand', S.cash, false, 'a-cash-in-hand')}
+          {tile('Bank Accounts', S.bank, false, 'a-bank-accounts')}
+          {tile('Income (FY)', S.income, false, 'a-income-fy')}
+          {tile('Expenses (FY)', S.expense, false, 'a-expenses-fy')}
+          {tile(S.nett >= 0 ? 'Nett Profit (FY)' : 'Nett Loss (FY)', S.nett, false, 'a-nett-profit-loss')}
+          {tile('Patient Advance', S.advance, false, 'a-patient-advance')}
         </div>
 
         <div className="mt-3 flex gap-3">

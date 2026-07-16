@@ -19,10 +19,12 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows, fetchAllByIn } from '@/utils/fetchAllRows';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTileAccess } from '@/hooks/useTileAccess';
 import { QuickCaptureCard } from '@/components/CameraUpload';
 
 const Index = () => {
   const { hospitalConfig } = useAuth();
+  const { canSeeTile } = useTileAccess();
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddPatientDialogOpen, setIsAddPatientDialogOpen] = useState(false);
   const [isAddDiagnosisDialogOpen, setIsAddDiagnosisDialogOpen] = useState(false);
@@ -395,7 +397,7 @@ const Index = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <div className="md:col-span-3">
-            <ClinicalKPIs />
+            <ClinicalKPIs canSeeTile={canSeeTile} />
           </div>
           <div>
             <QuickCaptureCard />
@@ -403,6 +405,7 @@ const Index = () => {
         </div>
         <StatisticsCards
           totalPatients={totalPatients}
+          canSeeTile={canSeeTile}
         />
 
         <div className="mb-4 flex items-center gap-2 flex-wrap">

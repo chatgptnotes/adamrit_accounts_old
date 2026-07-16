@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTileAccess } from '@/hooks/useTileAccess';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +19,7 @@ import { format } from 'date-fns';
 
 const TodaysOpd = () => {
   const { hospitalConfig, user } = useAuth();
+  const { canSeeTile } = useTileAccess();
   const [searchParams, setSearchParams] = useSearchParams();
   
   // Check if current user is a marketing manager or superadmin
@@ -600,7 +602,7 @@ const TodaysOpd = () => {
 
       {/* Statistics Cards */}
       <div className="print:hidden">
-        <OpdStatisticsCards statistics={statistics} />
+        <OpdStatisticsCards statistics={statistics} canSeeTile={canSeeTile} />
       </div>
 
       {/* Patients Table */}

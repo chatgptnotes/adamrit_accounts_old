@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { useNavigate } from "react-router-dom";
+import { useTileAccess } from "@/hooks/useTileAccess";
 
 const db = supabase as any;
 
@@ -58,6 +59,7 @@ function StatCard({ label, value, icon, bg }: { label: string; value: number; ic
 
 export default function LocationMaster() {
   const navigate = useNavigate();
+  const { canSeeTile } = useTileAccess();
   const [areas, setAreas] = useState<AreaWithCorporate[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
@@ -231,10 +233,10 @@ export default function LocationMaster() {
         <>
           {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-            <StatCard label="Corporates" value={corporateCount} icon="🏢" bg="bg-blue-50" />
-            <StatCard label="Hospitals/Dispensaries" value={facilityCount} icon="🏥" bg="bg-green-50" />
-            <StatCard label="Referral Contacts" value={contactCount} icon="👨‍⚕️" bg="bg-purple-50" />
-            <StatCard label="Meetings This Month" value={meetingCount} icon="📋" bg="bg-orange-50" />
+            {canSeeTile("l-corporates") && <StatCard label="Corporates" value={corporateCount} icon="🏢" bg="bg-blue-50" />}
+            {canSeeTile("l-hospitals") && <StatCard label="Hospitals/Dispensaries" value={facilityCount} icon="🏥" bg="bg-green-50" />}
+            {canSeeTile("l-contacts") && <StatCard label="Referral Contacts" value={contactCount} icon="👨‍⚕️" bg="bg-purple-50" />}
+            {canSeeTile("l-meetings") && <StatCard label="Meetings This Month" value={meetingCount} icon="📋" bg="bg-orange-50" />}
           </div>
 
           {/* Map Link */}

@@ -28,7 +28,11 @@ function formatMonthLabel(specificMonth: string): string {
   return new Date(y, m - 1, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 }
 
-export function DirectorKpiCards() {
+interface DirectorKpiCardsProps {
+  canSeeTile?: (tileId: string, role?: string | null) => boolean;
+}
+
+export function DirectorKpiCards({ canSeeTile }: DirectorKpiCardsProps) {
   const [period, setPeriod] = useState<KpiPeriod>('month');
   const [specificMonth, setSpecificMonth] = useState('');
   const { data, isLoading, error, refetch } = useDirectorKpis(period, specificMonth);
@@ -39,14 +43,16 @@ export function DirectorKpiCards() {
   const fmtCount = (n: number | null) => (n == null ? '—' : n.toLocaleString('en-IN'));
   const fmtMoney = (n: number | null) => (n == null ? '—' : `₹${n.toLocaleString('en-IN')}`);
 
-  const cards = [
-    { title: 'Admissions', value: fmtCount(data.admissions), subtitle: periodLabel, icon: LogIn, color: 'from-blue-500 to-blue-600', route: '/currently-admitted' },
-    { title: 'Discharges', value: fmtCount(data.discharges), subtitle: periodLabel, icon: LogOut, color: 'from-green-500 to-green-600', route: '/discharged-patients' },
-    { title: 'OPD Visits', value: fmtCount(data.opdVisits), subtitle: periodLabel, icon: Stethoscope, color: 'from-purple-500 to-purple-600', route: '/todays-opd' },
-    { title: 'Collection', value: fmtMoney(data.collection), subtitle: periodLabel, icon: Wallet, color: 'from-emerald-500 to-emerald-600', route: '/accounting' },
-    { title: 'Currently Admitted', value: fmtCount(data.activeIpd), subtitle: 'Live', icon: BedDouble, color: 'from-amber-500 to-amber-600', route: '/currently-admitted' },
-    { title: 'Pending Approvals', value: fmtCount(data.pendingApprovals), subtitle: 'Live', icon: Clock, color: 'from-rose-500 to-rose-600', route: '/bill-approvals' },
+  const allCards = [
+    { title: 'Admissions', value: fmtCount(data.admissions), subtitle: periodLabel, icon: LogIn, color: 'from-blue-500 to-blue-600', route: '/currently-admitted', tileId: 'd-admissions' },
+    { title: 'Discharges', value: fmtCount(data.discharges), subtitle: periodLabel, icon: LogOut, color: 'from-green-500 to-green-600', route: '/discharged-patients', tileId: 'd-discharges' },
+    { title: 'OPD Visits', value: fmtCount(data.opdVisits), subtitle: periodLabel, icon: Stethoscope, color: 'from-purple-500 to-purple-600', route: '/todays-opd', tileId: 'd-opd-visits' },
+    { title: 'Collection', value: fmtMoney(data.collection), subtitle: periodLabel, icon: Wallet, color: 'from-emerald-500 to-emerald-600', route: '/accounting', tileId: 'd-collection' },
+    { title: 'Currently Admitted', value: fmtCount(data.activeIpd), subtitle: 'Live', icon: BedDouble, color: 'from-amber-500 to-amber-600', route: '/currently-admitted', tileId: 'd-currently-admitted' },
+    { title: 'Pending Approvals', value: fmtCount(data.pendingApprovals), subtitle: 'Live', icon: Clock, color: 'from-rose-500 to-rose-600', route: '/bill-approvals', tileId: 'd-pending-approvals' },
   ];
+
+  const cards = canSeeTile ? allCards.filter((c) => canSeeTile(c.tileId)) : allCards;
 
   // Upper bound for the month picker — directors should not query future months.
   const now = new Date();
