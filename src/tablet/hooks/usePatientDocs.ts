@@ -18,7 +18,8 @@ export const PATIENT_DOC_CATEGORIES = [
 ] as const;
 
 export type PatientDocCategory =
-  (typeof PATIENT_DOC_CATEGORIES)[number]["id"];
+  | (typeof PATIENT_DOC_CATEGORIES)[number]["id"]
+  | "advance_image";
 
 export interface PatientDoc {
   id: string;

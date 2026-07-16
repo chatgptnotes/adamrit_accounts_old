@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ChevronRight, Loader2, Search, User, Wallet } from "lucide-react";
+import { CheckCircle2, ChevronRight, Download, ImageIcon, Loader2, Search, Upload, User, Wallet } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import type { Patient } from "@/components/PatientLookup/types/patientLookup";
@@ -15,8 +15,13 @@ import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletInput, TabletLabel } from "@/tablet/ui/TabletInput";
 import { DictationTextarea } from "@/tablet/components/DictationTextarea";
 import { syncPortalDataForRegistrationId } from "@/lib/governmentPortalReportDb";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { compressImageToLimit } from "@/tablet/lib/image";
+import { uploadPatientDocs, usePatientDocs, type PatientDoc } from "@/tablet/hooks/usePatientDocs";
 
 const MODES = ["CASH", "CARD", "UPI", "CHEQUE", "NEFT"];
+const ADVANCE_IMAGE_CATEGORY = "advance_image";
+const MAX_FILE_BYTES = 1.5 * 1024 * 1024;
 
 interface AdvanceRow {
   id: string;
@@ -98,7 +103,7 @@ const defaultImplantRate = (implant: ImplantOption, corporate: string | null | u
 export default function AdvanceFlow() {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { hospitalConfig } = useAuth();
+  const { hospitalConfig, user } = useAuth();
   const [patient, setPatient] = useState<Patient | null>(null);
   const [selectedVisitId, setSelectedVisitId] = useState<string | null>(null);
   const [showAllPatients, setShowAllPatients] = useState(false);
@@ -114,6 +119,10 @@ export default function AdvanceFlow() {
   const [implantTerm, setImplantTerm] = useState("");
   const [selectedImplant, setSelectedImplant] = useState<ImplantOption | null>(null);
   const [implantRate, setImplantRate] = useState("");
+  const [imagesOpen, setImagesOpen] = useState(false);
+  const [viewingImage, setViewingImage] = useState<PatientDoc | null>(null);
+  const [uploadingImages, setUploadingImages] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   const patientRows = useQuery({
     queryKey: ["tablet-advance-patient-list", showAllPatients, hospitalConfig?.name, patientSearch.trim()],
@@ -217,6 +226,8 @@ export default function AdvanceFlow() {
       return (data || []) as AddedImplant[];
     },
   });
+
+  const advanceImages = usePatientDocs(patient?.id, ADVANCE_IMAGE_CATEGORY);
 
   const packageResults = useQuery({
     queryKey: ["tablet-package-search", packageTerm],
@@ -451,6 +462,45 @@ export default function AdvanceFlow() {
     },
   });
 
+  const downloadImage = async (doc: PatientDoc) => {
+    const response = await fetch(doc.fileUrl);
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = doc.fileName || "image";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleImageFiles = async (files: File[]) => {
+    if (!patient || files.length === 0) return;
+    setUploadingImages(true);
+    try {
+      const prepared: File[] = [];
+      for (const file of files) {
+        if (!file.type.startsWith("image/")) continue;
+        const compressed = await compressImageToLimit(file, MAX_FILE_BYTES);
+        if (compressed.size <= MAX_FILE_BYTES) prepared.push(compressed);
+      }
+      if (prepared.length === 0) return;
+      await uploadPatientDocs(prepared, {
+        patientId: patient.id,
+        patientName: patient.name,
+        category: ADVANCE_IMAGE_CATEGORY,
+        uploadedBy: user?.id ?? null,
+        placeLabel: `${hospitalConfig.fullName}, ${hospitalConfig.contactInfo.address}, India`,
+      });
+      await qc.invalidateQueries({
+        queryKey: ["tablet-patient-docs", patient.id, ADVANCE_IMAGE_CATEGORY],
+      });
+    } finally {
+      setUploadingImages(false);
+    }
+  };
+
   if (!patient) {
     return (
       <div className="flex h-full flex-col">
@@ -632,17 +682,27 @@ export default function AdvanceFlow() {
         heading="Registration & implants"
         subheading={`${patient.name} · ${visit.data?.visit_id || ""}`}
         actions={
-          <TabletButton
-            variant="outline"
-            className="flex-1"
-            onClick={() => {
-              setPatient(null);
-              setSelectedVisitId(null);
-              setStage("view");
-            }}
-          >
-            Change patient
-          </TabletButton>
+          <>
+            <TabletButton
+              variant="outline"
+              className="flex-1"
+              onClick={() => setImagesOpen(true)}
+            >
+              <ImageIcon className="h-4 w-4" />
+              Images
+            </TabletButton>
+            <TabletButton
+              variant="outline"
+              className="flex-1"
+              onClick={() => {
+                setPatient(null);
+                setSelectedVisitId(null);
+                setStage("view");
+              }}
+            >
+              Change patient
+            </TabletButton>
+          </>
         }
       >
         {visit.isLoading ? (
@@ -867,6 +927,93 @@ export default function AdvanceFlow() {
             </>
           </div>
         )}
+        <Dialog open={imagesOpen} onOpenChange={setImagesOpen}>
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>Advance images</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  void handleImageFiles(Array.from(e.target.files || []));
+                  e.target.value = "";
+                }}
+              />
+              <TabletButton
+                className="w-full"
+                disabled={uploadingImages || !patient}
+                onClick={() => imageInputRef.current?.click()}
+              >
+                {uploadingImages ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Upload className="h-5 w-5" />
+                )}
+                Upload image
+              </TabletButton>
+              {advanceImages.isLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-7 w-7 animate-spin text-primary" />
+                </div>
+              ) : (advanceImages.data || []).length === 0 ? (
+                <p className="py-8 text-center text-muted-foreground">
+                  No images uploaded yet.
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {advanceImages.data!.map((doc) => (
+                    <TabletCard key={doc.id} variant="flat" className="p-2">
+                      <button
+                        type="button"
+                        className="block w-full overflow-hidden rounded-xl bg-muted"
+                        onClick={() => setViewingImage(doc)}
+                      >
+                        <img
+                          src={doc.fileUrl}
+                          alt={doc.fileName}
+                          className="h-32 w-full object-cover"
+                          loading="lazy"
+                        />
+                      </button>
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                          {shortDate(doc.uploadedAt)}
+                        </span>
+                        <button
+                          type="button"
+                          aria-label="Download image"
+                          className="rounded-lg p-2 text-foreground/70 hover:bg-accent"
+                          onClick={() => void downloadImage(doc)}
+                        >
+                          <Download className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </TabletCard>
+                  ))}
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+        <Dialog open={!!viewingImage} onOpenChange={(open) => !open && setViewingImage(null)}>
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
+              <DialogTitle className="truncate pr-6">{viewingImage?.fileName}</DialogTitle>
+            </DialogHeader>
+            {viewingImage ? (
+              <img
+                src={viewingImage.fileUrl}
+                alt={viewingImage.fileName}
+                className="max-h-[70vh] w-full object-contain"
+              />
+            ) : null}
+          </DialogContent>
+        </Dialog>
       </FlowScaffold>
     );
   }
