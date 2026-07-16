@@ -89,15 +89,7 @@ export const TABLET_MODULES: TabletModule[] = [
     tint: "from-amber-400 to-amber-600",
     roles: ["receptionist", "reception", "billing", "front_office"],
   },
-  {
-    id: "advanced-statement",
-    label: "Advanced Statement",
-    description: "Pre-auth case details & billing prep",
-    icon: FileText,
-    accent: "text-emerald-600",
-    tint: "from-emerald-400 to-emerald-600",
-    roles: ["receptionist", "reception", "billing", "front_office"],
-  },
+
   {
     id: "requisition",
     label: "Requisition",
