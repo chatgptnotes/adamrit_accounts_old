@@ -1365,33 +1365,33 @@ const AdvanceStatementReport = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6 print:bg-white print:p-0">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen bg-gray-50 p-4 sm:p-6 print:bg-white print:p-0">
+      <div className="mx-auto max-w-7xl space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <Button
               onClick={() => navigate('/dashboard')}
               variant="ghost"
               size="sm"
-              className="flex items-center gap-2 print:hidden"
+              className="flex w-full items-center justify-center gap-2 print:hidden sm:w-auto"
             >
               <ArrowLeft className="h-4 w-4" />
               Back to Adamrit
             </Button>
-            <FileText className="h-8 w-8 text-primary" />
+            <FileText className="hidden h-8 w-8 text-primary sm:block" />
             <div>
-              <h1 className="text-3xl font-bold text-primary">{reportTitle}</h1>
-              <p className="text-muted-foreground">
+              <h1 className="text-2xl font-bold text-primary sm:text-3xl">{reportTitle}</h1>
+              <p className="text-sm text-muted-foreground sm:text-base">
                 {reportSubtitle}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-4 print:hidden">
+          <div className="flex flex-wrap gap-2 print:hidden sm:gap-4 lg:justify-end">
             <Button
               onClick={handlePrint}
               variant="outline"
-              className="flex items-center gap-2"
+              className="flex flex-1 items-center justify-center gap-2 sm:flex-none"
             >
               <Printer className="h-4 w-4" />
               Print Report
@@ -1399,7 +1399,7 @@ const AdvanceStatementReport = () => {
             <Button
               onClick={handleExport}
               variant="outline"
-              className="flex items-center gap-2"
+              className="flex flex-1 items-center justify-center gap-2 sm:flex-none"
             >
               <Download className="h-4 w-4" />
               Export
@@ -1408,10 +1408,10 @@ const AdvanceStatementReport = () => {
         </div>
 
         {/* Filters */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border print:hidden">
-          <h2 className="text-lg font-semibold mb-4">Filters</h2>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="md:col-span-2 space-y-3">
+        <div className="bg-white p-4 rounded-lg shadow-sm border print:hidden sm:p-6">
+          <h2 className="mb-4 text-lg font-semibold">Filters</h2>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <div className="space-y-3 lg:col-span-2">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
                 <Input
@@ -1439,7 +1439,7 @@ const AdvanceStatementReport = () => {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">From Date</label>
+              <label className="mb-1 block text-sm font-medium">From Date</label>
               <Input
                 type="date"
                 value={dateFrom}
@@ -1447,7 +1447,7 @@ const AdvanceStatementReport = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">To Date</label>
+              <label className="mb-1 block text-sm font-medium">To Date</label>
               <Input
                 type="date"
                 value={dateTo}
@@ -1472,13 +1472,13 @@ const AdvanceStatementReport = () => {
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="bg-white p-6 rounded-lg shadow-sm border">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4 sm:gap-6">
+          <div className="bg-white p-4 rounded-lg shadow-sm border sm:p-6">
             <h3 className="text-sm font-medium text-gray-500">{reportScopeLabel}</h3>
             <p className="text-2xl font-bold text-primary">{advanceData.length}</p>
             <p className="text-xs text-gray-500">Raw data: {allData.length}</p>
           </div>
-          <div className="bg-white p-6 rounded-lg shadow-sm border">
+          <div className="bg-white p-4 rounded-lg shadow-sm border sm:p-6">
             <h3 className="text-sm font-medium text-gray-500">With Diagnosis</h3>
             <p className="text-2xl font-bold text-green-600">
               {advanceData.filter(item =>
@@ -1486,7 +1486,7 @@ const AdvanceStatementReport = () => {
               ).length}
             </p>
           </div>
-          <div className="bg-white p-6 rounded-lg shadow-sm border">
+          <div className="bg-white p-4 rounded-lg shadow-sm border sm:p-6">
             <h3 className="text-sm font-medium text-gray-500">Planned Surgeries</h3>
             <p className="text-2xl font-bold text-blue-600">
               {advanceData.reduce((sum, item) =>
@@ -1494,7 +1494,7 @@ const AdvanceStatementReport = () => {
               )}
             </p>
           </div>
-          <div className="bg-white p-6 rounded-lg shadow-sm border">
+          <div className="bg-white p-4 rounded-lg shadow-sm border sm:p-6">
             <h3 className="text-sm font-medium text-gray-500">Surgery Categories</h3>
             <p className="text-2xl font-bold text-purple-600">
               {new Set(
@@ -1506,8 +1506,92 @@ const AdvanceStatementReport = () => {
           </div>
         </div>
 
+        {/* Mobile Cards */}
+        <div className="grid gap-4 md:hidden print:hidden">
+          {isLoading ? (
+            <div className="rounded-lg border bg-white p-4 text-center text-sm text-gray-500">
+              Loading...
+            </div>
+          ) : advanceData.length === 0 ? (
+            <div className="rounded-lg border bg-white p-4 text-center text-sm text-gray-500">
+              No data found
+            </div>
+          ) : (
+            advanceData.map((item, index) => {
+              const patient = item.patients;
+              const billPrep = (item as any).bill_prep;
+              const admissionDate = item.admission_date ? format(new Date(item.admission_date), 'dd/MM/yyyy') : 'N/A';
+              const intimationDate = billPrep?.intimation_date ? format(new Date(billPrep.intimation_date), 'dd/MM/yyyy') : '-';
+              const submissionDate = billPrep?.date_of_submission ? format(new Date(billPrep.date_of_submission), 'dd/MM/yyyy') : '-';
+              const regNo = getPrimaryRegistrationNo(item) || 'N/A';
+              const packageName = (item as any).package_name || '-';
+              const packageAmount = item.package_amount ? `₹${Number(item.package_amount).toLocaleString('en-IN')}` : '-';
+              const billAmount = billPrep?.bill_amount ? `₹${Number(billPrep.bill_amount).toLocaleString('en-IN')}` : '-';
+
+              return (
+                <div key={item.id} className="rounded-xl border bg-white p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-1">
+                      <div className="truncate text-base font-semibold text-gray-900">
+                        {index + 1}. {patient?.name || 'N/A'}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        Visit ID: {item.visit_id || 'N/A'}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        Reg No: {regNo}
+                      </div>
+                    </div>
+                    <Button type="button" size="sm" variant="outline" onClick={() => setSelectedRow(item)}>
+                      Open
+                    </Button>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <div className="text-xs text-gray-500">Admission</div>
+                      <div className="font-medium">{admissionDate}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Intimation</div>
+                      <div className="font-medium">{intimationDate}</div>
+                    </div>
+                    <div className="col-span-2">
+                      <div className="text-xs text-gray-500">Package</div>
+                      <div className="font-medium">{packageName}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Package Amount</div>
+                      <div className="font-medium">{packageAmount}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Bill Amount</div>
+                      <div className="font-medium">{billAmount}</div>
+                    </div>
+                    <div className="col-span-2">
+                      <div className="text-xs text-gray-500">Submission</div>
+                      <div className="font-medium">{submissionDate}</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => navigate(`/quick-discharge-summary/${item.visit_id}`)}
+                    >
+                      Discharge Summary
+                    </Button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
         {/* Data Table */}
-        <div className="bg-white rounded-lg shadow-sm border">
+        <div className="hidden rounded-lg border bg-white shadow-sm md:block">
           <div className="p-6 border-b">
             <h2 className="text-lg font-semibold">Patient Details with Diagnosis and Surgery Plans</h2>
           </div>
@@ -1774,9 +1858,16 @@ const AdvanceStatementReport = () => {
             const surgeries = selectedRow.visit_surgeries?.map((vs: any) => vs.cghs_surgery).filter(Boolean) || [];
 
             const detailRow = (label: string, value: ReactNode) => (
-              <div className="flex justify-between gap-4 py-1.5 border-b border-gray-100 text-sm">
-                <span className="text-gray-500 shrink-0">{label}</span>
-                <span className="text-right font-medium">{value}</span>
+              <div className="flex flex-col gap-1 border-b border-gray-100 py-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <span className="shrink-0 text-gray-500">{label}</span>
+                <span className="text-left font-medium sm:text-right">{value}</span>
+              </div>
+            );
+
+            const sectionCard = (title: string, children: ReactNode) => (
+              <div className="space-y-3 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+                <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+                <div className="space-y-2">{children}</div>
               </div>
             );
 
@@ -1798,6 +1889,37 @@ const AdvanceStatementReport = () => {
                     <div className="text-sm text-blue-600">Insurance: {patient.insurance_person_no}</div>
                   )}
                 </SheetHeader>
+
+                {sectionCard('Patient Details', (
+                  <>
+                    {detailRow('Patient Name', patient?.name || 'N/A')}
+                    {detailRow('Visit ID', selectedRow.visit_id || 'N/A')}
+                    {detailRow('Patient ID', patient?.patients_id || 'N/A')}
+                    {detailRow('Age / Sex', `${patient?.age || 'N/A'} / ${patient?.gender || 'N/A'}`)}
+                    {detailRow('Corporate', patient?.corporate || 'N/A')}
+                  </>
+                ))}
+
+                {sectionCard('Registration ID', (
+                  <Input
+                    value={selectedRow.yojana_registration_id || ''}
+                    onChange={(e) => setSelectedRow({ ...selectedRow, yojana_registration_id: e.target.value })}
+                    onBlur={(e) => {
+                      const value = e.target.value.trim();
+                      if (value !== (selectedRow.yojana_registration_id || '')) {
+                        handleRegistrationIdUpdate(selectedRow.id, value);
+                        setSelectedRow({ ...selectedRow, yojana_registration_id: value || null });
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        (e.target as HTMLInputElement).blur();
+                      }
+                    }}
+                    placeholder="Enter registration ID"
+                    className="h-11"
+                  />
+                ))}
 
                 <div>
                   <h3 className="text-sm font-semibold mb-2">Admission</h3>
@@ -1861,6 +1983,46 @@ const AdvanceStatementReport = () => {
                     />
                   ))}
                   {detailRow('Extension Days', selectedRow.extension_days_count ?? 0)}
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold mb-2">Implant</h3>
+                  {detailRow('Implant Name', (
+                    <div className="space-y-2">
+                      <SearchableSelect
+                        options={implants.data || []}
+                        value={selectedImplantId}
+                        onValueChange={(value) => {
+                          setSelectedImplantId(value);
+                          const selectedOption = implants.data?.find((opt) => opt.value === value);
+                          setSelectedImplantName(selectedOption?.label || '');
+                        }}
+                        placeholder="Select implant..."
+                        searchPlaceholder="Type to search..."
+                        className="w-60"
+                      />
+                      <Input
+                        value={selectedImplantName}
+                        onChange={(e) => setSelectedImplantName(e.target.value)}
+                        placeholder="Enter implant name"
+                        className="w-60"
+                      />
+                    </div>
+                  ))}
+                  {detailRow('Implant Cost', (
+                    <Input
+                      type="number"
+                      value={selectedImplantCost}
+                      onChange={(e) => setSelectedImplantCost(e.target.value)}
+                      placeholder="Enter implant cost"
+                      className="w-40 text-right"
+                    />
+                  ))}
+                  <div className="pt-2">
+                    <Button type="button" variant="outline" onClick={() => void handleImplantSave()}>
+                      Save Implant
+                    </Button>
+                  </div>
                 </div>
 
                 <div>

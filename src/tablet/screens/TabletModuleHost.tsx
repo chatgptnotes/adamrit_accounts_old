@@ -13,6 +13,9 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   ),
   "icu-admission": lazy(() => import("@/tablet/modules/icu-admission/IcuAdmissionFlow")),
   advance: lazy(() => import("@/tablet/modules/advance/AdvanceFlow")),
+  "advanced-statement": lazy(
+    () => import("@/tablet/modules/advanced-statement/AdvancedStatementFlow"),
+  ),
   requisition: lazy(() => import("@/tablet/modules/requisition/RequisitionFlow")),
   "gate-pass": lazy(() => import("@/tablet/modules/gate-pass/GatePassFlow")),
   "discharge-summary": lazy(

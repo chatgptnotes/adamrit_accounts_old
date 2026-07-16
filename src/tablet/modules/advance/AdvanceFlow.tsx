@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, Search, Wallet } from "lucide-react";
+import { CheckCircle2, ChevronRight, Loader2, Search, User, Wallet } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import type { Patient } from "@/components/PatientLookup/types/patientLookup";
 import { cn } from "@/lib/utils";
 import { inr, shortDate } from "@/tablet/lib/format";
-import { TabletPatientPicker } from "@/tablet/components/TabletPatientPicker";
 import { TabletNumpad } from "@/tablet/components/TabletNumpad";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletConfirm } from "@/tablet/components/TabletConfirm";
@@ -32,13 +32,16 @@ interface VisitRow {
   id: string;
   visit_id: string;
   yojana_registration_id: string | null;
+  package_code: string | null;
   package_name: string | null;
   corporate: string | null;
 }
 
 interface PackageOption {
   id: string;
+  code: string | null;
   name: string;
+  label: string;
 }
 
 interface ImplantOption {
@@ -55,6 +58,16 @@ interface AddedImplant {
   id: string;
   implant_name: string;
   rate: number;
+  amount: number;
+}
+
+interface AdvancePatientRow {
+  patient: Patient;
+  visitId: string;
+  visitNumber: string;
+  admissionDate: string | null;
+  dischargeDate: string | null;
+  registrationId: string | null;
 }
 
 const isMaharashtraYojana = (corporate: string | null | undefined) => {
@@ -85,16 +98,75 @@ const defaultImplantRate = (implant: ImplantOption, corporate: string | null | u
 export default function AdvanceFlow() {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { hospitalConfig } = useAuth();
   const [patient, setPatient] = useState<Patient | null>(null);
+  const [selectedVisitId, setSelectedVisitId] = useState<string | null>(null);
+  const [showAllPatients, setShowAllPatients] = useState(false);
+  const [patientSearch, setPatientSearch] = useState("");
   const [stage, setStage] = useState<"view" | "collect" | "billing">("view");
   const [amount, setAmount] = useState("");
   const [mode, setMode] = useState("CASH");
   const [remarks, setRemarks] = useState("");
   const [registrationIdInput, setRegistrationIdInput] = useState("");
   const [packageTerm, setPackageTerm] = useState("");
+  const [packageCodeInput, setPackageCodeInput] = useState("");
+  const [packageNameInput, setPackageNameInput] = useState("");
   const [implantTerm, setImplantTerm] = useState("");
   const [selectedImplant, setSelectedImplant] = useState<ImplantOption | null>(null);
   const [implantRate, setImplantRate] = useState("");
+
+  const patientRows = useQuery({
+    queryKey: ["tablet-advance-patient-list", showAllPatients, hospitalConfig?.name, patientSearch.trim()],
+    queryFn: async (): Promise<AdvancePatientRow[]> => {
+      const searchActive = patientSearch.trim().length > 0;
+      let query = supabase
+        .from("visits")
+        .select(
+          "id, visit_id, admission_date, discharge_date, yojana_registration_id, patient_id, patients!inner(id, name, patients_id, phone, age, gender, corporate, hospital_name)",
+        )
+        .eq("patient_type", "IPD")
+        .not("admission_date", "is", null)
+        .order("admission_date", { ascending: false });
+
+      // A search should also find discharged patients; the toggle controls the
+      // unfiltered default list, while search itself searches all IPD visits.
+      if (!showAllPatients && !searchActive) query = query.is("discharge_date", null);
+      if (hospitalConfig?.name) query = query.eq("patients.hospital_name", hospitalConfig.name);
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      const seen = new Set<string>();
+      return (data || []).reduce<AdvancePatientRow[]>((rows, row: any) => {
+        const relatedPatient = Array.isArray(row.patients) ? row.patients[0] : row.patients;
+        if (!relatedPatient?.id || seen.has(relatedPatient.id)) return rows;
+        seen.add(relatedPatient.id);
+        rows.push({
+          patient: {
+            ...relatedPatient,
+            created_at: relatedPatient.created_at || row.admission_date || new Date().toISOString(),
+          } as Patient,
+          visitId: row.id,
+          visitNumber: row.visit_id,
+          admissionDate: row.admission_date,
+          dischargeDate: row.discharge_date,
+          registrationId: row.yojana_registration_id,
+        });
+        return rows;
+      }, []);
+    },
+    staleTime: 30_000,
+  });
+
+  const filteredPatientRows = useMemo(() => {
+    const term = patientSearch.trim().toLowerCase();
+    if (!term) return patientRows.data || [];
+    return (patientRows.data || []).filter(({ patient: item, registrationId, visitNumber }) =>
+      [item.name, item.patients_id, item.phone, registrationId, visitNumber]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term)),
+    );
+  }, [patientRows.data, patientSearch]);
 
   const advances = useQuery({
     queryKey: ["tablet-advances", patient?.id],
@@ -113,16 +185,14 @@ export default function AdvanceFlow() {
   });
 
   const visit = useQuery({
-    queryKey: ["tablet-advance-visit", patient?.id],
-    enabled: !!patient,
+    queryKey: ["tablet-advance-visit", selectedVisitId, patient?.id],
+    enabled: !!patient && !!selectedVisitId,
     queryFn: async (): Promise<VisitRow | null> => {
-      const { data, error } = await supabase
+      const query = supabase
         .from("visits")
-        .select("id, visit_id, yojana_registration_id, package_name, corporate")
-        .eq("patient_id", patient!.id)
-        .order("admission_date", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .select("id, visit_id, yojana_registration_id, package_code, package_name, corporate")
+        .eq("id", selectedVisitId!);
+      const { data, error } = await query.maybeSingle();
       if (error) throw error;
       return data as VisitRow | null;
     },
@@ -130,25 +200,9 @@ export default function AdvanceFlow() {
 
   useEffect(() => {
     setRegistrationIdInput(visit.data?.yojana_registration_id || "");
-  }, [visit.data?.id, visit.data?.yojana_registration_id]);
-
-  const preauth = useQuery({
-    queryKey: ["tablet-preauth-status", visit.data?.yojana_registration_id],
-    enabled: !!visit.data?.yojana_registration_id,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("government_portal_report_rows")
-        .select("status, preauth_approved_amount")
-        .eq("registration_id", visit.data!.yojana_registration_id as string)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      const approved =
-        !!data && (data.status === "approved" || Number(data.preauth_approved_amount) > 0);
-      return { approved };
-    },
-  });
+    setPackageCodeInput(visit.data?.package_code || "");
+    setPackageNameInput(visit.data?.package_name || "");
+  }, [visit.data?.id, visit.data?.yojana_registration_id, visit.data?.package_code, visit.data?.package_name]);
 
   const addedImplants = useQuery({
     queryKey: ["tablet-visit-implants", visit.data?.id],
@@ -156,7 +210,7 @@ export default function AdvanceFlow() {
     queryFn: async (): Promise<AddedImplant[]> => {
       const { data, error } = await supabase
         .from("visit_implants")
-        .select("id, implant_name, rate")
+        .select("id, implant_name, rate, amount")
         .eq("visit_id", visit.data!.id)
         .eq("status", "Active");
       if (error) throw error;
@@ -168,40 +222,101 @@ export default function AdvanceFlow() {
     queryKey: ["tablet-package-search", packageTerm],
     enabled: packageTerm.trim().length >= 2,
     queryFn: async (): Promise<PackageOption[]> => {
-      const term = packageTerm.trim().replace(/[,%()]/g, "");
-      const { data, error } = await supabase
-        .from("pmjay_mjpjay_packages")
-        .select("id, treatment_code, treatment_plan")
-        .eq("is_active", true)
-        .or(`treatment_plan.ilike.%${term}%,treatment_code.ilike.%${term}%`)
-        .limit(15);
-      if (error) throw error;
-      return (data || [])
-        .map((p) => ({ id: p.id, name: [p.treatment_code, p.treatment_plan].filter(Boolean).join(" - ") }))
-        .filter((p) => p.name);
+      const term = packageTerm.trim().toLowerCase();
+      const [pmjayRes, yojanaRes, cghsRes] = await Promise.all([
+        supabase
+          .from("pmjay_mjpjay_packages")
+          .select("id, treatment_code, treatment_plan")
+          .eq("is_active", true)
+          .order("treatment_plan"),
+        supabase
+          .from("yojana_mh_procedures")
+          .select("id, procedure_code, package_code, package_name, procedure_name, procedure_label")
+          .order("package_name"),
+        supabase.from("cghs_surgery").select("id, name").eq("is_active", true).order("name"),
+      ]);
+      if (pmjayRes.error) throw pmjayRes.error;
+      if (yojanaRes.error) throw yojanaRes.error;
+      if (cghsRes.error) throw cghsRes.error;
+
+      const options = [
+        ...(pmjayRes.data || []).map((row: any) => ({
+          id: row.id,
+          code: row.treatment_code || null,
+          name: row.treatment_plan || row.treatment_code || "",
+          label: [row.treatment_code, row.treatment_plan].filter(Boolean).join(" - "),
+        })),
+        ...(yojanaRes.data || []).map((row: any) => ({
+          id: row.id,
+          code: row.procedure_code || row.package_code || null,
+          name: row.package_name || row.procedure_name || row.procedure_label || row.package_code || "",
+          label: [
+            row.procedure_code || row.package_code,
+            row.package_name || row.procedure_name || row.procedure_label || row.package_code,
+          ].filter(Boolean).join(" - "),
+        })),
+        ...(cghsRes.data || []).map((row: any) => ({ id: row.id, code: null, name: row.name || "", label: row.name || "" })),
+      ];
+
+      const unique = new Map<string, PackageOption>();
+      options
+        .filter((option) => option.label && option.label.toLowerCase().includes(term))
+        .forEach((option) => {
+          if (!unique.has(option.label)) unique.set(option.label, option);
+        });
+      return Array.from(unique.values()).slice(0, 15);
     },
   });
 
   const implantResults = useQuery({
-    queryKey: ["tablet-implant-search", implantTerm],
-    enabled: implantTerm.trim().length >= 2,
+    queryKey: ["tablet-implant-options"],
+    staleTime: 1000 * 60 * 5,
     queryFn: async (): Promise<ImplantOption[]> => {
-      const term = implantTerm.trim().replace(/[,%()]/g, "");
       const { data, error } = await supabase
         .from("implants")
         .select("id, name, nabh_nabl_rate, non_nabh_nabl_rate, private_rate, bhopal_nabh_rate, bhopal_non_nabh_rate")
-        .ilike("name", `%${term}%`)
         .order("name")
-        .limit(15);
       if (error) throw error;
       return (data || []) as ImplantOption[];
+    },
+  });
+
+  const implantMatches = useMemo(() => {
+    const term = implantTerm.trim().toLowerCase();
+    if (!term) return [];
+    return (implantResults.data || [])
+      .filter((implant) => String(implant.name || "").toLowerCase().includes(term))
+      .slice(0, 15);
+  }, [implantResults.data, implantTerm]);
+
+  const createImplant = useMutation({
+    mutationFn: async (): Promise<ImplantOption> => {
+      const name = implantTerm.trim();
+      if (!name) throw new Error("Enter an implant name first");
+
+      const { data, error } = await supabase
+        .from("implants")
+        .insert({ name })
+        .select("id, name, nabh_nabl_rate, non_nabh_nabl_rate, private_rate, bhopal_nabh_rate, bhopal_non_nabh_rate")
+        .single();
+      if (error) throw error;
+      return data as ImplantOption;
+    },
+    onSuccess: (implant) => {
+      qc.setQueryData<ImplantOption[]>(["tablet-implant-options"], (current) => [
+        ...(current || []),
+        implant,
+      ].sort((left, right) => left.name.localeCompare(right.name)));
+      setSelectedImplant(implant);
+      setImplantRate("");
+      setImplantTerm(implant.name);
     },
   });
 
   const saveRegistrationId = useMutation({
     mutationFn: async () => {
       if (!visit.data) throw new Error("No visit found for this patient");
-      const value = registrationIdInput.trim();
+      const value = registrationIdInput.trim().toUpperCase();
       const { error } = await supabase
         .from("visits")
         .update({ yojana_registration_id: value || null })
@@ -215,26 +330,84 @@ export default function AdvanceFlow() {
       }
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["tablet-advance-visit", patient?.id] });
+      qc.invalidateQueries({ queryKey: ["tablet-advance-visit"] });
+      qc.invalidateQueries({ queryKey: ["tablet-advance-patient-list"] });
     },
   });
 
+  const saveRegistrationIfChanged = () => {
+    const current = visit.data?.yojana_registration_id || "";
+    if (registrationIdInput.trim().toUpperCase() !== current.toUpperCase() && !saveRegistrationId.isPending) {
+      saveRegistrationId.mutate();
+    }
+  };
+
   const savePackage = useMutation({
-    mutationFn: async (name: string) => {
+    mutationFn: async ({ code, name }: { code: string | null; name: string }) => {
       if (!visit.data) throw new Error("No visit found for this patient");
-      const { error } = await supabase.from("visits").update({ package_name: name }).eq("id", visit.data.id);
+      const { error } = await supabase
+        .from("visits")
+        .update({ package_code: code || null, package_name: name } as any)
+        .eq("id", visit.data.id);
       if (error) throw error;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["tablet-advance-visit", patient?.id] });
+      qc.invalidateQueries({ queryKey: ["tablet-advance-visit"] });
       setPackageTerm("");
+      setPackageCodeInput("");
+      setPackageNameInput("");
+    },
+  });
+
+  const createPackage = useMutation({
+    mutationFn: async () => {
+      if (!visit.data) throw new Error("No visit found for this patient");
+      const code = packageCodeInput.trim();
+      const name = packageNameInput.trim();
+      if (!code || !name) throw new Error("Enter both package code and package name");
+
+      const duplicate = await supabase
+        .from("pmjay_mjpjay_packages")
+        .select("id")
+        .eq("treatment_code", code)
+        .eq("treatment_plan", name)
+        .maybeSingle();
+      if (duplicate.error) throw duplicate.error;
+      if (duplicate.data) throw new Error("A package with this code and name already exists");
+
+      const created = await supabase
+        .from("pmjay_mjpjay_packages")
+        .insert({
+          scheme: "PMJAY/MJPJAY",
+          treatment_code: code,
+          treatment_plan: name,
+          is_active: true,
+        })
+        .select("id, treatment_code, treatment_plan")
+        .single();
+      if (created.error) throw created.error;
+
+      const visitUpdate = await supabase
+        .from("visits")
+        .update({ package_code: code, package_name: name } as any)
+        .eq("id", visit.data.id);
+      if (visitUpdate.error) throw visitUpdate.error;
+
+      return { id: created.data.id, code, name, label: `${code} - ${name}` } satisfies PackageOption;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tablet-advance-visit"] });
+      setPackageTerm("");
+      setPackageCodeInput("");
+      setPackageNameInput("");
     },
   });
 
   const addImplant = useMutation({
     mutationFn: async () => {
       if (!visit.data || !selectedImplant) throw new Error("Pick an implant first");
-      const rate = Number(implantRate) || 0;
+      const rate = Number(implantRate);
+      if (!Number.isFinite(rate) || rate <= 0) throw new Error("Enter a valid implant amount");
       const { error } = await supabase.from("visit_implants").insert({
         implant_id: selectedImplant.id,
         visit_id: visit.data.id,
@@ -280,11 +453,78 @@ export default function AdvanceFlow() {
 
   if (!patient) {
     return (
-      <TabletPatientPicker
-        heading="Advance — select patient"
-        hint="Search for the patient to view advances or collect a new one."
-        onSelect={setPatient}
-      />
+      <div className="flex h-full flex-col">
+        <div className="flex-shrink-0 border-b border-border">
+          <div className="mx-auto w-full max-w-7xl space-y-3 px-4 py-4 sm:px-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold sm:text-xl">Advance — select patient</h2>
+                <p className="text-sm text-muted-foreground">
+                  {showAllPatients ? "All admitted and discharged IPD patients" : "Currently admitted IPD patients"}
+                </p>
+              </div>
+              <TabletButton
+                variant={showAllPatients ? "default" : "outline"}
+                onClick={() => setShowAllPatients((value) => !value)}
+                className="shrink-0"
+              >
+                {showAllPatients ? "Current Patients" : "All Patients"}
+              </TabletButton>
+            </div>
+            <div className="flex gap-2">
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+                <TabletInput
+                  value={patientSearch}
+                  onChange={(event) => setPatientSearch(event.target.value)}
+                  placeholder="Search patient, patient ID, or registration number"
+                  className="pl-10"
+                />
+              </div>
+              {patientSearch ? (
+                <TabletButton variant="outline" onClick={() => setPatientSearch("")}>Clear</TabletButton>
+              ) : null}
+            </div>
+          </div>
+        </div>
+        <div className="tablet-no-scrollbar min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-7xl px-4 py-4 sm:px-6">
+            {patientRows.isLoading ? (
+              <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+            ) : patientRows.isError ? (
+              <p className="py-12 text-center text-destructive">Could not load patients. Please try again.</p>
+            ) : filteredPatientRows.length === 0 ? (
+              <p className="py-12 text-center text-muted-foreground">No matching patients found.</p>
+            ) : (
+              <div className="space-y-3 sm:space-y-1.5">
+                {filteredPatientRows.map((row) => (
+                  <button
+                    key={row.visitId}
+                    type="button"
+                    onClick={() => {
+                      setSelectedVisitId(row.visitId);
+                      setPatient(row.patient);
+                      setStage("billing");
+                    }}
+                    className="grid w-full gap-3 rounded-2xl border-2 border-border bg-card p-4 text-left transition-colors hover:border-primary/60 hover:bg-primary/10 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.4fr)_auto] sm:items-center sm:rounded-xl sm:border sm:px-4 sm:py-3"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/15"><User className="h-6 w-6 text-primary" /></div>
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold">{row.patient.name}</p>
+                        <p className="truncate text-xs text-muted-foreground">{row.patient.patients_id || "No patient ID"}</p>
+                      </div>
+                    </div>
+                    <div className="text-sm"><span className="text-xs text-muted-foreground sm:hidden">Admission: </span>{row.admissionDate ? shortDate(row.admissionDate) : "—"}</div>
+                    <div className="text-sm"><span className="text-xs text-muted-foreground sm:hidden">Registration: </span>{row.registrationId || "Not added"}</div>
+                    <ChevronRight className="hidden h-5 w-5 text-muted-foreground sm:block" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -387,14 +627,21 @@ export default function AdvanceFlow() {
   }
 
   if (stage === "billing") {
-    const isApproved = !!preauth.data?.approved;
     return (
       <FlowScaffold
-        heading="Pre-auth billing details"
+        heading="Registration & implants"
         subheading={`${patient.name} · ${visit.data?.visit_id || ""}`}
         actions={
-          <TabletButton variant="outline" className="flex-1" onClick={() => setStage("view")}>
-            Back to statement
+          <TabletButton
+            variant="outline"
+            className="flex-1"
+            onClick={() => {
+              setPatient(null);
+              setSelectedVisitId(null);
+              setStage("view");
+            }}
+          >
+            Change patient
           </TabletButton>
         }
       >
@@ -415,11 +662,18 @@ export default function AdvanceFlow() {
                   id="reg-id"
                   value={registrationIdInput}
                   onChange={(e) => setRegistrationIdInput(e.target.value)}
+                  onBlur={saveRegistrationIfChanged}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      saveRegistrationIfChanged();
+                    }
+                  }}
                   placeholder="e.g. R-200"
                   className="flex-1"
                 />
                 <TabletButton
-                  disabled={saveRegistrationId.isPending || registrationIdInput.trim() === (visit.data.yojana_registration_id || "")}
+                  disabled={saveRegistrationId.isPending || registrationIdInput.trim().toUpperCase() === (visit.data.yojana_registration_id || "").toUpperCase()}
                   onClick={() => saveRegistrationId.mutate()}
                 >
                   {saveRegistrationId.isPending ? "Saving…" : "Save"}
@@ -438,25 +692,14 @@ export default function AdvanceFlow() {
               ) : null}
             </TabletCard>
 
-            {!visit.data.yojana_registration_id ? (
-              <p className="rounded-xl bg-muted p-4 text-sm text-muted-foreground">
-                Enter and save a registration ID to check pre-auth status.
-              </p>
-            ) : preauth.isLoading ? (
-              <div className="flex justify-center py-4">
-                <Loader2 className="h-6 w-6 animate-spin text-primary" />
-              </div>
-            ) : !isApproved ? (
-              <p className="rounded-xl bg-amber-50 p-4 text-sm text-amber-800">
-                Pre-auth for this registration ID isn't approved yet. Package and implant entry
-                unlock once it's approved on the government portal import.
-              </p>
-            ) : (
-              <>
+            <>
                 <TabletCard>
                   <TabletLabel>Package</TabletLabel>
-                  {visit.data.package_name ? (
-                    <p className="mt-1.5 text-sm font-medium">{visit.data.package_name}</p>
+                  {visit.data.package_code || visit.data.package_name ? (
+                    <div className="mt-1.5 rounded-lg bg-muted p-3 text-sm">
+                      <p><span className="font-medium">Code:</span> {visit.data.package_code || "—"}</p>
+                      <p><span className="font-medium">Name:</span> {visit.data.package_name || "—"}</p>
+                    </div>
                   ) : null}
                   <div className="relative mt-2">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -472,22 +715,55 @@ export default function AdvanceFlow() {
                       {packageResults.isLoading ? (
                         <Loader2 className="mx-auto h-5 w-5 animate-spin text-primary" />
                       ) : (packageResults.data || []).length === 0 ? (
-                        <p className="text-sm text-muted-foreground">No matching packages.</p>
+                        <p className="text-sm text-muted-foreground">No matching packages found.</p>
                       ) : (
                         packageResults.data!.map((pkg) => (
                           <button
                             key={pkg.id}
                             type="button"
-                            onClick={() => savePackage.mutate(pkg.name)}
+                            onClick={() => {
+                              setPackageCodeInput(pkg.code || "");
+                              setPackageNameInput(pkg.name);
+                              savePackage.mutate({ code: pkg.code, name: pkg.name });
+                            }}
                             disabled={savePackage.isPending}
                             className="w-full rounded-lg border border-input px-3 py-2 text-left text-sm hover:bg-muted"
                           >
-                            {pkg.name}
+                            {pkg.label}
                           </button>
                         ))
                       )}
                     </div>
                   ) : null}
+                  <div className="mt-4 rounded-lg border border-dashed border-primary/40 bg-primary/5 p-3">
+                    <p className="text-sm font-medium">Add package to master</p>
+                    <div className="mt-2 space-y-2">
+                      <TabletInput
+                        value={packageCodeInput}
+                        onChange={(event) => setPackageCodeInput(event.target.value)}
+                        placeholder="Package code"
+                      />
+                      <TabletInput
+                        value={packageNameInput}
+                        onChange={(event) => setPackageNameInput(event.target.value)}
+                        placeholder="Package name"
+                      />
+                      <TabletButton
+                        className="w-full"
+                        onClick={() => createPackage.mutate()}
+                        disabled={createPackage.isPending || !packageCodeInput.trim() || !packageNameInput.trim()}
+                      >
+                        {createPackage.isPending ? "Creating…" : "Save package code & name"}
+                      </TabletButton>
+                      {createPackage.isError ? (
+                        <p className="text-sm text-destructive">
+                          {(createPackage.error as Error)?.message || "Could not create package."}
+                        </p>
+                      ) : createPackage.isSuccess ? (
+                        <p className="text-sm text-emerald-700">Package saved to master and patient visit.</p>
+                      ) : null}
+                    </div>
+                  </div>
                 </TabletCard>
 
                 <TabletCard>
@@ -497,7 +773,7 @@ export default function AdvanceFlow() {
                       {addedImplants.data!.map((item) => (
                         <div key={item.id} className="flex items-center justify-between text-sm">
                           <span>{item.implant_name}</span>
-                          <span className="font-medium">{inr(item.rate)}</span>
+                          <span className="font-medium">{inr(item.amount ?? item.rate)}</span>
                         </div>
                       ))}
                     </div>
@@ -518,10 +794,24 @@ export default function AdvanceFlow() {
                         <div className="mt-2 space-y-1.5">
                           {implantResults.isLoading ? (
                             <Loader2 className="mx-auto h-5 w-5 animate-spin text-primary" />
-                          ) : (implantResults.data || []).length === 0 ? (
-                            <p className="text-sm text-muted-foreground">No matching implants.</p>
-                          ) : (
-                            implantResults.data!.map((implant) => (
+                      ) : implantMatches.length === 0 ? (
+                        <div className="rounded-lg border border-dashed border-primary/40 bg-primary/5 p-3">
+                          <p className="text-sm text-muted-foreground">No matching implant found.</p>
+                          <TabletButton
+                            className="mt-2 w-full"
+                            onClick={() => createImplant.mutate()}
+                            disabled={createImplant.isPending}
+                          >
+                            {createImplant.isPending ? "Creating…" : `Create “${implantTerm.trim()}” in master`}
+                          </TabletButton>
+                          {createImplant.isError ? (
+                            <p className="mt-2 text-sm text-destructive">
+                              {(createImplant.error as Error)?.message || "Could not create implant."}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : (
+                        implantMatches.map((implant) => (
                               <button
                                 key={implant.id}
                                 type="button"
@@ -560,7 +850,7 @@ export default function AdvanceFlow() {
                         </TabletButton>
                         <TabletButton
                           className="flex-1"
-                          disabled={addImplant.isPending}
+                          disabled={addImplant.isPending || !Number.isFinite(Number(implantRate)) || Number(implantRate) <= 0}
                           onClick={() => addImplant.mutate()}
                         >
                           {addImplant.isPending ? "Adding…" : "Add implant"}
@@ -574,8 +864,7 @@ export default function AdvanceFlow() {
                     </div>
                   )}
                 </TabletCard>
-              </>
-            )}
+            </>
           </div>
         )}
       </FlowScaffold>
@@ -600,7 +889,10 @@ export default function AdvanceFlow() {
           <TabletButton
             variant="outline"
             className="flex-1"
-            onClick={() => setPatient(null)}
+            onClick={() => {
+              setPatient(null);
+              setSelectedVisitId(null);
+            }}
           >
             Change patient
           </TabletButton>
