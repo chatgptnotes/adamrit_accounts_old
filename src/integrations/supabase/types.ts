@@ -13986,6 +13986,7 @@ export type Database = {
       relationship_managers: {
         Row: {
           code: string | null
+          commission_percent: number
           contact_no: string | null
           created_at: string | null
           id: string
@@ -13995,6 +13996,7 @@ export type Database = {
         }
         Insert: {
           code?: string | null
+          commission_percent?: number
           contact_no?: string | null
           created_at?: string | null
           id?: string
@@ -14004,6 +14006,7 @@ export type Database = {
         }
         Update: {
           code?: string | null
+          commission_percent?: number
           contact_no?: string | null
           created_at?: string | null
           id?: string
