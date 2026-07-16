@@ -177,6 +177,14 @@ export const TABLET_MODULES: TabletModule[] = [
     tint: "from-fuchsia-400 to-fuchsia-600",
   },
   {
+    id: "documents",
+    label: "Documents",
+    description: "Patient documents & downloads",
+    icon: FileText,
+    accent: "text-indigo-600",
+    tint: "from-indigo-400 to-blue-600",
+  },
+  {
     id: "cash-in-hand",
     label: "Cash in Hand",
     description: "Today's cash position",
@@ -212,14 +220,12 @@ export function modulesForUser(
   user: { role?: string; email?: string } | undefined,
   canSeeTile?: (tileId: string, role?: string | null) => boolean,
 ): TabletModule[] {
-  const role = user?.role;
-
-  return TABLET_MODULES.filter((m) => {
-    if (canSeeTile) {
-      return canSeeTile(`t-${m.id}`, role);
-    }
-    return true;
-  });
+  void user;
+  void canSeeTile;
+  // Temporary product rule: tablet home/modules are visible to every user,
+  // regardless of tile-access overrides. Re-enable filtering here when the
+  // tablet role matrix is finalized.
+  return TABLET_MODULES;
 }
 
 export function getModule(id: string | undefined): TabletModule | undefined {

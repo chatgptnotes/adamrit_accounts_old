@@ -22,6 +22,10 @@ interface BillDocumentsSectionProps {
   patientName?: string | null;
   patientRegistrationNo?: string | null;
   visitId?: string;
+  defaultOpen?: boolean;
+  collapsible?: boolean;
+  fileLayout?: "grid" | "list";
+  categoryLayout?: "tabs" | "list";
 }
 
 function isImage(type: string | null): boolean {
@@ -146,6 +150,11 @@ async function downloadTextAsPdf(
   lines: string[],
   baseName: string,
 ) {
+  const blob = await buildTextPdfBlob(title, lines);
+  triggerBlobDownload(blob, `${baseName}.pdf`);
+}
+
+async function buildTextPdfBlob(title: string, lines: string[]): Promise<Blob> {
   const { default: jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const pageW = 210;
@@ -180,15 +189,7 @@ async function downloadTextAsPdf(
     addLine(line, line.startsWith("OT NOTES") ? 12 : 10, line === "OT NOTES");
   }
 
-  const blob = doc.output("blob");
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${baseName}.pdf`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  window.URL.revokeObjectURL(url);
+  return doc.output("blob");
 }
 
 interface CategorizedDoc extends PatientDoc {
@@ -203,6 +204,8 @@ function mapDoc(r: any): CategorizedDoc {
     fileType: r.file_type ?? null,
     storagePath: r.storage_path ?? null,
     uploadedAt: r.created_at ?? null,
+    latitude: r.latitude ?? null,
+    longitude: r.longitude ?? null,
     category: r.category ?? "",
   };
 }
@@ -325,6 +328,111 @@ function triggerBlobDownload(blob: Blob, fileName: string) {
   window.URL.revokeObjectURL(url);
 }
 
+async function appendImageBlobToPdf(
+  doc: any,
+  blob: Blob,
+  options?: { title?: string | null },
+) {
+  const pageW = 210;
+  const pageH = 297;
+  const margin = 10;
+  const headerGap = options?.title ? 12 : 0;
+  const availW = pageW - margin * 2;
+  const availH = pageH - margin * 2 - headerGap;
+  const objectUrl = window.URL.createObjectURL(blob);
+
+  try {
+    const img = await loadImage(objectUrl);
+    const scale = Math.min(1600 / img.width, 1600 / img.height, 1);
+    const cw = Math.max(1, Math.round(img.width * scale));
+    const ch = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas not supported");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, cw, ch);
+    ctx.drawImage(img, 0, 0, cw, ch);
+    const jpeg = canvas.toDataURL("image/jpeg", 0.72);
+
+    doc.addPage();
+    if (options?.title) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text(options.title, margin, margin);
+    }
+
+    const ar = cw / ch;
+    let w = availW;
+    let h = availW / ar;
+    if (h > availH) {
+      h = availH;
+      w = availH * ar;
+    }
+    const x = margin + (availW - w) / 2;
+    const y = margin + headerGap + (availH - h) / 2;
+    doc.addImage(jpeg, "JPEG", x, y, w, h);
+  } finally {
+    window.URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function appendPdfBlobToPdf(
+  doc: any,
+  blob: Blob,
+  options?: { title?: string | null },
+) {
+  const pdfjsLib = await import("pdfjs-dist");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+    "pdfjs-dist/build/pdf.worker.min.js",
+    import.meta.url,
+  ).href;
+
+  const arrayBuffer = await blob.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const pageW = 210;
+  const pageH = 297;
+  const margin = 10;
+  const headerGap = options?.title ? 12 : 0;
+  const availW = pageW - margin * 2;
+  const availH = pageH - margin * 2 - headerGap;
+
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1.6 });
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas not supported");
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    await page.render({ canvasContext: context, viewport }).promise;
+    const png = canvas.toDataURL("image/png");
+
+    doc.addPage();
+    if (options?.title) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text(
+        pageNumber === 1 ? options.title : `${options.title} · Page ${pageNumber}`,
+        margin,
+        margin,
+      );
+    }
+
+    const ar = viewport.width / viewport.height;
+    let w = availW;
+    let h = availW / ar;
+    if (h > availH) {
+      h = availH;
+      w = availH * ar;
+    }
+    const x = margin + (availW - w) / 2;
+    const y = margin + headerGap + (availH - h) / 2;
+    doc.addImage(png, "PNG", x, y, w, h);
+  }
+}
+
 async function loadImageDataUrl(path: string): Promise<string | null> {
   try {
     const response = await fetch(path);
@@ -352,7 +460,7 @@ function usePatientAllDocs(patientId: string | undefined) {
       const { data, error } = await supabase
         .from("file_uploads")
         .select(
-          "id, file_name, file_url, file_type, storage_path, created_at, category",
+          "id, file_name, file_url, file_type, storage_path, created_at, latitude, longitude, category",
         )
         .eq("patient_id", patientId)
         .in(
@@ -1024,6 +1132,7 @@ function CategoryGallery({
   generating,
   onDownloadOne,
   busyDocId,
+  layout = "grid",
 }: {
   items: PatientDoc[];
   onView: (doc: PatientDoc) => void;
@@ -1031,6 +1140,7 @@ function CategoryGallery({
   generating: boolean;
   onDownloadOne: (doc: PatientDoc) => void;
   busyDocId: string | null;
+  layout?: "grid" | "list";
 }) {
   if (items.length === 0) {
     return (
@@ -1060,50 +1170,92 @@ function CategoryGallery({
           )}
         </button>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-      {items.map((doc) => (
-        <div key={doc.id} className="rounded-lg border p-2">
-          <button
-            type="button"
-            className="block w-full overflow-hidden rounded-md bg-muted"
-            onClick={() => onView(doc)}
-          >
-            {isImage(doc.fileType) ? (
-              <img
-                src={doc.fileUrl}
-                alt={doc.fileName}
-                className="h-28 w-full object-cover"
-                loading="lazy"
-              />
-            ) : (
-              <div className="flex h-28 w-full flex-col items-center justify-center gap-1 text-muted-foreground">
-                <FileText className="h-9 w-9" />
-                <span className="text-xs">{isPdf(doc.fileType) ? "PDF" : "File"}</span>
+      {layout === "list" ? (
+        <div className="space-y-2">
+          {items.map((doc) => (
+            <div
+              key={doc.id}
+              className="flex items-center justify-between gap-3 rounded-lg border bg-white px-3 py-2"
+            >
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="truncate text-sm font-medium text-slate-800">
+                  {doc.fileName}
+                </span>
               </div>
-            )}
-          </button>
-          <div className="mt-2 flex items-center justify-between gap-1">
-            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-              {doc.fileName}
-            </span>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onView(doc)}
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  View
+                </button>
+                <button
+                  type="button"
+                  aria-label="Download file"
+                  title="Download file"
+                  disabled={busyDocId === doc.id}
+                  className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                  onClick={() => onDownloadOne(doc)}
+                >
+                  {busyDocId === doc.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  Download
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+        {items.map((doc) => (
+          <div key={doc.id} className="rounded-lg border p-2">
             <button
               type="button"
-              aria-label="Download as PDF"
-              title="Download as PDF"
-              disabled={busyDocId === doc.id}
-              className="rounded-md p-1.5 text-foreground/70 hover:bg-accent disabled:opacity-50"
-              onClick={() => onDownloadOne(doc)}
+              className="block w-full overflow-hidden rounded-md bg-muted"
+              onClick={() => onView(doc)}
             >
-              {busyDocId === doc.id ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+              {isImage(doc.fileType) ? (
+                <img
+                  src={doc.fileUrl}
+                  alt={doc.fileName}
+                  className="h-28 w-full object-cover"
+                  loading="lazy"
+                />
               ) : (
-                <Download className="h-4 w-4" />
+                <div className="flex h-28 w-full flex-col items-center justify-center gap-1 text-muted-foreground">
+                  <FileText className="h-9 w-9" />
+                  <span className="text-xs">{isPdf(doc.fileType) ? "PDF" : "File"}</span>
+                </div>
               )}
             </button>
+            <div className="mt-2 flex items-center justify-between gap-1">
+              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                {doc.fileName}
+              </span>
+              <button
+                type="button"
+                aria-label="Download as PDF"
+                title="Download as PDF"
+                disabled={busyDocId === doc.id}
+                className="rounded-md p-1.5 text-foreground/70 hover:bg-accent disabled:opacity-50"
+                onClick={() => onDownloadOne(doc)}
+              >
+                {busyDocId === doc.id ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+              </button>
+            </div>
           </div>
+        ))}
         </div>
-      ))}
-      </div>
+      )}
     </>
   );
 }
@@ -1118,9 +1270,13 @@ export function BillDocumentsSection({
   patientName,
   patientRegistrationNo,
   visitId,
+  defaultOpen = false,
+  collapsible = true,
+  fileLayout = "grid",
+  categoryLayout = "tabs",
 }: BillDocumentsSectionProps) {
   const { hospitalConfig } = useAuth();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [activeTab, setActiveTab] = useState<PatientDocCategory>(
     PATIENT_DOC_CATEGORIES[0].id,
   );
@@ -1129,6 +1285,7 @@ export function BillDocumentsSection({
   const [pdfBusyCategory, setPdfBusyCategory] = useState<string | null>(null);
   const [pdfBusyDocId, setPdfBusyDocId] = useState<string | null>(null);
   const [labReportBusy, setLabReportBusy] = useState<"view" | "download" | null>(null);
+  const [allDocsBusy, setAllDocsBusy] = useState(false);
   const [otNotesView, setOtNotesView] = useState<"auto" | "master">("auto");
   const docs = usePatientAllDocs(patientId);
   const visitSummary = useBillVisitSummary(visitId);
@@ -1312,30 +1469,118 @@ export function BillDocumentsSection({
   for (const doc of docs.data || []) {
     if (byCategory.has(doc.category)) byCategory.get(doc.category)!.push(doc);
   }
+  const isTabletListMode = categoryLayout === "list";
+  const orderedDocs = PATIENT_DOC_CATEGORIES.flatMap((cat) =>
+    (docs.data || []).filter((doc) => doc.category === cat.id),
+  );
   const generatedDocCount = hasGeneratedLabReport ? 1 : 0;
   const total = (docs.data?.length || 0) + generatedDocCount;
+  const hasCombinedExportSource =
+    orderedDocs.length > 0 || hasGeneratedLabReport || Boolean(visitId || patientName);
+
+  const handleDownloadAllDocuments = async () => {
+    if (!patientId || allDocsBusy) return;
+    setAllDocsBusy(true);
+    try {
+      const { default: jsPDF } = await import("jspdf");
+      const doc = new jsPDF({ unit: "mm", format: "a4" });
+      let appendedPages = 0;
+      let skippedCount = 0;
+
+      const appendUploadedDoc = async (item: PatientDoc & { category?: string }) => {
+        const response = await fetch(item.fileUrl);
+        if (!response.ok) throw new Error(`Could not load ${item.fileName}`);
+        const blob = await response.blob();
+        const title = `${PATIENT_DOC_CATEGORIES.find((cat) => cat.id === item.category)?.label || "Document"} · ${item.fileName}`;
+        if (isImage(item.fileType)) {
+          await appendImageBlobToPdf(doc, blob, { title });
+          appendedPages += 1;
+          return;
+        }
+        if (isPdf(item.fileType)) {
+          const before = doc.getNumberOfPages();
+          await appendPdfBlobToPdf(doc, blob, { title });
+          appendedPages += doc.getNumberOfPages() - before;
+          return;
+        }
+        skippedCount += 1;
+      };
+
+      for (const item of orderedDocs) {
+        await appendUploadedDoc(item);
+      }
+
+      if (hasGeneratedLabReport) {
+        const before = doc.getNumberOfPages();
+        await appendPdfBlobToPdf(doc, await buildCurrentLabReportPdf(), {
+          title: "Generated Lab Investigation Report",
+        });
+        appendedPages += doc.getNumberOfPages() - before;
+      }
+
+      const generatedOtNotesBlob = await buildTextPdfBlob(
+        "OT NOTES",
+        generatedOtNotes.split("\n"),
+      );
+      const beforeOt = doc.getNumberOfPages();
+      await appendPdfBlobToPdf(doc, generatedOtNotesBlob, {
+        title: "Generated OT Notes",
+      });
+      appendedPages += doc.getNumberOfPages() - beforeOt;
+
+      if (appendedPages === 0) {
+        alert("No supported documents were available to merge.");
+        return;
+      }
+
+      doc.deletePage(1);
+      triggerBlobDownload(doc.output("blob"), `${safeName}_All_Documents.pdf`);
+
+      if (skippedCount > 0) {
+        alert(`${skippedCount} unsupported file(s) were skipped. Generated discharge summary is not included in this merged PDF.`);
+      }
+    } catch (err) {
+      console.error("Combined patient document export failed:", err);
+      alert("Could not prepare the combined documents PDF. Please try again.");
+    } finally {
+      setAllDocsBusy(false);
+    }
+  };
 
   return (
     <div className="print:hidden rounded-lg border bg-white shadow-sm">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
-      >
-        <span className="flex items-center gap-2 font-semibold">
-          {open ? (
-            <ChevronDown className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
-          )}
-          Documents &amp; Photos
-          {total > 0 && (
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-              {total}
-            </span>
-          )}
-        </span>
-      </button>
+      {collapsible ? (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
+        >
+          <span className="flex items-center gap-2 font-semibold">
+            {open ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )}
+            Documents &amp; Photos
+            {total > 0 && (
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                {total}
+              </span>
+            )}
+          </span>
+        </button>
+      ) : (
+        <div className="flex items-center justify-between gap-2 px-4 py-3">
+          <span className="flex items-center gap-2 font-semibold">
+            Documents &amp; Photos
+            {total > 0 && (
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                {total}
+              </span>
+            )}
+          </span>
+        </div>
+      )}
 
       {open && (
         <div className="border-t p-4">
@@ -1415,32 +1660,91 @@ export function BillDocumentsSection({
                   </div>
                 </div>
               </div>
+              <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-900">
+                      Total All Documents Download
+                    </div>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Creates one merged PDF from uploaded files, generated lab report, and generated OT notes. Generated discharge summary opens separately and is not part of this combined export.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadAllDocuments()}
+                    disabled={allDocsBusy || !hasCombinedExportSource}
+                    className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    {allDocsBusy ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Download className="h-3.5 w-3.5" />
+                    )}
+                    Download All Documents
+                  </button>
+                </div>
+              </div>
               <Tabs
-              value={activeTab}
-              onValueChange={(v) => setActiveTab(v as PatientDocCategory)}
-            >
-              <TabsList className="flex h-auto flex-wrap justify-start gap-1">
-                {PATIENT_DOC_CATEGORIES.map((cat) => {
-                  const count =
-                    (byCategory.get(cat.id)?.length || 0) +
-                    (cat.id === "lab_investigation" ? generatedDocCount : 0);
-                  return (
-                    <TabsTrigger key={cat.id} value={cat.id} className="text-xs">
-                      {cat.label}
-                      {count > 0 && (
-                        <span className="ml-1 rounded-full bg-primary/10 px-1.5 text-[10px] font-medium text-primary">
+                value={activeTab}
+                onValueChange={(v) => setActiveTab(v as PatientDocCategory)}
+              >
+              {categoryLayout === "list" ? (
+                <div className="mb-4 space-y-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                  {PATIENT_DOC_CATEGORIES.map((cat) => {
+                    const count =
+                      (byCategory.get(cat.id)?.length || 0) +
+                      (cat.id === "lab_investigation" ? generatedDocCount : 0);
+                    const isActive = activeTab === cat.id;
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setActiveTab(cat.id)}
+                        className={`flex w-full items-center justify-between rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                          isActive
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        <span className="text-sm font-medium">{cat.label}</span>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                            isActive
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
                           {count}
                         </span>
-                      )}
-                    </TabsTrigger>
-                  );
-                })}
-              </TabsList>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <TabsList className="flex h-auto flex-wrap justify-start gap-1">
+                  {PATIENT_DOC_CATEGORIES.map((cat) => {
+                    const count =
+                      (byCategory.get(cat.id)?.length || 0) +
+                      (cat.id === "lab_investigation" ? generatedDocCount : 0);
+                    return (
+                      <TabsTrigger key={cat.id} value={cat.id} className="text-xs">
+                        {cat.label}
+                        {count > 0 && (
+                          <span className="ml-1 rounded-full bg-primary/10 px-1.5 text-[10px] font-medium text-primary">
+                            {count}
+                          </span>
+                        )}
+                      </TabsTrigger>
+                    );
+                  })}
+                </TabsList>
+              )}
               {PATIENT_DOC_CATEGORIES.map((cat) => (
                 <TabsContent key={cat.id} value={cat.id}>
                   {cat.id === "lab_investigation" && (
                     <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                      <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div className="flex flex-wrap items-center justify-between gap-4">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                             <FileText className="h-4 w-4 text-primary" />
@@ -1463,19 +1767,6 @@ export function BillDocumentsSection({
                         <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
-                            onClick={() => void openGeneratedLabReport()}
-                            disabled={!hasGeneratedLabReport || labInvestigations.isLoading || labReportBusy !== null}
-                            className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                          >
-                            {labReportBusy === "view" ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <FileText className="h-3.5 w-3.5" />
-                            )}
-                            View PDF
-                          </button>
-                          <button
-                            type="button"
                             onClick={() => void downloadGeneratedLabReport()}
                             disabled={!hasGeneratedLabReport || labInvestigations.isLoading || labReportBusy !== null}
                             className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
@@ -1485,7 +1776,7 @@ export function BillDocumentsSection({
                             ) : (
                               <Download className="h-3.5 w-3.5" />
                             )}
-                            Download PDF
+                            Download
                           </button>
                         </div>
                       </div>
@@ -1508,9 +1799,11 @@ export function BillDocumentsSection({
                           <div className="text-sm font-semibold text-slate-900">
                             Generated Discharge Summary
                           </div>
-                          <p className="mt-1 text-sm text-slate-600">
-                            Open the printable discharge summary for this visit and download or print it from the generated view.
-                          </p>
+                          {!isTabletListMode && (
+                            <p className="mt-1 text-sm text-slate-600">
+                              Open the printable discharge summary for this visit and download or print it from the generated view.
+                            </p>
+                          )}
                         </div>
                         <button
                           type="button"
@@ -1522,7 +1815,7 @@ export function BillDocumentsSection({
                           className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                         >
                           <Download className="h-3.5 w-3.5" />
-                          Generate / Download
+                          Download
                         </button>
                       </div>
                       {!visitId && (
@@ -1533,99 +1826,124 @@ export function BillDocumentsSection({
                     </div>
                   )}
                   {cat.id === "ot_notes" && (
-                    <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                      <div className="flex flex-wrap items-start justify-between gap-4">
-                        <div className="space-y-3">
-                          <div>
-                            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                              Patient Details
+                    isTabletListMode ? (
+                      <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-slate-900">
+                              Generated OT Notes
                             </div>
-                            <div className="mt-2 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-                              <div><span className="font-semibold text-slate-900">Name:</span> {patientName || "-"}</div>
-                              <div><span className="font-semibold text-slate-900">Visit ID:</span> {visitId || "-"}</div>
-                              <div><span className="font-semibold text-slate-900">Registration ID:</span> {patientRegistrationNo || "-"}</div>
-                              <div><span className="font-semibold text-slate-900">OT Required:</span> {deriveOtRequirement(normalizePackageType(packageSummary.data?.medical_or_surgical || packageSummary.data?.category || packageSummary.data?.level_of_care || packageSummary.data?.specialty))}</div>
+                            <div className="mt-1 text-xs text-slate-600">
+                              Format: PDF
                             </div>
                           </div>
-                          <div>
-                            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                              Package Context
-                            </div>
-                            <div className="mt-2 space-y-1 text-sm text-slate-700">
-                              <div>
-                                <span className="font-semibold text-slate-900">Package:</span>{" "}
-                                {packageSummary.data?.package_name ||
-                                  packageSummary.data?.procedure_name ||
-                                  packageSummary.data?.treatment_plan ||
-                                  visitSummary.data?.package_name ||
-                                  "-"}
-                              </div>
-                              <div>
-                                <span className="font-semibold text-slate-900">Type:</span>{" "}
-                                {normalizePackageType(
-                                  packageSummary.data?.medical_or_surgical ||
-                                    packageSummary.data?.category ||
-                                    packageSummary.data?.level_of_care ||
-                                    packageSummary.data?.specialty,
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex flex-col gap-2 sm:min-w-[180px]">
                           <button
                             type="button"
                             onClick={() => {
-                              if (otNotesView === "master") {
-                                void handleDownloadMasterOtNotes();
-                                return;
-                              }
                               void handleDownloadGeneratedOtNotes();
                             }}
                             className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90"
                           >
                             <Download className="h-3.5 w-3.5" />
-                            Download OT Notes
+                            Download
                           </button>
-                          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                            Generated automatically from the selected package.
-                          </div>
                         </div>
                       </div>
-
-                      <Tabs value={otNotesView} onValueChange={(v) => setOtNotesView(v as "auto" | "master")} className="mt-4">
-                        <TabsList className="grid h-auto w-full grid-cols-2">
-                          <TabsTrigger value="auto" className="text-xs">
-                            Bill OT Notes
-                          </TabsTrigger>
-                          <TabsTrigger value="master" className="text-xs">
-                            Master OT Notes
-                          </TabsTrigger>
-                        </TabsList>
-
-                        <TabsContent value="auto" className="mt-4">
-                          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                              Auto-generated OT Notes
+                    ) : (
+                      <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <div className="space-y-3">
+                            <div>
+                              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                Patient Details
+                              </div>
+                              <div className="mt-2 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+                                <div><span className="font-semibold text-slate-900">Name:</span> {patientName || "-"}</div>
+                                <div><span className="font-semibold text-slate-900">Visit ID:</span> {visitId || "-"}</div>
+                                <div><span className="font-semibold text-slate-900">Registration ID:</span> {patientRegistrationNo || "-"}</div>
+                                <div><span className="font-semibold text-slate-900">OT Required:</span> {deriveOtRequirement(normalizePackageType(packageSummary.data?.medical_or_surgical || packageSummary.data?.category || packageSummary.data?.level_of_care || packageSummary.data?.specialty))}</div>
+                              </div>
                             </div>
-                            <pre className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
-                              {generatedOtNotes}
-                            </pre>
-                          </div>
-                        </TabsContent>
-
-                        <TabsContent value="master" className="mt-4">
-                          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                              PMJAY / MJPJAY Master OT Notes
+                            <div>
+                              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                Package Context
+                              </div>
+                              <div className="mt-2 space-y-1 text-sm text-slate-700">
+                                <div>
+                                  <span className="font-semibold text-slate-900">Package:</span>{" "}
+                                  {packageSummary.data?.package_name ||
+                                    packageSummary.data?.procedure_name ||
+                                    packageSummary.data?.treatment_plan ||
+                                    visitSummary.data?.package_name ||
+                                    "-"}
+                                </div>
+                                <div>
+                                  <span className="font-semibold text-slate-900">Type:</span>{" "}
+                                  {normalizePackageType(
+                                    packageSummary.data?.medical_or_surgical ||
+                                      packageSummary.data?.category ||
+                                      packageSummary.data?.level_of_care ||
+                                      packageSummary.data?.specialty,
+                                  )}
+                                </div>
+                              </div>
                             </div>
-                            <pre className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
-                              {masterOtNotes}
-                            </pre>
                           </div>
-                        </TabsContent>
-                      </Tabs>
-                    </div>
+                          <div className="flex flex-col gap-2 sm:min-w-[180px]">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (otNotesView === "master") {
+                                  void handleDownloadMasterOtNotes();
+                                  return;
+                                }
+                                void handleDownloadGeneratedOtNotes();
+                              }}
+                              className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                              Download OT Notes
+                            </button>
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                              Generated automatically from the selected package.
+                            </div>
+                          </div>
+                        </div>
+
+                        <Tabs value={otNotesView} onValueChange={(v) => setOtNotesView(v as "auto" | "master")} className="mt-4">
+                          <TabsList className="grid h-auto w-full grid-cols-2">
+                            <TabsTrigger value="auto" className="text-xs">
+                              Bill OT Notes
+                            </TabsTrigger>
+                            <TabsTrigger value="master" className="text-xs">
+                              Master OT Notes
+                            </TabsTrigger>
+                          </TabsList>
+
+                          <TabsContent value="auto" className="mt-4">
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                Auto-generated OT Notes
+                              </div>
+                              <pre className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+                                {generatedOtNotes}
+                              </pre>
+                            </div>
+                          </TabsContent>
+
+                          <TabsContent value="master" className="mt-4">
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                PMJAY / MJPJAY Master OT Notes
+                              </div>
+                              <pre className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+                                {masterOtNotes}
+                              </pre>
+                            </div>
+                          </TabsContent>
+                        </Tabs>
+                      </div>
+                    )
                   )}
                   <CategoryGallery
                     items={byCategory.get(cat.id) || []}
@@ -1634,6 +1952,7 @@ export function BillDocumentsSection({
                     generating={pdfBusyCategory === cat.id}
                     onDownloadOne={handleDownloadOne}
                     busyDocId={pdfBusyDocId}
+                    layout={fileLayout}
                   />
                 </TabsContent>
               ))}

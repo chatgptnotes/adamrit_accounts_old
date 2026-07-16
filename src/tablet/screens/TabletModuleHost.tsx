@@ -37,6 +37,7 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   discharge: lazy(() => import("@/tablet/modules/discharge/DischargeListFlow")),
   dama: lazy(() => import("@/tablet/modules/dama/DamaFlow")),
   billing: lazy(() => import("@/tablet/modules/billing/BillingFlow")),
+  documents: lazy(() => import("@/tablet/modules/documents/DocumentsFlow")),
   "cash-in-hand": lazy(() => import("@/tablet/modules/cash-in-hand/CashInHandView")),
   report: lazy(() => import("@/tablet/modules/report/ReportFlow")),
   "referral-register": lazy(
