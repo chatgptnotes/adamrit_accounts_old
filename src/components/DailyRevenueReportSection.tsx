@@ -65,6 +65,10 @@ interface DisplayRow {
 
 type PatientTypeFilter = 'all' | 'OPD' | 'IPD';
 
+// A distinct sentinel is required because an empty select value means that an
+// existing RM selection should be left unchanged.
+const DIRECT_RM_VALUE = '__direct__';
+
 const COST_SOURCE_LABEL: Record<CostSource, string> = {
   override: 'man',
   advance: 'adv',
@@ -424,16 +428,25 @@ export function DailyRevenueReportSection() {
       // Override row is tagged with the visit's hospital, not the editor's.
       const rowHospital = row.hospital || hospitalType || 'hope';
 
-      // Resolve the picked RM from the master list (if any).
-      const pickedRm = draftRmId
+      // Resolve the picked RM from the master list. Direct is an explicit
+      // selection, not an empty "leave unchanged" value.
+      const choosingDirect = draftRmId === DIRECT_RM_VALUE;
+      const pickedRm = !choosingDirect && draftRmId
         ? (rmMasterQuery.data ?? []).find((m) => m.id === draftRmId) ?? null
         : null;
-      const finalRmName = pickedRm?.name ?? row.rm_name ?? null;
+      // Keep an explicit marker on the report override. A null value would
+      // fall back to the patient's older RM text (for example, "1001") when
+      // this report is rendered again.
+      const finalRmName = choosingDirect ? 'DIRECT' : pickedRm?.name ?? row.rm_name ?? null;
       // Changing the assigned RM must also change this visit's cut to that
       // RM's permanent rate. Editing only cost/cut still preserves a manually
       // entered cut amount.
-      const rmChanged = Boolean(pickedRm && pickedRm.id !== row.rmId);
-      const cut = rmChanged
+      const rmChanged = choosingDirect
+        ? !isDirect(row.rm_name)
+        : Boolean(pickedRm && pickedRm.id !== row.rmId);
+      const cut = choosingDirect
+        ? 0
+        : rmChanged
         ? Math.round((cost * validCommissionPercent(pickedRm?.commission_percent)) / 100)
         : draftedCut;
 
@@ -466,10 +479,10 @@ export function DailyRevenueReportSection() {
 
       // Propagate the picked RM back to the visit itself, so other pages
       // (and future days) see it automatically without a manual override.
-      if (pickedRm && row.visitId) {
+      if ((pickedRm || choosingDirect) && row.visitId) {
         const { error: visitErr } = await supabase
           .from('visits')
-          .update({ relationship_manager_id: pickedRm.id } as never)
+          .update({ relationship_manager_id: choosingDirect ? null : pickedRm!.id } as never)
           .eq('id', row.visitId);
         if (visitErr) {
           // Non-fatal: override already saved. Just warn.
@@ -695,7 +708,7 @@ export function DailyRevenueReportSection() {
     const match = (rmMasterQuery.data ?? []).find(
       (m) => m.name.toLowerCase() === (row.rm_name ?? '').toLowerCase(),
     );
-    setDraftRmId(match?.id ?? '');
+    setDraftRmId(isDirect(row.rm_name) ? DIRECT_RM_VALUE : match?.id ?? '');
   };
 
   const openRateEdit = (row: DisplayRow) => {
@@ -1149,8 +1162,8 @@ export function DailyRevenueReportSection() {
                                   onChange={(e) => setDraftRmId(e.target.value)}
                                   className="h-8 w-40 border border-gray-300 rounded px-1 text-sm bg-white"
                                 >
-                                  <option value="">— Direct —</option>
-                                  {(rmMasterQuery.data ?? []).map((m) => (
+                                  <option value={DIRECT_RM_VALUE}>— Direct —</option>
+                                  {(rmMasterQuery.data ?? []).filter((m) => !isDirect(m.name)).map((m) => (
                                     <option key={m.id} value={m.id}>
                                       {m.name}{m.code ? ` (${m.code})` : ''}
                                     </option>
