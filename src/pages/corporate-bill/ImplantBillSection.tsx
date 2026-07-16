@@ -330,8 +330,8 @@ export function ImplantBillSection({
   }
 
   return (
-    <div className="w-[210mm] max-w-full shrink-0 bg-white shadow-lg print:hidden">
-      <div className="p-6" style={{ fontFamily: '"Times New Roman", serif' }}>
+    <div className="w-full max-w-full shrink-0 bg-white shadow-lg print:hidden">
+      <div className="p-3 sm:p-4 md:p-6" style={{ fontFamily: '"Times New Roman", serif' }}>
         <div className="mb-3 flex flex-wrap gap-2" style={{ fontFamily: 'Arial, sans-serif' }}>
           <button onClick={handlePrint} className="rounded bg-green-500 px-4 py-2 text-sm font-bold text-white hover:bg-green-600">
             Print Implant Bill
@@ -345,7 +345,7 @@ export function ImplantBillSection({
           </button>
         </div>
 
-        <div className="mx-auto w-full max-w-[720px] bg-white text-black">
+        <div className="mx-auto hidden w-full max-w-[720px] bg-white text-black md:block">
           <div className="text-center text-[40px] font-bold leading-none tracking-wide">{VENDOR_NAME}</div>
           <div className="mt-3 text-center text-[18px] font-bold">{VENDOR_ADDRESS}</div>
           <div className="mt-1 text-center text-[17px] font-bold">{VENDOR_PHONE}</div>
@@ -514,6 +514,148 @@ export function ImplantBillSection({
               </ul>
               <div className="absolute bottom-3 right-4 text-[20px] font-bold">For {VENDOR_NAME}</div>
             </div>
+          </div>
+        </div>
+
+        <div className="space-y-4 text-black md:hidden" style={{ fontFamily: 'Arial, sans-serif' }}>
+          <div className="rounded-2xl border border-slate-200 p-4">
+            <div className="text-center text-3xl font-bold leading-tight">{VENDOR_NAME}</div>
+            <div className="mt-2 text-center text-sm font-semibold">{VENDOR_ADDRESS}</div>
+            <div className="mt-1 text-center text-sm font-semibold">{VENDOR_PHONE}</div>
+          </div>
+
+          <div className="grid gap-3 rounded-2xl border border-slate-200 p-4 sm:grid-cols-2">
+            <label className="block space-y-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Patient Name</span>
+              <input
+                value={billPatientName}
+                onChange={(event) => setBillPatientName(event.target.value)}
+                className="w-full rounded border border-gray-300 px-3 py-2 text-base font-semibold"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Bill No.</span>
+              <input
+                value={billNo}
+                onChange={(event) => setBillNo(Number(event.target.value) || 0)}
+                className="w-full rounded border border-gray-300 px-3 py-2 text-base font-semibold"
+              />
+            </label>
+            <label className="block space-y-1 sm:col-span-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Hospital Address</span>
+              <div className="rounded border border-gray-200 bg-slate-50 px-3 py-2 text-sm">
+                <div>{HOSPITAL_LINE_1}</div>
+                <div>{HOSPITAL_LINE_2}</div>
+              </div>
+            </label>
+            <label className="block space-y-1 sm:col-span-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Bill Date</span>
+              <input
+                type="date"
+                value={billDate}
+                onChange={(event) => setBillDate(event.target.value)}
+                className="w-full rounded border border-gray-300 px-3 py-2 text-base"
+              />
+            </label>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 p-4">
+            <LinkField
+              label="Reference Link"
+              value={referenceLink}
+              onChange={setReferenceLink}
+              onCopy={handleCopyReferenceLink}
+            />
+          </div>
+
+          <div className="space-y-3">
+            {items.map((item, index) => (
+              <div key={index} className="rounded-2xl border border-slate-200 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="text-sm font-bold text-slate-700">Item {index + 1}</div>
+                  {items.length > 1 ? (
+                    <button
+                      onClick={() => removeItem(index)}
+                      className="text-xs font-bold uppercase tracking-wide text-red-600"
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                </div>
+                <div className="space-y-3">
+                  <label className="block space-y-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Description</span>
+                    <input
+                      value={item.description}
+                      onChange={(event) => updateItem(index, 'description', event.target.value)}
+                      className="w-full rounded border border-gray-300 px-3 py-2 text-base font-semibold"
+                      placeholder="Implant description"
+                    />
+                  </label>
+                  <label className="block space-y-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Batch No.</span>
+                    <input
+                      value={item.batchNo}
+                      onChange={(event) => updateItem(index, 'batchNo', event.target.value)}
+                      className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                      placeholder="BATCH No"
+                    />
+                  </label>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block space-y-1">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Qty</span>
+                      <input
+                        value={item.qty}
+                        onChange={(event) => updateItem(index, 'qty', event.target.value)}
+                        className="w-full rounded border border-gray-300 px-3 py-2 text-base text-center"
+                        placeholder="0"
+                      />
+                    </label>
+                    <label className="block space-y-1">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Rate</span>
+                      <input
+                        value={item.rate}
+                        onChange={(event) => updateItem(index, 'rate', event.target.value)}
+                        className="w-full rounded border border-gray-300 px-3 py-2 text-base text-center"
+                        placeholder="0"
+                      />
+                    </label>
+                  </div>
+                  <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold">
+                    Amount: {item.amount ? money(item.amount) : '0/-'}
+                  </div>
+                </div>
+              </div>
+            ))}
+            <button
+              onClick={addItem}
+              className="w-full rounded-2xl border border-dashed border-green-400 px-4 py-3 text-sm font-bold text-green-700"
+            >
+              + Add item
+            </button>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 p-4">
+            <div className="text-sm font-semibold">Rupees: {words}.</div>
+            <div className="mt-2 text-lg font-bold">Grand Total: {money(total)}</div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 p-4 text-sm">
+            <div className="font-semibold">Declaration</div>
+            <div className="mt-1 text-slate-700">
+              We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.
+            </div>
+            <div className="mt-3 space-y-1 text-slate-700">
+              <div>B.S.T. No.:4400008/S/2562 Dt. 08/12/99</div>
+              <div>C.S. T. No.:440008/C/2195 Dt. 08/12/99</div>
+            </div>
+            <div className="mt-4 font-semibold">Terms &amp; Conditions</div>
+            <ul className="ml-5 mt-2 list-disc space-y-1 text-slate-700">
+              <li>This bill is payable immediately on presentation, otherwise interest @ 24% will be charged.</li>
+              <li>Our risk and responsibility creases on goods our premises.</li>
+              <li>Cheques are to be made cross other in favour of the company.</li>
+            </ul>
+            <div className="mt-4 text-right text-base font-bold">For {VENDOR_NAME}</div>
           </div>
         </div>
       </div>

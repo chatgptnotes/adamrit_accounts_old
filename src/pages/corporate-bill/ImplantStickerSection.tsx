@@ -507,8 +507,8 @@ export function ImplantStickerSection({
   }
 
   return (
-    <div className="w-[210mm] max-w-full shrink-0 bg-white shadow-lg print:hidden">
-      <div className="p-6" style={{ fontFamily: 'Arial, sans-serif' }}>
+    <div className="w-full max-w-full shrink-0 bg-white shadow-lg print:hidden">
+      <div className="p-3 sm:p-4 md:p-6" style={{ fontFamily: 'Arial, sans-serif' }}>
         <div className="mb-3 flex flex-wrap gap-2">
           <button onClick={handlePrint} className="rounded bg-green-500 px-4 py-2 text-sm font-bold text-white hover:bg-green-600">
             Print Implant Sticker
@@ -522,33 +522,58 @@ export function ImplantStickerSection({
           </button>
         </div>
 
-        <div className="bg-white p-4 text-black">
+        <div className="bg-white p-3 text-black sm:p-4">
           <div className="mb-3 text-center">
             <h2 className="text-lg font-bold tracking-wide">{patient.hospitalName}</h2>
             <div className="text-xs font-semibold">{patient.patientName} | {patient.patientId} | DOA {patient.admissionDate}</div>
           </div>
 
-          <div className="mx-auto w-[560px] max-w-full rounded-xl border border-slate-200 bg-slate-50 px-8 py-5 shadow-sm">
-            <ImplantLabelBlock
-              details={details}
-              implantName={surgeryName || defaultSurgeryName || details.secondaryImplantName}
-              catNo={details.primaryCatNo}
-              quantity={details.primaryQuantity}
-              mrp={details.primaryMrp}
-              batchNo={details.primaryBatchNo}
-            />
-            <div className="h-6" />
-            <ImplantLabelBlock
-              details={details}
-              implantName={details.secondaryImplantName}
-              catNo={details.secondaryCatNo}
-              quantity={details.secondaryQuantity}
-              mrp={details.secondaryMrp}
-              batchNo={details.secondaryBatchNo}
-            />
+          <div className="mx-auto max-w-full rounded-xl border border-slate-200 bg-slate-50 px-2 py-3 shadow-sm sm:px-4 sm:py-5 md:w-[560px] md:px-8">
+            <div className="md:hidden">
+              <div className="mx-auto h-[152px] w-[310px] origin-top scale-[0.68] overflow-hidden">
+                <ImplantLabelBlock
+                  details={details}
+                  implantName={surgeryName || defaultSurgeryName || details.secondaryImplantName}
+                  catNo={details.primaryCatNo}
+                  quantity={details.primaryQuantity}
+                  mrp={details.primaryMrp}
+                  batchNo={details.primaryBatchNo}
+                />
+              </div>
+              <div className="-mt-5" />
+              <div className="mx-auto h-[152px] w-[310px] origin-top scale-[0.68] overflow-hidden">
+                <ImplantLabelBlock
+                  details={details}
+                  implantName={details.secondaryImplantName}
+                  catNo={details.secondaryCatNo}
+                  quantity={details.secondaryQuantity}
+                  mrp={details.secondaryMrp}
+                  batchNo={details.secondaryBatchNo}
+                />
+              </div>
+            </div>
+            <div className="hidden md:block">
+              <ImplantLabelBlock
+                details={details}
+                implantName={surgeryName || defaultSurgeryName || details.secondaryImplantName}
+                catNo={details.primaryCatNo}
+                quantity={details.primaryQuantity}
+                mrp={details.primaryMrp}
+                batchNo={details.primaryBatchNo}
+              />
+              <div className="h-6" />
+              <ImplantLabelBlock
+                details={details}
+                implantName={details.secondaryImplantName}
+                catNo={details.secondaryCatNo}
+                quantity={details.secondaryQuantity}
+                mrp={details.secondaryMrp}
+                batchNo={details.secondaryBatchNo}
+              />
+            </div>
           </div>
 
-          <div className="mx-auto mt-4 grid w-[520px] max-w-full grid-cols-2 gap-x-6 gap-y-1 text-xs">
+          <div className="mx-auto mt-4 grid max-w-full gap-x-6 gap-y-1 text-xs md:w-[520px] md:grid-cols-2">
             <div><strong>Batch Numbers:</strong> {batchNumbers}</div>
             <div><strong>Date of surgery:</strong> {surgeryDateLabel}</div>
             <div className="col-span-2"><strong>Name of Implant:</strong> {surgeryName}</div>
@@ -556,7 +581,7 @@ export function ImplantStickerSection({
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-3 gap-3 text-sm">
+        <div className="mt-5 grid grid-cols-1 gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
           <Field label="Implant Name" value={surgeryName} onChange={setSurgeryName} />
           <Field label="Batch Numbers" value={batchNumbers} onChange={setBatchNumbers} />
           <label className="block space-y-1">

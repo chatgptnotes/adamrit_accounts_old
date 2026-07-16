@@ -117,8 +117,8 @@ export default function ImplantBillFlow() {
             </p>
           </div>
 
-          <div className="overflow-x-auto rounded-2xl border border-border bg-card p-2">
-            <div className="min-w-[860px]">
+          <div className="rounded-2xl border border-border bg-card p-2">
+            <div className="w-full">
               <ImplantBillSection
                 visitId={selected.visitUuid}
                 patientName={selected.patientName}
