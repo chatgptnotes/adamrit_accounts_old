@@ -1,12 +1,16 @@
 import { useState } from "react";
 import { Loader2, Search } from "lucide-react";
 import { useDebounce } from "use-debounce";
+import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletInput } from "@/tablet/ui/TabletInput";
-import { usePreauthCases } from "@/tablet/modules/preauth/usePreauthCases";
+import {
+  fetchLatestPreauthCaseForPatient,
+  usePreauthCases,
+} from "@/tablet/modules/preauth/usePreauthCases";
 import type { PreauthCase } from "@/tablet/modules/preauth/types";
 import ImplantStickerSection from "@/pages/corporate-bill/ImplantStickerSection";
 
@@ -16,59 +20,38 @@ function formatDateInput(value: string | null | undefined) {
   return Number.isNaN(date.getTime()) ? new Date().toISOString().slice(0, 10) : date.toISOString().slice(0, 10);
 }
 
-function CaseList({
-  cases,
-  loading,
-  onSelect,
-}: {
-  cases: PreauthCase[];
-  loading: boolean;
-  onSelect: (item: PreauthCase) => void;
-}) {
-  if (loading) {
-    return (
-      <div className="flex justify-center py-10">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  if (cases.length === 0) {
-    return (
-      <p className="py-10 text-center text-sm text-muted-foreground">
-        Search to choose a case for implant sticker.
-      </p>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      {cases.map((item) => (
-        <button
-          key={item.visitUuid}
-          type="button"
-          onClick={() => onSelect(item)}
-          className="w-full rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/60 hover:bg-primary/5"
-        >
-          <p className="font-semibold">{item.patientName}</p>
-          <p className="text-sm text-muted-foreground">
-            {item.patientId || "No patient ID"} | {item.visitId || "No visit ID"}
-          </p>
-        </button>
-      ))}
-    </div>
-  );
-}
-
 export default function ImplantStickerFlow() {
   const { hospitalConfig } = useAuth();
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch] = useDebounce(searchInput, 300);
   const [selected, setSelected] = useState<PreauthCase | null>(null);
-
+  const [resolving, setResolving] = useState(false);
   const cases = usePreauthCases(debouncedSearch);
 
   const surgeryDate = formatDateInput(selected?.admissionDate || selected?.dischargeDate || null);
+
+  const handleSelect = async (item: PreauthCase) => {
+    try {
+      setResolving(true);
+      const next = await fetchLatestPreauthCaseForPatient({
+        id: item.patientUuid,
+        name: item.patientName,
+        patients_id: item.patientId,
+        age: item.age ?? undefined,
+        gender: item.gender,
+      });
+      if (!next) {
+        toast.error("No visit found for this patient.");
+        return;
+      }
+      setSelected(next);
+    } catch (error) {
+      console.error("Failed to load implant sticker case:", error);
+      toast.error("Could not load the patient's visit.");
+    } finally {
+      setResolving(false);
+    }
+  };
 
   return (
     <FlowScaffold
@@ -100,7 +83,31 @@ export default function ImplantStickerFlow() {
             </TabletButton>
           </div>
 
-          <CaseList cases={cases.data || []} loading={cases.isLoading} onSelect={setSelected} />
+          {resolving || cases.isLoading ? (
+            <div className="flex justify-center py-10">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : (cases.data || []).length === 0 ? (
+            <p className="py-10 text-center text-sm text-muted-foreground">
+              Search to choose a case for implant sticker.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {(cases.data || []).map((item) => (
+                <button
+                  key={item.patientUuid}
+                  type="button"
+                  onClick={() => void handleSelect(item)}
+                  className="w-full rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/60 hover:bg-primary/5"
+                >
+                  <p className="font-semibold">{item.patientName}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {item.patientId || "No patient ID"}
+                  </p>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       ) : (
         <TabletCard className="space-y-3">

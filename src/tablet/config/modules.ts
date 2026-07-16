@@ -12,6 +12,7 @@ import {
   LogOut,
   Pill,
   Receipt,
+  ScanLine,
   Stethoscope,
   UserPlus,
   UserRound,
@@ -19,7 +20,6 @@ import {
   Wallet,
   type LucideIcon,
 } from "lucide-react";
-import { canAccessReferralRegister } from "@/lib/referralRegisterAccess";
 
 export interface TabletModule {
   /** URL segment under /t/ and lookup key. */
@@ -31,7 +31,7 @@ export interface TabletModule {
   accent: string;
   /** Tailwind gradient stops for the tile icon chip (static for JIT). */
   tint: string;
-  /** If set, only these roles see the tile (admins always see everything). */
+  /** Optional role metadata; tablet home currently does not hard-gate by role. */
   roles?: string[];
 }
 
@@ -44,7 +44,6 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: LayoutDashboard,
     accent: "text-purple-600",
     tint: "from-purple-400 to-purple-600",
-    roles: ["superadmin", "super_admin"],
   },
   {
     id: "register",
@@ -53,7 +52,6 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: UserPlus,
     accent: "text-emerald-600",
     tint: "from-emerald-400 to-emerald-600",
-    roles: ["receptionist", "reception", "front_office", "nurse"],
   },
   {
     id: "occupancy",
@@ -70,7 +68,6 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: HeartPulse,
     accent: "text-rose-600",
     tint: "from-rose-400 to-rose-600",
-    roles: ["receptionist", "reception", "nurse", "doctor"],
   },
   {
     id: "patient-profile",
@@ -87,7 +84,6 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: Wallet,
     accent: "text-amber-600",
     tint: "from-amber-400 to-amber-600",
-    roles: ["receptionist", "reception", "billing", "front_office"],
   },
 
   {
@@ -97,7 +93,6 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: ClipboardList,
     accent: "text-indigo-600",
     tint: "from-indigo-400 to-indigo-600",
-    roles: ["nurse", "doctor", "receptionist", "reception"],
   },
   {
     id: "gate-pass",
@@ -114,7 +109,6 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: FileText,
     accent: "text-violet-600",
     tint: "from-violet-400 to-violet-600",
-    roles: ["doctor", "nurse", "consultant"],
   },
   {
     id: "doctor-notes",
@@ -123,7 +117,22 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: Stethoscope,
     accent: "text-teal-600",
     tint: "from-teal-400 to-teal-600",
-    roles: ["doctor", "consultant", "nurse"],
+  },
+  {
+    id: "implant-bill",
+    label: "Implant Bill",
+    description: "Create implant vendor invoice",
+    icon: Receipt,
+    accent: "text-rose-600",
+    tint: "from-rose-400 to-red-600",
+  },
+  {
+    id: "implant-sticker",
+    label: "Implant Sticker",
+    description: "Create implant pouch cover sheet",
+    icon: ScanLine,
+    accent: "text-cyan-700",
+    tint: "from-cyan-400 to-blue-600",
   },
   {
     id: "pharmacy-dispense",
@@ -142,7 +151,6 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: ClipboardCheck,
     accent: "text-pink-600",
     tint: "from-pink-400 to-pink-600",
-    roles: ["nurse", "doctor"],
   },
   {
     id: "discharge",
@@ -159,7 +167,6 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: AlertTriangle,
     accent: "text-orange-600",
     tint: "from-orange-400 to-orange-600",
-    roles: ["doctor", "nurse", "consultant"],
   },
   {
     id: "billing",
@@ -168,7 +175,6 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: Receipt,
     accent: "text-fuchsia-600",
     tint: "from-fuchsia-400 to-fuchsia-600",
-    roles: ["billing", "receptionist", "reception"],
   },
   {
     id: "cash-in-hand",
@@ -177,7 +183,6 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: Banknote,
     accent: "text-green-600",
     tint: "from-green-400 to-green-600",
-    roles: ["billing", "receptionist", "reception"],
   },
   {
     id: "report",
@@ -197,51 +202,23 @@ export const TABLET_MODULES: TabletModule[] = [
   },
 ];
 
-const ADMIN_ROLES = ["admin", "superadmin", "super_admin"];
-const DIRECTOR_ROLES = ["superadmin", "super_admin"];
-const DIRECTOR_EMAILS = ["cmd@hopehospital.com", "finance@hopehospital.com"];
-
-/** Tiles hidden from the tablet edition for all users. */
-const HIDDEN_MODULE_IDS = new Set([
-  "occupancy",
-  "icu-admission",
-  "requisition",
-  "gate-pass",
-  "discharge-summary",
-  "dama",
-  "billing",
-]);
-
 /**
- * Modules visible to a given user. Admins (and unknown roles) see all except
- * the Director tile, which is restricted to superadmin role or director emails.
+ * Modules visible to a given user.
  *
- * If `canSeeTile` is provided (from useTileAccess hook), it overrides the
- * hardcoded `roles` on each module for dynamic config-based gating.
+ * If `canSeeTile` is provided (from useTileAccess hook), it controls per-tile
+ * visibility.
  */
 export function modulesForUser(
   user: { role?: string; email?: string } | undefined,
   canSeeTile?: (tileId: string, role?: string | null) => boolean,
 ): TabletModule[] {
   const role = user?.role;
-  const email = user?.email?.toLowerCase() ?? "";
-  const isDirectorRole = !!role && DIRECTOR_ROLES.includes(role);
-  const isDirectorEmail = DIRECTOR_EMAILS.includes(email);
 
   return TABLET_MODULES.filter((m) => {
-    if (HIDDEN_MODULE_IDS.has(m.id)) return false;
-    if (m.id === "director") {
-      return isDirectorRole || isDirectorEmail;
-    }
-    if (m.id === "referral-register") {
-      return canAccessReferralRegister(user);
-    }
     if (canSeeTile) {
       return canSeeTile(`t-${m.id}`, role);
     }
-    const isAdmin = !!role && ADMIN_ROLES.includes(role);
-    if (!role || isAdmin) return true;
-    return !m.roles || m.roles.includes(role);
+    return true;
   });
 }
 
