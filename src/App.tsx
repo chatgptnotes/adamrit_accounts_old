@@ -462,21 +462,41 @@ const AppContent = () => {
 };
 
 const PUBLIC_ROUTES = ['/patient-portal', '/queue-tv'];
+const SW_RELOAD_GUARD_KEY = 'app:service-worker-reload-at';
+const SW_RELOAD_GUARD_MS = 5 * 60 * 1000;
 
 const App = () => {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
     let refreshing = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
+    let reloadTimer: number | undefined;
+
+    const onControllerChange = () => {
       if (refreshing) return;
+
+      try {
+        const lastReloadAt = Number(localStorage.getItem(SW_RELOAD_GUARD_KEY) || 0);
+        if (Date.now() - lastReloadAt < SW_RELOAD_GUARD_MS) return;
+        localStorage.setItem(SW_RELOAD_GUARD_KEY, String(Date.now()));
+      } catch {
+        // If storage is unavailable, keep the in-memory guard for this page.
+      }
+
       refreshing = true;
       toast.success('Updating to latest version shortly…');
       // Random 3-60s delay so a deploy doesn't reload every open device in the
       // same second (each boot re-fires the sidebar counts etc. — a
       // synchronized stampede on the tiny DB).
       const jitterMs = 3000 + Math.random() * 57000;
-      setTimeout(() => window.location.reload(), jitterMs);
-    });
+      reloadTimer = window.setTimeout(() => window.location.reload(), jitterMs);
+    };
+
+    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+
+    return () => {
+      navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+      if (reloadTimer !== undefined) window.clearTimeout(reloadTimer);
+    };
   }, []);
 
   const isPublicRoute = PUBLIC_ROUTES.includes(window.location.pathname);

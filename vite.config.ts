@@ -490,7 +490,10 @@ export default defineConfig(({ mode }) => {
       // stale cached bundle (which caused 404s on newly-added routes). Pairs with
       // skipWaiting + clientsClaim below.
       registerType: "autoUpdate",
-      injectRegister: "auto",
+      // The app registers the service worker through ReloadPrompt. Injecting a
+      // second registration here can trigger duplicate update/controllerchange
+      // flows and repeated reloads after a deployment.
+      injectRegister: null,
       manifest: false,
       includeAssets: [
         "favicon.ico",
