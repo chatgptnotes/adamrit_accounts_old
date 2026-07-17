@@ -50,7 +50,7 @@ export const TABLET_MODULES: TabletModule[] = [
   },
   {
     id: "register",
-    label: "Register Patient",
+    label: "Register Patient Disha",
     description: "New patient & visit",
     icon: UserPlus,
     accent: "text-emerald-600",
@@ -74,7 +74,7 @@ export const TABLET_MODULES: TabletModule[] = [
   },
   {
     id: "patient-profile",
-    label: "Patient Profile",
+    label: "Patient Profile Sonali",
     description: "View patient details",
     icon: UserRound,
     accent: "text-blue-600",
@@ -82,7 +82,7 @@ export const TABLET_MODULES: TabletModule[] = [
   },
   {
     id: "advance",
-    label: "Advance Statement",
+    label: "Advance Statement Arshiya",
     description: "Collect advance & view statement",
     icon: Wallet,
     accent: "text-amber-600",

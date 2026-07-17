@@ -58,11 +58,11 @@ export const GROUP_LABELS: Record<string, string> = {
 export const TILE_ACCESS_RULES: TileAccessRule[] = [
   // ── Tablet Home Tiles (18) ──────────────────────────────────────────
   { id: "t-director", label: "Director Dashboard", group: "tablet" },
-  { id: "t-register", label: "Register Patient", group: "tablet" },
+  { id: "t-register", label: "Register Patient Disha", group: "tablet" },
   { id: "t-occupancy", label: "Bed Occupancy", group: "tablet" },
   { id: "t-icu-admission", label: "ICU Admission", group: "tablet" },
-  { id: "t-patient-profile", label: "Patient Profile", group: "tablet" },
-  { id: "t-advance", label: "Advance Statement", group: "tablet" },
+  { id: "t-patient-profile", label: "Patient Profile Sonali", group: "tablet" },
+  { id: "t-advance", label: "Advance Statement Arshiya", group: "tablet" },
   { id: "t-requisition", label: "Requisition", group: "tablet" },
   { id: "t-gate-pass", label: "Gate Pass", group: "tablet" },
   { id: "t-discharge-summary", label: "Discharge Summary", group: "tablet" },
