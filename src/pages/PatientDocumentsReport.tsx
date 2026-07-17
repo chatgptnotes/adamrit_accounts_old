@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { startOfDay, endOfDay } from 'date-fns';
 import { DateRange } from 'react-day-picker';
-import { ArrowLeft, ChevronLeft, ChevronRight, ChevronsLeft, ExternalLink, FileCheck2, FileText, Loader2, Search } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, ChevronsLeft, ExternalLink, FileCheck2, FileText, Loader2, Printer, Search } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { PATIENT_DOC_CATEGORIES } from '@/tablet/hooks/usePatientDocs';
@@ -33,6 +33,9 @@ interface VisibleDocumentRow extends DocumentRow {
   visibleLeft: string[];
 }
 
+type StatusFilter = 'all' | 'pending' | 'complete';
+type PatientStatusFilter = 'discharged' | 'admitted' | 'all';
+
 const PAGE_SIZE_OPTIONS = [10, 20, 30, 40];
 const DEFAULT_PAGE_SIZE = 10;
 // Comfortably above the current canonical-category upload count (~5k) so a
@@ -49,6 +52,16 @@ const canonicalCategoryIds = PATIENT_DOC_CATEGORIES.map((document) => document.i
 const CORE_DOCUMENT_IDS = ['treatment_sheet', 'monitor_chart', 'lab_investigation', 'radiology_investigation', 'discharge_summary'];
 const SURGERY_DOCUMENT_IDS = ['ot_notes', 'ot_photos', 'implant_invoice', 'implant_sticker'];
 const DIALYSIS_DOCUMENT_IDS = ['dialysis'];
+const STATUS_FILTER_LABEL: Record<StatusFilter, string> = {
+  all: 'All statuses',
+  pending: 'Documents pending',
+  complete: 'All documents complete',
+};
+const PATIENT_STATUS_FILTER_LABEL: Record<PatientStatusFilter, string> = {
+  discharged: 'Discharged patients',
+  admitted: 'Admitted patients only',
+  all: 'All patients',
+};
 
 // Yojana schemes (MJPJAY/PMJAY and variants) aren't stored under one literal
 // corporate value, so "Yojana" is a keyword match rather than an exact one.
@@ -62,7 +75,7 @@ const isMaharashtraYojana = (corporate: string | null | undefined) => {
 export default function PatientDocumentsReport() {
   const [allRows, setAllRows] = useState<DocumentRow[]>([]);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'complete'>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [documentFilter, setDocumentFilter] = useState('all');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   // Default view: only discharged Yojana patients. Either can be widened via
@@ -70,7 +83,7 @@ export default function PatientDocumentsReport() {
   // "admitted patients" only).
   const [corporateFilter, setCorporateFilter] = useState('yojana');
   const [corporateOptions, setCorporateOptions] = useState<string[]>([]);
-  const [patientStatusFilter, setPatientStatusFilter] = useState<'discharged' | 'admitted' | 'all'>('discharged');
+  const [patientStatusFilter, setPatientStatusFilter] = useState<PatientStatusFilter>('discharged');
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -254,6 +267,121 @@ export default function PatientDocumentsReport() {
     return filteredRows.slice(start, start + pageSize);
   }, [filteredRows, safePage, pageSize]);
 
+  const handlePrint = () => {
+    if (filteredRows.length === 0) return;
+    const printWindow = window.open('', '_blank', 'width=1200,height=800');
+    if (!printWindow) {
+      window.alert('Pop-up blocked. Allow pop-ups for this site to print the report.');
+      return;
+    }
+
+    const esc = (value: unknown) => String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+    const formatDate = (date: Date) => date.toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+    const dateLabel = dateRange?.from && dateRange?.to
+      ? `${formatDate(dateRange.from)} - ${formatDate(dateRange.to)}`
+      : dateRange?.from
+        ? `From ${formatDate(dateRange.from)}`
+        : dateRange?.to
+          ? `Until ${formatDate(dateRange.to)}`
+          : 'All dates';
+    const filters = [
+      ['Status', STATUS_FILTER_LABEL[statusFilter]],
+      ['Document type', documentFilter === 'all' ? 'All document types' : documentFilter],
+      ['Corporate', corporateFilter === 'yojana' ? 'Yojana patients' : corporateFilter === 'all' ? 'All corporates' : corporateFilter],
+      ['Patient status', PATIENT_STATUS_FILTER_LABEL[patientStatusFilter]],
+      ['Date', dateLabel],
+      ...(search.trim() ? [['Search', search.trim()]] : []),
+    ];
+    const renderDocs = (items: string[]) => items.length
+      ? `<ul>${items.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>`
+      : '<span class="muted">None</span>';
+
+    const html = `<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Patient Documents Report</title>
+          <style>
+            @page { margin: 14mm; size: A4 landscape; }
+            * { box-sizing: border-box; }
+            body { margin: 0; color: #111827; font-family: Arial, Helvetica, sans-serif; font-size: 12px; }
+            header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 14px; }
+            h1 { margin: 0 0 4px; font-size: 22px; line-height: 1.2; }
+            .subtitle { color: #6b7280; font-size: 12px; }
+            .meta { text-align: right; color: #4b5563; line-height: 1.6; }
+            .filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 12px; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; margin-bottom: 12px; }
+            .filter-label { color: #6b7280; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+            .filter-value { font-weight: 700; margin-top: 2px; }
+            table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+            th, td { border: 1px solid #e5e7eb; padding: 8px; vertical-align: top; text-align: left; }
+            th { background: #f3f4f6; color: #4b5563; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+            tr { break-inside: avoid; page-break-inside: avoid; }
+            .patient { font-weight: 700; font-size: 13px; }
+            .count { display: inline-block; border-radius: 999px; padding: 2px 7px; font-weight: 700; font-size: 11px; margin-bottom: 6px; }
+            .done { background: #dcfce7; color: #166534; }
+            .left { background: #fef3c7; color: #92400e; }
+            ul { margin: 0; padding-left: 17px; }
+            li { margin: 2px 0; }
+            .muted { color: #9ca3af; }
+          </style>
+        </head>
+        <body>
+          <header>
+            <div>
+              <h1>Patient Documents Report</h1>
+              <div class="subtitle">Uploaded and pending documents for each patient.</div>
+            </div>
+            <div class="meta">
+              <div><strong>${filteredRows.length}</strong> patient${filteredRows.length === 1 ? '' : 's'}</div>
+              <div>Printed ${esc(new Date().toLocaleString('en-IN'))}</div>
+            </div>
+          </header>
+          <section class="filters">
+            ${filters.map(([label, value]) => `<div><div class="filter-label">${esc(label)}</div><div class="filter-value">${esc(value)}</div></div>`).join('')}
+          </section>
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 6%;">#</th>
+                <th style="width: 24%;">Patient Name</th>
+                <th style="width: 35%;">Documents Done</th>
+                <th style="width: 35%;">Documents Left</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filteredRows.map((row, index) => `
+                <tr>
+                  <td>${index + 1}</td>
+                  <td><div class="patient">${esc(row.name)}</div></td>
+                  <td><span class="count done">${row.visibleDone.length} done</span>${renderDocs(row.visibleDone)}</td>
+                  <td><span class="count left">${row.visibleLeft.length} left</span>${renderDocs(row.visibleLeft)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          <script>
+            window.onload = () => {
+              window.print();
+              window.onafterprint = () => window.close();
+            };
+          </script>
+        </body>
+      </html>`;
+
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+  };
+
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-6">
       <div className="mb-4 flex items-center gap-3">
@@ -276,7 +404,10 @@ export default function PatientDocumentsReport() {
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50 px-5 py-3 text-sm text-gray-500">
           <span>{rows.length ? `Showing ${(safePage - 1) * pageSize + 1}–${(safePage - 1) * pageSize + rows.length} of ${filteredRows.length} uploaded patients` : 'No uploaded patients'}</span>
-          {(search || statusFilter !== 'all' || documentFilter !== 'all' || dateRange || corporateFilter !== 'yojana' || patientStatusFilter !== 'discharged') && <button type="button" onClick={() => { setSearch(''); setStatusFilter('all'); setDocumentFilter('all'); setDateRange(undefined); setCorporateFilter('yojana'); setPatientStatusFilter('discharged'); resetPage(); }} className="font-medium text-primary hover:underline">Clear filters</button>}
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={handlePrint} disabled={loading || !!error || filteredRows.length === 0} className="inline-flex items-center gap-1.5 rounded-md border border-input bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"><Printer className="h-3.5 w-3.5" />Print report</button>
+            {(search || statusFilter !== 'all' || documentFilter !== 'all' || dateRange || corporateFilter !== 'yojana' || patientStatusFilter !== 'discharged') && <button type="button" onClick={() => { setSearch(''); setStatusFilter('all'); setDocumentFilter('all'); setDateRange(undefined); setCorporateFilter('yojana'); setPatientStatusFilter('discharged'); resetPage(); }} className="font-medium text-primary hover:underline">Clear filters</button>}
+          </div>
         </div>
         <div className="overflow-x-auto"><table className="min-w-[980px] w-full table-fixed divide-y divide-gray-200"><thead className="bg-gray-50"><tr><th className="w-1/5 px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Patient Name</th><th className="w-[35%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Documents Done</th><th className="w-[35%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Documents Left</th><th className="w-[10%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Actions</th></tr></thead>
           <tbody className="divide-y divide-gray-100">
