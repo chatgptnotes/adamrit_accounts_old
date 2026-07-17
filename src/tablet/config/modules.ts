@@ -10,6 +10,7 @@ import {
   HeartPulse,
   LayoutDashboard,
   LogOut,
+  Package,
   Pill,
   Receipt,
   ScanLine,
@@ -33,9 +34,11 @@ export interface TabletModule {
   tint: string;
   /** Optional role metadata; tablet home currently does not hard-gate by role. */
   roles?: string[];
+  /** Hide from the tablet home grid while still allowing direct navigation. */
+  hiddenFromHome?: boolean;
 }
 
-/** The 12 v1 tablet modules, in home-grid order. */
+/** All tablet modules, including child flows that should not appear on the home grid. */
 export const TABLET_MODULES: TabletModule[] = [
   {
     id: "director",
@@ -119,12 +122,21 @@ export const TABLET_MODULES: TabletModule[] = [
     tint: "from-teal-400 to-teal-600",
   },
   {
+    id: "implant-servesh",
+    label: "Implant Servesh",
+    description: "Open implant bill & sticker tools",
+    icon: Package,
+    accent: "text-rose-700",
+    tint: "from-rose-400 to-orange-600",
+  },
+  {
     id: "implant-bill",
     label: "Implant Bill",
     description: "Create implant vendor invoice",
     icon: Receipt,
     accent: "text-rose-600",
     tint: "from-rose-400 to-red-600",
+    hiddenFromHome: true,
   },
   {
     id: "implant-sticker",
@@ -133,6 +145,7 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: ScanLine,
     accent: "text-cyan-700",
     tint: "from-cyan-400 to-blue-600",
+    hiddenFromHome: true,
   },
   {
     id: "pharmacy-dispense",
@@ -225,7 +238,7 @@ export function modulesForUser(
   // Temporary product rule: tablet home/modules are visible to every user,
   // regardless of tile-access overrides. Re-enable filtering here when the
   // tablet role matrix is finalized.
-  return TABLET_MODULES;
+  return TABLET_MODULES.filter((module) => !module.hiddenFromHome);
 }
 
 export function getModule(id: string | undefined): TabletModule | undefined {
