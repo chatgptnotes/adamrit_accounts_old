@@ -75,7 +75,7 @@ export const TILE_ACCESS_RULES: TileAccessRule[] = [
   { id: "t-discharge", label: "Discharged Patients", group: "tablet" },
   { id: "t-dama", label: "DAMA / LAMA", group: "tablet" },
   { id: "t-billing", label: "Billing", group: "tablet" },
-  { id: "t-documents", label: "Documents", group: "tablet" },
+  { id: "t-documents", label: "Document azhar", group: "tablet" },
   { id: "t-cash-in-hand", label: "Cash in Hand", group: "tablet" },
   { id: "t-report", label: "Reports", group: "tablet" },
   { id: "t-referral-register", label: "Referral Register", group: "tablet" },

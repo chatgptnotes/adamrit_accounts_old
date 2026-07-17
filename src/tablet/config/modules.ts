@@ -191,7 +191,7 @@ export const TABLET_MODULES: TabletModule[] = [
   },
   {
     id: "documents",
-    label: "Documents",
+    label: "Document azhar",
     description: "Patient documents & downloads",
     icon: FileText,
     accent: "text-indigo-600",
