@@ -1814,7 +1814,7 @@ const FinalBill = () => {
           fetchSavedDiagnoses(visitId),
           fetchSavedComplications(visitId),
           fetchSavedLabs(visitId, visitContext),
-          fetchSavedRadiology(visitId, visitContext),
+          fetchSavedRadiology(visitId, undefined, visitContext),
           fetchSavedMedications(visitId, visitContext),
           fetchAIRecommendations(visitId),
           loadSelectedComplicationsFromDB(visitId),
@@ -6811,6 +6811,7 @@ INSTRUCTIONS:
                 radiology_name: radiologyDetail?.name || `Radiology ID: ${item.radiology_id}`,
                 description: radiologyDetail?.description || '',
                 ordered_date: item.ordered_date,
+                external_requisition: item.external_requisition || '',
                 cost: correctRate, // Use calculated correct rate based on patient type
                 created_at: item.created_at,
                 rateSource: rateSource // Store rate source for debugging
@@ -6820,6 +6821,7 @@ INSTRUCTIONS:
               id: item.id,
               radiology_name: `Unknown Radiology Test`,
               ordered_date: item.ordered_date,
+              external_requisition: item.external_requisition || '',
               created_at: item.created_at,
               cost: 0,
               description: ''
@@ -14380,7 +14382,8 @@ Format the response as JSON:
       // Prepare data for insertion using the actual visit UUID
       const radiologyToSave = selectedRadiology.map((radiology) => ({
         visit_id: visitData.id, // Use the actual UUID
-        radiology_id: radiology.id
+        radiology_id: radiology.id,
+        external_requisition: selectedScanCentre || null
       }));
 
 
