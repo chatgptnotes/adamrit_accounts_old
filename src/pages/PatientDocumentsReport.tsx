@@ -28,6 +28,11 @@ interface DocumentRow {
   left: string[];
 }
 
+interface VisibleDocumentRow extends DocumentRow {
+  visibleDone: string[];
+  visibleLeft: string[];
+}
+
 const PAGE_SIZE_OPTIONS = [10, 20, 30, 40];
 const DEFAULT_PAGE_SIZE = 10;
 // Comfortably above the current canonical-category upload count (~5k) so a
@@ -224,10 +229,22 @@ export default function PatientDocumentsReport() {
     return () => { active = false; };
   }, [search, dateRange, corporateFilter, patientStatusFilter]);
 
-  const filteredRows = useMemo(() => allRows.filter((row) => {
-    if (statusFilter === 'pending' && row.left.length === 0) return false;
-    if (statusFilter === 'complete' && row.left.length > 0) return false;
-    return documentFilter === 'all' || row.done.includes(documentFilter);
+  const filteredRows = useMemo<VisibleDocumentRow[]>(() => allRows.flatMap((row) => {
+    const matchingDone = documentFilter === 'all' ? row.done : row.done.filter((item) => item === documentFilter);
+    const matchingLeft = documentFilter === 'all' ? row.left : row.left.filter((item) => item === documentFilter);
+
+    if (statusFilter === 'pending') {
+      if (matchingLeft.length === 0) return [];
+      return [{ ...row, visibleDone: [], visibleLeft: matchingLeft }];
+    }
+
+    if (statusFilter === 'complete') {
+      if (row.left.length > 0 || matchingDone.length === 0) return [];
+      return [{ ...row, visibleDone: matchingDone, visibleLeft: [] }];
+    }
+
+    if (matchingDone.length === 0 && matchingLeft.length === 0) return [];
+    return [{ ...row, visibleDone: matchingDone, visibleLeft: matchingLeft }];
   }), [allRows, statusFilter, documentFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
@@ -249,7 +266,7 @@ export default function PatientDocumentsReport() {
         <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <div className="relative min-w-0"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" /><Input value={search} onChange={(event) => { setSearch(event.target.value); resetPage(); }} placeholder="Search patient / ID" className="h-10 w-full pl-9" /></div>
           <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as typeof statusFilter); resetPage(); }} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-primary/30"><option value="all">All statuses</option><option value="pending">Documents pending</option><option value="complete">All documents complete</option></select>
-          <select value={documentFilter} onChange={(event) => { setDocumentFilter(event.target.value); resetPage(); }} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-primary/30"><option value="all">Any uploaded document</option>{PATIENT_DOC_CATEGORIES.map((document) => <option key={document.id} value={document.label}>{document.label}</option>)}</select>
+          <select value={documentFilter} onChange={(event) => { setDocumentFilter(event.target.value); resetPage(); }} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-primary/30"><option value="all">All document types</option>{PATIENT_DOC_CATEGORIES.map((document) => <option key={document.id} value={document.label}>{document.label}</option>)}</select>
           <select value={corporateFilter} onChange={(event) => { setCorporateFilter(event.target.value); resetPage(); }} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-primary/30"><option value="yojana">Yojana patients</option><option value="all">All corporates</option>{corporateOptions.map((corporate) => <option key={corporate} value={corporate}>{corporate}</option>)}</select>
           <select value={patientStatusFilter} onChange={(event) => { setPatientStatusFilter(event.target.value as typeof patientStatusFilter); resetPage(); }} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-primary/30"><option value="discharged">Discharged patients</option><option value="all">All patients</option><option value="admitted">Admitted patients only</option></select>
           <DateRangePicker date={dateRange} onDateChange={(range) => { setDateRange(range); resetPage(); }} />
@@ -265,7 +282,7 @@ export default function PatientDocumentsReport() {
           <tbody className="divide-y divide-gray-100">
             {loading && <tr><td colSpan={4} className="px-5 py-12 text-center text-gray-500"><Loader2 className="mr-2 inline-block h-5 w-5 animate-spin" />Loading patient documents...</td></tr>}
             {!loading && error && <tr><td colSpan={4} className="px-5 py-12 text-center text-red-600">{error}</td></tr>}
-            {!loading && !error && rows.map((row) => <tr key={row.id} className="align-top hover:bg-gray-50"><td className="px-5 py-4"><div className="font-semibold text-gray-800">{row.name}</div>{row.done.length > 0 && row.left.length > 0 && <span className="mt-2 inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">Partially complete</span>}</td><td className="px-5 py-4"><CountBadge count={row.done.length} tone="done" />{row.done.length ? <DocumentList items={row.done} tone="done" /> : <span className="mt-2 block text-sm text-gray-400">None</span>}</td><td className="px-5 py-4"><CountBadge count={row.left.length} tone="left" />{row.left.length ? <DocumentList items={row.left} tone="left" /> : <span className="mt-2 block text-sm font-medium text-green-600">All required documents complete</span>}</td><td className="px-5 py-4">{row.patientName && <Link to={`/advance-statement-report?search=${encodeURIComponent(row.patientName)}&includeDischarged=1`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs font-medium text-primary hover:bg-primary/5" title="View registration ID and other details in Advance Statement Report"><ExternalLink className="h-3.5 w-3.5" />Details</Link>}</td></tr>)}
+            {!loading && !error && rows.map((row) => <tr key={row.id} className="align-top hover:bg-gray-50"><td className="px-5 py-4"><div className="font-semibold text-gray-800">{row.name}</div>{row.done.length > 0 && row.left.length > 0 && <span className="mt-2 inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">Partially complete</span>}</td><td className="px-5 py-4"><CountBadge count={row.visibleDone.length} tone="done" />{row.visibleDone.length ? <DocumentList items={row.visibleDone} tone="done" /> : <span className="mt-2 block text-sm text-gray-400">{documentFilter === 'all' ? 'None' : `No completed ${documentFilter}`}</span>}</td><td className="px-5 py-4"><CountBadge count={row.visibleLeft.length} tone="left" />{row.visibleLeft.length ? <DocumentList items={row.visibleLeft} tone="left" /> : <span className="mt-2 block text-sm font-medium text-green-600">{documentFilter === 'all' && row.left.length === 0 ? 'All required documents complete' : documentFilter === 'all' ? 'No pending documents in this view' : `No pending ${documentFilter}`}</span>}</td><td className="px-5 py-4">{row.patientName && <Link to={`/advance-statement-report?search=${encodeURIComponent(row.patientName)}&includeDischarged=1`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs font-medium text-primary hover:bg-primary/5" title="View registration ID and other details in Advance Statement Report"><ExternalLink className="h-3.5 w-3.5" />Details</Link>}</td></tr>)}
             {!loading && !error && rows.length === 0 && <tr><td colSpan={4} className="px-5 py-12 text-center text-gray-500">No patients found.</td></tr>}
           </tbody></table></div>
       </div>
