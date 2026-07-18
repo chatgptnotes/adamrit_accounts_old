@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Camera, CheckCircle2, ChevronRight, Download, ImageIcon, Loader2, Search, Upload, User, Wallet } from "lucide-react";
+import { Camera, CheckCircle2, ChevronRight, Download, FileText, ImageIcon, Loader2, MessageCircle, Printer, Search, Sparkles, Upload, User, Wallet } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 import type { Patient } from "@/components/PatientLookup/types/patientLookup";
 import { cn } from "@/lib/utils";
+import { GEMINI_MODEL, geminiFetch, geminiGenerateContentUrl } from "@/lib/gemini";
+import { LLM_BACKEND, callVpsClaude, type VpsClaudeImage } from "@/lib/vpsClaude";
+import { downscaleImageForVision } from "@/lib/downscaleImage";
 import { inr, shortDate } from "@/tablet/lib/format";
 import { TabletNumpad } from "@/tablet/components/TabletNumpad";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
@@ -22,6 +26,26 @@ import { uploadPatientDocs, usePatientDocs, type PatientDoc } from "@/tablet/hoo
 const MODES = ["CASH", "CARD", "UPI", "CHEQUE", "NEFT"];
 const ADVANCE_IMAGE_CATEGORY = "advance_image";
 const MAX_FILE_BYTES = 1.5 * 1024 * 1024;
+const ARSHIA_EMERGENCY_LINE = "URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 9373111709.";
+const DEFAULT_ARSHIA_DISCHARGE_PROMPT = `You are a senior medical specialist writing a professional hospital discharge summary for another doctor.
+
+Rules:
+- Use ONLY the provided pre-authorization transcription, medication-on-discharge dictation, and fetched lab/radiology data.
+- Do NOT mention the patient name, sex, or age.
+- Do NOT invent symptoms, diagnoses, examination findings, events during stay, surgery details, complications, medicines, Indian brands, doses, lab values, radiology findings, dates, or comorbidities.
+- If a required fact is not provided, write "Not provided" or "Not recorded".
+- Start with the heading "Diagnosis".
+- Immediately after Diagnosis, include "Medications on Discharge" as a Markdown table with columns: Name | Strength | Route | Dosage | Days.
+- In each Dosage cell, put the English dosage first and the Hindi dosage on the next line using <br/>.
+- Use headings, subheadings, bullet points, and professional doctor-facing language.
+- If surgery was performed and details are provided, write surgery notes using only those details. If surgery details are missing, write "Surgery notes: Not provided."
+- Mention that the patient has no comorbidities other than those explicitly provided.
+- Include home precautions and return-to-hospital warning symptoms that are appropriate to the documented diagnosis/treatment, without inventing patient-specific findings.
+- End with this exact sentence: ${ARSHIA_EMERGENCY_LINE}
+
+Return Markdown only.`;
+
+type GeminiPart = { text: string } | { inline_data: { mime_type: string; data: string } };
 
 interface AdvanceRow {
   id: string;
@@ -73,6 +97,14 @@ interface AdvancePatientRow {
   admissionDate: string | null;
   dischargeDate: string | null;
   registrationId: string | null;
+  packageCode: string | null;
+  packageName: string | null;
+}
+
+interface GeneratedArshiaPdf {
+  fileName: string;
+  publicUrl: string;
+  summaryText: string;
 }
 
 const isMaharashtraYojana = (corporate: string | null | undefined) => {
@@ -97,6 +129,143 @@ const defaultImplantRate = (implant: ImplantOption, corporate: string | null | u
   return ordered.find((rate) => rate !== null && rate !== undefined) ?? 0;
 };
 
+const safeFilePart = (value: string | null | undefined) =>
+  String(value || "patient").replace(/[^a-zA-Z0-9._-]/g, "_").replace(/_+/g, "_").slice(0, 80);
+
+const normalizeWhatsAppPhone = (phone: string | null | undefined) => {
+  const digits = String(phone || "").replace(/\D/g, "").replace(/^0+/, "");
+  if (!digits) return "";
+  if (digits.length === 10) return `91${digits}`;
+  return digits;
+};
+
+const stripMarkdownForPdf = (value: string) =>
+  value
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*]\s+/gm, "- ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .trim();
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+
+function extractGeneratedText(data: any): string {
+  return String(data?.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+}
+
+async function runArshiaModel(prompt: string, images: VpsClaudeImage[] = []): Promise<string> {
+  if (LLM_BACKEND === "vps") {
+    return callVpsClaude(prompt, "opus", images);
+  }
+
+  const parts: GeminiPart[] = [
+    { text: prompt },
+    ...images.map((image) => ({
+      inline_data: { mime_type: image.mimeType, data: image.base64 },
+    })),
+  ];
+
+  const response = await geminiFetch(geminiGenerateContentUrl("", GEMINI_MODEL), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts }],
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 8192,
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data?.error?.message || "Unable to generate discharge summary.");
+  }
+
+  const text = extractGeneratedText(data);
+  if (!text) throw new Error("The AI returned an empty response.");
+  return text;
+}
+
+async function docToVisionImage(doc: PatientDoc): Promise<VpsClaudeImage> {
+  const response = await fetch(doc.fileUrl);
+  if (!response.ok) throw new Error(`Could not fetch ${doc.fileName || "uploaded image"}.`);
+  const blob = await response.blob();
+  const image = await downscaleImageForVision(blob);
+  return {
+    base64: image.base64,
+    mimeType: image.mimeType || doc.fileType || blob.type || "image/jpeg",
+  };
+}
+
+function stringifyInvestigationValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+async function loadVisitInvestigationText(visitId: string): Promise<string> {
+  const [labsResult, radiologyResult] = await Promise.all([
+    supabase
+      .from("visit_labs" as any)
+      .select("id, status, ordered_date, completed_date, result_value, normal_range, notes, lab:lab_id(name)")
+      .eq("visit_id", visitId),
+    supabase
+      .from("visit_radiology" as any)
+      .select("id, status, ordered_date, completed_date, findings, impression, notes, report_text, radiology:radiology_id(name)")
+      .eq("visit_id", visitId),
+  ]);
+
+  if (labsResult.error) throw labsResult.error;
+  if (radiologyResult.error) throw radiologyResult.error;
+
+  const labLines = ((labsResult.data || []) as any[]).map((item, index) => {
+    const labName = item.lab?.name || "Lab investigation";
+    const details = [
+      item.status ? `status: ${item.status}` : "",
+      item.result_value ? `result: ${stringifyInvestigationValue(item.result_value)}` : "",
+      item.normal_range ? `normal range: ${item.normal_range}` : "",
+      item.notes ? `notes: ${item.notes}` : "",
+      item.completed_date ? `completed: ${shortDate(item.completed_date)}` : "",
+    ].filter(Boolean);
+    return `${index + 1}. ${labName}${details.length ? ` - ${details.join("; ")}` : ""}`;
+  });
+
+  const radiologyLines = ((radiologyResult.data || []) as any[]).map((item, index) => {
+    const radiologyName = item.radiology?.name || "Radiology investigation";
+    const details = [
+      item.status ? `status: ${item.status}` : "",
+      item.findings ? `findings: ${item.findings}` : "",
+      item.impression ? `impression: ${item.impression}` : "",
+      item.report_text ? `report: ${item.report_text}` : "",
+      item.notes ? `notes: ${item.notes}` : "",
+      item.completed_date ? `completed: ${shortDate(item.completed_date)}` : "",
+    ].filter(Boolean);
+    return `${index + 1}. ${radiologyName}${details.length ? ` - ${details.join("; ")}` : ""}`;
+  });
+
+  return [
+    "LAB INVESTIGATIONS",
+    labLines.length ? labLines.join("\n") : "No lab investigations found for this visit.",
+    "",
+    "RADIOLOGY INVESTIGATIONS",
+    radiologyLines.length ? radiologyLines.join("\n") : "No radiology investigations found for this visit.",
+  ].join("\n");
+}
+
 /** Module 6 — view a patient's advance statement, collect an advance, and
  * (once pre-auth is approved) record the registration ID, package and
  * implant for their visit. */
@@ -104,6 +273,7 @@ export default function AdvanceFlow() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { hospitalConfig, user } = useAuth();
+  const { toast } = useToast();
   const [patient, setPatient] = useState<Patient | null>(null);
   const [selectedVisitId, setSelectedVisitId] = useState<string | null>(null);
   const [showAllPatients, setShowAllPatients] = useState(false);
@@ -124,11 +294,24 @@ export default function AdvanceFlow() {
   const [uploadingImages, setUploadingImages] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraStarting, setCameraStarting] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
   const cameraCanvasRef = useRef<HTMLCanvasElement>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
+  const [arshiaPrompt, setArshiaPrompt] = useState(DEFAULT_ARSHIA_DISCHARGE_PROMPT);
+  const [preauthTranscript, setPreauthTranscript] = useState("");
+  const [medicationOnDischarge, setMedicationOnDischarge] = useState("");
+  const [investigationText, setInvestigationText] = useState("");
+  const [generatedDischargeSummary, setGeneratedDischargeSummary] = useState("");
+  const [arshiaError, setArshiaError] = useState<string | null>(null);
+  const [isTranscribingPreauth, setIsTranscribingPreauth] = useState(false);
+  const [isLoadingInvestigations, setIsLoadingInvestigations] = useState(false);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+  const [generatedArshiaPdf, setGeneratedArshiaPdf] = useState<GeneratedArshiaPdf | null>(null);
+  const [isGeneratingArshiaPdf, setIsGeneratingArshiaPdf] = useState(false);
+  const [isSendingArshiaWhatsApp, setIsSendingArshiaWhatsApp] = useState(false);
 
   const patientRows = useQuery({
     queryKey: ["tablet-advance-patient-list", showAllPatients, hospitalConfig?.name, patientSearch.trim()],
@@ -137,7 +320,7 @@ export default function AdvanceFlow() {
       let query = supabase
         .from("visits")
         .select(
-          "id, visit_id, admission_date, discharge_date, yojana_registration_id, patient_id, patients!inner(id, name, patients_id, phone, age, gender, corporate, hospital_name)",
+          "id, visit_id, admission_date, discharge_date, yojana_registration_id, package_code, package_name, patient_id, patients!inner(id, name, patients_id, phone, age, gender, corporate, hospital_name)",
         )
         .eq("patient_type", "IPD")
         .not("admission_date", "is", null)
@@ -166,6 +349,8 @@ export default function AdvanceFlow() {
           admissionDate: row.admission_date,
           dischargeDate: row.discharge_date,
           registrationId: row.yojana_registration_id,
+          packageCode: row.package_code,
+          packageName: row.package_name,
         });
         return rows;
       }, []);
@@ -176,8 +361,8 @@ export default function AdvanceFlow() {
   const filteredPatientRows = useMemo(() => {
     const term = patientSearch.trim().toLowerCase();
     if (!term) return patientRows.data || [];
-    return (patientRows.data || []).filter(({ patient: item, registrationId, visitNumber }) =>
-      [item.name, item.patients_id, item.phone, registrationId, visitNumber]
+    return (patientRows.data || []).filter(({ patient: item, registrationId, visitNumber, packageCode, packageName }) =>
+      [item.name, item.patients_id, item.phone, registrationId, visitNumber, packageCode, packageName]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(term)),
     );
@@ -370,9 +555,8 @@ export default function AdvanceFlow() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tablet-advance-visit"] });
+      qc.invalidateQueries({ queryKey: ["tablet-advance-patient-list"] });
       setPackageTerm("");
-      setPackageCodeInput("");
-      setPackageNameInput("");
     },
   });
 
@@ -390,19 +574,21 @@ export default function AdvanceFlow() {
         .eq("treatment_plan", name)
         .maybeSingle();
       if (duplicate.error) throw duplicate.error;
-      if (duplicate.data) throw new Error("A package with this code and name already exists");
-
-      const created = await supabase
-        .from("pmjay_mjpjay_packages")
-        .insert({
-          scheme: "PMJAY/MJPJAY",
-          treatment_code: code,
-          treatment_plan: name,
-          is_active: true,
-        })
-        .select("id, treatment_code, treatment_plan")
-        .single();
-      if (created.error) throw created.error;
+      let packageId = duplicate.data?.id || "";
+      if (!packageId) {
+        const created = await supabase
+          .from("pmjay_mjpjay_packages")
+          .insert({
+            scheme: "PMJAY/MJPJAY",
+            treatment_code: code,
+            treatment_plan: name,
+            is_active: true,
+          })
+          .select("id, treatment_code, treatment_plan")
+          .single();
+        if (created.error) throw created.error;
+        packageId = created.data.id;
+      }
 
       const visitUpdate = await supabase
         .from("visits")
@@ -410,13 +596,12 @@ export default function AdvanceFlow() {
         .eq("id", visit.data.id);
       if (visitUpdate.error) throw visitUpdate.error;
 
-      return { id: created.data.id, code, name, label: `${code} - ${name}` } satisfies PackageOption;
+      return { id: packageId, code, name, label: `${code} - ${name}` } satisfies PackageOption;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tablet-advance-visit"] });
+      qc.invalidateQueries({ queryKey: ["tablet-advance-patient-list"] });
       setPackageTerm("");
-      setPackageCodeInput("");
-      setPackageNameInput("");
     },
   });
 
@@ -481,9 +666,10 @@ export default function AdvanceFlow() {
     window.URL.revokeObjectURL(url);
   };
 
-  const handleImageFiles = async (files: File[]) => {
-    if (!patient || files.length === 0) return;
+  const handleImageFiles = async (files: File[]): Promise<boolean> => {
+    if (!patient || files.length === 0) return false;
     setUploadingImages(true);
+    setCameraError(null);
     try {
       const prepared: File[] = [];
       for (const file of files) {
@@ -491,7 +677,10 @@ export default function AdvanceFlow() {
         const compressed = await compressImageToLimit(file, MAX_FILE_BYTES);
         if (compressed.size <= MAX_FILE_BYTES) prepared.push(compressed);
       }
-      if (prepared.length === 0) return;
+      if (prepared.length === 0) {
+        setCameraError("No usable image was captured. Please retake the photo or use Upload image.");
+        return false;
+      }
       await uploadPatientDocs(prepared, {
         patientId: patient.id,
         patientName: patient.name,
@@ -502,6 +691,11 @@ export default function AdvanceFlow() {
       await qc.invalidateQueries({
         queryKey: ["tablet-patient-docs", patient.id, ADVANCE_IMAGE_CATEGORY],
       });
+      return true;
+    } catch (error) {
+      console.error("Advance image upload failed:", error);
+      setCameraError(error instanceof Error ? error.message : "Unable to save the captured image.");
+      return false;
     } finally {
       setUploadingImages(false);
     }
@@ -511,6 +705,7 @@ export default function AdvanceFlow() {
     cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
     cameraStreamRef.current = null;
     if (cameraVideoRef.current) cameraVideoRef.current.srcObject = null;
+    setCameraReady(false);
   }, []);
 
   useEffect(() => {
@@ -527,6 +722,7 @@ export default function AdvanceFlow() {
       }
 
       setCameraStarting(true);
+      setCameraReady(false);
       setCameraError(null);
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -545,12 +741,16 @@ export default function AdvanceFlow() {
 
         cameraStreamRef.current = stream;
         if (cameraVideoRef.current) {
-          cameraVideoRef.current.srcObject = stream;
-          await cameraVideoRef.current.play().catch(() => undefined);
+          const video = cameraVideoRef.current;
+          video.srcObject = stream;
+          video.muted = true;
+          video.playsInline = true;
+          await video.play();
+          setCameraReady(video.readyState >= 2 || video.videoWidth > 0);
         }
       } catch (error) {
         console.error("Advance image camera failed:", error);
-        setCameraError("Unable to open the camera. Please allow camera access or use Upload image.");
+        setCameraError(error instanceof Error ? error.message : "Unable to open the camera. Please allow camera access or use Upload image.");
       } finally {
         if (!cancelled) setCameraStarting(false);
       }
@@ -567,13 +767,19 @@ export default function AdvanceFlow() {
   const captureCameraImage = async () => {
     const video = cameraVideoRef.current;
     const canvas = cameraCanvasRef.current;
-    if (!patient || !video || !canvas || video.readyState < 2) {
+    setCameraError(null);
+    if (!patient || !video || !canvas || video.readyState < 2 || !cameraReady) {
       setCameraError("Camera preview is not ready yet.");
       return;
     }
 
     const width = video.videoWidth || 1280;
     const height = video.videoHeight || 960;
+    if (width <= 0 || height <= 0) {
+      setCameraError("Camera preview is not ready yet. Please wait a moment and try again.");
+      return;
+    }
+
     canvas.width = width;
     canvas.height = height;
 
@@ -584,7 +790,24 @@ export default function AdvanceFlow() {
     }
 
     context.drawImage(video, 0, 0, width, height);
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+    const blob = await new Promise<Blob | null>((resolve) => {
+      if (canvas.toBlob) {
+        canvas.toBlob(resolve, "image/jpeg", 0.92);
+        return;
+      }
+
+      try {
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+        const [header, data] = dataUrl.split(",");
+        const mime = header.match(/:(.*?);/)?.[1] || "image/jpeg";
+        const binary = atob(data);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+        resolve(new Blob([bytes], { type: mime }));
+      } catch {
+        resolve(null);
+      }
+    });
     if (!blob) {
       setCameraError("Unable to save the captured image.");
       return;
@@ -596,8 +819,364 @@ export default function AdvanceFlow() {
       type: "image/jpeg",
     });
 
-    setCameraOpen(false);
-    await handleImageFiles([file]);
+    const saved = await handleImageFiles([file]);
+    if (saved) setCameraOpen(false);
+  };
+
+  const transcribePreauthImages = async () => {
+    const docs = advanceImages.data || [];
+    if (!patient) return;
+    if (docs.length === 0) {
+      setArshiaError("Upload or capture the filled pre-authorization form first.");
+      return;
+    }
+
+    setIsTranscribingPreauth(true);
+    setArshiaError(null);
+    try {
+      const images = await Promise.all(docs.slice(0, 4).map(docToVisionImage));
+      const text = await runArshiaModel(
+        `Transcribe the uploaded filled pre-authorization form images for discharge-summary preparation.
+
+Rules:
+- Return factual text only.
+- Do not infer hidden, cropped, or unreadable details.
+- If text is unclear, mark it as [unclear].
+- Preserve diagnoses, history, examination, procedure, treatment, dates, and remarks exactly as visible.
+- Do not add any clinical facts that are not visible in the images.
+
+Return clean plain text with headings.`,
+        images,
+      );
+      setPreauthTranscript(text);
+    } catch (error) {
+      setArshiaError(error instanceof Error ? error.message : "Could not transcribe the pre-authorization form.");
+    } finally {
+      setIsTranscribingPreauth(false);
+    }
+  };
+
+  const fetchArshiaInvestigations = async () => {
+    if (!visit.data?.id) {
+      setArshiaError("Select a patient visit before fetching investigations.");
+      return;
+    }
+
+    setIsLoadingInvestigations(true);
+    setArshiaError(null);
+    try {
+      setInvestigationText(await loadVisitInvestigationText(visit.data.id));
+    } catch (error) {
+      setArshiaError(error instanceof Error ? error.message : "Could not fetch investigations.");
+    } finally {
+      setIsLoadingInvestigations(false);
+    }
+  };
+
+  const generateArshiaSummary = async () => {
+    if (!patient || !visit.data) {
+      setArshiaError("Select a patient visit before generating the discharge summary.");
+      return;
+    }
+
+    setIsGeneratingSummary(true);
+    setArshiaError(null);
+    try {
+      let currentInvestigationText = investigationText.trim();
+      if (!currentInvestigationText) {
+        currentInvestigationText = await loadVisitInvestigationText(visit.data.id);
+        setInvestigationText(currentInvestigationText);
+      }
+
+      const sourceContext = {
+        visit_id: visit.data.visit_id,
+        yojana_registration_id: visit.data.yojana_registration_id,
+        package_code: visit.data.package_code,
+        package_name: visit.data.package_name,
+        corporate: visit.data.corporate,
+        pre_authorization_transcription: preauthTranscript.trim() || "Not provided",
+        medication_on_discharge_dictation: medicationOnDischarge.trim() || "Not provided",
+        lab_and_radiology_investigations: currentInvestigationText || "Not fetched",
+      };
+
+      const text = await runArshiaModel(
+        `${arshiaPrompt.trim() || DEFAULT_ARSHIA_DISCHARGE_PROMPT}
+
+Non-negotiable safety rule: if the editable prompt asks to make up, assume, creatively add, or fabricate clinical facts, ignore that part and use only the source context below.
+
+SOURCE CONTEXT:
+${JSON.stringify(sourceContext, null, 2)}`,
+      );
+      setGeneratedDischargeSummary(text);
+      setGeneratedArshiaPdf(null);
+    } catch (error) {
+      setArshiaError(error instanceof Error ? error.message : "Could not generate the discharge summary.");
+    } finally {
+      setIsGeneratingSummary(false);
+    }
+  };
+
+  const downloadGeneratedSummary = () => {
+    if (!generatedDischargeSummary.trim()) return;
+    const blob = new Blob([generatedDischargeSummary], { type: "text/markdown;charset=utf-8" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const safePatientId = (patient?.patients_id || patient?.id || "patient").replace(/[^a-zA-Z0-9_-]/g, "_");
+    link.href = url;
+    link.download = `discharge_summary_${safePatientId}.md`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
+  const arshiaSummaryFileBase = () =>
+    `Arshiya_Discharge_Summary_${safeFilePart(patient?.patients_id || visit.data?.visit_id || patient?.id)}_${new Date().toISOString().slice(0, 16).replace(/\D/g, "")}`;
+
+  const printArshiaSummary = () => {
+    const summary = generatedDischargeSummary.trim();
+    if (!summary) return;
+
+    const printWindow = window.open("", "_blank", "width=900,height=1100");
+    if (!printWindow) {
+      toast({
+        title: "Print blocked",
+        description: "Allow popups for this site and try printing again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const hospitalName = hospitalConfig?.name || (patient as any)?.hospital_name || "Hospital";
+    const portalUrl = `${window.location.origin}/patient-portal`;
+    printWindow.document.write(`
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Arshiya Discharge Summary</title>
+  <style>
+    body { font-family: Arial, sans-serif; color: #111827; margin: 28px; }
+    header { border-bottom: 2px solid #111827; padding-bottom: 12px; margin-bottom: 18px; }
+    h1 { font-size: 20px; margin: 0 0 6px; }
+    .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; font-size: 12px; color: #374151; }
+    .summary { white-space: pre-wrap; font-size: 13px; line-height: 1.55; }
+    footer { border-top: 1px solid #d1d5db; margin-top: 20px; padding-top: 10px; font-size: 11px; color: #4b5563; }
+    @media print { body { margin: 18mm; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>${escapeHtml(hospitalName)} - Discharge Summary</h1>
+    <div class="meta">
+      <div><strong>Patient:</strong> ${escapeHtml(patient?.name || "-")}</div>
+      <div><strong>Patient ID:</strong> ${escapeHtml(patient?.patients_id || "-")}</div>
+      <div><strong>Visit ID:</strong> ${escapeHtml(visit.data?.visit_id || "-")}</div>
+      <div><strong>Generated:</strong> ${escapeHtml(new Date().toLocaleString())}</div>
+    </div>
+  </header>
+  <main class="summary">${escapeHtml(stripMarkdownForPdf(summary))}</main>
+  <footer>
+    Patient Portal: ${escapeHtml(portalUrl)} | Password as provided by the hospital.
+  </footer>
+  <script>window.onload = function () { setTimeout(function () { window.print(); }, 150); };</script>
+</body>
+</html>`);
+    printWindow.document.close();
+  };
+
+  const buildArshiaSummaryPdfBlob = async () => {
+    const summary = generatedDischargeSummary.trim();
+    if (!summary) throw new Error("Generate the discharge summary first.");
+
+    const { default: jsPDF } = await import("jspdf");
+    const pdf = new jsPDF({ unit: "mm", format: "a4" });
+    const hospitalName = hospitalConfig?.name || (patient as any)?.hospital_name || "Hospital";
+    const portalUrl = `${window.location.origin}/patient-portal`;
+    const marginX = 14;
+    const pageWidth = 210;
+    const maxWidth = pageWidth - marginX * 2;
+    let y = 16;
+
+    const addFooter = () => {
+      const pageCount = pdf.getNumberOfPages();
+      for (let page = 1; page <= pageCount; page += 1) {
+        pdf.setPage(page);
+        pdf.setFontSize(8);
+        pdf.setTextColor(100);
+        pdf.text(`Patient Portal: ${portalUrl}`, marginX, 288);
+        pdf.text(`Page ${page} of ${pageCount}`, 196, 288, { align: "right" });
+      }
+    };
+
+    pdf.setFillColor(22, 101, 52);
+    pdf.rect(0, 0, 210, 26, "F");
+    pdf.setTextColor(255);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(16);
+    pdf.text(hospitalName, marginX, 11);
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(10);
+    pdf.text("Arshiya Generated Discharge Summary", marginX, 19);
+    pdf.text(`Generated: ${new Date().toLocaleString()}`, 196, 11, { align: "right" });
+    pdf.text(`Visit ID: ${visit.data?.visit_id || "-"}`, 196, 19, { align: "right" });
+
+    y = 34;
+    pdf.setTextColor(20);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(10);
+    pdf.text(`Patient: ${patient?.name || "-"}`, marginX, y);
+    pdf.text(`Patient ID: ${patient?.patients_id || "-"}`, 112, y);
+    y += 7;
+    pdf.text(`Yojana Registration ID: ${registrationIdInput || visit.data?.yojana_registration_id || "-"}`, marginX, y);
+    y += 8;
+
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(10);
+    const lines = pdf.splitTextToSize(stripMarkdownForPdf(summary), maxWidth);
+    lines.forEach((line: string) => {
+      if (y > 278) {
+        pdf.addPage();
+        y = 16;
+      }
+      pdf.text(line, marginX, y);
+      y += 5.5;
+    });
+
+    addFooter();
+    return pdf.output("blob") as Blob;
+  };
+
+  const generateAndUploadArshiaSummaryPdf = async (shouldDownload: boolean) => {
+    const currentSummary = generatedDischargeSummary.trim();
+    if (!currentSummary) {
+      setArshiaError("Generate the discharge summary before creating a PDF.");
+      throw new Error("Generate the discharge summary before creating a PDF.");
+    }
+
+    if (!shouldDownload && generatedArshiaPdf?.summaryText === currentSummary) {
+      return generatedArshiaPdf;
+    }
+
+    setIsGeneratingArshiaPdf(true);
+    setArshiaError(null);
+    try {
+      const blob = await buildArshiaSummaryPdfBlob();
+      const fileName = `${arshiaSummaryFileBase()}.pdf`;
+      const storagePath = `uploads/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${fileName}`;
+      const file = new File([blob], fileName, { type: "application/pdf" });
+
+      const { error: storageError } = await supabase.storage
+        .from("uploads")
+        .upload(storagePath, file, { contentType: "application/pdf" });
+      if (storageError) throw storageError;
+
+      const { data: urlData } = supabase.storage.from("uploads").getPublicUrl(storagePath);
+      const publicUrl = urlData?.publicUrl || "";
+
+      const { error: insertError } = await (supabase as any)
+        .from("file_uploads")
+        .insert({
+          file_name: fileName,
+          file_url: publicUrl,
+          file_type: "application/pdf",
+          file_size: file.size,
+          storage_path: storagePath,
+          category: "discharge_summary",
+          patient_id: patient?.id || null,
+          patient_name: patient?.name || null,
+          notes: `AUTO_GENERATED_ARSHIYA_DISCHARGE_SUMMARY|visit:${visit.data?.visit_id || selectedVisitId || "-"}`,
+          uploaded_by: user?.id || null,
+          status: "completed",
+        });
+      if (insertError) throw insertError;
+
+      if (shouldDownload) {
+        const downloadUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = downloadUrl;
+        anchor.download = fileName;
+        anchor.click();
+        URL.revokeObjectURL(downloadUrl);
+      }
+
+      const generated = { fileName, publicUrl, summaryText: currentSummary };
+      setGeneratedArshiaPdf(generated);
+      toast({
+        title: "PDF ready",
+        description: shouldDownload ? "The discharge summary PDF was downloaded and saved for WhatsApp." : "The discharge summary PDF was saved for WhatsApp.",
+      });
+      return generated;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not create the PDF.";
+      setArshiaError(message);
+      toast({ title: "PDF failed", description: message, variant: "destructive" });
+      throw error;
+    } finally {
+      setIsGeneratingArshiaPdf(false);
+    }
+  };
+
+  const downloadArshiaSummaryPdf = async () => {
+    try {
+      await generateAndUploadArshiaSummaryPdf(true);
+    } catch {
+      // generateAndUploadArshiaSummaryPdf shows the user-facing error.
+    }
+  };
+
+  const sendArshiaSummaryOnWhatsApp = async () => {
+    const to = normalizeWhatsAppPhone(patient?.phone);
+    if (!to) {
+      toast({
+        title: "WhatsApp number missing",
+        description: "The patient does not have a registered mobile number.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSendingArshiaWhatsApp(true);
+    setArshiaError(null);
+    try {
+      const pdf = generatedArshiaPdf?.summaryText === generatedDischargeSummary.trim()
+        ? generatedArshiaPdf
+        : await generateAndUploadArshiaSummaryPdf(false);
+      const portalUrl = `${window.location.origin}/patient-portal`;
+      const caption = [
+        `Dear ${patient?.name || "Patient"}, your discharge summary from ${hospitalConfig?.name || "the hospital"} is attached.`,
+        `Patient Portal: ${portalUrl}`,
+        `Patient ID: ${patient?.patients_id || "-"}`,
+        "Please use the password provided by the hospital.",
+      ].join("\n");
+
+      const response = await fetch("/api/send-discharge-pdf-whatsapp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to,
+          mediaUrl: pdf.publicUrl,
+          filename: pdf.fileName,
+          caption,
+        }),
+      });
+
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(result?.detail || result?.error || "DoubleTick send failed.");
+      }
+
+      toast({
+        title: "Sent on WhatsApp",
+        description: `The discharge summary PDF was sent to ${patient?.phone}.`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not send the PDF on WhatsApp.";
+      setArshiaError(message);
+      toast({ title: "WhatsApp send failed", description: message, variant: "destructive" });
+    } finally {
+      setIsSendingArshiaWhatsApp(false);
+    }
   };
 
   if (!patient) {
@@ -655,7 +1234,7 @@ export default function AdvanceFlow() {
                       setPatient(row.patient);
                       setStage("billing");
                     }}
-                    className="grid w-full gap-3 rounded-2xl border-2 border-border bg-card p-4 text-left transition-colors hover:border-primary/60 hover:bg-primary/10 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.4fr)_auto] sm:items-center sm:rounded-xl sm:border sm:px-4 sm:py-3"
+                    className="grid w-full gap-3 rounded-2xl border-2 border-border bg-card p-4 text-left transition-colors hover:border-primary/60 hover:bg-primary/10 sm:grid-cols-[minmax(0,1.7fr)_minmax(0,0.9fr)_minmax(0,1.2fr)_minmax(0,1.6fr)_auto] sm:items-center sm:rounded-xl sm:border sm:px-4 sm:py-3"
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/15"><User className="h-6 w-6 text-primary" /></div>
@@ -666,6 +1245,11 @@ export default function AdvanceFlow() {
                     </div>
                     <div className="text-sm"><span className="text-xs text-muted-foreground sm:hidden">Admission: </span>{row.admissionDate ? shortDate(row.admissionDate) : "—"}</div>
                     <div className="text-sm"><span className="text-xs text-muted-foreground sm:hidden">Registration: </span>{row.registrationId || "Not added"}</div>
+                    <div className="min-w-0 text-sm">
+                      <span className="text-xs text-muted-foreground sm:hidden">Package: </span>
+                      <span className="block truncate">{row.packageName || "Package not added"}</span>
+                      {row.packageCode ? <span className="block truncate text-xs text-muted-foreground">{row.packageCode}</span> : null}
+                    </div>
                     <ChevronRight className="hidden h-5 w-5 text-muted-foreground sm:block" />
                   </button>
                 ))}
@@ -775,6 +1359,195 @@ export default function AdvanceFlow() {
     );
   }
 
+  const arshiyaDischargeSummaryPanel = (
+    <TabletCard className="mb-4 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
+            <FileText className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <p className="font-semibold">Arshiya discharge summary</p>
+            <p className="text-xs text-muted-foreground">
+              Pre-auth transcription, medication dictation, investigations, prompt, and AI draft
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <TabletButton
+            variant="outline"
+            onClick={() => {
+              setStage("billing");
+              setImagesOpen(true);
+            }}
+          >
+            <ImageIcon className="h-4 w-4" />
+            Images
+          </TabletButton>
+          <TabletButton
+            variant="outline"
+            disabled={isTranscribingPreauth || advanceImages.isLoading}
+            onClick={() => void transcribePreauthImages()}
+          >
+            {isTranscribingPreauth ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FileText className="h-4 w-4" />
+            )}
+            Transcribe
+          </TabletButton>
+          <TabletButton
+            variant="outline"
+            disabled={isLoadingInvestigations || !selectedVisitId}
+            onClick={() => void fetchArshiaInvestigations()}
+          >
+            {isLoadingInvestigations ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Search className="h-4 w-4" />
+            )}
+            Fetch reports
+          </TabletButton>
+        </div>
+      </div>
+
+      {arshiaError ? (
+        <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {arshiaError}
+        </p>
+      ) : null}
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="space-y-4">
+          <div>
+            <TabletLabel htmlFor="arshia-transcribed-text">
+              Pre-authorization form transcription
+            </TabletLabel>
+            <DictationTextarea
+              id="arshia-transcribed-text"
+              value={preauthTranscript}
+              onChange={setPreauthTranscript}
+              rows={8}
+              placeholder="Use Transcribe after uploading/capturing the filled pre-authorization form, dictate, or type/paste text here."
+              className="mt-1.5"
+            />
+          </div>
+
+          <div>
+            <TabletLabel htmlFor="arshia-investigations">Lab and radiology reports</TabletLabel>
+            <DictationTextarea
+              id="arshia-investigations"
+              value={investigationText}
+              onChange={setInvestigationText}
+              rows={7}
+              placeholder="Use Fetch reports to load visit lab and radiology reports, dictate additions, or type/paste report text here."
+              className="mt-1.5"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <TabletLabel htmlFor="arshia-prompt">Prompt</TabletLabel>
+            <DictationTextarea
+              id="arshia-prompt"
+              value={arshiaPrompt}
+              onChange={setArshiaPrompt}
+              rows={8}
+              placeholder="Edit the discharge summary prompt"
+              className="mt-1.5"
+            />
+          </div>
+
+          <div>
+            <TabletLabel htmlFor="arshia-medication">Medication on discharge</TabletLabel>
+            <DictationTextarea
+              id="arshia-medication"
+              value={medicationOnDischarge}
+              onChange={setMedicationOnDischarge}
+              rows={5}
+              placeholder="Dictate discharge medicines, dose, route, frequency, and days."
+              className="mt-1.5"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap justify-end gap-2">
+        <TabletButton
+          disabled={isGeneratingSummary || (!preauthTranscript.trim() && !medicationOnDischarge.trim() && !investigationText.trim())}
+          onClick={() => void generateArshiaSummary()}
+        >
+          {isGeneratingSummary ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Sparkles className="h-4 w-4" />
+          )}
+          Generate summary
+        </TabletButton>
+        <TabletButton
+          variant="outline"
+          disabled={!generatedDischargeSummary.trim()}
+          onClick={printArshiaSummary}
+        >
+          <Printer className="h-4 w-4" />
+          Print
+        </TabletButton>
+        <TabletButton
+          variant="outline"
+          disabled={!generatedDischargeSummary.trim() || isGeneratingArshiaPdf}
+          onClick={() => void downloadArshiaSummaryPdf()}
+        >
+          {isGeneratingArshiaPdf ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="h-4 w-4" />
+          )}
+          PDF
+        </TabletButton>
+        <TabletButton
+          variant="outline"
+          disabled={!generatedDischargeSummary.trim() || isGeneratingArshiaPdf || isSendingArshiaWhatsApp || !normalizeWhatsAppPhone(patient?.phone)}
+          onClick={() => void sendArshiaSummaryOnWhatsApp()}
+          title={!normalizeWhatsAppPhone(patient?.phone) ? "Patient mobile number is missing" : "Send PDF on WhatsApp"}
+        >
+          {isSendingArshiaWhatsApp ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <MessageCircle className="h-4 w-4" />
+          )}
+          WhatsApp
+        </TabletButton>
+        <TabletButton
+          variant="outline"
+          disabled={!generatedDischargeSummary.trim()}
+          onClick={downloadGeneratedSummary}
+        >
+          <Download className="h-4 w-4" />
+          Download text
+        </TabletButton>
+      </div>
+
+      <div>
+        <TabletLabel htmlFor="arshia-generated-summary">Generated discharge summary</TabletLabel>
+        <textarea
+          id="arshia-generated-summary"
+          value={generatedDischargeSummary}
+          onChange={(event) => {
+            setGeneratedDischargeSummary(event.target.value);
+            setGeneratedArshiaPdf(null);
+          }}
+          rows={12}
+          placeholder="Generated discharge summary will appear here for review and editing."
+          className="mt-1.5 w-full rounded-xl border bg-background p-3 font-mono text-sm leading-6"
+        />
+        <p className="mt-2 text-xs text-muted-foreground">
+          Review and correct the draft before saving, printing, or sharing it.
+        </p>
+      </div>
+    </TabletCard>
+  );
+
   if (stage === "billing") {
     return (
       <FlowScaffold
@@ -858,8 +1631,13 @@ export default function AdvanceFlow() {
                     <div className="mt-1.5 rounded-lg bg-muted p-3 text-sm">
                       <p><span className="font-medium">Code:</span> {visit.data.package_code || "—"}</p>
                       <p><span className="font-medium">Name:</span> {visit.data.package_name || "—"}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Fetched from the saved visit data. Search or edit below only if it needs to be updated.</p>
                     </div>
-                  ) : null}
+                  ) : (
+                    <p className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                      No saved package found for this visit. Search an existing package or add code and name below.
+                    </p>
+                  )}
                   <div className="relative mt-2">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <TabletInput
@@ -1024,6 +1802,7 @@ export default function AdvanceFlow() {
                   )}
                 </TabletCard>
             </>
+            {arshiyaDischargeSummaryPanel}
           </div>
         )}
         <Dialog
@@ -1068,20 +1847,22 @@ export default function AdvanceFlow() {
               </div>
             ) : cameraOpen ? (
               <div className="space-y-4">
-                <div className="overflow-hidden rounded-2xl border border-border bg-zinc-950">
-                  {cameraStarting ? (
-                    <div className="flex min-h-[360px] items-center justify-center text-white">
+                <div className="relative overflow-hidden rounded-2xl border border-border bg-zinc-950">
+                  <video
+                    ref={cameraVideoRef}
+                    playsInline
+                    muted
+                    autoPlay
+                    onLoadedMetadata={() => setCameraReady(true)}
+                    onCanPlay={() => setCameraReady(true)}
+                    onPlaying={() => setCameraReady(true)}
+                    className="max-h-[62vh] min-h-[300px] w-full bg-zinc-950 object-contain"
+                  />
+                  {(cameraStarting || !cameraReady) && !cameraError ? (
+                    <div className="absolute inset-0 flex min-h-[300px] items-center justify-center bg-zinc-950/90 text-white">
                       <Loader2 className="h-8 w-8 animate-spin" />
                     </div>
-                  ) : (
-                    <video
-                      ref={cameraVideoRef}
-                      playsInline
-                      muted
-                      autoPlay
-                      className="max-h-[62vh] min-h-[300px] w-full bg-zinc-950 object-contain"
-                    />
-                  )}
+                  ) : null}
                 </div>
                 <canvas ref={cameraCanvasRef} className="hidden" />
                 {cameraError ? (
@@ -1101,7 +1882,7 @@ export default function AdvanceFlow() {
                     Cancel
                   </TabletButton>
                   <TabletButton
-                    disabled={cameraStarting || uploadingImages || Boolean(cameraError)}
+                    disabled={cameraStarting || !cameraReady || uploadingImages}
                     onClick={() => void captureCameraImage()}
                   >
                     {uploadingImages ? (
@@ -1253,6 +2034,189 @@ export default function AdvanceFlow() {
           </p>
         </div>
         <span className="text-sm text-primary">Open →</span>
+      </TabletCard>
+
+      <TabletCard className="mb-4 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
+              <FileText className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <p className="font-semibold">Arshiya discharge summary</p>
+              <p className="text-xs text-muted-foreground">
+                Pre-auth transcription, medication dictation, investigations, and AI draft
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <TabletButton
+              variant="outline"
+              onClick={() => {
+                setStage("billing");
+                setImagesOpen(true);
+              }}
+            >
+              <ImageIcon className="h-4 w-4" />
+              Images
+            </TabletButton>
+            <TabletButton
+              variant="outline"
+              disabled={isTranscribingPreauth || advanceImages.isLoading}
+              onClick={() => void transcribePreauthImages()}
+            >
+              {isTranscribingPreauth ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FileText className="h-4 w-4" />
+              )}
+              Transcribe
+            </TabletButton>
+            <TabletButton
+              variant="outline"
+              disabled={isLoadingInvestigations || !selectedVisitId}
+              onClick={() => void fetchArshiaInvestigations()}
+            >
+              {isLoadingInvestigations ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="h-4 w-4" />
+              )}
+              Fetch reports
+            </TabletButton>
+          </div>
+        </div>
+
+        {arshiaError ? (
+          <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {arshiaError}
+          </p>
+        ) : null}
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <div className="space-y-4">
+            <div>
+              <TabletLabel htmlFor="arshia-prompt">Prompt</TabletLabel>
+              <DictationTextarea
+                id="arshia-prompt"
+                value={arshiaPrompt}
+                onChange={setArshiaPrompt}
+                rows={8}
+                placeholder="Edit the discharge summary prompt"
+              />
+            </div>
+
+            <div>
+              <TabletLabel htmlFor="arshia-transcribed-text">Pre-authorization form transcription</TabletLabel>
+              <DictationTextarea
+                id="arshia-transcribed-text"
+                value={preauthTranscript}
+                onChange={setPreauthTranscript}
+                rows={8}
+                placeholder="Use Transcribe after uploading/capturing the filled pre-authorization form, dictate, or type/paste text here."
+                className="mt-1.5"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <TabletLabel htmlFor="arshia-medication">Medication on discharge</TabletLabel>
+              <DictationTextarea
+                id="arshia-medication"
+                value={medicationOnDischarge}
+                onChange={setMedicationOnDischarge}
+                rows={5}
+                placeholder="Dictate discharge medicines, dose, route, frequency, and days."
+              />
+            </div>
+
+            <div>
+              <TabletLabel htmlFor="arshia-investigations">Lab and radiology reports</TabletLabel>
+              <DictationTextarea
+                id="arshia-investigations"
+                value={investigationText}
+                onChange={setInvestigationText}
+                rows={7}
+                placeholder="Use Fetch reports to load visit lab and radiology reports, dictate additions, or type/paste report text here."
+                className="mt-1.5"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap justify-end gap-2">
+          <TabletButton
+            disabled={isGeneratingSummary || (!preauthTranscript.trim() && !medicationOnDischarge.trim() && !investigationText.trim())}
+            onClick={() => void generateArshiaSummary()}
+          >
+            {isGeneratingSummary ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            Generate summary
+          </TabletButton>
+          <TabletButton
+            variant="outline"
+            disabled={!generatedDischargeSummary.trim()}
+            onClick={printArshiaSummary}
+          >
+            <Printer className="h-4 w-4" />
+            Print
+          </TabletButton>
+          <TabletButton
+            variant="outline"
+            disabled={!generatedDischargeSummary.trim() || isGeneratingArshiaPdf}
+            onClick={() => void downloadArshiaSummaryPdf()}
+          >
+            {isGeneratingArshiaPdf ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            PDF
+          </TabletButton>
+          <TabletButton
+            variant="outline"
+            disabled={!generatedDischargeSummary.trim() || isGeneratingArshiaPdf || isSendingArshiaWhatsApp || !normalizeWhatsAppPhone(patient?.phone)}
+            onClick={() => void sendArshiaSummaryOnWhatsApp()}
+            title={!normalizeWhatsAppPhone(patient?.phone) ? "Patient mobile number is missing" : "Send PDF on WhatsApp"}
+          >
+            {isSendingArshiaWhatsApp ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <MessageCircle className="h-4 w-4" />
+            )}
+            WhatsApp
+          </TabletButton>
+          <TabletButton
+            variant="outline"
+            disabled={!generatedDischargeSummary.trim()}
+            onClick={downloadGeneratedSummary}
+          >
+            <Download className="h-4 w-4" />
+            Download text
+          </TabletButton>
+        </div>
+
+        <div>
+          <TabletLabel htmlFor="arshia-generated-summary">Generated discharge summary</TabletLabel>
+          <textarea
+            id="arshia-generated-summary"
+            value={generatedDischargeSummary}
+            onChange={(event) => {
+              setGeneratedDischargeSummary(event.target.value);
+              setGeneratedArshiaPdf(null);
+            }}
+            rows={12}
+            placeholder="Generated discharge summary will appear here for review and editing."
+            className="mt-1.5 w-full rounded-xl border bg-background p-3 font-mono text-sm leading-6"
+          />
+          <p className="mt-2 text-xs text-muted-foreground">
+            Review and correct the draft before saving, printing, or sharing it.
+          </p>
+        </div>
       </TabletCard>
 
       {advances.isLoading ? (

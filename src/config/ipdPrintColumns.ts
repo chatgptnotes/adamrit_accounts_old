@@ -1,6 +1,7 @@
 import { ReportColumn, PrintPreset } from '@/types/print';
 import { format } from 'date-fns';
 import { formatDateOnlyForDisplay } from '@/utils/dateOnly';
+import { formatDialysisPatientName } from '@/utils/dialysisPatientName';
 
 /**
  * Column definitions for IPD Dashboard print functionality
@@ -36,7 +37,8 @@ export const IPD_PRINT_COLUMNS: ReportColumn[] = [
     accessorKey: 'patients.name',
     printable: true,
     widthPx: 180,
-    align: 'left'
+    align: 'left',
+    format: (value, row) => formatDialysisPatientName(value, row)
   },
   {
     id: 'mobile_no',

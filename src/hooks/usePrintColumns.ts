@@ -188,13 +188,13 @@ export const getNestedValue = (obj: any, path: string): any => {
  * @param column - Column configuration
  * @returns Formatted string value
  */
-export const formatCellValue = (value: any, column: ReportColumn): string => {
+export const formatCellValue = (value: any, column: ReportColumn, row?: any): string => {
   if (value === null || value === undefined) {
     return '—';
   }
 
   if (column.format) {
-    return column.format(value);
+    return column.format(value, row);
   }
 
   // Default formatting based on value type

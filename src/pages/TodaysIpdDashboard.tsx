@@ -55,6 +55,7 @@ import { MriOrderModal } from '@/components/ipd/MriOrderModal';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { calculateReferralAmount, formatIndianCurrency } from '@/utils/referralCalculator';
 import { formatDateOnly, formatDateOnlyForDisplay, parseDateOnly } from '@/utils/dateOnly';
+import { formatDialysisPatientName } from '@/utils/dialysisPatientName';
 
 // Referee DOA Amount Cell with Payment Modal and Referral Tooltip
 const IpdRefereeAmountCell = ({
@@ -2585,7 +2586,7 @@ const TodaysIpdDashboard = () => {
 
   const handleExportToExcel = () => {
     const excelData = filteredVisits.map(visit => ({
-      'Name': visit.patients?.name || '',
+      'Name': formatDialysisPatientName(visit.patients?.name || '', visit),
       'Phone number': visit.patients?.phone || ''
     }));
 
@@ -3195,7 +3196,7 @@ const TodaysIpdDashboard = () => {
                     </button>
                   </TableCell>
                   <TableCell className="font-medium">
-                    {visit.patients?.name}
+                    {formatDialysisPatientName(visit.patients?.name, visit)}
                     {visit.discharge_date && <span className="text-red-500 text-xs ml-1">(discharged)</span>}
                   </TableCell>
                   <TableCell>
@@ -4232,7 +4233,7 @@ const TodaysIpdDashboard = () => {
                   <TableRow key={visit.id}>
                     <TableCell>{visit.visit_date || '-'}</TableCell>
                     <TableCell>{visit.visit_id || '-'}</TableCell>
-                    <TableCell>{visit.patients?.name || '-'}</TableCell>
+                    <TableCell>{formatDialysisPatientName(visit.patients?.name, visit) || '-'}</TableCell>
                     <TableCell>
                       <div>{visit.referees?.name || '-'}</div>
                       {visit.relationship_managers?.code && (
@@ -4304,7 +4305,7 @@ const TodaysIpdDashboard = () => {
                   <TableRow key={visit.id}>
                     <TableCell>{visit.visit_date || '-'}</TableCell>
                     <TableCell>{visit.visit_id || '-'}</TableCell>
-                    <TableCell>{visit.patients?.name || '-'}</TableCell>
+                    <TableCell>{formatDialysisPatientName(visit.patients?.name, visit) || '-'}</TableCell>
                     <TableCell>
                       <div>{visit.referees?.name || '-'}</div>
                       {visit.relationship_managers?.code && (

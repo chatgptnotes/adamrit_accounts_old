@@ -22,6 +22,12 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   "doctor-notes": lazy(
     () => import("@/tablet/modules/doctor-notes/DoctorNotesFlow"),
   ),
+  "ot-schedule-gaurav": lazy(
+    () => import("@/tablet/modules/ot-schedule/OtScheduleFlow"),
+  ),
+  "ot-photos-sarvesh": lazy(
+    () => import("@/tablet/modules/ot-schedule/OtScheduleFlow"),
+  ),
   "implant-servesh": lazy(
     () => import("@/tablet/modules/implant-servesh/ImplantServeshFlow"),
   ),
