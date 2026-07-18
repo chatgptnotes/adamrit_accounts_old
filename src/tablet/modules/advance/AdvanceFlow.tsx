@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Camera, CheckCircle2, ChevronRight, Download, FileText, ImageIcon, Loader2, Search, Sparkles, Upload, User, Wallet } from "lucide-react";
+import { Camera, CheckCircle2, ChevronRight, Download, FileText, ImageIcon, Loader2, MessageCircle, Printer, Search, Sparkles, Upload, User, Wallet } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 import type { Patient } from "@/components/PatientLookup/types/patientLookup";
 import { cn } from "@/lib/utils";
 import { GEMINI_MODEL, geminiFetch, geminiGenerateContentUrl } from "@/lib/gemini";
@@ -100,6 +101,12 @@ interface AdvancePatientRow {
   packageName: string | null;
 }
 
+interface GeneratedArshiaPdf {
+  fileName: string;
+  publicUrl: string;
+  summaryText: string;
+}
+
 const isMaharashtraYojana = (corporate: string | null | undefined) => {
   const value = (corporate || "").toLowerCase().trim();
   return (
@@ -121,6 +128,32 @@ const defaultImplantRate = (implant: ImplantOption, corporate: string | null | u
     : [implant.private_rate, implant.nabh_nabl_rate, implant.non_nabh_nabl_rate, implant.bhopal_nabh_rate, implant.bhopal_non_nabh_rate];
   return ordered.find((rate) => rate !== null && rate !== undefined) ?? 0;
 };
+
+const safeFilePart = (value: string | null | undefined) =>
+  String(value || "patient").replace(/[^a-zA-Z0-9._-]/g, "_").replace(/_+/g, "_").slice(0, 80);
+
+const normalizeWhatsAppPhone = (phone: string | null | undefined) => {
+  const digits = String(phone || "").replace(/\D/g, "").replace(/^0+/, "");
+  if (!digits) return "";
+  if (digits.length === 10) return `91${digits}`;
+  return digits;
+};
+
+const stripMarkdownForPdf = (value: string) =>
+  value
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*]\s+/gm, "- ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .trim();
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 
 function extractGeneratedText(data: any): string {
   return String(data?.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
@@ -240,6 +273,7 @@ export default function AdvanceFlow() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { hospitalConfig, user } = useAuth();
+  const { toast } = useToast();
   const [patient, setPatient] = useState<Patient | null>(null);
   const [selectedVisitId, setSelectedVisitId] = useState<string | null>(null);
   const [showAllPatients, setShowAllPatients] = useState(false);
@@ -275,6 +309,9 @@ export default function AdvanceFlow() {
   const [isTranscribingPreauth, setIsTranscribingPreauth] = useState(false);
   const [isLoadingInvestigations, setIsLoadingInvestigations] = useState(false);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+  const [generatedArshiaPdf, setGeneratedArshiaPdf] = useState<GeneratedArshiaPdf | null>(null);
+  const [isGeneratingArshiaPdf, setIsGeneratingArshiaPdf] = useState(false);
+  const [isSendingArshiaWhatsApp, setIsSendingArshiaWhatsApp] = useState(false);
 
   const patientRows = useQuery({
     queryKey: ["tablet-advance-patient-list", showAllPatients, hospitalConfig?.name, patientSearch.trim()],
@@ -871,6 +908,7 @@ SOURCE CONTEXT:
 ${JSON.stringify(sourceContext, null, 2)}`,
       );
       setGeneratedDischargeSummary(text);
+      setGeneratedArshiaPdf(null);
     } catch (error) {
       setArshiaError(error instanceof Error ? error.message : "Could not generate the discharge summary.");
     } finally {
@@ -890,6 +928,255 @@ ${JSON.stringify(sourceContext, null, 2)}`,
     link.click();
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
+  };
+
+  const arshiaSummaryFileBase = () =>
+    `Arshiya_Discharge_Summary_${safeFilePart(patient?.patients_id || visit.data?.visit_id || patient?.id)}_${new Date().toISOString().slice(0, 16).replace(/\D/g, "")}`;
+
+  const printArshiaSummary = () => {
+    const summary = generatedDischargeSummary.trim();
+    if (!summary) return;
+
+    const printWindow = window.open("", "_blank", "width=900,height=1100");
+    if (!printWindow) {
+      toast({
+        title: "Print blocked",
+        description: "Allow popups for this site and try printing again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const hospitalName = hospitalConfig?.name || (patient as any)?.hospital_name || "Hospital";
+    const portalUrl = `${window.location.origin}/patient-portal`;
+    printWindow.document.write(`
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Arshiya Discharge Summary</title>
+  <style>
+    body { font-family: Arial, sans-serif; color: #111827; margin: 28px; }
+    header { border-bottom: 2px solid #111827; padding-bottom: 12px; margin-bottom: 18px; }
+    h1 { font-size: 20px; margin: 0 0 6px; }
+    .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; font-size: 12px; color: #374151; }
+    .summary { white-space: pre-wrap; font-size: 13px; line-height: 1.55; }
+    footer { border-top: 1px solid #d1d5db; margin-top: 20px; padding-top: 10px; font-size: 11px; color: #4b5563; }
+    @media print { body { margin: 18mm; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>${escapeHtml(hospitalName)} - Discharge Summary</h1>
+    <div class="meta">
+      <div><strong>Patient:</strong> ${escapeHtml(patient?.name || "-")}</div>
+      <div><strong>Patient ID:</strong> ${escapeHtml(patient?.patients_id || "-")}</div>
+      <div><strong>Visit ID:</strong> ${escapeHtml(visit.data?.visit_id || "-")}</div>
+      <div><strong>Generated:</strong> ${escapeHtml(new Date().toLocaleString())}</div>
+    </div>
+  </header>
+  <main class="summary">${escapeHtml(stripMarkdownForPdf(summary))}</main>
+  <footer>
+    Patient Portal: ${escapeHtml(portalUrl)} | Password as provided by the hospital.
+  </footer>
+  <script>window.onload = function () { setTimeout(function () { window.print(); }, 150); };</script>
+</body>
+</html>`);
+    printWindow.document.close();
+  };
+
+  const buildArshiaSummaryPdfBlob = async () => {
+    const summary = generatedDischargeSummary.trim();
+    if (!summary) throw new Error("Generate the discharge summary first.");
+
+    const { default: jsPDF } = await import("jspdf");
+    const pdf = new jsPDF({ unit: "mm", format: "a4" });
+    const hospitalName = hospitalConfig?.name || (patient as any)?.hospital_name || "Hospital";
+    const portalUrl = `${window.location.origin}/patient-portal`;
+    const marginX = 14;
+    const pageWidth = 210;
+    const maxWidth = pageWidth - marginX * 2;
+    let y = 16;
+
+    const addFooter = () => {
+      const pageCount = pdf.getNumberOfPages();
+      for (let page = 1; page <= pageCount; page += 1) {
+        pdf.setPage(page);
+        pdf.setFontSize(8);
+        pdf.setTextColor(100);
+        pdf.text(`Patient Portal: ${portalUrl}`, marginX, 288);
+        pdf.text(`Page ${page} of ${pageCount}`, 196, 288, { align: "right" });
+      }
+    };
+
+    pdf.setFillColor(22, 101, 52);
+    pdf.rect(0, 0, 210, 26, "F");
+    pdf.setTextColor(255);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(16);
+    pdf.text(hospitalName, marginX, 11);
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(10);
+    pdf.text("Arshiya Generated Discharge Summary", marginX, 19);
+    pdf.text(`Generated: ${new Date().toLocaleString()}`, 196, 11, { align: "right" });
+    pdf.text(`Visit ID: ${visit.data?.visit_id || "-"}`, 196, 19, { align: "right" });
+
+    y = 34;
+    pdf.setTextColor(20);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(10);
+    pdf.text(`Patient: ${patient?.name || "-"}`, marginX, y);
+    pdf.text(`Patient ID: ${patient?.patients_id || "-"}`, 112, y);
+    y += 7;
+    pdf.text(`Yojana Registration ID: ${registrationIdInput || visit.data?.yojana_registration_id || "-"}`, marginX, y);
+    y += 8;
+
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(10);
+    const lines = pdf.splitTextToSize(stripMarkdownForPdf(summary), maxWidth);
+    lines.forEach((line: string) => {
+      if (y > 278) {
+        pdf.addPage();
+        y = 16;
+      }
+      pdf.text(line, marginX, y);
+      y += 5.5;
+    });
+
+    addFooter();
+    return pdf.output("blob") as Blob;
+  };
+
+  const generateAndUploadArshiaSummaryPdf = async (shouldDownload: boolean) => {
+    const currentSummary = generatedDischargeSummary.trim();
+    if (!currentSummary) {
+      setArshiaError("Generate the discharge summary before creating a PDF.");
+      throw new Error("Generate the discharge summary before creating a PDF.");
+    }
+
+    if (!shouldDownload && generatedArshiaPdf?.summaryText === currentSummary) {
+      return generatedArshiaPdf;
+    }
+
+    setIsGeneratingArshiaPdf(true);
+    setArshiaError(null);
+    try {
+      const blob = await buildArshiaSummaryPdfBlob();
+      const fileName = `${arshiaSummaryFileBase()}.pdf`;
+      const storagePath = `uploads/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${fileName}`;
+      const file = new File([blob], fileName, { type: "application/pdf" });
+
+      const { error: storageError } = await supabase.storage
+        .from("uploads")
+        .upload(storagePath, file, { contentType: "application/pdf" });
+      if (storageError) throw storageError;
+
+      const { data: urlData } = supabase.storage.from("uploads").getPublicUrl(storagePath);
+      const publicUrl = urlData?.publicUrl || "";
+
+      const { error: insertError } = await (supabase as any)
+        .from("file_uploads")
+        .insert({
+          file_name: fileName,
+          file_url: publicUrl,
+          file_type: "application/pdf",
+          file_size: file.size,
+          storage_path: storagePath,
+          category: "discharge_summary",
+          patient_id: patient?.id || null,
+          patient_name: patient?.name || null,
+          notes: `AUTO_GENERATED_ARSHIYA_DISCHARGE_SUMMARY|visit:${visit.data?.visit_id || selectedVisitId || "-"}`,
+          uploaded_by: user?.id || null,
+          status: "completed",
+        });
+      if (insertError) throw insertError;
+
+      if (shouldDownload) {
+        const downloadUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = downloadUrl;
+        anchor.download = fileName;
+        anchor.click();
+        URL.revokeObjectURL(downloadUrl);
+      }
+
+      const generated = { fileName, publicUrl, summaryText: currentSummary };
+      setGeneratedArshiaPdf(generated);
+      toast({
+        title: "PDF ready",
+        description: shouldDownload ? "The discharge summary PDF was downloaded and saved for WhatsApp." : "The discharge summary PDF was saved for WhatsApp.",
+      });
+      return generated;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not create the PDF.";
+      setArshiaError(message);
+      toast({ title: "PDF failed", description: message, variant: "destructive" });
+      throw error;
+    } finally {
+      setIsGeneratingArshiaPdf(false);
+    }
+  };
+
+  const downloadArshiaSummaryPdf = async () => {
+    try {
+      await generateAndUploadArshiaSummaryPdf(true);
+    } catch {
+      // generateAndUploadArshiaSummaryPdf shows the user-facing error.
+    }
+  };
+
+  const sendArshiaSummaryOnWhatsApp = async () => {
+    const to = normalizeWhatsAppPhone(patient?.phone);
+    if (!to) {
+      toast({
+        title: "WhatsApp number missing",
+        description: "The patient does not have a registered mobile number.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSendingArshiaWhatsApp(true);
+    setArshiaError(null);
+    try {
+      const pdf = generatedArshiaPdf?.summaryText === generatedDischargeSummary.trim()
+        ? generatedArshiaPdf
+        : await generateAndUploadArshiaSummaryPdf(false);
+      const portalUrl = `${window.location.origin}/patient-portal`;
+      const caption = [
+        `Dear ${patient?.name || "Patient"}, your discharge summary from ${hospitalConfig?.name || "the hospital"} is attached.`,
+        `Patient Portal: ${portalUrl}`,
+        `Patient ID: ${patient?.patients_id || "-"}`,
+        "Please use the password provided by the hospital.",
+      ].join("\n");
+
+      const response = await fetch("/api/send-discharge-pdf-whatsapp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to,
+          mediaUrl: pdf.publicUrl,
+          filename: pdf.fileName,
+          caption,
+        }),
+      });
+
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(result?.detail || result?.error || "DoubleTick send failed.");
+      }
+
+      toast({
+        title: "Sent on WhatsApp",
+        description: `The discharge summary PDF was sent to ${patient?.phone}.`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not send the PDF on WhatsApp.";
+      setArshiaError(message);
+      toast({ title: "WhatsApp send failed", description: message, variant: "destructive" });
+    } finally {
+      setIsSendingArshiaWhatsApp(false);
+    }
   };
 
   if (!patient) {
@@ -1201,6 +1488,39 @@ ${JSON.stringify(sourceContext, null, 2)}`,
         <TabletButton
           variant="outline"
           disabled={!generatedDischargeSummary.trim()}
+          onClick={printArshiaSummary}
+        >
+          <Printer className="h-4 w-4" />
+          Print
+        </TabletButton>
+        <TabletButton
+          variant="outline"
+          disabled={!generatedDischargeSummary.trim() || isGeneratingArshiaPdf}
+          onClick={() => void downloadArshiaSummaryPdf()}
+        >
+          {isGeneratingArshiaPdf ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="h-4 w-4" />
+          )}
+          PDF
+        </TabletButton>
+        <TabletButton
+          variant="outline"
+          disabled={!generatedDischargeSummary.trim() || isGeneratingArshiaPdf || isSendingArshiaWhatsApp || !normalizeWhatsAppPhone(patient?.phone)}
+          onClick={() => void sendArshiaSummaryOnWhatsApp()}
+          title={!normalizeWhatsAppPhone(patient?.phone) ? "Patient mobile number is missing" : "Send PDF on WhatsApp"}
+        >
+          {isSendingArshiaWhatsApp ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <MessageCircle className="h-4 w-4" />
+          )}
+          WhatsApp
+        </TabletButton>
+        <TabletButton
+          variant="outline"
+          disabled={!generatedDischargeSummary.trim()}
           onClick={downloadGeneratedSummary}
         >
           <Download className="h-4 w-4" />
@@ -1213,7 +1533,10 @@ ${JSON.stringify(sourceContext, null, 2)}`,
         <textarea
           id="arshia-generated-summary"
           value={generatedDischargeSummary}
-          onChange={(event) => setGeneratedDischargeSummary(event.target.value)}
+          onChange={(event) => {
+            setGeneratedDischargeSummary(event.target.value);
+            setGeneratedArshiaPdf(null);
+          }}
           rows={12}
           placeholder="Generated discharge summary will appear here for review and editing."
           className="mt-1.5 w-full rounded-xl border bg-background p-3 font-mono text-sm leading-6"
@@ -1837,6 +2160,39 @@ ${JSON.stringify(sourceContext, null, 2)}`,
           <TabletButton
             variant="outline"
             disabled={!generatedDischargeSummary.trim()}
+            onClick={printArshiaSummary}
+          >
+            <Printer className="h-4 w-4" />
+            Print
+          </TabletButton>
+          <TabletButton
+            variant="outline"
+            disabled={!generatedDischargeSummary.trim() || isGeneratingArshiaPdf}
+            onClick={() => void downloadArshiaSummaryPdf()}
+          >
+            {isGeneratingArshiaPdf ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            PDF
+          </TabletButton>
+          <TabletButton
+            variant="outline"
+            disabled={!generatedDischargeSummary.trim() || isGeneratingArshiaPdf || isSendingArshiaWhatsApp || !normalizeWhatsAppPhone(patient?.phone)}
+            onClick={() => void sendArshiaSummaryOnWhatsApp()}
+            title={!normalizeWhatsAppPhone(patient?.phone) ? "Patient mobile number is missing" : "Send PDF on WhatsApp"}
+          >
+            {isSendingArshiaWhatsApp ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <MessageCircle className="h-4 w-4" />
+            )}
+            WhatsApp
+          </TabletButton>
+          <TabletButton
+            variant="outline"
+            disabled={!generatedDischargeSummary.trim()}
             onClick={downloadGeneratedSummary}
           >
             <Download className="h-4 w-4" />
@@ -1849,7 +2205,10 @@ ${JSON.stringify(sourceContext, null, 2)}`,
           <textarea
             id="arshia-generated-summary"
             value={generatedDischargeSummary}
-            onChange={(event) => setGeneratedDischargeSummary(event.target.value)}
+            onChange={(event) => {
+              setGeneratedDischargeSummary(event.target.value);
+              setGeneratedArshiaPdf(null);
+            }}
             rows={12}
             placeholder="Generated discharge summary will appear here for review and editing."
             className="mt-1.5 w-full rounded-xl border bg-background p-3 font-mono text-sm leading-6"
