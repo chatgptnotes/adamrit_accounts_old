@@ -542,6 +542,34 @@ const isMaharashtraYojana = (corp: string) => {
     c.includes('ab pmjay') || c.includes('maharashtra yojana');
 };
 
+const parseCurrencyValue = (value: unknown): number => {
+  const cleaned = String(value ?? '').replace(/[^0-9.-]/g, '');
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const isGeneratedFinalPaymentRemark = (remark: string) => {
+  const normalized = (remark || '').trim();
+  return (
+    normalized === '' ||
+    normalized.startsWith('Being cash received towards ') ||
+    normalized.startsWith('Amount to be received from the government in future')
+  );
+};
+
+const buildFinalPaymentRemark = (
+  paymentMode: string,
+  patientName: string,
+  registrationNo: string,
+) => {
+  if (paymentMode === 'CREDIT') {
+    return `Amount to be received from the government in future for pt. ${patientName} against R. No.: ${registrationNo}`;
+  }
+
+  const paymentModeLabel = paymentMode || 'Cash';
+  return `Being cash received towards ${paymentModeLabel} from pt. ${patientName} against R. No.: ${registrationNo}`;
+};
+
 type VisitContextRecord = {
   id: string;
   visit_id?: string;
@@ -836,17 +864,13 @@ const FinalBill = () => {
   useEffect(() => {
     if (!isFinalPaymentModalOpen || isPatientDischarged) return;
 
-    // Only set default if remark is empty (don't override existing content or manual edits)
-    if (finalPaymentRemark) return;
+    // Only replace blank or system-generated narration, never manual edits.
+    if (!isGeneratedFinalPaymentRemark(finalPaymentRemark)) return;
 
-    // Generate default narration
     const patientName = patientData?.name || billData?.name || 'Patient';
-    const registrationNo = patientData?.patients_id || billData?.patients_id || '';
-    const paymentModeLabel = finalPaymentMode || 'Cash';
+    const registrationNo = patientData?.registrationNo || billData?.patients_id || '';
 
-    const defaultRemark = `Being cash received towards ${paymentModeLabel} from pt. ${patientName} against R. No.: ${registrationNo}`;
-
-    setFinalPaymentRemark(defaultRemark);
+    setFinalPaymentRemark(buildFinalPaymentRemark(finalPaymentMode, patientName, registrationNo));
   }, [isFinalPaymentModalOpen, finalPaymentMode, patientData, billData, isPatientDischarged, finalPaymentRemark]);
 
   // Document Modal States - removed 4 document modals
@@ -3205,6 +3229,57 @@ const FinalBill = () => {
     calculateBalanceWithDiscount
   } = useFinancialSummary(billData?.id, visitId, savedMedicationData);
 
+  const finalizationPackageAmount = useMemo(() => {
+    return parseCurrencyValue(editableVisitDates.package_amount || visitData?.package_amount);
+  }, [editableVisitDates.package_amount, visitData?.package_amount]);
+
+  const finalizationPackageImplantApprovedAmount = useMemo(() => {
+    return savedVisitImplants.reduce((sum, implant) => {
+      return sum + parseCurrencyValue(implant?.amount);
+    }, 0);
+  }, [savedVisitImplants]);
+
+  const finalizationPackageTotalAmount = useMemo(() => {
+    return finalizationPackageAmount + finalizationPackageImplantApprovedAmount;
+  }, [finalizationPackageAmount, finalizationPackageImplantApprovedAmount]);
+
+  const isYojanaOrPanelFinalizationPatient = useMemo(() => {
+    const corporate = (
+      visitCorporateOverride ||
+      visitData?.corporate ||
+      patientInfo?.corporate ||
+      visitData?.patients?.corporate ||
+      ''
+    ).toLowerCase().trim();
+    const hasPanel = corporate.length > 0 && corporate !== 'private';
+
+    return (
+      hasPanel ||
+      isMaharashtraYojana(corporate) ||
+      Boolean(visitData?.is_package_patient) ||
+      finalizationPackageAmount > 0
+    );
+  }, [
+    finalizationPackageAmount,
+    patientInfo?.corporate,
+    visitCorporateOverride,
+    visitData?.corporate,
+    visitData?.is_package_patient,
+    visitData?.patients?.corporate,
+  ]);
+
+  useEffect(() => {
+    if (!isFinalPaymentModalOpen || isPatientDischarged) return;
+    if (!isYojanaOrPanelFinalizationPatient || finalizationPackageTotalAmount <= 0) return;
+
+    setFinalPaymentAmount(finalizationPackageTotalAmount.toFixed(2));
+  }, [
+    finalizationPackageTotalAmount,
+    isFinalPaymentModalOpen,
+    isPatientDischarged,
+    isYojanaOrPanelFinalizationPatient,
+  ]);
+
   // Auto-load Financial Summary once when page opens.
   // Gated by a ref: autoPopulateFinancialData is re-created every render, so
   // depending on it alone re-fires this effect on every render and each run's
@@ -4265,7 +4340,11 @@ const FinalBill = () => {
           amount: parseFloat(finalPaymentAmount),
           mode_of_payment: finalPaymentMode,
           reason_of_discharge: finalPaymentReason || 'N/A',
-          payment_remark: finalPaymentRemark || `Being cash received towards from pt. ${patientData?.name || billData?.name || 'Patient'} against R. No.:`,
+          payment_remark: finalPaymentRemark || buildFinalPaymentRemark(
+            finalPaymentMode,
+            patientData?.name || billData?.name || 'Patient',
+            patientData?.registrationNo || billData?.patients_id || '',
+          ),
           payment_date: finalPaymentDischargeDate, // user-picked discharge date drives cash-book date
           bank_account_id: finalPaymentSelectedBank || null,
           bank_account_name: bankAccounts.find(b => b.id === finalPaymentSelectedBank)?.account_name || null
@@ -24678,6 +24757,21 @@ Dr. Murali B K
                   <div className="text-2xl font-bold text-indigo-700">
                     ₹ {Number(financialSummaryData?.totalAmount?.total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </div>
+                </div>
+                <div className="bg-gradient-to-br from-cyan-50 to-sky-50 rounded-lg p-4 border border-cyan-200">
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">Package Amount</label>
+                  <div className="text-2xl font-bold text-sky-700">
+                    ₹ {finalizationPackageAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div className="bg-gradient-to-br from-teal-50 to-emerald-50 rounded-lg p-4 border border-teal-200">
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">Package Implant Approved Amount</label>
+                  <div className="text-2xl font-bold text-teal-700">
+                    ₹ {finalizationPackageImplantApprovedAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <p className="text-xs text-teal-600 mt-1">
+                    Package total: ₹ {finalizationPackageTotalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </p>
                 </div>
                 <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-4 border border-green-200">
                   <label className="text-sm font-medium text-gray-700 mb-2 block">Amount Paid</label>
