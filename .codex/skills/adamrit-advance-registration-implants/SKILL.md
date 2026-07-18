@@ -20,11 +20,15 @@ description: Use when implementing, debugging, or reviewing Adamrit HMIS Advance
 - Saving an existing package from search should update the current visit.
 - Creating a package should tolerate existing master rows and still save the package code/name to the current visit.
 - The same registration ID, package name, and package code must display consistently in Tablet View and `AdvanceStatementReport`.
+- In `AdvanceStatementReport`, saved visit values remain highest priority. If saved package fields are missing, match the latest Government Portal Import first by Yojana/Thumb Registration ID. If registration does not match, use normalized patient name plus the same preauth date to identify the same patient, then display package details from the portal row.
+- When using the Government Portal Import fallback, fill package name from `Procedure Details`, package code from `Procedure Code`, and package amount from `Preauth Approved Amount`.
 
 ## Data Notes
 
 - Package master table: `pmjay_mjpjay_packages`.
 - Visit fields: `visits.yojana_registration_id`, `visits.package_code`, `visits.package_name`.
+- Government portal import fields used for fallback matching: `Beneficiary Name`, `Preauth Initiated Date`, `Registration ID`, `Procedure Details`, `Procedure Code`, and `Preauth Approved Amount`.
+- Advance Statement date candidates for name/date matching should prefer bill preparation intimation/preauth date, then admission date, then visit date.
 - Implant additions are stored separately; keep visible selected implants and approved/amount values aligned with existing schema usage in `AdvanceFlow.tsx`.
 
 ## Verification
