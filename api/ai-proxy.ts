@@ -3,6 +3,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_MODEL_LITE = 'gemini-2.5-flash-lite';
 const FALLBACK_STATUSES = new Set([404, 429, 500, 502, 503]);
+const PLACEHOLDER_KEYS = new Set(['', 'your_gemini_api_key_here', 'managed-server-side']);
 
 const geminiUrl = (model: string, apiKey: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -34,9 +35,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'method_not_allowed' });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY || '';
-  if (!apiKey) {
-    return res.status(500).json({ error: 'GEMINI_API_KEY is not configured on the server' });
+  const apiKey = (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '').trim();
+  if (PLACEHOLDER_KEYS.has(apiKey)) {
+    return res.status(500).json({ error: 'GEMINI_API_KEY or VITE_GEMINI_API_KEY is not configured on the server' });
   }
 
   const provider = req.body?.provider || 'gemini';
