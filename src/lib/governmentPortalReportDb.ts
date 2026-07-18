@@ -514,15 +514,36 @@ export async function fetchLatestGovernmentPortalReport(
 
 export async function fetchLatestGovernmentPortalExtensionAlerts(
   rowLimit = 100,
+  reportKind: GovernmentPortalReportKind = 'under_treatment',
 ): Promise<GovernmentPortalExtensionAlertSummary | null> {
-  const { header, rows } = await loadLatestImportWithRows(
-    'id, file_name, report_date_label, count_extension_needed, created_at',
-    'id, row_number, status, registration_id, beneficiary_name, case_type, preauth_date_label, days_since_preauth, procedure_code, procedure_details, preauth_approved_amount',
-    (query) => query.eq('extension_needed', true).eq('status', 'pending'),
-    rowLimit,
-  );
+  const { data: imports, error: importsError } = await db
+    .from('government_portal_report_imports')
+    .select('id, file_name, report_date_label, count_extension_needed, created_at')
+    .eq('report_kind', reportKind)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (importsError) throw importsError;
+
+  const header = ((imports || []) as ImportRow[])[0] || null;
 
   if (!header) return null;
+
+  let rowQuery = db
+    .from('government_portal_report_rows')
+    .select('id, row_number, status, registration_id, beneficiary_name, case_type, preauth_date_label, days_since_preauth, procedure_code, procedure_details, preauth_approved_amount')
+    .eq('import_id', header.id)
+    .eq('section', 'generalMedical')
+    .eq('extension_needed', true)
+    .eq('status', 'pending')
+    .order('row_number', { ascending: true });
+
+  if (rowLimit !== undefined) {
+    rowQuery = rowQuery.limit(rowLimit);
+  }
+
+  const { data: rows, error: rowsError } = await rowQuery;
+  if (rowsError) throw rowsError;
 
   return {
     importId: header.id,
