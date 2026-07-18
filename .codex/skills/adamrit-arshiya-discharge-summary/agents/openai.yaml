@@ -1,0 +1,4 @@
+interface:
+  display_name: "Adamrit Arshiya Discharge Summary"
+  short_description: "Implement and verify Arshiya AI discharge summary workflows."
+  default_prompt: "Use this skill when changing the Arshiya discharge summary feature in Adamrit HMIS."

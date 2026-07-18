@@ -1,0 +1,4 @@
+interface:
+  display_name: "Adamrit Patient Document Reports"
+  short_description: "Maintain patient document reports and combined filters."
+  default_prompt: "Use this skill when changing patient document reports, report filters, or print behavior."

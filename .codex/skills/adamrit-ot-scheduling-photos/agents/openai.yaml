@@ -1,0 +1,4 @@
+interface:
+  display_name: "Adamrit OT Scheduling Photos"
+  short_description: "Maintain OT schedule and photo workflow."
+  default_prompt: "Use this skill when changing tablet OT schedule, OT photo upload, or operated-case report behavior."

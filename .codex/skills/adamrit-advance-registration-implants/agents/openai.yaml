@@ -1,0 +1,4 @@
+interface:
+  display_name: "Adamrit Registration And Implants"
+  short_description: "Maintain Yojana registration, package, and implant workflows."
+  default_prompt: "Use this skill when changing Advance Statement Arshiya registration, package, or implant behavior."

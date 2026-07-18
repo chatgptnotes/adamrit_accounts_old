@@ -1,0 +1,4 @@
+interface:
+  display_name: "Adamrit Yojana Billing Todo"
+  short_description: "Maintain today billing todo report logic for Yojana patients."
+  default_prompt: "Use this skill when changing the Yojana billing todo report for admitted, discharged, operated, and extension cases."
