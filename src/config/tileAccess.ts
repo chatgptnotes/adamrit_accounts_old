@@ -65,7 +65,7 @@ export const TILE_ACCESS_RULES: TileAccessRule[] = [
   { id: "t-advance", label: "Advance Statement Arshiya", group: "tablet" },
   { id: "t-requisition", label: "Requisition", group: "tablet" },
   { id: "t-gate-pass", label: "Gate Pass", group: "tablet" },
-  { id: "t-discharge-summary", label: "Discharge Summary", group: "tablet" },
+  { id: "t-discharge-summary", label: "Discharge Summary - Diksha", group: "tablet" },
   { id: "t-doctor-notes", label: "Doctor Notes", group: "tablet" },
   { id: "t-implant-servesh", label: "Implant Servesh", group: "tablet" },
   { id: "t-implant-bill", label: "Implant Bill", group: "tablet" },
