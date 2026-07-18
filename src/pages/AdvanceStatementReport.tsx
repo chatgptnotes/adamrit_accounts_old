@@ -21,7 +21,6 @@ import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { BillDocumentsSection } from '@/pages/corporate-bill/BillDocumentsSection';
 import {
-  fetchLatestGovernmentPortalReport,
   syncPortalDataForRegistrationId,
 } from '@/lib/governmentPortalReportDb';
 import { parsePortalDate } from '@/lib/governmentPortalReport';
@@ -68,19 +67,23 @@ const matchesRowSearchTerm = (item: any, searchTerm: string) => {
 const normalizePortalProcedureDetails = (value?: string | null) =>
   [...new Set((value || '').split('|').map((part) => part.trim()).filter(Boolean))].join(', ');
 
+const normalizePortalPipeValue = (value?: string | null) =>
+  [...new Set((value || '').split('|').map((part) => part.trim()).filter(Boolean))].join(', ');
+
 const normalizePortalApprovedAmount = (value?: string | null) => {
   const amount = String(value || '').replace(/[^0-9.]/g, '');
   return amount && Number.isFinite(Number(amount)) ? amount : '';
 };
 
 type PortalPackageDetails = { name: string; code: string; amount: string };
+type PortalPackageRow = { values: Record<string, string> };
 
-const buildPortalPackageDetails = (row: { values: Record<string, string> }): PortalPackageDetails | null => {
+const buildPortalPackageDetails = (row: PortalPackageRow): PortalPackageDetails | null => {
   const name = normalizePortalProcedureDetails(row.values['Procedure Details']);
   if (!name) return null;
   return {
     name,
-    code: row.values['Procedure Code'] || '',
+    code: normalizePortalPipeValue(row.values['Procedure Code']).toUpperCase(),
     amount: normalizePortalApprovedAmount(row.values['Preauth Approved Amount']),
   };
 };
@@ -172,9 +175,28 @@ const AdvanceStatementReport = () => {
   const [selectedImplantId, setSelectedImplantId] = useState('');
   const [selectedImplantName, setSelectedImplantName] = useState('');
   const [selectedImplantCost, setSelectedImplantCost] = useState('');
-  const { data: latestPortalReport } = useQuery({
-    queryKey: ['latest-government-portal-report-for-advance-statement'],
-    queryFn: () => fetchLatestGovernmentPortalReport(),
+  const { data: portalPackageRows = [] } = useQuery<PortalPackageRow[]>({
+    queryKey: ['government-portal-package-rows-for-advance-statement'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('government_portal_report_rows' as any)
+        .select('registration_id, beneficiary_name, preauth_initiated_date, preauth_date_label, procedure_code, procedure_details, preauth_approved_amount, created_at')
+        .order('created_at', { ascending: false })
+        .limit(5000);
+
+      if (error) throw error;
+
+      return ((data || []) as any[]).map((row) => ({
+        values: {
+          'Registration ID': row.registration_id || '',
+          'Beneficiary Name': row.beneficiary_name || '',
+          'Preauth Initiated Date': row.preauth_initiated_date || row.preauth_date_label || '',
+          'Procedure Code': row.procedure_code || '',
+          'Procedure Details': row.procedure_details || '',
+          'Preauth Approved Amount': row.preauth_approved_amount || '',
+        },
+      }));
+    },
     staleTime: 5 * 60_000,
   });
   const { data: implantOptions = [] } = useQuery({
@@ -662,36 +684,37 @@ const AdvanceStatementReport = () => {
   );
 
   const matchedPortalRegistrationIds = useMemo(() => {
-    const ids = (latestPortalReport?.report.rows || [])
+    const ids = portalPackageRows
       .map((row) => normalizeLookupValue(row.values['Registration ID']))
       .filter((value): value is string => Boolean(value));
     return new Set(ids);
-  }, [latestPortalReport]);
+  }, [portalPackageRows]);
 
   const portalProcedurePackages = useMemo(() => {
     const unique = new Map<string, { id: string; name: string; code: string | null; label: string }>();
-    for (const row of latestPortalReport?.report.rows || []) {
+    for (const row of portalPackageRows) {
       const name = normalizePortalProcedureDetails(row.values['Procedure Details']);
       if (!name || unique.has(name)) continue;
-      unique.set(name, { id: name, name, code: row.values['Procedure Code'] || null, label: [row.values['Procedure Code'], name].filter(Boolean).join(' - ') });
+      const code = normalizePortalPipeValue(row.values['Procedure Code']).toUpperCase();
+      unique.set(name, { id: name, name, code: code || null, label: [code, name].filter(Boolean).join(' - ') });
     }
     return [...unique.values()];
-  }, [latestPortalReport]);
+  }, [portalPackageRows]);
 
   const portalPackageByRegistration = useMemo(() => {
     const packagesByRegistration = new Map<string, PortalPackageDetails>();
-    for (const row of latestPortalReport?.report.rows || []) {
+    for (const row of portalPackageRows) {
       const registrationId = normalizeLookupValue(row.values['Registration ID']);
       const packageDetails = buildPortalPackageDetails(row);
       if (!registrationId || !packageDetails) continue;
       packagesByRegistration.set(registrationId, packageDetails);
     }
     return packagesByRegistration;
-  }, [latestPortalReport]);
+  }, [portalPackageRows]);
 
   const portalPackageByPatientAndPreauthDate = useMemo(() => {
     const packagesByPatientAndDate = new Map<string, PortalPackageDetails>();
-    for (const row of latestPortalReport?.report.rows || []) {
+    for (const row of portalPackageRows) {
       const key = buildPortalPatientDateKey(
         row.values['Beneficiary Name'],
         row.values['Preauth Initiated Date'],
@@ -701,7 +724,7 @@ const AdvanceStatementReport = () => {
       packagesByPatientAndDate.set(key, packageDetails);
     }
     return packagesByPatientAndDate;
-  }, [latestPortalReport]);
+  }, [portalPackageRows]);
 
   const allPackageOptions = useMemo(
     () => Array.from(new Map([...portalProcedurePackages, ...packages].map((pkg) => [pkg.name, pkg])).values()),
