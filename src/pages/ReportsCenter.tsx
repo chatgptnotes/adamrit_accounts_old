@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import {
   LayoutDashboard, Calendar, ClipboardList, Wallet, FileText, BookOpen, Clock,
   Receipt, ScrollText, TrendingUp, Award, Activity, Cross, ScanLine, Navigation,
-  Phone, MessageCircle, Users, FileSpreadsheet, Files,
+  Phone, MessageCircle, Users, FileSpreadsheet, Files, Package,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { canAccessReferralRegister } from '@/lib/referralRegisterAccess';
@@ -51,6 +51,13 @@ const SECTIONS: ReportSection[] = [
       { title: 'Daywise Bills', route: '/daywise-bills', description: 'Sales bills and returns by date', icon: Receipt },
       { title: 'Patient Ledger', route: '/patient-ledger', description: 'Per-patient transactions and running balance', icon: FileText },
       { title: 'IT Transaction Register', route: '/it-transaction-register', description: 'Transactions synced to Tally', icon: ScrollText },
+    ],
+  },
+  {
+    heading: 'Pharmacy',
+    items: [
+      { title: 'Inventory Report', route: '/pharmacy?tab=reports', description: 'Live stock, batch expiry, valuation, and low-stock alerts', icon: Package },
+      { title: 'Monthly Purchase & Sales', route: '/pharmacy-monthly-purchase-sales-report', description: 'Monthly posted purchases and completed pharmacy sales', icon: TrendingUp },
     ],
   },
   {
