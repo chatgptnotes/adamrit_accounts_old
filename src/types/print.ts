@@ -25,7 +25,7 @@ export type ReportColumn = {
   printable: boolean;
   widthPx?: number;
   align?: 'left' | 'center' | 'right';
-  format?: (value: any) => string;
+  format?: (value: any, row?: any) => string;
 };
 
 export type PrintPreset = {

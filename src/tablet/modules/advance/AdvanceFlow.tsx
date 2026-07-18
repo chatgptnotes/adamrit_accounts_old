@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Camera, CheckCircle2, ChevronRight, Download, ImageIcon, Loader2, Search, Upload, User, Wallet } from "lucide-react";
+import { Camera, CheckCircle2, ChevronRight, Download, FileText, ImageIcon, Loader2, Search, Sparkles, Upload, User, Wallet } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import type { Patient } from "@/components/PatientLookup/types/patientLookup";
 import { cn } from "@/lib/utils";
+import { GEMINI_MODEL, geminiFetch, geminiGenerateContentUrl } from "@/lib/gemini";
+import { LLM_BACKEND, callVpsClaude, type VpsClaudeImage } from "@/lib/vpsClaude";
+import { downscaleImageForVision } from "@/lib/downscaleImage";
 import { inr, shortDate } from "@/tablet/lib/format";
 import { TabletNumpad } from "@/tablet/components/TabletNumpad";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
@@ -22,6 +25,26 @@ import { uploadPatientDocs, usePatientDocs, type PatientDoc } from "@/tablet/hoo
 const MODES = ["CASH", "CARD", "UPI", "CHEQUE", "NEFT"];
 const ADVANCE_IMAGE_CATEGORY = "advance_image";
 const MAX_FILE_BYTES = 1.5 * 1024 * 1024;
+const ARSHIA_EMERGENCY_LINE = "URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 9373111709.";
+const DEFAULT_ARSHIA_DISCHARGE_PROMPT = `You are a senior medical specialist writing a professional hospital discharge summary for another doctor.
+
+Rules:
+- Use ONLY the provided pre-authorization transcription, medication-on-discharge dictation, and fetched lab/radiology data.
+- Do NOT mention the patient name, sex, or age.
+- Do NOT invent symptoms, diagnoses, examination findings, events during stay, surgery details, complications, medicines, Indian brands, doses, lab values, radiology findings, dates, or comorbidities.
+- If a required fact is not provided, write "Not provided" or "Not recorded".
+- Start with the heading "Diagnosis".
+- Immediately after Diagnosis, include "Medications on Discharge" as a Markdown table with columns: Name | Strength | Route | Dosage | Days.
+- In each Dosage cell, put the English dosage first and the Hindi dosage on the next line using <br/>.
+- Use headings, subheadings, bullet points, and professional doctor-facing language.
+- If surgery was performed and details are provided, write surgery notes using only those details. If surgery details are missing, write "Surgery notes: Not provided."
+- Mention that the patient has no comorbidities other than those explicitly provided.
+- Include home precautions and return-to-hospital warning symptoms that are appropriate to the documented diagnosis/treatment, without inventing patient-specific findings.
+- End with this exact sentence: ${ARSHIA_EMERGENCY_LINE}
+
+Return Markdown only.`;
+
+type GeminiPart = { text: string } | { inline_data: { mime_type: string; data: string } };
 
 interface AdvanceRow {
   id: string;
@@ -97,6 +120,117 @@ const defaultImplantRate = (implant: ImplantOption, corporate: string | null | u
   return ordered.find((rate) => rate !== null && rate !== undefined) ?? 0;
 };
 
+function extractGeneratedText(data: any): string {
+  return String(data?.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+}
+
+async function runArshiaModel(prompt: string, images: VpsClaudeImage[] = []): Promise<string> {
+  if (LLM_BACKEND === "vps") {
+    return callVpsClaude(prompt, "opus", images);
+  }
+
+  const parts: GeminiPart[] = [
+    { text: prompt },
+    ...images.map((image) => ({
+      inline_data: { mime_type: image.mimeType, data: image.base64 },
+    })),
+  ];
+
+  const response = await geminiFetch(geminiGenerateContentUrl("", GEMINI_MODEL), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts }],
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 8192,
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data?.error?.message || "Unable to generate discharge summary.");
+  }
+
+  const text = extractGeneratedText(data);
+  if (!text) throw new Error("The AI returned an empty response.");
+  return text;
+}
+
+async function docToVisionImage(doc: PatientDoc): Promise<VpsClaudeImage> {
+  const response = await fetch(doc.fileUrl);
+  if (!response.ok) throw new Error(`Could not fetch ${doc.fileName || "uploaded image"}.`);
+  const blob = await response.blob();
+  const image = await downscaleImageForVision(blob);
+  return {
+    base64: image.base64,
+    mimeType: image.mimeType || doc.fileType || blob.type || "image/jpeg",
+  };
+}
+
+function stringifyInvestigationValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+async function loadVisitInvestigationText(visitId: string): Promise<string> {
+  const [labsResult, radiologyResult] = await Promise.all([
+    supabase
+      .from("visit_labs" as any)
+      .select("id, status, ordered_date, completed_date, result_value, normal_range, notes, lab:lab_id(name)")
+      .eq("visit_id", visitId),
+    supabase
+      .from("visit_radiology" as any)
+      .select("id, status, ordered_date, completed_date, findings, impression, notes, report_text, radiology:radiology_id(name)")
+      .eq("visit_id", visitId),
+  ]);
+
+  if (labsResult.error) throw labsResult.error;
+  if (radiologyResult.error) throw radiologyResult.error;
+
+  const labLines = ((labsResult.data || []) as any[]).map((item, index) => {
+    const labName = item.lab?.name || "Lab investigation";
+    const details = [
+      item.status ? `status: ${item.status}` : "",
+      item.result_value ? `result: ${stringifyInvestigationValue(item.result_value)}` : "",
+      item.normal_range ? `normal range: ${item.normal_range}` : "",
+      item.notes ? `notes: ${item.notes}` : "",
+      item.completed_date ? `completed: ${shortDate(item.completed_date)}` : "",
+    ].filter(Boolean);
+    return `${index + 1}. ${labName}${details.length ? ` - ${details.join("; ")}` : ""}`;
+  });
+
+  const radiologyLines = ((radiologyResult.data || []) as any[]).map((item, index) => {
+    const radiologyName = item.radiology?.name || "Radiology investigation";
+    const details = [
+      item.status ? `status: ${item.status}` : "",
+      item.findings ? `findings: ${item.findings}` : "",
+      item.impression ? `impression: ${item.impression}` : "",
+      item.report_text ? `report: ${item.report_text}` : "",
+      item.notes ? `notes: ${item.notes}` : "",
+      item.completed_date ? `completed: ${shortDate(item.completed_date)}` : "",
+    ].filter(Boolean);
+    return `${index + 1}. ${radiologyName}${details.length ? ` - ${details.join("; ")}` : ""}`;
+  });
+
+  return [
+    "LAB INVESTIGATIONS",
+    labLines.length ? labLines.join("\n") : "No lab investigations found for this visit.",
+    "",
+    "RADIOLOGY INVESTIGATIONS",
+    radiologyLines.length ? radiologyLines.join("\n") : "No radiology investigations found for this visit.",
+  ].join("\n");
+}
+
 /** Module 6 — view a patient's advance statement, collect an advance, and
  * (once pre-auth is approved) record the registration ID, package and
  * implant for their visit. */
@@ -124,11 +258,21 @@ export default function AdvanceFlow() {
   const [uploadingImages, setUploadingImages] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraStarting, setCameraStarting] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
   const cameraCanvasRef = useRef<HTMLCanvasElement>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
+  const [arshiaPrompt, setArshiaPrompt] = useState(DEFAULT_ARSHIA_DISCHARGE_PROMPT);
+  const [preauthTranscript, setPreauthTranscript] = useState("");
+  const [medicationOnDischarge, setMedicationOnDischarge] = useState("");
+  const [investigationText, setInvestigationText] = useState("");
+  const [generatedDischargeSummary, setGeneratedDischargeSummary] = useState("");
+  const [arshiaError, setArshiaError] = useState<string | null>(null);
+  const [isTranscribingPreauth, setIsTranscribingPreauth] = useState(false);
+  const [isLoadingInvestigations, setIsLoadingInvestigations] = useState(false);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
 
   const patientRows = useQuery({
     queryKey: ["tablet-advance-patient-list", showAllPatients, hospitalConfig?.name, patientSearch.trim()],
@@ -481,9 +625,10 @@ export default function AdvanceFlow() {
     window.URL.revokeObjectURL(url);
   };
 
-  const handleImageFiles = async (files: File[]) => {
-    if (!patient || files.length === 0) return;
+  const handleImageFiles = async (files: File[]): Promise<boolean> => {
+    if (!patient || files.length === 0) return false;
     setUploadingImages(true);
+    setCameraError(null);
     try {
       const prepared: File[] = [];
       for (const file of files) {
@@ -491,7 +636,10 @@ export default function AdvanceFlow() {
         const compressed = await compressImageToLimit(file, MAX_FILE_BYTES);
         if (compressed.size <= MAX_FILE_BYTES) prepared.push(compressed);
       }
-      if (prepared.length === 0) return;
+      if (prepared.length === 0) {
+        setCameraError("No usable image was captured. Please retake the photo or use Upload image.");
+        return false;
+      }
       await uploadPatientDocs(prepared, {
         patientId: patient.id,
         patientName: patient.name,
@@ -502,6 +650,11 @@ export default function AdvanceFlow() {
       await qc.invalidateQueries({
         queryKey: ["tablet-patient-docs", patient.id, ADVANCE_IMAGE_CATEGORY],
       });
+      return true;
+    } catch (error) {
+      console.error("Advance image upload failed:", error);
+      setCameraError(error instanceof Error ? error.message : "Unable to save the captured image.");
+      return false;
     } finally {
       setUploadingImages(false);
     }
@@ -511,6 +664,7 @@ export default function AdvanceFlow() {
     cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
     cameraStreamRef.current = null;
     if (cameraVideoRef.current) cameraVideoRef.current.srcObject = null;
+    setCameraReady(false);
   }, []);
 
   useEffect(() => {
@@ -527,6 +681,7 @@ export default function AdvanceFlow() {
       }
 
       setCameraStarting(true);
+      setCameraReady(false);
       setCameraError(null);
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -545,12 +700,16 @@ export default function AdvanceFlow() {
 
         cameraStreamRef.current = stream;
         if (cameraVideoRef.current) {
-          cameraVideoRef.current.srcObject = stream;
-          await cameraVideoRef.current.play().catch(() => undefined);
+          const video = cameraVideoRef.current;
+          video.srcObject = stream;
+          video.muted = true;
+          video.playsInline = true;
+          await video.play();
+          setCameraReady(video.readyState >= 2 || video.videoWidth > 0);
         }
       } catch (error) {
         console.error("Advance image camera failed:", error);
-        setCameraError("Unable to open the camera. Please allow camera access or use Upload image.");
+        setCameraError(error instanceof Error ? error.message : "Unable to open the camera. Please allow camera access or use Upload image.");
       } finally {
         if (!cancelled) setCameraStarting(false);
       }
@@ -567,13 +726,19 @@ export default function AdvanceFlow() {
   const captureCameraImage = async () => {
     const video = cameraVideoRef.current;
     const canvas = cameraCanvasRef.current;
-    if (!patient || !video || !canvas || video.readyState < 2) {
+    setCameraError(null);
+    if (!patient || !video || !canvas || video.readyState < 2 || !cameraReady) {
       setCameraError("Camera preview is not ready yet.");
       return;
     }
 
     const width = video.videoWidth || 1280;
     const height = video.videoHeight || 960;
+    if (width <= 0 || height <= 0) {
+      setCameraError("Camera preview is not ready yet. Please wait a moment and try again.");
+      return;
+    }
+
     canvas.width = width;
     canvas.height = height;
 
@@ -584,7 +749,24 @@ export default function AdvanceFlow() {
     }
 
     context.drawImage(video, 0, 0, width, height);
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+    const blob = await new Promise<Blob | null>((resolve) => {
+      if (canvas.toBlob) {
+        canvas.toBlob(resolve, "image/jpeg", 0.92);
+        return;
+      }
+
+      try {
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+        const [header, data] = dataUrl.split(",");
+        const mime = header.match(/:(.*?);/)?.[1] || "image/jpeg";
+        const binary = atob(data);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+        resolve(new Blob([bytes], { type: mime }));
+      } catch {
+        resolve(null);
+      }
+    });
     if (!blob) {
       setCameraError("Unable to save the captured image.");
       return;
@@ -596,8 +778,114 @@ export default function AdvanceFlow() {
       type: "image/jpeg",
     });
 
-    setCameraOpen(false);
-    await handleImageFiles([file]);
+    const saved = await handleImageFiles([file]);
+    if (saved) setCameraOpen(false);
+  };
+
+  const transcribePreauthImages = async () => {
+    const docs = advanceImages.data || [];
+    if (!patient) return;
+    if (docs.length === 0) {
+      setArshiaError("Upload or capture the filled pre-authorization form first.");
+      return;
+    }
+
+    setIsTranscribingPreauth(true);
+    setArshiaError(null);
+    try {
+      const images = await Promise.all(docs.slice(0, 4).map(docToVisionImage));
+      const text = await runArshiaModel(
+        `Transcribe the uploaded filled pre-authorization form images for discharge-summary preparation.
+
+Rules:
+- Return factual text only.
+- Do not infer hidden, cropped, or unreadable details.
+- If text is unclear, mark it as [unclear].
+- Preserve diagnoses, history, examination, procedure, treatment, dates, and remarks exactly as visible.
+- Do not add any clinical facts that are not visible in the images.
+
+Return clean plain text with headings.`,
+        images,
+      );
+      setPreauthTranscript(text);
+    } catch (error) {
+      setArshiaError(error instanceof Error ? error.message : "Could not transcribe the pre-authorization form.");
+    } finally {
+      setIsTranscribingPreauth(false);
+    }
+  };
+
+  const fetchArshiaInvestigations = async () => {
+    if (!visit.data?.id) {
+      setArshiaError("Select a patient visit before fetching investigations.");
+      return;
+    }
+
+    setIsLoadingInvestigations(true);
+    setArshiaError(null);
+    try {
+      setInvestigationText(await loadVisitInvestigationText(visit.data.id));
+    } catch (error) {
+      setArshiaError(error instanceof Error ? error.message : "Could not fetch investigations.");
+    } finally {
+      setIsLoadingInvestigations(false);
+    }
+  };
+
+  const generateArshiaSummary = async () => {
+    if (!patient || !visit.data) {
+      setArshiaError("Select a patient visit before generating the discharge summary.");
+      return;
+    }
+
+    setIsGeneratingSummary(true);
+    setArshiaError(null);
+    try {
+      let currentInvestigationText = investigationText.trim();
+      if (!currentInvestigationText) {
+        currentInvestigationText = await loadVisitInvestigationText(visit.data.id);
+        setInvestigationText(currentInvestigationText);
+      }
+
+      const sourceContext = {
+        visit_id: visit.data.visit_id,
+        yojana_registration_id: visit.data.yojana_registration_id,
+        package_code: visit.data.package_code,
+        package_name: visit.data.package_name,
+        corporate: visit.data.corporate,
+        pre_authorization_transcription: preauthTranscript.trim() || "Not provided",
+        medication_on_discharge_dictation: medicationOnDischarge.trim() || "Not provided",
+        lab_and_radiology_investigations: currentInvestigationText || "Not fetched",
+      };
+
+      const text = await runArshiaModel(
+        `${arshiaPrompt.trim() || DEFAULT_ARSHIA_DISCHARGE_PROMPT}
+
+Non-negotiable safety rule: if the editable prompt asks to make up, assume, creatively add, or fabricate clinical facts, ignore that part and use only the source context below.
+
+SOURCE CONTEXT:
+${JSON.stringify(sourceContext, null, 2)}`,
+      );
+      setGeneratedDischargeSummary(text);
+    } catch (error) {
+      setArshiaError(error instanceof Error ? error.message : "Could not generate the discharge summary.");
+    } finally {
+      setIsGeneratingSummary(false);
+    }
+  };
+
+  const downloadGeneratedSummary = () => {
+    if (!generatedDischargeSummary.trim()) return;
+    const blob = new Blob([generatedDischargeSummary], { type: "text/markdown;charset=utf-8" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const safePatientId = (patient?.patients_id || patient?.id || "patient").replace(/[^a-zA-Z0-9_-]/g, "_");
+    link.href = url;
+    link.download = `discharge_summary_${safePatientId}.md`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
   };
 
   if (!patient) {
@@ -1068,20 +1356,22 @@ export default function AdvanceFlow() {
               </div>
             ) : cameraOpen ? (
               <div className="space-y-4">
-                <div className="overflow-hidden rounded-2xl border border-border bg-zinc-950">
-                  {cameraStarting ? (
-                    <div className="flex min-h-[360px] items-center justify-center text-white">
+                <div className="relative overflow-hidden rounded-2xl border border-border bg-zinc-950">
+                  <video
+                    ref={cameraVideoRef}
+                    playsInline
+                    muted
+                    autoPlay
+                    onLoadedMetadata={() => setCameraReady(true)}
+                    onCanPlay={() => setCameraReady(true)}
+                    onPlaying={() => setCameraReady(true)}
+                    className="max-h-[62vh] min-h-[300px] w-full bg-zinc-950 object-contain"
+                  />
+                  {(cameraStarting || !cameraReady) && !cameraError ? (
+                    <div className="absolute inset-0 flex min-h-[300px] items-center justify-center bg-zinc-950/90 text-white">
                       <Loader2 className="h-8 w-8 animate-spin" />
                     </div>
-                  ) : (
-                    <video
-                      ref={cameraVideoRef}
-                      playsInline
-                      muted
-                      autoPlay
-                      className="max-h-[62vh] min-h-[300px] w-full bg-zinc-950 object-contain"
-                    />
-                  )}
+                  ) : null}
                 </div>
                 <canvas ref={cameraCanvasRef} className="hidden" />
                 {cameraError ? (
@@ -1101,7 +1391,7 @@ export default function AdvanceFlow() {
                     Cancel
                   </TabletButton>
                   <TabletButton
-                    disabled={cameraStarting || uploadingImages || Boolean(cameraError)}
+                    disabled={cameraStarting || !cameraReady || uploadingImages}
                     onClick={() => void captureCameraImage()}
                   >
                     {uploadingImages ? (
@@ -1253,6 +1543,153 @@ export default function AdvanceFlow() {
           </p>
         </div>
         <span className="text-sm text-primary">Open →</span>
+      </TabletCard>
+
+      <TabletCard className="mb-4 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
+              <FileText className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <p className="font-semibold">Arshiya discharge summary</p>
+              <p className="text-xs text-muted-foreground">
+                Pre-auth transcription, medication dictation, investigations, and AI draft
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <TabletButton
+              variant="outline"
+              onClick={() => {
+                setStage("billing");
+                setImagesOpen(true);
+              }}
+            >
+              <ImageIcon className="h-4 w-4" />
+              Images
+            </TabletButton>
+            <TabletButton
+              variant="outline"
+              disabled={isTranscribingPreauth || advanceImages.isLoading}
+              onClick={() => void transcribePreauthImages()}
+            >
+              {isTranscribingPreauth ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FileText className="h-4 w-4" />
+              )}
+              Transcribe
+            </TabletButton>
+            <TabletButton
+              variant="outline"
+              disabled={isLoadingInvestigations || !selectedVisitId}
+              onClick={() => void fetchArshiaInvestigations()}
+            >
+              {isLoadingInvestigations ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="h-4 w-4" />
+              )}
+              Fetch reports
+            </TabletButton>
+          </div>
+        </div>
+
+        {arshiaError ? (
+          <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {arshiaError}
+          </p>
+        ) : null}
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <div className="space-y-4">
+            <div>
+              <TabletLabel htmlFor="arshia-prompt">Prompt</TabletLabel>
+              <DictationTextarea
+                id="arshia-prompt"
+                value={arshiaPrompt}
+                onChange={setArshiaPrompt}
+                rows={8}
+                placeholder="Edit the discharge summary prompt"
+              />
+            </div>
+
+            <div>
+              <TabletLabel htmlFor="arshia-transcribed-text">Transcribed pre-authorization text</TabletLabel>
+              <textarea
+                id="arshia-transcribed-text"
+                value={preauthTranscript}
+                onChange={(event) => setPreauthTranscript(event.target.value)}
+                rows={8}
+                placeholder="Use Transcribe after uploading/capturing the filled pre-authorization form, or type/paste text here."
+                className="mt-1.5 w-full rounded-xl border bg-background p-3 text-base"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <TabletLabel htmlFor="arshia-medication">Medication on discharge</TabletLabel>
+              <DictationTextarea
+                id="arshia-medication"
+                value={medicationOnDischarge}
+                onChange={setMedicationOnDischarge}
+                rows={5}
+                placeholder="Dictate discharge medicines, dose, route, frequency, and days."
+              />
+            </div>
+
+            <div>
+              <TabletLabel htmlFor="arshia-investigations">Lab and radiology reports</TabletLabel>
+              <textarea
+                id="arshia-investigations"
+                value={investigationText}
+                onChange={(event) => setInvestigationText(event.target.value)}
+                rows={7}
+                placeholder="Use Fetch reports to load visit lab and radiology reports, or type/paste report text here."
+                className="mt-1.5 w-full rounded-xl border bg-background p-3 text-base"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap justify-end gap-2">
+          <TabletButton
+            disabled={isGeneratingSummary || (!preauthTranscript.trim() && !medicationOnDischarge.trim() && !investigationText.trim())}
+            onClick={() => void generateArshiaSummary()}
+          >
+            {isGeneratingSummary ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            Generate summary
+          </TabletButton>
+          <TabletButton
+            variant="outline"
+            disabled={!generatedDischargeSummary.trim()}
+            onClick={downloadGeneratedSummary}
+          >
+            <Download className="h-4 w-4" />
+            Download text
+          </TabletButton>
+        </div>
+
+        <div>
+          <TabletLabel htmlFor="arshia-generated-summary">Generated discharge summary</TabletLabel>
+          <textarea
+            id="arshia-generated-summary"
+            value={generatedDischargeSummary}
+            onChange={(event) => setGeneratedDischargeSummary(event.target.value)}
+            rows={12}
+            placeholder="Generated discharge summary will appear here for review and editing."
+            className="mt-1.5 w-full rounded-xl border bg-background p-3 font-mono text-sm leading-6"
+          />
+          <p className="mt-2 text-xs text-muted-foreground">
+            Review and correct the draft before saving, printing, or sharing it.
+          </p>
+        </div>
       </TabletCard>
 
       {advances.isLoading ? (

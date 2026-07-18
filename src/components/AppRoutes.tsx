@@ -39,6 +39,7 @@ import SimpleSignup from "./SimpleSignup";
 const AdvancedStatementReport = lazy(() => import("../pages/AdvancedStatementReport"));
 const ReportsCenter = lazy(() => import("../pages/ReportsCenter"));
 const PatientDocumentsReport = lazy(() => import("../pages/PatientDocumentsReport"));
+const YojanaBillingTodoDocumentsReport = lazy(() => import("../pages/YojanaBillingTodoDocumentsReport"));
 
 // Lazy load heavy feature pages
 const Accounting = lazy(() => import("../pages/Accounting"));
@@ -332,6 +333,7 @@ export const AppRoutes = () => {
         <Route path="/reports" element={<Suspense fallback={<PageLoader />}><Reports /></Suspense>} />
         <Route path="/reports-center" element={<Suspense fallback={<PageLoader />}><ReportsCenter /></Suspense>} />
         <Route path="/patient-documents-report" element={<Suspense fallback={<PageLoader />}><PatientDocumentsReport /></Suspense>} />
+        <Route path="/yojana-billing-todo-documents-report" element={<Suspense fallback={<PageLoader />}><YojanaBillingTodoDocumentsReport /></Suspense>} />
         <Route path="/final-bill/:visitId" element={<Suspense fallback={<PageLoader />}><FinalBill /></Suspense>} />
         <Route path="/no-deduction-letter/:visitId" element={<NoDeductionLetterPage />} />
         <Route path="/edit-final-bill/:visitId" element={<Suspense fallback={<PageLoader />}><EditFinalBill /></Suspense>} />

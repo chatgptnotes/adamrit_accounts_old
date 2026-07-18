@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import {
   LayoutDashboard, Calendar, ClipboardList, Wallet, FileText, BookOpen, Clock,
   Receipt, ScrollText, TrendingUp, Award, Activity, Cross, ScanLine, Navigation,
-  Phone, MessageCircle, Users, FileSpreadsheet, Files,
+  Phone, MessageCircle, Users, FileSpreadsheet, Files, FileCheck2,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { canAccessReferralRegister } from '@/lib/referralRegisterAccess';
@@ -36,6 +36,7 @@ const SECTIONS: ReportSection[] = [
       { title: "Today's OPD", route: '/todays-opd', description: 'Today’s OPD visits and walk-ins', icon: ClipboardList },
       { title: 'OPD Summary', route: '/opd-summary', description: 'Searchable OPD visit summaries', icon: ClipboardList },
       { title: 'Patient Documents', route: '/patient-documents-report', description: 'Track completed and pending patient documents', icon: Files },
+      { title: 'Yojana Billing To-do', route: '/yojana-billing-todo-documents-report', description: "Today's pending documents for recent Yojana billing work", icon: FileCheck2 },
     ],
   },
   {

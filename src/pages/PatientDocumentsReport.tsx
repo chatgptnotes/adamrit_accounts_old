@@ -7,6 +7,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { PATIENT_DOC_CATEGORIES } from '@/tablet/hooks/usePatientDocs';
 import { Input } from '@/components/ui/input';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
+import { appendDialysisSuffix, isDialysisText, isYojanaText } from '@/utils/dialysisPatientName';
 
 interface PatientRecord {
   patient_id: string | null;
@@ -61,15 +62,6 @@ const PATIENT_STATUS_FILTER_LABEL: Record<PatientStatusFilter, string> = {
   discharged: 'Discharged patients',
   admitted: 'Admitted patients only',
   all: 'All patients',
-};
-
-// Yojana schemes (MJPJAY/PMJAY and variants) aren't stored under one literal
-// corporate value, so "Yojana" is a keyword match rather than an exact one.
-const isMaharashtraYojana = (corporate: string | null | undefined) => {
-  const value = (corporate || '').toLowerCase().trim();
-  return value.includes('yojana') || value.includes('mjpjy') || value.includes('ayushman') ||
-    value.includes('mahatma jyotiba') || value.includes('pmjay') || value.includes('ab-pmjay') ||
-    value.includes('ab pmjay') || value.includes('maharashtra yojana');
 };
 
 export default function PatientDocumentsReport() {
@@ -148,13 +140,15 @@ export default function PatientDocumentsReport() {
       const allCandidateIds = Array.from(new Set(candidates.map((patient) => patient.patient_id).filter(Boolean) as string[]));
       const corporateByPatient = new Map<string, string | null>();
       const dischargedByPatient = new Map<string, boolean>();
+      const dialysisPackageByPatient = new Map<string, boolean>();
+      const yojanaByPatient = new Map<string, boolean>();
       const surgeryPatientIds = new Set<string>();
       const dialysisPatientIds = new Set<string>();
 
       if (allCandidateIds.length) {
         const [patientsResult, visitsResult, surgeryResult, dialysisResult] = await Promise.all([
           supabase.from('patients').select('id, corporate').in('id', allCandidateIds),
-          supabase.from('visits').select('patient_id, discharge_date').in('patient_id', allCandidateIds).order('admission_date', { ascending: false }),
+          supabase.from('visits').select('patient_id, discharge_date, package_name, treatment_type, reason_for_visit, corporate, insurance_type').in('patient_id', allCandidateIds).order('admission_date', { ascending: false }),
           supabase.from('visits').select('patient_id').in('patient_id', allCandidateIds).not('surgery_date', 'is', null),
           supabase.from('dialysis_sessions').select('patient_id').in('patient_id', allCandidateIds),
         ]);
@@ -164,10 +158,23 @@ export default function PatientDocumentsReport() {
         if (dialysisResult.error) throw dialysisResult.error;
         if (!active) return;
 
-        for (const patientRow of patientsResult.data || []) corporateByPatient.set(patientRow.id, patientRow.corporate);
+        for (const patientRow of patientsResult.data || []) {
+          corporateByPatient.set(patientRow.id, patientRow.corporate);
+          yojanaByPatient.set(patientRow.id, isYojanaText(patientRow.corporate));
+        }
         // Rows arrive latest-admission-first, so the first row seen per patient is their current/most recent visit.
         for (const visitRow of visitsResult.data || []) {
           if (!dischargedByPatient.has(visitRow.patient_id)) dischargedByPatient.set(visitRow.patient_id, !!visitRow.discharge_date);
+          if (visitRow.patient_id) {
+            if (isYojanaText(visitRow.corporate) || isYojanaText(visitRow.insurance_type)) {
+              yojanaByPatient.set(visitRow.patient_id, true);
+            }
+            if ([visitRow.package_name, visitRow.treatment_type, visitRow.reason_for_visit].some(isDialysisText)) {
+              dialysisPackageByPatient.set(visitRow.patient_id, true);
+            } else if (!dialysisPackageByPatient.has(visitRow.patient_id)) {
+              dialysisPackageByPatient.set(visitRow.patient_id, false);
+            }
+          }
         }
         for (const row of surgeryResult.data || []) if (row.patient_id) surgeryPatientIds.add(row.patient_id);
         for (const row of dialysisResult.data || []) if (row.patient_id) dialysisPatientIds.add(row.patient_id);
@@ -182,7 +189,7 @@ export default function PatientDocumentsReport() {
         if (!patient.patient_id) return corporateFilter === 'all' && patientStatusFilter === 'all';
 
         const corporate = corporateByPatient.get(patient.patient_id) || '';
-        if (corporateFilter === 'yojana' && !isMaharashtraYojana(corporate)) return false;
+        if (corporateFilter === 'yojana' && !isYojanaText(corporate)) return false;
         if (corporateFilter !== 'all' && corporateFilter !== 'yojana' && corporate !== corporateFilter) return false;
 
         if (patientStatusFilter !== 'all') {
@@ -211,6 +218,11 @@ export default function PatientDocumentsReport() {
         const uploadedCategories = new Set(patientUploads.map((upload) => normalizeValue(upload.category)));
         const needsSurgeryDocs = !!(patient.patient_id && surgeryPatientIds.has(patient.patient_id));
         const needsDialysisDocs = !!(patient.patient_id && dialysisPatientIds.has(patient.patient_id));
+        const shouldShowDialysisSuffix = !!(
+          patient.patient_id &&
+          yojanaByPatient.get(patient.patient_id) &&
+          (dialysisPatientIds.has(patient.patient_id) || dialysisPackageByPatient.get(patient.patient_id))
+        );
         const done = PATIENT_DOC_CATEGORIES.filter((document) => uploadedCategories.has(normalizeValue(document.id))).map((document) => document.label);
         const left = PATIENT_DOC_CATEGORIES.filter((document) => {
           if (uploadedCategories.has(normalizeValue(document.id))) return false;
@@ -221,7 +233,7 @@ export default function PatientDocumentsReport() {
         }).map((document) => document.label);
         return {
           id: patient.patient_id || patient.patient_name || 'unknown-patient',
-          name: patient.patient_name || patient.patient_id || 'Unnamed patient',
+          name: appendDialysisSuffix(patient.patient_name || patient.patient_id || 'Unnamed patient', shouldShowDialysisSuffix),
           patientName: patient.patient_name,
           done,
           left,

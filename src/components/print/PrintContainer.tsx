@@ -554,7 +554,7 @@ export const PrintContainer: React.FC<PrintContainerProps> = ({
                 <tr key={rowIndex} className="print-tr" style={{ display: 'table-row' }}>
                   {columnsToDisplay.map((column) => {
                     const rawValue = getNestedValue(row, column.accessorKey);
-                    const formattedValue = formatCellValue(rawValue, column);
+                    const formattedValue = formatCellValue(rawValue, column, row);
 
                     return (
                       <td
