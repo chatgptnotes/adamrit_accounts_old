@@ -117,7 +117,7 @@ const AdvanceStatementReport = () => {
   const [billsData, setBillsData] = useState<Record<string, number>>({});
   const [advancePaymentsData, setAdvancePaymentsData] = useState<Record<string, { totalAdvance: number; lastPayment: { amount: number; date: string | null } }>>({});
   const [packageNames, setPackageNames] = useState<Record<string, string>>({});
-  const [packages, setPackages] = useState<Array<{ id: string; name: string }>>([]);
+  const [packages, setPackages] = useState<Array<{ id: string; name: string; code: string | null; label: string }>>([]);
   const [diagnosesList, setDiagnosesList] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedRow, setSelectedRow] = useState<any | null>(null);
   const [selectedImplantId, setSelectedImplantId] = useState('');
@@ -194,22 +194,35 @@ const AdvanceStatementReport = () => {
       const pmjay = (pmjayRes.data || [])
         .map((p: any) => ({
           id: p.id,
-          name: [p.treatment_code, p.treatment_plan].filter(Boolean).join(' - '),
+          code: p.treatment_code || null,
+          name: p.treatment_plan || p.treatment_code || '',
+          label: [p.treatment_code, p.treatment_plan].filter(Boolean).join(' - '),
         }))
         .filter((p) => p.name);
 
       const yojana = (yojanaRes.data || [])
         .map((p: any) => ({
           id: p.id,
-          name: [
-            p.procedure_code,
+          code: p.procedure_code || p.package_code || null,
+          name: p.package_name || p.procedure_name || p.procedure_label || p.package_code || '',
+          label: [
+            p.procedure_code || p.package_code,
             p.package_name || p.procedure_name || p.procedure_label || p.package_code,
           ].filter(Boolean).join(' - '),
         }))
         .filter((p) => p.name);
 
+      const cghs = (cghsRes.data || [])
+        .map((p: any) => ({
+          id: p.id,
+          code: null,
+          name: p.name || '',
+          label: p.name || '',
+        }))
+        .filter((p) => p.name);
+
       const uniquePackages = Array.from(
-        new Map([...yojana, ...pmjay, ...(cghsRes.data || [])].map((pkg) => [pkg.name, pkg])).values(),
+        new Map([...yojana, ...pmjay, ...cghs].map((pkg) => [pkg.name, pkg])).values(),
       );
       setPackages(uniquePackages);
     };
@@ -298,6 +311,7 @@ const AdvanceStatementReport = () => {
           package_days,
           package_amount,
           extension_days_count,
+          package_code,
           package_name,
           treatment_type,
           yojana_registration_id,
@@ -606,11 +620,11 @@ const AdvanceStatementReport = () => {
   }, [latestPortalReport]);
 
   const portalProcedurePackages = useMemo(() => {
-    const unique = new Map<string, { id: string; name: string }>();
+    const unique = new Map<string, { id: string; name: string; code: string | null; label: string }>();
     for (const row of latestPortalReport?.report.rows || []) {
       const name = normalizePortalProcedureDetails(row.values['Procedure Details']);
       if (!name || unique.has(name)) continue;
-      unique.set(name, { id: name, name });
+      unique.set(name, { id: name, name, code: row.values['Procedure Code'] || null, label: [row.values['Procedure Code'], name].filter(Boolean).join(' - ') });
     }
     return [...unique.values()];
   }, [latestPortalReport]);
@@ -948,13 +962,28 @@ const AdvanceStatementReport = () => {
   };
 
   const handlePackageNameUpdate = async (visitId: string, name: string) => {
+    const matchedPackage = allPackageOptions.find((pkg) => pkg.name === name);
     const { error } = await supabase
       .from('visits')
-      .update({ package_name: name || null })
+      .update({ package_name: name || null, package_code: matchedPackage?.code || null } as any)
       .eq('id', visitId);
 
     if (error) {
       console.error('Error updating package name:', error);
+    } else {
+      await refreshAdvanceStatementData();
+    }
+  };
+
+  const handlePackageCodeUpdate = async (visitId: string, code: string) => {
+    const { error } = await supabase
+      .from('visits')
+      .update({ package_code: code.trim() || null } as any)
+      .eq('id', visitId);
+
+    if (error) {
+      console.error('Error updating package code:', error);
+      toast.error('Failed to save package code');
     } else {
       await refreshAdvanceStatementData();
     }
@@ -1651,6 +1680,7 @@ const AdvanceStatementReport = () => {
               const submissionDate = billPrep?.date_of_submission ? format(new Date(billPrep.date_of_submission), 'dd/MM/yyyy') : '-';
               const regNo = getPrimaryRegistrationNo(item) || 'N/A';
               const packageName = (item as any).package_name || '-';
+              const packageCode = (item as any).package_code || '-';
               const packageAmount = item.package_amount ? `₹${Number(item.package_amount).toLocaleString('en-IN')}` : '-';
               const billAmount = billPrep?.bill_amount ? `₹${Number(billPrep.bill_amount).toLocaleString('en-IN')}` : '-';
 
@@ -1685,6 +1715,7 @@ const AdvanceStatementReport = () => {
                     <div className="col-span-2">
                       <div className="text-xs text-gray-500">Package</div>
                       <div className="font-medium">{packageName}</div>
+                      <div className="text-xs text-gray-500">Code: {packageCode}</div>
                     </div>
                     <div>
                       <div className="text-xs text-gray-500">Package Amount</div>
@@ -1908,14 +1939,35 @@ const AdvanceStatementReport = () => {
                           </div>
                         </TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}>
-                          <SearchableSelect
-                            options={allPackageOptions.map(pkg => ({ value: pkg.name, label: pkg.name }))}
-                            value={(item as any).package_name || ''}
-                            onValueChange={(value) => handlePackageNameUpdate(item.id, value)}
-                            placeholder="Select package..."
-                            searchPlaceholder="Type to search..."
-                            className="w-full"
-                          />
+                          <div className="space-y-2">
+                            <SearchableSelect
+                              options={allPackageOptions.map(pkg => ({ value: pkg.name, label: pkg.label || pkg.name }))}
+                              value={(item as any).package_name || ''}
+                              onValueChange={(value) => handlePackageNameUpdate(item.id, value)}
+                              placeholder="Select package..."
+                              searchPlaceholder="Type to search..."
+                              className="w-full"
+                            />
+                            <div className="flex items-center gap-2">
+                              <span className="shrink-0 text-xs text-gray-500">Code</span>
+                              <Input
+                                defaultValue={(item as any).package_code || ''}
+                                placeholder="Package code"
+                                className="h-8 text-xs"
+                                onBlur={(e) => {
+                                  const value = e.target.value.trim();
+                                  if (value !== ((item as any).package_code || '')) {
+                                    handlePackageCodeUpdate(item.id, value);
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    (e.target as HTMLInputElement).blur();
+                                  }
+                                }}
+                              />
+                            </div>
+                          </div>
                         </TableCell>
                         <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
                           <Input
@@ -2075,15 +2127,35 @@ const AdvanceStatementReport = () => {
                   <h3 className="text-sm font-semibold mb-2">Package</h3>
                   {detailRow('Package Name', (
                     <SearchableSelect
-                      options={allPackageOptions.map(pkg => ({ value: pkg.name, label: pkg.name }))}
+                      options={allPackageOptions.map(pkg => ({ value: pkg.name, label: pkg.label || pkg.name }))}
                       value={selectedRow.package_name || ''}
                       onValueChange={(value) => {
+                        const matchedPackage = allPackageOptions.find((pkg) => pkg.name === value);
                         handlePackageNameUpdate(selectedRow.id, value);
-                        setSelectedRow({ ...selectedRow, package_name: value });
+                        setSelectedRow({ ...selectedRow, package_name: value, package_code: matchedPackage?.code || null });
                       }}
                       placeholder="Select package..."
                       searchPlaceholder="Type to search..."
                       className="w-60"
+                    />
+                  ))}
+                  {detailRow('Package Code', (
+                    <Input
+                      className="h-7 w-40 text-sm"
+                      defaultValue={selectedRow.package_code || ''}
+                      placeholder="Package code"
+                      onBlur={(e) => {
+                        const value = e.target.value.trim();
+                        if (value !== (selectedRow.package_code || '')) {
+                          handlePackageCodeUpdate(selectedRow.id, value);
+                          setSelectedRow({ ...selectedRow, package_code: value || null });
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          (e.target as HTMLInputElement).blur();
+                        }
+                      }}
                     />
                   ))}
                   {detailRow('Package Amount', selectedRow.package_amount

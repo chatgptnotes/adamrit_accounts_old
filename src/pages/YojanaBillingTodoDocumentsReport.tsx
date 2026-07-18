@@ -116,6 +116,7 @@ const formatDateTime = (value: string | null | undefined) => {
 };
 
 const rowPatient = (row: any) => Array.isArray(row?.patients) ? row.patients[0] : row?.patients;
+const rowVisit = (row: any) => Array.isArray(row?.visits) ? row.visits[0] : row?.visits;
 
 const getVisitRegistration = (visit: any) =>
   normalizeLookup(visit?.yojana_registration_id);
@@ -300,6 +301,97 @@ export default function YojanaBillingTodoDocumentsReport() {
 
       if (recentVisitsResult.error) throw recentVisitsResult.error;
 
+      const completedOtSchedulesResult = await supabase
+        .from('ot_schedule')
+        .select(`
+          id,
+          patient_id,
+          visit_id,
+          surgery_name,
+          scheduled_date,
+          scheduled_time,
+          status,
+          actual_end_time,
+          updated_at,
+          patients(id, name, patients_id, phone, corporate, hospital_name),
+          visits(
+            id,
+            visit_id,
+            patient_id,
+            admission_date,
+            discharge_date,
+            surgery_date,
+            extension_of_stay,
+            extension_taken,
+            created_at,
+            updated_at,
+            package_name,
+            treatment_type,
+            reason_for_visit,
+            sst_treatment,
+            cghs_code,
+            corporate,
+            insurance_type,
+            yojana_registration_id,
+            claim_id,
+            patients(id, name, patients_id, phone, corporate, hospital_name)
+          )
+        `)
+        .eq('status', 'completed')
+        .or(`actual_end_time.gte.${windowStart.toISOString()},updated_at.gte.${windowStart.toISOString()},scheduled_date.gte.${format(windowStart, 'yyyy-MM-dd')}`)
+        .limit(1000);
+
+      if (completedOtSchedulesResult.error) throw completedOtSchedulesResult.error;
+
+      const recentOtPhotosResult = await supabase
+        .from('file_uploads')
+        .select('patient_id, patient_name, created_at')
+        .eq('category', 'ot_photos')
+        .gte('created_at', windowStart.toISOString())
+        .lte('created_at', windowEnd.toISOString())
+        .limit(1000);
+
+      if (recentOtPhotosResult.error) throw recentOtPhotosResult.error;
+
+      const otPhotoPatientIds = unique(
+        ((recentOtPhotosResult.data || []) as any[])
+          .map((row) => row.patient_id)
+          .filter(Boolean),
+      );
+
+      const otPhotoVisitsResult = otPhotoPatientIds.length
+        ? await supabase
+          .from('visits')
+          .select(`
+            id,
+            visit_id,
+            patient_id,
+            admission_date,
+            discharge_date,
+            surgery_date,
+            extension_of_stay,
+            extension_taken,
+            created_at,
+            updated_at,
+            package_name,
+            treatment_type,
+            reason_for_visit,
+            sst_treatment,
+            cghs_code,
+            corporate,
+            insurance_type,
+            yojana_registration_id,
+            claim_id,
+            patients(id, name, patients_id, phone, corporate, hospital_name)
+          `)
+          .in('patient_id', otPhotoPatientIds)
+          .eq('patient_type', 'IPD')
+          .order('admission_date', { ascending: false })
+          .limit(1000)
+        : { data: [], error: null } as any;
+
+      if (otPhotoVisitsResult.error) throw otPhotoVisitsResult.error;
+
       const extensionSummary = await fetchLatestGovernmentPortalExtensionAlerts(500);
       const extensionRows = extensionSummary && isWithinRange(extensionSummary.createdAt, windowStart, windowEnd)
         ? extensionSummary.rows
@@ -393,6 +485,60 @@ export default function YojanaBillingTodoDocumentsReport() {
           extensionStatus: visit.extension_of_stay || visit.extension_taken || null,
           visit,
           reasons,
+        });
+      }
+
+      for (const schedule of (completedOtSchedulesResult.data || []) as any[]) {
+        const visit = rowVisit(schedule);
+        const patient = rowPatient(visit) || rowPatient(schedule);
+        if (!visitMatchesYojana(visit)) continue;
+        addCandidate(candidates, {
+          key: `ot-schedule:${schedule.id}`,
+          patientId: visit?.patient_id || schedule.patient_id || patient?.id || null,
+          patientName: patient?.name || null,
+          patientsId: patient?.patients_id || null,
+          visitId: visit?.id || schedule.visit_id || null,
+          visitNumber: visit?.visit_id || null,
+          registrationId: getVisitRegistration(visit) || null,
+          admissionDate: visit?.admission_date || null,
+          dischargeDate: visit?.discharge_date || null,
+          surgeryDate: visit?.surgery_date || schedule.actual_end_time || schedule.scheduled_date || null,
+          extensionStatus: visit?.extension_of_stay || visit?.extension_taken || null,
+          visit,
+          reasons: [TODO_REASONS.operated],
+        });
+      }
+
+      const latestOtPhotoByPatient = new Map<string, any>();
+      for (const row of (recentOtPhotosResult.data || []) as any[]) {
+        if (!row.patient_id) continue;
+        const existing = latestOtPhotoByPatient.get(row.patient_id);
+        if (!existing || new Date(row.created_at).getTime() > new Date(existing.created_at).getTime()) {
+          latestOtPhotoByPatient.set(row.patient_id, row);
+        }
+      }
+
+      const seenPhotoPatients = new Set<string>();
+      for (const visit of (otPhotoVisitsResult.data || []) as any[]) {
+        if (!visit.patient_id || seenPhotoPatients.has(visit.patient_id)) continue;
+        if (!visitMatchesYojana(visit)) continue;
+        seenPhotoPatients.add(visit.patient_id);
+        const patient = rowPatient(visit);
+        const photo = latestOtPhotoByPatient.get(visit.patient_id);
+        addCandidate(candidates, {
+          key: `ot-photo:${visit.patient_id}`,
+          patientId: visit.patient_id || patient?.id || null,
+          patientName: patient?.name || photo?.patient_name || null,
+          patientsId: patient?.patients_id || null,
+          visitId: visit.id,
+          visitNumber: visit.visit_id || null,
+          registrationId: getVisitRegistration(visit) || null,
+          admissionDate: visit.admission_date || null,
+          dischargeDate: visit.discharge_date || null,
+          surgeryDate: visit.surgery_date || photo?.created_at || null,
+          extensionStatus: visit.extension_of_stay || visit.extension_taken || null,
+          visit,
+          reasons: [TODO_REASONS.operated],
         });
       }
 

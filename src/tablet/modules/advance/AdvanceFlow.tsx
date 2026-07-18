@@ -96,6 +96,8 @@ interface AdvancePatientRow {
   admissionDate: string | null;
   dischargeDate: string | null;
   registrationId: string | null;
+  packageCode: string | null;
+  packageName: string | null;
 }
 
 const isMaharashtraYojana = (corporate: string | null | undefined) => {
@@ -281,7 +283,7 @@ export default function AdvanceFlow() {
       let query = supabase
         .from("visits")
         .select(
-          "id, visit_id, admission_date, discharge_date, yojana_registration_id, patient_id, patients!inner(id, name, patients_id, phone, age, gender, corporate, hospital_name)",
+          "id, visit_id, admission_date, discharge_date, yojana_registration_id, package_code, package_name, patient_id, patients!inner(id, name, patients_id, phone, age, gender, corporate, hospital_name)",
         )
         .eq("patient_type", "IPD")
         .not("admission_date", "is", null)
@@ -310,6 +312,8 @@ export default function AdvanceFlow() {
           admissionDate: row.admission_date,
           dischargeDate: row.discharge_date,
           registrationId: row.yojana_registration_id,
+          packageCode: row.package_code,
+          packageName: row.package_name,
         });
         return rows;
       }, []);
@@ -320,8 +324,8 @@ export default function AdvanceFlow() {
   const filteredPatientRows = useMemo(() => {
     const term = patientSearch.trim().toLowerCase();
     if (!term) return patientRows.data || [];
-    return (patientRows.data || []).filter(({ patient: item, registrationId, visitNumber }) =>
-      [item.name, item.patients_id, item.phone, registrationId, visitNumber]
+    return (patientRows.data || []).filter(({ patient: item, registrationId, visitNumber, packageCode, packageName }) =>
+      [item.name, item.patients_id, item.phone, registrationId, visitNumber, packageCode, packageName]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(term)),
     );
@@ -514,9 +518,8 @@ export default function AdvanceFlow() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tablet-advance-visit"] });
+      qc.invalidateQueries({ queryKey: ["tablet-advance-patient-list"] });
       setPackageTerm("");
-      setPackageCodeInput("");
-      setPackageNameInput("");
     },
   });
 
@@ -534,19 +537,21 @@ export default function AdvanceFlow() {
         .eq("treatment_plan", name)
         .maybeSingle();
       if (duplicate.error) throw duplicate.error;
-      if (duplicate.data) throw new Error("A package with this code and name already exists");
-
-      const created = await supabase
-        .from("pmjay_mjpjay_packages")
-        .insert({
-          scheme: "PMJAY/MJPJAY",
-          treatment_code: code,
-          treatment_plan: name,
-          is_active: true,
-        })
-        .select("id, treatment_code, treatment_plan")
-        .single();
-      if (created.error) throw created.error;
+      let packageId = duplicate.data?.id || "";
+      if (!packageId) {
+        const created = await supabase
+          .from("pmjay_mjpjay_packages")
+          .insert({
+            scheme: "PMJAY/MJPJAY",
+            treatment_code: code,
+            treatment_plan: name,
+            is_active: true,
+          })
+          .select("id, treatment_code, treatment_plan")
+          .single();
+        if (created.error) throw created.error;
+        packageId = created.data.id;
+      }
 
       const visitUpdate = await supabase
         .from("visits")
@@ -554,13 +559,12 @@ export default function AdvanceFlow() {
         .eq("id", visit.data.id);
       if (visitUpdate.error) throw visitUpdate.error;
 
-      return { id: created.data.id, code, name, label: `${code} - ${name}` } satisfies PackageOption;
+      return { id: packageId, code, name, label: `${code} - ${name}` } satisfies PackageOption;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tablet-advance-visit"] });
+      qc.invalidateQueries({ queryKey: ["tablet-advance-patient-list"] });
       setPackageTerm("");
-      setPackageCodeInput("");
-      setPackageNameInput("");
     },
   });
 
@@ -943,7 +947,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
                       setPatient(row.patient);
                       setStage("billing");
                     }}
-                    className="grid w-full gap-3 rounded-2xl border-2 border-border bg-card p-4 text-left transition-colors hover:border-primary/60 hover:bg-primary/10 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.4fr)_auto] sm:items-center sm:rounded-xl sm:border sm:px-4 sm:py-3"
+                    className="grid w-full gap-3 rounded-2xl border-2 border-border bg-card p-4 text-left transition-colors hover:border-primary/60 hover:bg-primary/10 sm:grid-cols-[minmax(0,1.7fr)_minmax(0,0.9fr)_minmax(0,1.2fr)_minmax(0,1.6fr)_auto] sm:items-center sm:rounded-xl sm:border sm:px-4 sm:py-3"
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/15"><User className="h-6 w-6 text-primary" /></div>
@@ -954,6 +958,11 @@ ${JSON.stringify(sourceContext, null, 2)}`,
                     </div>
                     <div className="text-sm"><span className="text-xs text-muted-foreground sm:hidden">Admission: </span>{row.admissionDate ? shortDate(row.admissionDate) : "—"}</div>
                     <div className="text-sm"><span className="text-xs text-muted-foreground sm:hidden">Registration: </span>{row.registrationId || "Not added"}</div>
+                    <div className="min-w-0 text-sm">
+                      <span className="text-xs text-muted-foreground sm:hidden">Package: </span>
+                      <span className="block truncate">{row.packageName || "Package not added"}</span>
+                      {row.packageCode ? <span className="block truncate text-xs text-muted-foreground">{row.packageCode}</span> : null}
+                    </div>
                     <ChevronRight className="hidden h-5 w-5 text-muted-foreground sm:block" />
                   </button>
                 ))}
@@ -1063,6 +1072,159 @@ ${JSON.stringify(sourceContext, null, 2)}`,
     );
   }
 
+  const arshiyaDischargeSummaryPanel = (
+    <TabletCard className="mb-4 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
+            <FileText className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <p className="font-semibold">Arshiya discharge summary</p>
+            <p className="text-xs text-muted-foreground">
+              Pre-auth transcription, medication dictation, investigations, prompt, and AI draft
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <TabletButton
+            variant="outline"
+            onClick={() => {
+              setStage("billing");
+              setImagesOpen(true);
+            }}
+          >
+            <ImageIcon className="h-4 w-4" />
+            Images
+          </TabletButton>
+          <TabletButton
+            variant="outline"
+            disabled={isTranscribingPreauth || advanceImages.isLoading}
+            onClick={() => void transcribePreauthImages()}
+          >
+            {isTranscribingPreauth ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FileText className="h-4 w-4" />
+            )}
+            Transcribe
+          </TabletButton>
+          <TabletButton
+            variant="outline"
+            disabled={isLoadingInvestigations || !selectedVisitId}
+            onClick={() => void fetchArshiaInvestigations()}
+          >
+            {isLoadingInvestigations ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Search className="h-4 w-4" />
+            )}
+            Fetch reports
+          </TabletButton>
+        </div>
+      </div>
+
+      {arshiaError ? (
+        <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {arshiaError}
+        </p>
+      ) : null}
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="space-y-4">
+          <div>
+            <TabletLabel htmlFor="arshia-transcribed-text">
+              Pre-authorization form transcription
+            </TabletLabel>
+            <DictationTextarea
+              id="arshia-transcribed-text"
+              value={preauthTranscript}
+              onChange={setPreauthTranscript}
+              rows={8}
+              placeholder="Use Transcribe after uploading/capturing the filled pre-authorization form, dictate, or type/paste text here."
+              className="mt-1.5"
+            />
+          </div>
+
+          <div>
+            <TabletLabel htmlFor="arshia-investigations">Lab and radiology reports</TabletLabel>
+            <DictationTextarea
+              id="arshia-investigations"
+              value={investigationText}
+              onChange={setInvestigationText}
+              rows={7}
+              placeholder="Use Fetch reports to load visit lab and radiology reports, dictate additions, or type/paste report text here."
+              className="mt-1.5"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <TabletLabel htmlFor="arshia-prompt">Prompt</TabletLabel>
+            <DictationTextarea
+              id="arshia-prompt"
+              value={arshiaPrompt}
+              onChange={setArshiaPrompt}
+              rows={8}
+              placeholder="Edit the discharge summary prompt"
+              className="mt-1.5"
+            />
+          </div>
+
+          <div>
+            <TabletLabel htmlFor="arshia-medication">Medication on discharge</TabletLabel>
+            <DictationTextarea
+              id="arshia-medication"
+              value={medicationOnDischarge}
+              onChange={setMedicationOnDischarge}
+              rows={5}
+              placeholder="Dictate discharge medicines, dose, route, frequency, and days."
+              className="mt-1.5"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap justify-end gap-2">
+        <TabletButton
+          disabled={isGeneratingSummary || (!preauthTranscript.trim() && !medicationOnDischarge.trim() && !investigationText.trim())}
+          onClick={() => void generateArshiaSummary()}
+        >
+          {isGeneratingSummary ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Sparkles className="h-4 w-4" />
+          )}
+          Generate summary
+        </TabletButton>
+        <TabletButton
+          variant="outline"
+          disabled={!generatedDischargeSummary.trim()}
+          onClick={downloadGeneratedSummary}
+        >
+          <Download className="h-4 w-4" />
+          Download text
+        </TabletButton>
+      </div>
+
+      <div>
+        <TabletLabel htmlFor="arshia-generated-summary">Generated discharge summary</TabletLabel>
+        <textarea
+          id="arshia-generated-summary"
+          value={generatedDischargeSummary}
+          onChange={(event) => setGeneratedDischargeSummary(event.target.value)}
+          rows={12}
+          placeholder="Generated discharge summary will appear here for review and editing."
+          className="mt-1.5 w-full rounded-xl border bg-background p-3 font-mono text-sm leading-6"
+        />
+        <p className="mt-2 text-xs text-muted-foreground">
+          Review and correct the draft before saving, printing, or sharing it.
+        </p>
+      </div>
+    </TabletCard>
+  );
+
   if (stage === "billing") {
     return (
       <FlowScaffold
@@ -1146,8 +1308,13 @@ ${JSON.stringify(sourceContext, null, 2)}`,
                     <div className="mt-1.5 rounded-lg bg-muted p-3 text-sm">
                       <p><span className="font-medium">Code:</span> {visit.data.package_code || "—"}</p>
                       <p><span className="font-medium">Name:</span> {visit.data.package_name || "—"}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Fetched from the saved visit data. Search or edit below only if it needs to be updated.</p>
                     </div>
-                  ) : null}
+                  ) : (
+                    <p className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                      No saved package found for this visit. Search an existing package or add code and name below.
+                    </p>
+                  )}
                   <div className="relative mt-2">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <TabletInput
@@ -1312,6 +1479,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
                   )}
                 </TabletCard>
             </>
+            {arshiyaDischargeSummaryPanel}
           </div>
         )}
         <Dialog
@@ -1616,14 +1784,14 @@ ${JSON.stringify(sourceContext, null, 2)}`,
             </div>
 
             <div>
-              <TabletLabel htmlFor="arshia-transcribed-text">Transcribed pre-authorization text</TabletLabel>
-              <textarea
+              <TabletLabel htmlFor="arshia-transcribed-text">Pre-authorization form transcription</TabletLabel>
+              <DictationTextarea
                 id="arshia-transcribed-text"
                 value={preauthTranscript}
-                onChange={(event) => setPreauthTranscript(event.target.value)}
+                onChange={setPreauthTranscript}
                 rows={8}
-                placeholder="Use Transcribe after uploading/capturing the filled pre-authorization form, or type/paste text here."
-                className="mt-1.5 w-full rounded-xl border bg-background p-3 text-base"
+                placeholder="Use Transcribe after uploading/capturing the filled pre-authorization form, dictate, or type/paste text here."
+                className="mt-1.5"
               />
             </div>
           </div>
@@ -1642,13 +1810,13 @@ ${JSON.stringify(sourceContext, null, 2)}`,
 
             <div>
               <TabletLabel htmlFor="arshia-investigations">Lab and radiology reports</TabletLabel>
-              <textarea
+              <DictationTextarea
                 id="arshia-investigations"
                 value={investigationText}
-                onChange={(event) => setInvestigationText(event.target.value)}
+                onChange={setInvestigationText}
                 rows={7}
-                placeholder="Use Fetch reports to load visit lab and radiology reports, or type/paste report text here."
-                className="mt-1.5 w-full rounded-xl border bg-background p-3 text-base"
+                placeholder="Use Fetch reports to load visit lab and radiology reports, dictate additions, or type/paste report text here."
+                className="mt-1.5"
               />
             </div>
           </div>
