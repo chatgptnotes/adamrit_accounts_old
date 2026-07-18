@@ -693,6 +693,8 @@ async function applyPortalRowToVisit(
   // Portal exports repeat the value pipe-separated, e.g. "Severe sepsis|Severe sepsis"
   const packageName = normalizePortalPackageName(row.procedure_details);
   if (packageName) visitUpdate.package_name = packageName;
+  const packageCode = cleanPortalPackageText(row.procedure_code || '').toUpperCase();
+  if (packageCode) visitUpdate.package_code = packageCode;
   const amount = (row.preauth_approved_amount || '').replace(/[^0-9.]/g, '');
   if (amount) visitUpdate.package_amount = amount;
 

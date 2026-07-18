@@ -19,6 +19,7 @@ import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletInput, TabletLabel } from "@/tablet/ui/TabletInput";
 import { DictationTextarea } from "@/tablet/components/DictationTextarea";
 import { syncPortalDataForRegistrationId } from "@/lib/governmentPortalReportDb";
+import { derivePackageCodeFromName, resolvePackageCodeFromSavedData } from "@/lib/packageCodeLookup";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { compressImageToLimit } from "@/tablet/lib/image";
 import { uploadPatientDocs, usePatientDocs, type PatientDoc } from "@/tablet/hooks/usePatientDocs";
@@ -480,11 +481,50 @@ export default function AdvanceFlow() {
     },
   });
 
+  const autoPackageCode = useQuery({
+    queryKey: [
+      "tablet-advance-package-code",
+      visit.data?.id,
+      visit.data?.package_name,
+      visit.data?.yojana_registration_id,
+    ],
+    enabled: !!visit.data?.id && !!visit.data?.package_name && !visit.data?.package_code,
+    queryFn: async () => {
+      const code = await resolvePackageCodeFromSavedData({
+        packageName: visit.data?.package_name,
+        registrationId: visit.data?.yojana_registration_id,
+      });
+      if (!code || !visit.data?.id) return null;
+
+      const { error } = await supabase
+        .from("visits")
+        .update({ package_code: code } as any)
+        .eq("id", visit.data.id);
+      if (error) throw error;
+
+      return code;
+    },
+    staleTime: 1000 * 60 * 5,
+  });
+
+  const resolvedPackageCode =
+    visit.data?.package_code ||
+    autoPackageCode.data ||
+    derivePackageCodeFromName(visit.data?.package_name) ||
+    "";
+
+  useEffect(() => {
+    if (autoPackageCode.data) {
+      qc.invalidateQueries({ queryKey: ["tablet-advance-visit"] });
+      qc.invalidateQueries({ queryKey: ["tablet-advance-patient-list"] });
+    }
+  }, [autoPackageCode.data, qc]);
+
   useEffect(() => {
     setRegistrationIdInput(visit.data?.yojana_registration_id || "");
-    setPackageCodeInput(visit.data?.package_code || "");
+    setPackageCodeInput(resolvedPackageCode || "");
     setPackageNameInput(visit.data?.package_name || "");
-  }, [visit.data?.id, visit.data?.yojana_registration_id, visit.data?.package_code, visit.data?.package_name]);
+  }, [visit.data?.id, visit.data?.yojana_registration_id, visit.data?.package_name, resolvedPackageCode]);
 
   const addedImplants = useQuery({
     queryKey: ["tablet-visit-implants", visit.data?.id],
@@ -973,7 +1013,7 @@ Return clean plain text with headings.`,
       const sourceContext = {
         visit_id: visit.data.visit_id,
         yojana_registration_id: visit.data.yojana_registration_id,
-        package_code: visit.data.package_code,
+        package_code: resolvedPackageCode || null,
         package_name: visit.data.package_name,
         corporate: visit.data.corporate,
         pre_authorization_transcription: preauthTranscript.trim() || "Not provided",
@@ -1709,9 +1749,9 @@ ${JSON.stringify(sourceContext, null, 2)}`,
             <>
                 <TabletCard>
                   <TabletLabel>Package</TabletLabel>
-                  {visit.data.package_code || visit.data.package_name ? (
+                  {resolvedPackageCode || visit.data.package_name ? (
                     <div className="mt-1.5 rounded-lg bg-muted p-3 text-sm">
-                      <p><span className="font-medium">Code:</span> {visit.data.package_code || "—"}</p>
+                      <p><span className="font-medium">Code:</span> {resolvedPackageCode || (autoPackageCode.isLoading ? "Fetching…" : "—")}</p>
                       <p><span className="font-medium">Name:</span> {visit.data.package_name || "—"}</p>
                       <p className="mt-1 text-xs text-muted-foreground">Fetched from the saved visit data. Search or edit below only if it needs to be updated.</p>
                     </div>

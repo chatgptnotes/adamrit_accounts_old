@@ -24,11 +24,15 @@ import {
   fetchLatestGovernmentPortalReport,
   syncPortalDataForRegistrationId,
 } from '@/lib/governmentPortalReportDb';
+import {
+  buildPackageCodeLookupMap,
+  normalizePackageLookupValue,
+  resolvePackageCodeFromOptions,
+} from '@/lib/packageCodeLookup';
 import { toast } from 'sonner';
 import '@/styles/print.css';
 
-const normalizeLookupValue = (value?: string | null) =>
-  (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const normalizeLookupValue = normalizePackageLookupValue;
 
 const getRowRegistrationNos = (item: any) => {
   const patient = item?.patients;
@@ -634,6 +638,14 @@ const AdvanceStatementReport = () => {
     [portalProcedurePackages, packages],
   );
 
+  const packageCodeByName = useMemo(
+    () => buildPackageCodeLookupMap(allPackageOptions),
+    [allPackageOptions],
+  );
+
+  const getReportPackageCode = (item: any) =>
+    String(item?.package_code || resolvePackageCodeFromOptions(item?.package_name || item?.package_details, packageCodeByName) || '').trim();
+
   useEffect(() => {
     if (!selectedRow) {
       setSelectedImplantId('');
@@ -963,9 +975,10 @@ const AdvanceStatementReport = () => {
 
   const handlePackageNameUpdate = async (visitId: string, name: string) => {
     const matchedPackage = allPackageOptions.find((pkg) => pkg.name === name);
+    const packageCode = matchedPackage?.code || resolvePackageCodeFromOptions(name, allPackageOptions);
     const { error } = await supabase
       .from('visits')
-      .update({ package_name: name || null, package_code: matchedPackage?.code || null } as any)
+      .update({ package_name: name || null, package_code: packageCode || null } as any)
       .eq('id', visitId);
 
     if (error) {
@@ -1680,7 +1693,8 @@ const AdvanceStatementReport = () => {
               const submissionDate = billPrep?.date_of_submission ? format(new Date(billPrep.date_of_submission), 'dd/MM/yyyy') : '-';
               const regNo = getPrimaryRegistrationNo(item) || 'N/A';
               const packageName = (item as any).package_name || '-';
-              const packageCode = (item as any).package_code || '-';
+              const resolvedPackageCode = getReportPackageCode(item);
+              const packageCode = resolvedPackageCode || '-';
               const packageAmount = item.package_amount ? `₹${Number(item.package_amount).toLocaleString('en-IN')}` : '-';
               const billAmount = billPrep?.bill_amount ? `₹${Number(billPrep.bill_amount).toLocaleString('en-IN')}` : '-';
 
@@ -1951,12 +1965,13 @@ const AdvanceStatementReport = () => {
                             <div className="flex items-center gap-2">
                               <span className="shrink-0 text-xs text-gray-500">Code</span>
                               <Input
-                                defaultValue={(item as any).package_code || ''}
+                                key={`${item.id}-package-code-${getReportPackageCode(item) || 'blank'}`}
+                                defaultValue={getReportPackageCode(item)}
                                 placeholder="Package code"
                                 className="h-8 text-xs"
                                 onBlur={(e) => {
                                   const value = e.target.value.trim();
-                                  if (value !== ((item as any).package_code || '')) {
+                                  if (value !== getReportPackageCode(item)) {
                                     handlePackageCodeUpdate(item.id, value);
                                   }
                                 }}
@@ -2131,8 +2146,9 @@ const AdvanceStatementReport = () => {
                       value={selectedRow.package_name || ''}
                       onValueChange={(value) => {
                         const matchedPackage = allPackageOptions.find((pkg) => pkg.name === value);
+                        const packageCode = matchedPackage?.code || resolvePackageCodeFromOptions(value, allPackageOptions);
                         handlePackageNameUpdate(selectedRow.id, value);
-                        setSelectedRow({ ...selectedRow, package_name: value, package_code: matchedPackage?.code || null });
+                        setSelectedRow({ ...selectedRow, package_name: value, package_code: packageCode || null });
                       }}
                       placeholder="Select package..."
                       searchPlaceholder="Type to search..."
@@ -2142,11 +2158,12 @@ const AdvanceStatementReport = () => {
                   {detailRow('Package Code', (
                     <Input
                       className="h-7 w-40 text-sm"
-                      defaultValue={selectedRow.package_code || ''}
+                      key={`${selectedRow.id}-detail-package-code-${getReportPackageCode(selectedRow) || 'blank'}`}
+                      defaultValue={getReportPackageCode(selectedRow)}
                       placeholder="Package code"
                       onBlur={(e) => {
                         const value = e.target.value.trim();
-                        if (value !== (selectedRow.package_code || '')) {
+                        if (value !== getReportPackageCode(selectedRow)) {
                           handlePackageCodeUpdate(selectedRow.id, value);
                           setSelectedRow({ ...selectedRow, package_code: value || null });
                         }
