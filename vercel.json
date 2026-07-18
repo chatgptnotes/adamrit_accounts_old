@@ -9,6 +9,9 @@
     },
     "api/skill-factory-claude.ts": {
       "maxDuration": 120
+    },
+    "api/ai-proxy.ts": {
+      "maxDuration": 120
     }
   },
   "crons": [

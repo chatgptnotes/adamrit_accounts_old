@@ -217,22 +217,80 @@ function stringifyInvestigationValue(value: unknown): string {
   }
 }
 
-async function loadVisitInvestigationText(visitId: string): Promise<string> {
-  const [labsResult, radiologyResult] = await Promise.all([
+const uniqueByStableKey = (items: any[]) => {
+  const seen = new Set<string>();
+  return items.filter((item, index) => {
+    const key = String(item?.id || `${item?.test_name || item?.main_test_name || item?.file_name || item?.ordered_date || "row"}-${index}`);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const isInvalidUuidFallbackError = (error: any) =>
+  error?.code === "22P02" && String(error?.message || "").includes("invalid input syntax for type uuid");
+
+async function loadVisitInvestigationText(visitUuid: string, visitNumber?: string | null): Promise<string> {
+  const visitKeys = [visitUuid, visitNumber].filter(Boolean) as string[];
+  const [
+    orderedLabsResult,
+    structuredLabsByUuid,
+    structuredLabsByVisitNumber,
+    radiologyByUuid,
+    radiologyByVisitNumber,
+  ] = await Promise.all([
     supabase
       .from("visit_labs" as any)
       .select("id, status, ordered_date, completed_date, result_value, normal_range, notes, lab:lab_id(name)")
-      .eq("visit_id", visitId),
+      .eq("visit_id", visitUuid),
+    supabase
+      .from("lab_results" as any)
+      .select("id, test_name, main_test_name, test_category, result_value, result_unit, reference_range, comments, result_status, created_at, file_name, file_url")
+      .eq("visit_id", visitUuid)
+      .order("created_at", { ascending: false }),
+    visitNumber
+      ? supabase
+          .from("lab_results" as any)
+          .select("id, test_name, main_test_name, test_category, result_value, result_unit, reference_range, comments, result_status, created_at, file_name, file_url")
+          .eq("visit_id", visitNumber)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
     supabase
       .from("visit_radiology" as any)
-      .select("id, status, ordered_date, completed_date, findings, impression, notes, report_text, radiology:radiology_id(name)")
-      .eq("visit_id", visitId),
+      .select("id, status, ordered_date, completed_date, findings, impression, notes, report_text, file_name, file_url, radiology:radiology_id(name, category)")
+      .eq("visit_id", visitUuid)
+      .order("ordered_date", { ascending: false }),
+    visitNumber
+      ? supabase
+          .from("visit_radiology" as any)
+          .select("id, status, ordered_date, completed_date, findings, impression, notes, report_text, file_name, file_url, radiology:radiology_id(name, category)")
+          .eq("visit_id", visitNumber)
+          .order("ordered_date", { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
-  if (labsResult.error) throw labsResult.error;
-  if (radiologyResult.error) throw radiologyResult.error;
+  const errors = [
+    orderedLabsResult.error,
+    structuredLabsByUuid.error,
+    isInvalidUuidFallbackError(structuredLabsByVisitNumber.error) ? null : structuredLabsByVisitNumber.error,
+    radiologyByUuid.error,
+    isInvalidUuidFallbackError(radiologyByVisitNumber.error) ? null : radiologyByVisitNumber.error,
+  ].filter(Boolean);
+  if (errors.length) {
+    throw errors[0];
+  }
 
-  const labLines = ((labsResult.data || []) as any[]).map((item, index) => {
+  const orderedLabs = uniqueByStableKey((orderedLabsResult.data || []) as any[]);
+  const structuredLabs = uniqueByStableKey([
+    ...((structuredLabsByUuid.data || []) as any[]),
+    ...((structuredLabsByVisitNumber.data || []) as any[]),
+  ]);
+  const radiologyItems = uniqueByStableKey([
+    ...((radiologyByUuid.data || []) as any[]),
+    ...((radiologyByVisitNumber.data || []) as any[]),
+  ]);
+
+  const orderedLabLines = orderedLabs.map((item, index) => {
     const labName = item.lab?.name || "Lab investigation";
     const details = [
       item.status ? `status: ${item.status}` : "",
@@ -244,7 +302,23 @@ async function loadVisitInvestigationText(visitId: string): Promise<string> {
     return `${index + 1}. ${labName}${details.length ? ` - ${details.join("; ")}` : ""}`;
   });
 
-  const radiologyLines = ((radiologyResult.data || []) as any[]).map((item, index) => {
+  const structuredLabLines = structuredLabs.map((item, index) => {
+    const testName = [item.main_test_name, item.test_name].filter(Boolean).join(" - ") || item.file_name || "Lab result";
+    const details = [
+      item.test_category ? `category: ${item.test_category}` : "",
+      item.result_value ? `result: ${stringifyInvestigationValue(item.result_value)}` : "",
+      item.result_unit ? `unit: ${item.result_unit}` : "",
+      item.reference_range ? `reference range: ${item.reference_range}` : "",
+      item.comments ? `comments: ${item.comments}` : "",
+      item.result_status ? `status: ${item.result_status}` : "",
+      item.file_name ? `file: ${item.file_name}` : "",
+      item.file_url ? `file url: ${item.file_url}` : "",
+      item.created_at ? `date: ${shortDate(item.created_at)}` : "",
+    ].filter(Boolean);
+    return `${index + 1}. ${testName}${details.length ? ` - ${details.join("; ")}` : ""}`;
+  });
+
+  const radiologyLines = radiologyItems.map((item, index) => {
     const radiologyName = item.radiology?.name || "Radiology investigation";
     const details = [
       item.status ? `status: ${item.status}` : "",
@@ -252,14 +326,22 @@ async function loadVisitInvestigationText(visitId: string): Promise<string> {
       item.impression ? `impression: ${item.impression}` : "",
       item.report_text ? `report: ${item.report_text}` : "",
       item.notes ? `notes: ${item.notes}` : "",
+      item.file_name ? `file: ${item.file_name}` : "",
+      item.file_url ? `file url: ${item.file_url}` : "",
       item.completed_date ? `completed: ${shortDate(item.completed_date)}` : "",
+      !item.completed_date && item.ordered_date ? `ordered: ${shortDate(item.ordered_date)}` : "",
     ].filter(Boolean);
     return `${index + 1}. ${radiologyName}${details.length ? ` - ${details.join("; ")}` : ""}`;
   });
 
   return [
-    "LAB INVESTIGATIONS",
-    labLines.length ? labLines.join("\n") : "No lab investigations found for this visit.",
+    `VISIT KEYS: ${visitKeys.join(", ")}`,
+    "",
+    "LAB ORDERS / VISIT LABS",
+    orderedLabLines.length ? orderedLabLines.join("\n") : "No lab orders found for this visit.",
+    "",
+    "LAB RESULTS",
+    structuredLabLines.length ? structuredLabLines.join("\n") : "No structured lab results found for this visit.",
     "",
     "RADIOLOGY INVESTIGATIONS",
     radiologyLines.length ? radiologyLines.join("\n") : "No radiology investigations found for this visit.",
@@ -865,7 +947,7 @@ Return clean plain text with headings.`,
     setIsLoadingInvestigations(true);
     setArshiaError(null);
     try {
-      setInvestigationText(await loadVisitInvestigationText(visit.data.id));
+      setInvestigationText(await loadVisitInvestigationText(visit.data.id, visit.data.visit_id));
     } catch (error) {
       setArshiaError(error instanceof Error ? error.message : "Could not fetch investigations.");
     } finally {
@@ -884,7 +966,7 @@ Return clean plain text with headings.`,
     try {
       let currentInvestigationText = investigationText.trim();
       if (!currentInvestigationText) {
-        currentInvestigationText = await loadVisitInvestigationText(visit.data.id);
+        currentInvestigationText = await loadVisitInvestigationText(visit.data.id, visit.data.visit_id);
         setInvestigationText(currentInvestigationText);
       }
 

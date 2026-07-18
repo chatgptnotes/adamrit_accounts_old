@@ -45,17 +45,23 @@ function modelFromUrl(url: string): string {
   return m?.[1] ?? GEMINI_MODEL;
 }
 
-// Route all Gemini requests through the authenticated Supabase Edge Function.
+// Route all Gemini requests through the same-origin serverless API.
 // VITE_GEMINI_API_KEY is deliberately only a non-secret sentinel in this app;
 // the real Gemini key belongs in the server-side GEMINI_API_KEY secret.
 export async function geminiFetch(url: string, init: RequestInit): Promise<Response> {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY?.trim();
-  if (!apiKey || apiKey === 'your_gemini_api_key_here' || apiKey === 'managed-server-side') {
-    throw new Error('Gemini API key is not configured. Set VITE_GEMINI_API_KEY to a valid Gemini API key and restart the app.');
+  let payload: unknown = {};
+  if (typeof init.body === 'string') {
+    payload = init.body ? JSON.parse(init.body) : {};
+  } else if (init.body && typeof init.body === 'object' && !(init.body instanceof FormData)) {
+    payload = init.body;
   }
+
   const model = modelFromUrl(url);
-  const directUrl = `${GEMINI_API_BASE}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-  return fetch(directUrl, init);
+  return fetch('/api/ai-proxy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: 'gemini', model, payload }),
+  });
 }
 
 // Kept as an alias for any caller importing the lower-level name; the proxy now
