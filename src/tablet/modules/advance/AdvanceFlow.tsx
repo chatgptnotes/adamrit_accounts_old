@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ChevronRight, Download, ImageIcon, Loader2, Search, Upload, User, Wallet } from "lucide-react";
+import { Camera, CheckCircle2, ChevronRight, Download, ImageIcon, Loader2, Search, Upload, User, Wallet } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import type { Patient } from "@/components/PatientLookup/types/patientLookup";
@@ -122,7 +122,13 @@ export default function AdvanceFlow() {
   const [imagesOpen, setImagesOpen] = useState(false);
   const [viewingImage, setViewingImage] = useState<PatientDoc | null>(null);
   const [uploadingImages, setUploadingImages] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraStarting, setCameraStarting] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const cameraVideoRef = useRef<HTMLVideoElement>(null);
+  const cameraCanvasRef = useRef<HTMLCanvasElement>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
 
   const patientRows = useQuery({
     queryKey: ["tablet-advance-patient-list", showAllPatients, hospitalConfig?.name, patientSearch.trim()],
@@ -499,6 +505,99 @@ export default function AdvanceFlow() {
     } finally {
       setUploadingImages(false);
     }
+  };
+
+  const stopCamera = useCallback(() => {
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraStreamRef.current = null;
+    if (cameraVideoRef.current) cameraVideoRef.current.srcObject = null;
+  }, []);
+
+  useEffect(() => {
+    if (!cameraOpen) {
+      stopCamera();
+      return;
+    }
+
+    let cancelled = false;
+    const startCamera = async () => {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraError("Camera capture is not supported in this browser.");
+        return;
+      }
+
+      setCameraStarting(true);
+      setCameraError(null);
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1600 },
+            height: { ideal: 1200 },
+          },
+          audio: false,
+        });
+
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        cameraStreamRef.current = stream;
+        if (cameraVideoRef.current) {
+          cameraVideoRef.current.srcObject = stream;
+          await cameraVideoRef.current.play().catch(() => undefined);
+        }
+      } catch (error) {
+        console.error("Advance image camera failed:", error);
+        setCameraError("Unable to open the camera. Please allow camera access or use Upload image.");
+      } finally {
+        if (!cancelled) setCameraStarting(false);
+      }
+    };
+
+    void startCamera();
+
+    return () => {
+      cancelled = true;
+      stopCamera();
+    };
+  }, [cameraOpen, stopCamera]);
+
+  const captureCameraImage = async () => {
+    const video = cameraVideoRef.current;
+    const canvas = cameraCanvasRef.current;
+    if (!patient || !video || !canvas || video.readyState < 2) {
+      setCameraError("Camera preview is not ready yet.");
+      return;
+    }
+
+    const width = video.videoWidth || 1280;
+    const height = video.videoHeight || 960;
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+      setCameraError("Unable to capture the camera image.");
+      return;
+    }
+
+    context.drawImage(video, 0, 0, width, height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+    if (!blob) {
+      setCameraError("Unable to save the captured image.");
+      return;
+    }
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const safePatientId = (patient.patients_id || patient.id || "patient").replace(/[^a-zA-Z0-9_-]/g, "_");
+    const file = new File([blob], `pre_authorization_${safePatientId}_${stamp}.jpg`, {
+      type: "image/jpeg",
+    });
+
+    setCameraOpen(false);
+    await handleImageFiles([file]);
   };
 
   if (!patient) {
@@ -931,7 +1030,10 @@ export default function AdvanceFlow() {
           open={imagesOpen}
           onOpenChange={(open) => {
             setImagesOpen(open);
-            if (!open) setViewingImage(null);
+            if (!open) {
+              setViewingImage(null);
+              setCameraOpen(false);
+            }
           }}
         >
           <DialogContent className="max-w-3xl">
@@ -964,6 +1066,53 @@ export default function AdvanceFlow() {
                   </TabletButton>
                 </div>
               </div>
+            ) : cameraOpen ? (
+              <div className="space-y-4">
+                <div className="overflow-hidden rounded-2xl border border-border bg-zinc-950">
+                  {cameraStarting ? (
+                    <div className="flex min-h-[360px] items-center justify-center text-white">
+                      <Loader2 className="h-8 w-8 animate-spin" />
+                    </div>
+                  ) : (
+                    <video
+                      ref={cameraVideoRef}
+                      playsInline
+                      muted
+                      autoPlay
+                      className="max-h-[62vh] min-h-[300px] w-full bg-zinc-950 object-contain"
+                    />
+                  )}
+                </div>
+                <canvas ref={cameraCanvasRef} className="hidden" />
+                {cameraError ? (
+                  <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {cameraError}
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Place the filled pre authorization form inside the frame, then save the captured image.
+                  </p>
+                )}
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <TabletButton
+                    variant="outline"
+                    onClick={() => setCameraOpen(false)}
+                  >
+                    Cancel
+                  </TabletButton>
+                  <TabletButton
+                    disabled={cameraStarting || uploadingImages || Boolean(cameraError)}
+                    onClick={() => void captureCameraImage()}
+                  >
+                    {uploadingImages ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <Camera className="h-5 w-5" />
+                    )}
+                    Save captured image
+                  </TabletButton>
+                </div>
+              </div>
             ) : (
               <div className="space-y-4">
                 <input
@@ -977,18 +1126,31 @@ export default function AdvanceFlow() {
                     e.target.value = "";
                   }}
                 />
-                <TabletButton
-                  className="w-full"
-                  disabled={uploadingImages || !patient}
-                  onClick={() => imageInputRef.current?.click()}
-                >
-                  {uploadingImages ? (
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                  ) : (
-                    <Upload className="h-5 w-5" />
-                  )}
-                  Upload image
-                </TabletButton>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <TabletButton
+                    disabled={uploadingImages || !patient}
+                    onClick={() => setCameraOpen(true)}
+                  >
+                    {uploadingImages ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <Camera className="h-5 w-5" />
+                    )}
+                    Capture image
+                  </TabletButton>
+                  <TabletButton
+                    variant="outline"
+                    disabled={uploadingImages || !patient}
+                    onClick={() => imageInputRef.current?.click()}
+                  >
+                    {uploadingImages ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <Upload className="h-5 w-5" />
+                    )}
+                    Upload image
+                  </TabletButton>
+                </div>
                 {advanceImages.isLoading ? (
                   <div className="flex justify-center py-8">
                     <Loader2 className="h-7 w-7 animate-spin text-primary" />
