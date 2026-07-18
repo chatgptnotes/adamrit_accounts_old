@@ -67,6 +67,16 @@ const matchesRowSearchTerm = (item: any, searchTerm: string) => {
 const normalizePortalProcedureDetails = (value?: string | null) =>
   [...new Set((value || '').split('|').map((part) => part.trim()).filter(Boolean))].join(', ');
 
+const normalizePortalApprovedAmount = (value?: string | null) => {
+  const amount = String(value || '').replace(/[^0-9.]/g, '');
+  return amount && Number.isFinite(Number(amount)) ? amount : '';
+};
+
+const formatPackageAmount = (value?: string | number | null) => {
+  const amount = Number(String(value || '').replace(/[^0-9.]/g, ''));
+  return Number.isFinite(amount) && amount > 0 ? `₹${amount.toLocaleString('en-IN')}` : '-';
+};
+
 const AdvanceStatementReport = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -633,6 +643,21 @@ const AdvanceStatementReport = () => {
     return [...unique.values()];
   }, [latestPortalReport]);
 
+  const portalPackageByRegistration = useMemo(() => {
+    const packagesByRegistration = new Map<string, { name: string; code: string; amount: string }>();
+    for (const row of latestPortalReport?.report.rows || []) {
+      const registrationId = normalizeLookupValue(row.values['Registration ID']);
+      const name = normalizePortalProcedureDetails(row.values['Procedure Details']);
+      if (!registrationId || !name) continue;
+      packagesByRegistration.set(registrationId, {
+        name,
+        code: row.values['Procedure Code'] || '',
+        amount: normalizePortalApprovedAmount(row.values['Preauth Approved Amount']),
+      });
+    }
+    return packagesByRegistration;
+  }, [latestPortalReport]);
+
   const allPackageOptions = useMemo(
     () => Array.from(new Map([...portalProcedurePackages, ...packages].map((pkg) => [pkg.name, pkg])).values()),
     [portalProcedurePackages, packages],
@@ -643,8 +668,26 @@ const AdvanceStatementReport = () => {
     [allPackageOptions],
   );
 
+  const getPortalPackageForRow = (item: any) =>
+    [item?.yojana_registration_id, item?.thumb_registration_no]
+      .map((value) => normalizeLookupValue(value))
+      .filter(Boolean)
+      .map((registrationId) => portalPackageByRegistration.get(registrationId))
+      .find(Boolean) || null;
+
+  const getReportPackageName = (item: any) =>
+    String(item?.package_name || item?.package_details || getPortalPackageForRow(item)?.name || '').trim();
+
   const getReportPackageCode = (item: any) =>
-    String(item?.package_code || resolvePackageCodeFromOptions(item?.package_name || item?.package_details, packageCodeByName) || '').trim();
+    String(
+      item?.package_code ||
+      resolvePackageCodeFromOptions(getReportPackageName(item), packageCodeByName) ||
+      getPortalPackageForRow(item)?.code ||
+      '',
+    ).trim();
+
+  const getReportPackageAmountValue = (item: any) =>
+    String(item?.package_amount || getPortalPackageForRow(item)?.amount || '').trim();
 
   useEffect(() => {
     if (!selectedRow) {
@@ -1406,10 +1449,10 @@ const AdvanceStatementReport = () => {
                     <td style="text-align: center;">${intimationDateText}</td>
                     <td>${diagnosisText}</td>
                     <td style="text-align: center;">${(item as any).treatment_type || '-'}</td>
-                    <td style="text-align: center;">${(item as any).package_name || '-'}</td>
-                    <td style="text-align: center;">${item.package_details || '-'}</td>
+                    <td style="text-align: center;">${getReportPackageName(item) || '-'}</td>
+                    <td style="text-align: center;">${getReportPackageName(item) || '-'}</td>
                     <td style="text-align: center;">${item.package_days || 0}</td>
-                    <td style="text-align: right;">₹${(parseFloat(item.package_amount || '0') || 0).toLocaleString('en-IN')}</td>
+                    <td style="text-align: right;">${formatPackageAmount(getReportPackageAmountValue(item))}</td>
                     <td style="text-align: center;">${submissionDateText}</td>
                     <td style="text-align: right;">₹${(item.lab_total || 0).toLocaleString('en-IN')}</td>
                     <td style="text-align: right;">₹${(item.pharmacy_total || 0).toLocaleString('en-IN')}</td>
@@ -1494,8 +1537,8 @@ const AdvanceStatementReport = () => {
         const referralLetter = getReferralLetterDisplay(item.file_status);
 
         const packageDays = item.package_days || 0;
-        const packageAmount = item.package_amount || '0';
-        const packageDetails = (item as any).package_details || '';
+        const packageAmount = getReportPackageAmountValue(item) || '0';
+        const packageDetails = getReportPackageName(item);
         const labAmount = item.lab_total || 0;
         const pharmacyAmount = item.pharmacy_total || 0;
         const pharmacyPaidAmount = item.pharmacy_paid || 0;
@@ -1692,10 +1735,10 @@ const AdvanceStatementReport = () => {
               const intimationDate = billPrep?.intimation_date ? format(new Date(billPrep.intimation_date), 'dd/MM/yyyy') : '-';
               const submissionDate = billPrep?.date_of_submission ? format(new Date(billPrep.date_of_submission), 'dd/MM/yyyy') : '-';
               const regNo = getPrimaryRegistrationNo(item) || 'N/A';
-              const packageName = (item as any).package_name || '-';
+              const packageName = getReportPackageName(item) || '-';
               const resolvedPackageCode = getReportPackageCode(item);
               const packageCode = resolvedPackageCode || '-';
-              const packageAmount = item.package_amount ? `₹${Number(item.package_amount).toLocaleString('en-IN')}` : '-';
+              const packageAmount = formatPackageAmount(getReportPackageAmountValue(item));
               const billAmount = billPrep?.bill_amount ? `₹${Number(billPrep.bill_amount).toLocaleString('en-IN')}` : '-';
 
               return (
@@ -1956,7 +1999,7 @@ const AdvanceStatementReport = () => {
                           <div className="space-y-2">
                             <SearchableSelect
                               options={allPackageOptions.map(pkg => ({ value: pkg.name, label: pkg.label || pkg.name }))}
-                              value={(item as any).package_name || ''}
+                              value={getReportPackageName(item)}
                               onValueChange={(value) => handlePackageNameUpdate(item.id, value)}
                               placeholder="Select package..."
                               searchPlaceholder="Type to search..."
@@ -1988,11 +2031,12 @@ const AdvanceStatementReport = () => {
                           <Input
                             type="number"
                             className="w-24 text-center h-8 text-sm"
-                            defaultValue={item.package_amount || ''}
+                            key={`${item.id}-package-amount-${getReportPackageAmountValue(item) || 'blank'}`}
+                            defaultValue={getReportPackageAmountValue(item)}
                             placeholder="0"
                             onBlur={(e) => {
                               const val = e.target.value;
-                              if (val !== (item.package_amount || '')) {
+                              if (val !== getReportPackageAmountValue(item)) {
                                 handlePackageAmountUpdate(item.id, val);
                               }
                             }}
@@ -2143,7 +2187,7 @@ const AdvanceStatementReport = () => {
                   {detailRow('Package Name', (
                     <SearchableSelect
                       options={allPackageOptions.map(pkg => ({ value: pkg.name, label: pkg.label || pkg.name }))}
-                      value={selectedRow.package_name || ''}
+                      value={getReportPackageName(selectedRow)}
                       onValueChange={(value) => {
                         const matchedPackage = allPackageOptions.find((pkg) => pkg.name === value);
                         const packageCode = matchedPackage?.code || resolvePackageCodeFromOptions(value, allPackageOptions);
@@ -2175,8 +2219,8 @@ const AdvanceStatementReport = () => {
                       }}
                     />
                   ))}
-                  {detailRow('Package Amount', selectedRow.package_amount
-                    ? `₹${(parseFloat(selectedRow.package_amount) || 0).toLocaleString('en-IN')}`
+                  {detailRow('Package Amount', getReportPackageAmountValue(selectedRow)
+                    ? formatPackageAmount(getReportPackageAmountValue(selectedRow))
                     : '-')}
                   {detailRow('Package Days', (
                     <Input
