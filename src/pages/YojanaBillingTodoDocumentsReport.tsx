@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { endOfDay, format, startOfDay, subDays } from 'date-fns';
+import { format, subHours } from 'date-fns';
 import {
   ArrowLeft,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
   ExternalLink,
   FileCheck2,
   FileText,
@@ -13,7 +10,7 @@ import {
   RefreshCw,
   Search,
 } from 'lucide-react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { PATIENT_DOC_CATEGORIES } from '@/tablet/hooks/usePatientDocs';
 import { Input } from '@/components/ui/input';
@@ -28,7 +25,37 @@ import {
 } from '@/utils/dialysisPatientName';
 import { formatDateOnlyForDisplay } from '@/utils/dateOnly';
 
-type TodoReason = 'Admitted last 2 days' | 'Discharged last 2 days' | 'Surgery last 2 days' | 'Extension today';
+const TODO_REASONS = {
+  admitted: 'Admitted in last 48 hours',
+  discharged: 'Discharged in last 48 hours',
+  operated: 'Operated in last 48 hours',
+  extension: 'Extension to be taken and not taken in last 48 hours',
+} as const;
+
+type TodoReason = typeof TODO_REASONS[keyof typeof TODO_REASONS];
+
+const SECTION_DEFINITIONS: { title: string; reason: TodoReason; empty: string }[] = [
+  {
+    title: 'Admitted in last 48 hours',
+    reason: TODO_REASONS.admitted,
+    empty: 'No recently admitted Yojana patients have pending documents for the selected filter.',
+  },
+  {
+    title: 'Discharged in last 48 hours',
+    reason: TODO_REASONS.discharged,
+    empty: 'No recently discharged Yojana patients have pending documents for the selected filter.',
+  },
+  {
+    title: 'Operated in last 48 hours',
+    reason: TODO_REASONS.operated,
+    empty: 'No recently operated Yojana patients have pending documents for the selected filter.',
+  },
+  {
+    title: 'Extension to be taken and not taken in last 48 hours',
+    reason: TODO_REASONS.extension,
+    empty: 'No pending extension cases have pending documents for the selected filter.',
+  },
+];
 
 interface TodoDocumentRow {
   id: string;
@@ -42,6 +69,7 @@ interface TodoDocumentRow {
   admissionDate: string | null;
   dischargeDate: string | null;
   surgeryDate: string | null;
+  extensionStatus: string | null;
   reasons: TodoReason[];
   done: string[];
   left: string[];
@@ -63,6 +91,7 @@ interface TodoCandidate {
   admissionDate: string | null;
   dischargeDate: string | null;
   surgeryDate: string | null;
+  extensionStatus: string | null;
   visit: any | null;
   reasons: Set<TodoReason>;
 }
@@ -73,8 +102,6 @@ type UploadedPatientDocument = {
   category: string | null;
 };
 
-const PAGE_SIZE_OPTIONS = [10, 20, 30, 40];
-const DEFAULT_PAGE_SIZE = 10;
 const CORE_DOCUMENT_IDS = ['treatment_sheet', 'monitor_chart', 'lab_investigation', 'radiology_investigation', 'discharge_summary'];
 const SURGERY_DOCUMENT_IDS = ['ot_notes', 'ot_photos', 'implant_invoice', 'implant_sticker'];
 const DIALYSIS_DOCUMENT_IDS = ['dialysis'];
@@ -110,11 +137,38 @@ const isWithinRange = (value: string | null | undefined, from: Date, to: Date) =
   return Number.isFinite(time) && time >= from.getTime() && time <= to.getTime();
 };
 
+const normalizeStatus = (value: string | null | undefined) =>
+  normalizeValue(value).replace(/[\s-]+/g, '_');
+
+const visitNeedsExtensionToBeTaken = (visit: any) => {
+  const extensionOfStay = normalizeStatus(visit?.extension_of_stay);
+  const extensionTaken = normalizeStatus(visit?.extension_taken);
+
+  if (extensionOfStay === 'not_taken') return true;
+  if (extensionOfStay === 'taken' || extensionOfStay === 'not_required') return false;
+  if (extensionTaken === 'not_taken' || extensionTaken === 'no' || extensionTaken === 'pending') return true;
+
+  return false;
+};
+
 function getVisitReasons(visit: any, from: Date, to: Date): TodoReason[] {
   const reasons: TodoReason[] = [];
-  if (isWithinRange(visit.admission_date, from, to)) reasons.push('Admitted last 2 days');
-  if (isWithinRange(visit.discharge_date, from, to)) reasons.push('Discharged last 2 days');
-  if (isWithinRange(visit.surgery_date, from, to)) reasons.push('Surgery last 2 days');
+  if (isWithinRange(visit.admission_date, from, to)) reasons.push(TODO_REASONS.admitted);
+  if (isWithinRange(visit.discharge_date, from, to)) reasons.push(TODO_REASONS.discharged);
+  if (isWithinRange(visit.surgery_date, from, to)) reasons.push(TODO_REASONS.operated);
+
+  const extensionTouchedInWindow = [
+    visit.updated_at,
+    visit.created_at,
+    visit.admission_date,
+    visit.discharge_date,
+    visit.surgery_date,
+  ].some((value) => isWithinRange(value, from, to));
+
+  if (visitNeedsExtensionToBeTaken(visit) && extensionTouchedInWindow) {
+    reasons.push(TODO_REASONS.extension);
+  }
+
   return reasons;
 }
 
@@ -135,6 +189,7 @@ function addCandidate(
     existing.admissionDate = existing.admissionDate || input.admissionDate;
     existing.dischargeDate = existing.dischargeDate || input.dischargeDate;
     existing.surgeryDate = existing.surgeryDate || input.surgeryDate;
+    existing.extensionStatus = existing.extensionStatus || input.extensionStatus;
     return;
   }
 
@@ -198,24 +253,14 @@ export default function YojanaBillingTodoDocumentsReport() {
   const [allRows, setAllRows] = useState<TodoDocumentRow[]>([]);
   const [search, setSearch] = useState('');
   const [documentFilter, setDocumentFilter] = useState('all');
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [loading, setLoading] = useState(true);
   const [refreshTick, setRefreshTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [searchParams, setSearchParams] = useSearchParams();
-  const currentPage = Math.max(1, Number(searchParams.get('page') || '1'));
 
-  const today = useMemo(() => new Date(), []);
-  const windowStart = useMemo(() => startOfDay(subDays(today, 2)), [today]);
-  const windowEnd = useMemo(() => endOfDay(today), [today]);
-  const dateWindowLabel = `${format(windowStart, 'dd/MM/yyyy')} - ${format(windowEnd, 'dd/MM/yyyy')}`;
-
-  const goToPage = (page: number) => {
-    const next = new URLSearchParams(searchParams);
-    next.set('page', String(Math.max(1, page)));
-    setSearchParams(next, { replace: true });
-  };
-  const resetPage = () => goToPage(1);
+  const now = useMemo(() => new Date(), [refreshTick]);
+  const windowStart = useMemo(() => subHours(now, 48), [now]);
+  const windowEnd = now;
+  const dateWindowLabel = `${format(windowStart, 'dd/MM/yyyy HH:mm')} - ${format(windowEnd, 'dd/MM/yyyy HH:mm')}`;
 
   useEffect(() => {
     let active = true;
@@ -233,6 +278,10 @@ export default function YojanaBillingTodoDocumentsReport() {
           admission_date,
           discharge_date,
           surgery_date,
+          extension_of_stay,
+          extension_taken,
+          created_at,
+          updated_at,
           package_name,
           treatment_type,
           reason_for_visit,
@@ -245,14 +294,16 @@ export default function YojanaBillingTodoDocumentsReport() {
           patients(id, name, patients_id, phone, corporate, hospital_name)
         `)
         .eq('patient_type', 'IPD')
-        .or(`admission_date.gte.${windowStart.toISOString()},discharge_date.gte.${windowStart.toISOString()},surgery_date.gte.${format(windowStart, 'yyyy-MM-dd')}`)
+        .or(`admission_date.gte.${windowStart.toISOString()},discharge_date.gte.${windowStart.toISOString()},surgery_date.gte.${format(windowStart, 'yyyy-MM-dd')},created_at.gte.${windowStart.toISOString()},updated_at.gte.${windowStart.toISOString()}`)
         .order('admission_date', { ascending: false })
         .limit(1000);
 
       if (recentVisitsResult.error) throw recentVisitsResult.error;
 
       const extensionSummary = await fetchLatestGovernmentPortalExtensionAlerts(500);
-      const extensionRows = extensionSummary?.rows || [];
+      const extensionRows = extensionSummary && isWithinRange(extensionSummary.createdAt, windowStart, windowEnd)
+        ? extensionSummary.rows
+        : [];
       const extensionIds = unique(extensionRows.map((row) => normalizeLookup(row.registrationId)).filter(Boolean));
 
       const extensionVisitResults = extensionIds.length
@@ -266,6 +317,10 @@ export default function YojanaBillingTodoDocumentsReport() {
               admission_date,
               discharge_date,
               surgery_date,
+              extension_of_stay,
+              extension_taken,
+              created_at,
+              updated_at,
               package_name,
               treatment_type,
               reason_for_visit,
@@ -287,6 +342,10 @@ export default function YojanaBillingTodoDocumentsReport() {
               admission_date,
               discharge_date,
               surgery_date,
+              extension_of_stay,
+              extension_taken,
+              created_at,
+              updated_at,
               package_name,
               treatment_type,
               reason_for_visit,
@@ -331,6 +390,7 @@ export default function YojanaBillingTodoDocumentsReport() {
           admissionDate: visit.admission_date || null,
           dischargeDate: visit.discharge_date || null,
           surgeryDate: visit.surgery_date || null,
+          extensionStatus: visit.extension_of_stay || visit.extension_taken || null,
           visit,
           reasons,
         });
@@ -354,8 +414,9 @@ export default function YojanaBillingTodoDocumentsReport() {
           admissionDate: visit.admission_date || null,
           dischargeDate: visit.discharge_date || null,
           surgeryDate: visit.surgery_date || null,
+          extensionStatus: visit.extension_of_stay || visit.extension_taken || 'not_taken',
           visit,
-          reasons: ['Extension today'],
+          reasons: [TODO_REASONS.extension],
         });
       }
 
@@ -373,8 +434,9 @@ export default function YojanaBillingTodoDocumentsReport() {
           admissionDate: null,
           dischargeDate: null,
           surgeryDate: null,
+          extensionStatus: 'not_taken',
           visit: null,
-          reasons: ['Extension today'],
+          reasons: [TODO_REASONS.extension],
         });
       }
 
@@ -452,6 +514,7 @@ export default function YojanaBillingTodoDocumentsReport() {
           admissionDate: candidate.admissionDate,
           dischargeDate: candidate.dischargeDate,
           surgeryDate: candidate.surgeryDate,
+          extensionStatus: candidate.extensionStatus,
           reasons: Array.from(candidate.reasons),
           done,
           left,
@@ -495,12 +558,13 @@ export default function YojanaBillingTodoDocumentsReport() {
     });
   }, [allRows, documentFilter, search]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
-  const safePage = Math.min(currentPage, totalPages);
-  const rows = useMemo(() => {
-    const start = (safePage - 1) * pageSize;
-    return filteredRows.slice(start, start + pageSize);
-  }, [filteredRows, safePage, pageSize]);
+  const sectionRows = useMemo(() => SECTION_DEFINITIONS.map((section) => ({
+    ...section,
+    rows: filteredRows.filter((row) => row.reasons.includes(section.reason)),
+  })), [filteredRows]);
+
+  const totalSectionRows = sectionRows.reduce((sum, section) => sum + section.rows.length, 0);
+  const countForReason = (reason: TodoReason) => filteredRows.filter((row) => row.reasons.includes(reason)).length;
 
   const handlePrint = () => {
     if (filteredRows.length === 0) return;
@@ -539,7 +603,8 @@ export default function YojanaBillingTodoDocumentsReport() {
             tr { break-inside: avoid; page-break-inside: avoid; }
             .patient { font-weight: 700; font-size: 13px; }
             .muted { color: #9ca3af; }
-            .reasons span { display: inline-block; margin: 0 4px 4px 0; border: 1px solid #bfdbfe; background: #eff6ff; color: #1d4ed8; border-radius: 999px; padding: 2px 7px; font-size: 10px; font-weight: 700; }
+            h2 { margin: 18px 0 8px; font-size: 15px; }
+            .section-meta { color: #6b7280; font-size: 11px; margin-bottom: 6px; }
             ul { margin: 0; padding-left: 17px; }
             li { margin: 2px 0; }
           </style>
@@ -548,45 +613,54 @@ export default function YojanaBillingTodoDocumentsReport() {
           <header>
             <div>
               <h1>To-do list for billing of Yojana patients today</h1>
-              <div class="subtitle">Pending patient documents for recent admissions, discharges, surgeries, and today's extension list.</div>
+              <div class="subtitle">Pending documents split by admissions, discharges, surgeries, and extension cases in the last 48 hours.</div>
             </div>
             <div class="meta">
-              <div><strong>${filteredRows.length}</strong> pending patient${filteredRows.length === 1 ? '' : 's'}</div>
+              <div><strong>${filteredRows.length}</strong> unique pending patient${filteredRows.length === 1 ? '' : 's'}</div>
+              <div><strong>${totalSectionRows}</strong> section item${totalSectionRows === 1 ? '' : 's'}</div>
               <div>Window ${esc(dateWindowLabel)}</div>
               <div>Printed ${esc(new Date().toLocaleString('en-IN'))}</div>
             </div>
           </header>
-          <table>
-            <thead>
-              <tr>
-                <th style="width: 5%;">#</th>
-                <th style="width: 22%;">Patient</th>
-                <th style="width: 19%;">Reason</th>
-                <th style="width: 14%;">Dates</th>
-                <th style="width: 20%;">Documents Done</th>
-                <th style="width: 20%;">Documents Pending</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${filteredRows.map((row, index) => `
-                <tr>
-                  <td>${index + 1}</td>
-                  <td>
-                    <div class="patient">${esc(row.displayName)}</div>
-                    <div class="muted">${esc([row.patientsId, row.visitNumber, row.registrationId].filter(Boolean).join(' | '))}</div>
-                  </td>
-                  <td><div class="reasons">${row.reasons.map((reason) => `<span>${esc(reason)}</span>`).join('')}</div></td>
-                  <td>
-                    <div>Adm: ${esc(formatDateTime(row.admissionDate))}</div>
-                    <div>Dis: ${esc(formatDateTime(row.dischargeDate))}</div>
-                    <div>Surg: ${esc(formatDateTime(row.surgeryDate))}</div>
-                  </td>
-                  <td>${renderDocs(row.visibleDone)}</td>
-                  <td>${renderDocs(row.visibleLeft)}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
+          ${sectionRows.map((section) => `
+            <section>
+              <h2>${esc(section.title)}</h2>
+              <div class="section-meta">${section.rows.length} pending item${section.rows.length === 1 ? '' : 's'}</div>
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width: 5%;">#</th>
+                    <th style="width: 27%;">Patient</th>
+                    <th style="width: 16%;">Dates</th>
+                    <th style="width: 26%;">Documents Done</th>
+                    <th style="width: 26%;">Documents Pending</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${section.rows.length ? section.rows.map((row, index) => `
+                    <tr>
+                      <td>${index + 1}</td>
+                      <td>
+                        <div class="patient">${esc(row.displayName)}</div>
+                        <div class="muted">${esc([row.patientsId, row.visitNumber, row.registrationId].filter(Boolean).join(' | '))}</div>
+                      </td>
+                      <td>
+                        <div>Adm: ${esc(formatDateTime(row.admissionDate))}</div>
+                        <div>Dis: ${esc(formatDateTime(row.dischargeDate))}</div>
+                        <div>Surg: ${esc(formatDateTime(row.surgeryDate))}</div>
+                      </td>
+                      <td>${renderDocs(row.visibleDone)}</td>
+                      <td>${renderDocs(row.visibleLeft)}</td>
+                    </tr>
+                  `).join('') : `
+                    <tr>
+                      <td colspan="5" class="muted">No pending patients for this section.</td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </section>
+          `).join('')}
           <script>
             window.onload = () => {
               window.print();
@@ -614,7 +688,7 @@ export default function YojanaBillingTodoDocumentsReport() {
           <div>
             <h1 className="text-2xl font-bold text-gray-800">To-do list for billing of Yojana patients today</h1>
             <p className="text-sm text-gray-500">
-              Pending documents for recent admissions, discharges, surgeries, and today's extension list.
+              Pending documents split by admissions, discharges, surgeries, and extension cases in the last 48 hours.
             </p>
           </div>
         </div>
@@ -644,20 +718,14 @@ export default function YojanaBillingTodoDocumentsReport() {
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <Input
             value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-              resetPage();
-            }}
+            onChange={(event) => setSearch(event.target.value)}
             placeholder="Search patient, visit, registration ID, or reason"
             className="h-10 w-full pl-9"
           />
         </div>
         <select
           value={documentFilter}
-          onChange={(event) => {
-            setDocumentFilter(event.target.value);
-            resetPage();
-          }}
+          onChange={(event) => setDocumentFilter(event.target.value)}
           className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-primary/30"
         >
           <option value="all">All pending document types</option>
@@ -672,142 +740,138 @@ export default function YojanaBillingTodoDocumentsReport() {
 
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Pending patients</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{filteredRows.length}</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Admitted</p>
+          <p className="mt-1 text-2xl font-bold text-gray-900">{countForReason(TODO_REASONS.admitted)}</p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Admissions</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{allRows.filter((row) => row.reasons.includes('Admitted last 2 days')).length}</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Discharged</p>
+          <p className="mt-1 text-2xl font-bold text-gray-900">{countForReason(TODO_REASONS.discharged)}</p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Discharges</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{allRows.filter((row) => row.reasons.includes('Discharged last 2 days')).length}</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Operated</p>
+          <p className="mt-1 text-2xl font-bold text-gray-900">{countForReason(TODO_REASONS.operated)}</p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Extensions</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{allRows.filter((row) => row.reasons.includes('Extension today')).length}</p>
+          <p className="mt-1 text-2xl font-bold text-gray-900">{countForReason(TODO_REASONS.extension)}</p>
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50 px-5 py-3 text-sm text-gray-500">
-          <span>{rows.length ? `Showing ${(safePage - 1) * pageSize + 1}-${(safePage - 1) * pageSize + rows.length} of ${filteredRows.length} pending patients` : 'No pending patients'}</span>
-          {(search || documentFilter !== 'all') && (
-            <button
-              type="button"
-              onClick={() => {
-                setSearch('');
-                setDocumentFilter('all');
-                resetPage();
-              }}
-              className="font-medium text-primary hover:underline"
-            >
-              Clear filters
-            </button>
-          )}
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-[1120px] w-full table-fixed divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="w-[20%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Patient</th>
-                <th className="w-[18%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">To-do reason</th>
-                <th className="w-[15%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Dates</th>
-                <th className="w-[22%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Documents Done</th>
-                <th className="w-[20%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Documents Pending</th>
-                <th className="w-[5%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {loading && (
-                <tr>
-                  <td colSpan={6} className="px-5 py-12 text-center text-gray-500">
-                    <Loader2 className="mr-2 inline-block h-5 w-5 animate-spin" />
-                    Loading Yojana billing to-do list...
-                  </td>
-                </tr>
-              )}
-              {!loading && error && (
-                <tr>
-                  <td colSpan={6} className="px-5 py-12 text-center text-red-600">{error}</td>
-                </tr>
-              )}
-              {!loading && !error && rows.map((row) => (
-                <tr key={row.id} className="align-top hover:bg-gray-50">
-                  <td className="px-5 py-4">
-                    <div className="font-semibold text-gray-800">{row.displayName}</div>
-                    <div className="mt-1 space-y-0.5 text-xs text-gray-500">
-                      {row.patientsId ? <div>Patient ID: {row.patientsId}</div> : null}
-                      {row.visitNumber ? <div>Visit: {row.visitNumber}</div> : null}
-                      {row.registrationId ? <div>Reg: {row.registrationId}</div> : null}
-                    </div>
-                  </td>
-                  <td className="px-5 py-4">
-                    <ReasonPills reasons={row.reasons} />
-                  </td>
-                  <td className="px-5 py-4 text-sm text-gray-600">
-                    <div>Adm: {formatDateTime(row.admissionDate)}</div>
-                    <div>Dis: {formatDateTime(row.dischargeDate)}</div>
-                    <div>Surg: {formatDateTime(row.surgeryDate)}</div>
-                  </td>
-                  <td className="px-5 py-4">
-                    <CountBadge count={row.visibleDone.length} tone="done" />
-                    {row.visibleDone.length ? <DocumentList items={row.visibleDone} tone="done" /> : <span className="mt-2 block text-sm text-gray-400">None</span>}
-                  </td>
-                  <td className="px-5 py-4">
-                    <CountBadge count={row.visibleLeft.length} tone="left" />
-                    <DocumentList items={row.visibleLeft} tone="left" />
-                  </td>
-                  <td className="px-5 py-4">
-                    <Link
-                      to={`/advance-statement-report?search=${encodeURIComponent(row.patientName || row.registrationId || row.displayName)}&includeDischarged=1`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs font-medium text-primary hover:bg-primary/5"
-                      title="View registration ID and billing details in Advance Statement Report"
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                      Details
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-              {!loading && !error && rows.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-5 py-12 text-center text-gray-500">
-                    No pending Yojana patient documents found for today's billing to-do list.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-500 shadow-sm">
+        <span>
+          {filteredRows.length
+            ? `${filteredRows.length} unique pending patient${filteredRows.length === 1 ? '' : 's'} across ${totalSectionRows} section item${totalSectionRows === 1 ? '' : 's'}`
+            : 'No pending patients for the selected filters'}
+        </span>
+        {(search || documentFilter !== 'all') && (
+          <button
+            type="button"
+            onClick={() => {
+              setSearch('');
+              setDocumentFilter('all');
+            }}
+            className="font-medium text-primary hover:underline"
+          >
+            Clear filters
+          </button>
+        )}
       </div>
 
-      {!loading && !error && filteredRows.length > 0 && (
-        <div className="mt-4 flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
-          <div className="flex items-center gap-2 text-sm text-gray-500">
-            <label htmlFor="page-size">Rows per page</label>
-            <select
-              id="page-size"
-              value={pageSize}
-              onChange={(event) => {
-                setPageSize(Number(event.target.value));
-                resetPage();
-              }}
-              className="h-8 rounded-md border border-input bg-background px-2 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-primary/30"
-            >
-              {PAGE_SIZE_OPTIONS.map((size) => (
-                <option key={size} value={size}>{size}</option>
-              ))}
-            </select>
-          </div>
-          <span className="text-sm text-gray-500">Page {safePage} of {totalPages}</span>
-          <div className="flex items-center gap-1">
-            <button type="button" onClick={() => goToPage(1)} disabled={safePage === 1} className="rounded-md border p-2 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40" aria-label="First page"><ChevronsLeft className="h-4 w-4" /></button>
-            <button type="button" onClick={() => goToPage(safePage - 1)} disabled={safePage === 1} className="rounded-md border p-2 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Previous page"><ChevronLeft className="h-4 w-4" /></button>
-            <button type="button" onClick={() => goToPage(safePage + 1)} disabled={safePage >= totalPages} className="rounded-md border p-2 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Next page"><ChevronRight className="h-4 w-4" /></button>
-          </div>
+      {loading && (
+        <div className="rounded-xl border border-gray-200 bg-white px-5 py-12 text-center text-gray-500 shadow-sm">
+          <Loader2 className="mr-2 inline-block h-5 w-5 animate-spin" />
+          Loading Yojana billing to-do list...
+        </div>
+      )}
+
+      {!loading && error && (
+        <div className="rounded-xl border border-red-100 bg-red-50 px-5 py-12 text-center text-red-600 shadow-sm">
+          {error}
+        </div>
+      )}
+
+      {!loading && !error && (
+        <div className="space-y-5">
+          {sectionRows.map((section) => (
+            <section key={section.reason} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 bg-gray-50 px-5 py-3">
+                <div>
+                  <h2 className="text-base font-semibold text-gray-800">{section.title}</h2>
+                  <p className="text-sm text-gray-500">
+                    {section.rows.length} pending item{section.rows.length === 1 ? '' : 's'}
+                  </p>
+                </div>
+                {section.reason === TODO_REASONS.extension && (
+                  <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+                    Extension not taken
+                  </span>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-[1040px] w-full table-fixed divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="w-[26%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Patient</th>
+                      <th className="w-[16%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Dates</th>
+                      <th className="w-[25%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Documents Done</th>
+                      <th className="w-[25%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Documents Pending</th>
+                      <th className="w-[8%] px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {section.rows.map((row) => (
+                      <tr key={`${section.reason}:${row.id}`} className="align-top hover:bg-gray-50">
+                        <td className="px-5 py-4">
+                          <div className="font-semibold text-gray-800">{row.displayName}</div>
+                          <div className="mt-1 space-y-0.5 text-xs text-gray-500">
+                            {row.patientsId ? <div>Patient ID: {row.patientsId}</div> : null}
+                            {row.visitNumber ? <div>Visit: {row.visitNumber}</div> : null}
+                            {row.registrationId ? <div>Reg: {row.registrationId}</div> : null}
+                          </div>
+                          {row.reasons.length > 1 ? <ReasonPills reasons={row.reasons} /> : null}
+                        </td>
+                        <td className="px-5 py-4 text-sm text-gray-600">
+                          <div>Adm: {formatDateTime(row.admissionDate)}</div>
+                          <div>Dis: {formatDateTime(row.dischargeDate)}</div>
+                          <div>Surg: {formatDateTime(row.surgeryDate)}</div>
+                          {section.reason === TODO_REASONS.extension && row.extensionStatus ? (
+                            <div className="mt-1 text-xs font-medium text-amber-700">Ext: {row.extensionStatus.replace(/_/g, ' ')}</div>
+                          ) : null}
+                        </td>
+                        <td className="px-5 py-4">
+                          <CountBadge count={row.visibleDone.length} tone="done" />
+                          {row.visibleDone.length ? <DocumentList items={row.visibleDone} tone="done" /> : <span className="mt-2 block text-sm text-gray-400">None</span>}
+                        </td>
+                        <td className="px-5 py-4">
+                          <CountBadge count={row.visibleLeft.length} tone="left" />
+                          <DocumentList items={row.visibleLeft} tone="left" />
+                        </td>
+                        <td className="px-5 py-4">
+                          <Link
+                            to={`/advance-statement-report?search=${encodeURIComponent(row.patientName || row.registrationId || row.displayName)}&includeDischarged=1`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs font-medium text-primary hover:bg-primary/5"
+                            title="View registration ID and billing details in Advance Statement Report"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            Details
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                    {section.rows.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-5 py-10 text-center text-gray-500">
+                          {section.empty}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ))}
         </div>
       )}
     </div>
