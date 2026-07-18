@@ -24,6 +24,7 @@ import {
   fetchLatestGovernmentPortalReport,
   syncPortalDataForRegistrationId,
 } from '@/lib/governmentPortalReportDb';
+import { parsePortalDate } from '@/lib/governmentPortalReport';
 import {
   buildPackageCodeLookupMap,
   normalizePackageLookupValue,
@@ -71,6 +72,40 @@ const normalizePortalApprovedAmount = (value?: string | null) => {
   const amount = String(value || '').replace(/[^0-9.]/g, '');
   return amount && Number.isFinite(Number(amount)) ? amount : '';
 };
+
+type PortalPackageDetails = { name: string; code: string; amount: string };
+
+const buildPortalPackageDetails = (row: { values: Record<string, string> }): PortalPackageDetails | null => {
+  const name = normalizePortalProcedureDetails(row.values['Procedure Details']);
+  if (!name) return null;
+  return {
+    name,
+    code: row.values['Procedure Code'] || '',
+    amount: normalizePortalApprovedAmount(row.values['Preauth Approved Amount']),
+  };
+};
+
+const formatDateKey = (value?: string | Date | null) => {
+  if (!value) return '';
+  const parsed = value instanceof Date
+    ? value
+    : parsePortalDate(String(value)) || new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) return '';
+  return format(parsed, 'yyyy-MM-dd');
+};
+
+const buildPortalPatientDateKey = (patientName?: string | null, dateValue?: string | Date | null) => {
+  const normalizedName = normalizeLookupValue(patientName);
+  const normalizedDate = formatDateKey(dateValue);
+  return normalizedName && normalizedDate ? `${normalizedName}|${normalizedDate}` : '';
+};
+
+const getVisitPreauthDateCandidates = (item: any) => [
+  item?.bill_prep?.intimation_date,
+  item?.admission_date,
+  item?.visit_date,
+].filter((value): value is string => Boolean(value));
 
 const formatPackageAmount = (value?: string | number | null) => {
   const amount = Number(String(value || '').replace(/[^0-9.]/g, ''));
@@ -644,18 +679,28 @@ const AdvanceStatementReport = () => {
   }, [latestPortalReport]);
 
   const portalPackageByRegistration = useMemo(() => {
-    const packagesByRegistration = new Map<string, { name: string; code: string; amount: string }>();
+    const packagesByRegistration = new Map<string, PortalPackageDetails>();
     for (const row of latestPortalReport?.report.rows || []) {
       const registrationId = normalizeLookupValue(row.values['Registration ID']);
-      const name = normalizePortalProcedureDetails(row.values['Procedure Details']);
-      if (!registrationId || !name) continue;
-      packagesByRegistration.set(registrationId, {
-        name,
-        code: row.values['Procedure Code'] || '',
-        amount: normalizePortalApprovedAmount(row.values['Preauth Approved Amount']),
-      });
+      const packageDetails = buildPortalPackageDetails(row);
+      if (!registrationId || !packageDetails) continue;
+      packagesByRegistration.set(registrationId, packageDetails);
     }
     return packagesByRegistration;
+  }, [latestPortalReport]);
+
+  const portalPackageByPatientAndPreauthDate = useMemo(() => {
+    const packagesByPatientAndDate = new Map<string, PortalPackageDetails>();
+    for (const row of latestPortalReport?.report.rows || []) {
+      const key = buildPortalPatientDateKey(
+        row.values['Beneficiary Name'],
+        row.values['Preauth Initiated Date'],
+      );
+      const packageDetails = buildPortalPackageDetails(row);
+      if (!key || !packageDetails || packagesByPatientAndDate.has(key)) continue;
+      packagesByPatientAndDate.set(key, packageDetails);
+    }
+    return packagesByPatientAndDate;
   }, [latestPortalReport]);
 
   const allPackageOptions = useMemo(
@@ -668,12 +713,22 @@ const AdvanceStatementReport = () => {
     [allPackageOptions],
   );
 
-  const getPortalPackageForRow = (item: any) =>
-    [item?.yojana_registration_id, item?.thumb_registration_no]
+  const getPortalPackageForRow = (item: any) => {
+    const registrationMatch = [item?.yojana_registration_id, item?.thumb_registration_no]
       .map((value) => normalizeLookupValue(value))
       .filter(Boolean)
       .map((registrationId) => portalPackageByRegistration.get(registrationId))
+      .find(Boolean);
+
+    if (registrationMatch) return registrationMatch;
+
+    const patientName = item?.patients?.name;
+    return getVisitPreauthDateCandidates(item)
+      .map((dateValue) => buildPortalPatientDateKey(patientName, dateValue))
+      .filter(Boolean)
+      .map((patientDateKey) => portalPackageByPatientAndPreauthDate.get(patientDateKey))
       .find(Boolean) || null;
+  };
 
   const getReportPackageName = (item: any) =>
     String(item?.package_name || item?.package_details || getPortalPackageForRow(item)?.name || '').trim();
