@@ -23,6 +23,7 @@ description: Use when implementing, debugging, or reviewing Adamrit HMIS Advance
 - In `AdvanceStatementReport`, saved visit values remain highest priority. If saved package fields are missing, match Government Portal package rows first by Yojana/Thumb Registration ID. If registration does not match, use normalized patient name plus the same preauth date to identify the same patient, then display package details from the portal row.
 - For package matching, read from `government_portal_report_rows` across stored imports, ordered newest first. Do not rely only on the latest import header because newer imports can have zero inserted rows when registration IDs already exist.
 - When using the Government Portal Import fallback, fill package name from `Procedure Details`, package code from `Procedure Code`, and package amount from `Preauth Approved Amount`.
+- Government Portal import sync should permanently save both registration-ID matches and patient-name + preauth-date fallback matches into `visits.package_name`, `visits.package_code`, `visits.package_amount`, and `bill_preparation.intimation_date`.
 
 ## Data Notes
 

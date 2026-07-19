@@ -15,6 +15,9 @@ const db = supabase as any;
 const normalizeRegistrationId = (value: string | null | undefined) =>
   (value || '').trim().toUpperCase();
 
+const normalizeMatchValue = (value: string | null | undefined) =>
+  (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
 export type GovernmentPortalReportKind = 'under_treatment' | 'claims_to_be_submitted';
 
 export interface SavedGovernmentPortalImport {
@@ -633,11 +636,37 @@ function normalizePortalPackageName(raw: string | null): string {
   ].join(', ');
 }
 
+function normalizePortalPipeText(raw: string | null): string {
+  return [
+    ...new Set((raw || '').split('|').map((part) => part.trim()).filter(Boolean)),
+  ].join(', ');
+}
+
 function portalDateToIso(raw: string | null): string | null {
   const parsed = parsePortalDate(raw || '');
   if (!parsed) return null;
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}`;
+}
+
+function buildPatientPreauthKey(patientName: string | null | undefined, dateValue: string | null | undefined) {
+  const name = normalizeMatchValue(patientName);
+  const date = portalDateToIso(dateValue || null);
+  return name && date ? `${name}|${date}` : '';
+}
+
+function buildPortalSyncSource(row: GovernmentPortalRow): PortalSyncSource {
+  const registrationId = normalizeRegistrationId(row.values['Registration ID']);
+  return {
+    registration_id: registrationId,
+    program_id: row.values['Program ID'] || null,
+    case_type: row.values['Case Type'] || null,
+    procedure_code: row.values['Procedure Code'] || null,
+    procedure_details: row.values['Procedure Details'] || null,
+    preauth_approved_amount: row.values['Preauth Approved Amount'] || null,
+    preauth_initiated_date: row.values['Preauth Initiated Date'] || null,
+    beneficiary_name: row.values['Beneficiary Name'] || null,
+  };
 }
 
 async function ensurePortalPackageSavedToMaster(row: PortalSyncSource): Promise<void> {
@@ -693,7 +722,7 @@ async function applyPortalRowToVisit(
   // Portal exports repeat the value pipe-separated, e.g. "Severe sepsis|Severe sepsis"
   const packageName = normalizePortalPackageName(row.procedure_details);
   if (packageName) visitUpdate.package_name = packageName;
-  const packageCode = cleanPortalPackageText(row.procedure_code || '').toUpperCase();
+  const packageCode = normalizePortalPipeText(row.procedure_code).toUpperCase();
   if (packageCode) visitUpdate.package_code = packageCode;
   const amount = (row.preauth_approved_amount || '').replace(/[^0-9.]/g, '');
   if (amount) visitUpdate.package_amount = amount;
@@ -759,40 +788,101 @@ export async function syncGovernmentPortalReportToVisits(
   report: GovernmentPortalReport,
 ): Promise<number> {
   const rowsByRegistrationId = new Map<string, PortalSyncSource>();
+  const rowsByPatientPreauthDate = new Map<string, PortalSyncSource>();
+
   for (const row of report.rows) {
-    const registrationId = normalizeRegistrationId(row.values['Registration ID']);
-    if (!registrationId) continue;
-    rowsByRegistrationId.set(registrationId, {
-      registration_id: registrationId,
-      program_id: row.values['Program ID'] || null,
-      case_type: row.values['Case Type'] || null,
-      procedure_code: row.values['Procedure Code'] || null,
-      procedure_details: row.values['Procedure Details'] || null,
-      preauth_approved_amount: row.values['Preauth Approved Amount'] || null,
-      preauth_initiated_date: row.values['Preauth Initiated Date'] || null,
-      beneficiary_name: row.values['Beneficiary Name'] || null,
-    });
+    const source = buildPortalSyncSource(row);
+    if (source.registration_id) rowsByRegistrationId.set(source.registration_id, source);
+
+    const patientDateKey = buildPatientPreauthKey(
+      source.beneficiary_name,
+      source.preauth_initiated_date,
+    );
+    if (patientDateKey && !rowsByPatientPreauthDate.has(patientDateKey)) {
+      rowsByPatientPreauthDate.set(patientDateKey, source);
+    }
   }
 
-  if (rowsByRegistrationId.size === 0) return 0;
+  if (rowsByRegistrationId.size === 0 && rowsByPatientPreauthDate.size === 0) return 0;
 
-  const registrationFilters = [...rowsByRegistrationId.keys()]
-    .map((registrationId) => `yojana_registration_id.ilike.${registrationId}`)
-    .join(',');
-
-  const { data: visits, error } = await db
-    .from('visits')
-    .select('id, visit_id, yojana_registration_id')
-    .or(registrationFilters);
-
-  if (error) throw error;
-
+  const syncedVisitIds = new Set<string>();
   let updated = 0;
-  for (const visit of visits || []) {
-    const row = rowsByRegistrationId.get(normalizeRegistrationId(visit.yojana_registration_id));
-    if (!row) continue;
-    if (await applyPortalRowToVisit(visit, row)) updated += 1;
+
+  if (rowsByRegistrationId.size > 0) {
+    const registrationFilters = [...rowsByRegistrationId.keys()]
+      .map((registrationId) => `yojana_registration_id.ilike.${registrationId},thumb_registration_no.ilike.${registrationId}`)
+      .join(',');
+
+    const { data: visits, error } = await db
+      .from('visits')
+      .select('id, visit_id, yojana_registration_id, thumb_registration_no')
+      .or(registrationFilters);
+
+    if (error) throw error;
+
+    for (const visit of visits || []) {
+      const row =
+        rowsByRegistrationId.get(normalizeRegistrationId(visit.yojana_registration_id)) ||
+        rowsByRegistrationId.get(normalizeRegistrationId(visit.thumb_registration_no));
+      if (!row || syncedVisitIds.has(visit.id)) continue;
+      if (await applyPortalRowToVisit(visit, row)) updated += 1;
+      syncedVisitIds.add(visit.id);
+    }
   }
+
+  if (rowsByPatientPreauthDate.size > 0) {
+    const { data: visits, error } = await db
+      .from('visits')
+      .select('id, visit_id, admission_date, visit_date, patients!inner(name)')
+      .eq('patient_type', 'IPD')
+      .not('admission_date', 'is', null)
+      .order('admission_date', { ascending: false })
+      .limit(2000);
+
+    if (error) throw error;
+
+    const visitIds = (visits || [])
+      .map((visit: { visit_id: string | null }) => visit.visit_id)
+      .filter((visitId: string | null): visitId is string => Boolean(visitId));
+
+    const billPrepByVisitId = new Map<string, string>();
+    for (let index = 0; index < visitIds.length; index += 500) {
+      const chunk = visitIds.slice(index, index + 500);
+      const { data: billPrepRows, error: billPrepError } = await db
+        .from('bill_preparation')
+        .select('visit_id, intimation_date')
+        .in('visit_id', chunk);
+
+      if (billPrepError) throw billPrepError;
+      for (const row of billPrepRows || []) {
+        if (row.visit_id && row.intimation_date) {
+          billPrepByVisitId.set(row.visit_id, row.intimation_date);
+        }
+      }
+    }
+
+    for (const visit of visits || []) {
+      if (syncedVisitIds.has(visit.id)) continue;
+
+      const patientName = visit.patients?.name || '';
+      const dateCandidates = [
+        visit.visit_id ? billPrepByVisitId.get(visit.visit_id) : null,
+        visit.admission_date,
+        visit.visit_date,
+      ].filter(Boolean) as string[];
+
+      const row = dateCandidates
+        .map((dateValue) => buildPatientPreauthKey(patientName, dateValue))
+        .filter(Boolean)
+        .map((key) => rowsByPatientPreauthDate.get(key))
+        .find(Boolean);
+
+      if (!row) continue;
+      if (await applyPortalRowToVisit(visit, row)) updated += 1;
+      syncedVisitIds.add(visit.id);
+    }
+  }
+
   return updated;
 }
 
