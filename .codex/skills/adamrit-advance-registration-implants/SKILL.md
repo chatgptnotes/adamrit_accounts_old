@@ -24,6 +24,7 @@ description: Use when implementing, debugging, or reviewing Adamrit HMIS Advance
 - For package matching, read from `government_portal_report_rows` across stored imports, ordered newest first. Do not rely only on the latest import header because newer imports can have zero inserted rows when registration IDs already exist.
 - When using the Government Portal Import fallback, fill package name from `Procedure Details`, package code from `Procedure Code`, and package amount from `Preauth Approved Amount`.
 - Government Portal import sync should permanently save registration-ID matches, patient-name + preauth-date fallback matches, and final patient-name-only fallback matches into `visits.package_name`, `visits.package_code`, `visits.package_amount`, and `bill_preparation.intimation_date`.
+- Patient-name-only matching is intentional and user-confirmed. Do not remove it because of duplicate-name concerns unless the user explicitly asks to make matching stricter again.
 
 ## Data Notes
 
