@@ -726,6 +726,17 @@ const AdvanceStatementReport = () => {
     return packagesByPatientAndDate;
   }, [portalPackageRows]);
 
+  const portalPackageByPatientName = useMemo(() => {
+    const packagesByPatientName = new Map<string, PortalPackageDetails>();
+    for (const row of portalPackageRows) {
+      const patientName = normalizeLookupValue(row.values['Beneficiary Name']);
+      const packageDetails = buildPortalPackageDetails(row);
+      if (!patientName || !packageDetails || packagesByPatientName.has(patientName)) continue;
+      packagesByPatientName.set(patientName, packageDetails);
+    }
+    return packagesByPatientName;
+  }, [portalPackageRows]);
+
   const allPackageOptions = useMemo(
     () => Array.from(new Map([...portalProcedurePackages, ...packages].map((pkg) => [pkg.name, pkg])).values()),
     [portalProcedurePackages, packages],
@@ -746,11 +757,15 @@ const AdvanceStatementReport = () => {
     if (registrationMatch) return registrationMatch;
 
     const patientName = item?.patients?.name;
-    return getVisitPreauthDateCandidates(item)
+    const patientDateMatch = getVisitPreauthDateCandidates(item)
       .map((dateValue) => buildPortalPatientDateKey(patientName, dateValue))
       .filter(Boolean)
       .map((patientDateKey) => portalPackageByPatientAndPreauthDate.get(patientDateKey))
-      .find(Boolean) || null;
+      .find(Boolean);
+
+    if (patientDateMatch) return patientDateMatch;
+
+    return portalPackageByPatientName.get(normalizeLookupValue(patientName)) || null;
   };
 
   const getReportPackageName = (item: any) =>

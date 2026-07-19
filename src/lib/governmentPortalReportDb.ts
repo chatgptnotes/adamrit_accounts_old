@@ -789,10 +789,16 @@ export async function syncGovernmentPortalReportToVisits(
 ): Promise<number> {
   const rowsByRegistrationId = new Map<string, PortalSyncSource>();
   const rowsByPatientPreauthDate = new Map<string, PortalSyncSource>();
+  const rowsByPatientName = new Map<string, PortalSyncSource>();
 
   for (const row of report.rows) {
     const source = buildPortalSyncSource(row);
     if (source.registration_id) rowsByRegistrationId.set(source.registration_id, source);
+
+    const patientNameKey = normalizeMatchValue(source.beneficiary_name);
+    if (patientNameKey && !rowsByPatientName.has(patientNameKey)) {
+      rowsByPatientName.set(patientNameKey, source);
+    }
 
     const patientDateKey = buildPatientPreauthKey(
       source.beneficiary_name,
@@ -803,7 +809,11 @@ export async function syncGovernmentPortalReportToVisits(
     }
   }
 
-  if (rowsByRegistrationId.size === 0 && rowsByPatientPreauthDate.size === 0) return 0;
+  if (
+    rowsByRegistrationId.size === 0 &&
+    rowsByPatientPreauthDate.size === 0 &&
+    rowsByPatientName.size === 0
+  ) return 0;
 
   const syncedVisitIds = new Set<string>();
   let updated = 0;
@@ -830,14 +840,14 @@ export async function syncGovernmentPortalReportToVisits(
     }
   }
 
-  if (rowsByPatientPreauthDate.size > 0) {
+  if (rowsByPatientPreauthDate.size > 0 || rowsByPatientName.size > 0) {
     const { data: visits, error } = await db
       .from('visits')
       .select('id, visit_id, admission_date, visit_date, patients!inner(name)')
       .eq('patient_type', 'IPD')
       .not('admission_date', 'is', null)
       .order('admission_date', { ascending: false })
-      .limit(2000);
+      .limit(5000);
 
     if (error) throw error;
 
@@ -875,7 +885,8 @@ export async function syncGovernmentPortalReportToVisits(
         .map((dateValue) => buildPatientPreauthKey(patientName, dateValue))
         .filter(Boolean)
         .map((key) => rowsByPatientPreauthDate.get(key))
-        .find(Boolean);
+        .find(Boolean) ||
+        rowsByPatientName.get(normalizeMatchValue(patientName));
 
       if (!row) continue;
       if (await applyPortalRowToVisit(visit, row)) updated += 1;
