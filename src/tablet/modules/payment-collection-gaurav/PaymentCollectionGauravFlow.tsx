@@ -25,13 +25,20 @@ import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import { uploadPatientDocs } from "@/tablet/hooks/usePatientDocs";
 import { inr } from "@/tablet/lib/format";
+import {
+  CORRECTION_COMMENT_STATUS,
+  EXTRA_PACKAGE_STATUS,
+  STATUS_ORDER,
+  getPaymentStatus,
+  parseExtraPackage,
+  statusMeta,
+  toNumber,
+  type PaymentStatus,
+} from "@/tablet/lib/vasooli";
 
 const PAYMENT_MODES = ["Cash", "UPI", "Card", "Cheque", "NEFT", "RTGS"] as const;
-const EXTRA_PACKAGE_STATUS = "VASOOLI_EXTRA_PACKAGE";
-const CORRECTION_COMMENT_STATUS = "VASOOLI_CORRECTION_COMMENT";
 
 type PaymentMode = (typeof PAYMENT_MODES)[number];
-type PaymentStatus = "pending" | "partial" | "paid";
 type LedgerKind = "payment" | "extra" | "comment";
 
 type PaymentLedgerRow = {
@@ -83,11 +90,6 @@ type PaymentForm = {
 };
 
 const todayInput = () => new Date().toISOString().slice(0, 10);
-
-const toNumber = (value: unknown) => {
-  const parsed = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
-  return Number.isFinite(parsed) ? parsed : 0;
-};
 
 const normalize = (value: unknown) =>
   String(value || "")
@@ -178,13 +180,6 @@ function isYojanaVisit(visit: any, patient: any, billPrep: any) {
   return hasSchemeText || hasPackageData;
 }
 
-function parseExtraPackage(row: any) {
-  const fromReference = toNumber(row?.reference_number);
-  if (fromReference > 0) return fromReference;
-  const match = String(row?.remarks || "").match(/extra_package_amount=([0-9.]+)/i);
-  return match ? toNumber(match[1]) : 0;
-}
-
 function parseProofName(remarks: string) {
   const match = remarks.match(/payment_proof=([^;]+)/i);
   return match?.[1]?.trim() || "";
@@ -193,32 +188,6 @@ function parseProofName(remarks: string) {
 function cleanRemarks(remarks: string) {
   return remarks.replace(/;?\s*payment_proof=[^;]+/i, "").trim();
 }
-
-function getPaymentStatus(extraPackageAmount: number, totalReceivedAmount: number): PaymentStatus {
-  if (extraPackageAmount > 0 && totalReceivedAmount <= 0) return "pending";
-  if (extraPackageAmount > 0 && totalReceivedAmount < extraPackageAmount) return "partial";
-  return "paid";
-}
-
-const statusMeta = (status: PaymentStatus) => {
-  switch (status) {
-    case "paid":
-      return {
-        label: "Fully Paid",
-        className: "border-emerald-200 bg-emerald-50 text-emerald-700",
-      };
-    case "partial":
-      return {
-        label: "Partially Paid",
-        className: "border-amber-200 bg-amber-50 text-amber-700",
-      };
-    default:
-      return {
-        label: "Pending",
-        className: "border-red-200 bg-red-50 text-red-700",
-      };
-  }
-};
 
 async function loadCollectionRows(hospitalName: string): Promise<CollectionRow[]> {
   const visits = await fetchAllPages(
@@ -251,9 +220,8 @@ async function loadCollectionRows(hospitalName: string): Promise<CollectionRow[]
   const visitIds = visits.map((visit) => String(visit.visit_id || "")).filter(Boolean);
   const visitUuids = visits.map((visit) => String(visit.id || "")).filter(Boolean);
   const visitKeys = [...visitIds, ...visitUuids];
-  const patientIds = visits.map((visit) => String(visit.patient_id || "")).filter(Boolean);
 
-  const [bills, visitAdvances, patientAdvances, billPrepRows] = await Promise.all([
+  const [bills, visitAdvances, billPrepRows] = await Promise.all([
     fetchByValues(
       "bills",
       "id, patient_id, visit_id, bill_no, bill_number, total_amount, status, date, category, created_at",
@@ -265,12 +233,6 @@ async function loadCollectionRows(hospitalName: string): Promise<CollectionRow[]
       "id, patient_id, visit_id, patient_name, bill_no, patients_id, advance_amount, returned_amount, is_refund, payment_date, payment_mode, bank_account_name, reference_number, billing_executive, remarks, status, created_at",
       "visit_id",
       visitKeys,
-    ),
-    fetchByValues(
-      "advance_payment",
-      "id, patient_id, visit_id, patient_name, bill_no, patients_id, advance_amount, returned_amount, is_refund, payment_date, payment_mode, bank_account_name, reference_number, billing_executive, remarks, status, created_at",
-      "patient_id",
-      patientIds,
     ),
     fetchByValues(
       "bill_preparation",
@@ -295,7 +257,7 @@ async function loadCollectionRows(hospitalName: string): Promise<CollectionRow[]
   }
 
   const allAdvances = new Map<string, any>();
-  for (const payment of [...visitAdvances, ...patientAdvances]) {
+  for (const payment of visitAdvances) {
     if (payment?.id) allAdvances.set(payment.id, payment);
   }
 
@@ -308,14 +270,12 @@ async function loadCollectionRows(hospitalName: string): Promise<CollectionRow[]
 
     const bill = billsByVisit.get(String(visit.visit_id || "")) || billsByVisit.get(String(visit.id || ""));
     const visitPaymentKeys = new Set([String(visit.visit_id || ""), String(visit.id || "")].filter(Boolean));
-    const patientId = String(visit.patient_id || "");
 
     const ledger: PaymentLedgerRow[] = [...allAdvances.values()]
-      .filter((payment) => {
-        const paymentVisitId = String(payment.visit_id || "");
-        if (paymentVisitId) return visitPaymentKeys.has(paymentVisitId);
-        return patientId && String(payment.patient_id || "") === patientId;
-      })
+      // Match on visit_id only. Every write from this flow sets visit_id, so a
+      // visit-less advance is always some other tile's record (AdvanceFlow does
+      // not set it) and must not be counted as a Vasooli collection.
+      .filter((payment) => visitPaymentKeys.has(String(payment.visit_id || "")))
       .map((payment) => {
         const remarks = String(payment.remarks || "");
         const status = String(payment.status || "");
@@ -380,9 +340,8 @@ async function loadCollectionRows(hospitalName: string): Promise<CollectionRow[]
   }
 
   return rows.sort((left, right) => {
-    const statusOrder = { pending: 0, partial: 1, paid: 2 };
-    if (statusOrder[left.paymentStatus] !== statusOrder[right.paymentStatus]) {
-      return statusOrder[left.paymentStatus] - statusOrder[right.paymentStatus];
+    if (STATUS_ORDER[left.paymentStatus] !== STATUS_ORDER[right.paymentStatus]) {
+      return STATUS_ORDER[left.paymentStatus] - STATUS_ORDER[right.paymentStatus];
     }
     return right.balancePending - left.balancePending;
   });
@@ -409,10 +368,12 @@ export default function PaymentCollectionGauravFlow() {
     );
   }, [rows, search]);
 
+  // Resolve against filteredRows only: a selection that the current search has
+  // hidden must never stay bound to the detail panel, or a payment gets booked
+  // against a patient the user can no longer see in the list.
   const selected = useMemo(() => {
-    const fallback = filteredRows[0] || rows[0] || null;
-    return rows.find((row) => row.visitUuid === selectedVisitUuid) || fallback;
-  }, [filteredRows, rows, selectedVisitUuid]);
+    return filteredRows.find((row) => row.visitUuid === selectedVisitUuid) || filteredRows[0] || null;
+  }, [filteredRows, selectedVisitUuid]);
 
   const totals = useMemo(() => ({
     patients: filteredRows.length,
