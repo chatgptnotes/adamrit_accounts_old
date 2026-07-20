@@ -107,6 +107,14 @@ export const TABLET_MODULES: TabletModule[] = [
     accent: "text-teal-700",
     tint: "from-teal-500 to-blue-600",
   },
+  {
+    id: "private-room-charges-reena",
+    label: "Extra Charges (Private Room) - Reena",
+    description: "Date-wise private bed charges",
+    icon: BedDouble,
+    accent: "text-indigo-600",
+    tint: "from-indigo-400 to-indigo-600",
+  },
 
   {
     id: "requisition",
