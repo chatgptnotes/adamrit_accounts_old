@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebounce } from "use-debounce";
 import {
@@ -44,6 +44,7 @@ interface VisitOption {
   dischargeDate: string | null;
   surgeryDate: string | null;
   packageName: string | null;
+  packageCode: string | null;
   ward: string | null;
   room: string | null;
 }
@@ -64,11 +65,29 @@ interface OTScheduleItem {
   actualEndTime: string | null;
   surgeryDate: string | null;
   packageName: string | null;
+  surgeonName: string | null;
+  anesthetistName: string | null;
+  anesthesiaType: string | null;
 }
+
+type PackageOtDefaults = {
+  packageId: string;
+  packageName: string;
+  packageCode: string;
+  surgeonName: string;
+  anesthetistName: string;
+  anesthesiaType: string;
+};
 
 const todayDate = () => new Date().toISOString().slice(0, 10);
 const nowTime = () => new Date().toTimeString().slice(0, 5);
 const normalizeStatus = (value: string | null | undefined) => (value || "scheduled").replace(/_/g, " ");
+const normalizeLookup = (value: string | null | undefined) =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+const sanitizeSearch = (value: string | null | undefined) => String(value || "").trim().replace(/[,*%]/g, " ");
 
 const rowPatient = (row: any) => Array.isArray(row?.patients) ? row.patients[0] : row?.patients;
 const rowVisit = (row: any) => Array.isArray(row?.visits) ? row.visits[0] : row?.visits;
@@ -100,9 +119,14 @@ function mapVisit(row: any): VisitOption {
     dischargeDate: row.discharge_date || null,
     surgeryDate: row.surgery_date || null,
     packageName: row.package_name || row.treatment_type || row.reason_for_visit || null,
+    packageCode: row.package_code || null,
     ward: row.ward_allotted || null,
     room: row.room_allotted || null,
   };
+}
+
+function parseAnesthesiaType(value: string | null | undefined) {
+  return String(value || "").replace(/^Anesthesia Type:\s*/i, "").trim() || null;
 }
 
 function mapSchedule(row: any): OTScheduleItem {
@@ -125,6 +149,9 @@ function mapSchedule(row: any): OTScheduleItem {
     actualEndTime: row.actual_end_time || null,
     surgeryDate: visit?.surgery_date || null,
     packageName: visit?.package_name || null,
+    surgeonName: row.surgeon_name || null,
+    anesthetistName: row.anesthetist_name || null,
+    anesthesiaType: parseAnesthesiaType(row.special_requirements),
   };
 }
 
@@ -160,6 +187,7 @@ function useVisitSearch(term: string) {
           admission_date,
           discharge_date,
           surgery_date,
+          package_code,
           package_name,
           treatment_type,
           reason_for_visit,
@@ -177,6 +205,75 @@ function useVisitSearch(term: string) {
       const { data, error } = await query;
       if (error) throw error;
       return (data || []).map(mapVisit);
+    },
+  });
+}
+
+function usePackageOtDefaults(packageName: string, packageCode: string | null | undefined) {
+  const name = packageName.trim();
+  const code = String(packageCode || "").trim();
+
+  return useQuery({
+    queryKey: ["tablet-ot-package-defaults", name, code],
+    enabled: Boolean(name || code),
+    staleTime: 1000 * 60 * 5,
+    queryFn: async (): Promise<PackageOtDefaults | null> => {
+      const orParts = [
+        code ? `treatment_code.ilike.*${sanitizeSearch(code)}*` : "",
+        name ? `treatment_plan.ilike.*${sanitizeSearch(name)}*` : "",
+      ].filter(Boolean);
+      if (orParts.length === 0) return null;
+
+      const { data: packages, error } = await supabase
+        .from("pmjay_mjpjay_packages")
+        .select("id, treatment_code, treatment_plan, anaesthesia_type, is_active")
+        .eq("is_active", true)
+        .or(orParts.join(","))
+        .limit(12);
+      if (error) throw error;
+
+      const rows = packages || [];
+      if (rows.length === 0) return null;
+
+      const normalizedCode = normalizeLookup(code);
+      const normalizedName = normalizeLookup(name);
+      const match =
+        rows.find((row: any) => normalizedCode && normalizeLookup(row.treatment_code) === normalizedCode) ||
+        rows.find((row: any) => normalizedName && normalizeLookup(row.treatment_plan) === normalizedName) ||
+        rows.find((row: any) => normalizedName && normalizeLookup(row.treatment_plan).includes(normalizedName)) ||
+        rows[0];
+
+      const packageId = String(match.id);
+      const [surgeonsResult, anaesthetistsResult] = await Promise.all([
+        supabase
+          .from("pmjay_mjpjay_package_surgeons")
+          .select("surgeon_name, created_at")
+          .eq("package_id", packageId)
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("pmjay_mjpjay_package_anaesthetists")
+          .select("anaesthetist_name, created_at")
+          .eq("package_id", packageId)
+          .order("created_at", { ascending: true }),
+      ]);
+      if (surgeonsResult.error) throw surgeonsResult.error;
+      if (anaesthetistsResult.error) throw anaesthetistsResult.error;
+
+      const surgeonName = [
+        ...new Set((surgeonsResult.data || []).map((row: any) => String(row.surgeon_name || "").trim()).filter(Boolean)),
+      ].join(", ");
+      const anesthetistName = [
+        ...new Set((anaesthetistsResult.data || []).map((row: any) => String(row.anaesthetist_name || "").trim()).filter(Boolean)),
+      ].join(", ");
+
+      return {
+        packageId,
+        packageName: match.treatment_plan || name,
+        packageCode: match.treatment_code || code,
+        surgeonName,
+        anesthetistName,
+        anesthesiaType: match.anaesthesia_type || "",
+      };
     },
   });
 }
@@ -215,6 +312,9 @@ function useDailySchedule(date: string) {
           ot_room,
           status,
           actual_end_time,
+          surgeon_name,
+          anesthetist_name,
+          special_requirements,
           patients!inner(id, name, patients_id, phone, hospital_name),
           visits(id, visit_id, surgery_date, package_name)
         `)
@@ -274,17 +374,32 @@ function GauravScheduler() {
   const [scheduledDate, setScheduledDate] = useState(todayDate());
   const [scheduledTime, setScheduledTime] = useState(nowTime());
   const [surgeryName, setSurgeryName] = useState("");
+  const [surgeonName, setSurgeonName] = useState("");
+  const [anesthetistName, setAnesthetistName] = useState("");
+  const [anesthesiaType, setAnesthesiaType] = useState("");
   const [otRoom, setOtRoom] = useState("OT");
   const [saving, setSaving] = useState(false);
   const dailySchedule = useDailySchedule(scheduledDate);
+  const packageDefaults = usePackageOtDefaults(surgeryName, selected?.packageCode);
 
   const visibleRooms = rooms.data?.length ? rooms.data : ["OT"];
 
   const selectVisit = (visit: VisitOption) => {
     setSelected(visit);
     setSurgeryName(visit.packageName || "");
+    setSurgeonName("");
+    setAnesthetistName("");
+    setAnesthesiaType("");
     setOtRoom(visibleRooms[0] || "OT");
   };
+
+  useEffect(() => {
+    if (packageDefaults.isFetching) return;
+    const defaults = packageDefaults.data;
+    setSurgeonName(defaults?.surgeonName || "");
+    setAnesthetistName(defaults?.anesthetistName || "");
+    setAnesthesiaType(defaults?.anesthesiaType || "");
+  }, [packageDefaults.data, packageDefaults.isFetching]);
 
   const saveSchedule = async () => {
     if (!selected) {
@@ -304,6 +419,9 @@ function GauravScheduler() {
         scheduled_date: scheduledDate,
         scheduled_time: scheduledTime,
         ot_room: otRoom || "OT",
+        surgeon_name: surgeonName.trim() || null,
+        anesthetist_name: anesthetistName.trim() || null,
+        special_requirements: anesthesiaType.trim() ? `Anesthesia Type: ${anesthesiaType.trim()}` : null,
         urgency: "elective",
         status: "scheduled",
       });
@@ -313,6 +431,9 @@ function GauravScheduler() {
       setSelected(null);
       setSearch("");
       setSurgeryName("");
+      setSurgeonName("");
+      setAnesthetistName("");
+      setAnesthesiaType("");
       setScheduledTime(nowTime());
     } catch (error) {
       toast({
@@ -382,6 +503,32 @@ function GauravScheduler() {
             <TabletInput value={surgeryName} onChange={(event) => setSurgeryName(event.target.value)} placeholder="Surgery name" />
           </label>
 
+          <div className="rounded-xl border bg-slate-50 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-sm font-semibold text-muted-foreground">PMJAY/MJPJAY Master Defaults</span>
+              {packageDefaults.isFetching ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
+            </div>
+            <div className="space-y-3">
+              <label className="block space-y-1">
+                <span className="text-sm font-medium">Surgeon Name</span>
+                <TabletInput value={surgeonName} onChange={(event) => setSurgeonName(event.target.value)} placeholder="Auto-filled from package master" />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-sm font-medium">Anaesthetist Name</span>
+                <TabletInput value={anesthetistName} onChange={(event) => setAnesthetistName(event.target.value)} placeholder="Auto-filled from package master" />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-sm font-medium">Anesthesia Type</span>
+                <TabletInput value={anesthesiaType} onChange={(event) => setAnesthesiaType(event.target.value)} placeholder="Auto-filled from package master" />
+              </label>
+            </div>
+            {!packageDefaults.isFetching && surgeryName && !packageDefaults.data ? (
+              <p className="mt-2 text-xs text-amber-700">
+                No matching package master defaults found for this surgery/package.
+              </p>
+            ) : null}
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <label className="block space-y-1">
               <span className="text-sm font-medium">Date</span>
@@ -446,6 +593,11 @@ function GauravScheduler() {
                   <ScheduleStatusBadge status={row.status} />
                 </div>
                 <p className="mt-2 truncate text-sm">{row.surgeryName}</p>
+                {row.surgeonName || row.anesthetistName || row.anesthesiaType ? (
+                  <p className="mt-1 truncate text-xs text-muted-foreground">
+                    {[row.surgeonName, row.anesthetistName, row.anesthesiaType].filter(Boolean).join(" · ")}
+                  </p>
+                ) : null}
                 <p className="mt-1 flex items-center gap-1 text-sm font-semibold text-muted-foreground">
                   <Clock className="h-4 w-4" />
                   {row.scheduledTime || "--:--"}

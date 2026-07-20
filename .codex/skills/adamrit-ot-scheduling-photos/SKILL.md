@@ -20,6 +20,14 @@ Gaurav tile:
 - Search IPD/Emergency patient visits.
 - Select patient.
 - Add surgery/package name, date, time, and OT room.
+- Below surgery/package, show Surgeon Name, Anaesthetist Name, and Anesthesia Type.
+- These three fields must auto-fill from Full Site PMJAY/MJPJAY Master tables using the selected package code/name:
+  - `pmjay_mjpjay_packages.treatment_code` / `treatment_plan`
+  - `pmjay_mjpjay_package_surgeons.surgeon_name`
+  - `pmjay_mjpjay_package_anaesthetists.anaesthetist_name`
+  - `pmjay_mjpjay_packages.anaesthesia_type`
+- Save surgeon and anaesthetist to `ot_schedule.surgeon_name` and `ot_schedule.anesthetist_name`.
+- Until a dedicated anesthesia column exists on `ot_schedule`, save Anesthesia Type in `ot_schedule.special_requirements` as `Anesthesia Type: ...`.
 - Save to `ot_schedule`.
 - Show the selected day's OT status list in the same tile.
 - Status must display `Scheduled` or `Completed`; completion is read from `ot_schedule.status = completed` and should also treat a populated `visits.surgery_date` as completed for older/backfilled rows.
