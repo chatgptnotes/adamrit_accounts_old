@@ -141,6 +141,7 @@ export default function AccountsTilakFlow() {
   const queryClient = useQueryClient();
   const [date, setDate] = useState(todayIso);
   const [values, setValues] = useState<FormState>(emptyForm);
+  const [dirty, setDirty] = useState(false);
   const [activeField, setActiveField] = useState<AmountField>("receipts");
 
   const savedEntry = useQuery({
@@ -149,9 +150,22 @@ export default function AccountsTilakFlow() {
     staleTime: 10_000,
   });
 
+  /**
+   * Clear the form on every date change. Without this the previous date's
+   * amounts stay in state, and if the new date's load fails they are still
+   * sitting in the form for Save to write under the wrong date.
+   */
+  const changeDate = (nextDate: string) => {
+    setDate(nextDate);
+    setValues(emptyForm);
+    setDirty(false);
+  };
+
   useEffect(() => {
-    if (savedEntry.data) setValues(savedEntry.data);
-  }, [savedEntry.data]);
+    // Never clobber unsaved typing: this query refetches on pull-to-refresh,
+    // which would otherwise wipe amounts the user has entered but not saved.
+    if (savedEntry.data && !dirty) setValues(savedEntry.data);
+  }, [savedEntry.data, dirty]);
 
   const allFilled = Object.values(values).every((value) => value.trim() !== "");
   const receipts = numberValue(values.receipts);
@@ -164,6 +178,8 @@ export default function AccountsTilakFlow() {
       await saveTilakEntry(date, values);
     },
     onSuccess: async () => {
+      // Saved values are now the server's; let the refetch below repopulate.
+      setDirty(false);
       const { year } = parseDateParts(date);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["tablet-accounts-tilak-entry", date] }),
@@ -185,6 +201,7 @@ export default function AccountsTilakFlow() {
 
   const setFieldValue = (field: AmountField, value: string) => {
     if (value && !/^\d*\.?\d*$/.test(value)) return;
+    setDirty(true);
     setValues((current) => ({ ...current, [field]: value }));
   };
 
@@ -197,7 +214,9 @@ export default function AccountsTilakFlow() {
       actions={
         <TabletButton
           className="w-full"
-          disabled={!allFilled || save.isPending || savedEntry.isLoading}
+          // The action bar renders outside the body, so it stays visible while
+          // the body shows a load error — it must disable itself explicitly.
+          disabled={!allFilled || save.isPending || savedEntry.isLoading || savedEntry.isError}
           onClick={() => save.mutate()}
         >
           {save.isPending ? (
@@ -219,7 +238,7 @@ export default function AccountsTilakFlow() {
             <input
               type="date"
               value={date}
-              onChange={(event) => setDate(event.target.value)}
+              onChange={(event) => changeDate(event.target.value)}
               className="h-14 w-full rounded-xl border bg-white px-4 text-xl font-semibold outline-none focus:ring-2 focus:ring-ring"
             />
           </label>
