@@ -945,8 +945,10 @@ function PatientListItem({
       type="button"
       onClick={onSelect}
       className={cn(
-        "block w-full rounded-xl border p-3 text-left transition-all active:scale-[0.99]",
-        selected ? "border-slate-900 bg-slate-50 shadow-sm" : "bg-background hover:bg-muted/60",
+        "block w-full rounded-xl border p-3 text-left text-foreground transition-all active:scale-[0.99]",
+        selected
+          ? "border-primary bg-primary/10 shadow-sm ring-1 ring-primary/30"
+          : "border-border bg-card hover:bg-muted/60",
       )}
     >
       <div className="flex items-start justify-between gap-2">
