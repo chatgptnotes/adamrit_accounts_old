@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebounce } from "use-debounce";
 import {
@@ -6,7 +6,10 @@ import {
   Camera,
   CheckCircle2,
   Clock,
+  FileImage,
   Loader2,
+  Receipt,
+  ScanLine,
   Search,
   Upload,
   UserRound,
@@ -105,6 +108,7 @@ function mapVisit(row: any): VisitOption {
 function mapSchedule(row: any): OTScheduleItem {
   const patient = rowPatient(row);
   const visit = rowVisit(row);
+  const derivedStatus = row.status === "completed" || visit?.surgery_date ? "completed" : row.status || "scheduled";
   return {
     id: row.id,
     visitId: row.visit_id || visit?.id || null,
@@ -117,7 +121,7 @@ function mapSchedule(row: any): OTScheduleItem {
     scheduledDate: row.scheduled_date,
     scheduledTime: row.scheduled_time || null,
     otRoom: row.ot_room || null,
-    status: row.status || "scheduled",
+    status: derivedStatus,
     actualEndTime: row.actual_end_time || null,
     surgeryDate: visit?.surgery_date || null,
     packageName: visit?.package_name || null,
@@ -272,6 +276,7 @@ function GauravScheduler() {
   const [surgeryName, setSurgeryName] = useState("");
   const [otRoom, setOtRoom] = useState("OT");
   const [saving, setSaving] = useState(false);
+  const dailySchedule = useDailySchedule(scheduledDate);
 
   const visibleRooms = rooms.data?.length ? rooms.data : ["OT"];
 
@@ -321,7 +326,7 @@ function GauravScheduler() {
   };
 
   return (
-    <FlowScaffold heading="OT Schedule - Gaurav" subheading="Search a patient and add planned surgery date and time.">
+    <FlowScaffold heading="OT Schedule - Gaurav" subheading="Search a patient, add OT time, and track whether surgery is scheduled or completed.">
       <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
         <TabletCard>
           <div className="relative">
@@ -407,7 +412,123 @@ function GauravScheduler() {
           </TabletButton>
         </TabletCard>
       </div>
+
+      <TabletCard className="mt-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-bold">OT status for {formatDateTime(scheduledDate)}</h3>
+            <p className="text-sm text-muted-foreground">
+              Completed status updates automatically when Sarvesh uploads OT photos or taps Mark OT Done.
+            </p>
+          </div>
+          {dailySchedule.isFetching ? (
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          ) : null}
+        </div>
+
+        {dailySchedule.isLoading ? (
+          <p className="py-8 text-center text-muted-foreground">Loading OT status...</p>
+        ) : dailySchedule.isError ? (
+          <p className="py-8 text-center text-destructive">Could not load OT status.</p>
+        ) : (dailySchedule.data || []).length === 0 ? (
+          <p className="py-8 text-center text-muted-foreground">No OT surgeries scheduled for this date.</p>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {(dailySchedule.data || []).map((row) => (
+              <div key={row.id} className="rounded-xl border bg-background p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-bold">{row.patientName}</p>
+                    <p className="truncate text-sm text-muted-foreground">
+                      {row.patientsId || row.visitNumber || "No ID"} · {row.otRoom || "OT"}
+                    </p>
+                  </div>
+                  <ScheduleStatusBadge status={row.status} />
+                </div>
+                <p className="mt-2 truncate text-sm">{row.surgeryName}</p>
+                <p className="mt-1 flex items-center gap-1 text-sm font-semibold text-muted-foreground">
+                  <Clock className="h-4 w-4" />
+                  {row.scheduledTime || "--:--"}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </TabletCard>
     </FlowScaffold>
+  );
+}
+
+type LinkedImplantDocCategory = "implant_invoice" | "implant_sticker";
+
+function LinkedImplantDocument({
+  label,
+  icon,
+  docs,
+  loading,
+  uploading,
+  onUploadClick,
+  onCaptureClick,
+}: {
+  label: string;
+  icon: ReactNode;
+  docs: ReturnType<typeof usePatientDocs>["data"];
+  loading: boolean;
+  uploading: boolean;
+  onUploadClick: () => void;
+  onCaptureClick: () => void;
+}) {
+  const latest = docs?.[0];
+  return (
+    <div className="rounded-xl border bg-background p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+            {icon}
+          </span>
+          <div className="min-w-0">
+            <p className="font-semibold">{label}</p>
+            <p className="text-xs text-muted-foreground">
+              {latest ? `Latest: ${shortDate(latest.uploadedAt)}` : "Required for OT documentation"}
+            </p>
+          </div>
+        </div>
+        {loading || uploading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : null}
+      </div>
+
+      {latest ? (
+        <a
+          href={latest.fileUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 flex min-h-12 items-center justify-between gap-3 rounded-xl border bg-muted/60 px-3 text-sm font-semibold"
+        >
+          <span className="min-w-0 truncate">{latest.fileName}</span>
+          <FileImage className="h-5 w-5 shrink-0" />
+        </a>
+      ) : (
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={onUploadClick}
+            disabled={uploading}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-semibold transition-all active:scale-[0.98] disabled:opacity-60"
+          >
+            <Upload className="h-4 w-4" />
+            Upload
+          </button>
+          <button
+            type="button"
+            onClick={onCaptureClick}
+            disabled={uploading}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-semibold transition-all active:scale-[0.98] disabled:opacity-60"
+          >
+            <Camera className="h-4 w-4" />
+            Capture
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -416,12 +537,18 @@ function SarveshWorklist() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const chooseRef = useRef<HTMLInputElement>(null);
+  const implantBillRef = useRef<HTMLInputElement>(null);
+  const implantStickerRef = useRef<HTMLInputElement>(null);
   const [date, setDate] = useState(todayDate());
   const schedule = useDailySchedule(date);
   const [selected, setSelected] = useState<OTScheduleItem | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [implantCameraCategory, setImplantCameraCategory] = useState<LinkedImplantDocCategory | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [uploadingImplantDoc, setUploadingImplantDoc] = useState<LinkedImplantDocCategory | null>(null);
   const docs = usePatientDocs(selected?.patientId || undefined, "ot_photos");
+  const implantInvoiceDocs = usePatientDocs(selected?.patientId || undefined, "implant_invoice");
+  const implantStickerDocs = usePatientDocs(selected?.patientId || undefined, "implant_sticker");
 
   const completedCount = useMemo(
     () => (schedule.data || []).filter((row) => row.status === "completed" || row.surgeryDate).length,
@@ -432,6 +559,8 @@ function SarveshWorklist() {
     await Promise.all([
       qc.invalidateQueries({ queryKey: ["tablet-daily-ot-schedule"] }),
       selected?.patientId ? qc.invalidateQueries({ queryKey: ["tablet-patient-docs", selected.patientId, "ot_photos"] }) : Promise.resolve(),
+      selected?.patientId ? qc.invalidateQueries({ queryKey: ["tablet-patient-docs", selected.patientId, "implant_invoice"] }) : Promise.resolve(),
+      selected?.patientId ? qc.invalidateQueries({ queryKey: ["tablet-patient-docs", selected.patientId, "implant_sticker"] }) : Promise.resolve(),
     ]);
   };
 
@@ -492,6 +621,51 @@ function SarveshWorklist() {
       });
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const uploadImplantDocument = async (category: LinkedImplantDocCategory, items: File[] | CapturedPhotoItem[]) => {
+    if (!selected?.patientId) return;
+    setUploadingImplantDoc(category);
+    try {
+      const normalized: CapturedPhotoItem[] = items.map((item) =>
+        item instanceof File ? { file: item, geo: null } : item,
+      );
+      const prepared: PatientDocUploadItem[] = [];
+      for (const { file, geo } of normalized) {
+        const out = file.type.startsWith("image/") ? await compressImageToLimit(file, MAX_FILE_BYTES) : file;
+        if (out.size <= MAX_FILE_BYTES || !file.type.startsWith("image/")) {
+          prepared.push({
+            file: out,
+            geo,
+            captureSource: geo ? "in_app_camera" : "file_picker",
+          });
+        }
+      }
+      if (prepared.length === 0) {
+        toast({ title: "No document uploaded", description: "Selected file was too large.", variant: "destructive" });
+        return;
+      }
+      await uploadPatientDocs(prepared, {
+        patientId: selected.patientId,
+        patientName: selected.patientName,
+        category,
+        uploadedBy: user?.id ?? null,
+        placeLabel: `${hospitalConfig.fullName}, ${hospitalConfig.contactInfo.address}, India`,
+      });
+      toast({
+        title: "Document uploaded",
+        description: `${category === "implant_invoice" ? "Implant Bill" : "Implant Sticker"} is now visible in OT Photos.`,
+      });
+      await refresh();
+    } catch (error) {
+      toast({
+        title: "Document upload failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingImplantDoc(null);
     }
   };
 
@@ -603,10 +777,63 @@ function SarveshWorklist() {
                 Upload OT Photos
               </TabletButton>
 
+              <div>
+                <p className="mb-2 text-sm font-semibold">Implant documents linked from Implant tab</p>
+                <div className="space-y-3">
+                  <LinkedImplantDocument
+                    label="Implant Bill"
+                    icon={<Receipt className="h-5 w-5" />}
+                    docs={implantInvoiceDocs.data}
+                    loading={implantInvoiceDocs.isLoading}
+                    uploading={uploadingImplantDoc === "implant_invoice"}
+                    onUploadClick={() => implantBillRef.current?.click()}
+                    onCaptureClick={() => setImplantCameraCategory("implant_invoice")}
+                  />
+                  <LinkedImplantDocument
+                    label="Implant Sticker"
+                    icon={<ScanLine className="h-5 w-5" />}
+                    docs={implantStickerDocs.data}
+                    loading={implantStickerDocs.isLoading}
+                    uploading={uploadingImplantDoc === "implant_sticker"}
+                    onUploadClick={() => implantStickerRef.current?.click()}
+                    onCaptureClick={() => setImplantCameraCategory("implant_sticker")}
+                  />
+                </div>
+              </div>
+
+              <input
+                ref={implantBillRef}
+                type="file"
+                accept="image/*,application/pdf"
+                className="hidden"
+                onChange={(event) => {
+                  void uploadImplantDocument("implant_invoice", Array.from(event.target.files || []));
+                  event.target.value = "";
+                }}
+              />
+              <input
+                ref={implantStickerRef}
+                type="file"
+                accept="image/*,application/pdf"
+                className="hidden"
+                onChange={(event) => {
+                  void uploadImplantDocument("implant_sticker", Array.from(event.target.files || []));
+                  event.target.value = "";
+                }}
+              />
+
               <MultiShotCamera
                 open={cameraOpen}
                 onClose={() => setCameraOpen(false)}
                 onCapture={(photos) => void uploadOtPhotos(photos)}
+              />
+              <MultiShotCamera
+                open={Boolean(implantCameraCategory)}
+                onClose={() => setImplantCameraCategory(null)}
+                onCapture={(photos) => {
+                  if (implantCameraCategory) void uploadImplantDocument(implantCameraCategory, photos);
+                  setImplantCameraCategory(null);
+                }}
               />
 
               <div>

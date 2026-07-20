@@ -19,7 +19,8 @@ export const PATIENT_DOC_CATEGORIES = [
 
 export type PatientDocCategory =
   | (typeof PATIENT_DOC_CATEGORIES)[number]["id"]
-  | "advance_image";
+  | "advance_image"
+  | "payment_proof";
 
 export interface PatientDoc {
   id: string;

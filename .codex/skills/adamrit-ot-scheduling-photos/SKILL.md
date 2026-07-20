@@ -21,6 +21,9 @@ Gaurav tile:
 - Select patient.
 - Add surgery/package name, date, time, and OT room.
 - Save to `ot_schedule`.
+- Show the selected day's OT status list in the same tile.
+- Status must display `Scheduled` or `Completed`; completion is read from `ot_schedule.status = completed` and should also treat a populated `visits.surgery_date` as completed for older/backfilled rows.
+- Gaurav should not need to open the Sarvesh tile to know whether OT is finished.
 
 Sarvesh tile:
 
@@ -28,6 +31,10 @@ Sarvesh tile:
 - Mark surgery as done.
 - Capture/upload OT photos.
 - When OT photos are uploaded, automatically consider surgery done.
+- Mark Done and OT photo upload both update `ot_schedule.status = completed`, set completion timestamps, and update `visits.surgery_date`.
+- Display Implant Bill and Implant Sticker from the Implant tab inside the OT Photos screen by reading `file_uploads.category = implant_invoice` and `file_uploads.category = implant_sticker`.
+- If the Implant Bill or Implant Sticker exists, show the latest uploaded document. If missing, show Upload and Capture options in Sarvesh OT Photos.
+- Implant document panels must use the same `file_uploads` categories as the Implant tab so later changes in the Implant tab automatically reflect in OT Photos after query refresh.
 
 ## Data Effects
 
@@ -35,6 +42,8 @@ Sarvesh tile:
 - Completion should set `actual_end_time` or equivalent completion timestamp.
 - Completion/photo upload should update `visits.surgery_date` when possible so downstream reports can detect operated patients.
 - OT photos use `file_uploads.category = ot_photos`.
+- Implant Bill uses `file_uploads.category = implant_invoice`.
+- Implant Sticker uses `file_uploads.category = implant_sticker`.
 
 ## Report Integration
 
