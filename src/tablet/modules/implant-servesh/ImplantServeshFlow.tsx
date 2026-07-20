@@ -25,7 +25,7 @@ export default function ImplantServeshFlow() {
 
   return (
     <FlowScaffold
-      heading="Implant Servesh"
+      heading="Implant Sarvesh"
       subheading="Choose the implant tool you want to open."
     >
       <div className="grid gap-3">

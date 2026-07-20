@@ -166,7 +166,7 @@ export const TABLET_MODULES: TabletModule[] = [
   },
   {
     id: "implant-servesh",
-    label: "Implant Servesh",
+    label: "Implant Sarvesh",
     description: "Open implant bill & sticker tools",
     icon: Package,
     accent: "text-rose-700",
