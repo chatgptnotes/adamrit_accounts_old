@@ -13,6 +13,12 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   ),
   "icu-admission": lazy(() => import("@/tablet/modules/icu-admission/IcuAdmissionFlow")),
   advance: lazy(() => import("@/tablet/modules/advance/AdvanceFlow")),
+  "accounts-tilak": lazy(
+    () => import("@/tablet/modules/accounts-tilak/AccountsTilakFlow"),
+  ),
+  "payment-collection-gaurav": lazy(
+    () => import("@/tablet/modules/payment-collection-gaurav/PaymentCollectionGauravFlow"),
+  ),
 
   requisition: lazy(() => import("@/tablet/modules/requisition/RequisitionFlow")),
   "gate-pass": lazy(() => import("@/tablet/modules/gate-pass/GatePassFlow")),

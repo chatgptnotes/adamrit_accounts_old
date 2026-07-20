@@ -6,6 +6,9 @@ import { MonthlyMatrixCard } from '@/components/MonthlyMatrixCard';
 const EXPENSE_ROWS = ['Salary', 'Rent', 'Lab charges', 'Electricity bill'];
 
 const INCOME_ROWS = [
+  'Daily receipts (Tilak)',
+  'Daily expenses (Tilak)',
+  'Net profit / loss (Tilak)',
   'Hope OPD income',
   'Hope IPD income',
   'Ayushman OPD income',
@@ -14,15 +17,18 @@ const INCOME_ROWS = [
 ];
 
 // Will expand to one row per corporate once drill-down is built.
-const RECEIVABLE_ROWS = ['Corporate receivables (all corporates)'];
+const RECEIVABLE_ROWS = ['Daily receipts (Tilak)', 'Corporate receivables (all corporates)'];
 
 const PAYABLE_ROWS = [
+  'Daily expenses (Tilak)',
   'Implant vendors',
   'Doctors',
   'Pharmacy vendors',
   'Rent',
   'Lab charges — Gandhi',
 ];
+
+const CASH_POSITION_ROWS = ['Cash in Hand (Tilak)', 'Cash in Bank (Tilak)'];
 
 export function DirectorFinancialStatements() {
   const year = new Date().getFullYear();
@@ -72,7 +78,7 @@ export function DirectorFinancialStatements() {
         statementKey="expense"
         icon={<Receipt className="h-5 w-5 text-emerald-600" />}
         accentClass="border-l-emerald-500"
-        rows={EXPENSE_ROWS}
+        rows={['Daily expenses (Tilak)', ...EXPENSE_ROWS]}
         systemValues={labCharges ? { 'Lab charges': labCharges } : undefined}
         dailyDrillDown
       />
@@ -93,6 +99,15 @@ export function DirectorFinancialStatements() {
         icon={<ArrowUpFromLine className="h-5 w-5 text-rose-600" />}
         accentClass="border-l-rose-500"
         rows={PAYABLE_ROWS}
+        dailyDrillDown
+      />
+      <MonthlyMatrixCard
+        title="Cash Position"
+        statementKey="cash_position"
+        subtitle="Daily cash and bank position entered by Accounts (Tilak)"
+        icon={<Receipt className="h-5 w-5 text-cyan-600" />}
+        accentClass="border-l-cyan-500"
+        rows={CASH_POSITION_ROWS}
         dailyDrillDown
       />
       <MonthlyMatrixCard

@@ -12,6 +12,7 @@ import {
   HeartPulse,
   LayoutDashboard,
   LogOut,
+  NotebookPen,
   Package,
   Pill,
   Receipt,
@@ -89,6 +90,22 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: Wallet,
     accent: "text-amber-600",
     tint: "from-amber-400 to-amber-600",
+  },
+  {
+    id: "accounts-tilak",
+    label: "Accounts (Tilak)",
+    description: "Daily receipts & expenses",
+    icon: NotebookPen,
+    accent: "text-emerald-700",
+    tint: "from-emerald-500 to-cyan-600",
+  },
+  {
+    id: "payment-collection-gaurav",
+    label: "Payment Collection (Vasooli) - Gaurav",
+    description: "Pending & received bills",
+    icon: Wallet,
+    accent: "text-teal-700",
+    tint: "from-teal-500 to-blue-600",
   },
 
   {

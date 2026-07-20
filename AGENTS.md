@@ -5,3 +5,5 @@
 - Keep commits focused on the requested change and do not stage unrelated untracked files.
 - When deployment completes, report the commit hash and production URL.
 - Advance Statement Yojana package matching must support patient-name-only fallback. Matching priority is saved visit values, then Yojana/Thumb Registration ID, then normalized patient name + preauth/intimation date, then normalized patient name alone using the newest stored Government Portal row.
+- Tablet module `Payment Collection (Vasooli) - Gaurav` must use existing billing/payment data (`bills`, `bill_preparation`, `advance_payment`, `final_payments`) and write new collections to `advance_payment`.
+- Tablet module `Accounts (Tilak)` must save daily receipts, expenses, cash in hand, and cash in bank into `director_matrix_daily_entries`, updating existing date rows by unique key instead of creating duplicate date entries.
