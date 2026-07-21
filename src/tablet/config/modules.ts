@@ -272,6 +272,7 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: Megaphone,
     accent: "text-pink-700",
     tint: "from-pink-400 to-rose-600",
+    roles: ["superadmin", "super_admin"],
   },
 ];
 
@@ -285,12 +286,18 @@ export function modulesForUser(
   user: { role?: string; email?: string } | undefined,
   canSeeTile?: (tileId: string, role?: string | null) => boolean,
 ): TabletModule[] {
-  void user;
   void canSeeTile;
   // Temporary product rule: tablet home/modules are visible to every user,
-  // regardless of tile-access overrides. Re-enable filtering here when the
-  // tablet role matrix is finalized.
-  return TABLET_MODULES.filter((module) => !module.hiddenFromHome);
+  // regardless of tile-access overrides — EXCEPT modules that explicitly
+  // declare a `roles` array, which are hard-gated to that list. Re-enable
+  // full tile-access filtering here when the tablet role matrix is finalized.
+  return TABLET_MODULES.filter((module) => {
+    if (module.hiddenFromHome) return false;
+    if (module.roles && module.roles.length > 0) {
+      return !!user?.role && module.roles.includes(user.role);
+    }
+    return true;
+  });
 }
 
 export function getModule(id: string | undefined): TabletModule | undefined {

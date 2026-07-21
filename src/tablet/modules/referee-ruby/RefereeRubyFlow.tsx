@@ -1,9 +1,11 @@
 import { useMemo, useRef, useState } from "react";
+import { Navigate } from "react-router-dom";
 import { format } from "date-fns";
 import { Loader2, MessageSquarePlus, Search, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
@@ -277,12 +279,21 @@ function VisitCard({
   );
 }
 
+const ALLOWED_ROLES = ["superadmin", "super_admin"];
+
 /** Referee - Ruby: OPDs + recent admissions with the referee, feedback comments & uploads. */
 export default function RefereeRubyFlow() {
+  const { user } = useAuth();
   const [term, setTerm] = useState("");
   const [filter, setFilter] = useState<"all" | "admission" | "opd">("all");
   const visits = useReferralVisits();
   const feedback = useRefereeFeedback();
+
+  // Defense-in-depth: even if a non-superadmin reaches /referee-ruby via a
+  // direct URL, bounce them back to the tablet home.
+  if (!user?.role || !ALLOWED_ROLES.includes(user.role)) {
+    return <Navigate to="/" replace />;
+  }
 
   const filtered = useMemo(() => {
     const q = term.trim().toLowerCase();
