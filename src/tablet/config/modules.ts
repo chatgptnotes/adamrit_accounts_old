@@ -12,6 +12,7 @@ import {
   HeartPulse,
   LayoutDashboard,
   LogOut,
+  Megaphone,
   NotebookPen,
   Package,
   Pill,
@@ -263,6 +264,14 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: Users,
     accent: "text-emerald-600",
     tint: "from-emerald-400 to-emerald-600",
+  },
+  {
+    id: "referee-ruby",
+    label: "Referee - Ruby",
+    description: "OPDs & admissions · how patients found us",
+    icon: Megaphone,
+    accent: "text-pink-700",
+    tint: "from-pink-400 to-rose-600",
   },
 ];
 

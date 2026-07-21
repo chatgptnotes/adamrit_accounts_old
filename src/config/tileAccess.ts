@@ -81,6 +81,7 @@ export const TILE_ACCESS_RULES: TileAccessRule[] = [
   { id: "t-cash-in-hand", label: "Cash in Hand", group: "tablet" },
   { id: "t-report", label: "Reports", group: "tablet" },
   { id: "t-referral-register", label: "Referral Register", group: "tablet" },
+  { id: "t-referee-ruby", label: "Referee - Ruby", group: "tablet" },
 
   // ── Dashboard KPIs (6 Director + 2 Statistics) ────────────────────
   { id: "d-admissions", label: "Admissions", group: "dashboard" },

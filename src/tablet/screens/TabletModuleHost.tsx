@@ -61,6 +61,9 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   "referral-register": lazy(
     () => import("@/tablet/modules/referral-register/ReferralRegisterFlow"),
   ),
+  "referee-ruby": lazy(
+    () => import("@/tablet/modules/referee-ruby/RefereeRubyFlow"),
+  ),
 };
 
 /**
