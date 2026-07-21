@@ -17,6 +17,18 @@ type CreateAccountingVoucherInput = {
   entries: AccountingVoucherEntry[]
 }
 
+function voucherSaveError(error: any): Error {
+  const code = error?.code ? ` (${error.code})` : ''
+  const message = error?.message || error?.details || error?.hint || 'Unable to save voucher'
+  if (String(message).toLowerCase().includes('duplicate') || error?.code === '23505') {
+    return new Error(`Voucher number already exists. Please use a different number.${code}`)
+  }
+  if (error?.code === '23503') {
+    return new Error(`One of the selected ledger accounts is invalid for this company.${code}`)
+  }
+  return new Error(`${message}${code}`)
+}
+
 function voucherNumber(prefix: string, currentNumber: number) {
   return `${prefix}${String(currentNumber + 1).padStart(4, '0')}`
 }
@@ -26,8 +38,22 @@ export async function createAccountingVoucher(input: CreateAccountingVoucherInpu
   const entries = input.entries.filter((entry) => entry.debitAmount > 0 || entry.creditAmount > 0)
   const debitTotal = entries.reduce((sum, entry) => sum + entry.debitAmount, 0)
   const creditTotal = entries.reduce((sum, entry) => sum + entry.creditAmount, 0)
+  if (!input.companyId) throw new Error('Select a company before saving the voucher')
+  if (!input.date) throw new Error('Select a voucher date')
   if (!entries.length || debitTotal <= 0 || Math.abs(debitTotal - creditTotal) > 0.01) {
     throw new Error('Voucher debit and credit totals must be equal and greater than zero')
+  }
+
+  const accountIds = [...new Set(entries.map((entry) => entry.accountId).filter(Boolean))]
+  if (accountIds.length !== entries.length) throw new Error('Select valid ledger accounts for every voucher entry')
+  const { data: accounts, error: accountError } = await supabase
+    .from('chart_of_accounts')
+    .select('id')
+    .eq('company_id', input.companyId)
+    .in('id', accountIds)
+  if (accountError) throw voucherSaveError(accountError)
+  if ((accounts || []).length !== accountIds.length) {
+    throw new Error('One or more selected ledgers do not belong to the selected company')
   }
 
   const { data: voucherType, error: typeError } = await supabase
@@ -37,7 +63,7 @@ export async function createAccountingVoucher(input: CreateAccountingVoucherInpu
     .eq('is_active', true)
     .limit(1)
     .maybeSingle()
-  if (typeError) throw typeError
+  if (typeError) throw voucherSaveError(typeError)
   if (!voucherType) throw new Error(`No active ${input.category} voucher type is configured`)
 
   const nextNumber = (voucherType.current_number || 0) + 1
@@ -59,7 +85,7 @@ export async function createAccountingVoucher(input: CreateAccountingVoucherInpu
     })
     .select('id, voucher_number')
     .single()
-  if (voucherError) throw voucherError
+  if (voucherError) throw voucherSaveError(voucherError)
 
   const { error: entryError } = await supabase.from('voucher_entries').insert(
     entries.map((entry, index) => ({
@@ -73,14 +99,14 @@ export async function createAccountingVoucher(input: CreateAccountingVoucherInpu
   )
   if (entryError) {
     await supabase.from('vouchers').delete().eq('id', voucher.id)
-    throw entryError
+    throw voucherSaveError(entryError)
   }
 
   const { error: counterError } = await supabase
     .from('voucher_types')
     .update({ current_number: nextNumber })
     .eq('id', voucherType.id)
-  if (counterError) throw counterError
+  if (counterError) throw voucherSaveError(counterError)
 
   return voucher
 }

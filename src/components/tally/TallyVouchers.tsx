@@ -21,7 +21,31 @@ const VOUCHER_TYPES = [
 const SYNC_STATUSES = ['All', 'local', 'synced', 'pending', 'failed', 'conflict']
 
 function companyKey(value: string | null | undefined) {
-  return (value || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  return (value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .replace(/(privatelimited|pvtltd|limited|ltd)$/, '')
+}
+
+function findAccountingCompany(companies: Array<{ id: string; company_name: string }>, tallyCompanyName?: string) {
+  const target = companyKey(tallyCompanyName)
+  if (!target) return null
+
+  const exact = companies.find((company) => companyKey(company.company_name) === target)
+  if (exact) return exact
+
+  const targetTokens = target.match(/[a-z]+/g) || []
+  const candidates = companies.map((company) => {
+    const key = companyKey(company.company_name)
+    const candidateTokens = key.match(/[a-z]+/g) || []
+    const overlap = targetTokens.filter((token) => candidateTokens.includes(token)).length
+    const contains = key.includes(target) || target.includes(key)
+    return { company, score: (contains ? 100 : 0) + overlap, overlap }
+  }).filter((candidate) => candidate.overlap > 0)
+    .sort((left, right) => right.score - left.score)
+
+  if (!candidates.length || (candidates[1] && candidates[0].score === candidates[1].score)) return null
+  return candidates[0].company
 }
 
 function formatCurrency(val: number) {
@@ -437,7 +461,7 @@ export default function TallyVouchers({ serverUrl, companyName, companyId, focus
         .from('companies').select('id, company_name').eq('is_active', true)
       if (companyError) throw companyError
 
-      const accountingCompany = (companyRows || []).find((company: any) => companyKey(company.company_name) === companyKey(companyName))
+      const accountingCompany = findAccountingCompany(companyRows || [], companyName)
       const localRequest = accountingCompany
         ? (supabase as any)
             .from('vouchers')
@@ -574,7 +598,7 @@ export default function TallyVouchers({ serverUrl, companyName, companyId, focus
       const { data: companyRows, error: companyError } = await (supabase as any)
         .from('companies').select('id, company_name').eq('is_active', true)
       if (companyError) throw companyError
-      const accountingCompany = (companyRows || []).find((company: any) => companyKey(company.company_name) === companyKey(companyName))
+      const accountingCompany = findAccountingCompany(companyRows || [], companyName)
       if (!accountingCompany) throw new Error(`No Adamrit company is linked to ${companyName || 'the selected Tally company'}`)
 
       const { data, error } = await (supabase as any)

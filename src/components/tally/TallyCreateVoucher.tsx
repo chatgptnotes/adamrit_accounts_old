@@ -74,6 +74,37 @@ function formatINR(amount: number | null | undefined): string {
   })}`
 }
 
+function companyTokens(value: string): string[] {
+  const ignored = new Set(['pvt', 'ltd', 'limited', 'private', 'hospital', 'hospitals', 'the'])
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter((token) => token && !ignored.has(token))
+}
+
+function resolveAccountingCompanyId(companies: Array<{ id: string; company_name: string }>, tallyCompanyName: string): string {
+  const target = tallyCompanyName.toLowerCase().replace(/[^a-z0-9]+/g, '')
+  if (!target) return ''
+
+  const exact = companies.find((company) => company.company_name.toLowerCase().replace(/[^a-z0-9]+/g, '') === target)
+  if (exact) return exact.id
+
+  const targetTokens = companyTokens(tallyCompanyName)
+  const scored = companies.map((company) => {
+    const candidateKey = company.company_name.toLowerCase().replace(/[^a-z0-9]+/g, '')
+    const candidateTokens = companyTokens(company.company_name)
+    const overlap = targetTokens.filter((token) => candidateTokens.includes(token)).length
+    const contains = candidateKey.includes(target) || target.includes(candidateKey)
+    return { id: company.id, score: (contains ? 100 : 0) + overlap, overlap }
+  }).filter((candidate) => candidate.overlap > 0)
+    .sort((left, right) => right.score - left.score)
+
+  if (!scored.length || (scored[1] && scored[0].score === scored[1].score)) return ''
+  return scored[0].id
+}
+
 function getLedgerName(entry: VoucherLedgerEntry): string {
   return entry.ledger || entry.ledgerName || ''
 }
@@ -152,10 +183,7 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId, 
   const cashBankMode = voucherCategory === 'PAYMENT' || voucherCategory === 'RECEIPT'
 
   useEffect(() => {
-    if (!companies.length) return
-    const key = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '')
-    const matching = companies.find((item) => key(item.company_name) === key(companyName))
-    setAccountingCompanyId((current) => current || matching?.id || companies[0].id)
+    setAccountingCompanyId(resolveAccountingCompanyId(companies, companyName))
   }, [companies, companyName])
 
   const loadVoucherHistory = useCallback(async () => {
@@ -420,7 +448,7 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId, 
 
   // ── Submit ────────────────────────────────────────────────────
   async function handleSubmit() {
-    if (!accountingCompanyId) { toast.error('Select an Adamrit company first'); return }
+    if (!accountingCompanyId) { toast.error(`No Adamrit company is mapped to ${companyName || 'the selected Tally company'}`); return }
     if (!form.account) { toast.error('Select an Account'); return }
     if (!form.particulars) { toast.error('Select Particulars'); return }
     const amount = Number(form.amount)
@@ -475,23 +503,15 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId, 
         {/* Form */}
         <div className="bg-white border rounded-xl p-6 space-y-5">
           <h3 className="text-base font-semibold text-gray-900">New {voucherTitle}</h3>
-          <p className="text-xs text-gray-500">This saves in Adamrit first. Export it later and import it into Tally manually.</p>
+          <div className="space-y-1 text-xs text-gray-500">
+            <p>Company: <span className="font-medium text-gray-700">{companyName || 'No company selected'}</span></p>
+            <p>This saves in Adamrit first. Export it later and import it into Tally manually.</p>
+          </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Create for company <span className="text-red-500">*</span></label>
-            <select
-              value={accountingCompanyId}
-              onChange={(event) => setAccountingCompanyId(event.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="">Select Adamrit company</option>
-              {companies.map((company) => <option key={company.id} value={company.id}>{company.company_name}</option>)}
-            </select>
-          </div>
           {/* Payment Number */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">
+            <label className="block min-h-[36px] text-xs font-medium text-gray-600 mb-1">
               Payment Number <span className="text-gray-400">(optional — auto-generated if blank)</span>
             </label>
             <input
@@ -505,7 +525,7 @@ export default function TallyCreateVoucher({ serverUrl, companyName, companyId, 
 
           {/* Date */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Date <span className="text-red-500">*</span></label>
+            <label className="block min-h-[36px] text-xs font-medium text-gray-600 mb-1">Date <span className="text-red-500">*</span></label>
             <input
               type="date"
               value={form.date}

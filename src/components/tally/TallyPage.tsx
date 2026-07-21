@@ -29,6 +29,8 @@ type TallyConfigOption = {
   created_at?: string | null
 }
 
+const DEFAULT_TALLY_COMPANY = 'DRM Hope Hospital'
+
 const tabs = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'ledgers', label: 'Ledgers', icon: BookOpen },
@@ -68,11 +70,17 @@ function pickPreferredConfig(options: TallyConfigOption[], selectedId?: string) 
 
   const activeOptions = options.filter((option) => option.is_active !== false)
   const pool = activeOptions.length > 0 ? activeOptions : options
+  const defaultCompany = pool.find((option) => companyKey(option.company_name) === companyKey(DEFAULT_TALLY_COMPANY))
+  if (defaultCompany) return defaultCompany
   return [...pool].sort(compareConfigPriority)[0] ?? pool[0] ?? null
 }
 
 function companyKey(value: string) {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .replace(/(privatelimited|pvtltd|limited|ltd)$/, '')
 }
 
 function formatLastSync(value?: string | null) {
