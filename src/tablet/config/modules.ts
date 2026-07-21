@@ -7,6 +7,7 @@ import {
   Camera,
   ClipboardCheck,
   ClipboardList,
+  CheckSquare,
   DoorOpen,
   FileText,
   HeartPulse,
@@ -272,6 +273,15 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: Megaphone,
     accent: "text-pink-700",
     tint: "from-pink-400 to-rose-600",
+    roles: ["superadmin", "super_admin"],
+  },
+  {
+    id: "referee-viji",
+    label: "Referee - Viji",
+    description: "Approve & comment on referrals",
+    icon: CheckSquare,
+    accent: "text-emerald-700",
+    tint: "from-emerald-400 to-teal-600",
     roles: ["superadmin", "super_admin"],
   },
 ];

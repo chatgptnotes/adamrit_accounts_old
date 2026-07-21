@@ -21,7 +21,8 @@ export type PatientDocCategory =
   | (typeof PATIENT_DOC_CATEGORIES)[number]["id"]
   | "advance_image"
   | "payment_proof"
-  | "referee_feedback";
+  | "referee_feedback"
+  | "referee_viji";
 
 export interface PatientDoc {
   id: string;

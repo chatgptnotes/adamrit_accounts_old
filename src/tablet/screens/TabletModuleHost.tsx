@@ -64,6 +64,9 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   "referee-ruby": lazy(
     () => import("@/tablet/modules/referee-ruby/RefereeRubyFlow"),
   ),
+  "referee-viji": lazy(
+    () => import("@/tablet/modules/referee-viji/RefereeVijiFlow"),
+  ),
 };
 
 /**
