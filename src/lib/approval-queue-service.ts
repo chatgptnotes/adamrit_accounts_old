@@ -5,13 +5,13 @@ export type ApprovalCategory = 'VENDOR' | 'DOCTOR' | 'SALARY'
 
 export interface ApprovalQueueRow {
   id: string
-  company_id: string
+  company_id: string | null
   category: ApprovalCategory
   party_name: string
   reference_no: string | null
   amount: number
-  expense_account_id: string
-  party_account_id: string
+  expense_account_id: string | null
+  party_account_id: string | null
   invoice_url: string | null
   status: 'PENDING' | 'APPROVED' | 'REJECTED'
   narration: string | null
@@ -24,6 +24,12 @@ export interface ApprovalQueueRow {
   created_at: string
   approved_at: string | null
   paid_at: string | null
+  ot_schedule_id: string | null
+}
+
+/** True when an auto-created bill still needs amount/company/ledgers before approval. */
+export function needsDetails(row: ApprovalQueueRow): boolean {
+  return !row.amount || row.amount <= 0 || !row.company_id || !row.expense_account_id || !row.party_account_id
 }
 
 // approval_queue is newer than the generated Supabase types.
@@ -73,9 +79,11 @@ export async function createApproval(input: CreateApprovalInput): Promise<Approv
 }
 
 export async function listApprovals(companyId: string): Promise<ApprovalQueueRow[]> {
+  // company_id IS NULL rows are OT-generated bills whose company is decided at
+  // approval time — they must be visible from every company's queue.
   const { data, error } = await approvalQueue()
     .select('*')
-    .eq('company_id', companyId)
+    .or(`company_id.eq.${companyId},company_id.is.null`)
     .order('created_at', { ascending: false })
   if (error) throw new Error(error.message || 'Failed to load the approval queue')
   return (data || []) as ApprovalQueueRow[]
@@ -110,14 +118,26 @@ export async function findLikelyDuplicate(
  * posting fails the claim is reverted so the row returns to PENDING.
  */
 export async function approveAndPostJV(id: string, approvedBy?: string): Promise<{ voucherNumber: string }> {
+  // The claim itself refuses incomplete rows (OT-generated bills whose amount
+  // or ledgers were never filled in) — not just the UI.
   const { data: claimed, error: claimError } = await approvalQueue()
     .update({ status: 'APPROVED', approved_at: new Date().toISOString(), approved_by: approvedBy || null })
     .eq('id', id)
     .eq('status', 'PENDING')
+    .gt('amount', 0)
+    .not('company_id', 'is', null)
+    .not('expense_account_id', 'is', null)
+    .not('party_account_id', 'is', null)
     .select('*')
   if (claimError) throw new Error(claimError.message || 'Failed to approve the bill')
   const row = (claimed || [])[0] as ApprovalQueueRow | undefined
-  if (!row) throw new Error('This bill was already approved or rejected by someone else')
+  if (!row) {
+    const { data: current } = await approvalQueue().select('*').eq('id', id).maybeSingle()
+    if (current && current.status === 'PENDING' && needsDetails(current as ApprovalQueueRow)) {
+      throw new Error('Fill the amount and ledgers before approving this bill')
+    }
+    throw new Error('This bill was already approved or rejected by someone else')
+  }
 
   try {
     const voucher = await createAccountingVoucher({
@@ -223,4 +243,174 @@ export async function postPaymentVoucher(
       .is('payment_voucher_id', null)
     throw err
   }
+}
+
+// ── OT auto-feed: doctor bills created when a surgery is marked done ──
+
+export interface DoctorLedgerMapRow {
+  id: string
+  surgeon_name: string
+  company_id: string
+  party_account_id: string
+  expense_account_id: string | null
+}
+
+const doctorLedgerMap = () => (supabase as any).from('doctor_ledger_map')
+
+export async function listDoctorLedgerMap(): Promise<DoctorLedgerMapRow[]> {
+  const { data, error } = await doctorLedgerMap().select('*').order('surgeon_name')
+  if (error) throw new Error(error.message || 'Failed to load doctor ledger mappings')
+  return (data || []) as DoctorLedgerMapRow[]
+}
+
+/** Creates or updates the single mapping for a surgeon (matched case-insensitively). */
+export async function upsertDoctorLedgerMap(input: {
+  surgeonName: string
+  companyId: string
+  partyAccountId: string
+  expenseAccountId?: string | null
+}): Promise<void> {
+  const name = input.surgeonName.trim()
+  if (!name) throw new Error('Enter the doctor name')
+  if (!input.companyId || !input.partyAccountId) throw new Error('Select the company and party ledger')
+
+  const { data: existing } = await doctorLedgerMap().select('id').ilike('surgeon_name', name).limit(1)
+  const payload = {
+    surgeon_name: name,
+    company_id: input.companyId,
+    party_account_id: input.partyAccountId,
+    expense_account_id: input.expenseAccountId || null,
+    updated_at: new Date().toISOString(),
+  }
+  const { error } = existing?.length
+    ? await doctorLedgerMap().update(payload).eq('id', existing[0].id)
+    : await doctorLedgerMap().insert(payload)
+  if (error) throw new Error(error.message || 'Failed to save the doctor mapping')
+}
+
+export async function deleteDoctorLedgerMap(id: string): Promise<void> {
+  const { error } = await doctorLedgerMap().delete().eq('id', id)
+  if (error) throw new Error(error.message || 'Failed to delete the doctor mapping')
+}
+
+/**
+ * Auto-creates one DOCTOR approval per surgeon when an OT surgery is marked
+ * completed. Amount stays 0 (management fills it while approving); ledgers are
+ * pre-filled from doctor_ledger_map when the surgeon is mapped. The partial
+ * unique index on (ot_schedule_id, party_name) makes this idempotent, so
+ * re-marking the same surgery done never duplicates a bill.
+ *
+ * Never throws — OT completion must not fail because of billing.
+ */
+export async function createDoctorApprovalsFromOt(ot: {
+  id: string
+  surgeon_name?: string | null
+  surgery_name?: string | null
+  visit_id?: string | null
+  patient_name?: string | null
+}): Promise<{ created: number }> {
+  try {
+    const surgeons = [...new Set(
+      (ot.surgeon_name || '')
+        .split(',')
+        .map((name) => name.trim())
+        .filter(Boolean),
+    )]
+    if (!surgeons.length) return { created: 0 }
+
+    let created = 0
+    for (const surgeon of surgeons) {
+      const { data: maps } = await doctorLedgerMap()
+        .select('company_id, party_account_id, expense_account_id')
+        .ilike('surgeon_name', surgeon)
+        .limit(1)
+      const map = (maps || [])[0]
+
+      const { error } = await approvalQueue().insert({
+        category: 'DOCTOR',
+        party_name: surgeon,
+        reference_no: ot.visit_id ? `OT-${ot.visit_id}` : null,
+        amount: 0,
+        company_id: map?.company_id || null,
+        expense_account_id: map?.expense_account_id || null,
+        party_account_id: map?.party_account_id || null,
+        narration: [ot.surgery_name, ot.patient_name].filter(Boolean).join(' - ') || 'OT surgery',
+        ot_schedule_id: ot.id,
+        created_by: 'ot-auto',
+      })
+      if (!error) created += 1
+      // 23505 = unique violation: bill already exists for this OT + surgeon.
+      else if (error.code !== '23505') console.warn('[ot-auto] approval insert failed:', error.message)
+    }
+    return { created }
+  } catch (err: any) {
+    console.warn('[ot-auto] createDoctorApprovalsFromOt failed:', err?.message || err)
+    return { created: 0 }
+  }
+}
+
+/** The doctor bills generated for a set of OT schedule rows (for the tablet amount editor). */
+export async function listOtDoctorApprovals(otScheduleIds: string[]): Promise<Array<{
+  id: string
+  ot_schedule_id: string
+  party_name: string
+  amount: number
+  status: string
+}>> {
+  if (!otScheduleIds.length) return []
+  const { data, error } = await approvalQueue()
+    .select('id, ot_schedule_id, party_name, amount, status')
+    .in('ot_schedule_id', otScheduleIds)
+  if (error) throw new Error(error.message || 'Failed to load OT doctor bills')
+  return data || []
+}
+
+/**
+ * Tablet flow: sets the doctor-payment amount for a completed OT surgery.
+ * Ensures the bills exist first (idempotent — covers surgeries completed
+ * before the auto-feed shipped), then stamps the amount on every PENDING
+ * bill of that OT row. Approved bills are never touched.
+ */
+export async function setOtDoctorAmount(
+  ot: {
+    id: string
+    surgeon_name?: string | null
+    surgery_name?: string | null
+    visit_id?: string | null
+    patient_name?: string | null
+  },
+  amount: number,
+): Promise<{ updated: number }> {
+  if (!amount || amount <= 0) throw new Error('Enter an amount greater than zero')
+  await createDoctorApprovalsFromOt(ot)
+  const { data, error } = await approvalQueue()
+    .update({ amount })
+    .eq('ot_schedule_id', ot.id)
+    .eq('status', 'PENDING')
+    .select('id')
+  if (error) throw new Error(error.message || 'Failed to save the amount')
+  return { updated: (data || []).length }
+}
+
+/** Fills in amount/company/ledgers on a PENDING bill (OT-generated ones start empty). */
+export async function updateApprovalDetails(
+  id: string,
+  input: { amount: number; companyId: string; expenseAccountId: string; partyAccountId: string },
+): Promise<void> {
+  if (!input.amount || input.amount <= 0) throw new Error('Enter an amount greater than zero')
+  if (!input.companyId || !input.expenseAccountId || !input.partyAccountId) throw new Error('Select the ledgers')
+  if (input.expenseAccountId === input.partyAccountId) throw new Error('Expense and party ledgers must be different')
+
+  const { data, error } = await approvalQueue()
+    .update({
+      amount: input.amount,
+      company_id: input.companyId,
+      expense_account_id: input.expenseAccountId,
+      party_account_id: input.partyAccountId,
+    })
+    .eq('id', id)
+    .eq('status', 'PENDING')
+    .select('id')
+  if (error) throw new Error(error.message || 'Failed to update the bill')
+  if (!(data || []).length) throw new Error('Only pending bills can be edited')
 }

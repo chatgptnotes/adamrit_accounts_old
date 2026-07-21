@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client'
 import { toast } from 'sonner'
 import {
   PlusCircle, Loader2, CheckCircle2, XCircle, Trash2, Eye, Banknote, FileText, Image as ImageIcon,
+  Stethoscope, AlertTriangle, Pencil,
 } from 'lucide-react'
 import { SearchableSelect, type SearchableSelectOption } from '@/components/ui/searchable-select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -15,13 +16,19 @@ import { resolveAccountingCompanyId } from '@/components/tally/TallyCreateVouche
 import {
   type ApprovalCategory,
   type ApprovalQueueRow,
+  type DoctorLedgerMapRow,
   approveAndPostJV,
   createApproval,
   deleteApproval,
+  deleteDoctorLedgerMap,
   findLikelyDuplicate,
   listApprovals,
+  listDoctorLedgerMap,
+  needsDetails,
   postPaymentVoucher,
   rejectApproval,
+  updateApprovalDetails,
+  upsertDoctorLedgerMap,
 } from '@/lib/approval-queue-service'
 
 interface Ledger {
@@ -70,7 +77,7 @@ export default function TallyApprovals({ companyName }: Props) {
   const [accountingCompanyId, setAccountingCompanyId] = useState('')
   const [allLedgers, setAllLedgers] = useState<Ledger[]>([])
   const [loadingLedgers, setLoadingLedgers] = useState(false)
-  const [section, setSection] = useState<'pending' | 'topay' | 'history'>('pending')
+  const [section, setSection] = useState<'pending' | 'topay' | 'history' | 'doctormap'>('pending')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [processing, setProcessing] = useState(false)
 
@@ -94,6 +101,14 @@ export default function TallyApprovals({ companyName }: Props) {
   const [rejectReason, setRejectReason] = useState('')
   const [payingRow, setPayingRow] = useState<ApprovalQueueRow | null>(null)
   const [payForm, setPayForm] = useState({ cashBankLedger: '', date: today() })
+
+  // OT-generated bills: fill amount + ledgers while approving
+  const [completingRow, setCompletingRow] = useState<ApprovalQueueRow | null>(null)
+  const [completeForm, setCompleteForm] = useState({ amount: '', expenseLedger: '', partyLedger: '', saveMapping: true })
+
+  // Doctor Map sub-tab
+  const [mapForm, setMapForm] = useState({ id: '', surgeonName: '', partyLedger: '', expenseLedger: '' })
+  const [savingMap, setSavingMap] = useState(false)
 
   useEffect(() => {
     setAccountingCompanyId(resolveAccountingCompanyId(companies, companyName))
@@ -146,6 +161,13 @@ export default function TallyApprovals({ companyName }: Props) {
   })
 
   const refetch = () => queryClient.invalidateQueries({ queryKey: ['approval-queue', accountingCompanyId] })
+
+  const { data: doctorMaps = [] } = useQuery({
+    queryKey: ['doctor-ledger-map'],
+    queryFn: listDoctorLedgerMap,
+    enabled: section === 'doctormap',
+  })
+  const refetchMaps = () => queryClient.invalidateQueries({ queryKey: ['doctor-ledger-map'] })
 
   const pendingRows = rows.filter((r) => r.status === 'PENDING')
   const toPayRows = rows.filter((r) => r.status === 'APPROVED' && !r.is_paid && r.jv_voucher_id)
@@ -212,7 +234,15 @@ export default function TallyApprovals({ companyName }: Props) {
   // ── Approve (single + bulk) ────────────────────────────────────
   async function handleApprove(ids: string[]) {
     if (!canAlter) { toast.error('You do not have rights to approve bills'); return }
-    if (!ids.length) { toast.error('Select at least one bill'); return }
+    const incomplete = ids.filter((id) => {
+      const row = rows.find((r) => r.id === id)
+      return row && needsDetails(row)
+    })
+    if (incomplete.length) {
+      toast.warning(`${incomplete.length} bill(s) need amount/ledgers first — use the pencil icon on those`)
+      ids = ids.filter((id) => !incomplete.includes(id))
+    }
+    if (!ids.length) { if (!incomplete.length) toast.error('Select at least one bill'); return }
     setProcessing(true)
     let ok = 0
     for (const id of ids) {
@@ -283,9 +313,92 @@ export default function TallyApprovals({ companyName }: Props) {
     }
   }
 
+  // ── Complete & Approve (OT-generated bills) ────────────────────
+  function openCompleteDialog(row: ApprovalQueueRow) {
+    setCompletingRow(row)
+    setCompleteForm({
+      amount: row.amount > 0 ? String(row.amount) : '',
+      expenseLedger: row.expense_account_id || '',
+      partyLedger: row.party_account_id || '',
+      saveMapping: row.category === 'DOCTOR',
+    })
+  }
+
+  async function handleCompleteAndApprove() {
+    if (!completingRow) return
+    const amount = Number(completeForm.amount)
+    if (!amount || amount <= 0) { toast.error('Enter the amount to pay'); return }
+    if (!completeForm.expenseLedger || !completeForm.partyLedger) { toast.error('Select both ledgers'); return }
+    if (completeForm.expenseLedger === completeForm.partyLedger) { toast.error('Expense and party ledgers must be different'); return }
+    setProcessing(true)
+    try {
+      await updateApprovalDetails(completingRow.id, {
+        amount,
+        companyId: accountingCompanyId,
+        expenseAccountId: completeForm.expenseLedger,
+        partyAccountId: completeForm.partyLedger,
+      })
+      if (completeForm.saveMapping && completingRow.category === 'DOCTOR') {
+        try {
+          await upsertDoctorLedgerMap({
+            surgeonName: completingRow.party_name,
+            companyId: accountingCompanyId,
+            partyAccountId: completeForm.partyLedger,
+            expenseAccountId: completeForm.expenseLedger,
+          })
+          refetchMaps()
+        } catch (mapErr: any) {
+          toast.warning(`Bill approved but mapping not saved: ${mapErr.message}`)
+        }
+      }
+      const { voucherNumber } = await approveAndPostJV(completingRow.id, user?.email || undefined)
+      toast.success(`JV ${voucherNumber} posted`)
+      setCompletingRow(null)
+      refetch()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to approve')
+      refetch()
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  // ── Doctor Map handlers ────────────────────────────────────────
+  async function handleSaveMapping() {
+    if (!mapForm.surgeonName.trim()) { toast.error('Enter the doctor name (same as it appears on OT bills)'); return }
+    if (!mapForm.partyLedger) { toast.error('Select the doctor’s party ledger'); return }
+    setSavingMap(true)
+    try {
+      await upsertDoctorLedgerMap({
+        surgeonName: mapForm.surgeonName,
+        companyId: accountingCompanyId,
+        partyAccountId: mapForm.partyLedger,
+        expenseAccountId: mapForm.expenseLedger || null,
+      })
+      toast.success('Doctor mapping saved')
+      setMapForm({ id: '', surgeonName: '', partyLedger: '', expenseLedger: '' })
+      refetchMaps()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save mapping')
+    } finally {
+      setSavingMap(false)
+    }
+  }
+
+  async function handleDeleteMapping(row: DoctorLedgerMapRow) {
+    if (!window.confirm(`Delete the ledger mapping for ${row.surgeon_name}?`)) return
+    try {
+      await deleteDoctorLedgerMap(row.id)
+      toast.success('Mapping deleted')
+      refetchMaps()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete mapping')
+    }
+  }
+
   // ── Render helpers ─────────────────────────────────────────────
-  function ledgerName(id: string): string {
-    return ledgerById.get(id)?.name || '—'
+  function ledgerName(id: string | null): string {
+    return (id && ledgerById.get(id)?.name) || '—'
   }
 
   function DrCrSplit({ row }: { row: ApprovalQueueRow }) {
@@ -315,6 +428,7 @@ export default function TallyApprovals({ companyName }: Props) {
     { id: 'pending' as const, label: `Pending (${pendingRows.length})`, icon: FileText },
     { id: 'topay' as const, label: `To Pay (${toPayRows.length})`, icon: Banknote },
     { id: 'history' as const, label: `History (${historyRows.length})`, icon: Eye },
+    { id: 'doctormap' as const, label: 'Doctor Map', icon: Stethoscope },
   ]
 
   return (
@@ -405,21 +519,28 @@ export default function TallyApprovals({ companyName }: Props) {
                           {row.category}
                         </span>
                       </td>
-                      <td className="px-3 py-2 font-medium text-gray-900">{row.party_name}</td>
+                      <td className="px-3 py-2 font-medium text-gray-900">
+                        {row.party_name}
+                        {needsDetails(row) && (
+                          <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                            <AlertTriangle className="h-3 w-3" /> Details needed
+                          </span>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-gray-600">{row.reference_no || '-'}</td>
-                      <td className="px-3 py-2 text-right font-semibold">{formatINR(row.amount)}</td>
+                      <td className="px-3 py-2 text-right font-semibold">{row.amount > 0 ? formatINR(row.amount) : '—'}</td>
                       <td className="px-3 py-2"><DrCrSplit row={row} /></td>
                       <td className="px-3 py-2"><InvoiceCell row={row} /></td>
                       <td className="px-3 py-2 text-xs text-gray-500">{formatDate(row.created_at)}</td>
                       <td className="px-3 py-2">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
-                            onClick={() => handleApprove([row.id])}
+                            onClick={() => (needsDetails(row) ? openCompleteDialog(row) : handleApprove([row.id]))}
                             disabled={processing || !canAlter}
-                            title="Approve & Post JV"
+                            title={needsDetails(row) ? 'Fill amount & ledgers, then approve' : 'Approve & Post JV'}
                             className="rounded p-1.5 text-emerald-600 hover:bg-emerald-50 disabled:opacity-40"
                           >
-                            <CheckCircle2 className="h-4 w-4" />
+                            {needsDetails(row) ? <Pencil className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
                           </button>
                           <button
                             onClick={() => { setRejectingRow(row); setRejectReason('') }}
@@ -555,6 +676,197 @@ export default function TallyApprovals({ companyName }: Props) {
           )}
         </div>
       )}
+
+      {/* ── Doctor Map ── */}
+      {section === 'doctormap' && (
+        <div className="space-y-4">
+          <div className="bg-white border rounded-xl p-4">
+            <p className="text-sm font-semibold text-gray-900">Doctor → Ledger Mapping</p>
+            <p className="mt-1 text-xs text-gray-500">
+              One-time setup: map each surgeon (name exactly as it appears on OT bills) to their ledgers in {companyName}.
+              Mapped doctors' OT bills arrive pre-filled — only the amount is entered at approval.
+            </p>
+            <div className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Doctor Name <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  value={mapForm.surgeonName}
+                  onChange={(e) => setMapForm((f) => ({ ...f, surgeonName: e.target.value }))}
+                  placeholder="e.g. Dr. Sharma"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Party Ledger (Credit) <span className="text-red-500">*</span></label>
+                <SearchableSelect
+                  options={ledgerOptions.filter((o) => o.value !== mapForm.expenseLedger)}
+                  value={mapForm.partyLedger}
+                  onValueChange={(value) => setMapForm((f) => ({ ...f, partyLedger: value }))}
+                  placeholder="Select doctor's ledger"
+                  searchPlaceholder="Search ledgers..."
+                  emptyText="No matching ledger"
+                  disabled={loadingLedgers || allLedgers.length === 0}
+                  className="h-10 justify-between"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Expense Ledger (Debit)</label>
+                <SearchableSelect
+                  options={ledgerOptions.filter((o) => o.value !== mapForm.partyLedger)}
+                  value={mapForm.expenseLedger}
+                  onValueChange={(value) => setMapForm((f) => ({ ...f, expenseLedger: value }))}
+                  placeholder="e.g. Professional Fees"
+                  searchPlaceholder="Search expense ledgers..."
+                  emptyText="No matching ledger"
+                  disabled={loadingLedgers || allLedgers.length === 0}
+                  className="h-10 justify-between"
+                />
+              </div>
+              <div className="flex items-end">
+                <button
+                  onClick={handleSaveMapping}
+                  disabled={savingMap || !canAlter || !accountingCompanyId}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {savingMap ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlusCircle className="h-4 w-4" />}
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white border rounded-xl overflow-hidden">
+            {doctorMaps.length === 0 ? (
+              <div className="px-4 py-10 text-center text-sm text-gray-500">
+                No doctors mapped yet. Mappings also save automatically when you tick
+                "Save these ledgers for this doctor" while approving an OT bill.
+              </div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-gray-50 text-left text-xs uppercase text-gray-500">
+                    <th className="px-3 py-2">Doctor</th>
+                    <th className="px-3 py-2">Party Ledger (Cr)</th>
+                    <th className="px-3 py-2">Expense Ledger (Dr)</th>
+                    <th className="px-3 py-2 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {doctorMaps.map((row) => (
+                    <tr key={row.id} className="border-b hover:bg-blue-50/40">
+                      <td className="px-3 py-2 font-medium text-gray-900">{row.surgeon_name}</td>
+                      <td className="px-3 py-2 text-gray-600">{ledgerName(row.party_account_id)}</td>
+                      <td className="px-3 py-2 text-gray-600">{ledgerName(row.expense_account_id)}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => setMapForm({ id: row.id, surgeonName: row.surgeon_name, partyLedger: row.party_account_id, expenseLedger: row.expense_account_id || '' })}
+                            title="Edit"
+                            className="rounded p-1.5 text-blue-600 hover:bg-blue-50"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteMapping(row)}
+                            disabled={!canAlter}
+                            title="Delete"
+                            className="rounded p-1.5 text-gray-500 hover:bg-gray-100 disabled:opacity-40"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Complete & Approve modal (OT-generated bills) ── */}
+      <Dialog open={!!completingRow} onOpenChange={(open) => { if (!open) setCompletingRow(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Approve — {completingRow?.party_name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {completingRow?.narration && (
+              <p className="text-xs text-gray-500">{completingRow.narration}{completingRow.reference_no ? ` · ${completingRow.reference_no}` : ''}</p>
+            )}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">How much are we paying? (₹) <span className="text-red-500">*</span></label>
+              <input
+                type="number"
+                value={completeForm.amount}
+                onChange={(e) => setCompleteForm((f) => ({ ...f, amount: e.target.value }))}
+                placeholder="0.00"
+                min="0"
+                step="0.01"
+                autoFocus
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Expense Ledger (Debit) <span className="text-red-500">*</span></label>
+              <SearchableSelect
+                options={ledgerOptions.filter((o) => o.value !== completeForm.partyLedger)}
+                value={completeForm.expenseLedger}
+                onValueChange={(value) => setCompleteForm((f) => ({ ...f, expenseLedger: value }))}
+                placeholder="e.g. Professional Fees"
+                searchPlaceholder="Search expense ledgers..."
+                emptyText="No matching ledger"
+                disabled={loadingLedgers || allLedgers.length === 0}
+                className="h-10 justify-between"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Party Ledger (Credit) <span className="text-red-500">*</span></label>
+              <SearchableSelect
+                options={ledgerOptions.filter((o) => o.value !== completeForm.expenseLedger)}
+                value={completeForm.partyLedger}
+                onValueChange={(value) => setCompleteForm((f) => ({ ...f, partyLedger: value }))}
+                placeholder="Select the doctor's ledger"
+                searchPlaceholder="Search ledgers..."
+                emptyText="No matching ledger"
+                disabled={loadingLedgers || allLedgers.length === 0}
+                className="h-10 justify-between"
+              />
+            </div>
+            {completingRow?.category === 'DOCTOR' && (
+              <label className="flex items-center gap-2 text-xs text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={completeForm.saveMapping}
+                  onChange={(e) => setCompleteForm((f) => ({ ...f, saveMapping: e.target.checked }))}
+                />
+                Save these ledgers for this doctor (next OT bills arrive pre-filled)
+              </label>
+            )}
+            {completeForm.expenseLedger && completeForm.partyLedger && Number(completeForm.amount) > 0 && (
+              <div className="rounded-lg border bg-gray-50 px-3 py-2 text-xs">
+                <p className="font-semibold text-gray-700 mb-1">JV that will post:</p>
+                <p><span className="text-emerald-700 font-medium">Dr</span> {ledgerName(completeForm.expenseLedger)} — {formatINR(Number(completeForm.amount))}</p>
+                <p><span className="text-red-700 font-medium">Cr</span> {ledgerName(completeForm.partyLedger)} — {formatINR(Number(completeForm.amount))}</p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <button onClick={() => setCompletingRow(null)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">
+              Cancel
+            </button>
+            <button
+              onClick={handleCompleteAndApprove}
+              disabled={processing || !canAlter}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {processing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              Approve &amp; Post JV
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Add Bill modal ── */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>

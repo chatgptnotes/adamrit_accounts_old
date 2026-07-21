@@ -18,6 +18,7 @@ import { useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { createDoctorApprovalsFromOt, listOtDoctorApprovals, setOtDoctorAmount } from "@/lib/approval-queue-service";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
@@ -352,6 +353,16 @@ async function markScheduleCompleted(row: OTScheduleItem) {
       .eq("id", row.visitId);
     if (visitError) throw visitError;
   }
+
+  // Auto-queue one DOCTOR payable per surgeon for management approval.
+  // Fire-and-forget: OT completion must never fail because of billing.
+  void createDoctorApprovalsFromOt({
+    id: row.id,
+    surgeon_name: row.surgeonName,
+    surgery_name: row.surgeryName,
+    visit_id: row.visitNumber,
+    patient_name: row.patientName,
+  }).catch((err) => console.warn("[ot-schedule] doctor approval auto-feed failed:", err));
 }
 
 function ScheduleStatusBadge({ status }: { status: string }) {
@@ -360,6 +371,94 @@ function ScheduleStatusBadge({ status }: { status: string }) {
     <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${completed ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}>
       {normalizeStatus(status)}
     </span>
+  );
+}
+
+/**
+ * Amount editor on a completed OT card: Gaurav enters how much the doctor
+ * will be paid; the amount lands on the auto-created DOCTOR bill(s) in the
+ * accounting Approvals queue. Approved bills are frozen and never updated.
+ */
+function OtDoctorAmountEditor({
+  row,
+  bills,
+  onSaved,
+}: {
+  row: OTScheduleItem;
+  bills: Array<{ id: string; party_name: string; amount: number; status: string }>;
+  onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const pendingBills = bills.filter((bill) => bill.status === "PENDING");
+  const savedAmount = pendingBills.find((bill) => bill.amount > 0)?.amount || 0;
+  const allApproved = bills.length > 0 && pendingBills.length === 0;
+  const [value, setValue] = useState<string>(savedAmount > 0 ? String(savedAmount) : "");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setValue(savedAmount > 0 ? String(savedAmount) : "");
+  }, [savedAmount]);
+
+  if (allApproved) {
+    return (
+      <p className="mt-2 rounded-lg bg-emerald-500/10 px-2 py-1 text-xs font-semibold text-emerald-600">
+        Doctor payment approved in accounting — amount locked
+      </p>
+    );
+  }
+
+  const save = async () => {
+    const amount = Number(value);
+    if (!amount || amount <= 0) {
+      toast({ title: "Enter amount", description: "Doctor payment must be more than zero.", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    try {
+      await setOtDoctorAmount(
+        {
+          id: row.id,
+          surgeon_name: row.surgeonName,
+          surgery_name: row.surgeryName,
+          visit_id: row.visitNumber,
+          patient_name: row.patientName,
+        },
+        amount,
+      );
+      toast({ title: "Amount saved", description: "Visible in Accounting → Approvals for approval." });
+      onSaved();
+    } catch (err: any) {
+      toast({ title: "Could not save amount", description: err?.message || "Try again.", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 border-t pt-2">
+      <label className="text-xs font-semibold text-muted-foreground">Doctor payment (₹)</label>
+      <div className="mt-1 flex items-center gap-2">
+        <input
+          type="number"
+          inputMode="decimal"
+          min="0"
+          step="0.01"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="0.00"
+          className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+        />
+        <TabletButton className="h-10 shrink-0 px-3 text-sm" disabled={saving} onClick={() => void save()}>
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Receipt className="h-4 w-4" />}
+          Save
+        </TabletButton>
+      </div>
+      {savedAmount > 0 ? (
+        <p className="mt-1 text-xs text-emerald-600">₹{savedAmount.toLocaleString("en-IN")} sent to Accounting Approvals</p>
+      ) : (
+        <p className="mt-1 text-xs text-muted-foreground">Amount will appear on the doctor's bill in Accounting → Approvals.</p>
+      )}
+    </div>
   );
 }
 
@@ -381,6 +480,17 @@ function GauravScheduler() {
   const [saving, setSaving] = useState(false);
   const dailySchedule = useDailySchedule(scheduledDate);
   const packageDefaults = usePackageOtDefaults(surgeryName, selected?.packageCode);
+
+  // Doctor bills auto-created for today's completed surgeries (amount editor).
+  const completedIds = useMemo(
+    () => (dailySchedule.data || []).filter((row) => row.status === "completed").map((row) => row.id),
+    [dailySchedule.data],
+  );
+  const otBills = useQuery({
+    queryKey: ["ot-doctor-bills", completedIds.join("|")],
+    queryFn: () => listOtDoctorApprovals(completedIds),
+    enabled: completedIds.length > 0,
+  });
 
   const visibleRooms = rooms.data?.length ? rooms.data : ["OT"];
 
@@ -602,6 +712,13 @@ function GauravScheduler() {
                   <Clock className="h-4 w-4" />
                   {row.scheduledTime || "--:--"}
                 </p>
+                {row.status === "completed" && (
+                  <OtDoctorAmountEditor
+                    row={row}
+                    bills={(otBills.data || []).filter((bill) => bill.ot_schedule_id === row.id)}
+                    onSaved={() => void qc.invalidateQueries({ queryKey: ["ot-doctor-bills"] })}
+                  />
+                )}
               </div>
             ))}
           </div>
