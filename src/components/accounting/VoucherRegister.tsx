@@ -3,6 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { TallyScreen } from './tally/TallyChrome';
+import { fetchTallyVouchers } from '@/lib/mergedVouchers';
+import { normalizeName } from '@/lib/tallyCompanyMatch';
+import SourceBadge from './SourceBadge';
+import { useSourceFilter, matchesSource } from './useSourceFilter';
 
 interface VoucherType {
   id: string;
@@ -16,6 +20,7 @@ interface VoucherRow {
   voucher_date: string;
   narration: string | null;
   total_amount: number;
+  source: 'adamrit' | 'tally';
 }
 
 const fmt = (n: number): string =>
@@ -57,6 +62,7 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ o
   const [fyYear, setFyYear] = useState(currentFyStartYear);
   const [typeId, setTypeId] = useState('');
   const [openMonth, setOpenMonth] = useState<string | null>(null);
+  const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
 
   const { data: voucherTypes = [] } = useQuery({
     queryKey: ['voucher_types'],
@@ -75,7 +81,7 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ o
   const fyFrom = `${fyYear}-04-01`;
   const fyTo = `${fyYear + 1}-03-31`;
 
-  const { data: vouchers = [], isLoading } = useQuery({
+  const { data: nativeVouchers = [], isLoading } = useQuery({
     queryKey: ['voucher_register', typeId, fyFrom, fyTo],
     enabled: !!typeId,
     queryFn: async () => {
@@ -90,9 +96,41 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ o
           .order('voucher_date', { ascending: true })
           .range(from, to),
       );
-      return data as unknown as VoucherRow[];
+      return (data as unknown as Omit<VoucherRow, 'source'>[]).map((v) => ({ ...v, source: 'adamrit' as const }));
     },
   });
+
+  // Tally mirror vouchers matched to the selected type by name, deduped by number.
+  const { data: tallyRows = [] } = useQuery({
+    queryKey: ['voucher_register_tally', fyFrom, fyTo],
+    enabled: !!typeId,
+    queryFn: () => fetchTallyVouchers({ from: fyFrom, upto: fyTo }),
+  });
+
+  const vouchers: VoucherRow[] = useMemo(() => {
+    const typeKey = (type?.voucher_type_name || '').replace(' Voucher', '').toLowerCase();
+    const mappedTally: VoucherRow[] = tallyRows
+      .filter((v) => !typeKey || v.voucher_type.toLowerCase().includes(typeKey))
+      .map((v) => ({
+        id: v.id,
+        voucher_number: v.voucher_number,
+        voucher_date: v.date,
+        narration: v.narration,
+        total_amount: v.total,
+        source: 'tally' as const,
+      }));
+    const byNumber = new Map<string, VoucherRow>();
+    const passthrough: VoucherRow[] = [];
+    for (const v of [...nativeVouchers, ...mappedTally]) {
+      const key = normalizeName(v.voucher_number);
+      if (!key) { passthrough.push(v); continue; }
+      const existing = byNumber.get(key);
+      if (!existing || v.source === 'tally') byNumber.set(key, v);
+    }
+    return [...byNumber.values(), ...passthrough]
+      .filter((v) => matchesSource(v.source, srcFilter))
+      .sort((a, b) => (a.voucher_date || '').localeCompare(b.voucher_date || ''));
+  }, [nativeVouchers, tallyRows, type, srcFilter]);
 
   const months = useMemo(() => {
     const byMonth = new Map<string, { count: number; total: number }>();
@@ -134,6 +172,7 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ o
             setOpenMonth(null);
           },
         })),
+        sourceRail,
         { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
       ]}
     >
@@ -156,12 +195,15 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ o
               <button
                 key={v.id}
                 type="button"
-                onClick={() => onOpenVoucher?.(v.id)}
-                title="Open voucher (alter)"
+                onClick={() => v.source === 'adamrit' && onOpenVoucher?.(v.id)}
+                title={v.source === 'adamrit' ? 'Open voucher (alter)' : 'Tally voucher'}
                 className="flex w-full border-b border-dashed border-gray-200 text-left hover:bg-[#fdf6d8]"
               >
                 <div className="w-20 px-1">{tallyDateLabel(v.voucher_date)}</div>
-                <div className="min-w-0 flex-1 truncate px-1">{v.narration || ''}</div>
+                <div className="min-w-0 flex-1 truncate px-1">
+                  {v.narration || ''}
+                  <SourceBadge source={v.source} />
+                </div>
                 <div className="w-32 px-1 font-mono text-[12px]">{v.voucher_number}</div>
                 <div className="w-36 px-1 text-right font-mono">{fmt(Number(v.total_amount) || 0)}</div>
               </button>

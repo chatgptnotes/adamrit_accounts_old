@@ -81,7 +81,21 @@
       "Bash(PORT=3000 SIDECAR_URL=http://127.0.0.1:8081 SUPABASE_JWT_SECRET=local-exec-secret NODE_ENV=production node docker/serve.js)",
       "PowerShell($c = Get-NetTCPConnection -LocalPort 8081 -State Listen -ErrorAction SilentlyContinue; if \\($c\\) { $c | ForEach-Object { $p = Get-Process -Id $_.OwningProcess; Write-Output \\(\"PID {0}  {1}  started {2}\" -f $p.Id, $p.ProcessName, $p.StartTime\\) } } else { Write-Output \"nothing listening on 8081\" })",
       "Bash(SIDECAR_PORT=8081 node sidecar/server.js)",
-      "PowerShell(foreach \\($port in 8081,3000\\) { $c = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue; if \\($c\\) { Write-Output \"$port STILL in use \\(PID $\\($c.OwningProcess\\)\\)\" } else { Write-Output \"$port free\" } })"
+      "PowerShell(foreach \\($port in 8081,3000\\) { $c = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue; if \\($c\\) { Write-Output \"$port STILL in use \\(PID $\\($c.OwningProcess\\)\\)\" } else { Write-Output \"$port free\" } })",
+      "Bash(awk NR>=10557 && NR<=10620 *)",
+      "Bash(npx eslint *)",
+      "Bash(npm run *)",
+      "Bash(gh auth *)",
+      "Bash(echo \"=== exit: $? ===\")",
+      "Read(//Users/ruby/**)",
+      "Bash(timeout 15 ssh -T -o StrictHostKeyChecking=no -o BatchMode=yes git@github.com)",
+      "Bash(ssh -T -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=10 git@github.com)",
+      "Bash(brew --version)",
+      "Bash(unzip -q -o gh.tar.gz)",
+      "Bash(mkdir -p ~/.local/bin)",
+      "Bash(cp gh_2.96.0_macOS_arm64/bin/gh ~/.local/bin/gh)",
+      "Bash(chmod +x ~/.local/bin/gh)",
+      "Bash(~/.local/bin/gh --version)"
     ],
     "deny": [],
     "ask": []

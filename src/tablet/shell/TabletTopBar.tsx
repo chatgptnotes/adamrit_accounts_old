@@ -8,6 +8,7 @@ import { useTabletTheme } from "@/tablet/theme/TabletTheme";
 import { SyncIndicator } from "./SyncIndicator";
 import { InstallButton } from "./InstallButton";
 import { GovernmentPortalExtensionBell } from "./GovernmentPortalExtensionBell";
+import { TabletNotificationBell } from "./TabletNotificationBell";
 
 /** Tablet top bar: back, left-aligned hospital brand, role, sync, theme, full-site, exit. */
 export function TabletTopBar() {
@@ -94,6 +95,9 @@ export function TabletTopBar() {
           ) : null}
 
           <GovernmentPortalExtensionBell />
+
+          {/* Super admin only — the component renders null for other roles */}
+          <TabletNotificationBell />
 
           <span className="hidden sm:inline-flex">
             <SyncIndicator />

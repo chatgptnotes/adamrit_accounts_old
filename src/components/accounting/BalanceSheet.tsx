@@ -1,24 +1,16 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import { accountMovements, type Movement } from '@/lib/accountMovements';
+import { mergedLedgerBalances, type LedgerBalanceRow, type LedgerSource } from '@/lib/mergedLedgerBalances';
 import { format } from 'date-fns';
 import { useCompanies } from '@/hooks/useCompanies';
 import { TallyScreen, getTallyConfig } from './tally/TallyChrome';
-
-interface Account {
-  id: string;
-  account_code: string;
-  account_name: string;
-  account_type: string;
-  opening_balance: number | null;
-  opening_balance_type: string | null;
-}
+import SourceBadge from './SourceBadge';
+import { useSourceFilter, matchesSource } from './useSourceFilter';
 
 interface Line {
   name: string;
   amount: number;
-  ledgers: { name: string; amount: number }[];
+  ledgers: { name: string; amount: number; source: LedgerSource }[];
 }
 
 const fmt = (n: number): string =>
@@ -36,18 +28,7 @@ const tallyDateLabel = (iso: string): string => {
   return `${d.getDate()}-${month}-${String(d.getFullYear()).slice(2)}`;
 };
 
-// Map chart account_type values onto Tally's balance-sheet heads.
-const LIABILITY_HEADS: Record<string, string> = {
-  EQUITY: 'Capital Account',
-  LONG_TERM_LIABILITIES: 'Loans (Liability)',
-  CURRENT_LIABILITIES: 'Current Liabilities',
-  LIABILITIES: 'Current Liabilities',
-};
-const ASSET_HEADS: Record<string, string> = {
-  FIXED_ASSETS: 'Fixed Assets',
-  CURRENT_ASSETS: 'Current Assets',
-  ASSETS: 'Current Assets',
-};
+// Tally balance-sheet heads (shared HEAD_ORDER names), split into the two panels.
 const LIABILITY_ORDER = ['Capital Account', 'Loans (Liability)', 'Current Liabilities'];
 const ASSET_ORDER = ['Fixed Assets', 'Current Assets'];
 
@@ -64,70 +45,45 @@ const BalanceSheet: React.FC = () => {
   const [detailed, setDetailed] = useState(() => getTallyConfig().defaultDetailed || true);
   const [compareAsOf, setCompareAsOf] = useState<string | null>(null);
   const [filterText, setFilterText] = useState('');
+  const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
 
-  const { data: accounts = [], isLoading: accountsLoading } = useQuery({
-    queryKey: ['balance_sheet_accounts'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('chart_of_accounts')
-        .select('id, account_code, account_name, account_type, opening_balance, opening_balance_type')
-        .eq('is_active', true)
-        .order('account_code');
-      if (error) throw error;
-      return (data ?? []) as Account[];
-    },
+  const { data: rows = [], isLoading: entriesLoading } = useQuery({
+    queryKey: ['balance_sheet_merged', asOfDate, selectedCompanyId],
+    queryFn: () => mergedLedgerBalances({ upto: asOfDate, companyId: selectedCompanyId }),
   });
 
-  const { data: movements = new Map<string, Movement>(), isLoading: entriesLoading } = useQuery({
-    queryKey: ['balance_sheet_movements', asOfDate, selectedCompanyId],
-    queryFn: () => accountMovements({ upto: asOfDate, companyId: selectedCompanyId }),
-  });
-
-  const { data: movements2 = new Map<string, Movement>() } = useQuery({
-    queryKey: ['balance_sheet_movements', compareAsOf, selectedCompanyId],
+  const { data: rows2 = [] } = useQuery({
+    queryKey: ['balance_sheet_merged', compareAsOf, selectedCompanyId],
     enabled: !!compareAsOf,
-    queryFn: () => accountMovements({ upto: compareAsOf!, companyId: selectedCompanyId }),
+    queryFn: () => mergedLedgerBalances({ upto: compareAsOf!, companyId: selectedCompanyId }),
   });
 
-  const compute = (mov: Map<string, Movement>) => {
-    const debit = new Map<string, number>();
-    const credit = new Map<string, number>();
-    for (const [id, m] of mov) {
-      debit.set(id, m.debit);
-      credit.set(id, m.credit);
-    }
-
+  const compute = (ledgerRows: LedgerBalanceRow[]) => {
     const liabGroups = new Map<string, Line>();
     const assetGroups = new Map<string, Line>();
     let income = 0;
     let expense = 0;
 
-    for (const a of accounts) {
-      const dr = debit.get(a.id) ?? 0;
-      const cr = credit.get(a.id) ?? 0;
-      const opening = (Number(a.opening_balance) || 0) * (a.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1);
-      const t = a.account_type?.toUpperCase() ?? '';
-
-      if (t.includes('INCOME')) {
-        income += cr - dr;
-      } else if (t.includes('EXPENSE')) {
-        expense += dr - cr;
-      } else if (t in LIABILITY_HEADS) {
-        const bal = -(opening + dr - cr); // credit balance positive
+    for (const r of ledgerRows) {
+      // r.balance is signed Debit-positive / Credit-negative.
+      if (r.head === 'Sales Accounts' || r.head === 'Indirect Incomes') {
+        income += -r.balance;
+      } else if (r.head === 'Direct Expenses' || r.head === 'Indirect Expenses') {
+        expense += r.balance;
+      } else if (LIABILITY_ORDER.includes(r.head)) {
+        const bal = -r.balance; // credit balance positive
         if (Math.abs(bal) < 0.005) continue;
-        const head = LIABILITY_HEADS[t];
-        const line = liabGroups.get(head) ?? { name: head, amount: 0, ledgers: [] };
+        const line = liabGroups.get(r.head) ?? { name: r.head, amount: 0, ledgers: [] };
         line.amount += bal;
-        line.ledgers.push({ name: a.account_name, amount: bal });
-        liabGroups.set(head, line);
-      } else if (t in ASSET_HEADS) {
-        const bal = opening + dr - cr; // debit balance positive
+        line.ledgers.push({ name: r.name, amount: bal, source: r.source });
+        liabGroups.set(r.head, line);
+      } else if (ASSET_ORDER.includes(r.head)) {
+        const bal = r.balance; // debit balance positive
         if (Math.abs(bal) < 0.005) continue;
-        const head = ASSET_HEADS[t];
-        const line = assetGroups.get(head) ?? { name: head, amount: 0, ledgers: [] };
+        const line = assetGroups.get(r.head) ?? { name: r.head, amount: 0, ledgers: [] };
         line.amount += bal;
-        line.ledgers.push({ name: a.account_name, amount: bal });
-        assetGroups.set(head, line);
+        line.ledgers.push({ name: r.name, amount: bal, source: r.source });
+        assetGroups.set(r.head, line);
       }
     }
 
@@ -141,8 +97,8 @@ const BalanceSheet: React.FC = () => {
   };
 
   const { liabilityLines, assetLines, pnl, totalLiab, totalAssets, cmp } = useMemo(() => {
-    const cur = compute(movements);
-    const c = compareAsOf ? compute(movements2) : null;
+    const cur = compute(rows.filter((r) => matchesSource(r.source, srcFilter)));
+    const c = compareAsOf ? compute(rows2.filter((r) => matchesSource(r.source, srcFilter))) : null;
     return {
       ...cur,
       cmp: c
@@ -156,9 +112,9 @@ const BalanceSheet: React.FC = () => {
         : null,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts, movements, movements2, compareAsOf]);
+  }, [rows, rows2, compareAsOf, srcFilter]);
 
-  const isLoading = accountsLoading || entriesLoading;
+  const isLoading = entriesLoading;
   const companyName = companies.find((c) => c.id === selectedCompanyId)?.company_name || 'All Companies';
 
   const panel = (
@@ -196,8 +152,11 @@ const BalanceSheet: React.FC = () => {
             {detailed &&
               !cmpMap &&
               l.ledgers.map((led) => (
-                <div key={led.name} className="flex justify-between text-[12px] italic text-gray-700">
-                  <span className="pl-5">{led.name}</span>
+                <div key={`${led.source}:${led.name}`} className="flex justify-between text-[12px] italic text-gray-700">
+                  <span className="pl-5">
+                    {led.name}
+                    <SourceBadge source={led.source} />
+                  </span>
                   <span className="font-mono">{fmt(led.amount)}</span>
                 </div>
               ))}
@@ -239,6 +198,7 @@ const BalanceSheet: React.FC = () => {
         },
         { label: 'Exception Reports', disabled: true },
         { label: 'Save View', disabled: true },
+        sourceRail,
         {
           hotkey: 'F',
           label: filterText ? `Filter: ${filterText.slice(0, 10)}` : 'Apply Filter',

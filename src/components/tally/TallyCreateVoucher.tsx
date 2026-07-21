@@ -84,7 +84,7 @@ function companyTokens(value: string): string[] {
     .filter((token) => token && !ignored.has(token))
 }
 
-function resolveAccountingCompanyId(companies: Array<{ id: string; company_name: string }>, tallyCompanyName: string): string {
+export function resolveAccountingCompanyId(companies: Array<{ id: string; company_name: string }>, tallyCompanyName: string): string {
   const target = tallyCompanyName.toLowerCase().replace(/[^a-z0-9]+/g, '')
   if (!target) return ''
 

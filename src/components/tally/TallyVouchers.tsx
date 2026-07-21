@@ -10,6 +10,7 @@ import {
   Loader2, Edit3, Trash2, AlertCircle, Download
 } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
+import { findAccountingCompany } from '@/lib/tallyCompanyMatch'
 
 const PAGE_SIZE = 25
 
@@ -19,34 +20,6 @@ const VOUCHER_TYPES = [
 ]
 
 const SYNC_STATUSES = ['All', 'local', 'synced', 'pending', 'failed', 'conflict']
-
-function companyKey(value: string | null | undefined) {
-  return (value || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '')
-    .replace(/(privatelimited|pvtltd|limited|ltd)$/, '')
-}
-
-function findAccountingCompany(companies: Array<{ id: string; company_name: string }>, tallyCompanyName?: string) {
-  const target = companyKey(tallyCompanyName)
-  if (!target) return null
-
-  const exact = companies.find((company) => companyKey(company.company_name) === target)
-  if (exact) return exact
-
-  const targetTokens = target.match(/[a-z]+/g) || []
-  const candidates = companies.map((company) => {
-    const key = companyKey(company.company_name)
-    const candidateTokens = key.match(/[a-z]+/g) || []
-    const overlap = targetTokens.filter((token) => candidateTokens.includes(token)).length
-    const contains = key.includes(target) || target.includes(key)
-    return { company, score: (contains ? 100 : 0) + overlap, overlap }
-  }).filter((candidate) => candidate.overlap > 0)
-    .sort((left, right) => right.score - left.score)
-
-  if (!candidates.length || (candidates[1] && candidates[0].score === candidates[1].score)) return null
-  return candidates[0].company
-}
 
 function formatCurrency(val: number) {
   return new Intl.NumberFormat('en-IN', {

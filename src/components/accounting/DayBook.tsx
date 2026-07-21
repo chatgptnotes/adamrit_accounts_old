@@ -3,6 +3,25 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
 import { TallyScreen, getTallyConfig } from './tally/TallyChrome';
+import { fetchTallyVouchers } from '@/lib/mergedVouchers';
+import { normalizeName } from '@/lib/tallyCompanyMatch';
+import SourceBadge from './SourceBadge';
+import { useSourceFilter, matchesSource } from './useSourceFilter';
+
+type LedgerSource = 'adamrit' | 'tally';
+
+interface DayRow {
+  id: string;
+  nativeId: string | null;
+  date: string;
+  particulars: string;
+  type: string;
+  number: string;
+  total: number;
+  narration: string | null;
+  entries: { label: string; debit: number; credit: number }[];
+  source: LedgerSource;
+}
 
 interface VoucherType {
   id: string;
@@ -56,6 +75,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
   // Regular = authorised up to today; Optional = is_optional; Post-Dated = future-dated
   const [scope, setScope] = useState<'Regular' | 'Optional' | 'Post-Dated'>('Regular');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
 
   const { data: voucherTypes = [] } = useQuery({
     queryKey: ['voucher_types'],
@@ -103,6 +123,15 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
     },
   });
 
+  // Tally mirror vouchers for the same window (Regular scope only — Optional /
+  // Post-Dated are native-only concepts). Deduped against native by number.
+  const typeName = voucherTypes.find((t) => t.id === typeFilter)?.voucher_type_name;
+  const { data: tallyRows = [] } = useQuery({
+    queryKey: ['daybook_tally', fromDate, toDate, scope],
+    enabled: scope === 'Regular',
+    queryFn: () => fetchTallyVouchers({ from: fromDate, upto: toDate }),
+  });
+
   const toggleExpanded = (id: string) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
@@ -119,12 +148,62 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
     return lead?.account?.account_name ?? '';
   };
 
-  const totals = useMemo(
-    () => vouchers.reduce((s, v) => s + (Number(v.total_amount) || 0), 0),
-    [vouchers],
-  );
+  const rows: DayRow[] = useMemo(() => {
+    const nativeRows: DayRow[] = vouchers.map((v) => {
+      const entries = [...(v.voucher_entries ?? [])].sort((a, b) => (a.entry_order || 0) - (b.entry_order || 0));
+      return {
+        id: `adamrit:${v.id}`,
+        nativeId: v.id,
+        date: v.voucher_date,
+        particulars: leadLedger(v),
+        type: v.voucher_type?.voucher_type_name?.replace(' Voucher', '') ?? '',
+        number: v.voucher_number,
+        total: Number(v.total_amount) || 0,
+        narration: v.narration,
+        entries: entries.map((e) => ({
+          label: `${Number(e.debit_amount) > 0 ? 'Dr' : 'Cr'} ${e.account?.account_name ?? ''}`,
+          debit: Number(e.debit_amount) || 0,
+          credit: Number(e.credit_amount) || 0,
+        })),
+        source: 'adamrit',
+      };
+    });
 
-  const typeName = voucherTypes.find((t) => t.id === typeFilter)?.voucher_type_name;
+    let mappedTally: DayRow[] = tallyRows.map((v) => {
+      const lead = v.entries.find((e) => e.debit > 0) ?? v.entries[0];
+      return {
+        id: v.id,
+        nativeId: null,
+        date: v.date,
+        particulars: lead?.ledger ?? '',
+        type: v.voucher_type.replace(' Voucher', ''),
+        number: v.voucher_number,
+        total: v.total,
+        narration: v.narration,
+        entries: v.entries.map((e) => ({
+          label: `${e.debit > 0 ? 'Dr' : 'Cr'} ${e.ledger}`,
+          debit: e.debit,
+          credit: e.credit,
+        })),
+        source: 'tally',
+      };
+    });
+    if (typeName) mappedTally = mappedTally.filter((r) => r.type.toLowerCase().includes(typeName.replace(' Voucher', '').toLowerCase()));
+
+    const byNumber = new Map<string, DayRow>();
+    const passthrough: DayRow[] = [];
+    for (const r of [...nativeRows, ...mappedTally]) {
+      const key = normalizeName(r.number);
+      if (!key) { passthrough.push(r); continue; }
+      const existing = byNumber.get(key);
+      if (!existing || r.source === 'tally') byNumber.set(key, r);
+    }
+    return [...byNumber.values(), ...passthrough]
+      .filter((r) => matchesSource(r.source, srcFilter))
+      .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  }, [vouchers, tallyRows, typeName, srcFilter]);
+
+  const totals = useMemo(() => rows.reduce((s, r) => s + r.total, 0), [rows]);
 
   return (
     <TallyScreen
@@ -154,6 +233,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
         },
         { hotkey: 'H', label: detailed ? 'Condensed' : 'Detailed', gapBefore: true, onClick: () => setDetailed((v) => !v) },
         { label: 'Save View', disabled: true },
+        sourceRail,
         { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
       ]}
     >
@@ -194,48 +274,48 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
 
         {isLoading ? (
           <div className="py-10 text-center text-gray-400">Loading…</div>
-        ) : vouchers.length === 0 ? (
+        ) : rows.length === 0 ? (
           <div className="py-10 text-center text-gray-400">No vouchers in this period.</div>
         ) : (
           <>
-            {vouchers.map((v) => {
-              const expanded = detailed || expandedIds.has(v.id);
-              const entries = [...(v.voucher_entries ?? [])].sort((a, b) => (a.entry_order || 0) - (b.entry_order || 0));
+            {rows.map((r) => {
+              const expanded = detailed || expandedIds.has(r.id);
               return (
-                <React.Fragment key={v.id}>
+                <React.Fragment key={r.id}>
                   <button
                     type="button"
-                    onClick={() => (onOpenVoucher ? onOpenVoucher(v.id) : toggleExpanded(v.id))}
-                    title="Open voucher (alter)"
+                    onClick={() => (r.nativeId && onOpenVoucher ? onOpenVoucher(r.nativeId) : toggleExpanded(r.id))}
+                    title={r.nativeId ? 'Open voucher (alter)' : 'Tally voucher — expand'}
                     className="flex w-full border-b border-dashed border-gray-300 text-left hover:bg-[#fdf6d8]"
                   >
-                    <div className="w-20 px-1">{tallyDateLabel(v.voucher_date)}</div>
-                    <div className="min-w-0 flex-1 truncate px-1 font-semibold">{leadLedger(v)}</div>
-                    <div className="w-32 px-1">{v.voucher_type?.voucher_type_name?.replace(' Voucher', '') ?? ''}</div>
-                    <div className="w-28 px-1 font-mono text-[12px]">{v.voucher_number}</div>
-                    <div className="w-32 px-1 text-right font-mono">{fmt(Number(v.total_amount) || 0)}</div>
-                    <div className="w-32 px-1 text-right font-mono">{fmt(Number(v.total_amount) || 0)}</div>
+                    <div className="w-20 px-1">{tallyDateLabel(r.date)}</div>
+                    <div className="min-w-0 flex-1 truncate px-1 font-semibold">
+                      {r.particulars}
+                      <SourceBadge source={r.source} />
+                    </div>
+                    <div className="w-32 px-1">{r.type}</div>
+                    <div className="w-28 px-1 font-mono text-[12px]">{r.number}</div>
+                    <div className="w-32 px-1 text-right font-mono">{fmt(r.total)}</div>
+                    <div className="w-32 px-1 text-right font-mono">{fmt(r.total)}</div>
                   </button>
                   {expanded && (
                     <div className="border-b border-dashed border-gray-300 bg-[#fffdf2] py-0.5">
-                      {entries.map((e) => (
-                        <div key={e.id} className="flex text-[12px] italic text-gray-700">
+                      {r.entries.map((e, i) => (
+                        <div key={i} className="flex text-[12px] italic text-gray-700">
                           <div className="w-20" />
-                          <div className="min-w-0 flex-1 truncate px-1">
-                            {Number(e.debit_amount) > 0 ? 'Dr' : 'Cr'} {e.account?.account_name ?? ''}
-                          </div>
+                          <div className="min-w-0 flex-1 truncate px-1">{e.label}</div>
                           <div className="w-32" />
                           <div className="w-28" />
                           <div className="w-32 px-1 text-right font-mono">
-                            {Number(e.debit_amount) > 0 ? fmt(Number(e.debit_amount)) : ''}
+                            {e.debit > 0 ? fmt(e.debit) : ''}
                           </div>
                           <div className="w-32 px-1 text-right font-mono">
-                            {Number(e.credit_amount) > 0 ? fmt(Number(e.credit_amount)) : ''}
+                            {e.credit > 0 ? fmt(e.credit) : ''}
                           </div>
                         </div>
                       ))}
-                      {v.narration && (
-                        <div className="px-24 text-[11px] italic text-gray-500">({v.narration})</div>
+                      {r.narration && (
+                        <div className="px-24 text-[11px] italic text-gray-500">({r.narration})</div>
                       )}
                     </div>
                   )}
@@ -244,7 +324,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
             })}
             <div className="mt-2 flex border-t border-black pt-0.5 font-bold">
               <div className="w-20 px-1" />
-              <div className="min-w-0 flex-1 px-1 tracking-[0.2em]">Total — {vouchers.length} voucher(s)</div>
+              <div className="min-w-0 flex-1 px-1 tracking-[0.2em]">Total — {rows.length} voucher(s)</div>
               <div className="w-32 px-1" />
               <div className="w-28 px-1" />
               <div className="w-32 px-1 text-right font-mono">{fmt(totals)}</div>

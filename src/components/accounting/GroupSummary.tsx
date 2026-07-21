@@ -1,19 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import { accountMovements, type Movement } from '@/lib/accountMovements';
 import { format } from 'date-fns';
 import { TallyScreen } from './tally/TallyChrome';
-import { HEAD_ORDER, headOfType } from './tally/heads';
-
-interface Account {
-  id: string;
-  account_code: string;
-  account_name: string;
-  account_type: string;
-  opening_balance: number | null;
-  opening_balance_type: string | null;
-}
+import { HEAD_ORDER } from './tally/heads';
+import { mergedLedgerBalances } from '@/lib/mergedLedgerBalances';
+import { useSourceFilter, matchesSource } from './useSourceFilter';
+import SourceBadge from './SourceBadge';
 
 const fmt = (n: number): string =>
   new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
@@ -41,37 +33,19 @@ const GroupSummary: React.FC<GroupSummaryProps> = ({ head: headProp, onOpenLedge
   const head = headProp ?? pickedHead;
   const [asOfDate, setAsOfDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [showPeriod, setShowPeriod] = useState(false);
+  const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
 
-  const { data: accounts = [] } = useQuery({
-    queryKey: ['tb_accounts'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('chart_of_accounts')
-        .select('id, account_code, account_name, account_type, opening_balance, opening_balance_type')
-        .eq('is_active', true)
-        .order('account_code');
-      if (error) throw error;
-      return data as Account[];
-    },
-  });
-
-  const { data: movements = new Map<string, Movement>(), isLoading } = useQuery({
-    queryKey: ['tb_movements', '', asOfDate],
-    queryFn: () => accountMovements({ upto: asOfDate }),
+  const { data: ledgerRows = [], isLoading } = useQuery({
+    queryKey: ['group_summary_merged', asOfDate],
+    queryFn: () => mergedLedgerBalances({ upto: asOfDate }),
   });
 
   const rows = useMemo(() => {
     if (!head) return [];
-    return accounts
-      .filter((a) => headOfType(a.account_type) === head)
-      .map((a) => {
-        const m = movements.get(a.id);
-        const opening = (Number(a.opening_balance) || 0) * (a.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1);
-        const bal = opening + (m ? m.debit - m.credit : 0);
-        return { account: a, bal };
-      })
-      .filter((r) => Math.abs(r.bal) >= 0.005);
-  }, [accounts, movements, head]);
+    return ledgerRows
+      .filter((r) => r.head === head && matchesSource(r.source, srcFilter) && Math.abs(r.balance) >= 0.005)
+      .map((r) => ({ name: r.name, bal: r.balance, source: r.source, accountId: r.accountId }));
+  }, [ledgerRows, head, srcFilter]);
 
   const totalDr = rows.reduce((s, r) => s + Math.max(0, r.bal), 0);
   const totalCr = rows.reduce((s, r) => s + Math.max(0, -r.bal), 0);
@@ -90,6 +64,7 @@ const GroupSummary: React.FC<GroupSummaryProps> = ({ head: headProp, onOpenLedge
           onClick: () => setPickedHead(null),
           disabled: !!headProp,
         },
+        sourceRail,
         { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
       ]}
     >
@@ -138,13 +113,16 @@ const GroupSummary: React.FC<GroupSummaryProps> = ({ head: headProp, onOpenLedge
               <>
                 {rows.map((r) => (
                   <button
-                    key={r.account.id}
+                    key={`${r.source}:${r.name}`}
                     type="button"
-                    onClick={() => onOpenLedger?.(r.account.id)}
-                    title="Open ledger vouchers"
+                    onClick={() => r.accountId && onOpenLedger?.(r.accountId)}
+                    title={r.accountId ? 'Open ledger vouchers' : 'Tally ledger'}
                     className="flex w-full border-b border-dashed border-gray-200 text-left hover:bg-[#fdf6d8]"
                   >
-                    <div className="min-w-0 flex-1 truncate px-1">{r.account.account_name}</div>
+                    <div className="min-w-0 flex-1 truncate px-1">
+                      {r.name}
+                      <SourceBadge source={r.source} />
+                    </div>
                     <div className="w-36 px-1 text-right font-mono">{r.bal > 0 ? fmt(r.bal) : ''}</div>
                     <div className="w-36 px-1 text-right font-mono">{r.bal < 0 ? fmt(-r.bal) : ''}</div>
                   </button>

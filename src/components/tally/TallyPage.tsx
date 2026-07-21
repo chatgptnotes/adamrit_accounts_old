@@ -5,7 +5,7 @@ import { supabase } from '@/integrations/supabase/client'
 import {
   LayoutDashboard, BookOpen, FileText,
   BarChart3, ArrowUpFromLine, Banknote, Landmark,
-  FileBarChart, PlusCircle,
+  FileBarChart, PlusCircle, ClipboardCheck,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { TallyScreen } from '@/components/accounting/tally/TallyChrome'
@@ -18,6 +18,7 @@ import TallyCashBook from '@/components/tally/TallyCashBook'
 import TallyBankBook from '@/components/tally/TallyBankBook'
 import TallyGST from '@/components/tally/TallyGST'
 import TallyCreateVoucher from '@/components/tally/TallyCreateVoucher'
+import TallyApprovals from '@/components/tally/TallyApprovals'
 
 type TallyConfigOption = {
   id: string
@@ -41,6 +42,7 @@ const tabs = [
   { id: 'gst', label: 'GST', icon: FileBarChart },
   { id: 'billsync', label: 'Bill Sync', icon: ArrowUpFromLine },
   { id: 'create-voucher', label: 'Create Voucher', icon: PlusCircle },
+  { id: 'approvals', label: 'Approvals', icon: ClipboardCheck },
 ]
 
 function getTimestamp(value?: string | null) {
@@ -111,9 +113,9 @@ function dedupeCompanyConfigs(options: TallyConfigOption[]) {
   })
 }
 
-export default function TallyPage() {
+export default function TallyPage({ initialTab = 'dashboard' }: { initialTab?: string } = {}) {
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState('dashboard')
+  const [activeTab, setActiveTab] = useState(initialTab)
   const [createVoucherCategory, setCreateVoucherCategory] = useState<'PAYMENT' | 'RECEIPT' | 'JOURNAL' | 'PURCHASE'>('PAYMENT')
   const [voucherFocus, setVoucherFocus] = useState<'period' | 'type' | null>(null)
   const [serverUrl, setServerUrl] = useState('')
@@ -465,6 +467,7 @@ export default function TallyPage() {
           {activeTab === 'gst' && <TallyGST serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
           {activeTab === 'billsync' && <TallyBillSync serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
           {activeTab === 'create-voucher' && <TallyCreateVoucher serverUrl={serverUrl} companyName={companyName} companyId={companyId} voucherCategory={createVoucherCategory} />}
+          {activeTab === 'approvals' && <TallyApprovals serverUrl={serverUrl} companyName={companyName} companyId={companyId} />}
         </div>
       </div>
     </TallyScreen>

@@ -1,19 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import { accountMovements, type Movement } from '@/lib/accountMovements';
+import { mergedLedgerBalances, type LedgerBalanceRow, type LedgerSource } from '@/lib/mergedLedgerBalances';
 import { format } from 'date-fns';
 import { useCompanies } from '@/hooks/useCompanies';
 import { TallyScreen, getTallyConfig } from './tally/TallyChrome';
-
-interface Account {
-  id: string;
-  account_code: string;
-  account_name: string;
-  account_type: string;
-  opening_balance: number | null;
-  opening_balance_type: string | null;
-}
+import SourceBadge from './SourceBadge';
+import { useSourceFilter, matchesSource } from './useSourceFilter';
 
 const fmt = (n: number): string =>
   new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
@@ -31,7 +23,7 @@ const tallyDateLabel = (iso: string): string => {
   return `${d.getDate()}-${month}-${String(d.getFullYear()).slice(2)}`;
 };
 
-import { HEAD_OF, HEAD_ORDER } from './tally/heads';
+import { HEAD_ORDER } from './tally/heads';
 
 /**
  * Trial Balance — Tally Prime replica: Particulars with grouped heads,
@@ -45,46 +37,32 @@ const TrialBalance: React.FC<{ onOpenGroup?: (head: string) => void }> = ({ onOp
   const [detailed, setDetailed] = useState(() => getTallyConfig().defaultDetailed || true);
   // C: New Column — comparison as-at date (defaults to same day last year)
   const [compareAsOf, setCompareAsOf] = useState<string | null>(null);
+  const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
 
-  const { data: accounts = [], isLoading: accountsLoading } = useQuery({
-    queryKey: ['tb_accounts'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('chart_of_accounts')
-        .select('id, account_code, account_name, account_type, opening_balance, opening_balance_type')
-        .eq('is_active', true)
-        .order('account_code');
-      if (error) throw error;
-      return data as Account[];
-    },
+  const { data: rows = [], isLoading: entriesLoading } = useQuery({
+    queryKey: ['tb_merged', selectedCompanyId, asOfDate],
+    queryFn: () => mergedLedgerBalances({ upto: asOfDate, companyId: selectedCompanyId }),
   });
 
-  const { data: movements = new Map<string, Movement>(), isLoading: entriesLoading } = useQuery({
-    queryKey: ['tb_movements', selectedCompanyId, asOfDate],
-    queryFn: () => accountMovements({ upto: asOfDate, companyId: selectedCompanyId }),
-  });
-
-  const { data: movements2 = new Map<string, Movement>() } = useQuery({
-    queryKey: ['tb_movements', selectedCompanyId, compareAsOf],
+  const { data: rows2 = [] } = useQuery({
+    queryKey: ['tb_merged', selectedCompanyId, compareAsOf],
     enabled: !!compareAsOf,
-    queryFn: () => accountMovements({ upto: compareAsOf!, companyId: selectedCompanyId }),
+    queryFn: () => mergedLedgerBalances({ upto: compareAsOf!, companyId: selectedCompanyId }),
   });
 
-  const computeGroups = (mov: Map<string, Movement>) => {
-    const byHead = new Map<string, { dr: number; cr: number; ledgers: { name: string; bal: number }[] }>();
-    for (const a of accounts) {
-      const t = a.account_type?.toUpperCase() ?? '';
-      const head = HEAD_OF.find((h) => h.match(t))?.head;
-      if (!head) continue;
-      const opening = (Number(a.opening_balance) || 0) * (a.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1);
-      const m = mov.get(a.id);
-      const bal = opening + (m ? m.debit - m.credit : 0);
+  const computeGroups = (ledgerRows: LedgerBalanceRow[]) => {
+    const byHead = new Map<
+      string,
+      { dr: number; cr: number; ledgers: { name: string; bal: number; source: LedgerSource }[] }
+    >();
+    for (const r of ledgerRows) {
+      const bal = r.balance;
       if (Math.abs(bal) < 0.005) continue;
-      const g = byHead.get(head) ?? { dr: 0, cr: 0, ledgers: [] };
+      const g = byHead.get(r.head) ?? { dr: 0, cr: 0, ledgers: [] };
       if (bal > 0) g.dr += bal;
       else g.cr += -bal;
-      g.ledgers.push({ name: a.account_name, bal });
-      byHead.set(head, g);
+      g.ledgers.push({ name: r.name, bal, source: r.source });
+      byHead.set(r.head, g);
     }
     let grandDr = 0;
     let grandCr = 0;
@@ -96,8 +74,8 @@ const TrialBalance: React.FC<{ onOpenGroup?: (head: string) => void }> = ({ onOp
   };
 
   const { groups, grandDr, grandCr, byHead2, grandDr2, grandCr2 } = useMemo(() => {
-    const cur = computeGroups(movements);
-    const cmp = compareAsOf ? computeGroups(movements2) : null;
+    const cur = computeGroups(rows.filter((r) => matchesSource(r.source, srcFilter)));
+    const cmp = compareAsOf ? computeGroups(rows2.filter((r) => matchesSource(r.source, srcFilter))) : null;
     const heads = HEAD_ORDER.filter((h) => cur.byHead.has(h) || cmp?.byHead.has(h));
     const groups = heads.map((h) => ({ head: h, ...(cur.byHead.get(h) ?? { dr: 0, cr: 0, ledgers: [] }) }));
     return {
@@ -109,9 +87,9 @@ const TrialBalance: React.FC<{ onOpenGroup?: (head: string) => void }> = ({ onOp
       grandCr2: cmp?.grandCr ?? 0,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts, movements, movements2, compareAsOf]);
+  }, [rows, rows2, compareAsOf, srcFilter]);
 
-  const isLoading = accountsLoading || entriesLoading;
+  const isLoading = entriesLoading;
   const companyName = companies.find((c) => c.id === selectedCompanyId)?.company_name || 'All Companies';
 
   return (
@@ -138,6 +116,7 @@ const TrialBalance: React.FC<{ onOpenGroup?: (head: string) => void }> = ({ onOp
         { label: 'Basis of Values', disabled: true, gapBefore: true },
         { label: 'Exception Reports', disabled: true },
         { label: 'Save View', disabled: true },
+        sourceRail,
         { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
       ]}
     >
@@ -221,8 +200,11 @@ const TrialBalance: React.FC<{ onOpenGroup?: (head: string) => void }> = ({ onOp
                 </button>
                 {detailed && !byHead2 &&
                   g.ledgers.map((l) => (
-                    <div key={l.name} className="flex text-[12px] italic text-gray-700">
-                      <div className="flex-1 pl-5">{l.name}</div>
+                    <div key={`${l.source}:${l.name}`} className="flex text-[12px] italic text-gray-700">
+                      <div className="flex-1 pl-5">
+                        {l.name}
+                        <SourceBadge source={l.source} />
+                      </div>
                       <div className="flex w-72">
                         <div className="w-1/2 pr-2 text-right font-mono">{l.bal > 0 ? fmt(l.bal) : ''}</div>
                         <div className="w-1/2 pr-2 text-right font-mono">{l.bal < 0 ? fmt(-l.bal) : ''}</div>

@@ -17,6 +17,7 @@ import {
   ArrowDownUp,
   PanelLeftOpen,
   PanelLeftClose,
+  ClipboardCheck,
 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import Dashboard from './Dashboard';
@@ -71,6 +72,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'masters', label: 'Masters', icon: FolderCog },
   { id: 'opening-balances', label: 'Opening Balances', icon: Scale },
   { id: 'voucher-entry', label: 'Voucher Entry', icon: FileText },
+  { id: 'approvals', label: 'Approvals', icon: ClipboardCheck },
   { id: 'day-book', label: 'Day Book', icon: Calendar },
   { id: 'cash-bank-book', label: 'Cash/Bank Book', icon: BookOpen },
   { id: 'cash-bank-summary', label: 'Cash/Bank Summary', icon: Landmark },
@@ -107,6 +109,7 @@ const renderContent = (
   openVoucher: (id: string) => void,
   openGroup: (head: string) => void,
   openLedger: (accountId: string) => void,
+  canSeeTile: (tileId: string, role?: string | null) => boolean,
 ): React.ReactNode => {
   switch (activeTab) {
     case 'gateway':
@@ -151,6 +154,12 @@ const renderContent = (
       return (
         <Suspense fallback={<div className="py-16 text-center text-sm text-gray-400">Loading Tally Live…</div>}>
           <TallyLivePage />
+        </Suspense>
+      );
+    case 'approvals':
+      return (
+        <Suspense fallback={<div className="py-16 text-center text-sm text-gray-400">Loading Approvals…</div>}>
+          <TallyLivePage initialTab="approvals" />
         </Suspense>
       );
     case 'trial-balance':
@@ -329,7 +338,7 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
           ) : (
             activeTab === 'voucher-entry'
               ? <VoucherEntry initialVoucherCategory={initialVoucherCategory} />
-              : renderContent(activeTab, setActiveTab, setAlterVoucherId, setDrillGroup, setDrillLedgerId)
+              : renderContent(activeTab, setActiveTab, setAlterVoucherId, setDrillGroup, setDrillLedgerId, canSeeTile)
           )}
         </div>
       </main>

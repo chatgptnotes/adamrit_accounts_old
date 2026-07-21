@@ -3,6 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { TallyScreen } from './tally/TallyChrome';
+import { fetchTallyVouchers } from '@/lib/mergedVouchers';
+import { normalizeName } from '@/lib/tallyCompanyMatch';
+import SourceBadge from './SourceBadge';
+import { useSourceFilter, matchesSource } from './useSourceFilter';
 
 interface Account {
   id: string;
@@ -65,6 +69,7 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
 
   const { data: accounts = [] } = useQuery({
     queryKey: ['ledger_accounts'],
@@ -119,33 +124,83 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
     },
   });
 
+  // Tally mirror vouchers touching this ledger (by name). Tally-preferred: a
+  // Tally row overwrites a native row that shares the same voucher number.
+  const { data: tallyVouchers = [] } = useQuery({
+    queryKey: ['ledger_tally', fromDate, toDate],
+    enabled: !!selectedAccountId,
+    queryFn: () => fetchTallyVouchers({ from: fromDate, upto: toDate }),
+  });
+
   const { rows, opening, totalDr, totalCr, closing } = useMemo(() => {
-    const sorted = [...rawEntries].sort((a, b) =>
-      (a.voucher?.voucher_date || '').localeCompare(b.voucher?.voucher_date || ''),
-    );
     const opening = selectedAccount
       ? (Number(selectedAccount.opening_balance) || 0) * (selectedAccount.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1)
       : 0;
+
+    type Row = {
+      id: string;
+      voucherId: string;
+      date: string;
+      particulars: string;
+      type: string;
+      number: string;
+      dr: number;
+      cr: number;
+      source: 'adamrit' | 'tally';
+    };
+
+    const nativeRows: Row[] = rawEntries.map((e) => ({
+      id: e.id,
+      voucherId: e.voucher?.id || '',
+      date: e.voucher?.voucher_date || '',
+      particulars: e.narration || e.voucher?.narration || '',
+      type: e.voucher?.voucher_type?.voucher_type_name?.replace(' Voucher', '') || '',
+      number: e.voucher?.voucher_number || '',
+      dr: Number(e.debit_amount) || 0,
+      cr: Number(e.credit_amount) || 0,
+      source: 'adamrit',
+    }));
+
+    const ledgerKey = normalizeName(selectedAccount?.account_name);
+    const tallyRows: Row[] = [];
+    for (const v of tallyVouchers) {
+      v.entries.forEach((entry, idx) => {
+        if (normalizeName(entry.ledger) !== ledgerKey) return;
+        const other = v.entries.find((x) => normalizeName(x.ledger) !== ledgerKey);
+        tallyRows.push({
+          id: `${v.id}:${idx}`,
+          voucherId: '',
+          date: v.date,
+          particulars: v.narration || other?.ledger || '',
+          type: v.voucher_type.replace(' Voucher', ''),
+          number: v.voucher_number,
+          dr: entry.debit,
+          cr: entry.credit,
+          source: 'tally',
+        });
+      });
+    }
+
+    const byNumber = new Map<string, Row>();
+    const passthrough: Row[] = [];
+    for (const r of [...nativeRows, ...tallyRows]) {
+      const key = normalizeName(r.number);
+      if (!key) { passthrough.push(r); continue; }
+      const existing = byNumber.get(key);
+      if (!existing || r.source === 'tally') byNumber.set(key, r);
+    }
+    const rows = [...byNumber.values(), ...passthrough]
+      .filter((r) => matchesSource(r.source, srcFilter))
+      .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
     let totalDr = 0;
     let totalCr = 0;
-    const rows = sorted.map((e) => {
-      const dr = Number(e.debit_amount) || 0;
-      const cr = Number(e.credit_amount) || 0;
-      totalDr += dr;
-      totalCr += cr;
-      return {
-        id: e.id,
-        voucherId: e.voucher?.id || '',
-        date: e.voucher?.voucher_date || '',
-        particulars: e.narration || e.voucher?.narration || '',
-        type: e.voucher?.voucher_type?.voucher_type_name?.replace(' Voucher', '') || '',
-        number: e.voucher?.voucher_number || '',
-        dr,
-        cr,
-      };
-    });
+    for (const r of rows) {
+      totalDr += r.dr;
+      totalCr += r.cr;
+    }
     return { rows, opening, totalDr, totalCr, closing: opening + totalDr - totalCr };
-  }, [rawEntries, selectedAccount]);
+  }, [rawEntries, tallyVouchers, selectedAccount, srcFilter]);
 
   return (
     <TallyScreen
@@ -165,6 +220,7 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
           },
         },
         { label: 'Save View', disabled: true, gapBefore: true },
+        sourceRail,
         { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
       ]}
     >
@@ -275,7 +331,10 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
                     className="flex cursor-pointer border-b border-dashed border-gray-200 hover:bg-[#fdf6d8]"
                   >
                     <div className="w-20 px-1">{tallyDateLabel(r.date)}</div>
-                    <div className="min-w-0 flex-1 truncate px-1">{r.particulars}</div>
+                    <div className="min-w-0 flex-1 truncate px-1">
+                      {r.particulars}
+                      <SourceBadge source={r.source} />
+                    </div>
                     <div className="w-28 px-1">{r.type}</div>
                     <div className="w-28 px-1 font-mono text-[12px]">{r.number}</div>
                     <div className="w-32 px-1 text-right font-mono">{r.dr > 0 ? fmt(r.dr) : ''}</div>

@@ -107,7 +107,7 @@ interface Sale {
 }
 
 const PharmacyBilling: React.FC = () => {
-  const { hospitalConfig, isAdmin } = useAuth();
+  const { hospitalConfig, isAdmin, user } = useAuth();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [saleType, setSaleType] = useState<'antibiotic' | 'other'>('other');
@@ -692,6 +692,7 @@ const PharmacyBilling: React.FC = () => {
       total_amount: totals.totalAmount,
       payment_method: paymentMethod,
       payment_status: (totals.totalDiscount > 0 && !isAdmin) ? 'PENDING_DISCOUNT_APPROVAL' : 'COMPLETED',
+      created_by: user?.email || user?.username || undefined,
       items: cart.map(item => {
         console.log('🔍 Cart item being mapped:', {
           medicine_id: item.medicine_id,

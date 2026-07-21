@@ -1,22 +1,16 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import { accountMovements, type Movement } from '@/lib/accountMovements';
+import { mergedLedgerBalances, type LedgerBalanceRow, type LedgerSource } from '@/lib/mergedLedgerBalances';
 import { format } from 'date-fns';
 import { useCompanies } from '@/hooks/useCompanies';
 import { TallyScreen, getTallyConfig } from './tally/TallyChrome';
-
-interface Account {
-  id: string;
-  account_code: string;
-  account_name: string;
-  account_type: string;
-}
+import SourceBadge from './SourceBadge';
+import { useSourceFilter, matchesSource } from './useSourceFilter';
 
 interface Line {
   name: string;
   amount: number;
-  ledgers: { name: string; amount: number }[];
+  ledgers: { name: string; amount: number; source: LedgerSource }[];
 }
 
 const fmt = (n: number): string =>
@@ -53,40 +47,21 @@ const ProfitLoss: React.FC = () => {
   const [showPeriod, setShowPeriod] = useState(false);
   const [detailed, setDetailed] = useState(() => getTallyConfig().defaultDetailed);
   const [compare, setCompare] = useState(false); // previous-year column
+  const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
 
-  const { data: accounts = [], isLoading: accountsLoading } = useQuery({
-    queryKey: ['pnl_accounts'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('chart_of_accounts')
-        .select('id, account_code, account_name, account_type')
-        .eq('is_active', true)
-        .order('account_code');
-      if (error) throw error;
-      return (data ?? []) as Account[];
-    },
+  const { data: rows = [], isLoading: entriesLoading } = useQuery({
+    queryKey: ['profit_loss_merged', fromDate, toDate, selectedCompanyId],
+    queryFn: () => mergedLedgerBalances({ from: fromDate, upto: toDate, companyId: selectedCompanyId }),
   });
 
-  const { data: movements = new Map<string, Movement>(), isLoading: entriesLoading } = useQuery({
-    queryKey: ['profit_loss_movements', fromDate, toDate, selectedCompanyId],
-    queryFn: () => accountMovements({ from: fromDate, upto: toDate, companyId: selectedCompanyId }),
-  });
-
-  const { data: movements2 = new Map<string, Movement>() } = useQuery({
-    queryKey: ['profit_loss_movements', shiftYear(fromDate), shiftYear(toDate), selectedCompanyId],
+  const { data: rows2 = [] } = useQuery({
+    queryKey: ['profit_loss_merged', shiftYear(fromDate), shiftYear(toDate), selectedCompanyId],
     enabled: compare,
     queryFn: () =>
-      accountMovements({ from: shiftYear(fromDate), upto: shiftYear(toDate), companyId: selectedCompanyId }),
+      mergedLedgerBalances({ from: shiftYear(fromDate), upto: shiftYear(toDate), companyId: selectedCompanyId }),
   });
 
-  const compute = (mov: Map<string, Movement>) => {
-    const debit = new Map<string, number>();
-    const credit = new Map<string, number>();
-    for (const [id, m] of mov) {
-      debit.set(id, m.debit);
-      credit.set(id, m.credit);
-    }
-
+  const compute = (ledgerRows: LedgerBalanceRow[]) => {
     const mk = (name: string): Line => ({ name, amount: 0, ledgers: [] });
     const dirExp = mk('Direct Expenses');
     const purch = mk('Purchase Accounts');
@@ -94,24 +69,21 @@ const ProfitLoss: React.FC = () => {
     const dirInc = mk('Sales Accounts');
     const indInc = mk('Indirect Incomes');
 
-    for (const a of accounts) {
-      const t = a.account_type?.toUpperCase() ?? '';
-      const dr = debit.get(a.id) ?? 0;
-      const cr = credit.get(a.id) ?? 0;
-      if (!t.includes('INCOME') && !t.includes('EXPENSE')) continue;
-      if (t.includes('INCOME')) {
-        const bal = cr - dr;
+    for (const r of ledgerRows) {
+      // r.balance is signed Debit-positive / Credit-negative.
+      if (r.head === 'Sales Accounts' || r.head === 'Indirect Incomes') {
+        const bal = -r.balance; // income shown positive
         if (Math.abs(bal) < 0.005) continue;
-        const line = t === 'INDIRECT_INCOME' ? indInc : dirInc;
+        const line = r.head === 'Indirect Incomes' ? indInc : dirInc;
         line.amount += bal;
-        line.ledgers.push({ name: a.account_name, amount: bal });
-      } else {
-        const bal = dr - cr;
+        line.ledgers.push({ name: r.name, amount: bal, source: r.source });
+      } else if (r.head === 'Direct Expenses' || r.head === 'Indirect Expenses') {
+        const bal = r.balance; // expense shown positive
         if (Math.abs(bal) < 0.005) continue;
-        const isPurchase = a.account_name.toLowerCase().includes('purchase');
-        const line = t === 'INDIRECT_EXPENSES' ? indExp : isPurchase ? purch : dirExp;
+        const isPurchase = r.name.toLowerCase().includes('purchase');
+        const line = r.head === 'Indirect Expenses' ? indExp : isPurchase ? purch : dirExp;
         line.amount += bal;
-        line.ledgers.push({ name: a.account_name, amount: bal });
+        line.ledgers.push({ name: r.name, amount: bal, source: r.source });
       }
     }
 
@@ -130,12 +102,12 @@ const ProfitLoss: React.FC = () => {
 
   const { purchase, directExpense, indirectExpense, directIncome, indirectIncome, grossProfit, nett, prev } =
     useMemo(() => {
-      const cur = compute(movements);
-      return { ...cur, prev: compare ? compute(movements2) : null };
+      const cur = compute(rows.filter((r) => matchesSource(r.source, srcFilter)));
+      return { ...cur, prev: compare ? compute(rows2.filter((r) => matchesSource(r.source, srcFilter))) : null };
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [accounts, movements, movements2, compare]);
+    }, [rows, rows2, compare, srcFilter]);
 
-  const isLoading = accountsLoading || entriesLoading;
+  const isLoading = entriesLoading;
   const companyName = companies.find((c) => c.id === selectedCompanyId)?.company_name || 'All Companies';
 
   const tradingTopLeft = grossProfit >= 0 ? grossProfit : 0; // Gross Profit c/o on left when profit
@@ -156,9 +128,12 @@ const ProfitLoss: React.FC = () => {
           <span className="font-mono">{fmt(l.amount)}</span>
         </div>
         {detailed &&
-          l.ledgers.map((led: { name: string; amount: number }) => (
-            <div key={led.name} className="flex justify-between text-[12px] italic text-gray-700">
-              <span className="pl-5">{led.name}</span>
+          l.ledgers.map((led) => (
+            <div key={`${led.source}:${led.name}`} className="flex justify-between text-[12px] italic text-gray-700">
+              <span className="pl-5">
+                {led.name}
+                <SourceBadge source={led.source} />
+              </span>
               <span className="font-mono">{fmt(led.amount)}</span>
             </div>
           ))}
@@ -198,6 +173,7 @@ const ProfitLoss: React.FC = () => {
         },
         { label: 'Exception Reports', disabled: true },
         { label: 'Save View', disabled: true },
+        sourceRail,
         { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
       ]}
     >

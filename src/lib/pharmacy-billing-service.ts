@@ -51,6 +51,7 @@ export interface SaleData {
   total_amount: number;
   payment_method: 'CASH' | 'CARD' | 'UPI' | 'INSURANCE';
   payment_status?: 'PENDING' | 'COMPLETED' | 'REFUNDED' | 'CANCELLED';
+  created_by?: string;
   items: CartItem[];
 }
 
@@ -201,6 +202,23 @@ export async function savePharmacySale(saleData: SaleData): Promise<SaleResponse
       }
     }
     */
+
+    // Step 4: Admission-wise pharmacy threshold check. The bill is already
+    // saved — a notification failure must never fail or roll back the sale.
+    try {
+      const { error: thresholdError } = await (supabase as any).rpc(
+        'check_pharmacy_threshold_after_sale',
+        {
+          p_sale_id: saleId,
+          p_created_by: saleData.created_by || null
+        }
+      );
+      if (thresholdError) {
+        console.error('Pharmacy threshold check failed (bill saved):', thresholdError);
+      }
+    } catch (thresholdError) {
+      console.error('Pharmacy threshold check failed (bill saved):', thresholdError);
+    }
 
     return {
       success: true,
