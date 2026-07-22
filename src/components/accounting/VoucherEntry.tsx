@@ -363,6 +363,14 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
     if (matchingType) setSelectedVoucherType(matchingType.id);
   }, [alterMode, initialVoucherCategory, selectedVoucherType, voucherTypes]);
 
+  // New voucher entry opens on Payment by default. Explicit shortcuts and
+  // alteration mode take priority over this default.
+  useEffect(() => {
+    if (alterMode || selectedVoucherType || initialVoucherCategory || voucherTypes.length === 0) return;
+    const paymentType = voucherTypes.find((type) => type.voucher_category?.toUpperCase() === 'PAYMENT');
+    if (paymentType) setSelectedVoucherType(paymentType.id);
+  }, [alterMode, initialVoucherCategory, selectedVoucherType, voucherTypes]);
+
   // ------ Alteration mode: load the voucher and populate the form ------
   const { data: loadedVoucher } = useQuery({
     queryKey: ['alter_voucher', voucherId],
