@@ -488,12 +488,7 @@ const CameraUpload: React.FC<CameraUploadProps> = ({
   useEffect(() => {
     const hasFileReady = !!(capturedBlob || selectedFile);
     if (hasFileReady && aiStep === 'idle') {
-      const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
-      if (geminiApiKey) {
-        setAiStep('ai_input');
-      } else {
-        setAiStep('manual');
-      }
+      setAiStep('ai_input');
     }
   }, [capturedBlob, selectedFile, aiStep]);
 
@@ -538,10 +533,8 @@ Extract patient name if mentioned. Extract any ID/UHID if mentioned. Put the doc
     if (LLM_BACKEND === 'vps') {
       content = await callVpsClaude(systemPrompt + '\n\n' + instruction);
     } else {
-      const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
-      if (!geminiApiKey) throw new Error('No Gemini API key');
       // Low-grade text->JSON task: route to the cheaper lite model.
-      const response = await geminiFetch(geminiGenerateContentUrl(geminiApiKey, GEMINI_MODEL_LITE), {
+      const response = await geminiFetch(geminiGenerateContentUrl('', GEMINI_MODEL_LITE), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -794,13 +787,7 @@ Rules:
       return (await callVpsClaude(systemPrompt, 'opus', [{ base64, mimeType }])) || null;
     }
 
-    const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!geminiApiKey) {
-      toast({ title: 'AI Unavailable', description: 'Gemini API key not configured.', variant: 'destructive' });
-      return null;
-    }
-
-    const response = await geminiFetch(geminiGenerateContentUrl(geminiApiKey), {
+    const response = await geminiFetch(geminiGenerateContentUrl(''), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -900,13 +887,7 @@ Rules:
       return (await callVpsClaude(systemPrompt, 'opus', [{ base64, mimeType }])) || null;
     }
 
-    const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!geminiApiKey) {
-      toast({ title: 'AI Unavailable', description: 'Gemini API key not configured.', variant: 'destructive' });
-      return null;
-    }
-
-    const response = await geminiFetch(geminiGenerateContentUrl(geminiApiKey), {
+    const response = await geminiFetch(geminiGenerateContentUrl(''), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1061,13 +1042,7 @@ Rules:
     if (LLM_BACKEND === 'vps') {
       text = (await callVpsClaude(systemPrompt, 'opus', [{ base64, mimeType }])) || '';
     } else {
-      const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
-      if (!geminiApiKey) {
-        toast({ title: 'AI Unavailable', description: 'Gemini API key not configured.', variant: 'destructive' });
-        return null;
-      }
-
-      const response = await geminiFetch(geminiGenerateContentUrl(geminiApiKey), {
+      const response = await geminiFetch(geminiGenerateContentUrl(''), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

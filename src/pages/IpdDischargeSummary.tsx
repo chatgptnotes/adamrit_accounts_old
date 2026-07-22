@@ -44,11 +44,6 @@ const generateGeminiText = async (
   generationConfig: Record<string, unknown> = {},
   extraParts: GeminiPart[] = [],
 ): Promise<string> => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!apiKey || apiKey === 'your_gemini_api_key_here') {
-    throw new Error('Gemini API key is not configured (VITE_GEMINI_API_KEY).');
-  }
-
   const response = await geminiFetch(geminiGenerateContentUrl('', GEMINI_MODEL), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1533,11 +1528,6 @@ URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 937
   // Upload one or more document photos, OCR them with Gemini vision, and auto-fill
   // every discharge-summary section from the extracted data (overwrite mode).
   const autoFillFromPhotos = async () => {
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!apiKey || apiKey === 'your_gemini_api_key_here') {
-      toast({ title: 'AI not configured', description: 'Gemini API key is not set (VITE_GEMINI_API_KEY).', variant: 'destructive' });
-      return;
-    }
     if (autoFillFiles.length === 0) {
       toast({ title: 'No photos', description: 'Choose one or more document photos first.', variant: 'destructive' });
       return;
@@ -4091,11 +4081,6 @@ DD/MM/YYYY:-Test Category: Test1:Value1 unit, Test2:Value2 unit`);
             variant="outline"
             disabled={isClinicalHistoryGenerating}
             onClick={async () => {
-              const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-              if (!apiKey || apiKey === 'your_gemini_api_key_here') {
-                toast({ title: 'AI not configured', description: 'Gemini API key is not set (VITE_GEMINI_API_KEY).', variant: 'destructive' });
-                return;
-              }
               if (!caseSummaryPresentingComplaints.trim()) {
                 toast({ title: 'Nothing to elaborate', description: 'Enter the presenting complaints first.', variant: 'destructive' });
                 return;
@@ -4162,15 +4147,6 @@ DD/MM/YYYY:-Test Category: Test1:Value1 unit, Test2:Value2 unit`);
             variant="outline"
             disabled={isStayNotesGenerating}
             onClick={async () => {
-              const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-              if (!apiKey || apiKey === 'your_gemini_api_key_here') {
-                toast({
-                  title: 'AI not configured',
-                  description: 'Gemini API key is not set (VITE_GEMINI_API_KEY).',
-                  variant: 'destructive',
-                });
-                return;
-              }
               setIsStayNotesGenerating(true);
               try {
                 // 1) Find the patient's uploaded treatment-sheet photos (scanned
@@ -4771,13 +4747,6 @@ IMPORTANT — TREATMENT DATA SOURCE: The "TREATMENT SHEET (read via OCR)" below 
                     // .env.example placeholder — otherwise the call to
                     // Google returns a generic "API key not valid" that
                     // masks the real problem (the key was never set).
-                    const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
-                    if (!geminiApiKey || geminiApiKey === 'your_gemini_api_key_here') {
-                      throw new Error(
-                        'Gemini API key is not configured. Add VITE_GEMINI_API_KEY=<your-key> to .env and restart the dev server.'
-                      );
-                    }
-
                     toast({
                       title: "Processing",
                       description: "Generating description with AI...",

@@ -27,6 +27,14 @@ import { corsHeaders } from '../_shared/cors.ts';
 // plain text->JSON. Kept in sync here so the fallback below targets the right model.
 const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_MODEL_LITE = 'gemini-2.5-flash-lite';
+const ALLOWED_MODELS = new Set([GEMINI_MODEL, GEMINI_MODEL_LITE]);
+const MAX_BODY_BYTES = 8 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
+const MAX_IMAGES = 4;
+const MAX_OUTPUT_TOKENS = 4096;
+const WINDOW_MS = 60_000;
+const MAX_REQUESTS_PER_WINDOW = 30;
+const requestWindows = new Map<string, number[]>();
 
 // Statuses where retrying on the lighter model can succeed: quota (429), model
 // unavailability/retirement (404), transient server errors (500/502/503). Auth
@@ -38,6 +46,54 @@ const json = (body: unknown, status = 200) =>
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
+
+function originAllowed(req: Request): boolean {
+  const origin = (req.headers.get('origin') || '').replace(/\/$/, '');
+  const referer = req.headers.get('referer') || '';
+  const configured = (Deno.env.get('APP_ORIGIN') || '').replace(/\/$/, '');
+  const allowed = new Set([configured, 'https://adamrit.com', 'https://www.adamrit.com', 'http://localhost:5173', 'http://localhost:4173']);
+  if (origin) {
+    try { return allowed.has(new URL(origin).origin); } catch { return false; }
+  }
+  if (referer) {
+    try { return allowed.has(new URL(referer).origin); } catch { return false; }
+  }
+  return false;
+}
+
+function rateKey(req: Request): string {
+  return req.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'unknown';
+}
+
+function withinRateLimit(key: string): boolean {
+  const now = Date.now();
+  const previous = (requestWindows.get(key) || []).filter((timestamp) => now - timestamp < 60 * 60_000);
+  const minuteCount = previous.filter((timestamp) => now - timestamp < WINDOW_MS).length;
+  if (minuteCount >= MAX_REQUESTS_PER_WINDOW || previous.length >= 300) return false;
+  previous.push(now);
+  requestWindows.set(key, previous);
+  if (requestWindows.size > 10_000) requestWindows.clear();
+  return true;
+}
+
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
+function validatePayload(payload: any): string | null {
+  if (byteLength(JSON.stringify(payload ?? {})) > MAX_BODY_BYTES) return 'request payload too large';
+  let imageCount = 0;
+  for (const content of Array.isArray(payload?.contents) ? payload.contents : []) {
+    for (const part of Array.isArray(content?.parts) ? content.parts : []) {
+      const data = part?.inline_data?.data;
+      if (typeof data !== 'string') continue;
+      imageCount += 1;
+      if (imageCount > MAX_IMAGES) return `maximum ${MAX_IMAGES} images per request`;
+      if (byteLength(data) > MAX_IMAGE_BYTES) return 'image payload too large';
+    }
+  }
+  return null;
+}
 
 function geminiUrl(model: string, apiKey: string): string {
   // encodeURIComponent so an untrusted model string can't inject extra path
@@ -96,13 +152,28 @@ interface ProxyBody {
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
+  if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
+  if (!originAllowed(req)) return json({ error: 'forbidden_origin' }, 403);
+  if (!withinRateLimit(rateKey(req))) return json({ error: 'rate_limited' }, 429);
+
   try {
     const body = (await req.json()) as ProxyBody;
     const provider = body.provider ?? 'gemini';
 
     if (provider === 'gemini') {
       const model = body.model || GEMINI_MODEL;
-      return await callGemini(model, body.payload ?? {});
+      if (!ALLOWED_MODELS.has(model)) return json({ error: 'unsupported_model' }, 400);
+      const payload = (body.payload ?? {}) as Record<string, any>;
+      const payloadError = validatePayload(payload);
+      if (payloadError) return json({ error: payloadError }, 413);
+      if (payload.generationConfig && typeof payload.generationConfig === 'object') {
+        payload.generationConfig.maxOutputTokens = Math.min(
+          Number(payload.generationConfig.maxOutputTokens) || MAX_OUTPUT_TOKENS,
+          MAX_OUTPUT_TOKENS,
+        );
+        payload.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+      }
+      return await callGemini(model, payload);
     }
     if (provider === 'openai') {
       // OpenAI carries the model inside the payload; respect body.model if set.

@@ -2,7 +2,7 @@
 // Function so no API key ever ships in the client bundle.
 //
 // History: callers used to hit https://generativelanguage.googleapis.com
-// directly with `?key=VITE_GEMINI_API_KEY`, which Vite inlines into the bundle —
+// directly with a browser-exposed API key, which Vite inlines into the bundle —
 // exposing the key to anyone with DevTools. Now `geminiFetch` forwards the same
 // request body to `ai-proxy`, which holds the key in server env. The public
 // signatures below are unchanged so existing call sites keep working untouched:
@@ -46,8 +46,7 @@ function modelFromUrl(url: string): string {
 }
 
 // Route all Gemini requests through the same-origin serverless API.
-// VITE_GEMINI_API_KEY is deliberately only a non-secret sentinel in this app;
-// the real Gemini key belongs in the server-side GEMINI_API_KEY secret.
+// The Gemini key belongs only in the server-side GEMINI_API_KEY secret.
 export async function geminiFetch(url: string, init: RequestInit): Promise<Response> {
   let payload: unknown = {};
   if (typeof init.body === 'string') {

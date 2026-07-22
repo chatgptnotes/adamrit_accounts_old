@@ -546,7 +546,7 @@ Return JSON only:
         // No fallback: VPS failure throws and surfaces in the chat error state.
         text = await callVpsClaude(prompt);
       } else {
-        const res = await geminiGenerateContent(geminiGenerateContentUrl(import.meta.env.VITE_GEMINI_API_KEY), {
+        const res = await geminiGenerateContent(geminiGenerateContentUrl(''), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

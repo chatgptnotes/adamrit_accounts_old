@@ -49,19 +49,13 @@ Respond with ONLY valid JSON (no markdown, no commentary) in EXACTLY this shape:
     // No fallback: VPS failure throws and surfaces verbatim to the caller.
     text = await callVpsClaude(prompt);
   } else {
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!apiKey || apiKey === 'your_gemini_api_key_here') {
-      throw new Error(
-        'Gemini API key is not configured. Add VITE_GEMINI_API_KEY to .env and restart the dev server.'
-      );
-    }
     // Abort the request if the AI does not respond — otherwise the panel would
     // spin on "Analyzing…" forever.
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000);
     let data: any;
     try {
-      const res = await geminiFetch(geminiGenerateContentUrl(apiKey), {
+      const res = await geminiFetch(geminiGenerateContentUrl(''), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

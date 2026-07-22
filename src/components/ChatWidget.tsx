@@ -14,8 +14,6 @@ const QUICK_QUESTIONS = [
   'Which wards have vacancies?',
 ];
 
-const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
-
 const SYSTEM_PROMPT = `You are an AI assistant for Adamrit, a hospital management system used at Hope Hospital and Ayushman Hospital in Nagpur, India.
 You help hospital staff answer questions about patients, billing, admissions, discharges, lab reports, and daily hospital operations.
 Be concise, accurate, and helpful. If you do not have live database access, suggest where the user can find the information in the dashboard.`;
@@ -35,14 +33,6 @@ export default function ChatWidget() {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
 
-    if (LLM_BACKEND !== 'vps' && !GEMINI_KEY) {
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: 'AI is not configured. Please set VITE_GEMINI_API_KEY.' },
-      ]);
-      return;
-    }
-
     setInput('');
     setMessages((prev) => [...prev, { role: 'user', content: trimmed }]);
     setLoading(true);
@@ -60,7 +50,7 @@ export default function ChatWidget() {
       } else {
         // Gemini uses "model" for the assistant role and carries the system
         // prompt in a dedicated systemInstruction field (not the contents array).
-        const res = await geminiFetch(geminiGenerateContentUrl(GEMINI_KEY), {
+        const res = await geminiFetch(geminiGenerateContentUrl(''), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

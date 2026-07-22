@@ -61,10 +61,7 @@ export async function extractMedicationChart(image: Blob): Promise<ExtractedChar
     // Vision on VPS Claude Opus (subscription auth). No fallback: errors throw.
     text = (await callVpsClaude(EXTRACT_PROMPT, 'opus', [{ base64, mimeType }])) || '';
   } else {
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!apiKey) throw new Error('Gemini API key is not configured.');
-
-    const response = await geminiFetch(geminiGenerateContentUrl(apiKey), {
+    const response = await geminiFetch(geminiGenerateContentUrl(''), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

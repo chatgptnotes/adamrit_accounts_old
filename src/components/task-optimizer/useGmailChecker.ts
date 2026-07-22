@@ -377,7 +377,7 @@ Rephrased reply (${styleInstructions[style]}):`;
       // No fallback: VPS failure throws and surfaces verbatim to the caller.
       newDraft = (await callVpsClaude(rephrasePrompt)).trim();
     } else {
-      const url = geminiGenerateContentUrl(import.meta.env.VITE_GEMINI_API_KEY as string, GEMINI_MODEL);
+      const url = geminiGenerateContentUrl('', GEMINI_MODEL);
       const res = await geminiFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

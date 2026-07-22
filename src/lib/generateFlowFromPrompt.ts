@@ -381,11 +381,9 @@ export async function generateFlowFromPrompt(input: GenerateFlowInput): Promise<
     // No fallback: any VPS failure throws and surfaces verbatim to the chat UI.
     text = await callVpsClaude(buildPrompt(input));
   } else {
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!apiKey) throw new Error('Gemini API key is not configured.');
     let response: Response;
     try {
-      response = await geminiFetch(geminiGenerateContentUrl(apiKey, GEMINI_MODEL_LITE), {
+      response = await geminiFetch(geminiGenerateContentUrl('', GEMINI_MODEL_LITE), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -399,7 +397,7 @@ export async function generateFlowFromPrompt(input: GenerateFlowInput): Promise<
         throw new Error('The AI service is rate-limited or out of quota. Please try again shortly.');
       }
       if (message.includes('400') && /API key not valid/i.test(message)) {
-        throw new Error('The Gemini API key is invalid. Please check VITE_GEMINI_API_KEY.');
+        throw new Error('The Gemini AI service rejected the request.');
       }
       if (message.includes('403')) throw new Error('The Gemini API key is not authorized for this model.');
       throw new Error('Could not reach the AI service. Please try again.');

@@ -78,12 +78,10 @@ async function runLlm(prompt: string): Promise<string> {
     // No fallback: VPS failure throws and surfaces verbatim to the caller.
     return callVpsClaude(prompt);
   }
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!apiKey) throw new Error('Gemini API key is not configured.');
   let response: Response;
   try {
     // Low-grade text->JSON task: route to the cheaper lite model.
-    response = await geminiFetch(geminiGenerateContentUrl(apiKey, GEMINI_MODEL_LITE), {
+    response = await geminiFetch(geminiGenerateContentUrl('', GEMINI_MODEL_LITE), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -101,7 +99,7 @@ async function runLlm(prompt: string): Promise<string> {
       );
     }
     if (message.includes('400') && /API key not valid/i.test(message)) {
-      throw new Error('The Gemini API key is invalid. Please check VITE_GEMINI_API_KEY.');
+      throw new Error('The Gemini AI service rejected the request.');
     }
     if (message.includes('403')) {
       throw new Error('The Gemini API key is not authorized for this model. Please check the key.');

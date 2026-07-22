@@ -2325,7 +2325,7 @@ IMPORTANT:
         };
 
         const response = await geminiGenerateContent(
-          geminiGenerateContentUrl(import.meta.env.VITE_GEMINI_API_KEY),
+          geminiGenerateContentUrl(''),
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2428,7 +2428,7 @@ IMPORTANT:
         console.log('🔍 Request body:', JSON.stringify(requestBody, null, 2));
 
         // Call Google Gemini API
-        const response = await geminiGenerateContent(geminiGenerateContentUrl(import.meta.env.VITE_GEMINI_API_KEY), {
+        const response = await geminiGenerateContent(geminiGenerateContentUrl(''), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
