@@ -395,6 +395,10 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
   const accountingCompany = useAccountingCompanyOptional();
   const handleClose = onClose ?? (() => window.dispatchEvent(new CustomEvent('tally-escape')));
   const closeText = closeLabel || '← Back';
+  const selectedCompanyName = accountingCompany?.companies.find(
+    (company) => company.id === accountingCompany.selectedCompanyId,
+  )?.company_name;
+  const headerCompanyName = selectedCompanyName || `${hospitalConfig.name} Hospital`;
 
   // Tally keeps every button live — give the common placeholders real actions.
   // Callers own rail actions. Disabled items stay disabled and never activate
@@ -444,7 +448,9 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
       {/* Title strip */}
       <div className="relative flex items-center gap-2 bg-[#cfe0f1] px-2 py-0.5 text-[13px] leading-5">
         <span className="min-w-0 truncate font-semibold text-black">{title}</span>
-        <span className="absolute left-1/2 -translate-x-1/2 font-bold">{hospitalConfig.name} Hospital</span>
+        <span className="absolute left-1/2 -translate-x-1/2 truncate px-2 font-bold" title={headerCompanyName}>
+          {headerCompanyName}
+        </span>
         <button type="button" onClick={handleClose} className="ml-auto px-1 font-bold text-black hover:text-red-600" aria-label={closeText}>
           {closeText}
         </button>
