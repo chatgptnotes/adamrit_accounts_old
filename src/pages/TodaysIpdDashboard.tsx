@@ -78,6 +78,43 @@ const getIpdScheme = (visit: any): IpdScheme | null => {
   return null;
 };
 
+const getVisitSurgeries = (visit: any): any[] => Array.isArray(visit?.visit_surgeries) ? visit.visit_surgeries : [];
+
+const getSurgeryNames = (visit: any): string[] => getVisitSurgeries(visit)
+  .flatMap((surgery) => [
+    surgery?.cghs_surgery?.name,
+    surgery?.yojana_mh_procedures?.procedure_name,
+    surgery?.yojana_mh_procedures?.procedure_label,
+    surgery?.yojana_mh_procedures?.package_name,
+    visit?.package_name,
+  ])
+  .filter(Boolean)
+  .map(String);
+
+const getSurgeryCodes = (visit: any): string[] => getVisitSurgeries(visit)
+  .flatMap((surgery) => [
+    surgery?.cghs_surgery?.code,
+    surgery?.yojana_mh_procedures?.procedure_code,
+    surgery?.yojana_mh_procedures?.package_code,
+    visit?.cghs_code,
+  ])
+  .filter(Boolean)
+  .map(String);
+
+const getSurgeryCategories = (visit: any): string[] => getVisitSurgeries(visit)
+  .flatMap((surgery) => [
+    surgery?.cghs_surgery?.category,
+    surgery?.yojana_mh_procedures?.specialty,
+    surgery?.yojana_mh_procedures?.medical_or_surgical,
+  ])
+  .filter(Boolean)
+  .map(String);
+
+const getSurgeryStatuses = (visit: any): string[] => getVisitSurgeries(visit)
+  .flatMap((surgery) => [surgery?.status, surgery?.sanction_status])
+  .filter(Boolean)
+  .map(String);
+
 // Referee DOA Amount Cell with Payment Modal and Referral Tooltip
 const IpdRefereeAmountCell = ({
   visit,
@@ -307,6 +344,12 @@ const TodaysIpdDashboard = () => {
   const bunchFilter = searchParams.get('bunch') || '';
   const corporateFilter = searchParams.get('corporate') || '';
   const schemeFilter = searchParams.get('scheme') || '';
+  const surgerySearchFilter = searchParams.get('surgerySearch') || '';
+  const surgeryCategoryFilter = searchParams.get('surgeryCategory') || '';
+  const surgeryCodeFilter = searchParams.get('surgeryCode') || '';
+  const surgeryStatusFilter = searchParams.get('surgeryStatus') || '';
+  const surgeryApprovalFilter = searchParams.get('surgeryApproval') || '';
+  const surgeryDateStatusFilter = searchParams.get('surgeryDateStatus') || '';
   const treatmentTypeFilter = searchParams.get('treatmentType') || '';
   const currentPage = parseInt(searchParams.get('page') || '1');
   const itemsPerPage = parseInt(searchParams.get('perPage') || '10');
@@ -359,6 +402,12 @@ const TodaysIpdDashboard = () => {
   const setBunchFilter = (value: string) => updateParams({ bunch: value, page: '1' });
   const setCorporateFilter = (value: string) => updateParams({ corporate: value, page: '1' });
   const setSchemeFilter = (value: string) => updateParams({ scheme: value, page: '1' });
+  const setSurgerySearchFilter = (value: string) => updateParams({ surgerySearch: value, page: '1' });
+  const setSurgeryCategoryFilter = (value: string) => updateParams({ surgeryCategory: value, page: '1' });
+  const setSurgeryCodeFilter = (value: string) => updateParams({ surgeryCode: value, page: '1' });
+  const setSurgeryStatusFilter = (value: string) => updateParams({ surgeryStatus: value, page: '1' });
+  const setSurgeryApprovalFilter = (value: string) => updateParams({ surgeryApproval: value, page: '1' });
+  const setSurgeryDateStatusFilter = (value: string) => updateParams({ surgeryDateStatus: value, page: '1' });
   const setTreatmentTypeFilter = (value: string) => updateParams({ treatmentType: value || null, page: '1' });
   const setCurrentPage = (value: number) => updateParams({ page: value.toString() });
   const setItemsPerPage = (value: number) => updateParams({ perPage: value.toString(), page: '1' });
@@ -1664,6 +1713,27 @@ const TodaysIpdDashboard = () => {
             diagnoses!diagnosis_id (
               id,
               name
+            ),
+            visit_surgeries (
+              id,
+              status,
+              sanction_status,
+              cghs_surgery (
+                id,
+                name,
+                code,
+                category
+              ),
+              yojana_mh_procedures (
+                id,
+                procedure_code,
+                procedure_name,
+                procedure_label,
+                package_code,
+                package_name,
+                specialty,
+                medical_or_surgical
+              )
             )
           `)
           .eq('patient_type', 'IPD')
@@ -2153,6 +2223,11 @@ const TodaysIpdDashboard = () => {
   const paymentStatusOptions = ['Full', 'Partial', 'None'];
   const extensionOfStayOptions = useMemo(() => Array.from(new Set((todaysVisits || []).map((v) => v.extension_of_stay).filter(Boolean))) as string[], [todaysVisits]);
   const additionalApprovalsOptions = useMemo(() => Array.from(new Set((todaysVisits || []).map((v) => v.additional_approvals).filter(Boolean))) as string[], [todaysVisits]);
+  const surgeryNameOptions = useMemo(() => Array.from(new Set((todaysVisits || []).flatMap((visit) => getSurgeryNames(visit)))).sort((a, b) => a.localeCompare(b)), [todaysVisits]);
+  const surgeryCategoryOptions = useMemo(() => Array.from(new Set((todaysVisits || []).flatMap((visit) => getSurgeryCategories(visit)))).sort((a, b) => a.localeCompare(b)), [todaysVisits]);
+  const surgeryCodeOptions = useMemo(() => Array.from(new Set((todaysVisits || []).flatMap((visit) => getSurgeryCodes(visit)))).sort((a, b) => a.localeCompare(b)), [todaysVisits]);
+  const surgeryStatusOptions = useMemo(() => Array.from(new Set((todaysVisits || []).flatMap((visit) => getSurgeryStatuses(visit)))).sort((a, b) => a.localeCompare(b)), [todaysVisits]);
+  const surgeryApprovalOptions = useMemo(() => Array.from(new Set((todaysVisits || []).map((visit) => visit.surgical_approval).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b))), [todaysVisits]);
 
   const filteredVisits = useMemo(() => {
     // First, filter the visits
@@ -2185,6 +2260,21 @@ const TodaysIpdDashboard = () => {
 
       const matchesScheme = !schemeFilter || getIpdScheme(visit) === schemeFilter;
 
+      const surgeryNames = getSurgeryNames(visit);
+      const surgeryCodes = getSurgeryCodes(visit);
+      const surgeryCategories = getSurgeryCategories(visit);
+      const surgeryStatuses = getSurgeryStatuses(visit);
+      const legacySurgeryNames = [visit.package_name, visit.sst_treatment, visit.reason_for_visit].filter(Boolean).map(String);
+      const hasSurgeryData = surgeryNames.length > 0 || surgeryCodes.length > 0 || surgeryCategories.length > 0 || legacySurgeryNames.length > 0 || Boolean(visit.surgery_date);
+      const matchesSurgerySearch = !surgerySearchFilter || [...surgeryNames, ...legacySurgeryNames].some((value) => value.toLowerCase().includes(surgerySearchFilter.toLowerCase().trim()));
+      const matchesSurgeryCategory = !surgeryCategoryFilter || surgeryCategories.some((value) => value.toLowerCase() === surgeryCategoryFilter.toLowerCase());
+      const matchesSurgeryCode = !surgeryCodeFilter || surgeryCodes.some((value) => value.toLowerCase() === surgeryCodeFilter.toLowerCase());
+      const matchesSurgeryStatus = !surgeryStatusFilter || surgeryStatuses.some((value) => value.toLowerCase() === surgeryStatusFilter.toLowerCase());
+      const matchesSurgeryApproval = !surgeryApprovalFilter || String(visit.surgical_approval || '').toLowerCase() === surgeryApprovalFilter.toLowerCase() || surgeryStatuses.some((value) => value.toLowerCase() === surgeryApprovalFilter.toLowerCase());
+      const matchesSurgeryDateStatus = !surgeryDateStatusFilter ||
+        (surgeryDateStatusFilter === 'completed' ? Boolean(visit.surgery_date) :
+          surgeryDateStatusFilter === 'pending' ? !visit.surgery_date && hasSurgeryData : true);
+
 
       const includeBy = (selected: string[], value?: string | null) =>
         selected.length === 0 || (value ? selected.includes(value) : false);
@@ -2198,7 +2288,7 @@ const TodaysIpdDashboard = () => {
 
       const matchesTreatmentType = !treatmentTypeFilter || visit.treatment_type === treatmentTypeFilter;
 
-      return matchesSearch && matchesBillingExecutive && matchesBillingStatus && matchesBunch && matchesCorporate && matchesScheme && matchesFile && matchesCondSub && matchesCondInt && matchesPaymentStatus && matchesExtStay && matchesAddAppr && matchesTreatmentType;
+      return matchesSearch && matchesBillingExecutive && matchesBillingStatus && matchesBunch && matchesCorporate && matchesScheme && matchesSurgerySearch && matchesSurgeryCategory && matchesSurgeryCode && matchesSurgeryStatus && matchesSurgeryApproval && matchesSurgeryDateStatus && matchesFile && matchesCondSub && matchesCondInt && matchesPaymentStatus && matchesExtStay && matchesAddAppr && matchesTreatmentType;
     });
 
     // Then, sort the filtered results
@@ -2250,7 +2340,7 @@ const TodaysIpdDashboard = () => {
     });
 
     return sorted;
-  }, [todaysVisits, searchTerm, billingExecutiveFilter, billingStatusFilter, bunchFilter, corporateFilter, schemeFilter, treatmentTypeFilter, fileStatusFilter, condonationSubmissionFilter, condonationIntimationFilter, paymentStatusFilter, advancePayments, billTotals, extensionOfStayFilter, additionalApprovalsFilter, sortBy]);
+  }, [todaysVisits, searchTerm, billingExecutiveFilter, billingStatusFilter, bunchFilter, corporateFilter, schemeFilter, surgerySearchFilter, surgeryCategoryFilter, surgeryCodeFilter, surgeryStatusFilter, surgeryApprovalFilter, surgeryDateStatusFilter, treatmentTypeFilter, fileStatusFilter, condonationSubmissionFilter, condonationIntimationFilter, paymentStatusFilter, advancePayments, billTotals, extensionOfStayFilter, additionalApprovalsFilter, sortBy]);
 
   // Pagination calculations
   const totalPages = Math.ceil((filteredVisits?.length || 0) / itemsPerPage) || 1;
@@ -3023,6 +3113,92 @@ const TodaysIpdDashboard = () => {
                         {type} {treatmentTypeFilter === type && '✓'}
                       </DropdownMenuItem>
                     ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+
+                {/* Surgery Filters */}
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>Surgery</DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-72">
+                    <div className="px-2 py-1.5">
+                      <Input
+                        value={surgerySearchFilter}
+                        onChange={(e) => setSurgerySearchFilter(e.target.value)}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        placeholder="Search surgery or package..."
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>Category</DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="max-h-64 overflow-y-auto">
+                        <DropdownMenuItem onSelect={() => setSurgeryCategoryFilter('')} className={surgeryCategoryFilter === '' ? 'bg-accent' : ''}>
+                          All {surgeryCategoryFilter === '' && '✓'}
+                        </DropdownMenuItem>
+                        {surgeryCategoryOptions.map((category) => (
+                          <DropdownMenuItem key={category} onSelect={() => setSurgeryCategoryFilter(category)} className={surgeryCategoryFilter === category ? 'bg-accent' : ''}>
+                            {category} {surgeryCategoryFilter === category && '✓'}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>Code / Package Code</DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="max-h-64 overflow-y-auto">
+                        <DropdownMenuItem onSelect={() => setSurgeryCodeFilter('')} className={surgeryCodeFilter === '' ? 'bg-accent' : ''}>
+                          All {surgeryCodeFilter === '' && '✓'}
+                        </DropdownMenuItem>
+                        {surgeryCodeOptions.map((code) => (
+                          <DropdownMenuItem key={code} onSelect={() => setSurgeryCodeFilter(code)} className={surgeryCodeFilter === code ? 'bg-accent' : ''}>
+                            {code} {surgeryCodeFilter === code && '✓'}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>Surgery Status</DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="max-h-64 overflow-y-auto">
+                        <DropdownMenuItem onSelect={() => setSurgeryStatusFilter('')} className={surgeryStatusFilter === '' ? 'bg-accent' : ''}>
+                          All {surgeryStatusFilter === '' && '✓'}
+                        </DropdownMenuItem>
+                        {surgeryStatusOptions.map((status) => (
+                          <DropdownMenuItem key={status} onSelect={() => setSurgeryStatusFilter(status)} className={surgeryStatusFilter === status ? 'bg-accent' : ''}>
+                            {status} {surgeryStatusFilter === status && '✓'}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>Sanction / Approval</DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="max-h-64 overflow-y-auto">
+                        <DropdownMenuItem onSelect={() => setSurgeryApprovalFilter('')} className={surgeryApprovalFilter === '' ? 'bg-accent' : ''}>
+                          All {surgeryApprovalFilter === '' && '✓'}
+                        </DropdownMenuItem>
+                        {surgeryApprovalOptions.map((approval) => (
+                          <DropdownMenuItem key={approval} onSelect={() => setSurgeryApprovalFilter(String(approval))} className={surgeryApprovalFilter === approval ? 'bg-accent' : ''}>
+                            {approval} {surgeryApprovalFilter === approval && '✓'}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>Surgery Date</DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent>
+                        <DropdownMenuItem onSelect={() => setSurgeryDateStatusFilter('')} className={surgeryDateStatusFilter === '' ? 'bg-accent' : ''}>
+                          All {surgeryDateStatusFilter === '' && '✓'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => setSurgeryDateStatusFilter('completed')} className={surgeryDateStatusFilter === 'completed' ? 'bg-accent' : ''}>
+                          Date entered / completed {surgeryDateStatusFilter === 'completed' && '✓'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => setSurgeryDateStatusFilter('pending')} className={surgeryDateStatusFilter === 'pending' ? 'bg-accent' : ''}>
+                          Date pending {surgeryDateStatusFilter === 'pending' && '✓'}
+                        </DropdownMenuItem>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    {surgerySearchFilter && (
+                      <DropdownMenuItem onSelect={() => setSurgerySearchFilter('')}>Clear surgery search</DropdownMenuItem>
+                    )}
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
 
