@@ -337,7 +337,9 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
         .from('chart_of_accounts')
         .select('id, account_code, account_name, account_type, account_group, parent_account_id')
         .eq('is_active', true)
-        .eq('company_id', selectedCompanyId)
+        // Legacy default ledgers have no company_id and are shared system
+        // accounts; never include ledgers belonging to another company.
+        .or(`company_id.eq.${selectedCompanyId},company_id.is.null`)
         .order('account_code');
       if (error) throw error;
       // Tally never posts to group headers — offer leaf accounts only
