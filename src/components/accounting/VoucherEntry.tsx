@@ -236,73 +236,6 @@ interface VoucherEntryProps {
   initialVoucherCategory?: string;
 }
 
-// Against-Ref picker: focus lists the ledger's pending bill refs with
-// amounts (Tally's Against Ref); typing anything else is a New Ref.
-const RefPicker: React.FC<{ accountId?: string; value: string; onChange: (v: string) => void }> = ({
-  accountId,
-  value,
-  onChange,
-}) => {
-  const [open, setOpen] = useState(false);
-  const { data: refs = [] } = useQuery({
-    queryKey: ['pending_refs', accountId],
-    enabled: !!accountId && open,
-    queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from('voucher_entries')
-        .select('bill_ref, debit_amount, credit_amount, voucher:vouchers!inner(status)')
-        .eq('account_id', accountId!)
-        .eq('voucher.status', 'AUTHORISED')
-        .not('bill_ref', 'is', null)
-        .limit(1000);
-      if (error) return [];
-      const map = new Map<string, number>();
-      for (const e of data ?? []) {
-        map.set(e.bill_ref, (map.get(e.bill_ref) ?? 0) + (Number(e.debit_amount) || 0) - (Number(e.credit_amount) || 0));
-      }
-      return [...map.entries()]
-        .filter(([, v]) => Math.abs(v) > 0.005)
-        .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
-        .slice(0, 10);
-    },
-  });
-  return (
-    <div className="relative">
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder="Ref"
-        title="Bill reference — pick a pending ref (Against) or type a new one"
-        className="h-7 w-24 border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-[11px] focus:outline-none"
-      />
-      {open && refs.length > 0 && (
-        <div className="absolute z-30 mt-0.5 min-w-[220px] border bg-[#eef3fa] shadow-lg">
-          <div className="bg-[#16437e] px-2 py-0.5 text-[10px] font-semibold text-white">Pending Refs (Against)</div>
-          {refs.map(([ref, pending]) => (
-            <button
-              key={ref}
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                onChange(ref);
-                setOpen(false);
-              }}
-              className="flex w-full justify-between gap-3 px-2 py-0.5 text-left text-[11px] hover:bg-[#fdf6d8]"
-            >
-              <span className="font-semibold">{ref}</span>
-              <span className="font-mono">
-                {fmtINR(Math.abs(pending))} {pending >= 0 ? 'Dr' : 'Cr'}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
 const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialVoucherCategory }) => {
   const queryClient = useQueryClient();
   const { user, hospitalConfig } = useAuth();
@@ -1047,21 +980,6 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
               </SelectContent>
             </Select>
           </div>
-          <div className="mt-1 flex items-center gap-2">
-            <span className="text-xs text-gray-600">Ref:</span>
-            <Input
-              value={referenceNumber}
-              onChange={(e) => setReferenceNumber(e.target.value)}
-              placeholder="Reference no."
-              className="h-6 w-32 bg-white text-xs"
-            />
-            <Input
-              type="date"
-              value={referenceDate}
-              onChange={(e) => setReferenceDate(e.target.value)}
-              className="h-6 w-32 bg-white text-xs"
-            />
-          </div>
         </div>
         <div className="text-right">
           <Input
@@ -1152,13 +1070,6 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
                     }}
                     className={amountInputClass}
                   />
-                  {billRefEnabled && (
-                    <RefPicker
-                      accountId={line.account?.id}
-                      value={line.billRef ?? ''}
-                      onChange={(v) => updatePartLine(line.key, { billRef: v })}
-                    />
-                  )}
                   {category === 'PAYMENT' && (
                     <select
                       value={line.tdsSection ?? ''}
@@ -1305,13 +1216,6 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
                     }}
                     className={amountInputClass}
                   />
-                  {billRefEnabled && (
-                    <RefPicker
-                      accountId={line.account?.id}
-                      value={line.billRef ?? ''}
-                      onChange={(v) => updateJournalLine(line.key, { billRef: v })}
-                    />
-                  )}
                   {costCentres.length > 0 && (
                     <select
                       value={line.costCentreId ?? ''}
