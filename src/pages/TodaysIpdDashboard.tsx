@@ -1639,6 +1639,29 @@ const TodaysIpdDashboard = () => {
     }
   });
 
+  // Load the complete surgery/package master list so the surgery filter is not
+  // limited to names appearing in the current date range.
+  const { data: surgeryMasterNames = [] } = useQuery({
+    queryKey: ['ipd-surgery-filter-options'],
+    queryFn: async () => {
+      const [cghsResult, yojanaResult, pmjayResult] = await Promise.all([
+        supabase.from('cghs_surgery').select('name').eq('is_active', true).order('name'),
+        supabase.from('yojana_mh_procedures').select('procedure_name, procedure_label, package_name').order('package_name'),
+        supabase.from('pmjay_mjpjay_packages').select('treatment_plan').eq('is_active', true).order('treatment_plan'),
+      ]);
+
+      if (cghsResult.error) console.error('Error fetching CGHS surgery filter options:', cghsResult.error);
+      if (yojanaResult.error) console.error('Error fetching Yojana surgery filter options:', yojanaResult.error);
+      if (pmjayResult.error) console.error('Error fetching PMJAY/MJPJAY surgery filter options:', pmjayResult.error);
+
+      return Array.from(new Set([
+        ...(cghsResult.data || []).map((row: any) => row.name),
+        ...(yojanaResult.data || []).flatMap((row: any) => [row.procedure_name, row.procedure_label, row.package_name]),
+        ...(pmjayResult.data || []).map((row: any) => row.treatment_plan),
+      ].filter(Boolean).map(String))).sort((a, b) => a.localeCompare(b));
+    },
+  });
+
   // Search of 2+ chars widens the fetch to ALL dates so the 10-day default
   // window never hides a searched patient (searchTerm is already URL-debounced).
   const activeSearch = searchTerm.trim().length >= 2 ? searchTerm.trim() : '';
@@ -2223,7 +2246,10 @@ const TodaysIpdDashboard = () => {
   const paymentStatusOptions = ['Full', 'Partial', 'None'];
   const extensionOfStayOptions = useMemo(() => Array.from(new Set((todaysVisits || []).map((v) => v.extension_of_stay).filter(Boolean))) as string[], [todaysVisits]);
   const additionalApprovalsOptions = useMemo(() => Array.from(new Set((todaysVisits || []).map((v) => v.additional_approvals).filter(Boolean))) as string[], [todaysVisits]);
-  const surgeryNameOptions = useMemo(() => Array.from(new Set((todaysVisits || []).flatMap((visit) => getSurgeryNames(visit)))).sort((a, b) => a.localeCompare(b)), [todaysVisits]);
+  const surgeryNameOptions = useMemo(() => Array.from(new Set([
+    ...surgeryMasterNames,
+    ...(todaysVisits || []).flatMap((visit) => getSurgeryNames(visit)),
+  ])).sort((a, b) => a.localeCompare(b)), [surgeryMasterNames, todaysVisits]);
   const surgeryCategoryOptions = useMemo(() => Array.from(new Set((todaysVisits || []).flatMap((visit) => getSurgeryCategories(visit)))).sort((a, b) => a.localeCompare(b)), [todaysVisits]);
   const surgeryCodeOptions = useMemo(() => Array.from(new Set((todaysVisits || []).flatMap((visit) => getSurgeryCodes(visit)))).sort((a, b) => a.localeCompare(b)), [todaysVisits]);
   const surgeryStatusOptions = useMemo(() => Array.from(new Set((todaysVisits || []).flatMap((visit) => getSurgeryStatuses(visit)))).sort((a, b) => a.localeCompare(b)), [todaysVisits]);
@@ -3128,6 +3154,18 @@ const TodaysIpdDashboard = () => {
                         placeholder="Search surgery or package..."
                         className="h-8 text-xs"
                       />
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      <DropdownMenuItem onSelect={() => setSurgerySearchFilter('')} className={surgerySearchFilter === '' ? 'bg-accent' : ''}>
+                        All surgery names {surgerySearchFilter === '' && '✓'}
+                      </DropdownMenuItem>
+                      {surgeryNameOptions
+                        .filter((name) => !surgerySearchFilter || name.toLowerCase().includes(surgerySearchFilter.toLowerCase().trim()))
+                        .map((name) => (
+                          <DropdownMenuItem key={name} onSelect={() => setSurgerySearchFilter(name)} className={surgerySearchFilter === name ? 'bg-accent' : ''}>
+                            {name} {surgerySearchFilter === name && '✓'}
+                          </DropdownMenuItem>
+                        ))}
                     </div>
                     <DropdownMenuSeparator />
                     <DropdownMenuSub>
