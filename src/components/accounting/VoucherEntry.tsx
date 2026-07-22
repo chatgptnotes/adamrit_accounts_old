@@ -6,12 +6,12 @@ import { format } from 'date-fns';
 import { X, Loader2 } from 'lucide-react';
 import { sendPaymentAlert } from '@/lib/payment-alert-service';
 import { accountMovements } from '@/lib/accountMovements';
-import { useCompanies } from '@/hooks/useCompanies';
 import { useAuth } from '@/contexts/AuthContext';
 import { amountInWords } from '@/lib/amountInWords';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { EnhancedDatePicker } from '@/components/ui/enhanced-date-picker';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
@@ -23,6 +23,7 @@ import {
 import { TallyScreen, type RailItem } from './tally/TallyChrome';
 import { useCostCentres } from './CostCentres';
 import { useAccountingRights } from './tally/rights';
+import { useAccountingCompany } from './AccountingCompanyContext';
 
 // Type definition for a voucher type record
 interface VoucherType {
@@ -51,7 +52,6 @@ interface ParticularsLine {
   amount: string;
   costCentreId?: string;
   billRef?: string;
-  tdsSection?: string;
 }
 
 // A journal-style row (By/To modes: Journal / Sales / Credit Note / Debit Note …)
@@ -95,15 +95,6 @@ const SINGLE_ACCOUNT_MODES: Record<string, { accountIsDebit: boolean }> = {
   RECEIPT: { accountIsDebit: true },  // cash/bank debited, particulars credited
   CONTRA: { accountIsDebit: true },   // destination debited, particulars credited
 };
-
-// TDS sections for deduction at payment (hospital: consultants 194J etc.)
-const TDS_SECTIONS = [
-  { code: '194J', label: '194J Prof. 10%', rate: 10 },
-  { code: '194C', label: '194C Contr. 2%', rate: 2 },
-  { code: '194C-I', label: '194C Indiv. 1%', rate: 1 },
-  { code: '194I', label: '194I Rent 10%', rate: 10 },
-  { code: '194H', label: '194H Comm. 5%', rate: 5 },
-];
 
 // Tally's F4–F9 rail order
 const RAIL_KEYS: { hotkey: string; category: string; label: string }[] = [
@@ -240,17 +231,19 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
   const queryClient = useQueryClient();
   const { user, hospitalConfig } = useAuth();
   const { canAlter } = useAccountingRights();
+  const { selectedCompanyId, setSelectedCompanyId } = useAccountingCompany();
   const alterMode = !!voucherId;
   const username = user?.username || user?.email || 'system';
 
   // Form state
   const [selectedVoucherType, setSelectedVoucherType] = useState('');
   const [voucherDate, setVoucherDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [voucherNumberOverride, setVoucherNumberOverride] = useState('');
+  const [datePickerRequest, setDatePickerRequest] = useState(0);
   const [referenceNumber, setReferenceNumber] = useState('');
   const [referenceDate, setReferenceDate] = useState('');
   const [narration, setNarration] = useState('');
   const [patientId, setPatientId] = useState('');
-  const [selectedCompanyId, setSelectedCompanyId] = useState('');
   const [saving, setSaving] = useState(false);
   // Alteration mode: keep the original number/status; force journal layout
   // when an old voucher's entries don't fit the single-account shape.
@@ -266,13 +259,29 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
   const [account, setAccount] = useState<Account | null>(null);
   const [partLines, setPartLines] = useState<ParticularsLine[]>(() => [newParticularsLine()]);
   const [journalLines, setJournalLines] = useState<JournalLine[]>(() => [newJournalLine('Dr'), newJournalLine('Cr')]);
+  const previousCompanyId = useRef('');
+
+  const voucherDateValue = useMemo(() => new Date(`${voucherDate}T00:00:00`), [voucherDate]);
+  const openDatePicker = useCallback(() => setDatePickerRequest((request) => request + 1), []);
+  const handleVoucherDateChange = useCallback((date: Date | undefined) => {
+    if (date) setVoucherDate(format(date, 'yyyy-MM-dd'));
+  }, []);
+
+  useEffect(() => {
+    if (!selectedCompanyId) return;
+    if (previousCompanyId.current && previousCompanyId.current !== selectedCompanyId) {
+      setAccount(null);
+      setPartLines([newParticularsLine()]);
+      setJournalLines([newJournalLine('Dr'), newJournalLine('Cr')]);
+    }
+    previousCompanyId.current = selectedCompanyId;
+  }, [selectedCompanyId]);
 
   const partLedgerRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const partAmountRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const journalLedgerRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const journalAmountRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const narrationRef = useRef<HTMLTextAreaElement | null>(null);
-  const dateRef = useRef<HTMLInputElement | null>(null);
 
   // Current-balance cache per account id (opening + AUTHORISED debits - credits)
   const [balances, setBalances] = useState<Record<string, number>>({});
@@ -298,7 +307,6 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
   }, [balances]);
 
   // ------ Data ------
-  const { data: companies = [] } = useCompanies();
   const { data: costCentres = [] } = useCostCentres();
   const { data: billRefEnabled = false } = useQuery({
     queryKey: ['billref_probe'],
@@ -354,12 +362,6 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
     const matchingType = voucherTypes.find((type) => type.voucher_category?.toUpperCase() === requested);
     if (matchingType) setSelectedVoucherType(matchingType.id);
   }, [alterMode, initialVoucherCategory, selectedVoucherType, voucherTypes]);
-
-  // Default company: first one, so the screen is immediately usable like Tally
-  useEffect(() => {
-    if (!selectedCompanyId && companies.length > 0) setSelectedCompanyId(companies[0].id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companies]);
 
   // ------ Alteration mode: load the voucher and populate the form ------
   const { data: loadedVoucher } = useQuery({
@@ -439,14 +441,20 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
     [voucherTypes, selectedVoucherType]
   );
 
-  const voucherNumber = useMemo(() => {
-    if (alterMode) return loadedNumber;
+  const generatedVoucherNumber = useMemo(() => {
     if (!selectedType) return '';
     const nextNum = (selectedType.current_number || 0) + 1;
     return generateVoucherNumber(selectedType.prefix || '', nextNum);
-  }, [selectedType, alterMode, loadedNumber]);
+  }, [selectedType]);
 
   const category = (selectedType?.voucher_category || '').toUpperCase();
+  useEffect(() => {
+    setVoucherNumberOverride('');
+  }, [selectedVoucherType, alterMode]);
+
+  const voucherNumber = alterMode
+    ? loadedNumber
+    : voucherNumberOverride || generatedVoucherNumber;
   const singleMode = forceJournal ? undefined : SINGLE_ACCOUNT_MODES[category];
 
   // ------ Computed totals ------
@@ -494,6 +502,17 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
   const updateJournalLine = (key: number, patch: Partial<JournalLine>): void => {
     setJournalLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   };
+  const updateJournalDebitAmount = (key: number, amount: string): void => {
+    setJournalLines((prev) => {
+      const firstDebit = prev.find((line) => line.drcr === 'Dr');
+      const firstCredit = prev.find((line) => line.drcr === 'Cr');
+      return prev.map((line) => {
+        if (line.key === key) return { ...line, amount };
+        if (firstDebit?.key === key && firstCredit?.key === line.key) return { ...line, amount };
+        return line;
+      });
+    });
+  };
   const removeJournalLine = (key: number): void => {
     setJournalLines((prev) => (prev.length > 2 ? prev.filter((l) => l.key !== key) : prev));
   };
@@ -536,31 +555,10 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
         return null;
       }
       const total = filled.reduce((s, l) => s + Number(l.amount), 0);
-      // TDS deducted at payment: Cr TDS Payable per section, cash credited net
-      const tdsAccount = accounts.find((a) => a.account_code === '2140');
-      const tdsRows: { account_id: string; debit_amount: number; credit_amount: number; narration: string; cost_centre_id: null; bill_ref: null }[] = [];
-      let tdsTotal = 0;
-      if (category === 'PAYMENT' && tdsAccount) {
-        for (const l of filled) {
-          const sec = TDS_SECTIONS.find((t) => t.code === l.tdsSection);
-          if (!sec) continue;
-          const amt = Math.round(Number(l.amount) * sec.rate) / 100;
-          if (amt <= 0) continue;
-          tdsTotal += amt;
-          tdsRows.push({
-            account_id: tdsAccount.id,
-            debit_amount: 0,
-            credit_amount: amt,
-            narration: `TDS ${sec.code} @${sec.rate}% on ${l.account!.account_name}`,
-            cost_centre_id: null,
-            bill_ref: null,
-          });
-        }
-      }
       const accountRow = {
         account_id: account.id,
         debit_amount: singleMode.accountIsDebit ? total : 0,
-        credit_amount: singleMode.accountIsDebit ? 0 : total - tdsTotal,
+        credit_amount: singleMode.accountIsDebit ? 0 : total,
         narration: '',
         cost_centre_id: null as string | null,
       };
@@ -572,7 +570,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
         cost_centre_id: l.costCentreId || null,
         bill_ref: l.billRef?.trim() || null,
       }));
-      return [accountRow, ...lineRows, ...tdsRows];
+      return [accountRow, ...lineRows];
     }
     const filled = journalLines.filter((l) => l.account && Number(l.amount) > 0);
     if (filled.length < 2) {
@@ -671,11 +669,16 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
 
       const nextNum = (voucherType?.current_number || 0) + 1;
       const generatedNumber = generateVoucherNumber(voucherType?.prefix || '', nextNum);
+      const numberToSave = voucherNumber.trim() || generatedNumber;
+      if (!numberToSave) {
+        toast.error('Enter a voucher number.');
+        return;
+      }
 
       const { data: voucher, error: vErr } = await supabase
         .from('vouchers')
         .insert({
-          voucher_number: generatedNumber,
+          voucher_number: numberToSave,
           voucher_type_id: selectedVoucherType,
           voucher_date: voucherDate,
           reference_number: referenceNumber || null,
@@ -720,7 +723,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
         .update({ current_number: nextNum })
         .eq('id', selectedVoucherType);
 
-      toast.success(`Voucher ${generatedNumber} saved${status === 'posted' ? '' : ' as pending'}.`);
+      toast.success(`Voucher ${numberToSave} saved${status === 'posted' ? '' : ' as pending'}.`);
 
       const voucherTypeName = (voucherType?.voucher_type_name || '').toLowerCase();
       if ((voucherTypeName.includes('receipt') || voucherTypeName.includes('receive')) && debitSum >= 10000) {
@@ -729,7 +732,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
           amount: debitSum,
           patient_name: narration || 'Voucher Entry',
           hospital_name: 'Hope',
-          additional_info: `Voucher: ${generatedNumber}, Type: ${voucherType?.voucher_type_name || 'N/A'}`,
+            additional_info: `Voucher: ${numberToSave}, Type: ${voucherType?.voucher_type_name || 'N/A'}`,
         });
       }
 
@@ -880,7 +883,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
   const rail = useMemo<RailItem[]>(() => {
     if (alterMode) {
       return [
-        { hotkey: 'F2', label: 'Date', onClick: () => dateRef.current?.showPicker?.() ?? dateRef.current?.focus() },
+        { hotkey: 'F2', label: 'Date', onClick: openDatePicker },
         { hotkey: 'L', label: 'Optional', gapBefore: true, onClick: () => setIsOptional((v) => !v), active: isOptional },
         { hotkey: 'P', label: 'Print Vch', gapBefore: true, onClick: printVoucher },
         ...(canAlter
@@ -894,8 +897,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
     const byCategory = (cat: string) => voucherTypes.find((vt) => vt.voucher_category?.toUpperCase() === cat);
     const mainIds = new Set<string>();
     const items: RailItem[] = [
-      { hotkey: 'F2', label: 'Date', onClick: () => dateRef.current?.showPicker?.() ?? dateRef.current?.focus() },
-      { hotkey: 'F3', label: 'Company', disabled: true },
+      { hotkey: 'F2', label: 'Date', onClick: openDatePicker },
     ];
     RAIL_KEYS.forEach(({ hotkey, category: cat, label }, i) => {
       const vt = byCategory(cat);
@@ -929,13 +931,13 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
         d.setDate(d.getDate() + 30);
         setVoucherDate(format(d, 'yyyy-MM-dd'));
         toast.info('Date set 30 days ahead — adjust as needed. Post-dated vouchers stay out of reports until due.');
-        setTimeout(() => dateRef.current?.focus(), 0);
+        setTimeout(openDatePicker, 0);
       },
     });
     items.push({ hotkey: 'P', label: 'Print Vch', gapBefore: true, onClick: printVoucher });
     return items;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [voucherTypes, selectedVoucherType, alterMode, isOptional, canAlter]);
+    }, [voucherTypes, selectedVoucherType, alterMode, isOptional, canAlter, openDatePicker]);
 
   const accountBalance = account ? balances[account.id] : undefined;
 
@@ -952,42 +954,33 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
               {selectedType?.voucher_type_name?.replace(' Voucher', '') || 'Voucher'}
             </span>
             <span className="font-medium">No.</span>
-            <span className="min-w-[100px] border border-gray-400 bg-[#fdf6d8] px-2 font-mono">
-              {voucherNumber || '…'}
-            </span>
+            {!alterMode ? (
+              <Input
+                value={voucherNumberOverride || generatedVoucherNumber}
+                onChange={(e) => setVoucherNumberOverride(e.target.value)}
+                className="h-7 min-w-[100px] rounded-none border border-gray-400 bg-[#fdf6d8] px-2 font-mono text-sm"
+                aria-label="Voucher number"
+              />
+            ) : (
+              <span className="min-w-[100px] border border-gray-400 bg-[#fdf6d8] px-2 font-mono">
+                {voucherNumber || '…'}
+              </span>
+            )}
             {isOptional && <span className="bg-orange-600 px-2 py-0.5 text-[11px] font-bold text-white">OPTIONAL</span>}
             {voucherDate > format(new Date(), 'yyyy-MM-dd') && (
               <span className="bg-purple-700 px-2 py-0.5 text-[11px] font-bold text-white">POST-DATED</span>
             )}
-            <Select
-              value={selectedCompanyId}
-              onValueChange={(value) => {
-                setSelectedCompanyId(value)
-                setAccount(null)
-                setPartLines([newParticularsLine()])
-                setJournalLines([newJournalLine('Dr'), newJournalLine('Cr')])
-              }}
-            >
-              <SelectTrigger className="h-6 w-56 border-gray-300 bg-white text-xs shadow-none">
-                <SelectValue placeholder="Select company" />
-              </SelectTrigger>
-              <SelectContent>
-                {companies.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.company_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
         </div>
         <div className="text-right">
-          <Input
-            ref={dateRef}
-            type="date"
-            value={voucherDate}
-            onChange={(e) => setVoucherDate(e.target.value)}
-            className="ml-auto h-6 w-32 bg-white text-right text-xs"
+          <EnhancedDatePicker
+            value={voucherDateValue}
+            onChange={handleVoucherDateChange}
+            openRequest={datePickerRequest}
+            manualInput
+            className="ml-auto w-40"
+            buttonClassName="h-6 border-[#9db8d8] bg-white px-2 text-right text-xs"
+            calendarButtonClassName="h-6 w-7 border-[#9db8d8] bg-white"
           />
           <div className="mt-0.5 font-bold leading-tight">{tallyDateLabel(voucherDate)}</div>
           <div className="text-xs text-gray-600">{dayName(voucherDate)}</div>
@@ -1070,36 +1063,6 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
                     }}
                     className={amountInputClass}
                   />
-                  {category === 'PAYMENT' && (
-                    <select
-                      value={line.tdsSection ?? ''}
-                      onChange={(e) => updatePartLine(line.key, { tdsSection: e.target.value || undefined })}
-                      title="Deduct TDS at payment"
-                      className="h-7 w-28 border-0 border-b border-dashed border-gray-400 bg-transparent px-0.5 text-[11px] text-gray-600 focus:outline-none"
-                    >
-                      <option value="">— TDS —</option>
-                      {TDS_SECTIONS.map((t) => (
-                        <option key={t.code} value={t.code}>
-                          {t.label}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  {costCentres.length > 0 && (
-                    <select
-                      value={line.costCentreId ?? ''}
-                      onChange={(e) => updatePartLine(line.key, { costCentreId: e.target.value || undefined })}
-                      title="Cost centre"
-                      className="h-7 w-28 border-0 border-b border-dashed border-gray-400 bg-transparent px-0.5 text-[11px] text-gray-600 focus:outline-none"
-                    >
-                      <option value="">— CC —</option>
-                      {costCentres.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  )}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -1117,21 +1080,6 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
             <div className="mt-1 flex justify-end border-t border-gray-400 pr-8 pt-0.5">
               <span className="font-mono font-bold">{partTotal > 0 ? fmtINR(partTotal) : ''}</span>
             </div>
-            {category === 'PAYMENT' &&
-              (() => {
-                const tds = partLines.reduce((s, l) => {
-                  const sec = TDS_SECTIONS.find((t) => t.code === l.tdsSection);
-                  return s + (sec ? Math.round((Number(l.amount) || 0) * sec.rate) / 100 : 0);
-                }, 0);
-                return tds > 0 ? (
-                  <div className="flex justify-end gap-4 pr-8 text-[11px] italic text-gray-600">
-                    <span>TDS deducted: <span className="font-mono not-italic">{fmtINR(tds)}</span></span>
-                    <span>
-                      Net {account?.account_name || 'payment'}: <span className="font-mono not-italic">{fmtINR(partTotal - tds)}</span>
-                    </span>
-                  </div>
-                ) : null;
-              })()}
           </>
         ) : (
           <>
@@ -1154,8 +1102,8 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Dr">By</SelectItem>
-                      <SelectItem value="Cr">To</SelectItem>
+                      <SelectItem value="Dr">Dr</SelectItem>
+                      <SelectItem value="Cr">Cr</SelectItem>
                     </SelectContent>
                   </Select>
                   <div className="flex-1">
@@ -1190,7 +1138,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
                     inputMode="decimal"
                     value={line.drcr === 'Dr' ? line.amount : ''}
                     disabled={line.drcr !== 'Dr'}
-                    onChange={(e) => updateJournalLine(line.key, { amount: e.target.value })}
+                    onChange={(e) => updateJournalDebitAmount(line.key, e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
@@ -1216,21 +1164,6 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
                     }}
                     className={amountInputClass}
                   />
-                  {costCentres.length > 0 && (
-                    <select
-                      value={line.costCentreId ?? ''}
-                      onChange={(e) => updateJournalLine(line.key, { costCentreId: e.target.value || undefined })}
-                      title="Cost centre"
-                      className="h-7 w-28 border-0 border-b border-dashed border-gray-400 bg-transparent px-0.5 text-[11px] text-gray-600 focus:outline-none"
-                    >
-                      <option value="">— CC —</option>
-                      {costCentres.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  )}
                   <Button
                     variant="ghost"
                     size="icon"

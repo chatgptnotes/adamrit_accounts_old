@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { HOSPITAL_CONFIGS, type HospitalType } from '@/types/hospital';
 import { useCompanies } from '@/hooks/useCompanies';
+import { useAccountingCompanyOptional } from '../AccountingCompanyContext';
 
 /**
  * Shared Tally Prime chrome for the accounting module:
@@ -140,7 +141,7 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
   );
 
   return (
-    <div style={TALLY_FONT} className="bg-[#16437e] print:hidden">
+    <div style={TALLY_FONT} className="overflow-x-hidden bg-[#16437e] print:hidden">
       {/* Row 1: logo + centred finder */}
       <div className="relative flex items-center px-3 pt-1">
         <button
@@ -391,13 +392,17 @@ interface TallyScreenProps {
 
 export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp = [], bottomBar, onClose, closeLabel, children }) => {
   const { hospitalConfig } = useAuth();
+  const accountingCompany = useAccountingCompanyOptional();
   const handleClose = onClose ?? (() => window.dispatchEvent(new CustomEvent('tally-escape')));
   const closeText = closeLabel || '← Back';
 
   // Tally keeps every button live — give the common placeholders real actions.
   // Callers own rail actions. Disabled items stay disabled and never activate
   // a fallback screen or action from this shared component.
-  const rail = railProp;
+  const hasCompanySwitch = railProp.some((item) => item.hotkey === 'F3');
+  const rail = accountingCompany && !hasCompanySwitch
+    ? [{ hotkey: 'F3', label: 'Company', onClick: accountingCompany.cycleCompany }, ...railProp]
+    : railProp;
 
   // Bind F-key / letter hotkeys declared by the rail + bottom bar
   useEffect(() => {

@@ -2,8 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { mergedLedgerBalances, type LedgerBalanceRow, type LedgerSource } from '@/lib/mergedLedgerBalances';
 import { format } from 'date-fns';
-import { useCompanies } from '@/hooks/useCompanies';
 import { TallyScreen, getTallyConfig } from './tally/TallyChrome';
+import { useAccountingCompany } from './AccountingCompanyContext';
 import SourceBadge from './SourceBadge';
 import { useSourceFilter, matchesSource } from './useSourceFilter';
 
@@ -30,8 +30,7 @@ import { HEAD_ORDER } from './tally/heads';
  * Debit/Credit closing-balance columns, ledger drill-down, Grand Total.
  */
 const TrialBalance: React.FC<{ onOpenGroup?: (head: string) => void }> = ({ onOpenGroup }) => {
-  const { data: companies = [] } = useCompanies();
-  const [selectedCompanyId, setSelectedCompanyId] = useState('');
+  const { companies, selectedCompanyId } = useAccountingCompany();
   const [asOfDate, setAsOfDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [showPeriod, setShowPeriod] = useState(false);
   const [detailed, setDetailed] = useState(() => getTallyConfig().defaultDetailed || true);
@@ -97,15 +96,6 @@ const TrialBalance: React.FC<{ onOpenGroup?: (head: string) => void }> = ({ onOp
       title="Trial Balance"
       rail={[
         { hotkey: 'F2', label: 'Period', onClick: () => setShowPeriod((v) => !v) },
-        {
-          hotkey: 'F3',
-          label: 'Company',
-          onClick: () =>
-            setSelectedCompanyId((cur) => {
-              const ids = ['', ...companies.map((c) => c.id)];
-              return ids[(ids.indexOf(cur) + 1) % ids.length];
-            }),
-        },
         { hotkey: 'F5', label: 'Ledger-wise', gapBefore: true, onClick: () => setDetailed((v) => !v), active: detailed },
         {
           hotkey: 'C',
@@ -125,15 +115,6 @@ const TrialBalance: React.FC<{ onOpenGroup?: (head: string) => void }> = ({ onOp
           <div className="mb-2 flex items-center gap-2 border border-[#9db8d8] bg-[#fdf6d8] px-2 py-1">
             <span>As at:</span>
             <input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className="border bg-white px-1" />
-            <span className="ml-4">Company:</span>
-            <select value={selectedCompanyId} onChange={(e) => setSelectedCompanyId(e.target.value)} className="border bg-white px-1">
-              <option value="">All Companies</option>
-              {companies.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.company_name}
-                </option>
-              ))}
-            </select>
           </div>
         )}
 

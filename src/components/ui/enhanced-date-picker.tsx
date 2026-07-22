@@ -16,6 +16,10 @@ interface EnhancedDatePickerProps {
   isDOB?: boolean; // Special handling for Date of Birth
   disabled?: boolean; // Add disabled prop support
   defaultOpen?: boolean; // Open the calendar immediately on mount
+  openRequest?: number; // Increment to open the calendar from an external shortcut
+  buttonClassName?: string;
+  calendarButtonClassName?: string;
+  manualInput?: boolean;
 }
 
 type ViewMode = 'year' | 'month' | 'day';
@@ -28,9 +32,14 @@ export const EnhancedDatePicker: React.FC<EnhancedDatePickerProps> = ({
   className,
   isDOB = false,
   disabled = false,
-  defaultOpen = false
+  defaultOpen = false,
+  openRequest,
+  buttonClassName,
+  calendarButtonClassName,
+  manualInput = false,
 }) => {
   const [isOpen, setIsOpen] = React.useState(defaultOpen);
+  const [manualValue, setManualValue] = React.useState(value ? format(value, 'dd/MM/yyyy') : '');
   const [viewMode, setViewMode] = React.useState<ViewMode>(isDOB ? 'year' : 'day');
   const [selectedYear, setSelectedYear] = React.useState<number>(value?.getFullYear() || (isDOB ? 1990 : new Date().getFullYear()));
   const [selectedMonth, setSelectedMonth] = React.useState<number>(value?.getMonth() || 0);
@@ -41,8 +50,14 @@ export const EnhancedDatePicker: React.FC<EnhancedDatePickerProps> = ({
     if (value) {
       setSelectedYear(value.getFullYear());
       setSelectedMonth(value.getMonth());
+      setManualValue(format(value, 'dd/MM/yyyy'));
     }
   }, [value]);
+
+  React.useEffect(() => {
+    if (openRequest === undefined) return;
+    setIsOpen(true);
+  }, [openRequest]);
 
   // Generate year range (1900 to current year + 10)
   const currentYear = new Date().getFullYear();
@@ -80,6 +95,26 @@ export const EnhancedDatePicker: React.FC<EnhancedDatePickerProps> = ({
     onChange(newDate);
     setIsOpen(false);
     setViewMode(isDOB ? 'year' : 'day');
+  };
+
+  const commitManualValue = () => {
+    const match = manualValue.trim().match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+    const resetToValue = () => setManualValue(value ? format(value, 'dd/MM/yyyy') : '');
+    if (!match) {
+      resetToValue();
+      return;
+    }
+    const day = Number(match[1]);
+    const month = Number(match[2]) - 1;
+    const year = Number(match[3]);
+    const next = new Date(year, month, day);
+    if (next.getFullYear() !== year || next.getMonth() !== month || next.getDate() !== day) {
+      resetToValue();
+      return;
+    }
+    onChange(next);
+    setSelectedYear(year);
+    setSelectedMonth(month);
   };
 
   const handleYearInputSubmit = () => {
@@ -266,20 +301,51 @@ export const EnhancedDatePicker: React.FC<EnhancedDatePickerProps> = ({
     <div className={cn("space-y-2", className)}>
       {label && <label className="text-sm font-medium">{label}</label>}
       <Popover open={isOpen && !disabled} onOpenChange={setIsOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            variant="outline"
-            className={cn(
-              "w-full justify-start text-left font-normal h-10",
-              !value && "text-muted-foreground",
-              disabled && "opacity-50 cursor-not-allowed"
-            )}
-            disabled={disabled}
-          >
-            <CalendarIcon className="mr-2 h-4 w-4" />
-            {value ? format(value, "dd/MM/yyyy") : <span>{placeholder}</span>}
-          </Button>
-        </PopoverTrigger>
+        {manualInput ? (
+          <div className="flex items-center gap-1">
+            <Input
+              value={manualValue}
+              placeholder={placeholder}
+              disabled={disabled}
+              onChange={(event) => setManualValue(event.target.value)}
+              onBlur={commitManualValue}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  commitManualValue();
+                }
+              }}
+              className={cn('h-10 min-w-0 flex-1 text-left font-normal', buttonClassName)}
+            />
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={disabled}
+                aria-label="Open calendar"
+                className={cn('h-10 w-9 shrink-0 px-0', calendarButtonClassName)}
+              >
+                <CalendarIcon className="h-4 w-4" />
+              </Button>
+            </PopoverTrigger>
+          </div>
+        ) : (
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              className={cn(
+                "h-10 w-full justify-start text-left font-normal",
+                !value && "text-muted-foreground",
+                disabled && "opacity-50 cursor-not-allowed",
+                buttonClassName,
+              )}
+              disabled={disabled}
+            >
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              {value ? format(value, "dd/MM/yyyy") : <span>{placeholder}</span>}
+            </Button>
+          </PopoverTrigger>
+        )}
         <PopoverContent
           className="w-auto p-0 z-[9999] bg-white border-2 border-gray-400"
           align="start"

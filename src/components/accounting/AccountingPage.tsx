@@ -50,6 +50,7 @@ import OpeningBalances from './OpeningBalances';
 import ExceptionReports from './ExceptionReports';
 import BillwiseOutstanding from './BillwiseOutstanding';
 import Banking from './Banking';
+import { AccountingCompanyProvider } from './AccountingCompanyContext';
 
 // Live Tally-gateway suite is heavy (12 sub-screens) — load on demand
 const TallyLivePage = lazy(() => import('@/components/tally/TallyPage'));
@@ -256,10 +257,11 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
   const [drillLedgerId, setDrillLedgerId] = useState<string | null>(null);
   const [drillGroup, setDrillGroup] = useState<string | null>(null);
   // Collapsed icon rail by default — Tally-style full-width canvas.
-  const [navExpanded, setNavExpanded] = useState(false);
+  const [navExpanded, setNavExpanded] = useState(true);
 
   return (
-    <div className="tally-skin min-h-screen flex bg-[#d5e3f0]">
+    <AccountingCompanyProvider>
+      <div className="tally-skin min-h-screen flex overflow-x-hidden bg-[#d5e3f0]">
       {/* ---- Left Sidebar (icon rail when collapsed) ---- */}
       <aside
         className={`${navExpanded ? 'w-56' : 'w-12'} bg-white border-r shadow-sm flex flex-col flex-shrink-0 transition-all print:hidden`}
@@ -314,7 +316,7 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
       </aside>
 
       {/* ---- Content Area with Tally chrome ---- */}
-      <main className="flex-1 flex flex-col overflow-y-auto">
+      <main className="min-w-0 flex-1 flex flex-col overflow-x-hidden overflow-y-auto">
         <TallyTopBar
           sections={NAV_ITEMS.map(({ id, label }) => ({ id, label }))}
           onGoTo={(id) => {
@@ -342,7 +344,8 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
           )}
         </div>
       </main>
-    </div>
+      </div>
+    </AccountingCompanyProvider>
   );
 };
 

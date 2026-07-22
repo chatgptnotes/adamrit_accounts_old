@@ -417,21 +417,6 @@ export default function TallyPage({ initialTab = 'dashboard' }: { initialTab?: s
       onClose={() => navigate('/dashboard')}
     >
       <div className="space-y-4">
-        {/* Company selector */}
-        {companyNameOptions.length > 0 && (
-          <div className="flex items-center gap-2 px-2 pt-2 text-[13px]">
-            <span className="text-gray-600">F3:</span>
-            <select
-              value={companyName}
-              onChange={(e) => handleCompanyNameChange(e.target.value)}
-              className="border border-[#9db8d8] bg-white px-2 py-0.5 text-[13px] font-medium text-[#16437e] cursor-pointer focus:outline-none focus:bg-[#fdf6d8]"
-            >
-              {companyNameOptions.map(name => (
-                <option key={name} value={name}>{name}</option>
-              ))}
-            </select>
-          </div>
-        )}
         {/* Tab Navigation */}
         <div className="border-b border-gray-200 px-2">
           <nav className="flex space-x-1 overflow-x-auto" aria-label="Tabs">

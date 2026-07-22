@@ -2,8 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { mergedLedgerBalances, type LedgerBalanceRow, type LedgerSource } from '@/lib/mergedLedgerBalances';
 import { format } from 'date-fns';
-import { useCompanies } from '@/hooks/useCompanies';
 import { TallyScreen, getTallyConfig } from './tally/TallyChrome';
+import { useAccountingCompany } from './AccountingCompanyContext';
 import SourceBadge from './SourceBadge';
 import { useSourceFilter, matchesSource } from './useSourceFilter';
 
@@ -38,8 +38,7 @@ const ASSET_ORDER = ['Fixed Assets', 'Current Assets'];
  * current-period figure, matching grand totals on both panels.
  */
 const BalanceSheet: React.FC = () => {
-  const { data: companies = [] } = useCompanies();
-  const [selectedCompanyId, setSelectedCompanyId] = useState('');
+  const { companies, selectedCompanyId } = useAccountingCompany();
   const [asOfDate, setAsOfDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [showPeriod, setShowPeriod] = useState(false);
   const [detailed, setDetailed] = useState(() => getTallyConfig().defaultDetailed || true);
@@ -179,15 +178,6 @@ const BalanceSheet: React.FC = () => {
       title="Balance Sheet"
       rail={[
         { hotkey: 'F2', label: 'Period', onClick: () => setShowPeriod((v) => !v) },
-        {
-          hotkey: 'F3',
-          label: 'Company',
-          onClick: () =>
-            setSelectedCompanyId((cur) => {
-              const ids = ['', ...companies.map((c) => c.id)];
-              return ids[(ids.indexOf(cur) + 1) % ids.length];
-            }),
-        },
         { label: 'Basis of Values', disabled: true, gapBefore: true },
         { hotkey: 'H', label: detailed ? 'Condensed' : 'Detailed', onClick: () => setDetailed((v) => !v) },
         {
@@ -217,19 +207,6 @@ const BalanceSheet: React.FC = () => {
           <div className="mb-2 flex items-center gap-2 border border-[#9db8d8] bg-[#fdf6d8] px-2 py-1">
             <span>As at:</span>
             <input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className="border bg-white px-1" />
-            <span className="ml-4">Company:</span>
-            <select
-              value={selectedCompanyId}
-              onChange={(e) => setSelectedCompanyId(e.target.value)}
-              className="border bg-white px-1"
-            >
-              <option value="">All Companies</option>
-              {companies.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.company_name}
-                </option>
-              ))}
-            </select>
           </div>
         )}
         {isLoading ? (

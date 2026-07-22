@@ -7,6 +7,7 @@ import { fetchTallyVouchers } from '@/lib/mergedVouchers';
 import { normalizeName } from '@/lib/tallyCompanyMatch';
 import SourceBadge from './SourceBadge';
 import { useSourceFilter, matchesSource } from './useSourceFilter';
+import { useAccountingCompany } from './AccountingCompanyContext';
 
 type LedgerSource = 'adamrit' | 'tally';
 
@@ -17,7 +18,8 @@ interface DayRow {
   particulars: string;
   type: string;
   number: string;
-  total: number;
+  debit: number;
+  credit: number;
   narration: string | null;
   entries: { label: string; debit: number; credit: number }[];
   source: LedgerSource;
@@ -58,6 +60,25 @@ const tallyDateLabel = (iso: string): string => {
   return `${d.getDate()}-${month}-${String(d.getFullYear()).slice(2)}`;
 };
 
+const summarySides = (
+  voucherType: string,
+  total: number,
+  entries: { debit: number; credit: number; order: number }[],
+): { debit: number; credit: number } => {
+  const normalizedType = voucherType.toLowerCase();
+  const amount = total || entries.reduce((sum, entry) => sum + Math.max(entry.debit, entry.credit), 0);
+
+  if (normalizedType.includes('receipt')) return { debit: 0, credit: amount };
+  if (normalizedType.includes('payment') || normalizedType.includes('contra')) return { debit: amount, credit: 0 };
+
+  const lead = [...entries]
+    .sort((a, b) => a.order - b.order)
+    .find((entry) => entry.debit > 0 || entry.credit > 0);
+  if (lead?.debit > 0) return { debit: lead.debit, credit: 0 };
+  if (lead?.credit > 0) return { debit: 0, credit: lead.credit };
+  return { debit: 0, credit: 0 };
+};
+
 /**
  * Day Book — Tally Prime replica: one row per voucher (Date, Particulars =
  * lead ledger, Vch Type, Vch No., Debit/Credit amount), click expands to
@@ -76,6 +97,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
   const [scope, setScope] = useState<'Regular' | 'Optional' | 'Post-Dated'>('Regular');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
+  const { selectedCompanyId } = useAccountingCompany();
 
   const { data: voucherTypes = [] } = useQuery({
     queryKey: ['voucher_types'],
@@ -91,7 +113,8 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
   });
 
   const { data: vouchers = [], isLoading } = useQuery({
-    queryKey: ['daybook_vouchers', fromDate, toDate, typeFilter, scope],
+    queryKey: ['daybook_vouchers', selectedCompanyId, fromDate, toDate, typeFilter, scope],
+    enabled: Boolean(selectedCompanyId),
     queryFn: async () => {
       let query = supabase
         .from('vouchers')
@@ -103,6 +126,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
             account:chart_of_accounts(id, account_name, account_code)
           )
         `);
+      query = query.eq('company_id', selectedCompanyId);
       if (scope === 'Optional') {
         query = (query as any).eq('is_optional', true);
       } else if (scope === 'Post-Dated') {
@@ -127,9 +151,9 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
   // Post-Dated are native-only concepts). Deduped against native by number.
   const typeName = voucherTypes.find((t) => t.id === typeFilter)?.voucher_type_name;
   const { data: tallyRows = [] } = useQuery({
-    queryKey: ['daybook_tally', fromDate, toDate, scope],
-    enabled: scope === 'Regular',
-    queryFn: () => fetchTallyVouchers({ from: fromDate, upto: toDate }),
+    queryKey: ['daybook_tally', selectedCompanyId, fromDate, toDate, scope],
+    enabled: scope === 'Regular' && Boolean(selectedCompanyId),
+    queryFn: () => fetchTallyVouchers({ companyId: selectedCompanyId, from: fromDate, upto: toDate }),
   });
 
   const toggleExpanded = (id: string) => {
@@ -141,24 +165,41 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
     });
   };
 
-  // Lead ledger = first debit entry (Tally shows the debited party on Day Book rows)
-  const leadLedger = (v: Voucher): string => {
-    const sorted = [...(v.voucher_entries ?? [])].sort((a, b) => (a.entry_order || 0) - (b.entry_order || 0));
-    const lead = sorted.find((e) => Number(e.debit_amount) > 0) ?? sorted[0];
-    return lead?.account?.account_name ?? '';
+  const leadLedger = (
+    voucherType: string,
+    entries: { accountName: string; debit: number; credit: number; order: number }[],
+  ): string => {
+    const sorted = [...entries].sort((a, b) => a.order - b.order);
+    const normalizedType = voucherType.toLowerCase();
+    const lead = normalizedType.includes('receipt') || normalizedType.includes('contra')
+      ? sorted.find((e) => e.credit > 0)
+      : sorted.find((e) => e.debit > 0);
+    return lead?.accountName ?? sorted[0]?.accountName ?? '';
   };
 
   const rows: DayRow[] = useMemo(() => {
     const nativeRows: DayRow[] = vouchers.map((v) => {
       const entries = [...(v.voucher_entries ?? [])].sort((a, b) => (a.entry_order || 0) - (b.entry_order || 0));
+      const normalizedEntries = entries.map((e) => ({
+        accountName: e.account?.account_name ?? '',
+        debit: Number(e.debit_amount) || 0,
+        credit: Number(e.credit_amount) || 0,
+        order: e.entry_order || 0,
+      }));
+      const sides = summarySides(
+        v.voucher_type?.voucher_category ?? v.voucher_type?.voucher_type_name ?? '',
+        Number(v.total_amount) || 0,
+        normalizedEntries,
+      );
       return {
         id: `adamrit:${v.id}`,
         nativeId: v.id,
         date: v.voucher_date,
-        particulars: leadLedger(v),
+        particulars: leadLedger(v.voucher_type?.voucher_category ?? v.voucher_type?.voucher_type_name ?? '', normalizedEntries),
         type: v.voucher_type?.voucher_type_name?.replace(' Voucher', '') ?? '',
         number: v.voucher_number,
-        total: Number(v.total_amount) || 0,
+        debit: sides.debit,
+        credit: sides.credit,
         narration: v.narration,
         entries: entries.map((e) => ({
           label: `${Number(e.debit_amount) > 0 ? 'Dr' : 'Cr'} ${e.account?.account_name ?? ''}`,
@@ -170,15 +211,22 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
     });
 
     let mappedTally: DayRow[] = tallyRows.map((v) => {
-      const lead = v.entries.find((e) => e.debit > 0) ?? v.entries[0];
+      const normalizedEntries = v.entries.map((e, index) => ({
+        accountName: e.ledger,
+        debit: e.debit,
+        credit: e.credit,
+        order: index,
+      }));
+      const sides = summarySides(v.voucher_type, v.total, normalizedEntries);
       return {
         id: v.id,
         nativeId: null,
         date: v.date,
-        particulars: lead?.ledger ?? '',
+        particulars: leadLedger(v.voucher_type, normalizedEntries),
         type: v.voucher_type.replace(' Voucher', ''),
         number: v.voucher_number,
-        total: v.total,
+        debit: sides.debit,
+        credit: sides.credit,
         narration: v.narration,
         entries: v.entries.map((e) => ({
           label: `${e.debit > 0 ? 'Dr' : 'Cr'} ${e.ledger}`,
@@ -203,14 +251,16 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
       .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   }, [vouchers, tallyRows, typeName, srcFilter]);
 
-  const totals = useMemo(() => rows.reduce((s, r) => s + r.total, 0), [rows]);
+  const totals = useMemo(
+    () => rows.reduce((sum, row) => ({ debit: sum.debit + row.debit, credit: sum.credit + row.credit }), { debit: 0, credit: 0 }),
+    [rows],
+  );
 
   return (
     <TallyScreen
       title={`Day Book${typeName ? ` — ${typeName}` : ''}${scope !== 'Regular' ? ` (${scope})` : ''}`}
       rail={[
         { hotkey: 'F2', label: 'Period', onClick: () => setShowPeriod((v) => !v) },
-        { hotkey: 'F3', label: 'Company', disabled: true },
         {
           hotkey: 'F4',
           label: 'Voucher Type',
@@ -295,22 +345,25 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
                     </div>
                     <div className="w-32 px-1">{r.type}</div>
                     <div className="w-28 px-1 font-mono text-[12px]">{r.number}</div>
-                    <div className="w-32 px-1 text-right font-mono">{fmt(r.total)}</div>
-                    <div className="w-32 px-1 text-right font-mono">{fmt(r.total)}</div>
+                    <div className="w-32 px-1 text-right font-mono">{r.debit > 0 ? fmt(r.debit) : ''}</div>
+                    <div className="w-32 px-1 text-right font-mono">{r.credit > 0 ? fmt(r.credit) : ''}</div>
                   </button>
                   {expanded && (
                     <div className="border-b border-dashed border-gray-300 bg-[#fffdf2] py-0.5">
-                      {r.entries.map((e, i) => (
-                        <div key={i} className="flex text-[12px] italic text-gray-700">
+                      {r.entries.flatMap((e, i) => [
+                        ...(e.debit > 0 ? [{ key: `${i}-debit`, label: e.label.replace(/^Cr /, 'Dr '), debit: e.debit, credit: 0 }] : []),
+                        ...(e.credit > 0 ? [{ key: `${i}-credit`, label: e.label.replace(/^Dr /, 'Cr '), debit: 0, credit: e.credit }] : []),
+                      ]).map((entry) => (
+                        <div key={entry.key} className="flex text-[12px] italic text-gray-700">
                           <div className="w-20" />
-                          <div className="min-w-0 flex-1 truncate px-1">{e.label}</div>
+                          <div className="min-w-0 flex-1 truncate px-1">{entry.label}</div>
                           <div className="w-32" />
                           <div className="w-28" />
                           <div className="w-32 px-1 text-right font-mono">
-                            {e.debit > 0 ? fmt(e.debit) : ''}
+                            {entry.debit > 0 ? fmt(entry.debit) : ''}
                           </div>
                           <div className="w-32 px-1 text-right font-mono">
-                            {e.credit > 0 ? fmt(e.credit) : ''}
+                            {entry.credit > 0 ? fmt(entry.credit) : ''}
                           </div>
                         </div>
                       ))}
@@ -327,8 +380,8 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
               <div className="min-w-0 flex-1 px-1 tracking-[0.2em]">Total — {rows.length} voucher(s)</div>
               <div className="w-32 px-1" />
               <div className="w-28 px-1" />
-              <div className="w-32 px-1 text-right font-mono">{fmt(totals)}</div>
-              <div className="w-32 px-1 text-right font-mono">{fmt(totals)}</div>
+              <div className="w-32 px-1 text-right font-mono">{fmt(totals.debit)}</div>
+              <div className="w-32 px-1 text-right font-mono">{fmt(totals.credit)}</div>
             </div>
           </>
         )}
