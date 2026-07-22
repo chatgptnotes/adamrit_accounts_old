@@ -9,7 +9,7 @@ import * as https from "https";
 // Dev-only Tally proxy. In production, api/tally-proxy.ts (Vercel function)
 // handles this. In dev, Vite doesn't serve API routes, so the browser POST to
 // /api/tally-proxy returns 404 unless this middleware intercepts it.
-function tallyProxyPlugin(): Plugin {
+function tallyProxyPlugin(env: Record<string, string>): Plugin {
   function esc(s: string) {
     return (s || "")
       .replace(/&/g, "&amp;")
@@ -177,6 +177,26 @@ function tallyProxyPlugin(): Plugin {
             }
 
             // sync — needs Supabase service key; skip in dev (use Dashboard Refresh instead)
+            if (endpoint === "sync" && env.SUPABASE_SERVICE_ROLE_KEY) {
+              process.env.SUPABASE_SERVICE_ROLE_KEY ||= env.SUPABASE_SERVICE_ROLE_KEY;
+              const { default: syncHandler } = await import("./api/tally-proxy");
+              let responseBody: unknown;
+              const syncResponse: any = {
+                setHeader: () => undefined,
+                status: () => syncResponse,
+                json: (value: unknown) => {
+                  responseBody = value;
+                  send(value);
+                  return syncResponse;
+                },
+                end: (value?: string) => {
+                  if (value) responseBody = value;
+                  if (responseBody === undefined) send({});
+                },
+              };
+              await syncHandler({ method: "POST", body }, syncResponse as any);
+              return;
+            }
             if (endpoint === "sync") {
               send({ success: false, message: "Sync not available in dev mode — use the Refresh button on the Dashboard or run vercel dev." });
               return;
@@ -476,7 +496,7 @@ export default defineConfig(({ mode }) => {
     port: 8080,
   },
   plugins: [
-    ...(mode === 'development' ? [slackProxyPlugin(env), doubleTickExtensionAlertPlugin(env), tallyProxyPlugin(), gmailProxyPlugin(env)] : []),
+    ...(mode === 'development' ? [slackProxyPlugin(env), doubleTickExtensionAlertPlugin(env), tallyProxyPlugin(env), gmailProxyPlugin(env)] : []),
     ...(mode === 'development' ? [basicSsl()] : []),
     react(),
     // Service worker for installability + instant app-shell launch. We keep the
