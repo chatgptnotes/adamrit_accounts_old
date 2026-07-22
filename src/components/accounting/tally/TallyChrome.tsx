@@ -387,10 +387,11 @@ interface TallyScreenProps {
   onClose?: () => void;
   /** Override the close button label (default "✕") */
   closeLabel?: string;
+  headerAction?: React.ReactNode;
   children: React.ReactNode;
 }
 
-export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp = [], bottomBar, onClose, closeLabel, children }) => {
+export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp = [], bottomBar, onClose, closeLabel, headerAction, children }) => {
   const { hospitalConfig } = useAuth();
   const accountingCompany = useAccountingCompanyOptional();
   const handleClose = onClose ?? (() => window.dispatchEvent(new CustomEvent('tally-escape')));
@@ -451,7 +452,8 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
         <span className="absolute left-1/2 -translate-x-1/2 truncate px-2 font-bold" title={headerCompanyName}>
           {headerCompanyName}
         </span>
-        <button type="button" onClick={handleClose} className="ml-auto px-1 font-bold text-black hover:text-red-600" aria-label={closeText}>
+        {headerAction}
+        <button type="button" onClick={handleClose} className="px-1 font-bold text-black hover:text-red-600" aria-label={closeText}>
           {closeText}
         </button>
       </div>

@@ -5,7 +5,7 @@ import { supabase } from '@/integrations/supabase/client'
 import {
   LayoutDashboard, BookOpen, FileText,
   BarChart3, ArrowUpFromLine, Banknote, Landmark,
-  FileBarChart, PlusCircle, ClipboardCheck,
+  FileBarChart, PlusCircle, ClipboardCheck, RefreshCw,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { TallyScreen } from '@/components/accounting/tally/TallyChrome'
@@ -124,7 +124,7 @@ export default function TallyPage({ initialTab = 'dashboard' }: { initialTab?: s
   const companyIdRef = useRef('')
   const [configs, setConfigs] = useState<TallyConfigOption[]>([])
   const [liveCompanies, setLiveCompanies] = useState<string[]>([])
-  const [refreshingAll, setRefreshingAll] = useState(false)
+  const [syncingLatest, setSyncingLatest] = useState(false)
   const [refreshVersion, setRefreshVersion] = useState(0)
 
   const loadLiveCompanies = useCallback(async (targetServerUrl?: string): Promise<string[]> => {
@@ -282,49 +282,48 @@ export default function TallyPage({ initialTab = 'dashboard' }: { initialTab?: s
     companyIdRef.current = companyId
   }, [companyId])
 
-  const refreshAll = useCallback(async () => {
-    setRefreshingAll(true)
-    const targets = configs.filter(c => c.server_url && c.company_name)
-    if (targets.length === 0) {
-      toast.error('No Tally companies configured')
-      setRefreshingAll(false)
+  const syncLatest = useCallback(async () => {
+    const selected = configs.find((config) => config.id === companyId)
+    if (!selected || !selected.server_url || !selected.company_name) {
+      toast.error('Select a configured Tally company first')
       return
     }
-    let synced = 0
-    let failed = 0
 
-    for (const cfg of targets) {
-      try {
-        const response = await fetch('/api/tally-proxy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            endpoint: 'sync',
-            action: 'full',
-            serverUrl: cfg.server_url,
-            companyName: cfg.company_name,
-            companyId: cfg.id,
-          }),
-        })
-        const result = await response.json()
-        if (!response.ok || result.error || result.success === false) {
-          throw new Error(result.error || result.message || 'Sync failed')
-        }
-        synced++
-      } catch (error: any) {
-        failed++
-        toast.error(`${cfg.company_name}: ${error?.message || 'Sync failed'}`)
+    setSyncingLatest(true)
+    try {
+      const today = new Date()
+      const fallbackFrom = new Date(today)
+      fallbackFrom.setDate(fallbackFrom.getDate() - 30)
+      const lastSync = selected.last_sync_at ? new Date(selected.last_sync_at) : fallbackFrom
+      lastSync.setDate(lastSync.getDate() - 1)
+      const isoDate = (date: Date) => date.toISOString().slice(0, 10)
+
+      const response = await fetch('/api/tally-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          endpoint: 'sync',
+          action: 'full',
+          serverUrl: selected.server_url,
+          companyName: selected.company_name,
+          companyId: selected.id,
+          dateRange: { from: isoDate(lastSync), to: isoDate(today) },
+        }),
+      })
+      const result = await response.json()
+      if (!response.ok || result.error || result.success === false) {
+        throw new Error(result.error || result.message || 'Latest Tally sync failed')
       }
-    }
 
-    if (synced > 0) {
-      toast.success(`Refreshed data for ${synced} company(ies)${failed ? `, ${failed} failed` : ''}`)
+      await loadConfigs(selected.id)
       setRefreshVersion((value) => value + 1)
-    } else if (failed === 0) {
-      toast.error('No valid Tally companies available to refresh')
+      toast.success(`Latest data saved for ${selected.company_name} (${result.recordsSynced ?? 0} records)`)
+    } catch (error: any) {
+      toast.error(error?.message || 'Latest Tally sync failed')
+    } finally {
+      setSyncingLatest(false)
     }
-    setRefreshingAll(false)
-  }, [configs])
+  }, [companyId, configs, loadConfigs])
 
   const activeLabel = tabs.find(t => t.id === activeTab)?.label || 'Dashboard'
 
@@ -389,10 +388,10 @@ export default function TallyPage({ initialTab = 'dashboard' }: { initialTab?: s
     { hotkey: 'F4', label: 'Voucher Type', onClick: () => openVoucherList('type') },
     {
       hotkey: 'F5',
-      label: refreshingAll ? 'Refreshing...' : 'Refresh All',
+      label: syncingLatest ? 'Syncing...' : 'Sync Latest',
       gapBefore: true,
-      disabled: refreshingAll,
-      onClick: () => void refreshAll(),
+      disabled: syncingLatest,
+      onClick: () => void syncLatest(),
     },
     { hotkey: 'F6', label: 'Receipt', onClick: () => openVoucherCreation('RECEIPT') },
     { hotkey: 'F7', label: 'Journal', onClick: () => openVoucherCreation('JOURNAL') },
@@ -406,13 +405,25 @@ export default function TallyPage({ initialTab = 'dashboard' }: { initialTab?: s
     { label: 'Configure', onClick: () => window.dispatchEvent(new CustomEvent('tally-configure')) },
     { label: 'Save View', onClick: saveTallyView },
     { hotkey: 'P', label: 'Print', gapBefore: true, onClick: () => window.print() },
-  ], [refreshingAll, companyId, refreshAll, pushToTally, cycleCompany, companyOptions.length, openVoucherList, openVoucherCreation, saveTallyView])
+  ], [syncingLatest, companyId, syncLatest, pushToTally, cycleCompany, companyOptions.length, openVoucherList, openVoucherCreation, saveTallyView])
 
   return (
     <TallyScreen
       title={`Tally Live — ${activeLabel}`}
       centerTitle={companyName || undefined}
       rail={rail}
+      headerAction={
+        <button
+          type="button"
+          onClick={() => void syncLatest()}
+          disabled={syncingLatest || !companyId}
+          className="mr-2 inline-flex items-center gap-1 border border-[#6f8fb5] bg-[#e9f0fa] px-2 py-0.5 text-[12px] font-semibold text-[#16437e] hover:bg-white disabled:cursor-default disabled:opacity-60"
+          title="Fetch and save latest data for the selected Tally company"
+        >
+          <RefreshCw className={`h-3 w-3 ${syncingLatest ? 'animate-spin' : ''}`} />
+          {syncingLatest ? 'Syncing...' : 'Sync Latest'}
+        </button>
+      }
       closeLabel="← Back"
       onClose={() => navigate('/dashboard')}
     >
