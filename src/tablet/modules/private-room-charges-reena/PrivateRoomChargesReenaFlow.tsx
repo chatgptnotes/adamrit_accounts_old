@@ -70,18 +70,25 @@ async function loadPrivateRoomCharges(hospitalName: string): Promise<ChargeRow[]
   // Private wards come from room_management per hospital — never a hardcoded
   // room list, which would be wrong for every tenant but the one it was
   // written for.
+  // Restricted to the six Second Floor private rooms from the Private Room
+  // Master. select('*') + client-side filter keeps this resilient if the
+  // room_number/is_private columns aren't present yet.
+  const ALLOWED_PRIVATE_ROOMS = ["22", "24", "26", "27", "28", "29"];
   const { data: wards, error: wardError } = await supabase
     .from("room_management")
-    .select("id, ward_id, ward_type")
-    .eq("hospital_name", hospitalName)
-    .ilike("ward_type", "%private%");
+    .select("*")
+    .eq("hospital_name", hospitalName);
   if (wardError) throw wardError;
+
+  const privateRooms = (wards || []).filter((ward: any) =>
+    ALLOWED_PRIVATE_ROOMS.includes(String(ward.room_number ?? "").trim()),
+  );
 
   // visits.ward_allotted stores `ward_id || ward_type` (see IcuAdmissionFlow),
   // so both forms have to be matched.
   const wardKeys = [
-    ...(wards || []).map((ward: any) => String(ward.ward_id || "")),
-    ...(wards || []).map((ward: any) => String(ward.ward_type || "")),
+    ...privateRooms.map((ward: any) => String(ward.ward_id || "")),
+    ...privateRooms.map((ward: any) => String(ward.ward_type || "")),
   ].filter(Boolean);
   if (wardKeys.length === 0) return [];
 

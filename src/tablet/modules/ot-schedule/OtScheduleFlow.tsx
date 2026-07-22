@@ -50,7 +50,7 @@ interface VisitOption {
   room: string | null;
 }
 
-interface OTScheduleItem {
+export interface OTScheduleItem {
   id: string;
   visitId: string | null;
   visitNumber: string | null;
@@ -80,7 +80,7 @@ type PackageOtDefaults = {
   anesthesiaType: string;
 };
 
-const todayDate = () => new Date().toISOString().slice(0, 10);
+export const todayDate = () => new Date().toISOString().slice(0, 10);
 const nowTime = () => new Date().toTimeString().slice(0, 5);
 const normalizeStatus = (value: string | null | undefined) => (value || "scheduled").replace(/_/g, " ");
 const normalizeLookup = (value: string | null | undefined) =>
@@ -295,7 +295,7 @@ function useOtRooms() {
   });
 }
 
-function useDailySchedule(date: string) {
+export function useDailySchedule(date: string) {
   const { hospitalConfig } = useAuth();
   return useQuery({
     queryKey: ["tablet-daily-ot-schedule", hospitalConfig.name, date],
@@ -478,6 +478,9 @@ function GauravScheduler() {
   const [anesthesiaType, setAnesthesiaType] = useState("");
   const [otRoom, setOtRoom] = useState("OT");
   const [saving, setSaving] = useState(false);
+  // Id of the patient's already-saved OT row, so Save updates it instead of
+  // inserting a duplicate and the surgery/package survives a reopen.
+  const [existingScheduleId, setExistingScheduleId] = useState<string | null>(null);
   const dailySchedule = useDailySchedule(scheduledDate);
   const packageDefaults = usePackageOtDefaults(surgeryName, selected?.packageCode);
 
@@ -494,13 +497,35 @@ function GauravScheduler() {
 
   const visibleRooms = rooms.data?.length ? rooms.data : ["OT"];
 
-  const selectVisit = (visit: VisitOption) => {
+  const selectVisit = async (visit: VisitOption) => {
     setSelected(visit);
     setSurgeryName(visit.packageName || "");
     setSurgeonName("");
     setAnesthetistName("");
     setAnesthesiaType("");
     setOtRoom(visibleRooms[0] || "OT");
+    setExistingScheduleId(null);
+
+    // Reload the most recent saved OT row for this visit so the surgery/package
+    // (and time/room) come back instead of a blank field on every reopen.
+    try {
+      const { data } = await supabase
+        .from("ot_schedule")
+        .select("id, surgery_name, scheduled_date, scheduled_time, ot_room")
+        .eq("visit_id", visit.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (data) {
+        setExistingScheduleId(data.id);
+        if (data.surgery_name) setSurgeryName(data.surgery_name);
+        if (data.scheduled_date) setScheduledDate(data.scheduled_date);
+        if (data.scheduled_time) setScheduledTime(data.scheduled_time);
+        if (data.ot_room) setOtRoom(data.ot_room);
+      }
+    } catch {
+      // Non-fatal: fall back to the package-derived defaults already set above.
+    }
   };
 
   useEffect(() => {
@@ -522,7 +547,7 @@ function GauravScheduler() {
     }
     setSaving(true);
     try {
-      const { error } = await supabase.from("ot_schedule").insert({
+      const payload = {
         patient_id: selected.patientId,
         visit_id: selected.id,
         surgery_name: surgeryName.trim(),
@@ -534,7 +559,12 @@ function GauravScheduler() {
         special_requirements: anesthesiaType.trim() ? `Anesthesia Type: ${anesthesiaType.trim()}` : null,
         urgency: "elective",
         status: "scheduled",
-      });
+      };
+      // Update the existing row when one was loaded, so re-saving the same
+      // patient keeps one OT record instead of stacking duplicates.
+      const { error } = existingScheduleId
+        ? await supabase.from("ot_schedule").update(payload).eq("id", existingScheduleId)
+        : await supabase.from("ot_schedule").insert(payload);
       if (error) throw error;
       await qc.invalidateQueries({ queryKey: ["tablet-daily-ot-schedule"] });
       toast({ title: "OT scheduled", description: `${selected.patientName} added for ${formatDateTime(scheduledDate, scheduledTime)}.` });
@@ -544,6 +574,7 @@ function GauravScheduler() {
       setSurgeonName("");
       setAnesthetistName("");
       setAnesthesiaType("");
+      setExistingScheduleId(null);
       setScheduledTime(nowTime());
     } catch (error) {
       toast({

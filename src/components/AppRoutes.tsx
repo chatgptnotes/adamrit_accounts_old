@@ -26,6 +26,7 @@ const DischargedPatients = lazy(() => import("../pages/DischargedPatients"));
 const VpsClaudeUsage = lazy(() => import("../pages/VpsClaudeUsage"));
 const Accommodation = lazy(() => import("../pages/Accommodation"));
 const RoomManagement = lazy(() => import("../pages/RoomManagement"));
+const PrivateRoomMaster = lazy(() => import("../pages/PrivateRoomMaster"));
 const DirectorDashboard = lazy(() => import("../pages/DirectorDashboard"));
 const DirectorMatrixDailyEntries = lazy(() => import("../pages/DirectorMatrixDailyEntries"));
 
@@ -270,6 +271,7 @@ export const AppRoutes = () => {
         <Route path="/currently-admitted" element={<CurrentlyAdmittedPatients />} />
         <Route path="/accommodation" element={<Suspense fallback={<PageLoader />}><Accommodation /></Suspense>} />
         <Route path="/room-management" element={<Suspense fallback={<PageLoader />}><RoomManagement /></Suspense>} />
+        <Route path="/private-room-master" element={<Suspense fallback={<PageLoader />}><PrivateRoomMaster /></Suspense>} />
         <Route path="/discharged-patients" element={<Suspense fallback={<PageLoader />}><DischargedPatients /></Suspense>} />
         <Route path="/mandatory-service" element={<Suspense fallback={<PageLoader />}><MandatoryService /></Suspense>} />
         <Route path="/mandatory-service-create" element={<Suspense fallback={<PageLoader />}><MandatoryServiceCreate /></Suspense>} />

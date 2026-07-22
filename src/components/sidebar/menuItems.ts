@@ -264,6 +264,12 @@ export const menuItems: MenuItemDef[] = [
 
   // ── Masters section ──
   {
+    title: "Private Room Master",
+    url: "/private-room-master",
+    icon: DoorOpen,
+    section: 'masters',
+  },
+  {
     title: "Lab Master",
     url: "/lab-master",
     icon: TestTube,

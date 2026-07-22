@@ -57,10 +57,12 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
   const [isLoadingRelationshipManagers, setIsLoadingRelationshipManagers] = useState(true);
 
   // Ward and Room Management
-  const [wards, setWards] = useState<Array<{ ward_id: string; ward_type: string; maximum_rooms: number }>>([]);
+  const [wards, setWards] = useState<Array<{ ward_id: string; ward_type: string; maximum_rooms: number; is_private?: boolean; has_attached_washroom?: boolean; room_number?: string | null }>>([]);
   const [isLoadingWards, setIsLoadingWards] = useState(false);
   const [availableRooms, setAvailableRooms] = useState<number[]>([]);
   const [selectedWard, setSelectedWard] = useState<{ ward_id: string; maximum_rooms: number } | null>(null);
+  // ward_id -> currently-admitted patient count, for live Available/Full status
+  const [wardOccupancy, setWardOccupancy] = useState<Record<string, number>>({});
 
   useEffect(() => {
     const fetchDoctors = async () => {
@@ -180,16 +182,35 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
       try {
         setIsLoadingWards(true);
 
-        const { data, error } = await supabase
+        // select('*') so this keeps working before/after the private-room
+        // columns (is_private, has_attached_washroom, room_number) are added.
+        const { data, error } = await (supabase as any)
           .from('room_management')
-          .select('ward_id, ward_type, maximum_rooms')
+          .select('*')
           .order('ward_type');
 
         if (error) {
           console.error('Error fetching wards:', error);
           setWards([]);
         } else {
-          setWards(data || []);
+          const wardRows = data || [];
+          setWards(wardRows);
+
+          // Live occupancy per ward (currently-admitted = discharge_date null)
+          // drives the Available / Partially Occupied / Full labels below.
+          const wardIds = wardRows.map((w: any) => w.ward_id).filter(Boolean);
+          if (wardIds.length > 0) {
+            const { data: visits } = await (supabase as any)
+              .from('visits')
+              .select('ward_allotted, discharge_date')
+              .in('ward_allotted', wardIds)
+              .is('discharge_date', null);
+            const counts: Record<string, number> = {};
+            (visits || []).forEach((v: { ward_allotted: string | null }) => {
+              if (v.ward_allotted) counts[v.ward_allotted] = (counts[v.ward_allotted] || 0) + 1;
+            });
+            setWardOccupancy(counts);
+          }
         }
       } catch (error) {
         console.error('Exception while fetching wards:', error);
@@ -655,11 +676,21 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
                   />
                 </SelectTrigger>
                 <SelectContent>
-                  {wards.map((ward) => (
-                    <SelectItem key={ward.ward_id} value={ward.ward_id}>
-                      {ward.ward_type} (Max: {ward.maximum_rooms} beds)
-                    </SelectItem>
-                  ))}
+                  {wards.map((ward) => {
+                    const occupied = wardOccupancy[ward.ward_id] || 0;
+                    const isFull = occupied >= ward.maximum_rooms;
+                    const status = occupied <= 0 ? 'Available' : isFull ? 'Full' : 'Partially Occupied';
+                    // Private rooms show washroom + live availability; full rooms
+                    // cannot be selected. Non-private wards keep the plain label.
+                    const label = ward.is_private
+                      ? `${ward.ward_type} · ${ward.maximum_rooms} bed${ward.maximum_rooms === 1 ? '' : 's'} · ${ward.has_attached_washroom ? 'Washroom' : 'No washroom'} · ${status} (${occupied}/${ward.maximum_rooms})`
+                      : `${ward.ward_type} (Max: ${ward.maximum_rooms} beds)`;
+                    return (
+                      <SelectItem key={ward.ward_id} value={ward.ward_id} disabled={ward.is_private && isFull}>
+                        {label}
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>
