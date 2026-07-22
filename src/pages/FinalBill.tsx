@@ -5739,12 +5739,6 @@ Generated on: ${new Date().toLocaleDateString('en-IN')}`);
       return;
     }
 
-    const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY?.trim();
-    if (!geminiApiKey || geminiApiKey === 'your_gemini_api_key_here') {
-      toast.error('Gemini API key is not configured. Add VITE_GEMINI_API_KEY and restart the dev server.');
-      return;
-    }
-
     setIsGeneratingSurgeryNotes(true);
 
     try {
@@ -5860,7 +5854,7 @@ INSTRUCTIONS:
         // fallback: a VPS error throws and is handled by the catch below.
         generatedText = await callVpsClaude(opNotesPrompt, 'opus');
       } else {
-        const response = await geminiGenerateContent(geminiGenerateContentUrl(geminiApiKey), {
+        const response = await geminiGenerateContent(geminiGenerateContentUrl(''), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
