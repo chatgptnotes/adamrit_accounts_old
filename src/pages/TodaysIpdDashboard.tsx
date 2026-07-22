@@ -2954,35 +2954,37 @@ const TodaysIpdDashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen overflow-x-hidden bg-background p-4 sm:p-6">
+      <div className="w-full max-w-7xl mx-auto space-y-6 min-w-0">
         {/* Header */}
-        <div className="flex items-center justify-between no-print">
-          <div className="flex items-center gap-3">
+        <div className="flex w-full min-w-0 flex-col gap-4 no-print">
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
             <Calendar className="h-8 w-8 text-primary" />
-            <div>
-              <h1 className="text-3xl font-bold text-primary">IPD PATIENT DASHBOARD</h1>
+            <div className="min-w-0">
+              <h1 className="text-2xl font-bold text-primary sm:text-3xl">IPD PATIENT DASHBOARD</h1>
               <p className="text-muted-foreground">
                 {format(new Date(), 'EEEE, MMMM do, yyyy')} - {filteredVisits?.length || 0} visits scheduled
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
             <DateRangePicker
               date={dateRange}
               onDateChange={handleDateRangeChange}
             />
-            <div className="relative">
+          </div>
+          <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
+            <div className="relative w-full min-w-0 sm:w-48 sm:flex-none">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
               <Input
                 placeholder="Search visits..."
                 value={localSearchTerm}
                 onChange={(e) => setLocalSearchTerm(e.target.value)}
-                className="pl-10 w-48"
+                className="w-full pl-10"
               />
             </div>
             <Select value={schemeFilter || 'all'} onValueChange={(value) => setSchemeFilter(value === 'all' ? '' : value)}>
-              <SelectTrigger className="w-36 h-8 text-xs">
+              <SelectTrigger className="h-8 w-full text-xs sm:w-36">
                 <SelectValue placeholder="Scheme" />
               </SelectTrigger>
               <SelectContent>
@@ -2994,7 +2996,7 @@ const TodaysIpdDashboard = () => {
             <Button
               onClick={handlePrint}
               variant="outline"
-              className="flex items-center gap-1 text-xs h-8"
+              className="h-8 shrink-0 gap-1 text-xs"
             >
               <Printer className="h-3 w-3" />
               Print List
@@ -3002,7 +3004,7 @@ const TodaysIpdDashboard = () => {
             <Button
               onClick={handleExportToExcel}
               variant="outline"
-              className="flex items-center gap-1 text-xs h-8"
+              className="h-8 shrink-0 gap-1 text-xs"
             >
               <Download className="h-3 w-3" />
               Export XLS
@@ -3013,7 +3015,7 @@ const TodaysIpdDashboard = () => {
                 <Button
                   onClick={handleOpenReferralReport}
                   variant="outline"
-                  className="flex items-center gap-1 text-xs h-8"
+                  className="h-8 shrink-0 gap-1 text-xs"
                 >
                   <Download className="h-3 w-3" />
                   Referral Report
@@ -3021,7 +3023,7 @@ const TodaysIpdDashboard = () => {
                 <Button
                   onClick={handleOpenUnpaidReport}
                   variant="outline"
-                  className="flex items-center gap-1 text-xs h-8 text-red-600 border-red-300 hover:bg-red-50"
+                  className="h-8 shrink-0 gap-1 border-red-300 text-xs text-red-600 hover:bg-red-50"
                 >
                   <Download className="h-3 w-3" />
                   Unpaid Referral
@@ -3031,13 +3033,13 @@ const TodaysIpdDashboard = () => {
             <Button
               onClick={() => setHideColumns(!hideColumns)}
               variant="outline"
-              className="flex items-center gap-1 text-xs h-8"
+              className="h-8 shrink-0 gap-1 text-xs"
             >
               {hideColumns ? 'Show Columns' : 'Hide Columns'}
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="flex items-center gap-1 text-xs h-8">
+                <Button variant="outline" className="h-8 shrink-0 gap-1 text-xs">
                   <Filter className="h-3 w-3" />
                   Filters
                 </Button>
@@ -3304,6 +3306,7 @@ const TodaysIpdDashboard = () => {
           <div className="p-4 border-b">
             <h2 className="text-lg font-semibold">IPD PATIENT</h2>
           </div>
+          <div className="w-full overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/50">
@@ -3916,6 +3919,7 @@ const TodaysIpdDashboard = () => {
               ))}
             </TableBody>
           </Table>
+        </div>
         </div>
 
         {/* Pagination Controls */}
