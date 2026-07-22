@@ -33,6 +33,7 @@ interface NotificationRow {
   notification_type: string;
   title: string;
   message: string;
+  recipient_user_id: string | null;
   hospital_name: string | null;
   patient_id: string | null;
   patient_name: string | null;
@@ -84,19 +85,30 @@ export function TabletNotificationBell() {
     queryKey: [...QUERY_KEY, user?.id ?? user?.email ?? "anon"],
     enabled: isSuperAdmin,
     queryFn: async () => {
-      let query = (supabase as any)
+      // One row is inserted per super admin (recipient_user_id = that admin's
+      // User.id). Query by role rather than by the session's user.id — the
+      // stored id can be stale/missing across sessions — then collapse the
+      // per-admin fan-out to a single card per event below.
+      const { data, error: queryError } = await (supabase as any)
         .from("notifications")
         .select("*")
+        .in("recipient_role", SUPER_ADMIN_ROLES)
         .order("created_at", { ascending: false })
-        .limit(50);
-      // Rows are inserted per super admin; fall back to role targeting for
-      // older sessions whose stored user has no id.
-      query = user?.id
-        ? query.eq("recipient_user_id", user.id)
-        : query.in("recipient_role", SUPER_ADMIN_ROLES);
-      const { data, error: queryError } = await query;
+        .limit(200);
       if (queryError) throw queryError;
-      return (data || []) as NotificationRow[];
+      const all = (data || []) as NotificationRow[];
+      // Same event => same notification_type + visit_id + created_at (all the
+      // per-admin rows share one insert timestamp). Prefer the current admin's
+      // own row so mark-as-read stays per-user when the id does line up.
+      const byEvent = new Map<string, NotificationRow>();
+      for (const row of all) {
+        const key = `${row.notification_type}|${row.visit_id ?? ""}|${row.created_at}`;
+        const existing = byEvent.get(key);
+        if (!existing || (user?.id && row.recipient_user_id === user.id)) {
+          byEvent.set(key, row);
+        }
+      }
+      return Array.from(byEvent.values()).slice(0, 50);
     },
     refetchInterval: 5 * 60 * 1000,
     staleTime: 60 * 1000,
