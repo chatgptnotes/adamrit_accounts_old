@@ -44,6 +44,7 @@ export const EnhancedDatePicker: React.FC<EnhancedDatePickerProps> = ({
   const [selectedYear, setSelectedYear] = React.useState<number>(value?.getFullYear() || (isDOB ? 1990 : new Date().getFullYear()));
   const [selectedMonth, setSelectedMonth] = React.useState<number>(value?.getMonth() || 0);
   const [yearInput, setYearInput] = React.useState<string>('');
+  const previousOpenRequest = React.useRef(openRequest);
 
   // Update internal state when value prop changes
   React.useEffect(() => {
@@ -55,8 +56,10 @@ export const EnhancedDatePicker: React.FC<EnhancedDatePickerProps> = ({
   }, [value]);
 
   React.useEffect(() => {
-    if (openRequest === undefined) return;
-    setIsOpen(true);
+    if (openRequest !== undefined && previousOpenRequest.current !== openRequest) {
+      setIsOpen(true);
+    }
+    previousOpenRequest.current = openRequest;
   }, [openRequest]);
 
   // Generate year range (1900 to current year + 10)
