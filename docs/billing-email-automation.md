@@ -108,7 +108,8 @@ VITE_GMAIL_USER_EMAIL=info@hopehospital.com
 VITE_SUPABASE_SERVICE_ROLE_KEY=eyJ...
 
 # Gemini (for Re-phrase AI — already used in discharge summary)
-VITE_GEMINI_API_KEY=AIza...
+# Gemini is called through the server-side /api/ai-proxy route.
+GEMINI_API_KEY=managed-server-side
 ```
 
 ---

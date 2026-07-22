@@ -222,7 +222,7 @@ code(pdf,
      'VITE_GMAIL_REFRESH_TOKEN=...\n'
      'VITE_GMAIL_USER_EMAIL=info@hopehospital.com\n'
      'VITE_SUPABASE_SERVICE_ROLE_KEY=...\n'
-     'VITE_GEMINI_API_KEY=...')
+     'GEMINI_API_KEY=managed-server-side')
 pdf.ln(2)
 h2(pdf, 'If the Gmail token expires')
 body(pdf, 'Run:  node scripts/email-automation/setup-oauth.js')

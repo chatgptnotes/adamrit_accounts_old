@@ -571,7 +571,7 @@ stored body → update; not found → insert. Templates per category, all signed
 | `VPS_CLAUDE_URL` | server | sidecar `/claude` URL (e.g. `https://aiass.<domain>/adamrit-claude`) |
 | `VPS_CLAUDE_TOKEN` | server | bearer for sidecar (`openssl rand -hex 32`) |
 | `VPS_CLAUDE_USAGE_URL` | server | comma-sep `/usage` URLs; derived from `VPS_CLAUDE_URL` if blank |
-| `VITE_GEMINI_API_KEY` | client | presence sentinel; real key is server-side `GEMINI_API_KEY` (Supabase secret) |
+| `GEMINI_API_KEY` | server | server-side Gemini proxy/secret; never expose through Vite/client env |
 | `VITE_GMAIL_CLIENT_ID` / `_SECRET` / `_REFRESH_TOKEN` / `_USER_EMAIL` | client | Gmail OAuth for billing email |
 | `VITE_SUPABASE_SERVICE_ROLE_KEY` | client | admin writes to `email_inbox` (bypass RLS) |
 | `VITE_RESEND_API_KEY` | client | Skill Factory email sends (Resend, 100/day free) |

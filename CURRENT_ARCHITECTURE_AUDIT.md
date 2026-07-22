@@ -192,7 +192,7 @@ Tables are referenced by **string literals** throughout; no abstraction layer.
 | **MED** | `src/pages/DetailedInvoice.tsx` (lines 387–388, 654–655, 908–909) injects `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` into generated `<meta>` tags of **exported invoice HTML** — embedding keys into shareable documents. |
 | **MED** | Non-standard auth: **client-side bcrypt** (`bcryptjs` via `src/utils/auth.ts`) against a custom `User` table, using a separate anon client to bypass session RLS for lookups. Warrants a dedicated security review. |
 | **LOW (good)** | ✅ **No `service_role` key in frontend** — confirmed 0 matches in `src/`. It appears only in `.env.example` marked "server-side only — NEVER expose." |
-| **NOTE** | `VITE_OPENAI_API_KEY` / `VITE_GEMINI_API_KEY` in `.env.example` use the `VITE_` prefix → would be **bundled into the client** if ever set. |
+| **RESOLVED** | Gemini is routed through the server-side proxy and is configured only with `GEMINI_API_KEY`; no Gemini Vite key is used. |
 
 ---
 
