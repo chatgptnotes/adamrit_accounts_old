@@ -132,6 +132,11 @@ export const menuItems: MenuItemDef[] = [
     icon: BookOpen,
   },
   {
+    title: "Accounting",
+    url: "/accounting",
+    icon: Wallet,
+  },
+  {
     title: "Payment Allocation",
     url: "/daily-payment-allocation",
     icon: Wallet,
@@ -165,11 +170,6 @@ export const menuItems: MenuItemDef[] = [
     title: "Bill Approvals",
     url: "/bill-approvals",
     icon: ClipboardCheck,
-  },
-  {
-    title: "Tally Integration",
-    url: "/tally",
-    icon: BookOpen,
   },
   {
     title: "Lab",
