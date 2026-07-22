@@ -50,12 +50,17 @@ export async function mergedLedgerBalances(opts: {
   from?: string;
   upto?: string;
 }): Promise<LedgerBalanceRow[]> {
+  let accountsQuery = supabase
+    .from('chart_of_accounts')
+    .select('id, account_name, account_type, opening_balance, opening_balance_type')
+    .eq('is_active', true)
+    .order('account_code');
+  if (opts.companyId) {
+    accountsQuery = accountsQuery.or(`company_id.eq.${opts.companyId},company_id.is.null`);
+  }
+
   const [accountsRes, movements, tallyCompanyIds] = await Promise.all([
-    supabase
-      .from('chart_of_accounts')
-      .select('id, account_name, account_type, opening_balance, opening_balance_type')
-      .eq('is_active', true)
-      .order('account_code'),
+    accountsQuery,
     accountMovements({ from: opts.from, upto: opts.upto, companyId: opts.companyId }),
     resolveTallyCompanyIds(opts.companyId),
   ]);

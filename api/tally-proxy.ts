@@ -159,32 +159,36 @@ async function mirrorTallyLedgersToChartAccounts(
 
   const { data: existing, error: existingError } = await supabase
     .from('chart_of_accounts')
-    .select('account_name')
+    .select('id, account_name, account_code')
     .eq('company_id', company.id)
   if (existingError) throw existingError
 
-  const existingNames = new Set((existing || []).map((item: any) => item.account_name.trim().toLowerCase()))
-  const missing = ledgerRows
-    .filter((ledger) => !existingNames.has(ledger.name.trim().toLowerCase()))
-    .map((ledger) => ({
+  const existingByName = new Map(
+    (existing || []).map((item: any) => [item.account_name.trim().toLowerCase(), item]),
+  )
+  const accountRows = ledgerRows.map((ledger) => {
+    const current = existingByName.get(ledger.name.trim().toLowerCase())
+    return {
+      ...(current?.id ? { id: current.id } : {}),
       company_id: company.id,
-      account_code: tallyChartAccountCode(company.id, ledger.name),
+      account_code: current?.account_code || tallyChartAccountCode(company.id, ledger.name),
       account_name: ledger.name,
       account_type: accountTypeForTallyGroup(ledger.parent_group),
       account_group: ledger.parent_group || null,
       opening_balance: Math.abs(Number(ledger.opening_balance) || 0),
       opening_balance_type: Number(ledger.opening_balance) < 0 ? 'CR' : 'DR',
       is_active: true,
-    }))
+    }
+  })
 
-  for (let index = 0; index < missing.length; index += 100) {
+  for (let index = 0; index < accountRows.length; index += 100) {
     const { error } = await supabase
       .from('chart_of_accounts')
-      .upsert(missing.slice(index, index + 100), { onConflict: 'account_code' })
+      .upsert(accountRows.slice(index, index + 100), { onConflict: 'id' })
     if (error) throw error
   }
 
-  return { created: missing.length }
+  return { synced: accountRows.length }
 }
 
 function normalizedServerUrl(value: string): string {

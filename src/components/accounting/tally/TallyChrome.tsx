@@ -77,7 +77,8 @@ const TallySyncButton: React.FC = () => {
 
   const selectedTallyConfig = useMemo(() => {
     if (!selectedCompany?.company_name) return null;
-    return tallyConfigs.find((config: any) => companyKey(config.company_name) === companyKey(selectedCompany.company_name)) ?? null;
+    const matches = tallyConfigs.filter((config: any) => companyKey(config.company_name) === companyKey(selectedCompany.company_name));
+    return matches.length === 1 ? matches[0] : null;
   }, [selectedCompany, tallyConfigs]);
 
   const syncLatest = useCallback(async () => {
@@ -99,7 +100,7 @@ const TallySyncButton: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           endpoint: 'sync',
-          action: 'full',
+          action: 'ledgers',
           serverUrl: selectedTallyConfig.server_url,
           companyName: selectedTallyConfig.company_name,
           companyId: selectedTallyConfig.id,
@@ -108,7 +109,7 @@ const TallySyncButton: React.FC = () => {
         }),
       });
       const result = await response.json();
-      if (!response.ok || result.error || result.success === false) {
+      if (!response.ok || result.error || result.success === false || result.errors?.length) {
         throw new Error(result.error || result.message || 'Latest Tally sync failed');
       }
 
@@ -122,7 +123,7 @@ const TallySyncButton: React.FC = () => {
         queryClient.invalidateQueries({ queryKey: ['ledger_tally'] }),
         queryClient.invalidateQueries({ queryKey: ['tally_configs_for_accounting'] }),
       ]);
-      toast.success(`Latest data saved for ${selectedTallyConfig.company_name} (${result.recordsSynced ?? 0} records)`);
+      toast.success(`All ledgers saved for ${selectedTallyConfig.company_name} (${result.recordsSynced ?? 0} records)`);
     } catch (error: any) {
       toast.error(error?.message || 'Latest Tally sync failed');
     } finally {

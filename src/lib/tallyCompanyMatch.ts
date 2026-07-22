@@ -74,7 +74,11 @@ export async function resolveTallyCompanyIds(accountingCompanyId?: string): Prom
   if (!company) return [];
 
   const target = companyKey(company.company_name);
-  return activeConfigs
+  const matches = activeConfigs
     .filter((config) => companyKey(config.company_name) === target)
     .map((config) => config.id);
+
+  // Multiple configs with the same normalized name are ambiguous and must
+  // never be merged into one Accounting company's reports.
+  return matches.length === 1 ? matches : [];
 }
