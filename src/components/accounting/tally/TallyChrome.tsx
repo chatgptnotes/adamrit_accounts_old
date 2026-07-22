@@ -1,9 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { RefreshCw } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import { HOSPITAL_CONFIGS, type HospitalType } from '@/types/hospital';
 import { useCompanies } from '@/hooks/useCompanies';
 import { useAccountingCompanyOptional } from '../AccountingCompanyContext';
+import { companyKey } from '@/lib/tallyCompanyMatch';
 
 /**
  * Shared Tally Prime chrome for the accounting module:
@@ -51,6 +55,94 @@ interface TallyTopBarProps {
   sections: { id: string; label: string }[];
   onGoTo: (id: string) => void;
 }
+
+const TallySyncButton: React.FC = () => {
+  const queryClient = useQueryClient();
+  const accountingCompany = useAccountingCompanyOptional();
+  const selectedCompanyId = accountingCompany?.selectedCompanyId || '';
+  const selectedCompany = accountingCompany?.companies.find((company) => company.id === selectedCompanyId);
+  const [syncing, setSyncing] = useState(false);
+
+  const { data: tallyConfigs = [] } = useQuery({
+    queryKey: ['tally_configs_for_accounting'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('tally_config')
+        .select('id, server_url, company_name, is_active, last_sync_at')
+        .eq('is_active', true);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const selectedTallyConfig = useMemo(() => {
+    if (!selectedCompany?.company_name) return null;
+    return tallyConfigs.find((config: any) => companyKey(config.company_name) === companyKey(selectedCompany.company_name)) ?? null;
+  }, [selectedCompany, tallyConfigs]);
+
+  const syncLatest = useCallback(async () => {
+    if (!selectedCompanyId || !selectedTallyConfig?.id || !selectedTallyConfig.server_url || !selectedTallyConfig.company_name) {
+      toast.error('No matching Tally configuration found for the selected Accounting company');
+      return;
+    }
+
+    setSyncing(true);
+    try {
+      const today = new Date();
+      const fallbackFrom = new Date(today);
+      fallbackFrom.setDate(fallbackFrom.getDate() - 30);
+      const lastSync = selectedTallyConfig.last_sync_at ? new Date(selectedTallyConfig.last_sync_at) : fallbackFrom;
+      lastSync.setDate(lastSync.getDate() - 1);
+      const isoDate = (date: Date) => date.toISOString().slice(0, 10);
+      const response = await fetch('/api/tally-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          endpoint: 'sync',
+          action: 'full',
+          serverUrl: selectedTallyConfig.server_url,
+          companyName: selectedTallyConfig.company_name,
+          companyId: selectedTallyConfig.id,
+          accountingCompanyId: selectedCompanyId,
+          dateRange: { from: isoDate(lastSync), to: isoDate(today) },
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || result.error || result.success === false) {
+        throw new Error(result.error || result.message || 'Latest Tally sync failed');
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['chart_of_accounts_leaves', selectedCompanyId] }),
+        queryClient.invalidateQueries({ queryKey: ['tb_merged', selectedCompanyId] }),
+        queryClient.invalidateQueries({ queryKey: ['balance_sheet_merged'] }),
+        queryClient.invalidateQueries({ queryKey: ['profit_loss_merged'] }),
+        queryClient.invalidateQueries({ queryKey: ['daybook_tally', selectedCompanyId] }),
+        queryClient.invalidateQueries({ queryKey: ['voucher_register_tally'] }),
+        queryClient.invalidateQueries({ queryKey: ['ledger_tally'] }),
+        queryClient.invalidateQueries({ queryKey: ['tally_configs_for_accounting'] }),
+      ]);
+      toast.success(`Latest data saved for ${selectedTallyConfig.company_name} (${result.recordsSynced ?? 0} records)`);
+    } catch (error: any) {
+      toast.error(error?.message || 'Latest Tally sync failed');
+    } finally {
+      setSyncing(false);
+    }
+  }, [queryClient, selectedCompanyId, selectedTallyConfig]);
+
+  return (
+    <button
+      type="button"
+      onClick={() => void syncLatest()}
+      disabled={syncing || !selectedTallyConfig}
+      className="mr-3 inline-flex items-center gap-1 border border-[#6f8fb5] bg-[#e9f0fa] px-2 py-0.5 text-[12px] font-semibold text-[#16437e] hover:bg-white disabled:cursor-default disabled:opacity-60"
+      title="Fetch and save latest data for the selected Accounting company"
+    >
+      <RefreshCw className={`h-3 w-3 ${syncing ? 'animate-spin' : ''}`} />
+      {syncing ? 'Syncing...' : 'Sync Latest'}
+    </button>
+  );
+};
 
 export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) => {
   const [query, setQuery] = useState('');
@@ -205,7 +297,9 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
             )}
           </div>
         </div>
-        <div className="ml-auto" />
+        <div className="ml-auto flex items-center">
+          <TallySyncButton />
+        </div>
       </div>
       {/* Row 2: menu */}
       <div className="flex items-center justify-center pb-0.5 pt-1" onMouseLeave={() => setOpenMenu(null)}>

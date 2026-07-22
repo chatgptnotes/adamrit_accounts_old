@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
-import { X, Loader2, RefreshCw } from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
 import { sendPaymentAlert } from '@/lib/payment-alert-service';
 import { accountMovements } from '@/lib/accountMovements';
 import { useAuth } from '@/contexts/AuthContext';
@@ -24,7 +24,6 @@ import { TallyScreen, type RailItem } from './tally/TallyChrome';
 import { useCostCentres } from './CostCentres';
 import { useAccountingRights } from './tally/rights';
 import { useAccountingCompany } from './AccountingCompanyContext';
-import { companyKey } from '@/lib/tallyCompanyMatch';
 
 // Type definition for a voucher type record
 interface VoucherType {
@@ -232,7 +231,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
   const queryClient = useQueryClient();
   const { user, hospitalConfig } = useAuth();
   const { canAlter } = useAccountingRights();
-  const { companies, selectedCompanyId, setSelectedCompanyId } = useAccountingCompany();
+  const { selectedCompanyId, setSelectedCompanyId } = useAccountingCompany();
   const alterMode = !!voucherId;
   const username = user?.username || user?.email || 'system';
 
@@ -246,7 +245,6 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
   const [narration, setNarration] = useState('');
   const [patientId, setPatientId] = useState('');
   const [saving, setSaving] = useState(false);
-  const [syncingLatest, setSyncingLatest] = useState(false);
   // Alteration mode: keep the original number/status; force journal layout
   // when an old voucher's entries don't fit the single-account shape.
   const [loadedNumber, setLoadedNumber] = useState('');
@@ -355,29 +353,6 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
     const searchable = `${account.account_name} ${account.account_type} ${account.account_group || ''}`.toLowerCase();
     return searchable.includes('cash') || searchable.includes('bank');
   }), [accounts]);
-
-  const selectedAccountingCompany = useMemo(
-    () => companies.find((company) => company.id === selectedCompanyId),
-    [companies, selectedCompanyId],
-  );
-
-  const { data: tallyConfigs = [] } = useQuery({
-    queryKey: ['tally_configs_for_accounting'],
-    queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from('tally_config')
-        .select('id, server_url, company_name, is_active, last_sync_at')
-        .eq('is_active', true);
-      if (error) throw error;
-      return data || [];
-    },
-  });
-
-  const selectedTallyConfig = useMemo(() => {
-    const nativeName = selectedAccountingCompany?.company_name;
-    if (!nativeName) return null;
-    return tallyConfigs.find((config: any) => companyKey(config.company_name) === companyKey(nativeName)) ?? null;
-  }, [selectedAccountingCompany, tallyConfigs]);
 
   // When opened from a Tally shortcut, select the requested voucher category
   // once the active voucher types have loaded. Alteration mode always wins.
@@ -972,57 +947,6 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [voucherTypes, selectedVoucherType, alterMode, isOptional, canAlter, openDatePicker]);
 
-  const syncLatest = useCallback(async () => {
-    if (!selectedTallyConfig?.id || !selectedTallyConfig.server_url || !selectedTallyConfig.company_name) {
-      toast.error('No Tally configuration found for the selected company');
-      return;
-    }
-
-    setSyncingLatest(true);
-    try {
-      const today = new Date();
-      const fallbackFrom = new Date(today);
-      fallbackFrom.setDate(fallbackFrom.getDate() - 30);
-      const lastSync = selectedTallyConfig.last_sync_at ? new Date(selectedTallyConfig.last_sync_at) : fallbackFrom;
-      lastSync.setDate(lastSync.getDate() - 1);
-      const isoDate = (date: Date) => date.toISOString().slice(0, 10);
-
-      const response = await fetch('/api/tally-proxy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          endpoint: 'sync',
-          action: 'full',
-          serverUrl: selectedTallyConfig.server_url,
-          companyName: selectedTallyConfig.company_name,
-          companyId: selectedTallyConfig.id,
-          accountingCompanyId: selectedCompanyId,
-          dateRange: { from: isoDate(lastSync), to: isoDate(today) },
-        }),
-      });
-      const result = await response.json();
-      if (!response.ok || result.error || result.success === false) {
-        throw new Error(result.error || result.message || 'Latest Tally sync failed');
-      }
-
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['chart_of_accounts_leaves', selectedCompanyId] }),
-        queryClient.invalidateQueries({ queryKey: ['tb_merged', selectedCompanyId] }),
-        queryClient.invalidateQueries({ queryKey: ['balance_sheet_merged'] }),
-        queryClient.invalidateQueries({ queryKey: ['profit_loss_merged'] }),
-        queryClient.invalidateQueries({ queryKey: ['daybook_tally', selectedCompanyId] }),
-        queryClient.invalidateQueries({ queryKey: ['voucher_register_tally'] }),
-        queryClient.invalidateQueries({ queryKey: ['ledger_tally'] }),
-        queryClient.invalidateQueries({ queryKey: ['tally_configs_for_accounting'] }),
-      ]);
-      toast.success(`Latest data saved for ${selectedTallyConfig.company_name} (${result.recordsSynced ?? 0} records)`);
-    } catch (error: any) {
-      toast.error(error?.message || 'Latest Tally sync failed');
-    } finally {
-      setSyncingLatest(false);
-    }
-  }, [queryClient, selectedCompanyId, selectedTallyConfig]);
-
   const accountBalance = account ? balances[account.id] : undefined;
 
   const amountInputClass =
@@ -1032,18 +956,6 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
     <TallyScreen
       title={alterMode ? "Accounting Voucher Alteration" : "Accounting Voucher Creation"}
       rail={rail}
-      headerAction={
-        <button
-          type="button"
-          onClick={() => void syncLatest()}
-          disabled={syncingLatest || !selectedTallyConfig}
-          className="mr-2 inline-flex items-center gap-1 border border-[#6f8fb5] bg-[#e9f0fa] px-2 py-0.5 text-[12px] font-semibold text-[#16437e] hover:bg-white disabled:cursor-default disabled:opacity-60"
-          title="Fetch and save latest data for the selected company"
-        >
-          <RefreshCw className={`h-3 w-3 ${syncingLatest ? 'animate-spin' : ''}`} />
-          {syncingLatest ? 'Syncing...' : 'Sync Latest'}
-        </button>
-      }
       onClose={onDone}
     >
       {/* Voucher type / No. / Ref / Date strip */}
