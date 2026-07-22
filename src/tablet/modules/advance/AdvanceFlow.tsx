@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Camera, CheckCircle2, ChevronRight, Download, FileText, ImageIcon, Loader2, MessageCircle, Printer, Search, Sparkles, Upload, User, Wallet } from "lucide-react";
+import { Camera, CheckCircle2, ChevronRight, Download, FileText, ImageIcon, Loader2, MessageCircle, Printer, Search, Sparkles, Trash2, Upload, User, Wallet } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -22,7 +22,7 @@ import { syncPortalDataForRegistrationId } from "@/lib/governmentPortalReportDb"
 import { derivePackageCodeFromName, resolvePackageCodeFromSavedData } from "@/lib/packageCodeLookup";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { compressImageToLimit } from "@/tablet/lib/image";
-import { uploadPatientDocs, usePatientDocs, type PatientDoc } from "@/tablet/hooks/usePatientDocs";
+import { deletePatientDoc, uploadPatientDocs, usePatientDocs, type PatientDoc } from "@/tablet/hooks/usePatientDocs";
 
 const MODES = ["CASH", "CARD", "UPI", "CHEQUE", "NEFT"];
 const ADVANCE_IMAGE_CATEGORY = "advance_image";
@@ -379,6 +379,7 @@ export default function AdvanceFlow() {
   const [cameraStarting, setCameraStarting] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [deletingImageId, setDeletingImageId] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
   const cameraCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -786,6 +787,28 @@ export default function AdvanceFlow() {
     link.click();
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
+  };
+
+  const handleDeleteImage = async (doc: PatientDoc) => {
+    if (!window.confirm("Delete this image? This cannot be undone.")) return;
+
+    setDeletingImageId(doc.id);
+    try {
+      await deletePatientDoc(doc);
+      if (viewingImage?.id === doc.id) setViewingImage(null);
+      await qc.invalidateQueries({
+        queryKey: ["tablet-patient-docs", patient?.id, ADVANCE_IMAGE_CATEGORY],
+      });
+      toast({ title: "Image deleted", description: "The Advance image was removed." });
+    } catch (error) {
+      toast({
+        title: "Delete failed",
+        description: error instanceof Error ? error.message : "Unable to delete the image.",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingImageId(null);
+    }
   };
 
   const handleImageFiles = async (files: File[]): Promise<boolean> => {
@@ -1965,6 +1988,19 @@ ${JSON.stringify(sourceContext, null, 2)}`,
                     <Download className="h-5 w-5" />
                     Download
                   </TabletButton>
+                  <TabletButton
+                    variant="outline"
+                    className="flex-1 text-destructive hover:text-destructive"
+                    disabled={deletingImageId === viewingImage.id}
+                    onClick={() => void handleDeleteImage(viewingImage)}
+                  >
+                    {deletingImageId === viewingImage.id ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-5 w-5" />
+                    )}
+                    Delete
+                  </TabletButton>
                 </div>
               </div>
             ) : cameraOpen ? (
@@ -2085,10 +2121,24 @@ ${JSON.stringify(sourceContext, null, 2)}`,
                           <button
                             type="button"
                             aria-label="Download image"
+                            disabled={deletingImageId === doc.id}
                             className="rounded-lg p-2 text-foreground/70 hover:bg-accent"
                             onClick={() => void downloadImage(doc)}
                           >
                             <Download className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Delete image"
+                            disabled={deletingImageId === doc.id}
+                            className="rounded-lg p-2 text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                            onClick={() => void handleDeleteImage(doc)}
+                          >
+                            {deletingImageId === doc.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
                           </button>
                         </div>
                       </TabletCard>
