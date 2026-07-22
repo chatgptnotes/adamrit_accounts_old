@@ -996,6 +996,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
           serverUrl: selectedTallyConfig.server_url,
           companyName: selectedTallyConfig.company_name,
           companyId: selectedTallyConfig.id,
+          accountingCompanyId: selectedCompanyId,
           dateRange: { from: isoDate(lastSync), to: isoDate(today) },
         }),
       });
@@ -1004,14 +1005,23 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
         throw new Error(result.error || result.message || 'Latest Tally sync failed');
       }
 
-      await queryClient.invalidateQueries();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['chart_of_accounts_leaves', selectedCompanyId] }),
+        queryClient.invalidateQueries({ queryKey: ['tb_merged', selectedCompanyId] }),
+        queryClient.invalidateQueries({ queryKey: ['balance_sheet_merged'] }),
+        queryClient.invalidateQueries({ queryKey: ['profit_loss_merged'] }),
+        queryClient.invalidateQueries({ queryKey: ['daybook_tally', selectedCompanyId] }),
+        queryClient.invalidateQueries({ queryKey: ['voucher_register_tally'] }),
+        queryClient.invalidateQueries({ queryKey: ['ledger_tally'] }),
+        queryClient.invalidateQueries({ queryKey: ['tally_configs_for_accounting'] }),
+      ]);
       toast.success(`Latest data saved for ${selectedTallyConfig.company_name} (${result.recordsSynced ?? 0} records)`);
     } catch (error: any) {
       toast.error(error?.message || 'Latest Tally sync failed');
     } finally {
       setSyncingLatest(false);
     }
-  }, [queryClient, selectedTallyConfig]);
+  }, [queryClient, selectedCompanyId, selectedTallyConfig]);
 
   const accountBalance = account ? balances[account.id] : undefined;
 

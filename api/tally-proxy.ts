@@ -133,7 +133,12 @@ function accountTypeForTallyGroup(parentGroup?: string | null): string {
  * stores source ledgers in tally_ledgers. Mirror missing ledgers into the
  * selected accounting company so they are usable immediately in vouchers.
  */
-async function mirrorTallyLedgersToChartAccounts(supabase: any, tallyCompanyName: string, ledgerRows: any[]) {
+async function mirrorTallyLedgersToChartAccounts(
+  supabase: any,
+  tallyCompanyName: string,
+  ledgerRows: any[],
+  accountingCompanyId?: string,
+) {
   if (ledgerRows.length === 0) return { created: 0 }
 
   const { data: companies, error: companyError } = await supabase
@@ -142,10 +147,15 @@ async function mirrorTallyLedgersToChartAccounts(supabase: any, tallyCompanyName
     .eq('is_active', true)
   if (companyError) throw companyError
 
-  const company = (companies || []).find((item: any) =>
-    accountingCompanyKey(item.company_name) === accountingCompanyKey(tallyCompanyName),
-  )
+  const company = accountingCompanyId
+    ? (companies || []).find((item: any) => item.id === accountingCompanyId)
+    : (companies || []).find((item: any) =>
+        accountingCompanyKey(item.company_name) === accountingCompanyKey(tallyCompanyName),
+      )
   if (!company) return { created: 0 }
+  if (accountingCompanyId && accountingCompanyKey(company.company_name) !== accountingCompanyKey(tallyCompanyName)) {
+    throw new Error('The selected Accounting company does not match the selected Tally company')
+  }
 
   const { data: existing, error: existingError } = await supabase
     .from('chart_of_accounts')
@@ -297,7 +307,7 @@ async function handlePush(body: any) {
 
 // ─── Endpoint: sync (pull from Tally → save to Supabase) ───
 async function handleSync(body: any) {
-  const { action, companyId, dateRange } = body
+  const { action, companyId, accountingCompanyId, dateRange } = body
   let { serverUrl, companyName } = body
   if (!serverUrl || !companyName || !companyId || !action) return { error: 'Missing required fields' }
 
@@ -318,6 +328,23 @@ async function handleSync(body: any) {
     matchesSavedConfig = false
   }
   if (!matchesSavedConfig) return { error: 'The selected company does not match its configured Tally server' }
+
+  if (accountingCompanyId) {
+    const { data: accountingCompany, error: accountingCompanyError } = await getSupabase()
+      .from('companies')
+      .select('id, company_name, is_active')
+      .eq('id', accountingCompanyId)
+      .maybeSingle()
+    if (accountingCompanyError) {
+      return { error: `Could not validate Accounting company: ${accountingCompanyError.message}` }
+    }
+    if (!accountingCompany || accountingCompany.is_active === false) {
+      return { error: 'The selected Accounting company is inactive or missing' }
+    }
+    if (accountingCompanyKey(accountingCompany.company_name) !== accountingCompanyKey(config.company_name)) {
+      return { error: 'The selected Accounting company does not match the selected Tally company' }
+    }
+  }
 
   // Use the canonical values from the saved configuration for every Tally request.
   serverUrl = config.server_url
@@ -390,7 +417,7 @@ async function handleSync(body: any) {
           }
         }
         try {
-          await mirrorTallyLedgersToChartAccounts(supabase, companyName, allRows)
+          await mirrorTallyLedgersToChartAccounts(supabase, companyName, allRows, accountingCompanyId)
         } catch (mirrorError: any) {
           errors.push(`Could not mirror Tally ledgers to voucher accounts: ${mirrorError.message}`)
         }
@@ -620,7 +647,7 @@ async function handleSync(body: any) {
       }
       case 'full': {
         for (const subAction of ['groups', 'ledgers', 'stock', 'vouchers', 'reports']) {
-          const subResult = await handleSync({ action: subAction, serverUrl, companyName, companyId, dateRange }) as any
+          const subResult = await handleSync({ action: subAction, serverUrl, companyName, companyId, accountingCompanyId, dateRange }) as any
           recordsSynced += subResult.recordsSynced || 0
           recordsFailed += subResult.recordsFailed || 0
           if (subResult.errors?.length) errors.push(...subResult.errors)
