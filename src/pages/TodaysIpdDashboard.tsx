@@ -57,6 +57,27 @@ import { calculateReferralAmount, formatIndianCurrency } from '@/utils/referralC
 import { formatDateOnly, formatDateOnlyForDisplay, parseDateOnly } from '@/utils/dateOnly';
 import { formatDialysisPatientName } from '@/utils/dialysisPatientName';
 
+type IpdScheme = 'PMJAY' | 'MJPJAY';
+
+const normalizeSchemeText = (value: unknown): string =>
+  String(value ?? '')
+    .toLowerCase()
+    .replace(/[–—-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const getIpdScheme = (visit: any): IpdScheme | null => {
+  const text = [
+    visit?.insurance_type,
+    visit?.corporate,
+    visit?.patients?.corporate,
+  ].map(normalizeSchemeText).filter(Boolean).join(' ');
+
+  if (/(mjp(jay|jy)|mahatma jyotir?ao|mahatma jyotiba|phule)/i.test(text)) return 'MJPJAY';
+  if (/(pm ?jay|ab pm ?jay|ayushman|pradhan mantri jan arogya)/i.test(text)) return 'PMJAY';
+  return null;
+};
+
 // Referee DOA Amount Cell with Payment Modal and Referral Tooltip
 const IpdRefereeAmountCell = ({
   visit,
@@ -285,6 +306,7 @@ const TodaysIpdDashboard = () => {
   const billingStatusFilter = searchParams.get('billingStatus') || '';
   const bunchFilter = searchParams.get('bunch') || '';
   const corporateFilter = searchParams.get('corporate') || '';
+  const schemeFilter = searchParams.get('scheme') || '';
   const treatmentTypeFilter = searchParams.get('treatmentType') || '';
   const currentPage = parseInt(searchParams.get('page') || '1');
   const itemsPerPage = parseInt(searchParams.get('perPage') || '10');
@@ -336,6 +358,7 @@ const TodaysIpdDashboard = () => {
   const setBillingStatusFilter = (value: string) => updateParams({ billingStatus: value, page: '1' });
   const setBunchFilter = (value: string) => updateParams({ bunch: value, page: '1' });
   const setCorporateFilter = (value: string) => updateParams({ corporate: value, page: '1' });
+  const setSchemeFilter = (value: string) => updateParams({ scheme: value, page: '1' });
   const setTreatmentTypeFilter = (value: string) => updateParams({ treatmentType: value || null, page: '1' });
   const setCurrentPage = (value: number) => updateParams({ page: value.toString() });
   const setItemsPerPage = (value: number) => updateParams({ perPage: value.toString(), page: '1' });
@@ -2160,6 +2183,8 @@ const TodaysIpdDashboard = () => {
           ? (!visit.patients?.corporate || visit.patients?.corporate?.toLowerCase().trim() === 'private')
           : visit.patients?.corporate?.toLowerCase().trim() === corporateFilter.toLowerCase().trim());
 
+      const matchesScheme = !schemeFilter || getIpdScheme(visit) === schemeFilter;
+
 
       const includeBy = (selected: string[], value?: string | null) =>
         selected.length === 0 || (value ? selected.includes(value) : false);
@@ -2173,7 +2198,7 @@ const TodaysIpdDashboard = () => {
 
       const matchesTreatmentType = !treatmentTypeFilter || visit.treatment_type === treatmentTypeFilter;
 
-      return matchesSearch && matchesBillingExecutive && matchesBillingStatus && matchesBunch && matchesCorporate && matchesFile && matchesCondSub && matchesCondInt && matchesPaymentStatus && matchesExtStay && matchesAddAppr && matchesTreatmentType;
+      return matchesSearch && matchesBillingExecutive && matchesBillingStatus && matchesBunch && matchesCorporate && matchesScheme && matchesFile && matchesCondSub && matchesCondInt && matchesPaymentStatus && matchesExtStay && matchesAddAppr && matchesTreatmentType;
     });
 
     // Then, sort the filtered results
@@ -2225,7 +2250,7 @@ const TodaysIpdDashboard = () => {
     });
 
     return sorted;
-  }, [todaysVisits, searchTerm, billingExecutiveFilter, billingStatusFilter, bunchFilter, corporateFilter, treatmentTypeFilter, fileStatusFilter, condonationSubmissionFilter, condonationIntimationFilter, paymentStatusFilter, advancePayments, billTotals, extensionOfStayFilter, additionalApprovalsFilter, sortBy]);
+  }, [todaysVisits, searchTerm, billingExecutiveFilter, billingStatusFilter, bunchFilter, corporateFilter, schemeFilter, treatmentTypeFilter, fileStatusFilter, condonationSubmissionFilter, condonationIntimationFilter, paymentStatusFilter, advancePayments, billTotals, extensionOfStayFilter, additionalApprovalsFilter, sortBy]);
 
   // Pagination calculations
   const totalPages = Math.ceil((filteredVisits?.length || 0) / itemsPerPage) || 1;
@@ -2840,6 +2865,16 @@ const TodaysIpdDashboard = () => {
                 className="pl-10 w-48"
               />
             </div>
+            <Select value={schemeFilter || 'all'} onValueChange={(value) => setSchemeFilter(value === 'all' ? '' : value)}>
+              <SelectTrigger className="w-36 h-8 text-xs">
+                <SelectValue placeholder="Scheme" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Schemes</SelectItem>
+                <SelectItem value="PMJAY">PMJAY</SelectItem>
+                <SelectItem value="MJPJAY">MJPJAY</SelectItem>
+              </SelectContent>
+            </Select>
             <Button
               onClick={handlePrint}
               variant="outline"
