@@ -11,8 +11,10 @@
  * `reference_number` and mirrored into `remarks` as `extra_package_amount=N`.
  */
 
-export const EXTRA_PACKAGE_STATUS = "VASOOLI_EXTRA_PACKAGE";
-export const CORRECTION_COMMENT_STATUS = "VASOOLI_CORRECTION_COMMENT";
+// advance_payment.status is varchar(20) — keep these within 20 characters or
+// every save fails with "value too long for type character varying(20)".
+export const EXTRA_PACKAGE_STATUS = "VASOOLI_EXTRA_PKG";
+export const CORRECTION_COMMENT_STATUS = "VASOOLI_CORRECTION";
 
 export type PaymentStatus = "unassessed" | "pending" | "partial" | "paid";
 
