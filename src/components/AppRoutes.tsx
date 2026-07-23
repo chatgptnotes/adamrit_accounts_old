@@ -27,6 +27,7 @@ const VpsClaudeUsage = lazy(() => import("../pages/VpsClaudeUsage"));
 const Accommodation = lazy(() => import("../pages/Accommodation"));
 const RoomManagement = lazy(() => import("../pages/RoomManagement"));
 const PrivateRoomMaster = lazy(() => import("../pages/PrivateRoomMaster"));
+const WorkflowStatusReport = lazy(() => import("../pages/WorkflowStatusReport"));
 const DirectorDashboard = lazy(() => import("../pages/DirectorDashboard"));
 const DirectorMatrixDailyEntries = lazy(() => import("../pages/DirectorMatrixDailyEntries"));
 
@@ -267,6 +268,7 @@ export const AppRoutes = () => {
         <Route path="/conference-call" element={<ConferenceCallPage />} />
         <Route path="/todays-opd" element={<TodaysOpd />} />
         <Route path="/advance-statement-report" element={<AdvanceStatementReport />} />
+        <Route path="/workflow-status-report/:reportKey" element={<Suspense fallback={<PageLoader />}><WorkflowStatusReport /></Suspense>} />
         <Route path="/advanced-statement-report" element={<Suspense fallback={<PageLoader />}><AdvancedStatementReport /></Suspense>} />
         <Route path="/currently-admitted" element={<CurrentlyAdmittedPatients />} />
         <Route path="/accommodation" element={<Suspense fallback={<PageLoader />}><Accommodation /></Suspense>} />

@@ -8,6 +8,7 @@ import { SearchAndControls } from '@/components/SearchAndControls';
 import { DiagnosisCard } from '@/components/DiagnosisCard';
 import { StatisticsCards } from '@/components/StatisticsCards';
 import { ClinicalKPIs } from '@/components/ClinicalKPIs';
+import { OverviewReportsSection } from '@/components/OverviewReportsSection';
 import { AddPatientDialog } from '@/components/AddPatientDialog';
 import { AddDiagnosisDialog } from '@/components/AddDiagnosisDialog';
 import { NoResultsCard } from '@/components/NoResultsCard';
@@ -398,6 +399,7 @@ const Index = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <div className="md:col-span-3">
             <ClinicalKPIs canSeeTile={canSeeTile} />
+            <OverviewReportsSection />
           </div>
           <div>
             <QuickCaptureCard />

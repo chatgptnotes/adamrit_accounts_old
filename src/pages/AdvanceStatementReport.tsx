@@ -30,6 +30,7 @@ import {
   resolvePackageCodeFromOptions,
 } from '@/lib/packageCodeLookup';
 import { toast } from 'sonner';
+import { WORKFLOW_STATUS_OPTIONS } from '@/lib/workflowStatus';
 import '@/styles/print.css';
 
 const normalizeLookupValue = normalizePackageLookupValue;
@@ -387,6 +388,8 @@ const AdvanceStatementReport = () => {
           treatment_type,
           yojana_registration_id,
           ipd_admission_notes,
+          workflow_status,
+          workflow_status_updated_at,
           patients!inner (
             id,
             name,
@@ -1173,6 +1176,25 @@ const AdvanceStatementReport = () => {
     );
   };
 
+  const handleWorkflowStatusUpdate = async (visitId: string, status: string) => {
+    const { error } = await supabase
+      .from('visits')
+      .update({
+        workflow_status: status || null,
+        workflow_status_updated_at: new Date().toISOString(),
+      } as any)
+      .eq('id', visitId);
+
+    if (error) {
+      console.error('Error updating workflow status:', error);
+      toast.error('Failed to update status');
+    } else {
+      toast.success('Status updated');
+      queryClient.invalidateQueries({ queryKey: ['advance-statement-report-currently-admitted'] });
+      queryClient.invalidateQueries({ queryKey: ['overview-workflow-report-counts'] });
+    }
+  };
+
   const handleDiagnosisUpdate = async (visitId: string, diagnosisId: string) => {
     const { error } = await supabase
       .from('visits')
@@ -1908,6 +1930,7 @@ const AdvanceStatementReport = () => {
                 <TableRow>
                   <TableHead className="w-16">Sr. No.</TableHead>
                   <TableHead className="min-w-[250px]">Patient Details</TableHead>
+                  <TableHead className="min-w-[190px]">Status</TableHead>
                   <TableHead className="min-w-[170px]">Discharge Summary</TableHead>
                   <TableHead className="min-w-[180px]">Registration ID</TableHead>
                   {hospitalType === 'hope' && (
@@ -1925,13 +1948,13 @@ const AdvanceStatementReport = () => {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={hospitalType === 'hope' ? 12 : 11} className="text-center py-8">
+                    <TableCell colSpan={hospitalType === 'hope' ? 13 : 12} className="text-center py-8">
                       Loading...
                     </TableCell>
                   </TableRow>
                 ) : advanceData.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={hospitalType === 'hope' ? 12 : 11} className="text-center py-8 text-gray-500">
+                    <TableCell colSpan={hospitalType === 'hope' ? 13 : 12} className="text-center py-8 text-gray-500">
                       No data found
                     </TableCell>
                   </TableRow>
@@ -1989,6 +2012,23 @@ const AdvanceStatementReport = () => {
                       >
                         <TableCell className="text-center">{index + 1}</TableCell>
                         <TableCell>{patientDetails}</TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <div className="space-y-1">
+                            <SearchableSelect
+                              options={WORKFLOW_STATUS_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                              value={(item as any).workflow_status || ''}
+                              onValueChange={(value) => handleWorkflowStatusUpdate(item.id, value)}
+                              placeholder="Select status..."
+                              searchPlaceholder="Type to search..."
+                              className="w-full"
+                            />
+                            {(item as any).workflow_status_updated_at && (
+                              <div className="text-xs text-gray-400">
+                                Updated {format(new Date((item as any).workflow_status_updated_at), 'dd/MM/yyyy HH:mm')}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}>
                           <Button
                             type="button"

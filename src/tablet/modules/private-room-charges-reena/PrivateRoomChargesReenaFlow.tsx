@@ -24,6 +24,8 @@ interface ChargeRow {
   visitId: string;
   patientName: string;
   uhid: string;
+  registrationId: string;
+  admissionDate: string | null;
   room: string;
   /** Date the extra charge was recorded; admission date when never assessed. */
   date: string | null;
@@ -92,9 +94,19 @@ async function loadPrivateRoomCharges(hospitalName: string): Promise<ChargeRow[]
   ].filter(Boolean);
   if (wardKeys.length === 0) return [];
 
+  // Room number shown to Reena is the ward's actual room (22/24/26/…), not the
+  // bed index stored in visits.room_allotted.
+  const roomNumberByWardKey = new Map<string, string>();
+  for (const ward of privateRooms as any[]) {
+    const roomNumber = String(ward.room_number ?? "").trim();
+    if (!roomNumber) continue;
+    if (ward.ward_id) roomNumberByWardKey.set(String(ward.ward_id), roomNumber);
+    if (ward.ward_type) roomNumberByWardKey.set(String(ward.ward_type), roomNumber);
+  }
+
   const visits = await fetchByValues(
     "visits",
-    "id, visit_id, patient_id, admission_date, visit_date, discharge_date, ward_allotted, room_allotted, patients!inner(id, name, patients_id, hospital_name)",
+    "id, visit_id, patient_id, admission_date, visit_date, discharge_date, ward_allotted, room_allotted, patients!inner(id, name, patients_id, registration_id, hospital_name)",
     "ward_allotted",
     wardKeys,
   );
@@ -153,7 +165,12 @@ async function loadPrivateRoomCharges(hospitalName: string): Promise<ChargeRow[]
       visitId: String(visit.visit_id || visit.id || ""),
       patientName: patient?.name || "-",
       uhid: patient?.patients_id || "-",
-      room: String(visit.room_allotted || "").trim() || "-",
+      registrationId: patient?.registration_id || "-",
+      admissionDate: visit.admission_date || visit.visit_date || null,
+      room:
+        roomNumberByWardKey.get(String(visit.ward_allotted || "")) ||
+        String(visit.room_allotted || "").trim() ||
+        "-",
       date:
         latestExtra?.payment_date ||
         latestExtra?.created_at ||
@@ -252,10 +269,10 @@ export default function PrivateRoomChargesReenaFlow() {
         <TabletCard variant="flat" className="space-y-3">
           <div className="flex items-center gap-2">
             <BedDouble className="h-5 w-5 text-indigo-600" />
-            <span className="text-sm font-semibold">Filter by bed number</span>
+            <span className="text-sm font-semibold">Filter by room number</span>
           </div>
           <div className="flex flex-wrap gap-2">
-            <FilterChip label="All beds" active={!bed} onClick={() => setBed("")} />
+            <FilterChip label="All rooms" active={!bed} onClick={() => setBed("")} />
             {bedOptions.map((option) => (
               <FilterChip
                 key={option}
@@ -369,7 +386,11 @@ function ChargeCard({ row }: { row: ChargeRow }) {
         <div className="min-w-0">
           <p className="truncate text-base font-bold">{row.patientName}</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {row.uhid} · Bed {row.room}
+            {row.uhid} · Room {row.room}
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Reg: {row.registrationId}
+            {row.admissionDate ? ` · From ${shortDate(row.admissionDate)}` : ""}
           </p>
         </div>
         <span
