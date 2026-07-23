@@ -68,7 +68,7 @@ const TallySyncButton: React.FC = () => {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from('tally_config')
-        .select('id, server_url, company_name, is_active, last_sync_at')
+        .select('id, server_url, company_name, is_active, auto_sync_enabled, last_sync_at')
         .eq('is_active', true);
       if (error) throw error;
       return data || [];
@@ -82,6 +82,10 @@ const TallySyncButton: React.FC = () => {
   }, [selectedCompany, tallyConfigs]);
 
   const syncLatest = useCallback(async () => {
+    if (selectedTallyConfig?.auto_sync_enabled !== true) {
+      toast.info('Incoming Tally sync is disabled for the fresh manual ledger master');
+      return;
+    }
     if (!selectedCompanyId || !selectedTallyConfig?.id || !selectedTallyConfig.server_url || !selectedTallyConfig.company_name) {
       toast.error('No matching Tally configuration found for the selected Accounting company');
       return;
@@ -135,12 +139,12 @@ const TallySyncButton: React.FC = () => {
     <button
       type="button"
       onClick={() => void syncLatest()}
-      disabled={syncing || !selectedTallyConfig}
+      disabled={syncing || selectedTallyConfig?.auto_sync_enabled !== true}
       className="mr-3 inline-flex items-center gap-1 border border-[#6f8fb5] bg-[#e9f0fa] px-2 py-0.5 text-[12px] font-semibold text-[#16437e] hover:bg-white disabled:cursor-default disabled:opacity-60"
       title="Fetch and save latest data for the selected Accounting company"
     >
       <RefreshCw className={`h-3 w-3 ${syncing ? 'animate-spin' : ''}`} />
-      {syncing ? 'Syncing...' : 'Sync Latest'}
+      {syncing ? 'Syncing...' : selectedTallyConfig?.auto_sync_enabled === true ? 'Sync Latest' : 'Sync Disabled'}
     </button>
   );
 };

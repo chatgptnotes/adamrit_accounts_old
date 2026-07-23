@@ -25,6 +25,7 @@ type TallyConfigOption = {
   server_url: string
   company_name: string
   is_active?: boolean | null
+  auto_sync_enabled?: boolean | null
   last_sync_at?: string | null
   updated_at?: string | null
   created_at?: string | null
@@ -151,7 +152,7 @@ export default function TallyPage({ initialTab = 'dashboard' }: { initialTab?: s
   const loadConfigs = useCallback(async (selectId?: string) => {
     const query = supabase
       .from('tally_config')
-      .select('id, server_url, company_name, is_active, last_sync_at, updated_at, created_at')
+      .select('id, server_url, company_name, is_active, auto_sync_enabled, last_sync_at, updated_at, created_at')
 
     const { data } = await query.order('company_name')
 
@@ -288,6 +289,10 @@ export default function TallyPage({ initialTab = 'dashboard' }: { initialTab?: s
       toast.error('Select a configured Tally company first')
       return
     }
+    if (selected.auto_sync_enabled !== true) {
+      toast.info('Incoming Tally sync is disabled for the fresh manual ledger master')
+      return
+    }
 
     setSyncingLatest(true)
     try {
@@ -326,6 +331,8 @@ export default function TallyPage({ initialTab = 'dashboard' }: { initialTab?: s
   }, [companyId, configs, loadConfigs])
 
   const activeLabel = tabs.find(t => t.id === activeTab)?.label || 'Dashboard'
+  const selectedConfig = configs.find((config) => config.id === companyId)
+  const syncEnabled = selectedConfig?.auto_sync_enabled === true
 
   const cycleCompany = useCallback(() => {
     if (companyNameOptions.length <= 1) return
@@ -388,9 +395,9 @@ export default function TallyPage({ initialTab = 'dashboard' }: { initialTab?: s
     { hotkey: 'F4', label: 'Voucher Type', onClick: () => openVoucherList('type') },
     {
       hotkey: 'F5',
-      label: syncingLatest ? 'Syncing...' : 'Sync Latest',
+      label: syncingLatest ? 'Syncing...' : syncEnabled ? 'Sync Latest' : 'Sync Disabled',
       gapBefore: true,
-      disabled: syncingLatest,
+      disabled: syncingLatest || !syncEnabled,
       onClick: () => void syncLatest(),
     },
     { hotkey: 'F6', label: 'Receipt', onClick: () => openVoucherCreation('RECEIPT') },
@@ -405,7 +412,7 @@ export default function TallyPage({ initialTab = 'dashboard' }: { initialTab?: s
     { label: 'Configure', onClick: () => window.dispatchEvent(new CustomEvent('tally-configure')) },
     { label: 'Save View', onClick: saveTallyView },
     { hotkey: 'P', label: 'Print', gapBefore: true, onClick: () => window.print() },
-  ], [syncingLatest, companyId, syncLatest, pushToTally, cycleCompany, companyOptions.length, openVoucherList, openVoucherCreation, saveTallyView])
+  ], [syncingLatest, syncEnabled, companyId, syncLatest, pushToTally, cycleCompany, companyOptions.length, openVoucherList, openVoucherCreation, saveTallyView])
 
   return (
     <TallyScreen
@@ -416,12 +423,12 @@ export default function TallyPage({ initialTab = 'dashboard' }: { initialTab?: s
         <button
           type="button"
           onClick={() => void syncLatest()}
-          disabled={syncingLatest || !companyId}
+          disabled={syncingLatest || !companyId || !syncEnabled}
           className="mr-2 inline-flex items-center gap-1 border border-[#6f8fb5] bg-[#e9f0fa] px-2 py-0.5 text-[12px] font-semibold text-[#16437e] hover:bg-white disabled:cursor-default disabled:opacity-60"
           title="Fetch and save latest data for the selected Tally company"
         >
           <RefreshCw className={`h-3 w-3 ${syncingLatest ? 'animate-spin' : ''}`} />
-          {syncingLatest ? 'Syncing...' : 'Sync Latest'}
+          {syncingLatest ? 'Syncing...' : syncEnabled ? 'Sync Latest' : 'Sync Disabled'}
         </button>
       }
       closeLabel="← Back"
