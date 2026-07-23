@@ -115,6 +115,9 @@ export default function TallyApprovals({ companyName }: Props) {
   }, [companies, companyName])
 
   // ── Ledgers (same source as TallyCreateVoucher) ────────────────
+  // Chart of accounts plus the Masters → Ledger table, so ledgers created
+  // under Masters show up here too. Masters-only entries carry a `master:`
+  // prefixed id and are materialised into chart_of_accounts on first use.
   const loadLedgers = useCallback(async () => {
     if (!accountingCompanyId) { setAllLedgers([]); return }
     setLoadingLedgers(true)
@@ -127,7 +130,22 @@ export default function TallyApprovals({ companyName }: Props) {
         .order('account_name')
         .limit(2000)
       if (error) throw error
-      setAllLedgers((data || []).map((l: any) => ({ id: l.id, name: l.account_name, parent_group: l.account_group })))
+      const coa = (data || []).map((l: any) => ({ id: l.id, name: l.account_name, parent_group: l.account_group }))
+
+      const { data: masterData, error: masterError } = await (supabase as any)
+        .from('ledgers')
+        .select('id, name, group_name')
+        .eq('is_active', true)
+        .order('name')
+        .limit(2000)
+      if (masterError) console.warn('[TallyApprovals] masters ledger load failed:', masterError.message)
+
+      const seen = new Set(coa.map((l) => l.name.trim().toLowerCase()))
+      const masters = (masterData || [])
+        .filter((l: any) => l.name && !seen.has(String(l.name).trim().toLowerCase()))
+        .map((l: any) => ({ id: `master:${l.id}`, name: l.name, parent_group: l.group_name }))
+
+      setAllLedgers([...coa, ...masters].sort((a, b) => a.name.localeCompare(b.name)))
     } catch (err: any) {
       console.error('[TallyApprovals] ledger load failed:', err?.message || err)
       toast.warning('Could not load ledger accounts')
@@ -137,6 +155,57 @@ export default function TallyApprovals({ companyName }: Props) {
   }, [accountingCompanyId])
 
   useEffect(() => { loadLedgers() }, [loadLedgers])
+
+  // Materialise a Masters-only ledger into chart_of_accounts so JV posting
+  // (which stores chart_of_accounts ids) works. Returns a real COA id.
+  const ensureLedgerId = useCallback(async (value: string): Promise<string> => {
+    if (!value.startsWith('master:')) return value
+    const masterId = value.slice('master:'.length)
+    const { data: master, error: masterError } = await (supabase as any)
+      .from('ledgers')
+      .select('id, name, code, group_name')
+      .eq('id', masterId)
+      .single()
+    if (masterError || !master) throw new Error('Masters ledger not found')
+
+    // Someone may have created it in the chart meanwhile — reuse by name.
+    const { data: existing } = await supabase
+      .from('chart_of_accounts')
+      .select('id')
+      .eq('company_id', accountingCompanyId)
+      .ilike('account_name', master.name.trim())
+      .limit(1)
+      .maybeSingle()
+    if (existing?.id) return existing.id
+
+    const group = String(master.group_name || '').toLowerCase()
+    const accountType =
+      group.includes('expense') || group.includes('purchase') || group.includes('salary') || group.includes('consultant')
+        ? 'DIRECT_EXPENSES'
+        : group.includes('income') || group.includes('sales')
+          ? 'INCOME'
+          : group.includes('capital')
+            ? 'EQUITY'
+            : group.includes('liabilit') || group.includes('creditor') || group.includes('loan') || group.includes('provision')
+              ? 'LIABILITIES'
+              : 'CURRENT_ASSETS'
+
+    const { data: created, error: createError } = await supabase
+      .from('chart_of_accounts')
+      .insert({
+        account_code: master.code || `ML${masterId.replace(/-/g, '').slice(0, 12)}`,
+        account_name: master.name,
+        account_type: accountType,
+        account_group: master.group_name || null,
+        company_id: accountingCompanyId,
+        is_active: true,
+      } as any)
+      .select('id')
+      .single()
+    if (createError || !created) throw new Error(createError?.message || 'Could not add the masters ledger to the chart of accounts')
+    loadLedgers()
+    return created.id
+  }, [accountingCompanyId, loadLedgers])
 
   const ledgerById = useMemo(() => new Map(allLedgers.map((l) => [l.id, l])), [allLedgers])
 
@@ -206,14 +275,17 @@ export default function TallyApprovals({ companyName }: Props) {
         if (!invoiceUrl) toast.warning('Invoice upload failed — bill saved without it')
       }
 
+      const expenseAccountId = await ensureLedgerId(addForm.expenseLedger)
+      const partyAccountId = await ensureLedgerId(addForm.partyLedger)
+
       await createApproval({
         companyId: accountingCompanyId,
         category: addForm.category,
         partyName: addForm.partyName,
         referenceNo: addForm.referenceNo,
         amount,
-        expenseAccountId: addForm.expenseLedger,
-        partyAccountId: addForm.partyLedger,
+        expenseAccountId,
+        partyAccountId,
         invoiceUrl,
         narration: addForm.narration,
         createdBy: user?.email || undefined,
@@ -298,8 +370,9 @@ export default function TallyApprovals({ companyName }: Props) {
     if (!payForm.cashBankLedger) { toast.error('Select a cash or bank ledger'); return }
     setProcessing(true)
     try {
+      const cashBankAccountId = await ensureLedgerId(payForm.cashBankLedger)
       const { voucherNumber } = await postPaymentVoucher(payingRow.id, {
-        cashBankAccountId: payForm.cashBankLedger,
+        cashBankAccountId,
         date: payForm.date,
       })
       toast.success(`Payment voucher ${voucherNumber} posted — ${payingRow.party_name} settled`)
@@ -332,19 +405,21 @@ export default function TallyApprovals({ companyName }: Props) {
     if (completeForm.expenseLedger === completeForm.partyLedger) { toast.error('Expense and party ledgers must be different'); return }
     setProcessing(true)
     try {
+      const expenseAccountId = await ensureLedgerId(completeForm.expenseLedger)
+      const partyAccountId = await ensureLedgerId(completeForm.partyLedger)
       await updateApprovalDetails(completingRow.id, {
         amount,
         companyId: accountingCompanyId,
-        expenseAccountId: completeForm.expenseLedger,
-        partyAccountId: completeForm.partyLedger,
+        expenseAccountId,
+        partyAccountId,
       })
       if (completeForm.saveMapping && completingRow.category === 'DOCTOR') {
         try {
           await upsertDoctorLedgerMap({
             surgeonName: completingRow.party_name,
             companyId: accountingCompanyId,
-            partyAccountId: completeForm.partyLedger,
-            expenseAccountId: completeForm.expenseLedger,
+            partyAccountId,
+            expenseAccountId,
           })
           refetchMaps()
         } catch (mapErr: any) {
@@ -369,11 +444,13 @@ export default function TallyApprovals({ companyName }: Props) {
     if (!mapForm.partyLedger) { toast.error('Select the doctor’s party ledger'); return }
     setSavingMap(true)
     try {
+      const partyAccountId = await ensureLedgerId(mapForm.partyLedger)
+      const expenseAccountId = mapForm.expenseLedger ? await ensureLedgerId(mapForm.expenseLedger) : null
       await upsertDoctorLedgerMap({
         surgeonName: mapForm.surgeonName,
         companyId: accountingCompanyId,
-        partyAccountId: mapForm.partyLedger,
-        expenseAccountId: mapForm.expenseLedger || null,
+        partyAccountId,
+        expenseAccountId,
       })
       toast.success('Doctor mapping saved')
       setMapForm({ id: '', surgeonName: '', partyLedger: '', expenseLedger: '' })
