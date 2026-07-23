@@ -29,6 +29,9 @@ export interface SavedGovernmentPortalImport {
 }
 
 export interface GovernmentPortalExtensionAlertRow {
+  sourceImportId: string;
+  sourceFileName: string;
+  sourceCreatedAt: string;
   status: GovernmentPortalPatientStatus;
   rowNumber: number;
   registrationId: string;
@@ -419,20 +422,7 @@ export async function saveGovernmentPortalReport(
   const importId = header.id as string;
 
   if (report.rows.length > 0) {
-    const existingRows = await fetchAllRows<{ registration_id: string | null }>((from, to) =>
-      db
-        .from('government_portal_report_rows')
-        .select('registration_id')
-        .not('registration_id', 'is', null)
-        .range(from, to),
-    );
-
     const existingIds = new Set<string>();
-    for (const row of existingRows) {
-      if (row.registration_id) {
-        existingIds.add(row.registration_id.trim().toUpperCase());
-      }
-    }
 
     const dedupedRows = report.rows.filter((row) => {
       const regId = row.values['Registration ID'].trim().toUpperCase();
@@ -440,6 +430,7 @@ export async function saveGovernmentPortalReport(
         skippedDuplicates += 1;
         return false;
       }
+      if (regId) existingIds.add(regId);
       return true;
     });
 
@@ -524,37 +515,64 @@ export async function fetchLatestGovernmentPortalExtensionAlerts(
     .select('id, file_name, report_date_label, count_extension_needed, created_at')
     .eq('report_kind', reportKind)
     .order('created_at', { ascending: false })
-    .limit(1);
+    .limit(100);
 
   if (importsError) throw importsError;
 
-  const header = ((imports || []) as ImportRow[])[0] || null;
+  const importHeaders = ((imports || []) as ImportRow[]).filter(
+    (item) => reportKind !== 'under_treatment' || !/claims_to_be_submitted/i.test(item.file_name),
+  );
+  const header = importHeaders[0] || null;
 
   if (!header) return null;
 
+  const importById = new Map(importHeaders.map((item) => [item.id, item]));
+  const importIds = importHeaders.map((item) => item.id);
+
   let rowQuery = db
     .from('government_portal_report_rows')
-    .select('id, row_number, status, registration_id, beneficiary_name, case_type, preauth_date_label, days_since_preauth, procedure_code, procedure_details, preauth_approved_amount')
-    .eq('import_id', header.id)
+    .select('id, import_id, row_number, status, registration_id, beneficiary_name, case_type, preauth_date_label, days_since_preauth, procedure_code, procedure_details, preauth_approved_amount')
+    .in('import_id', importIds)
     .eq('section', 'generalMedical')
     .eq('extension_needed', true)
     .eq('status', 'pending')
+    .order('created_at', { ascending: false })
     .order('row_number', { ascending: true });
 
   if (rowLimit !== undefined) {
-    rowQuery = rowQuery.limit(rowLimit);
+    rowQuery = rowQuery.limit(Math.max(rowLimit * 10, rowLimit));
   }
 
   const { data: rows, error: rowsError } = await rowQuery;
   if (rowsError) throw rowsError;
+
+  const uniqueRows = new Map<string, DbReportRow & { import_id: string }>();
+  for (const row of (rows || []) as Array<DbReportRow & { import_id: string }>) {
+    const key = normalizeRegistrationId(row.registration_id) || `row:${row.id}`;
+    if (!uniqueRows.has(key)) uniqueRows.set(key, row);
+  }
+
+  const alertRows = Array.from(uniqueRows.values())
+    .sort((left, right) => {
+      const leftImport = importById.get(left.import_id);
+      const rightImport = importById.get(right.import_id);
+      const createdDifference =
+        new Date(rightImport?.created_at || 0).getTime() -
+        new Date(leftImport?.created_at || 0).getTime();
+      return createdDifference || left.row_number - right.row_number;
+    })
+    .slice(0, rowLimit);
 
   return {
     importId: header.id,
     fileName: header.file_name,
     reportDateLabel: header.report_date_label,
     createdAt: header.created_at,
-    count: (rows || []).length,
-    rows: (rows || []).map((row: DbReportRow) => ({
+    count: alertRows.length,
+    rows: alertRows.map((row) => ({
+      sourceImportId: row.import_id,
+      sourceFileName: importById.get(row.import_id)?.file_name || header.file_name,
+      sourceCreatedAt: importById.get(row.import_id)?.created_at || header.created_at,
       status: (row.status as GovernmentPortalPatientStatus) || 'pending',
       rowNumber: row.row_number,
       registrationId: row.registration_id || '',

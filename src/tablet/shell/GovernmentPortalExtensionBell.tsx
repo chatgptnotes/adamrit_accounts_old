@@ -453,6 +453,9 @@ export function GovernmentPortalExtensionBell() {
                               <p className={cn("mt-1 text-xs", sheetIsLight ? "text-slate-600" : "text-slate-400")}>
                                 {row.registrationId || "No Registration ID"} - {row.caseType || "Medical"}
                               </p>
+                              <p className={cn("mt-1 text-[0.68rem]", sheetIsLight ? "text-slate-500" : "text-slate-500")}>
+                                Source: {row.sourceFileName} · {formatImportedAt(row.sourceCreatedAt)}
+                              </p>
                             </div>
                           </div>
 
