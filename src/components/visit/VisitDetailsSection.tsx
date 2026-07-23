@@ -184,10 +184,16 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
 
         // select('*') so this keeps working before/after the private-room
         // columns (is_private, has_attached_washroom, room_number) are added.
-        const { data, error } = await (supabase as any)
+        // Only this hospital's wards — the master is per-hospital and showing
+        // both tenants' wards produces duplicate-looking entries.
+        let wardQuery = (supabase as any)
           .from('room_management')
           .select('*')
           .order('ward_type');
+        if (hospitalConfig?.name) {
+          wardQuery = wardQuery.eq('hospital_name', hospitalConfig.name);
+        }
+        const { data, error } = await wardQuery;
 
         if (error) {
           console.error('Error fetching wards:', error);
@@ -221,7 +227,7 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
     };
 
     fetchWards();
-  }, []);
+  }, [hospitalConfig?.name]);
 
   // Update available rooms when ward is selected - fetch occupied rooms and filter them out
   useEffect(() => {
