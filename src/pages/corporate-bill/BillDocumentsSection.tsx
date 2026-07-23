@@ -12,10 +12,11 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
-  PATIENT_DOC_CATEGORIES,
+  DOCUMENTS_AND_PHOTOS_CATEGORIES,
   type PatientDoc,
   type PatientDocCategory,
 } from "@/tablet/hooks/usePatientDocs";
+import { getRegistrationDocumentDisplayName } from "@/lib/registrationDocuments";
 
 interface BillDocumentsSectionProps {
   patientId?: string;
@@ -200,12 +201,14 @@ function mapDoc(r: any): CategorizedDoc {
   return {
     id: r.id,
     fileName: r.file_name ?? "file",
+    displayName: getRegistrationDocumentDisplayName(r.category, r.file_name, r.notes),
     fileUrl: r.file_url ?? "",
     fileType: r.file_type ?? null,
     storagePath: r.storage_path ?? null,
     uploadedAt: r.created_at ?? null,
     latitude: r.latitude ?? null,
     longitude: r.longitude ?? null,
+    notes: r.notes ?? null,
     category: r.category ?? "",
   };
 }
@@ -450,7 +453,7 @@ async function loadImageDataUrl(path: string): Promise<string | null> {
   }
 }
 
-/** All uploaded docs for a patient, across the 8 profile categories, newest first. */
+/** All uploaded docs for a patient, across the shared Documents & Photos categories, newest first. */
 function usePatientAllDocs(patientId: string | undefined) {
   return useQuery({
     queryKey: ["bill-patient-docs", patientId],
@@ -460,12 +463,12 @@ function usePatientAllDocs(patientId: string | undefined) {
       const { data, error } = await supabase
         .from("file_uploads")
         .select(
-          "id, file_name, file_url, file_type, storage_path, created_at, latitude, longitude, category",
+          "id, file_name, file_url, file_type, storage_path, created_at, latitude, longitude, category, notes",
         )
         .eq("patient_id", patientId)
         .in(
           "category",
-          PATIENT_DOC_CATEGORIES.map((c) => c.id),
+          DOCUMENTS_AND_PHOTOS_CATEGORIES.map((c) => c.id),
         )
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -1180,7 +1183,7 @@ function CategoryGallery({
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <span className="truncate text-sm font-medium text-slate-800">
-                  {doc.fileName}
+                  {doc.displayName || doc.fileName}
                 </span>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -1222,7 +1225,7 @@ function CategoryGallery({
               {isImage(doc.fileType) ? (
                 <img
                   src={doc.fileUrl}
-                  alt={doc.fileName}
+                  alt={doc.displayName || doc.fileName}
                   className="h-28 w-full object-cover"
                   loading="lazy"
                 />
@@ -1235,7 +1238,7 @@ function CategoryGallery({
             </button>
             <div className="mt-2 flex items-center justify-between gap-1">
               <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                {doc.fileName}
+                {doc.displayName || doc.fileName}
               </span>
               <button
                 type="button"
@@ -1262,7 +1265,7 @@ function CategoryGallery({
 
 /**
  * A collapsible side panel next to the Yojna/Final Bill that lets staff view and
- * download the patient's uploaded photos/documents across the 8 profile categories.
+ * download the patient's uploaded photos/documents across the shared categories.
  * Read-only — uploading/deleting is done from the tablet Patient Profile.
  */
 export function BillDocumentsSection({
@@ -1278,7 +1281,7 @@ export function BillDocumentsSection({
   const { hospitalConfig } = useAuth();
   const [open, setOpen] = useState(defaultOpen);
   const [activeTab, setActiveTab] = useState<PatientDocCategory>(
-    PATIENT_DOC_CATEGORIES[0].id,
+    DOCUMENTS_AND_PHOTOS_CATEGORIES[0].id,
   );
   const [viewing, setViewing] = useState<PatientDoc | null>(null);
   const [generatedLabReportUrl, setGeneratedLabReportUrl] = useState<string | null>(null);
@@ -1370,6 +1373,7 @@ export function BillDocumentsSection({
       setViewing({
         id: "__generated_lab_report__",
         fileName: `${safeName}_Lab_Investigation_Report.pdf`,
+        displayName: "Lab Investigation Report",
         fileUrl: url,
         fileType: "application/pdf",
         storagePath: null,
@@ -1408,7 +1412,7 @@ export function BillDocumentsSection({
   };
 
   const handleDownloadOne = async (doc: PatientDoc) => {
-    const base = (doc.fileName || "document")
+    const base = (doc.displayName || doc.fileName || "document")
       .replace(/\.[^.]+$/, "")
       .replace(/[^a-zA-Z0-9._-]/g, "_");
     setPdfBusyDocId(doc.id);
@@ -1465,12 +1469,12 @@ export function BillDocumentsSection({
 
   // Group all docs by category so every tab (even empty ones) can render.
   const byCategory = new Map<string, PatientDoc[]>();
-  for (const cat of PATIENT_DOC_CATEGORIES) byCategory.set(cat.id, []);
+  for (const cat of DOCUMENTS_AND_PHOTOS_CATEGORIES) byCategory.set(cat.id, []);
   for (const doc of docs.data || []) {
     if (byCategory.has(doc.category)) byCategory.get(doc.category)!.push(doc);
   }
   const isTabletListMode = categoryLayout === "list";
-  const orderedDocs = PATIENT_DOC_CATEGORIES.flatMap((cat) =>
+  const orderedDocs = DOCUMENTS_AND_PHOTOS_CATEGORIES.flatMap((cat) =>
     (docs.data || []).filter((doc) => doc.category === cat.id),
   );
   const generatedDocCount = hasGeneratedLabReport ? 1 : 0;
@@ -1491,7 +1495,7 @@ export function BillDocumentsSection({
         const response = await fetch(item.fileUrl);
         if (!response.ok) throw new Error(`Could not load ${item.fileName}`);
         const blob = await response.blob();
-        const title = `${PATIENT_DOC_CATEGORIES.find((cat) => cat.id === item.category)?.label || "Document"} · ${item.fileName}`;
+        const title = `${DOCUMENTS_AND_PHOTOS_CATEGORIES.find((cat) => cat.id === item.category)?.label || "Document"} · ${item.displayName || item.fileName}`;
         if (isImage(item.fileType)) {
           await appendImageBlobToPdf(doc, blob, { title });
           appendedPages += 1;
@@ -1691,10 +1695,10 @@ export function BillDocumentsSection({
               >
               {categoryLayout === "list" ? (
                 <div className="mb-4 space-y-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                  {PATIENT_DOC_CATEGORIES.map((cat) => {
-                    const count =
-                      (byCategory.get(cat.id)?.length || 0) +
-                      (cat.id === "lab_investigation" ? generatedDocCount : 0);
+                    {DOCUMENTS_AND_PHOTOS_CATEGORIES.map((cat) => {
+                      const count =
+                        (byCategory.get(cat.id)?.length || 0) +
+                        (cat.id === "lab_investigation" ? generatedDocCount : 0);
                     const isActive = activeTab === cat.id;
                     return (
                       <button
@@ -1723,10 +1727,10 @@ export function BillDocumentsSection({
                 </div>
               ) : (
                 <TabsList className="flex h-auto flex-wrap justify-start gap-1">
-                  {PATIENT_DOC_CATEGORIES.map((cat) => {
-                    const count =
-                      (byCategory.get(cat.id)?.length || 0) +
-                      (cat.id === "lab_investigation" ? generatedDocCount : 0);
+                    {DOCUMENTS_AND_PHOTOS_CATEGORIES.map((cat) => {
+                      const count =
+                        (byCategory.get(cat.id)?.length || 0) +
+                        (cat.id === "lab_investigation" ? generatedDocCount : 0);
                     return (
                       <TabsTrigger key={cat.id} value={cat.id} className="text-xs">
                         {cat.label}
@@ -1740,7 +1744,7 @@ export function BillDocumentsSection({
                   })}
                 </TabsList>
               )}
-              {PATIENT_DOC_CATEGORIES.map((cat) => (
+              {DOCUMENTS_AND_PHOTOS_CATEGORIES.map((cat) => (
                 <TabsContent key={cat.id} value={cat.id}>
                   {cat.id === "lab_investigation" && (
                     <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -1967,20 +1971,20 @@ export function BillDocumentsSection({
         <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle className="truncate pr-6">
-              {viewing?.fileName || patientName || "Document"}
+               {viewing?.displayName || viewing?.fileName || patientName || "Document"}
             </DialogTitle>
           </DialogHeader>
           {viewing ? (
             isImage(viewing.fileType) ? (
               <img
                 src={viewing.fileUrl}
-                alt={viewing.fileName}
-                className="max-h-[70vh] w-full object-contain"
-              />
-            ) : (
-              <iframe
-                title={viewing.fileName}
-                src={viewing.fileUrl}
+                  alt={viewing.displayName || viewing.fileName}
+                  className="max-h-[70vh] w-full object-contain"
+                />
+              ) : (
+                <iframe
+                  title={viewing.displayName || viewing.fileName}
+                  src={viewing.fileUrl}
                 className="h-[70vh] w-full rounded-lg border"
               />
             )

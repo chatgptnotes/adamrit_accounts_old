@@ -2,6 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { captureGeolocation, geoToDbFields, type GeoCapture } from "@/lib/geotag";
 import { stampGeotagOnImage } from "@/lib/geotagImage";
+import {
+  getRegistrationDocumentDisplayName,
+  REGISTRATION_DOCUMENT_CATEGORY,
+  REGISTRATION_DOCUMENT_SECTION_LABEL,
+} from "@/lib/registrationDocuments";
 
 /** The document tabs shown under a patient profile, in display order. */
 export const PATIENT_DOC_CATEGORIES = [
@@ -17,8 +22,14 @@ export const PATIENT_DOC_CATEGORIES = [
   { id: "discharge_summary", label: "Discharge Summary" },
 ] as const;
 
+export const DOCUMENTS_AND_PHOTOS_CATEGORIES = [
+  ...PATIENT_DOC_CATEGORIES,
+  { id: REGISTRATION_DOCUMENT_CATEGORY, label: REGISTRATION_DOCUMENT_SECTION_LABEL },
+] as const;
+
 export type PatientDocCategory =
   | (typeof PATIENT_DOC_CATEGORIES)[number]["id"]
+  | typeof REGISTRATION_DOCUMENT_CATEGORY
   | "advance_image"
   | "payment_proof"
   | "referee_feedback"
@@ -27,12 +38,14 @@ export type PatientDocCategory =
 export interface PatientDoc {
   id: string;
   fileName: string;
+  displayName: string;
   fileUrl: string;
   fileType: string | null;
   storagePath: string | null;
   uploadedAt: string | null;
   latitude: number | null;
   longitude: number | null;
+  notes?: string | null;
 }
 
 const BUCKET = "uploads";
@@ -41,12 +54,14 @@ function mapDoc(r: any): PatientDoc {
   return {
     id: r.id,
     fileName: r.file_name ?? "file",
+    displayName: getRegistrationDocumentDisplayName(r.category, r.file_name, r.notes),
     fileUrl: r.file_url ?? "",
     fileType: r.file_type ?? null,
     storagePath: r.storage_path ?? null,
     uploadedAt: r.created_at ?? null,
     latitude: r.latitude ?? null,
     longitude: r.longitude ?? null,
+    notes: r.notes ?? null,
   };
 }
 
@@ -62,7 +77,7 @@ export function usePatientDocs(
     queryFn: async (): Promise<PatientDoc[]> => {
       const { data, error } = await supabase
         .from("file_uploads")
-        .select("id, file_name, file_url, file_type, storage_path, created_at, latitude, longitude")
+        .select("id, file_name, file_url, file_type, storage_path, created_at, latitude, longitude, notes, category")
         .eq("patient_id", patientId)
         .eq("category", category)
         .order("created_at", { ascending: false });
@@ -84,6 +99,7 @@ interface UploadMeta {
   category: PatientDocCategory;
   uploadedBy?: string | null;
   placeLabel?: string | null;
+  notes?: string | null;
 }
 
 /**
@@ -139,6 +155,7 @@ export async function uploadPatientDocs(
       patient_id: meta.patientId,
       patient_name: meta.patientName,
       uploaded_by: meta.uploadedBy ?? null,
+      notes: meta.notes ?? null,
       ...geoToDbFields(uploadGeo, captureSource),
     });
     if (insertError) throw insertError;

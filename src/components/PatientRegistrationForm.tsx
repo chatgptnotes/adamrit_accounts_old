@@ -19,6 +19,9 @@ export const PatientRegistrationForm: React.FC<PatientRegistrationFormProps> = (
     isSubmitting,
     handleInputChange,
     setDateOfBirth,
+    registrationDocuments,
+    handleRegistrationDocumentSelect,
+    handleRegistrationDocumentRemove,
     handleSubmit,
     handleCancel
   } = usePatientRegistration(onClose);
@@ -50,7 +53,12 @@ export const PatientRegistrationForm: React.FC<PatientRegistrationFormProps> = (
             onInputChange={handleInputChange}
           />
           
-          <DocumentUploadSection />
+          <DocumentUploadSection
+            corporate={formData.corporate}
+            documents={registrationDocuments}
+            onFileSelect={handleRegistrationDocumentSelect}
+            onFileRemove={handleRegistrationDocumentRemove}
+          />
           
           <FormActions 
             formData={formData}

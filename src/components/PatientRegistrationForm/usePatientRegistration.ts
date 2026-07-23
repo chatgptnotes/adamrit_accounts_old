@@ -9,6 +9,13 @@ import { format } from 'date-fns';
 import { generatePatientId } from '@/utils/patientIdGenerator';
 import { useAuth } from '@/contexts/AuthContext';
 import { logActivity } from '@/lib/activity-logger';
+import { uploadPatientDocs } from '@/tablet/hooks/usePatientDocs';
+import {
+  buildRegistrationDocumentNotes,
+  getCorporateRegistrationDocuments,
+  REGISTRATION_DOCUMENT_CATEGORY,
+} from '@/lib/registrationDocuments';
+import { RegistrationDocumentSelection } from './types';
 
 export const usePatientRegistration = (onClose: () => void) => {
   const [dateOfBirth, setDateOfBirth] = useState<Date>();
@@ -52,12 +59,27 @@ export const usePatientRegistration = (onClose: () => void) => {
     hospitalName: hospitalConfig.name
   });
 
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
+  const [registrationDocuments, setRegistrationDocuments] = useState<RegistrationDocumentSelection[]>([]);
 
   const normalizedCorporate = formData.corporate.trim().toLowerCase();
   const isEsicCorporate = normalizedCorporate.includes('esic');
+
+  const syncRegistrationDocuments = (corporate: string, existing: RegistrationDocumentSelection[]) => {
+    const requiredDocuments = getCorporateRegistrationDocuments(corporate);
+    if (requiredDocuments.length === 0) return [];
+
+    return requiredDocuments.map((label) => ({
+      label,
+      file: existing.find((document) => document.label === label)?.file || null,
+    }));
+  };
+
+  const handleInputChange = (field: string, value: string) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+    if (field === 'corporate') {
+      setRegistrationDocuments((prev) => syncRegistrationDocuments(value, prev));
+    }
+  };
 
   const resetForm = () => {
     setFormData({
@@ -95,6 +117,19 @@ export const usePatientRegistration = (onClose: () => void) => {
       hospitalName: hospitalConfig.name
     });
     setDateOfBirth(undefined);
+    setRegistrationDocuments([]);
+  };
+
+  const handleRegistrationDocumentSelect = (label: string, file: File | null) => {
+    setRegistrationDocuments((prev) =>
+      prev.map((document) =>
+        document.label === label ? { ...document, file } : document,
+      ),
+    );
+  };
+
+  const handleRegistrationDocumentRemove = (label: string) => {
+    handleRegistrationDocumentSelect(label, null);
   };
 
   const validateForm = (): boolean => {
@@ -247,9 +282,34 @@ export const usePatientRegistration = (onClose: () => void) => {
         console.error('Error handling patient_data creation:', patientDataError);
       }
 
+      const selectedRegistrationDocuments = registrationDocuments.filter((document) => document.file);
+      const failedDocumentUploads: string[] = [];
+      let uploadedDocumentCount = 0;
+
+      for (const document of selectedRegistrationDocuments) {
+        try {
+          await uploadPatientDocs([document.file!], {
+            patientId: newPatient.id,
+            patientName: formData.patientName,
+            category: REGISTRATION_DOCUMENT_CATEGORY,
+            notes: buildRegistrationDocumentNotes({
+              source: 'patient_registration',
+              corporate: formData.corporate,
+              documentName: document.label,
+            }),
+          });
+          uploadedDocumentCount += 1;
+        } catch (uploadError) {
+          failedDocumentUploads.push(document.label);
+          console.error(`Error uploading registration document ${document.label}:`, uploadError);
+        }
+      }
+
       toast({
-        title: "Success",
-        description: `Patient registered successfully! Patient ID: ${customPatientId}`,
+        title: failedDocumentUploads.length > 0 ? "Patient saved with upload issues" : "Success",
+        description: failedDocumentUploads.length > 0
+          ? `Patient ID: ${customPatientId}. Uploaded ${uploadedDocumentCount}/${selectedRegistrationDocuments.length} registration documents.`
+          : `Patient registered successfully! Patient ID: ${customPatientId}`,
       });
 
       // Refresh the patients list
@@ -281,8 +341,11 @@ export const usePatientRegistration = (onClose: () => void) => {
     formData,
     dateOfBirth,
     isSubmitting,
+    registrationDocuments,
     handleInputChange,
     setDateOfBirth,
+    handleRegistrationDocumentSelect,
+    handleRegistrationDocumentRemove,
     handleSubmit,
     handleCancel
   };

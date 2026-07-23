@@ -38,3 +38,8 @@ export interface PatientRegistrationFormProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+export interface RegistrationDocumentSelection {
+  label: string;
+  file: File | null;
+}
