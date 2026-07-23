@@ -5,14 +5,11 @@
 
 BEGIN;
 
-CREATE TEMP TABLE tmp_drm_ledger_import (
-  row_no integer PRIMARY KEY,
-  account_name text NOT NULL,
-  account_group text NOT NULL
-) ON COMMIT DROP;
-
-INSERT INTO tmp_drm_ledger_import (row_no, account_name, account_group)
-VALUES
+CREATE TEMP TABLE tmp_drm_ledger_import
+ON COMMIT DROP
+AS
+SELECT *
+FROM (VALUES
   ('1', 'Aarat Ragunath Parida-IH25H02009', 'ESIC'),
   ('2', 'Aarav Enterprises', 'Sundry Creditors'),
   ('3', 'Aarti Dudhbale (Sister)', 'Ayushman Salary Expences'),
@@ -1886,6 +1883,7 @@ VALUES
   ('1871', 'Zeba Khan-IH25F23009', 'ECHS'),
   ('1872', 'Zubeda Begum Abdul Razzaque-IH24E16005', 'Mahatma Jyotibha Janarogya Yojna (Mjpjay)'),
   ('1873', 'Zurich Kotak General Insurance', 'Sundry Debtors')
+) AS source(row_no, account_name, account_group);
 
 DO $$
 DECLARE
