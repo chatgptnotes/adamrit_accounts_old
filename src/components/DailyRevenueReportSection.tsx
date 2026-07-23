@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useDebounce } from 'use-debounce';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -86,6 +87,12 @@ interface ManualFormData {
   notes: string;
 }
 
+interface ManualPatientSearchResult {
+  patientId: string;
+  patientName: string;
+  visitId: string;
+}
+
 const initialManual: ManualFormData = {
   patient_name: '',
   department: '',
@@ -137,6 +144,8 @@ export function DailyRevenueReportSection() {
   const [isManualDialogOpen, setIsManualDialogOpen] = useState(false);
   const [manualEditId, setManualEditId] = useState<string | null>(null);
   const [manualForm, setManualForm] = useState<ManualFormData>(initialManual);
+  const [selectedManualPatientId, setSelectedManualPatientId] = useState<string | null>(null);
+  const [isManualPatientDropdownOpen, setIsManualPatientDropdownOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const [detailsRow, setDetailsRow] = useState<DisplayRow | null>(null);
@@ -145,6 +154,46 @@ export function DailyRevenueReportSection() {
   const [patientTypeFilter, setPatientTypeFilter] = useState<PatientTypeFilter>('OPD');
 
   const hospitalType = user?.hospitalType ?? '';
+  const [debouncedManualPatientSearch] = useDebounce(manualForm.patient_name, 300);
+  // Remove PostgREST filter delimiters before using the search term in ilike.
+  const safeManualPatientSearch = debouncedManualPatientSearch.replace(/[%,()]/g, ' ').trim();
+
+  // This picker deliberately searches only after the user starts typing. It
+  // queries visits (rather than loading the patient master) so every result
+  // can show the Visit ID requested by the Director.
+  const manualPatientSearchQuery = useQuery({
+    queryKey: ['dailyRevenueManualPatientSearch', safeManualPatientSearch],
+    enabled: isManualDialogOpen && !manualEditId && safeManualPatientSearch.length >= 2,
+    queryFn: async (): Promise<ManualPatientSearchResult[]> => {
+      const { data, error } = await supabase
+        .from('visits')
+        .select('visit_id, created_at, patients!inner(id, name)')
+        .ilike('patients.name', `%${safeManualPatientSearch}%`)
+        .order('created_at', { ascending: false })
+        // A small over-fetch lets us de-duplicate patients with several visits
+        // while keeping the visible result list capped at ten.
+        .limit(30)
+        .abortSignal(AbortSignal.timeout(8000));
+      if (error) throw error;
+
+      const uniquePatients = new Map<string, ManualPatientSearchResult>();
+      for (const visit of (data ?? []) as unknown as Array<{
+        visit_id: string | null;
+        patients: { id: string; name: string } | null;
+      }>) {
+        if (!visit.patients || !visit.visit_id || uniquePatients.has(visit.patients.id)) continue;
+        uniquePatients.set(visit.patients.id, {
+          patientId: visit.patients.id,
+          patientName: visit.patients.name,
+          visitId: visit.visit_id,
+        });
+        if (uniquePatients.size === 10) break;
+      }
+      return [...uniquePatients.values()];
+    },
+    staleTime: 5 * 60 * 1000,
+    retry: 0,
+  });
 
   // Director sees patients from BOTH hospitals on one screen — no hospital_name filter.
   const visitsQuery = useQuery({
@@ -374,7 +423,10 @@ export function DailyRevenueReportSection() {
 
     let all = [...visitRows, ...manualRows];
     if (patientTypeFilter !== 'all') {
-      all = all.filter((r) => r.patient_type === patientTypeFilter);
+      // Manual revenue rows are not OPD/IPD visits, so they have no patient
+      // type. Keep them visible in their own section for either view instead
+      // of silently excluding a successfully saved manual entry.
+      all = all.filter((r) => r.isManual || r.patient_type === patientTypeFilter);
     }
     if (onlyWithRm) {
       all = all.filter((r) => !isDirect(r.rm_name));
@@ -722,6 +774,8 @@ export function DailyRevenueReportSection() {
     if (isApproved) return;
     setManualEditId(null);
     setManualForm(initialManual);
+    setSelectedManualPatientId(null);
+    setIsManualPatientDropdownOpen(false);
     setIsManualDialogOpen(true);
   };
 
@@ -737,12 +791,21 @@ export function DailyRevenueReportSection() {
       cut: String(row.cut),
       notes: '',
     });
+    setSelectedManualPatientId(null);
+    setIsManualPatientDropdownOpen(false);
     setIsManualDialogOpen(true);
   };
 
   const submitManual = () => {
-    if (manualEditId) updateManualMutation.mutate(manualForm);
-    else addManualMutation.mutate(manualForm);
+    if (manualEditId) {
+      updateManualMutation.mutate(manualForm);
+      return;
+    }
+    if (!selectedManualPatientId) {
+      toast.error('Select a patient from the search results');
+      return;
+    }
+    addManualMutation.mutate(manualForm);
   };
 
   // Open a clean printable view in a new window — strips sidebar, filters,
@@ -1087,7 +1150,7 @@ export function DailyRevenueReportSection() {
           <div className="text-center py-8 text-gray-500">
             <Users className="h-12 w-12 mx-auto mb-2 opacity-30" />
             <p>No visits on {new Date(reportDate).toLocaleDateString('en-IN')}.</p>
-            <p className="text-sm">Use "Add Manual" for entries not in the visits system.</p>
+            <p className="text-sm">Use "Add Manual" for entries not already shown in this day’s visit list.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -1373,7 +1436,15 @@ export function DailyRevenueReportSection() {
       </CardContent>
 
       {/* Manual Add/Edit Dialog */}
-      <Dialog open={isManualDialogOpen} onOpenChange={(open) => { if (!open) { setIsManualDialogOpen(false); setManualEditId(null); setManualForm(initialManual); } }}>
+      <Dialog open={isManualDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          setIsManualDialogOpen(false);
+          setManualEditId(null);
+          setManualForm(initialManual);
+          setSelectedManualPatientId(null);
+          setIsManualPatientDropdownOpen(false);
+        }
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{manualEditId ? 'Edit Manual Entry' : 'Add Manual Entry'}</DialogTitle>
@@ -1381,8 +1452,59 @@ export function DailyRevenueReportSection() {
           <div className="space-y-3">
             <div>
               <Label htmlFor="m_patient_name">Patient Name *</Label>
-              <Input id="m_patient_name" value={manualForm.patient_name} maxLength={150}
-                onChange={(e) => setManualForm({ ...manualForm, patient_name: e.target.value })} />
+              {manualEditId ? (
+                <Input id="m_patient_name" value={manualForm.patient_name} maxLength={150}
+                  onChange={(e) => setManualForm({ ...manualForm, patient_name: e.target.value })} />
+              ) : (
+                <div className="relative">
+                  <Input
+                    id="m_patient_name"
+                    value={manualForm.patient_name}
+                    maxLength={150}
+                    autoComplete="off"
+                    placeholder="Type at least 2 letters to search..."
+                    onFocus={() => setIsManualPatientDropdownOpen(true)}
+                    onChange={(e) => {
+                      setManualForm({ ...manualForm, patient_name: e.target.value });
+                      setSelectedManualPatientId(null);
+                      setIsManualPatientDropdownOpen(true);
+                    }}
+                  />
+                  {isManualPatientDropdownOpen && (
+                    <div className="absolute z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
+                      {manualForm.patient_name.trim().length < 2 ? (
+                        <p className="px-3 py-2 text-sm text-muted-foreground">Type at least 2 letters to search patients.</p>
+                      ) : manualPatientSearchQuery.isFetching ? (
+                        <p className="px-3 py-2 text-sm text-muted-foreground">Searching patients...</p>
+                      ) : manualPatientSearchQuery.isError ? (
+                        <p className="px-3 py-2 text-sm text-destructive">Could not search patients. Please try again.</p>
+                      ) : (manualPatientSearchQuery.data ?? []).length === 0 ? (
+                        <p className="px-3 py-2 text-sm text-muted-foreground">No matching patients found.</p>
+                      ) : (
+                        (manualPatientSearchQuery.data ?? []).map((patient) => (
+                          <button
+                            key={patient.patientId}
+                            type="button"
+                            className="flex w-full flex-col rounded-sm px-3 py-2 text-left hover:bg-accent focus:bg-accent focus:outline-none"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              setManualForm({ ...manualForm, patient_name: patient.patientName });
+                              setSelectedManualPatientId(patient.patientId);
+                              setIsManualPatientDropdownOpen(false);
+                            }}
+                          >
+                            <span className="text-sm font-medium">{patient.patientName}</span>
+                            <span className="text-xs text-muted-foreground">Visit ID: {patient.visitId}</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              {!manualEditId && (
+                <p className="mt-1 text-xs text-muted-foreground">Select a patient from the search results.</p>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -1415,8 +1537,14 @@ export function DailyRevenueReportSection() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setIsManualDialogOpen(false); setManualEditId(null); setManualForm(initialManual); }}>Cancel</Button>
-            <Button onClick={submitManual} disabled={addManualMutation.isPending || updateManualMutation.isPending}>
+            <Button variant="outline" onClick={() => {
+              setIsManualDialogOpen(false);
+              setManualEditId(null);
+              setManualForm(initialManual);
+              setSelectedManualPatientId(null);
+              setIsManualPatientDropdownOpen(false);
+            }}>Cancel</Button>
+            <Button onClick={submitManual} disabled={addManualMutation.isPending || updateManualMutation.isPending || (!manualEditId && !selectedManualPatientId)}>
               {manualEditId ? 'Update' : 'Add'}
             </Button>
           </DialogFooter>
