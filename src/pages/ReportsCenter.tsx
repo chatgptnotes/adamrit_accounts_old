@@ -29,6 +29,17 @@ interface ReportSection {
 // section are likewise ordered most-used first.
 const SECTIONS: ReportSection[] = [
   {
+    heading: 'Workflow Reports',
+    items: [
+      { title: 'Approval Report', route: '/workflow-status-report/approval', description: 'Patients with approval pending or received', icon: FileCheck2 },
+      { title: 'Extension Report', route: '/workflow-status-report/extension', description: 'Patients with extension pending or received', icon: Clock },
+      { title: 'Discharge Report', route: '/workflow-status-report/discharge', description: 'Patients with discharge pending or done', icon: ClipboardList },
+      { title: 'Bill Report', route: '/workflow-status-report/bill', description: 'Patients with bill pending or done', icon: Receipt },
+      { title: 'Submission Report', route: '/workflow-status-report/submission', description: 'Patients with submission pending or done', icon: FileText },
+      { title: 'Payment Report', route: '/workflow-status-report/payment', description: 'Patients with payment pending or received', icon: Wallet },
+    ],
+  },
+  {
     heading: 'Dashboards & KPIs',
     items: [
       { title: 'Director Dashboard', route: '/director-dashboard', description: 'Hospital KPIs, collections, department activity', icon: LayoutDashboard },
