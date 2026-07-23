@@ -5,29 +5,48 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SearchableSelect, SearchableSelectOption } from '@/components/ui/searchable-select';
 import { EnhancedDatePicker } from '@/components/ui/enhanced-date-picker';
-import { Upload, X, Loader2 } from 'lucide-react';
-import { PatientFormData } from './types';
+import { Eye, Upload, X, Loader2 } from 'lucide-react';
+import { PatientFormData, RegistrationDocumentSelection } from './types';
 import { useCorporateData } from '@/hooks/useCorporateData';
 import { supabase } from '@/integrations/supabase/client';
 
 interface PatientInfoSectionProps {
   formData: PatientFormData;
   dateOfBirth?: Date;
+  registrationDocuments: RegistrationDocumentSelection[];
   onInputChange: (field: string, value: string) => void;
   onDateChange: (date: Date | undefined) => void;
+  onPatientPhotoSelect: (file: File | null) => void;
+  onRegistrationDocumentSelect: (label: string, file: File | null) => void;
+  onRegistrationDocumentRemove: (label: string) => void;
 }
 
 export const PatientInfoSection: React.FC<PatientInfoSectionProps> = ({
   formData,
   dateOfBirth,
+  registrationDocuments,
   onInputChange,
-  onDateChange
+  onDateChange,
+  onPatientPhotoSelect,
+  onRegistrationDocumentSelect,
+  onRegistrationDocumentRemove,
 }) => {
   const corporateKey = formData.corporate.trim().toLowerCase();
   const isEsicCorporate = corporateKey.includes('esic');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const registrationInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
+
+  const handleRegistrationDocumentView = (file: File) => {
+    const url = URL.createObjectURL(file);
+    const previewWindow = window.open(url, '_blank', 'noopener,noreferrer');
+    if (previewWindow) {
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } else {
+      URL.revokeObjectURL(url);
+    }
+  };
 
   // Relationship Managers for the selectable RM field. Patient can pick a
   // registered RM or choose "Direct" when they came without a referral.
@@ -214,6 +233,7 @@ export const PatientInfoSection: React.FC<PatientInfoSectionProps> = ({
       setSelectedFile(file);
       const url = URL.createObjectURL(file);
       setPreviewUrl(url);
+      onPatientPhotoSelect(file);
       // Store file name in form data
       onInputChange('patientPhoto', file.name);
     }
@@ -221,6 +241,7 @@ export const PatientInfoSection: React.FC<PatientInfoSectionProps> = ({
 
   const handleFileRemove = () => {
     setSelectedFile(null);
+    onPatientPhotoSelect(null);
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl);
       setPreviewUrl(null);
@@ -369,7 +390,7 @@ export const PatientInfoSection: React.FC<PatientInfoSectionProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mt-4">
         {/* Patient's Photo */}
         <div className="space-y-2">
           <Label className="text-sm font-medium">Patient's Photo</Label>
@@ -413,47 +434,122 @@ export const PatientInfoSection: React.FC<PatientInfoSectionProps> = ({
           />
         </div>
 
-        {/* Aadhar/Passport */}
-        <div className="space-y-2">
-          <Label htmlFor="aadharPassport" className="text-sm font-medium">
-            Aadhar/Passport
-          </Label>
-          <Input
-            id="aadharPassport"
-            placeholder="Aadhar/Passport"
-            value={formData.aadharPassport}
-            onChange={(e) => onInputChange('aadharPassport', e.target.value)}
-            className="w-full"
-          />
-        </div>
+        <div className="lg:col-span-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* Aadhar/Passport */}
+            <div className="space-y-2">
+              <Label htmlFor="aadharPassport" className="text-sm font-medium">
+                Aadhar/Passport
+              </Label>
+              <Input
+                id="aadharPassport"
+                placeholder="Aadhar/Passport"
+                value={formData.aadharPassport}
+                onChange={(e) => onInputChange('aadharPassport', e.target.value)}
+                className="w-full"
+              />
+            </div>
 
-        {/* Ayushman ID */}
-        <div className="space-y-2">
-          <Label htmlFor="ayushmanId" className="text-sm font-medium">
-            Ayushman ID
-          </Label>
-          <Input
-            id="ayushmanId"
-            placeholder="Ayushman card ID"
-            value={formData.ayushmanId}
-            onChange={(e) => onInputChange('ayushmanId', e.target.value)}
-            className="w-full"
-          />
-        </div>
+            {/* Ayushman ID */}
+            <div className="space-y-2">
+              <Label htmlFor="ayushmanId" className="text-sm font-medium">
+                Ayushman ID
+              </Label>
+              <Input
+                id="ayushmanId"
+                placeholder="Ayushman card ID"
+                value={formData.ayushmanId}
+                onChange={(e) => onInputChange('ayushmanId', e.target.value)}
+                className="w-full"
+              />
+            </div>
 
-        {/* Aadhar ID */}
-        <div className="space-y-2">
-          <Label htmlFor="aadharId" className="text-sm font-medium">
-            Aadhar ID
-          </Label>
-          <Input
-            id="aadharId"
-            placeholder="Aadhar number"
-            value={formData.aadharId}
-            onChange={(e) => onInputChange('aadharId', e.target.value)}
-            className="w-full"
-          />
+            {/* Aadhar ID */}
+            <div className="space-y-2">
+              <Label htmlFor="aadharId" className="text-sm font-medium">
+                Aadhar ID
+              </Label>
+              <Input
+                id="aadharId"
+                placeholder="Aadhar number"
+                value={formData.aadharId}
+                onChange={(e) => onInputChange('aadharId', e.target.value)}
+                className="w-full"
+              />
+            </div>
+
+            {registrationDocuments.length > 0 ? (
+              <div className="col-span-full">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {registrationDocuments.map((document) => (
+                    <div key={document.label} className="space-y-2">
+                      <Label className="text-sm font-medium break-words leading-5">
+                        {document.label}
+                      </Label>
+                      <div className="flex h-10 w-full items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background">
+                        <div className="min-w-0 flex-1 text-sm text-muted-foreground">
+                          {document.file ? (
+                            <span className="block truncate text-foreground" title={document.file.name}>
+                              {document.file.name}
+                            </span>
+                          ) : (
+                            <span>Choose file</span>
+                          )}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          {document.file ? (
+                            <button
+                              type="button"
+                              onClick={() => handleRegistrationDocumentView(document.file as File)}
+                              className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline"
+                            >
+                              <Eye className="h-3 w-3" />
+                              View
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => registrationInputRefs.current[document.label]?.click()}
+                            className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline"
+                          >
+                            <Upload className="h-3 w-3" />
+                            {document.file ? 'Change' : 'Browse'}
+                          </button>
+                          {document.file ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onRegistrationDocumentRemove(document.label);
+                                const input = registrationInputRefs.current[document.label];
+                                if (input) input.value = '';
+                              }}
+                              className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-red-600 hover:underline"
+                            >
+                              <X className="h-3 w-3" />
+                              Remove
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                      <input
+                        ref={(element) => {
+                          registrationInputRefs.current[document.label] = element;
+                        }}
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                        onChange={(event) => onRegistrationDocumentSelect(document.label, event.target.files?.[0] || null)}
+                        className="hidden"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
 
         {/* Quarter/Plot No. */}
         <div className="space-y-2">

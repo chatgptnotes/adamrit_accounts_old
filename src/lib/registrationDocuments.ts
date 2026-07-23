@@ -42,6 +42,25 @@ export const CORPORATE_REGISTRATION_DOCUMENTS = {
   ],
 } as const;
 
+const CORPORATE_NAME_ALIASES: Record<string, readonly string[]> = {
+  CGHS: ["Central Government Health Scheme (CGHS)"],
+  WCL: ["Western Coalfield Limited (WCL)"],
+  SECR: ["South Eastern Central Railway (SECR)"],
+  CR: ["Central Railway", "Central Railway (CR)"],
+  ECHS: ["Ex Serviceman Contributory Health Scheme (ECHS)"],
+  ESIC: ["Employees State Insurance Corporation (ESIC)"],
+  MPKAY: [
+    "Mukhyamantri Police Karmchari Arogya Yojana",
+    "Maharashtra Police Kutumb Arogya Yojana",
+    "Maharashtra Police Kutumb Arogya Yojana (MPKAY)",
+    "Maharashtra Police Kutumb Arogya Yojna",
+    "Maharashtra Police Kutumb Arogya Yojna (MPKAY)",
+    "MPKAY Scheme",
+  ],
+  "MP Police": ["MP Police Scheme", "Madhya Pradesh Police"],
+  "TPA & Insurance": ["Insurance", "TPA", "TPA and Insurance"],
+};
+
 export type RegistrationDocumentMetadata = {
   source: "patient_registration";
   corporate: string;
@@ -55,8 +74,14 @@ export function getCorporateRegistrationDocuments(corporate: string): string[] {
   if (!normalizedCorporate) return [];
 
   for (const [name, documents] of Object.entries(CORPORATE_REGISTRATION_DOCUMENTS)) {
-    if (normalize(name) === normalizedCorporate) {
-      return [...documents];
+    const aliases = [name, ...(CORPORATE_NAME_ALIASES[name] || [])];
+    if (aliases.some((alias) => normalize(alias) === normalizedCorporate)) {
+      const uniqueDocuments = new Map<string, string>();
+      for (const document of documents) {
+        const key = normalize(document);
+        if (!uniqueDocuments.has(key)) uniqueDocuments.set(key, document);
+      }
+      return [...uniqueDocuments.values()];
     }
   }
   return [];

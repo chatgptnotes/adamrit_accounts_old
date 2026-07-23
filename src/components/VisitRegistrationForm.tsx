@@ -9,6 +9,13 @@ import { VisitDetailsSection } from '@/components/visit/VisitDetailsSection';
 import { VisitFormActions } from '@/components/visit/VisitFormActions';
 import { logActivity } from '@/lib/activity-logger';
 import { generateVisitId } from '@/utils/visitIdGenerator';
+import { RegistrationDocumentSelection } from '@/components/PatientRegistrationForm/types';
+import {
+  buildRegistrationDocumentNotes,
+  getCorporateRegistrationDocuments,
+  REGISTRATION_DOCUMENT_CATEGORY,
+} from '@/lib/registrationDocuments';
+import { uploadPatientDocs, usePatientDocs } from '@/tablet/hooks/usePatientDocs';
 
 interface VisitRegistrationFormProps {
   isOpen: boolean;
@@ -57,6 +64,63 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
   });
 
   const [patientCorporate, setPatientCorporate] = useState('');
+  const [registrationDocuments, setRegistrationDocuments] = useState<RegistrationDocumentSelection[]>([]);
+  const { data: uploadedRegistrationDocuments = [] } = usePatientDocs(
+    patient.id,
+    REGISTRATION_DOCUMENT_CATEGORY,
+  );
+
+  useEffect(() => {
+    const requiredDocuments = getCorporateRegistrationDocuments(patientCorporate);
+    setRegistrationDocuments((existing) =>
+      requiredDocuments.map((label) => ({
+        label,
+        file: existing.find((document) => document.label === label)?.file || null,
+      })),
+    );
+  }, [patientCorporate]);
+
+  const handleRegistrationDocumentSelect = (label: string, file: File | null) => {
+    setRegistrationDocuments((existing) =>
+      existing.map((document) =>
+        document.label === label ? { ...document, file } : document,
+      ),
+    );
+  };
+
+  const handleRegistrationDocumentRemove = (label: string) => {
+    handleRegistrationDocumentSelect(label, null);
+  };
+
+  const uploadPendingRegistrationDocuments = async (): Promise<string[]> => {
+    const failedDocuments: string[] = [];
+
+    for (const document of registrationDocuments.filter((item) => item.file)) {
+      try {
+        await uploadPatientDocs([document.file!], {
+          patientId: patient.id,
+          patientName: patient.name,
+          category: REGISTRATION_DOCUMENT_CATEGORY,
+          notes: buildRegistrationDocumentNotes({
+            source: 'patient_registration',
+            corporate: patientCorporate,
+            documentName: document.label,
+          }),
+        });
+      } catch (error) {
+        failedDocuments.push(document.label);
+        console.error(`Error uploading visit registration document ${document.label}:`, error);
+      }
+    }
+
+    if (registrationDocuments.some((document) => document.file)) {
+      await queryClient.invalidateQueries({
+        queryKey: ['tablet-patient-docs', patient.id, REGISTRATION_DOCUMENT_CATEGORY],
+      });
+    }
+
+    return failedDocuments;
+  };
 
   // Keep track of selected IDs for foreign keys
   const [selectedIds, setSelectedIds] = useState({
@@ -294,6 +358,8 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
             .eq('visit_id', existingVisit.visit_id).then(() => {});
         }
 
+        const failedDocumentUploads = await uploadPendingRegistrationDocuments();
+
         // Log visit edit activity
         logActivity('visit_edit', {
           patient_id: patient.id,
@@ -305,8 +371,10 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
         });
 
         toast({
-          title: "Success",
-          description: "Visit updated successfully",
+          title: failedDocumentUploads.length > 0 ? "Visit updated with upload issues" : "Success",
+          description: failedDocumentUploads.length > 0
+            ? `Visit updated, but these documents failed: ${failedDocumentUploads.join(', ')}`
+            : "Visit updated successfully",
         });
 
         // Invalidate queries to refresh data
@@ -385,6 +453,8 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
         supabase.from('visits').update({ corporate: formData.billingCategoryOverride } as any)
           .eq('visit_id', visitData.visit_id).then(() => {});
       }
+
+      const failedDocumentUploads = await uploadPendingRegistrationDocuments();
 
       // Get the database-generated UUID for junction table references
       const dbVisitUUID = visitData.id; // This is the UUID primary key
@@ -512,7 +582,9 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
 
       toast({
         title: "Success",
-        description: `Visit registered successfully! Visit ID: ${visitData.visit_id}`,
+        description: failedDocumentUploads.length > 0
+          ? `Visit registered, but these documents failed: ${failedDocumentUploads.join(', ')}`
+          : `Visit registered successfully! Visit ID: ${visitData.visit_id}`,
       });
 
       // Invalidate queries to refresh data - INCLUDING REPORTS DATA
@@ -530,8 +602,10 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
 
       // Show success message with confirmation
       toast({
-        title: "Data Stored Successfully",
-        description: `Patient ID ${readablePatientId} and Visit ID ${visitData.visit_id} stored properly!`,
+        title: failedDocumentUploads.length > 0 ? "Visit saved with upload issues" : "Data Stored Successfully",
+        description: failedDocumentUploads.length > 0
+          ? `Patient ID ${readablePatientId} and Visit ID ${visitData.visit_id} saved. Please retry failed documents.`
+          : `Patient ID ${readablePatientId} and Visit ID ${visitData.visit_id} stored properly!`,
       });
 
       // Redirect to appropriate dashboard based on patient type
@@ -580,6 +654,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
       referringDoctorId: '',
       relationshipManagerId: ''
     });
+    setRegistrationDocuments([]);
     setVisitDate(new Date());
     onClose();
   };
@@ -597,13 +672,17 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <VisitDetailsSection
+        <VisitDetailsSection
             visitDate={visitDate}
             setVisitDate={setVisitDate}
             formData={formData}
             handleInputChange={handleInputChange}
             existingVisit={existingVisit}
             patientCorporate={patientCorporate}
+            registrationDocuments={registrationDocuments}
+            uploadedRegistrationDocuments={uploadedRegistrationDocuments}
+            onRegistrationDocumentSelect={handleRegistrationDocumentSelect}
+            onRegistrationDocumentRemove={handleRegistrationDocumentRemove}
           />
 
           <VisitFormActions

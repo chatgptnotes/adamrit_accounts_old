@@ -60,6 +60,7 @@ export const usePatientRegistration = (onClose: () => void) => {
   });
 
   const [registrationDocuments, setRegistrationDocuments] = useState<RegistrationDocumentSelection[]>([]);
+  const [patientPhotoFile, setPatientPhotoFile] = useState<File | null>(null);
 
   const normalizedCorporate = formData.corporate.trim().toLowerCase();
   const isEsicCorporate = normalizedCorporate.includes('esic');
@@ -117,6 +118,7 @@ export const usePatientRegistration = (onClose: () => void) => {
       hospitalName: hospitalConfig.name
     });
     setDateOfBirth(undefined);
+    setPatientPhotoFile(null);
     setRegistrationDocuments([]);
   };
 
@@ -130,6 +132,10 @@ export const usePatientRegistration = (onClose: () => void) => {
 
   const handleRegistrationDocumentRemove = (label: string) => {
     handleRegistrationDocumentSelect(label, null);
+  };
+
+  const handlePatientPhotoSelect = (file: File | null) => {
+    setPatientPhotoFile(file);
   };
 
   const validateForm = (): boolean => {
@@ -286,6 +292,25 @@ export const usePatientRegistration = (onClose: () => void) => {
       const failedDocumentUploads: string[] = [];
       let uploadedDocumentCount = 0;
 
+      if (patientPhotoFile) {
+        try {
+          await uploadPatientDocs([patientPhotoFile], {
+            patientId: newPatient.id,
+            patientName: formData.patientName,
+            category: REGISTRATION_DOCUMENT_CATEGORY,
+            notes: buildRegistrationDocumentNotes({
+              source: 'patient_registration',
+              corporate: formData.corporate,
+              documentName: 'Patient Photo',
+            }),
+          });
+          uploadedDocumentCount += 1;
+        } catch (uploadError) {
+          failedDocumentUploads.push('Patient Photo');
+          console.error('Error uploading patient photo:', uploadError);
+        }
+      }
+
       for (const document of selectedRegistrationDocuments) {
         try {
           await uploadPatientDocs([document.file!], {
@@ -308,7 +333,7 @@ export const usePatientRegistration = (onClose: () => void) => {
       toast({
         title: failedDocumentUploads.length > 0 ? "Patient saved with upload issues" : "Success",
         description: failedDocumentUploads.length > 0
-          ? `Patient ID: ${customPatientId}. Uploaded ${uploadedDocumentCount}/${selectedRegistrationDocuments.length} registration documents.`
+          ? `Patient ID: ${customPatientId}. Uploaded ${uploadedDocumentCount}/${selectedRegistrationDocuments.length + (patientPhotoFile ? 1 : 0)} registration documents.`
           : `Patient registered successfully! Patient ID: ${customPatientId}`,
       });
 
@@ -342,6 +367,7 @@ export const usePatientRegistration = (onClose: () => void) => {
     dateOfBirth,
     isSubmitting,
     registrationDocuments,
+    handlePatientPhotoSelect,
     handleInputChange,
     setDateOfBirth,
     handleRegistrationDocumentSelect,

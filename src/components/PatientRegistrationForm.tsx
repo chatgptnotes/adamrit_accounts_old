@@ -4,7 +4,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { PatientInfoSection } from './PatientRegistrationForm/PatientInfoSection';
 import { EmergencyContactSection } from './PatientRegistrationForm/EmergencyContactSection';
 import { AdditionalInfoSection } from './PatientRegistrationForm/AdditionalInfoSection';
-import { DocumentUploadSection } from './PatientRegistrationForm/DocumentUploadSection';
 import { FormActions } from './PatientRegistrationForm/FormActions';
 import { usePatientRegistration } from './PatientRegistrationForm/usePatientRegistration';
 import { PatientRegistrationFormProps } from './PatientRegistrationForm/types';
@@ -19,6 +18,7 @@ export const PatientRegistrationForm: React.FC<PatientRegistrationFormProps> = (
     isSubmitting,
     handleInputChange,
     setDateOfBirth,
+    handlePatientPhotoSelect,
     registrationDocuments,
     handleRegistrationDocumentSelect,
     handleRegistrationDocumentRemove,
@@ -39,8 +39,12 @@ export const PatientRegistrationForm: React.FC<PatientRegistrationFormProps> = (
           <PatientInfoSection 
             formData={formData}
             dateOfBirth={dateOfBirth}
+            registrationDocuments={registrationDocuments}
             onInputChange={handleInputChange}
             onDateChange={setDateOfBirth}
+            onPatientPhotoSelect={handlePatientPhotoSelect}
+            onRegistrationDocumentSelect={handleRegistrationDocumentSelect}
+            onRegistrationDocumentRemove={handleRegistrationDocumentRemove}
           />
           
           <EmergencyContactSection 
@@ -51,13 +55,6 @@ export const PatientRegistrationForm: React.FC<PatientRegistrationFormProps> = (
           <AdditionalInfoSection 
             formData={formData}
             onInputChange={handleInputChange}
-          />
-          
-          <DocumentUploadSection
-            corporate={formData.corporate}
-            documents={registrationDocuments}
-            onFileSelect={handleRegistrationDocumentSelect}
-            onFileRemove={handleRegistrationDocumentRemove}
           />
           
           <FormActions 

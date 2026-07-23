@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -7,6 +7,8 @@ import { SearchableSelect } from '@/components/ui/searchable-select';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDiagnoses } from '@/hooks/useDiagnoses';
+import { Eye, Upload, X } from 'lucide-react';
+import { RegistrationDocumentSelection } from '@/components/PatientRegistrationForm/types';
 
 interface VisitDetailsSectionProps {
   visitDate: Date;
@@ -32,6 +34,13 @@ interface VisitDetailsSectionProps {
   handleInputChange: (field: string, value: string) => void;
   existingVisit?: any; // Optional existing visit data for edit mode
   patientCorporate?: string; // Patient's original corporate/yojna category
+  registrationDocuments: RegistrationDocumentSelection[];
+  uploadedRegistrationDocuments: Array<{
+    displayName: string;
+    fileUrl: string;
+  }>;
+  onRegistrationDocumentSelect: (label: string, file: File | null) => void;
+  onRegistrationDocumentRemove: (label: string) => void;
 }
 
 export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
@@ -40,7 +49,11 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
   formData,
   handleInputChange,
   existingVisit,
-  patientCorporate
+  patientCorporate,
+  registrationDocuments,
+  uploadedRegistrationDocuments,
+  onRegistrationDocumentSelect,
+  onRegistrationDocumentRemove,
 }) => {
   const { hospitalConfig } = useAuth();
   const { diagnoses, isLoading: isLoadingDiagnoses, addDiagnosisAsync } = useDiagnoses();
@@ -63,6 +76,25 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
   const [selectedWard, setSelectedWard] = useState<{ ward_id: string; maximum_rooms: number } | null>(null);
   // ward_id -> currently-admitted patient count, for live Available/Full status
   const [wardOccupancy, setWardOccupancy] = useState<Record<string, number>>({});
+  const registrationInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const normalizeDocumentLabel = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+  const uploadedDocumentsByLabel = new Map<string, { displayName: string; fileUrl: string }>();
+  for (const document of uploadedRegistrationDocuments) {
+    const key = normalizeDocumentLabel(document.displayName);
+    if (!uploadedDocumentsByLabel.has(key)) uploadedDocumentsByLabel.set(key, document);
+  }
+
+  const viewDocument = (file: File | null, fileUrl: string | undefined) => {
+    if (file) {
+      const url = URL.createObjectURL(file);
+      const previewWindow = window.open(url, '_blank', 'noopener,noreferrer');
+      if (previewWindow) window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      else URL.revokeObjectURL(url);
+      return;
+    }
+    if (fileUrl) window.open(fileUrl, '_blank', 'noopener,noreferrer');
+  };
 
   useEffect(() => {
     const fetchDoctors = async () => {
@@ -408,6 +440,80 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
                 <SelectItem value="private">Private</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+        )}
+
+        {registrationDocuments.length > 0 && (
+          <div className="space-y-3 md:col-span-2 rounded-md border border-blue-100 bg-white/60 p-3">
+            <div>
+              <Label className="text-sm font-medium">Corporate Documents</Label>
+              <p className="text-xs text-muted-foreground">
+                Existing documents are marked uploaded. You can add any missing document before saving this visit.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              {registrationDocuments.map((document) => {
+                const uploadedDocument = uploadedDocumentsByLabel.get(normalizeDocumentLabel(document.label));
+                const hasFile = Boolean(document.file || uploadedDocument);
+
+                return (
+                  <div key={document.label} className="space-y-1.5 rounded-md border border-input bg-background p-2.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <Label className="text-xs font-medium leading-4">{document.label}</Label>
+                      <span className={`shrink-0 text-[11px] font-medium ${hasFile ? 'text-green-600' : 'text-amber-600'}`}>
+                        {hasFile ? (document.file ? 'New file' : 'Uploaded') : 'Missing'}
+                      </span>
+                    </div>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <div className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={document.file?.name || uploadedDocument?.displayName}>
+                        {document.file?.name || uploadedDocument?.displayName || 'No file selected'}
+                      </div>
+                      {hasFile && (
+                        <button
+                          type="button"
+                          onClick={() => viewDocument(document.file, uploadedDocument?.fileUrl)}
+                          className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline"
+                        >
+                          <Eye className="h-3 w-3" />
+                          View
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => registrationInputRefs.current[document.label]?.click()}
+                        className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline"
+                      >
+                        <Upload className="h-3 w-3" />
+                        {document.file ? 'Change' : 'Browse'}
+                      </button>
+                      {document.file && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onRegistrationDocumentRemove(document.label);
+                            const input = registrationInputRefs.current[document.label];
+                            if (input) input.value = '';
+                          }}
+                          className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-red-600 hover:underline"
+                        >
+                          <X className="h-3 w-3" />
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      ref={(element) => {
+                        registrationInputRefs.current[document.label] = element;
+                      }}
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                      onChange={(event) => onRegistrationDocumentSelect(document.label, event.target.files?.[0] || null)}
+                      className="hidden"
+                    />
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
