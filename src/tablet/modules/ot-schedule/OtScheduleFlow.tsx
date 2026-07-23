@@ -279,6 +279,60 @@ function usePackageOtDefaults(packageName: string, packageCode: string | null | 
   });
 }
 
+interface PackageMasterOption {
+  code: string | null;
+  name: string;
+  label: string;
+}
+
+// Same masters as the Advance Statement package dropdown: PMJAY/MJPJAY,
+// Yojana MH procedures, then CGHS surgeries — deduped by name.
+function usePackageMasterOptions() {
+  return useQuery({
+    queryKey: ["tablet-ot-package-master-options"],
+    staleTime: 1000 * 60 * 10,
+    queryFn: async (): Promise<PackageMasterOption[]> => {
+      const [pmjayRes, yojanaRes, cghsRes] = await Promise.all([
+        supabase
+          .from("pmjay_mjpjay_packages")
+          .select("treatment_code, treatment_plan")
+          .eq("is_active", true)
+          .order("treatment_plan"),
+        supabase
+          .from("yojana_mh_procedures")
+          .select("procedure_code, package_code, package_name, procedure_name, procedure_label")
+          .order("package_name"),
+        supabase.from("cghs_surgery").select("name").eq("is_active", true).order("name"),
+      ]);
+
+      const pmjay: PackageMasterOption[] = (pmjayRes.data || [])
+        .map((p: any) => ({
+          code: p.treatment_code || null,
+          name: p.treatment_plan || p.treatment_code || "",
+          label: [p.treatment_code, p.treatment_plan].filter(Boolean).join(" - "),
+        }))
+        .filter((p) => p.name);
+
+      const yojana: PackageMasterOption[] = (yojanaRes.data || [])
+        .map((p: any) => ({
+          code: p.procedure_code || p.package_code || null,
+          name: p.package_name || p.procedure_name || p.procedure_label || p.package_code || "",
+          label: [
+            p.procedure_code || p.package_code,
+            p.package_name || p.procedure_name || p.procedure_label || p.package_code,
+          ].filter(Boolean).join(" - "),
+        }))
+        .filter((p) => p.name);
+
+      const cghs: PackageMasterOption[] = (cghsRes.data || [])
+        .map((p: any) => ({ code: null, name: p.name || "", label: p.name || "" }))
+        .filter((p) => p.name);
+
+      return Array.from(new Map([...yojana, ...pmjay, ...cghs].map((pkg) => [pkg.name, pkg])).values());
+    },
+  });
+}
+
 function useOtRooms() {
   return useQuery({
     queryKey: ["tablet-ot-rooms"],
@@ -483,6 +537,20 @@ function GauravScheduler() {
   const [existingScheduleId, setExistingScheduleId] = useState<string | null>(null);
   const dailySchedule = useDailySchedule(scheduledDate);
   const packageDefaults = usePackageOtDefaults(surgeryName, selected?.packageCode);
+  const packageOptions = usePackageMasterOptions();
+  const [showPackageSuggestions, setShowPackageSuggestions] = useState(false);
+
+  const packageSuggestions = useMemo(() => {
+    const term = surgeryName.trim().toLowerCase();
+    if (term.length < 2) return [];
+    return (packageOptions.data || [])
+      .filter(
+        (option) =>
+          option.name.toLowerCase().includes(term) ||
+          (option.code || "").toLowerCase().includes(term),
+      )
+      .slice(0, 8);
+  }, [packageOptions.data, surgeryName]);
 
   // Doctor bills auto-created for today's completed surgeries (amount editor).
   const completedIds = useMemo(
@@ -641,7 +709,39 @@ function GauravScheduler() {
 
           <label className="block space-y-1">
             <span className="text-sm font-medium">Surgery / package</span>
-            <TabletInput value={surgeryName} onChange={(event) => setSurgeryName(event.target.value)} placeholder="Surgery name" />
+            <div className="relative">
+              <TabletInput
+                value={surgeryName}
+                onChange={(event) => {
+                  setSurgeryName(event.target.value);
+                  setShowPackageSuggestions(true);
+                }}
+                onFocus={() => setShowPackageSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowPackageSuggestions(false), 150)}
+                placeholder="Type to search the package master"
+              />
+              {showPackageSuggestions && packageSuggestions.length > 0 ? (
+                <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-y-auto rounded-xl border bg-background shadow-lg">
+                  {packageSuggestions.map((option) => (
+                    <button
+                      key={option.label}
+                      type="button"
+                      className="block w-full border-b px-3 py-2.5 text-left text-sm last:border-b-0 hover:bg-muted/60"
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        setSurgeryName(option.name);
+                        setShowPackageSuggestions(false);
+                      }}
+                    >
+                      <span className="font-medium">{option.name}</span>
+                      {option.code ? (
+                        <span className="ml-2 text-xs text-muted-foreground">{option.code}</span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </label>
 
           <div className="rounded-xl border bg-slate-50 p-3">
