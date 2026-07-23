@@ -143,7 +143,10 @@ const AccountSearch = ({ accounts, selected, onSelect, placeholder, className, i
           (a) => a.account_name.toLowerCase().includes(q) || a.account_code.toLowerCase().includes(q),
         )
       : accounts;
-    return list.slice(0, 15);
+    // Keep every company ledger available in Particulars. The menu is
+    // vertically capped and scrollable, so large charts remain usable while
+    // users can still type to narrow the list.
+    return list;
   }, [accounts, text]);
 
   const pick = (a: Account): void => {
@@ -333,18 +336,26 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
     queryKey: ['chart_of_accounts_leaves', selectedCompanyId],
     enabled: !!selectedCompanyId,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('chart_of_accounts')
-        .select('id, account_code, account_name, account_type, account_group, parent_account_id')
-        .eq('is_active', true)
-        // Legacy default ledgers have no company_id and are shared system
-        // accounts; never include ledgers belonging to another company.
-        .or(`company_id.eq.${selectedCompanyId},company_id.is.null`)
-        .order('account_code');
-      if (error) throw error;
+      const pageSize = 1000;
+      const allRows: any[] = [];
+      for (let from = 0; ; from += pageSize) {
+        const { data, error } = await supabase
+          .from('chart_of_accounts')
+          .select('id, account_code, account_name, account_type, account_group, parent_account_id')
+          .eq('is_active', true)
+          // The DRM import stores every ledger against the selected accounting
+          // company. Query that UUID directly so the Particulars picker cannot
+          // lose rows through a compound PostgREST OR expression.
+          .eq('company_id', selectedCompanyId)
+          .order('account_code')
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        allRows.push(...(data || []));
+        if (!data || data.length < pageSize) break;
+      }
       // Tally never posts to group headers — offer leaf accounts only
-      const parents = new Set((data ?? []).map((a: any) => a.parent_account_id).filter(Boolean));
-      return ((data || []) as (Account & { parent_account_id: string | null })[]).filter((a) => !parents.has(a.id));
+      const parents = new Set(allRows.map((a: any) => a.parent_account_id).filter(Boolean));
+      return (allRows as (Account & { parent_account_id: string | null })[]).filter((a) => !parents.has(a.id));
     },
   });
 
