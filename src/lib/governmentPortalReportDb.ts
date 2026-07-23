@@ -731,7 +731,7 @@ async function ensurePortalPackageSavedToMaster(row: PortalSyncSource): Promise<
 }
 
 async function applyPortalRowToVisit(
-  visit: { id: string; visit_id: string | null },
+  visit: { id: string; visit_id: string | null; workflow_status?: string | null },
   row: PortalSyncSource,
 ): Promise<boolean> {
   await ensurePortalPackageSavedToMaster(row);
@@ -744,6 +744,22 @@ async function applyPortalRowToVisit(
   if (packageCode) visitUpdate.package_code = packageCode;
   const amount = (row.preauth_approved_amount || '').replace(/[^0-9.]/g, '');
   if (amount) visitUpdate.package_amount = amount;
+
+  // Keep the Advance Statement workflow status in step with the portal's
+  // preauth state — but only while the visit is still at the approval stage,
+  // so manually-set later stages (bill/submission/payment) are never regressed.
+  const portalWorkflowStatus =
+    parseFloat(amount || '0') > 0 ? 'approval_received' : 'approval_pending';
+  const currentWorkflowStatus = visit.workflow_status || null;
+  if (
+    currentWorkflowStatus !== portalWorkflowStatus &&
+    (!currentWorkflowStatus ||
+      currentWorkflowStatus === 'approval_pending' ||
+      currentWorkflowStatus === 'approval_received')
+  ) {
+    visitUpdate.workflow_status = portalWorkflowStatus;
+    visitUpdate.workflow_status_updated_at = new Date().toISOString();
+  }
 
   if (Object.keys(visitUpdate).length > 0) {
     const { error } = await db.from('visits').update(visitUpdate).eq('id', visit.id);
@@ -786,7 +802,7 @@ export async function syncPortalDataForRegistrationId(registrationId: string): P
 
   const { data: visits, error: visitsError } = await db
     .from('visits')
-    .select('id, visit_id')
+    .select('id, visit_id, workflow_status')
     .ilike('yojana_registration_id', trimmed);
 
   if (visitsError) throw visitsError;
@@ -843,7 +859,7 @@ export async function syncGovernmentPortalReportToVisits(
 
     const { data: visits, error } = await db
       .from('visits')
-      .select('id, visit_id, yojana_registration_id, thumb_registration_no')
+      .select('id, visit_id, yojana_registration_id, thumb_registration_no, workflow_status')
       .or(registrationFilters);
 
     if (error) throw error;
@@ -861,7 +877,7 @@ export async function syncGovernmentPortalReportToVisits(
   if (rowsByPatientPreauthDate.size > 0 || rowsByPatientName.size > 0) {
     const { data: visits, error } = await db
       .from('visits')
-      .select('id, visit_id, admission_date, visit_date, patients!inner(name)')
+      .select('id, visit_id, admission_date, visit_date, workflow_status, patients!inner(name)')
       .eq('patient_type', 'IPD')
       .not('admission_date', 'is', null)
       .order('admission_date', { ascending: false })

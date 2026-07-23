@@ -542,6 +542,18 @@ export function GovernmentPortalCsvSection({
           icon: ShieldCheck,
           className: 'border-violet-200 bg-violet-50 text-violet-700',
         },
+        {
+          label: 'Approval Received',
+          value: report.counts.approvalReceived,
+          icon: ShieldCheck,
+          className: 'border-green-200 bg-green-50 text-green-700',
+        },
+        {
+          label: 'Approval Pending',
+          value: report.counts.approvalPending,
+          icon: AlertCircle,
+          className: 'border-orange-200 bg-orange-50 text-orange-700',
+        },
         ...(showWhatsApp
           ? [{
               label: 'Extension Needed',

@@ -55,6 +55,8 @@ export interface GovernmentPortalReport {
     surgical: number;
     extensionNeeded: number;
     unclassified: number;
+    approvalReceived: number;
+    approvalPending: number;
   };
   whatsApp: {
     medicalPatients: string;
@@ -244,6 +246,12 @@ const classifyRow = (
   };
 };
 
+/** Approval is treated as received once the portal shows a Preauth Approved Amount. */
+export const hasPreauthApprovedAmount = (row: GovernmentPortalRow): boolean => {
+  const amount = parseFloat((row.values['Preauth Approved Amount'] || '').replace(/[^0-9.]/g, ''));
+  return Number.isFinite(amount) && amount > 0;
+};
+
 const procedureLabel = (row: GovernmentPortalRow): string => {
   const code = row.values['Procedure Code'];
   const details = row.values['Procedure Details'];
@@ -324,6 +332,8 @@ export const parseGovernmentPortalReport = (
       surgical: 0,
       extensionNeeded: 0,
       unclassified: 0,
+      approvalReceived: 0,
+      approvalPending: 0,
     },
     whatsApp: {
       medicalPatients: 'Medical Patients\n\nNo medical patients found.',
@@ -384,12 +394,15 @@ export const parseGovernmentPortalReport = (
     ? []
     : ['At least one row must have Hospital Name containing Hope Hospital.'];
 
+  const approvalReceived = rows.filter(hasPreauthApprovedAmount).length;
   const counts = {
     dialysis: rows.filter((row) => row.section === 'dialysis').length,
     generalMedical: rows.filter((row) => row.section === 'generalMedical').length,
     surgical: rows.filter((row) => row.section === 'surgical').length,
     extensionNeeded: rows.filter((row) => row.extensionNeeded).length,
     unclassified: rows.filter((row) => row.section === 'unclassified').length,
+    approvalReceived,
+    approvalPending: rows.length - approvalReceived,
   };
 
   return {
