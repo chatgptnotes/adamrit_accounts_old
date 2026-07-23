@@ -49,6 +49,7 @@ const SECTIONS: ReportSection[] = [
       { title: 'Financial Summary', route: '/financial-summary', description: 'Charges broken down by service category', icon: Wallet },
       { title: 'Expected Payment Date', route: '/expected-payment-date-report', description: 'Corporate bills by expected payment window', icon: Clock },
       { title: 'Advance Statement', route: '/advance-statement-report', description: 'Patient advances and adjustments', icon: Receipt },
+      { title: 'PMJAY / MJPJAY Package Usage', route: '/pmjay-mjpjay-package-usage-report', description: 'Package-wise Yojana usage counts with patient details', icon: FileSpreadsheet },
       { title: 'Daywise Bills', route: '/daywise-bills', description: 'Sales bills and returns by date', icon: Receipt },
       { title: 'Patient Ledger', route: '/patient-ledger', description: 'Per-patient transactions and running balance', icon: FileText },
       { title: 'IT Transaction Register', route: '/it-transaction-register', description: 'Transactions synced to Tally', icon: ScrollText },

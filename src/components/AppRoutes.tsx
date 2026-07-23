@@ -43,6 +43,7 @@ const ReportsCenter = lazy(() => import("../pages/ReportsCenter"));
 const PharmacyMonthlyPurchaseSalesReport = lazy(() => import("../pages/PharmacyMonthlyPurchaseSalesReport"));
 const PatientDocumentsReport = lazy(() => import("../pages/PatientDocumentsReport"));
 const YojanaBillingTodoDocumentsReport = lazy(() => import("../pages/YojanaBillingTodoDocumentsReport"));
+const PmjayMjpjayPackageUsageReport = lazy(() => import("../pages/PmjayMjpjayPackageUsageReport"));
 
 // Lazy load heavy feature pages
 const Accounting = lazy(() => import("../pages/Accounting"));
@@ -340,6 +341,7 @@ export const AppRoutes = () => {
         <Route path="/pharmacy-monthly-purchase-sales-report" element={<Suspense fallback={<PageLoader />}><PharmacyMonthlyPurchaseSalesReport /></Suspense>} />
         <Route path="/patient-documents-report" element={<Suspense fallback={<PageLoader />}><PatientDocumentsReport /></Suspense>} />
         <Route path="/yojana-billing-todo-documents-report" element={<Suspense fallback={<PageLoader />}><YojanaBillingTodoDocumentsReport /></Suspense>} />
+        <Route path="/pmjay-mjpjay-package-usage-report" element={<Suspense fallback={<PageLoader />}><PmjayMjpjayPackageUsageReport /></Suspense>} />
         <Route path="/final-bill/:visitId" element={<Suspense fallback={<PageLoader />}><FinalBill /></Suspense>} />
         <Route path="/no-deduction-letter/:visitId" element={<NoDeductionLetterPage />} />
         <Route path="/edit-final-bill/:visitId" element={<Suspense fallback={<PageLoader />}><EditFinalBill /></Suspense>} />
