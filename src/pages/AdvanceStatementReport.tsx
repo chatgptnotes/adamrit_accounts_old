@@ -30,7 +30,7 @@ import {
   resolvePackageCodeFromOptions,
 } from '@/lib/packageCodeLookup';
 import { toast } from 'sonner';
-import { WORKFLOW_STATUS_OPTIONS } from '@/lib/workflowStatus';
+import { useWorkflowStatusOptions } from '@/hooks/useWorkflowStatusOptions';
 import '@/styles/print.css';
 
 const normalizeLookupValue = normalizePackageLookupValue;
@@ -120,6 +120,7 @@ const AdvanceStatementReport = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { hospitalConfig, hospitalType } = useAuth();
+  const { data: workflowStatusOptions = [] } = useWorkflowStatusOptions();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // URL-persisted state
@@ -2015,7 +2016,7 @@ const AdvanceStatementReport = () => {
                         <TableCell onClick={(e) => e.stopPropagation()}>
                           <div className="space-y-1">
                             <SearchableSelect
-                              options={WORKFLOW_STATUS_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                              options={workflowStatusOptions}
                               value={(item as any).workflow_status || ''}
                               onValueChange={(value) => handleWorkflowStatusUpdate(item.id, value)}
                               placeholder="Select status..."

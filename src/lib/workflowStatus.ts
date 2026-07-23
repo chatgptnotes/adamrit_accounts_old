@@ -31,8 +31,24 @@ export const WORKFLOW_STATUS_OPTIONS: WorkflowStatusOption[] = [
   { value: 'payment_received', label: 'Payment Received', workflow: 'payment', stage: 'done' },
 ];
 
+// Government-portal lifecycle statuses — selectable in the dropdown but not
+// part of the six workflow reports (no workflow group).
+export const PORTAL_STATUS_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'pre_auth_to_be_submitted', label: 'Pre-authorization to be submitted' },
+  { value: 'pre_auth_pending', label: 'Pre-authorization pending' },
+  { value: 'under_treatment', label: 'Under treatment' },
+  { value: 'claims_to_be_submitted', label: 'Claims to be submitted' },
+];
+
+// Static fallback for the dropdown when the workflow_status_master table is
+// unavailable; the master (Status Master page) is the editable source of truth.
+export const ALL_STATUS_OPTIONS: Array<{ value: string; label: string }> = [
+  ...PORTAL_STATUS_OPTIONS,
+  ...WORKFLOW_STATUS_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+];
+
 export const WORKFLOW_STATUS_LABELS: Record<string, string> = Object.fromEntries(
-  WORKFLOW_STATUS_OPTIONS.map((o) => [o.value, o.label]),
+  [...WORKFLOW_STATUS_OPTIONS, ...PORTAL_STATUS_OPTIONS].map((o) => [o.value, o.label]),
 );
 
 export interface WorkflowReportDef {

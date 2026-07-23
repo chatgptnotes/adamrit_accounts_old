@@ -28,6 +28,7 @@ const Accommodation = lazy(() => import("../pages/Accommodation"));
 const RoomManagement = lazy(() => import("../pages/RoomManagement"));
 const PrivateRoomMaster = lazy(() => import("../pages/PrivateRoomMaster"));
 const WorkflowStatusReport = lazy(() => import("../pages/WorkflowStatusReport"));
+const WorkflowStatusMaster = lazy(() => import("../pages/WorkflowStatusMaster"));
 const DirectorDashboard = lazy(() => import("../pages/DirectorDashboard"));
 const DirectorMatrixDailyEntries = lazy(() => import("../pages/DirectorMatrixDailyEntries"));
 
@@ -270,6 +271,7 @@ export const AppRoutes = () => {
         <Route path="/todays-opd" element={<TodaysOpd />} />
         <Route path="/advance-statement-report" element={<AdvanceStatementReport />} />
         <Route path="/workflow-status-report/:reportKey" element={<Suspense fallback={<PageLoader />}><WorkflowStatusReport /></Suspense>} />
+        <Route path="/workflow-status-master" element={<Suspense fallback={<PageLoader />}><WorkflowStatusMaster /></Suspense>} />
         <Route path="/advanced-statement-report" element={<Suspense fallback={<PageLoader />}><AdvancedStatementReport /></Suspense>} />
         <Route path="/currently-admitted" element={<CurrentlyAdmittedPatients />} />
         <Route path="/accommodation" element={<Suspense fallback={<PageLoader />}><Accommodation /></Suspense>} />

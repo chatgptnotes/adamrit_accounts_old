@@ -270,6 +270,12 @@ export const menuItems: MenuItemDef[] = [
     section: 'masters',
   },
   {
+    title: "Status Master",
+    url: "/workflow-status-master",
+    icon: ClipboardCheck,
+    section: 'masters',
+  },
+  {
     title: "Lab Master",
     url: "/lab-master",
     icon: TestTube,
