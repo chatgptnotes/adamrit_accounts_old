@@ -286,23 +286,32 @@ interface PackageMasterOption {
 }
 
 // Same masters as the Advance Statement package dropdown: PMJAY/MJPJAY,
-// Yojana MH procedures, then CGHS surgeries — deduped by name.
-function usePackageMasterOptions() {
+// Yojana MH procedures, then CGHS surgeries — deduped by name. Searched
+// server-side per term: the CGHS/Yojana masters have thousands of rows,
+// more than one unpaginated select returns.
+function usePackageMasterSearch(term: string) {
+  const query = term.trim();
   return useQuery({
-    queryKey: ["tablet-ot-package-master-options"],
-    staleTime: 1000 * 60 * 10,
+    queryKey: ["tablet-ot-package-master-search", query.toLowerCase()],
+    enabled: query.length >= 2,
+    staleTime: 1000 * 60 * 5,
     queryFn: async (): Promise<PackageMasterOption[]> => {
+      const like = `*${sanitizeSearch(query)}*`;
       const [pmjayRes, yojanaRes, cghsRes] = await Promise.all([
         supabase
           .from("pmjay_mjpjay_packages")
           .select("treatment_code, treatment_plan")
           .eq("is_active", true)
-          .order("treatment_plan"),
+          .or(`treatment_plan.ilike.${like},treatment_code.ilike.${like}`)
+          .order("treatment_plan")
+          .limit(10),
         supabase
           .from("yojana_mh_procedures")
           .select("procedure_code, package_code, package_name, procedure_name, procedure_label")
-          .order("package_name"),
-        supabase.from("cghs_surgery").select("name").eq("is_active", true).order("name"),
+          .or(`package_name.ilike.${like},procedure_name.ilike.${like},procedure_code.ilike.${like},package_code.ilike.${like}`)
+          .order("package_name")
+          .limit(10),
+        supabase.from("cghs_surgery").select("name").eq("is_active", true).ilike("name", like).order("name").limit(10),
       ]);
 
       const pmjay: PackageMasterOption[] = (pmjayRes.data || [])
@@ -328,7 +337,7 @@ function usePackageMasterOptions() {
         .map((p: any) => ({ code: null, name: p.name || "", label: p.name || "" }))
         .filter((p) => p.name);
 
-      return Array.from(new Map([...yojana, ...pmjay, ...cghs].map((pkg) => [pkg.name, pkg])).values());
+      return Array.from(new Map([...yojana, ...pmjay, ...cghs].map((pkg) => [pkg.name, pkg])).values()).slice(0, 12);
     },
   });
 }
@@ -537,20 +546,10 @@ function GauravScheduler() {
   const [existingScheduleId, setExistingScheduleId] = useState<string | null>(null);
   const dailySchedule = useDailySchedule(scheduledDate);
   const packageDefaults = usePackageOtDefaults(surgeryName, selected?.packageCode);
-  const packageOptions = usePackageMasterOptions();
   const [showPackageSuggestions, setShowPackageSuggestions] = useState(false);
-
-  const packageSuggestions = useMemo(() => {
-    const term = surgeryName.trim().toLowerCase();
-    if (term.length < 2) return [];
-    return (packageOptions.data || [])
-      .filter(
-        (option) =>
-          option.name.toLowerCase().includes(term) ||
-          (option.code || "").toLowerCase().includes(term),
-      )
-      .slice(0, 8);
-  }, [packageOptions.data, surgeryName]);
+  const [debouncedSurgeryName] = useDebounce(surgeryName, 250);
+  const packageSearch = usePackageMasterSearch(debouncedSurgeryName);
+  const packageSuggestions = packageSearch.data || [];
 
   // Doctor bills auto-created for today's completed surgeries (amount editor).
   const completedIds = useMemo(
