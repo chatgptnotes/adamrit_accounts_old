@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { mergedLedgerBalances, type LedgerBalanceRow, type LedgerSource } from '@/lib/mergedLedgerBalances';
+import { normalizeName } from '@/lib/tallyCompanyMatch';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { useAccountingCompany } from './AccountingCompanyContext';
@@ -22,6 +23,9 @@ const tallyDateLabel = (iso: string): string => {
 // Tally balance-sheet heads (shared HEAD_ORDER names), split into the two panels.
 const LIABILITY_ORDER = ['Capital Account', 'Loans (Liability)', 'Current Liabilities'];
 const ASSET_ORDER = ['Fixed Assets', 'Current Assets'];
+
+// Tally's one reserved ledger that carries profit brought forward.
+const PNL_LEDGER = 'profit & loss a/c';
 
 /**
  * Balance Sheet — Tally Prime two-panel replica: Liabilities | Assets,
@@ -65,10 +69,16 @@ const BalanceSheet: React.FC = () => {
       const assetGroups = new Map<string, Line>();
       let income = 0;
       let expense = 0;
+      let broughtForward = 0;
 
       for (const r of ledgerRows) {
         // r.balance is signed Debit-positive / Credit-negative.
-        if (r.head === 'Sales Accounts' || r.head === 'Indirect Incomes') {
+        if (normalizeName(r.name) === PNL_LEDGER) {
+          // Tally's reserved Profit & Loss A/c is a Balance Sheet line of its own,
+          // not a Capital Account member. Its balance is profit brought forward, so
+          // it joins the current period's income - expense on the P&L line below.
+          broughtForward += -r.balance;
+        } else if (r.head === 'Sales Accounts' || r.head === 'Indirect Incomes') {
           income += -r.balance;
         } else if (r.head === 'Direct Expenses' || r.head === 'Indirect Expenses') {
           expense += r.balance;
@@ -85,7 +95,7 @@ const BalanceSheet: React.FC = () => {
         }
       }
 
-      const pnlAmount = income - expense;
+      const pnlAmount = broughtForward + income - expense;
       const liabilityLines = LIABILITY_ORDER.map((h) => liabGroups.get(h)).filter(Boolean) as Line[];
       const assetLines = ASSET_ORDER.map((h) => assetGroups.get(h)).filter(Boolean) as Line[];
 

@@ -45,6 +45,11 @@ function tallyChartAccountCode(companyId: string, ledgerName: string): string {
 
 function accountTypeForTallyGroup(parentGroup?: string | null): string {
   const group = (parentGroup || '').toLowerCase()
+  // Tally marks asset-side groups with an "(Asset)" suffix — "Loans & Advances (Asset)",
+  // "Deposits (Asset)". Must be tested before the 'loan' rule below, or those groups are
+  // read as liabilities. The bracketed form is deliberate: "SALARY ADVANCE" is a
+  // Current Liabilities group.
+  if (group.includes('(asset)')) return 'CURRENT_ASSETS'
   if (group.includes('bank') || group.includes('cash') || group.includes('debtor') || group.includes('stock')) return 'CURRENT_ASSETS'
   if (group.includes('fixed asset')) return 'FIXED_ASSETS'
   if (group.includes('loan')) return 'LONG_TERM_LIABILITIES'
@@ -85,7 +90,10 @@ async function mirrorTallyLedgersToChartAccounts(supabase: any, tallyCompanyName
       account_type: accountTypeForTallyGroup(ledger.parent_group),
       account_group: ledger.parent_group || null,
       opening_balance: Math.abs(Number(ledger.opening_balance) || 0),
-      opening_balance_type: Number(ledger.opening_balance) < 0 ? 'CR' : 'DR',
+      // Tally's OPENINGBALANCE is positive for CREDIT, negative for DEBIT — verified
+      // against Tally's own Balance Sheet (Share Capital positive here / credit there;
+      // Fixed Assets negative here / debit there). Do not "correct" this back.
+      opening_balance_type: Number(ledger.opening_balance) < 0 ? 'DR' : 'CR',
       is_active: true,
     }))
 

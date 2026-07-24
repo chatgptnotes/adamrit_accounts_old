@@ -84,6 +84,12 @@ function tallyChartAccountCode(companyId, ledgerName) {
 
 function matchAccountType(groupName) {
   const group = (groupName || '').toLowerCase()
+  // Tally marks asset-side groups with an "(Asset)" suffix — "Loans & Advances (Asset)",
+  // "Deposits (Asset)", "Misc. Expenses (ASSET)". This must be tested before the 'loan'
+  // and 'expense' rules below, or "Loans & Advances (Asset)" is read as a liability.
+  // The marker is deliberately the bracketed form: "SALARY ADVANCE" is a Current
+  // Liabilities group and "Raftar Mohan Nagar Asset" is a Fixed Assets one.
+  if (group.includes('(asset)')) return 'CURRENT_ASSETS'
   if (group.includes('bank') || group.includes('cash') || group.includes('debtor') || group.includes('stock')) return 'CURRENT_ASSETS'
   if (group.includes('fixed asset')) return 'FIXED_ASSETS'
   if (group.includes('loan')) return 'LONG_TERM_LIABILITIES'
@@ -130,6 +136,8 @@ function parseNum(value) {
   const n = parseFloat(value)
   return Number.isNaN(n) ? 0 : n
 }
+
+const fmtAmount = (n) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 /**
  * Match key for an account name. Collapses internal whitespace because the
@@ -251,6 +259,35 @@ async function main() {
     for (const [group, count] of unmatchedEntries) console.log(`        ${String(count).padStart(5)}  ${group}`)
   }
 
+  // Netting to zero survives a global sign flip, so it cannot tell Dr from Cr.
+  // Assert the direction too: liabilities and equity must land on the credit side
+  // and fixed assets on the debit side, or the convention has been inverted.
+  // Credit-natured set mirrors CREDIT_NATURE_HEADS in
+  // src/components/accounting/tally/heads.ts, expressed as account types.
+  const CREDIT_NATURE_TYPES = new Set([
+    'EQUITY',
+    'CURRENT_LIABILITIES',
+    'LONG_TERM_LIABILITIES',
+    'DIRECT_INCOME',
+    'INDIRECT_INCOME',
+  ])
+  // Debit-positive, the sign convention every report in the app uses.
+  const signed = (l) => -l.opening
+  const creditSide = mapped.filter((l) => CREDIT_NATURE_TYPES.has(l.accountType)).reduce((s, l) => s + signed(l), 0)
+  const fixedAssets = mapped.filter((l) => l.accountType === 'FIXED_ASSETS').reduce((s, l) => s + signed(l), 0)
+
+  console.log('')
+  console.log(`[CHECK] liabilities + equity net: ${fmtAmount(Math.abs(creditSide))} ${creditSide < 0 ? 'Cr' : 'Dr'} (expect Cr)`)
+  console.log(`[CHECK] fixed assets net:         ${fmtAmount(Math.abs(fixedAssets))} ${fixedAssets < 0 ? 'Cr' : 'Dr'} (expect Dr)`)
+
+  if (creditSide > 0 || fixedAssets < 0) {
+    console.error('')
+    console.error('ERROR: opening balances are on the wrong side.')
+    console.error('Liabilities/equity must net Credit and fixed assets must net Debit.')
+    console.error("This means Tally's +/- convention is not what the importer assumes — aborting.")
+    process.exit(1)
+  }
+
   if (opts.dryRun) {
     console.log('')
     console.log('Dry run complete — nothing written.')
@@ -362,7 +399,13 @@ async function main() {
         account_type: l.accountType,
         account_group: l.parentGroup,
         opening_balance: Math.abs(l.opening),
-        opening_balance_type: l.opening < 0 ? 'CR' : 'DR',
+        // In this export a POSITIVE openingbalance is a CREDIT, negative a DEBIT —
+        // the opposite of the usual assumption. Verified against Tally's own
+        // Balance Sheet: Share Capital and Reserve & Surplus are positive here and
+        // credit there; the Capital Account group sums to +8,09,02,718.12 and Tally
+        // reports exactly that on the Liabilities side, while Fixed Assets sums to
+        // -7,80,87,692.62 and Tally reports it on Assets. Do not "correct" this back.
+        opening_balance_type: l.opening < 0 ? 'DR' : 'CR',
         is_active: true,
       }
     })
