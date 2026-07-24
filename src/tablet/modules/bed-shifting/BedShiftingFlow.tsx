@@ -103,6 +103,17 @@ export default function BedShiftingFlow() {
         .eq("id", selected.id);
       if (updErr) throw updErr;
 
+      // patients.ward is a separate free-text field captured at registration and
+      // read by the Treatment Sheet. Keep it in step, but never fail the shift
+      // over it — the bed move above is already committed.
+      if (selected.patientUuid) {
+        const { error: pErr } = await supabase
+          .from("patients")
+          .update({ ward: target.wardType })
+          .eq("id", selected.patientUuid);
+        if (pErr) console.warn("Could not update patients.ward:", pErr.message);
+      }
+
       const { error: histErr } = await supabase.from("ward_shiftings").insert([
         {
           visit_id: selected.id,
@@ -183,7 +194,7 @@ export default function BedShiftingFlow() {
   return (
     <FlowScaffold
       heading="Bed Shifting"
-      subheading="Drag the patient onto any empty (red) bed"
+      subheading="Drag the patient onto — or tap — any empty (red) bed"
       actions={
         <>
           <TabletButton

@@ -51,7 +51,7 @@ interface BedTileProps {
   draggableVisitUuid?: string | null;
   /** Bed is highlighted as the pending destination. */
   isTarget: boolean;
-  /** A move is armed (drag or tap), so free beds should stand out. */
+  /** A drag is in progress, so free beds should stand out. */
   isArmed: boolean;
   onTap: (bed: Bed) => void;
 }
@@ -113,9 +113,9 @@ function BedTile({
           {...draggable.listeners}
           {...draggable.attributes}
           onClick={(e) => {
-            // The chip sits inside the bed button — handle the tap once.
+            // The chip sits inside the bed button — a tap on the patient
+            // themselves is inert, so it must not reach the tile.
             e.stopPropagation();
-            onTap(bed);
           }}
           className={cn(
             "flex cursor-grab items-center gap-1 rounded-lg bg-white/95 px-1.5 py-1 text-[11px] font-bold text-slate-900 active:cursor-grabbing",
@@ -162,8 +162,6 @@ export function BedBoard({
   selectAnyBed,
 }: BedBoardProps) {
   const [dragging, setDragging] = useState<string | null>(null);
-  // Tap fallback: tap the patient chip's bed to arm, then tap a free bed.
-  const [armed, setArmed] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -190,23 +188,11 @@ export function BedBoard({
     if (bed && bed.status === "available") onSelectBed(bed);
   };
 
+  // Tapping a free bed does the same as dropping the patient on it — one
+  // gesture, no arming step. Occupied / booked beds stay inert unless the
+  // caller wants every bed selectable (Bed Booking's detail view).
   const handleTap = (bed: Bed) => {
-    if (bed.status === "available") {
-      if (armed || !draggableVisitUuid || selectAnyBed) {
-        setArmed(false);
-        onSelectBed(bed);
-      }
-      return;
-    }
-    if (
-      draggableVisitUuid &&
-      bed.status === "occupied" &&
-      bed.occupant?.visitUuid === draggableVisitUuid
-    ) {
-      setArmed((a) => !a);
-      return;
-    }
-    if (selectAnyBed) onSelectBed(bed);
+    if (bed.status === "available" || selectAnyBed) onSelectBed(bed);
   };
 
   return (
@@ -257,12 +243,6 @@ export function BedBoard({
           </div>
         </div>
 
-        {armed ? (
-          <p className="rounded-xl bg-primary/10 px-3 py-2 text-sm font-semibold text-primary">
-            Now tap an empty (red) bed to move the patient there.
-          </p>
-        ) : null}
-
         {groups.length === 0 ? (
           <p className="py-10 text-center text-muted-foreground">
             No wards or beds configured for this hospital.
@@ -290,7 +270,7 @@ export function BedBoard({
                           colourBy={colourBy}
                           draggableVisitUuid={draggableVisitUuid}
                           isTarget={targetBedId === bed.id}
-                          isArmed={armed || !!dragging}
+                          isArmed={!!dragging}
                           onTap={handleTap}
                         />
                       ))}
