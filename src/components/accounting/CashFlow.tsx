@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { fetchAllRows } from '@/lib/fetchAllRows';
@@ -193,15 +194,7 @@ const CashFlow: React.FC = () => {
     refetch: refetchAccounts,
   } = useQuery({
     queryKey: ['cash_flow_accounts'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('chart_of_accounts')
-        .select('*')
-        .eq('is_active', true)
-        .order('account_code');
-      if (error) throw error;
-      return (data || []) as Account[];
-    },
+    queryFn: () => fetchActiveAccounts<Account>({ columns: '*' }),
   });
 
   // Fetch voucher entries for posted vouchers within the date range

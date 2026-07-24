@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { accountMovements, type Movement } from '@/lib/accountMovements';
 import { format } from 'date-fns';
+import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 
@@ -52,14 +52,7 @@ const RatioAnalysis: React.FC = () => {
 
   const { data: accounts = [], isLoading: accountsLoading } = useQuery({
     queryKey: ['tb_accounts'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('chart_of_accounts')
-        .select('id, account_code, account_name, account_type, opening_balance, opening_balance_type')
-        .eq('is_active', true);
-      if (error) throw error;
-      return data as Account[];
-    },
+    queryFn: () => fetchActiveAccounts<Account>({ columns: 'id, account_code, account_name, account_type, opening_balance, opening_balance_type' }),
   });
 
   // Cumulative balances to date (balance-sheet items)

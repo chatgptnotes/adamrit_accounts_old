@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows } from '@/lib/fetchAllRows';
+import { fetchActiveAccounts } from '@/lib/fetchAccounts';
+import { useAccountingCompany } from './AccountingCompanyContext';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
@@ -41,6 +43,9 @@ const tallyDateLabel = (iso: string): string => {
   return `${d.getDate()}-${month}-${String(d.getFullYear()).slice(2)}`;
 };
 
+/** Rows shown at once in the List of Ledger Accounts drop-down */
+const PICKER_LIMIT = 50;
+
 const fy = (): { from: string; to: string } => {
   const now = new Date();
   const year = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
@@ -66,6 +71,7 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
   const [highlight, setHighlight] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
+  const { selectedCompanyId } = useAccountingCompany();
 
   const report = useTallyReport({
     from: fy().from,
@@ -93,16 +99,12 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
   const { from: fromDate, to: toDate, fmtAmount: fmt } = report;
 
   const { data: accounts = [] } = useQuery({
-    queryKey: ['ledger_accounts'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('chart_of_accounts')
-        .select('id, account_code, account_name, account_type, opening_balance, opening_balance_type')
-        .eq('is_active', true)
-        .order('account_code');
-      if (error) throw error;
-      return data as Account[];
-    },
+    queryKey: ['ledger_accounts', selectedCompanyId],
+    queryFn: () =>
+      fetchActiveAccounts<Account>({
+        columns: 'id, account_code, account_name, account_type, opening_balance, opening_balance_type',
+        companyId: selectedCompanyId,
+      }),
   });
 
   const selectedAccount = useMemo(
@@ -114,12 +116,14 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
     setSearch(selectedAccount ? selectedAccount.account_name : '');
   }, [selectedAccount]);
 
-  const options = useMemo(() => {
+  // Show a window of the matches, but keep the total visible so a long list
+  // never looks like the whole answer.
+  const { options, matchCount } = useMemo(() => {
     const q = search.trim().toLowerCase();
     const list = q
       ? accounts.filter((a) => a.account_name.toLowerCase().includes(q) || a.account_code.includes(q))
       : accounts;
-    return list.slice(0, 15);
+    return { options: list.slice(0, PICKER_LIMIT), matchCount: list.length };
   }, [accounts, search]);
 
   const { data: rawEntries = [], isLoading } = useQuery({
@@ -271,7 +275,14 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
             />
             {open && options.length > 0 && (
               <div className="absolute z-30 mt-1 max-h-72 w-full min-w-[320px] overflow-y-auto border bg-[#eef3fa] shadow-lg">
-                <div className="border-b bg-[#16437e] px-3 py-1 text-xs font-semibold text-white">List of Ledger Accounts</div>
+                <div className="sticky top-0 flex items-baseline justify-between border-b bg-[#16437e] px-3 py-1 text-xs font-semibold text-white">
+                  <span>List of Ledger Accounts</span>
+                  <span className="font-normal">
+                    {matchCount > options.length
+                      ? `${options.length} of ${matchCount} — keep typing`
+                      : `${matchCount} ledger${matchCount === 1 ? '' : 's'}`}
+                  </span>
+                </div>
                 {options.map((a, i) => (
                   <button
                     key={a.id}

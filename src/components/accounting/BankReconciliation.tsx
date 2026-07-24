@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { fetchAllRows } from '@/lib/fetchAllRows';
@@ -241,17 +242,8 @@ const BankReconciliation: React.FC = () => {
     isLoading: bankLoading,
   } = useQuery({
     queryKey: ['bank_recon_accounts'],
-    queryFn: async () => {
-      // Bank ledgers live under account codes 112x in this chart
-      const { data, error } = await supabase
-        .from('chart_of_accounts')
-        .select('*')
-        .eq('is_active', true)
-        .like('account_code', '112%')
-        .order('account_name');
-      if (error) throw error;
-      return (data || []) as Account[];
-    },
+    // Bank ledgers live under account codes 112x in this chart
+    queryFn: () => fetchActiveAccounts<Account>({ columns: '*', codePrefixes: ['112'] }),
   });
 
   // Fetch voucher entries for the selected bank account within the date range

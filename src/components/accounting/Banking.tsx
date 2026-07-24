@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { amountInWords } from '@/lib/amountInWords';
+import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 
@@ -36,16 +36,7 @@ const Banking: React.FC = () => {
 
   const { data: banks = [] } = useQuery({
     queryKey: ['banking_banks'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('chart_of_accounts')
-        .select('id, account_code, account_name')
-        .eq('is_active', true)
-        .like('account_code', '112%')
-        .order('account_name');
-      if (error) throw error;
-      return data as Account[];
-    },
+    queryFn: () => fetchActiveAccounts<Account>({ columns: 'id, account_code, account_name', codePrefixes: ['112'] }),
   });
 
   const bank = banks.find((b) => b.id === bankId) || null;

@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { fetchActiveAccounts } from '@/lib/fetchAccounts';
+import { useAccountingCompany } from './AccountingCompanyContext';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { HEAD_ORDER, headOfType } from './tally/heads';
@@ -43,6 +45,7 @@ const OpeningBalances: React.FC = () => {
   const queryClient = useQueryClient();
   const [rows, setRows] = useState<Row[]>([]);
   const [saving, setSaving] = useState(false);
+  const { selectedCompanyId } = useAccountingCompany();
 
   const report = useTallyReport({
     // An entry grid has one editable column — Tally's column keys do not apply
@@ -58,16 +61,12 @@ const OpeningBalances: React.FC = () => {
   });
 
   const { data: accounts = [], isLoading } = useQuery({
-    queryKey: ['opening_accounts'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('chart_of_accounts')
-        .select('id, account_code, account_name, account_type, opening_balance, opening_balance_type')
-        .eq('is_active', true)
-        .order('account_code');
-      if (error) throw error;
-      return data as Account[];
-    },
+    queryKey: ['opening_accounts', selectedCompanyId],
+    queryFn: () =>
+      fetchActiveAccounts<Account>({
+        columns: 'id, account_code, account_name, account_type, opening_balance, opening_balance_type',
+        companyId: selectedCompanyId,
+      }),
   });
 
   useEffect(() => {

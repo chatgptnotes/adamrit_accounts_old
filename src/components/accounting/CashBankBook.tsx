@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows } from '@/lib/fetchAllRows';
+import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { TallyScreen } from './tally/TallyChrome';
 import { TallyList } from './tally/TallyPopup';
 import { useTallyReport } from './tally/useTallyReport';
@@ -137,16 +138,11 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
   // Cash-in-hand + bank ledgers (codes 111x / 112x)
   const { data: accounts = [] } = useQuery({
     queryKey: ['cash_bank_accounts'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('chart_of_accounts')
-        .select('id, account_code, account_name, opening_balance, opening_balance_type')
-        .eq('is_active', true)
-        .or('account_code.like.111%,account_code.like.112%')
-        .order('account_code');
-      if (error) throw error;
-      return (data ?? []) as Account[];
-    },
+    queryFn: () =>
+      fetchActiveAccounts<Account>({
+        columns: 'id, account_code, account_name, opening_balance, opening_balance_type',
+        codePrefixes: ['111', '112'],
+      }),
   });
 
   const account = accounts.find((a) => a.id === selectedId) || null;

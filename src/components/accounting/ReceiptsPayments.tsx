@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { accountMovements } from '@/lib/accountMovements';
 import { format } from 'date-fns';
+import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 
@@ -64,14 +65,10 @@ const ReceiptsPayments: React.FC = () => {
 
   const { data: accounts = [] } = useQuery({
     queryKey: ['rp_accounts'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('chart_of_accounts')
-        .select('id, account_code, account_name, opening_balance, opening_balance_type')
-        .eq('is_active', true);
-      if (error) throw error;
-      return data as Account[];
-    },
+    queryFn: () =>
+      fetchActiveAccounts<Account>({
+        columns: 'id, account_code, account_name, opening_balance, opening_balance_type',
+      }),
   });
 
   const cashBankIds = useMemo(

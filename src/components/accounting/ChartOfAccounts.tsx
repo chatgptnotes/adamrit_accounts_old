@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { fetchActiveAccounts } from '@/lib/fetchAccounts';
+import { useAccountingCompany } from './AccountingCompanyContext';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { HEAD_ORDER, headOfType } from './tally/heads';
@@ -51,6 +53,7 @@ const ChartOfAccounts: React.FC = () => {
   const [saving, setSaving] = useState(false);
 
   const [showInactive, setShowInactive] = useState(false);
+  const { selectedCompanyId } = useAccountingCompany();
 
   const report = useTallyReport({
     supportsColumns: false,
@@ -73,12 +76,11 @@ const ChartOfAccounts: React.FC = () => {
   });
 
   const { data: accounts = [], isLoading } = useQuery({
-    queryKey: ['coa_all'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('chart_of_accounts').select('*').order('account_code');
-      if (error) throw error;
-      return data as Account[];
-    },
+    queryKey: ['coa_all', selectedCompanyId],
+    // Inactive rows included — this is the master-maintenance screen, and
+    // F6 toggles whether they are shown.
+    queryFn: () =>
+      fetchActiveAccounts<Account>({ columns: '*', companyId: selectedCompanyId, includeInactive: true }),
   });
 
   const parents = useMemo(

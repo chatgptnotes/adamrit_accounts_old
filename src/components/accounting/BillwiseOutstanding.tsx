@@ -2,6 +2,8 @@ import React, { useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows } from '@/lib/fetchAllRows';
+import { fetchActiveAccounts } from '@/lib/fetchAccounts';
+import { useAccountingCompany } from './AccountingCompanyContext';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
@@ -39,6 +41,7 @@ const BillwiseOutstanding: React.FC<{ onOpenVoucher?: (id: string) => void }> = 
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const { selectedCompanyId } = useAccountingCompany();
 
   const report = useTallyReport({
     filterFields: ['Ref. No.'],
@@ -63,16 +66,14 @@ const BillwiseOutstanding: React.FC<{ onOpenVoucher?: (id: string) => void }> = 
   const fmt = report.fmtAmount;
 
   const { data: accounts = [] } = useQuery({
-    queryKey: ['chart_of_accounts_leaves_bw'],
+    queryKey: ['chart_of_accounts_leaves_bw', selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('chart_of_accounts')
-        .select('id, account_code, account_name, parent_account_id')
-        .eq('is_active', true)
-        .order('account_code');
-      if (error) throw error;
-      const parents = new Set((data ?? []).map((a: any) => a.parent_account_id).filter(Boolean));
-      return ((data ?? []) as Account[]).filter((a) => !parents.has(a.id));
+      const rows = await fetchActiveAccounts<Account & { parent_account_id: string | null }>({
+        columns: 'id, account_code, account_name, parent_account_id',
+        companyId: selectedCompanyId,
+      });
+      const parents = new Set(rows.map((a) => a.parent_account_id).filter(Boolean));
+      return rows.filter((a) => !parents.has(a.id)) as Account[];
     },
   });
 
@@ -83,7 +84,7 @@ const BillwiseOutstanding: React.FC<{ onOpenVoucher?: (id: string) => void }> = 
     const list = q
       ? accounts.filter((a) => a.account_name.toLowerCase().includes(q) || a.account_code.includes(q))
       : accounts;
-    return list.slice(0, 15);
+    return list.slice(0, 50);
   }, [accounts, search]);
 
   const { data: entries = [], isLoading } = useQuery({

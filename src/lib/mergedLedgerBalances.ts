@@ -1,5 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 import { accountMovements } from '@/lib/accountMovements';
+import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { normalizeName, resolveTallyCompanyIds } from '@/lib/tallyCompanyMatch';
 import { headOfType, headOfTallyGroup, CREDIT_NATURE_HEADS } from '@/components/accounting/tally/heads';
@@ -50,23 +51,15 @@ export async function mergedLedgerBalances(opts: {
   from?: string;
   upto?: string;
 }): Promise<LedgerBalanceRow[]> {
-  let accountsQuery = supabase
-    .from('chart_of_accounts')
-    .select('id, account_name, account_type, opening_balance, opening_balance_type')
-    .eq('is_active', true)
-    .order('account_code');
-  if (opts.companyId) {
-    accountsQuery = accountsQuery.or(`company_id.eq.${opts.companyId},company_id.is.null`);
-  }
-
-  const [accountsRes, movements, tallyCompanyIds] = await Promise.all([
-    accountsQuery,
+  // Paged — a plain select stops at 1000 rows and would understate every total.
+  const [accounts, movements, tallyCompanyIds] = await Promise.all([
+    fetchActiveAccounts<NativeAccount>({
+      columns: 'id, account_name, account_type, opening_balance, opening_balance_type',
+      companyId: opts.companyId,
+    }),
     accountMovements({ from: opts.from, upto: opts.upto, companyId: opts.companyId }),
     resolveTallyCompanyIds(opts.companyId),
   ]);
-
-  if (accountsRes.error) throw accountsRes.error;
-  const accounts = (accountsRes.data ?? []) as NativeAccount[];
 
   const byName = new Map<string, LedgerBalanceRow>();
 

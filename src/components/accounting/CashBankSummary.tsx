@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { accountMovements } from '@/lib/accountMovements';
+import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
@@ -71,16 +71,11 @@ const CashBankSummary: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
 
   const { data: accounts = [] } = useQuery({
     queryKey: ['cash_bank_accounts'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('chart_of_accounts')
-        .select('id, account_code, account_name, opening_balance, opening_balance_type')
-        .eq('is_active', true)
-        .or('account_code.like.111%,account_code.like.112%')
-        .order('account_code');
-      if (error) throw error;
-      return (data ?? []) as Account[];
-    },
+    queryFn: () =>
+      fetchActiveAccounts<Account>({
+        columns: 'id, account_code, account_name, opening_balance, opening_balance_type',
+        codePrefixes: ['111', '112'],
+      }),
   });
 
   const accountIds = useMemo(() => accounts.map((a) => a.id), [accounts]);

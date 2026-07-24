@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { accountMovements, type Movement } from '@/lib/accountMovements';
+import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
@@ -120,14 +120,7 @@ const FundsFlow: React.FC = () => {
 
   const { data: accounts = [] } = useQuery({
     queryKey: ['ff_accounts'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('chart_of_accounts')
-        .select('id, account_code, account_name, account_type')
-        .eq('is_active', true);
-      if (error) throw error;
-      return data as Account[];
-    },
+    queryFn: () => fetchActiveAccounts<Account>({ columns: 'id, account_code, account_name, account_type' }),
   });
 
   const { data: months = [], isLoading } = useQuery({

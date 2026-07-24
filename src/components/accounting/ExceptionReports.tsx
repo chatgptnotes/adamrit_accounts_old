@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { accountMovements } from '@/lib/accountMovements';
 import { format } from 'date-fns';
+import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
@@ -94,15 +95,20 @@ const ExceptionReports: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ 
       }
 
       // Negative cash/bank balances as of today
-      const [{ data: accounts }, movements] = await Promise.all([
-        supabase
-          .from('chart_of_accounts')
-          .select('id, account_code, account_name, opening_balance, opening_balance_type')
-          .eq('is_active', true)
-          .or('account_code.like.111%,account_code.like.112%'),
+      const [accounts, movements] = await Promise.all([
+        fetchActiveAccounts<{
+          id: string;
+          account_code: string;
+          account_name: string;
+          opening_balance: number | null;
+          opening_balance_type: string | null;
+        }>({
+          columns: 'id, account_code, account_name, opening_balance, opening_balance_type',
+          codePrefixes: ['111', '112'],
+        }),
         accountMovements({ upto: toDate }),
       ]);
-      for (const a of accounts ?? []) {
+      for (const a of accounts) {
         const opening =
           (Number(a.opening_balance) || 0) * (a.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1);
         const m = movements.get(a.id);
