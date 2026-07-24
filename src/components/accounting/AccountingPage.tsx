@@ -112,6 +112,16 @@ const renderContent = (
   openLedger: (accountId: string) => void,
   canSeeTile: (tileId: string, role?: string | null) => boolean,
 ): React.ReactNode => {
+  // Account Books' register menu passes the voucher type as "voucher-register:Contra"
+  if (activeTab.startsWith('voucher-register:')) {
+    return (
+      <VoucherRegister
+        key={activeTab}
+        onOpenVoucher={openVoucher}
+        initialTypeName={activeTab.slice('voucher-register:'.length)}
+      />
+    );
+  }
   switch (activeTab) {
     case 'gateway':
       return <GatewayOfTally onNavigate={goTo} />;

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows } from '@/lib/fetchAllRows';
@@ -58,7 +58,10 @@ const currentFyStartYear = (): number => {
  * voucher counts and totals, drill into a month for its vouchers, and open
  * any voucher in Alteration.
  */
-const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVoucher }) => {
+const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialTypeName?: string }> = ({
+  onOpenVoucher,
+  initialTypeName,
+}) => {
   const [fyYear, setFyYear] = useState(currentFyStartYear);
   const [typeId, setTypeId] = useState('');
   const [openMonth, setOpenMonth] = useState<string | null>(null);
@@ -76,6 +79,14 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ o
       return data as VoucherType[];
     },
   });
+
+  // Account Books opens this register already pointed at a voucher type
+  useEffect(() => {
+    if (!initialTypeName || typeId || voucherTypes.length === 0) return;
+    const wanted = initialTypeName.toLowerCase();
+    const match = voucherTypes.find((t) => t.voucher_type_name.toLowerCase().startsWith(wanted));
+    if (match) setTypeId(match.id);
+  }, [initialTypeName, typeId, voucherTypes]);
 
   const type = voucherTypes.find((t) => t.id === typeId) || null;
   const fyFrom = `${fyYear}-04-01`;

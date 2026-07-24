@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { TallyScreen } from './tally/TallyChrome';
+import ChangePeriod from './tally/ChangePeriod';
+import { useAccountingCompanyOptional } from './AccountingCompanyContext';
 
 interface Account {
   id: string;
@@ -56,15 +58,92 @@ const currentFyStartYear = (): number => {
   return now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
 };
 
+/** Round an axis maximum up to the next 1 / 2 / 5 × 10ⁿ step, like Tally's scale */
+const niceCeil = (value: number): number => {
+  const power = Math.pow(10, Math.floor(Math.log10(value)));
+  const scaled = value / power;
+  return (scaled <= 1 ? 1 : scaled <= 2 ? 2 : scaled <= 5 ? 5 : 10) * power;
+};
+
+interface MonthRow {
+  label: string;
+  ym: string;
+  dr: number;
+  cr: number;
+  closing: number;
+}
+
+/** Tally's monthly bar graph — net movement per month around a zero line. */
+const MonthlyChart: React.FC<{ months: MonthRow[] }> = ({ months }) => {
+  const nets = months.map((m) => m.dr - m.cr);
+  const peak = Math.max(...nets.map(Math.abs));
+  if (peak <= 0) return null;
+  const scale = niceCeil(peak);
+  const half = 60; // px from the zero line to the top of the plot
+
+  const axisLabel = (n: number) =>
+    new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n);
+
+  return (
+    <div className="mt-10 flex text-[11px] print:hidden">
+      <div className="relative w-16 shrink-0" style={{ height: half * 2 }}>
+        <span className="absolute right-2 -translate-y-1/2" style={{ top: 0 }}>{axisLabel(scale)}</span>
+        <span className="absolute right-2 -translate-y-1/2" style={{ top: half }}>0</span>
+        <span className="absolute right-2 -translate-y-1/2" style={{ top: half * 2 }}>(-){axisLabel(scale)}</span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="relative" style={{ height: half * 2 }}>
+          <div className="absolute inset-x-0 border-t border-black" style={{ top: half }} />
+          <div className="absolute inset-0 flex">
+            {months.map((m, i) => {
+              const height = Math.round((Math.abs(nets[i]) / scale) * half);
+              return (
+                <div key={m.ym} className="relative flex-1" title={`${m.label}: ${axisLabel(nets[i])}`}>
+                  {height > 0 && (
+                    <div
+                      className="absolute left-1/2 w-[44%] -translate-x-1/2 bg-[#e01b1b]"
+                      style={nets[i] >= 0 ? { bottom: half, height } : { top: half, height }}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="flex pt-1">
+          {months.map((m) => (
+            <div key={m.ym} className="flex-1 text-center">
+              {m.label.slice(0, 3)}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 /**
  * Cash/Bank Book — Tally Prime replica: pick a cash or bank ledger, see the
  * monthly summary (Debit/Credit totals + running Closing Balance per month,
  * Apr–Mar), and drill into any month for its daily vouchers.
  */
 const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVoucher }) => {
-  const [fyYear, setFyYear] = useState(currentFyStartYear);
+  const accountingCompany = useAccountingCompanyOptional();
+  const headerCompanyName =
+    accountingCompany?.companies.find((c) => c.id === accountingCompany.selectedCompanyId)?.company_name ?? '';
+  const [fromDate, setFromDate] = useState(() => `${currentFyStartYear()}-04-01`);
+  const [toDate, setToDate] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  });
+  const [showPeriod, setShowPeriod] = useState(false);
   const [selectedId, setSelectedId] = useState('');
   const [openMonth, setOpenMonth] = useState<string | null>(null); // 'YYYY-MM'
+  // Tally parks its row cursor on the current month
+  const [cursorYm, setCursorYm] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
 
   // Cash-in-hand + bank ledgers (codes 111x / 112x)
   const { data: accounts = [] } = useQuery({
@@ -82,8 +161,10 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
   });
 
   const account = accounts.find((a) => a.id === selectedId) || null;
-  const fyFrom = `${fyYear}-04-01`;
-  const fyTo = `${fyYear + 1}-03-31`;
+  // The monthly grid always spans the financial year the period starts in
+  const fyYear = Number(fromDate.slice(0, 4)) - (Number(fromDate.slice(5, 7)) >= 4 ? 0 : 1);
+  const fyFrom = fromDate;
+  const fyTo = toDate;
 
   const { data: entries = [], isLoading } = useQuery({
     queryKey: ['cash_bank_book', selectedId, fyFrom, fyTo],
@@ -147,16 +228,15 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
   }, [months, openMonth, opening]);
 
   return (
+    <>
     <TallyScreen
-      title={openMonth ? 'Ledger Vouchers' : 'Cash/Bank Book'}
+      title={openMonth ? 'Ledger Vouchers' : account ? 'Ledger Monthly Summary' : 'Cash/Bank Book'}
+      closeLabel="✕"
       onClose={openMonth ? () => setOpenMonth(null) : undefined}
       rail={[
-        {
-          hotkey: 'F2',
-          label: `FY ${fyYear}-${String(fyYear + 1).slice(2)}`,
-          onClick: () => setFyYear((y) => (y === currentFyStartYear() ? y - 1 : currentFyStartYear())),
-        },
-        { hotkey: 'F3', label: 'Company', disabled: true },
+        { hotkey: 'F2', label: 'Period', onClick: () => setShowPeriod(true) },
+        { hotkey: 'F3', label: 'Company', onClick: accountingCompany?.cycleCompany },
+        { hotkey: 'F4', label: 'Ledger', disabled: true },
         ...accounts.map((a, i) => ({
           label: a.account_name,
           gapBefore: i === 0,
@@ -166,7 +246,29 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
             setOpenMonth(null);
           },
         })),
+        { hotkey: 'F6', label: 'Monthly', active: !openMonth, onClick: () => setOpenMonth(null), gapBefore: true },
+        { hotkey: 'B', label: 'Basis of Values', disabled: true, gapBefore: true },
+        { hotkey: 'H', label: 'Change View', disabled: true },
+        {
+          hotkey: 'J',
+          label: 'Exception Reports',
+          onClick: () => window.dispatchEvent(new CustomEvent('tally-goto', { detail: 'exception-reports' })),
+        },
+        { hotkey: 'L', label: 'Save View', onClick: () => window.dispatchEvent(new CustomEvent('tally-save-view')) },
         { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
+      ]}
+      bottomBar={[
+        { hotkey: 'Q', label: 'Quit', onClick: () => window.dispatchEvent(new CustomEvent('tally-escape')) },
+        {
+          hotkey: 'Space',
+          label: 'Select',
+          onClick: () => {
+            const month = months.find((m) => m.ym === cursorYm);
+            if (month && (month.dr || month.cr)) setOpenMonth(month.ym);
+          },
+          disabled: !!openMonth,
+        },
+        { hotkey: 'F12', label: 'Configure', onClick: () => window.dispatchEvent(new CustomEvent('tally-configure')) },
       ]}
     >
       <div className="px-3 pb-4 pt-1 text-[13px]">
@@ -234,25 +336,34 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
           </>
         ) : (
           <>
-            {/* Monthly summary, Tally style */}
-            <div className="text-center">
-              <div className="font-bold">{account.account_name}</div>
-              <div className="text-[11px]">
-                {tallyDateLabel(fyFrom)} to {tallyDateLabel(fyTo)}
+            {/* Monthly summary, Tally style: Transactions + Closing Balance */}
+            <div className="flex border-b border-black">
+              <div className="flex flex-1 items-center px-1 font-semibold tracking-[0.3em]">Particulars</div>
+              <div className="w-[340px] border-l border-gray-400 pt-1">
+                <div className="text-center italic">{account.account_name}</div>
+                <div className="truncate text-center font-bold">{headerCompanyName}</div>
+                <div className="text-center">
+                  {tallyDateLabel(fyFrom)} to {tallyDateLabel(fyTo)}
+                </div>
+                <div className="flex border-t border-gray-400 text-center font-semibold">
+                  <div className="w-[230px] border-r border-gray-400">Transactions</div>
+                  <div className="w-[110px]">Closing</div>
+                </div>
+                <div className="flex border-t border-gray-400 font-semibold">
+                  <div className="w-[115px] pr-2 text-right">Debit</div>
+                  <div className="w-[115px] border-r border-gray-400 pr-2 text-right">Credit</div>
+                  <div className="w-[110px] pr-2 text-center">Balance</div>
+                </div>
               </div>
             </div>
-            <div className="mt-1 flex border-y border-black bg-[#f0f4fa] font-semibold">
-              <div className="min-w-0 flex-1 px-1">Particulars</div>
-              <div className="w-36 px-1 text-right">Debit</div>
-              <div className="w-36 px-1 text-right">Credit</div>
-              <div className="w-40 px-1 text-right">Closing Balance</div>
-            </div>
-            <div className="flex border-b border-dashed border-gray-300 italic">
-              <div className="min-w-0 flex-1 px-1 font-semibold">Opening Balance</div>
-              <div className="w-36 px-1" />
-              <div className="w-36 px-1" />
-              <div className="w-40 px-1 text-right font-mono">
-                {fmt(Math.abs(opening))} {opening >= 0 ? 'Dr' : 'Cr'}
+            <div className="flex pt-2 italic">
+              <div className="min-w-0 flex-1 px-1">Opening Balance</div>
+              <div className="flex w-[340px]">
+                <div className="w-[115px]" />
+                <div className="w-[115px]" />
+                <div className="w-[110px] pr-2 text-right font-mono font-semibold">
+                  {fmt(Math.abs(opening))} {opening >= 0 ? 'Dr' : 'Cr'}
+                </div>
               </div>
             </div>
             {isLoading ? (
@@ -263,31 +374,52 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
                   <button
                     key={m.ym}
                     type="button"
+                    onMouseEnter={() => setCursorYm(m.ym)}
                     onClick={() => (m.dr || m.cr) && setOpenMonth(m.ym)}
-                    className={`flex w-full border-b border-dashed border-gray-200 text-left ${
-                      m.dr || m.cr ? 'hover:bg-[#fdf6d8]' : 'text-gray-400'
-                    }`}
+                    className={`flex w-full text-left ${cursorYm === m.ym ? 'bg-[#ffc423]' : ''}`}
                   >
-                    <div className="min-w-0 flex-1 px-1">{m.label}</div>
-                    <div className="w-36 px-1 text-right font-mono">{m.dr > 0 ? fmt(m.dr) : ''}</div>
-                    <div className="w-36 px-1 text-right font-mono">{m.cr > 0 ? fmt(m.cr) : ''}</div>
-                    <div className="w-40 px-1 text-right font-mono">
-                      {fmt(Math.abs(m.closing))} {m.closing >= 0 ? 'Dr' : 'Cr'}
+                    <div className="min-w-0 flex-1 px-1">{m.label.split('-')[0]}</div>
+                    <div className="flex w-[340px] italic">
+                      <div className="w-[115px] pr-2 text-right font-mono">{m.dr > 0 ? fmt(m.dr) : ''}</div>
+                      <div className="w-[115px] pr-2 text-right font-mono">{m.cr > 0 ? fmt(m.cr) : ''}</div>
+                      <div className="w-[110px] pr-2 text-right font-mono">
+                        {m.dr || m.cr ? `${fmt(Math.abs(m.closing))} ${m.closing >= 0 ? 'Dr' : 'Cr'}` : ''}
+                      </div>
                     </div>
                   </button>
                 ))}
-                <div className="mt-1 flex border-t border-black pt-0.5 font-bold">
-                  <div className="min-w-0 flex-1 px-1 tracking-[0.2em]">Grand Total</div>
-                  <div className="w-36 px-1 text-right font-mono">{fmt(totalDr)}</div>
-                  <div className="w-36 px-1 text-right font-mono">{fmt(totalCr)}</div>
-                  <div className="w-40 px-1" />
+                <div className="mt-6 flex border-t border-black pt-0.5 font-bold">
+                  <div className="min-w-0 flex-1 px-1 tracking-[0.3em]">Grand Total</div>
+                  <div className="flex w-[340px]">
+                    <div className="w-[115px] pr-2 text-right font-mono">{fmt(totalDr)}</div>
+                    <div className="w-[115px] pr-2 text-right font-mono">{fmt(totalCr)}</div>
+                    <div className="w-[110px] pr-2 text-right font-mono">
+                      {fmt(Math.abs(months[months.length - 1]?.closing ?? opening))}{' '}
+                      {(months[months.length - 1]?.closing ?? opening) >= 0 ? 'Dr' : 'Cr'}
+                    </div>
+                  </div>
                 </div>
+                <MonthlyChart months={months} />
               </>
             )}
           </>
         )}
       </div>
     </TallyScreen>
+
+    {showPeriod && (
+      <ChangePeriod
+        from={fromDate}
+        to={toDate}
+        onAccept={(nextFrom, nextTo) => {
+          setFromDate(nextFrom);
+          setToDate(nextTo);
+          setShowPeriod(false);
+        }}
+        onClose={() => setShowPeriod(false)}
+      />
+    )}
+    </>
   );
 };
 

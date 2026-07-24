@@ -1,205 +1,453 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { TallyScreen } from './tally/TallyChrome';
+import ChangePeriod from './tally/ChangePeriod';
+import { useAccountingCompanyOptional } from './AccountingCompanyContext';
 
 const tallyDateLabel = (d: Date): string => {
   const month = d.toLocaleDateString('en-GB', { month: 'short' });
   return `${d.getDate()}-${month}-${String(d.getFullYear()).slice(2)}`;
 };
 
-const fyRange = (): string => {
-  const now = new Date();
-  const y = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+const isoDateLabel = (iso: string): string => tallyDateLabel(new Date(`${iso}T00:00:00`));
+
+const fyRange = (d: Date): string => {
+  const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
   return `1-Apr-${String(y).slice(2)} to 31-Mar-${String(y + 1).slice(2)}`;
 };
 
 interface MenuItem {
   label: string;
-  /** Accounting tab id to open; 'more' opens the submenu */
-  target: string;
+  /** Accounting tab id to open */
+  target?: string;
+  /** Submenu to descend into */
+  menu?: string;
   /** Which letter is Tally's hot-capital in the label */
   hotIndex?: number;
+  /** Tally groups menu items with blank lines */
+  gapBefore?: boolean;
+  /** No matching screen in this module — greyed like Tally's inapplicable items */
+  disabled?: boolean;
 }
 
 interface MenuSection {
-  heading: string | null;
+  heading?: string;
   items: MenuItem[];
 }
 
-// Tally's Gateway menu, mapped onto this module's screens.
-const MAIN_MENU: MenuSection[] = [
-  {
-    heading: 'MASTERS',
-    items: [
-      { label: 'Create', target: 'masters' },
-      { label: 'Alter', target: 'masters' },
-      { label: 'Chart of Accounts', target: 'chart-of-accounts', hotIndex: 1 },
-      { label: 'Opening Balances', target: 'opening-balances', hotIndex: 6 },
-    ],
-  },
-  {
-    heading: 'TRANSACTIONS',
-    items: [
-      { label: 'Vouchers', target: 'voucher-entry' },
-      { label: 'Day Book', target: 'day-book', hotIndex: 7 },
-    ],
-  },
-  {
-    heading: 'UTILITIES',
-    items: [
-      { label: 'Banking', target: 'banking', hotIndex: 2 },
-      { label: 'Import/Export', target: 'tally-import-export' },
-    ],
-  },
-  {
-    heading: 'REPORTS',
-    items: [
-      { label: 'Balance Sheet', target: 'balance-sheet' },
-      { label: 'Profit & Loss A/c', target: 'profit-loss' },
-      { label: 'Trial Balance', target: 'trial-balance' },
-      { label: 'Ratio Analysis', target: 'ratio-analysis' },
-      { label: 'Display More Reports', target: 'more', hotIndex: 8 },
-      { label: 'Dashboard', target: 'dashboard', hotIndex: 5 },
-    ],
-  },
-];
-
-const MORE_REPORTS: MenuSection[] = [
-  {
-    heading: 'ACCOUNT BOOKS',
-    items: [
-      { label: 'Cash/Bank Book', target: 'cash-bank-book' },
-      { label: 'Cash/Bank Summary', target: 'cash-bank-summary' },
-      { label: 'Ledger Vouchers', target: 'ledger-view' },
-      { label: 'Group Summary', target: 'group-summary' },
-      { label: 'Registers', target: 'voucher-register' },
-    ],
-  },
-  {
-    heading: 'STATEMENTS OF ACCOUNTS',
-    items: [
-      { label: 'Bills Receivable', target: 'bills-receivable' },
-      { label: 'Bills Payable', target: 'bills-payable' },
-      { label: 'Cost Centres', target: 'cost-centres' },
-      { label: 'Cash Flow', target: 'cash-flow' },
-      { label: 'Funds Flow', target: 'funds-flow' },
-      { label: 'Statistics', target: 'statistics' },
-      { label: 'Receipts & Payments', target: 'receipts-payments' },
-      { label: 'Edit Log', target: 'edit-log' },
-      { label: 'Exception Reports', target: 'exception-reports' },
-      { label: 'Bill-wise Outstandings', target: 'billwise' },
-      { label: 'Bank Reconciliation', target: 'bank-reconciliation' },
-    ],
-  },
-];
+interface Menu {
+  title: string;
+  sections: MenuSection[];
+}
 
 /**
- * Gateway of Tally — the iconic home screen: current period/date and company
- * panel on the left, the Masters / Transactions / Utilities / Reports menu
- * on the right, with "Display More Reports" opening the deeper report list.
+ * Tally's Gateway menu tree, mapped onto this module's screens. Registers open
+ * the Voucher Register pre-filtered to that voucher type ("id:Type").
+ */
+const MENUS: Record<string, Menu> = {
+  gateway: {
+    title: 'Gateway of Tally',
+    sections: [
+      {
+        heading: 'MASTERS',
+        items: [
+          { label: 'Create', target: 'masters' },
+          { label: 'Alter', target: 'masters' },
+          { label: 'CHart of Accounts', target: 'chart-of-accounts', hotIndex: 1 },
+        ],
+      },
+      {
+        heading: 'TRANSACTIONS',
+        items: [
+          { label: 'Vouchers', target: 'voucher-entry' },
+          { label: 'Day BooK', target: 'day-book', hotIndex: 7 },
+        ],
+      },
+      {
+        heading: 'UTILITIES',
+        items: [
+          { label: 'BaNking', target: 'banking', hotIndex: 2 },
+          { label: 'TallyCapital', target: 'tally-live' },
+        ],
+      },
+      {
+        heading: 'REPORTS',
+        items: [
+          { label: 'Balance Sheet', target: 'balance-sheet' },
+          { label: 'Profit & Loss A/c', target: 'profit-loss' },
+          { label: 'Stock Summary', disabled: true },
+          { label: 'Ratio Analysis', target: 'ratio-analysis' },
+          { label: 'Display More Reports', menu: 'more', hotIndex: 8, gapBefore: true },
+          { label: 'DashbOard', target: 'dashboard', hotIndex: 6 },
+        ],
+      },
+    ],
+  },
+  more: {
+    title: 'Display More Reports',
+    sections: [
+      {
+        heading: 'ACCOUNTING',
+        items: [
+          { label: 'Trial Balance', target: 'trial-balance' },
+          { label: 'Day Book', target: 'day-book', hotIndex: 4 },
+          { label: 'Cash Flow', target: 'cash-flow' },
+          { label: 'Funds Flow', target: 'funds-flow' },
+        ],
+      },
+      {
+        items: [
+          { label: 'Account Books', menu: 'account-books', gapBefore: true },
+          { label: 'Statements of Accounts', menu: 'statements' },
+        ],
+      },
+      {
+        heading: 'INVENTORY',
+        items: [
+          { label: 'Inventory Books', disabled: true },
+          { label: 'StatEments of Inventory', disabled: true, hotIndex: 5 },
+        ],
+      },
+      {
+        heading: 'STATUTORY',
+        items: [{ label: 'MSME RepOrts', disabled: true, hotIndex: 9 }],
+      },
+      {
+        heading: 'EXCEPTION',
+        items: [
+          { label: 'EXception Reports', target: 'exception-reports', hotIndex: 1 },
+          { label: 'Analysis & Verification', target: 'statistics', hotIndex: 11 },
+          { label: 'Edit Log Summary', target: 'edit-log', hotIndex: 5 },
+        ],
+      },
+    ],
+  },
+  'account-books': {
+    title: 'Account Books',
+    sections: [
+      {
+        heading: 'SUMMARY',
+        items: [
+          { label: 'Cash/Bank Book(s)', target: 'cash-bank-summary' },
+          { label: 'Ledger', target: 'ledger-view' },
+          { label: 'Group Summary', target: 'group-summary', gapBefore: true },
+          { label: 'Group Vouchers', target: 'voucher-register', hotIndex: 6 },
+        ],
+      },
+      {
+        heading: 'REGISTERS',
+        items: [
+          { label: 'ConTra Register', target: 'voucher-register:Contra', hotIndex: 3 },
+          { label: 'PaYment Register', target: 'voucher-register:Payment', hotIndex: 2 },
+          { label: 'Receipt Register', target: 'voucher-register:Receipt' },
+          { label: 'Sales Register', target: 'voucher-register:Sales', gapBefore: true },
+          { label: 'Purchase Register', target: 'voucher-register:Purchase' },
+          { label: 'Journal Register', target: 'voucher-register:Journal', gapBefore: true },
+          { label: 'Debit Note Register', target: 'voucher-register:Debit Note' },
+          { label: 'CrEdit Note Register', target: 'voucher-register:Credit Note', hotIndex: 2 },
+          { label: 'VoUcher Clarification', target: 'exception-reports', hotIndex: 2, gapBefore: true },
+        ],
+      },
+    ],
+  },
+  statements: {
+    title: 'Statements of Accounts',
+    sections: [
+      {
+        heading: 'OUTSTANDINGS',
+        items: [
+          { label: 'Bills Receivable', target: 'bills-receivable' },
+          { label: 'Bills Payable', target: 'bills-payable', hotIndex: 6 },
+          { label: 'Bill-wise Outstandings', target: 'billwise', hotIndex: 5 },
+        ],
+      },
+      {
+        heading: 'COST CENTRES',
+        items: [{ label: 'Cost Centre Breakup', target: 'cost-centres' }],
+      },
+      {
+        heading: 'STATISTICS',
+        items: [
+          { label: 'Receipts & Payments', target: 'receipts-payments', gapBefore: true },
+          { label: 'Bank Reconciliation', target: 'bank-reconciliation', hotIndex: 5 },
+          { label: 'StatIstics', target: 'statistics', hotIndex: 4 },
+        ],
+      },
+    ],
+  },
+};
+
+/**
+ * Gateway of Tally — the iconic home screen: current period / date and the
+ * company panel on the left, the Masters / Transactions / Utilities / Reports
+ * menu on the right, descending into Display More Reports → Account Books.
  */
 const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNavigate }) => {
   const { hospitalConfig } = useAuth();
-  const [more, setMore] = useState(false);
-  const sections = more ? MORE_REPORTS : MAIN_MENU;
-  const today = new Date();
+  const accountingCompany = useAccountingCompanyOptional();
+  const companies = accountingCompany?.companies ?? [];
+  const selectedCompany = companies.find((c) => c.id === accountingCompany?.selectedCompanyId);
 
-  // Tally's red hot letters are live keys on the Gateway menu
+  const [stack, setStack] = useState<string[]>(['gateway']);
+  const [cursor, setCursor] = useState(0);
+  const [currentDate, setCurrentDate] = useState(() => new Date());
+  const [showDate, setShowDate] = useState(false);
+
+  const menu = MENUS[stack[stack.length - 1]];
+  // Flat list drives arrow-key movement and the Quit row at the end
+  const flat = useMemo(() => menu.sections.flatMap((s) => s.items), [menu]);
+
+  const companyIds = useMemo(() => companies.map((c) => c.id), [companies]);
+
+  // "Date of last entry" and Tally's (e) exception marker, per company
+  const { data: companyInfo = {} } = useQuery({
+    queryKey: ['gateway_company_info', companyIds.join(',')],
+    enabled: companyIds.length > 0,
+    queryFn: async () => {
+      const out: Record<string, { lastEntry: string | null; exceptions: boolean }> = {};
+      await Promise.all(
+        companyIds.map(async (id) => {
+          const [last, pending] = await Promise.all([
+            (supabase as any)
+              .from('vouchers')
+              .select('voucher_date')
+              .eq('company_id', id)
+              .order('voucher_date', { ascending: false })
+              .limit(1),
+            (supabase as any)
+              .from('vouchers')
+              .select('id', { count: 'exact', head: true })
+              .eq('company_id', id)
+              .neq('status', 'AUTHORISED'),
+          ]);
+          out[id] = {
+            lastEntry: last.data?.[0]?.voucher_date ?? null,
+            exceptions: (pending.count ?? 0) > 0,
+          };
+        }),
+      );
+      return out;
+    },
+  });
+
+  const anyExceptions = Object.values(companyInfo as Record<string, { exceptions: boolean }>).some(
+    (info) => info.exceptions,
+  );
+
+  const open = (item: MenuItem) => {
+    if (item.disabled) return;
+    if (item.menu) {
+      setStack((s) => [...s, item.menu as string]);
+      setCursor(0);
+    } else if (item.target) {
+      onNavigate(item.target);
+    }
+  };
+
+  const back = () => {
+    if (stack.length > 1) {
+      setStack((s) => s.slice(0, -1));
+      setCursor(0);
+    } else {
+      window.history.back();
+    }
+  };
+
+  // Tally's hot letters and arrow-key navigation are live on the menu
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       const typing =
         target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
-      if (typing || e.metaKey || e.ctrlKey || e.altKey || e.key.length !== 1) return;
-      const key = e.key.toUpperCase();
-      for (const sec of sections) {
-        for (const item of sec.items) {
-          const hot = item.label[item.hotIndex ?? 0]?.toUpperCase();
-          if (hot === key) {
-            e.preventDefault();
-            if (item.target === 'more') setMore(true);
-            else onNavigate(item.target);
-            return;
+      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const step = e.key === 'ArrowDown' ? 1 : -1;
+        setCursor((c) => {
+          // Skip greyed items, and stop on the Quit row (index === flat.length)
+          for (let i = 1; i <= flat.length + 1; i++) {
+            const next = c + step * i;
+            if (next < 0 || next > flat.length) break;
+            if (next === flat.length || !flat[next].disabled) return next;
           }
+          return c;
+        });
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (cursor === flat.length) back();
+        else open(flat[cursor]);
+        return;
+      }
+      if (e.key.length !== 1) return;
+
+      const key = e.key.toUpperCase();
+      if (key === 'Q') {
+        e.preventDefault();
+        back();
+        return;
+      }
+      for (const item of flat) {
+        if (item.label[item.hotIndex ?? 0]?.toUpperCase() === key) {
+          e.preventDefault();
+          open(item);
+          return;
         }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [sections, onNavigate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flat, cursor, stack]);
 
   const hotLabel = (item: MenuItem) => {
     const i = item.hotIndex ?? 0;
     return (
       <>
         {item.label.slice(0, i)}
-        <span className="font-semibold text-[#a00]">{item.label[i]}</span>
+        <span className="font-semibold">{item.label[i]}</span>
         {item.label.slice(i + 1)}
       </>
     );
   };
 
-  return (
-    <TallyScreen title={more ? 'Display More Reports' : 'Gateway of Tally'} onClose={more ? () => setMore(false) : undefined}>
-      <div className="flex min-h-[70vh] text-[13px]">
-        {/* Left: period / date / company panel */}
-        <div className="w-2/5 border-r border-[#9db8d8] bg-[#f4f8fc] p-3">
-          <div className="border-b border-gray-300 pb-1">
-            <div className="text-[10px] font-semibold tracking-wider text-gray-500">CURRENT PERIOD</div>
-            <div className="mt-0.5">{fyRange()}</div>
-          </div>
-          <div className="mt-2 border-b border-gray-300 pb-1">
-            <div className="text-[10px] font-semibold tracking-wider text-gray-500">CURRENT DATE</div>
-            <div className="mt-0.5">
-              {today.toLocaleDateString('en-GB', { weekday: 'long' })}, {tallyDateLabel(today)}
-            </div>
-          </div>
-          <div className="mt-4">
-            <div className="text-[10px] font-semibold tracking-wider text-gray-500">NAME OF COMPANY</div>
-            <div className="mt-1 font-bold text-[#16437e]">{hospitalConfig.name} Hospital</div>
-          </div>
-        </div>
+  const row = (item: MenuItem, index: number) => (
+    <button
+      key={`${item.label}-${index}`}
+      type="button"
+      onClick={() => open(item)}
+      onMouseEnter={() => !item.disabled && setCursor(index)}
+      disabled={item.disabled}
+      className={`block w-full py-[1px] pl-[92px] text-left leading-[18px] ${item.gapBefore ? 'mt-3' : ''} ${
+        item.disabled
+          ? 'cursor-default text-[#9bb4d0]'
+          : cursor === index
+            ? 'bg-[#ffc423] text-black'
+            : 'text-[#1a4d8f]'
+      }`}
+    >
+      {hotLabel(item)}
+    </button>
+  );
 
-        {/* Right: Gateway menu */}
-        <div className="flex flex-1 items-start justify-center pt-6">
-          <div className="w-72 border border-[#9db8d8] bg-white shadow">
-            <div className="bg-[#7a97b8] px-3 py-1 text-center text-[13px] font-semibold text-white">
-              {more ? 'Display More Reports' : 'Gateway of Tally'}
+  let flatIndex = -1;
+
+  return (
+    <>
+      <TallyScreen
+        title={menu.title}
+        closeLabel="✕"
+        onClose={back}
+        rail={[
+          { hotkey: 'F2', label: 'Date', onClick: () => setShowDate(true) },
+          { hotkey: 'F3', label: 'Company', onClick: accountingCompany?.cycleCompany },
+        ]}
+      >
+        <div className="flex min-h-[70vh] text-[13px]">
+          {/* Left: period / date / company panel */}
+          <div className="flex w-[45%] shrink-0 flex-col border-r border-[#9db8d8] px-6 pt-4">
+            <div className="flex items-baseline justify-between text-[10px] font-semibold tracking-wider text-[#3f77bb]">
+              <span>CURRENT PERIOD</span>
+              <span>CURRENT DATE</span>
             </div>
-            <div className="py-1">
-              {sections.map((sec) => (
-                <React.Fragment key={sec.heading ?? 'x'}>
-                  {sec.heading && (
-                    <div className="px-3 pb-0.5 pt-2 text-center text-[10px] font-semibold tracking-wider text-gray-400">
-                      {sec.heading}
-                    </div>
-                  )}
-                  {sec.items.map((item) => (
-                    <button
-                      key={item.label}
-                      type="button"
-                      onClick={() => (item.target === 'more' ? setMore(true) : onNavigate(item.target))}
-                      className="block w-full px-3 py-0.5 text-center text-[#16437e] hover:bg-[#fdd835] hover:font-semibold"
-                    >
-                      {hotLabel(item)}
-                    </button>
-                  ))}
-                </React.Fragment>
+            <div className="flex items-baseline justify-between pb-1">
+              <span>{fyRange(currentDate)}</span>
+              <span className="font-semibold">
+                {currentDate.toLocaleDateString('en-GB', { weekday: 'long' })},{' '}
+                {currentDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).replace(/ /g, '-')}
+              </span>
+            </div>
+
+            <div className="mt-6 flex items-baseline justify-between border-b border-[#9db8d8] pb-0.5 text-[10px] font-semibold tracking-wider text-[#3f77bb]">
+              <span>NAME OF COMPANY</span>
+              <span>DATE OF LAST ENTRY</span>
+            </div>
+
+            {selectedCompany && (
+              <div className="flex items-baseline justify-between pt-4 font-bold text-black">
+                <span>{selectedCompany.company_name}</span>
+                <span>
+                  {companyInfo[selectedCompany.id]?.lastEntry
+                    ? isoDateLabel(companyInfo[selectedCompany.id].lastEntry as string)
+                    : ''}
+                </span>
+              </div>
+            )}
+
+            <div className="pt-6">
+              {companies.map((c) => (
+                <div key={c.id} className="flex items-baseline">
+                  <span className="min-w-0 flex-1 truncate">{c.company_name}</span>
+                  <span className="w-10 text-center">{companyInfo[c.id]?.exceptions ? '(e)' : ''}</span>
+                  <span className="w-20 text-right">
+                    {companyInfo[c.id]?.lastEntry ? isoDateLabel(companyInfo[c.id].lastEntry as string) : ''}
+                  </span>
+                </div>
               ))}
-              <div className="px-3 pb-1 pt-3 text-center">
-                <button
-                  type="button"
-                  onClick={() => (more ? setMore(false) : window.history.back())}
-                  className="w-full py-0.5 text-center text-[#16437e] hover:bg-[#fdd835] hover:font-semibold"
-                >
-                  <span className="font-semibold text-[#a00]">Q</span>uit
-                </button>
+            </div>
+
+            {anyExceptions && <div className="mt-auto pb-2 pt-8 font-semibold">* (e) Data exceptions exist</div>}
+          </div>
+
+          {/* Right: the menu itself */}
+          <div className="flex flex-1 justify-center pt-[110px]">
+            <div className="w-[345px]">
+              {/* Breadcrumb of the menus above this one */}
+              {stack.slice(0, -1).map((id) => (
+                <div key={id} className="pl-[92px] italic leading-[18px] text-[#4a4a4a]">
+                  {MENUS[id].title}
+                </div>
+              ))}
+
+              <div className="border border-[#8fb0d4] bg-[#dfeaf7]">
+                <div className="bg-[#2a68a8] py-[3px] text-center font-semibold text-white">{menu.title}</div>
+                <div className="pb-2 pt-3">
+                  {menu.sections.map((section, si) => (
+                    <React.Fragment key={section.heading ?? `s${si}`}>
+                      {section.heading && (
+                        <div className="pb-0.5 pl-[88px] pt-3 text-[10px] font-semibold tracking-wider text-[#5d92c8]">
+                          {section.heading}
+                        </div>
+                      )}
+                      {section.items.map((item) => {
+                        flatIndex += 1;
+                        return row(item, flatIndex);
+                      })}
+                    </React.Fragment>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={back}
+                    onMouseEnter={() => setCursor(flat.length)}
+                    className={`mt-6 block w-full py-[1px] pl-[92px] text-left leading-[18px] ${
+                      cursor === flat.length ? 'bg-[#ffc423] text-black' : 'text-[#1a4d8f]'
+                    }`}
+                  >
+                    <span className="font-semibold">Q</span>uit
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
-    </TallyScreen>
+      </TallyScreen>
+
+      {showDate && (
+        <ChangePeriod
+          mode="date"
+          from={currentDate.toISOString().slice(0, 10)}
+          onAccept={(iso) => {
+            setCurrentDate(new Date(`${iso}T00:00:00`));
+            setShowDate(false);
+          }}
+          onClose={() => setShowDate(false)}
+        />
+      )}
+    </>
   );
 };
 

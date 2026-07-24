@@ -528,8 +528,9 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
         if (!item.hotkey || item.disabled || !item.onClick) continue;
         const hk = item.hotkey.toUpperCase();
         const isFKey = /^F\d+$/.test(hk);
+        const pressed = e.key === ' ' ? 'SPACE' : e.key.toUpperCase();
         // Letter hotkeys only fire outside inputs; F-keys fire anywhere.
-        if (isFKey ? e.key.toUpperCase() === hk : !typing && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.toUpperCase() === hk) {
+        if (isFKey ? pressed === hk : !typing && !e.metaKey && !e.ctrlKey && !e.altKey && pressed === hk) {
           e.preventDefault();
           e.stopPropagation();
           item.onClick();
