@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { mergedLedgerBalances, type LedgerBalanceRow, type LedgerSource } from '@/lib/mergedLedgerBalances';
 import { normalizeName } from '@/lib/tallyCompanyMatch';
@@ -45,9 +45,21 @@ const BalanceSheet: React.FC = () => {
       { label: 'Cash Flow', target: 'cash-flow' },
     ],
     detailedToggle: { hotkey: 'F5', label: 'Ledger-wise' },
-    initialDetailed: true,
+    // Collapsed by default — click a head to open just that one. F5 still
+    // expands every head at once.
+    initialDetailed: false,
     screenKeys: [sourceRail],
   });
+
+  // Heads the user has opened by clicking. Independent of the F5 toggle.
+  const [openHeads, setOpenHeads] = useState<Set<string>>(new Set());
+  const toggleHead = (head: string): void =>
+    setOpenHeads((prev) => {
+      const next = new Set(prev);
+      if (next.has(head)) next.delete(head);
+      else next.add(head);
+      return next;
+    });
   const asOfDate = report.to;
 
   const { data: rows = [], isLoading } = useQuery({
@@ -136,18 +148,28 @@ const BalanceSheet: React.FC = () => {
       </div>
       <div className="-mt-10 pb-8 font-semibold tracking-[0.3em]">{title}</div>
       <div className="mt-2 space-y-0.5">
-        {lines.map((l) => (
+        {lines.map((l) => {
+          const open = report.detailed || openHeads.has(l.name);
+          return (
           <React.Fragment key={l.name}>
-            <div className="flex justify-between">
-              <span className="min-w-0 flex-1 font-bold">{l.name}</span>
+            <button
+              type="button"
+              onClick={() => toggleHead(l.name)}
+              title={open ? `Collapse ${l.name}` : `Expand ${l.name}`}
+              className="flex w-full justify-between text-left hover:bg-[#fdf6d8]"
+            >
+              <span className="min-w-0 flex-1 font-bold">
+                <span className="inline-block w-3 text-gray-500">{open ? '▾' : '▸'}</span>
+                {l.name}
+              </span>
               <span className="w-36 shrink-0 text-right font-mono">{report.fmtAmount(l.amount)}</span>
               {cmpMaps.map((m, i) => (
                 <span key={report.columns[i].id} className="w-36 shrink-0 text-right font-mono text-gray-600">
                   {report.fmtAmount(m.get(l.name) ?? 0)}
                 </span>
               ))}
-            </div>
-            {report.detailed &&
+            </button>
+            {open &&
               !hasColumns &&
               l.ledgers.map((led) => (
                 <div key={`${led.source}:${led.name}`} className="flex justify-between text-[12px] italic text-gray-700">
@@ -159,7 +181,8 @@ const BalanceSheet: React.FC = () => {
                 </div>
               ))}
           </React.Fragment>
-        ))}
+          );
+        })}
         {extra}
       </div>
       {total !== undefined && (
@@ -190,7 +213,11 @@ const BalanceSheet: React.FC = () => {
                   liabilityLines,
                   cmps.map((c) => new Map(c.liabilityLines.map((l) => [l.name, l.amount]))),
                   <div className="flex justify-between">
-                    <span className="min-w-0 flex-1 font-bold">Profit &amp; Loss A/c</span>
+                    {/* w-3 spacer keeps this aligned with the collapsible heads above */}
+                    <span className="min-w-0 flex-1 font-bold">
+                      <span className="inline-block w-3" />
+                      Profit &amp; Loss A/c
+                    </span>
                     <span className="w-36 shrink-0 text-right font-mono">{report.fmtAmount(pnl)}</span>
                     {cmps.map((c, i) => (
                       <span key={report.columns[i].id} className="w-36 shrink-0 text-right font-mono text-gray-600">
