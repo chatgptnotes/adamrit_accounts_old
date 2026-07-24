@@ -6,7 +6,6 @@ import { useRowCursor } from './tally/useRowCursor';
 import { HEAD_ORDER } from './tally/heads';
 import { mergedLedgerBalances } from '@/lib/mergedLedgerBalances';
 import { useSourceFilter, matchesSource } from './useSourceFilter';
-import SourceBadge from './SourceBadge';
 
 const tallyDateLabel = (iso: string): string => {
   const d = new Date(iso + 'T00:00:00');
@@ -134,7 +133,6 @@ const GroupSummary: React.FC<GroupSummaryProps> = ({ head: headProp, onOpenLedge
                   >
                     <div className="min-w-0 flex-1 truncate px-1">
                       {r.name}
-                      <SourceBadge source={r.source} />
                     </div>
                     <div className="w-36 px-1 text-right font-mono">{r.bal > 0 ? fmt(r.bal) : ''}</div>
                     <div className="w-36 px-1 text-right font-mono">{r.bal < 0 ? fmt(-r.bal) : ''}</div>

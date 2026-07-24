@@ -1,7 +1,14 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { RailItem } from './TallyChrome';
-import { getTallyConfig } from './TallyChrome';
+import { getTallyConfig, isTypingTarget, tallyModalIsOpen } from './TallyChrome';
 import { useAccountingCompanyOptional } from '../AccountingCompanyContext';
+import {
+  currentFinancialYear,
+  periodLabel as labelOf,
+  stepPeriod,
+  useAccountingPeriodOptional,
+  type AccountingPeriod,
+} from './PeriodContext';
 import ChangePeriod from './ChangePeriod';
 import BasisOfValues, { DEFAULT_BASIS, SCALE_DIVISOR, type ValueBasis } from './BasisOfValues';
 import ChangeView, { DEFAULT_VIEWS, type AlternateView } from './ChangeView';
@@ -21,19 +28,19 @@ import { AutoColumnBox, ColumnBox, columnTitle, shiftYear, type PeriodColumn } f
 
 export type { PeriodColumn, ReportFilter, ValueBasis };
 
-type Popup = null | 'period' | 'basis' | 'view' | 'filter' | 'filter-details' | 'new-column' | 'alter-column' | 'auto-column';
+type Popup =
+  | null
+  | 'period'
+  | 'date'
+  | 'basis'
+  | 'view'
+  | 'filter'
+  | 'filter-details'
+  | 'new-column'
+  | 'alter-column'
+  | 'auto-column';
 
 const goTo = (target: string) => window.dispatchEvent(new CustomEvent('tally-goto', { detail: target }));
-
-/** Report jumps that fill any F-slot the screen does not claim. */
-const SPARE_SLOTS: { label: string; target: string }[] = [
-  { label: 'Day Book', target: 'day-book' },
-  { label: 'Trial Balance', target: 'trial-balance' },
-  { label: 'Ledger Vouchers', target: 'ledger-view' },
-  { label: 'Group Summary', target: 'group-summary' },
-  { label: 'Cash/Bank Summary', target: 'cash-bank-summary' },
-  { label: 'Balance Sheet', target: 'balance-sheet' },
-];
 
 const isDefaultBasis = (b: ValueBasis): boolean =>
   b.scale === DEFAULT_BASIS.scale &&
@@ -42,9 +49,17 @@ const isDefaultBasis = (b: ValueBasis): boolean =>
   b.minAmount === DEFAULT_BASIS.minAmount;
 
 export interface UseTallyReportOptions {
-  /** Opening period — defaults to the running financial year to today */
+  /**
+   * 'company' (default) shares Tally's one Current Period with every other
+   * screen. 'screen' keeps a period of this screen's own — for the day-scoped
+   * screens (Day Book, Edit Log) Tally opens on a single date, not the period.
+   */
+  scope?: 'company' | 'screen';
+  /** Opening period for `scope: 'screen'` — defaults to the financial year */
   from?: string;
   to?: string;
+  /** Masters and data-entry screens carry no period at all in Tally */
+  supportsPeriod?: boolean;
   /** The screen's own F4–F10 buttons; F-slots are sorted into Tally's order */
   screenKeys?: RailItem[];
   /**
@@ -66,6 +81,8 @@ export interface TallyReport {
   from: string;
   to: string;
   setPeriod: (from: string, to: string) => void;
+  /** "1-Apr-26 to 31-Mar-27" — the caption under a Tally report title */
+  periodLabel: string;
   detailed: boolean;
   setDetailed: (detailed: boolean) => void;
   basis: ValueBasis;
@@ -83,19 +100,10 @@ export interface TallyReport {
   popups: React.ReactNode;
 }
 
-const fyStart = (): string => {
-  const now = new Date();
-  const y = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-  return `${y}-04-01`;
-};
-
-const today = (): string => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
-
 export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport {
   const {
+    scope = 'company',
+    supportsPeriod = true,
     screenKeys = [],
     detailedToggle,
     filterFields = ['Particulars'],
@@ -103,19 +111,47 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
     supportsColumns = true,
   } = options;
   const accountingCompany = useAccountingCompanyOptional();
+  const periodContext = useAccountingPeriodOptional();
 
-  const [from, setFrom] = useState(options.from ?? fyStart);
-  const [to, setTo] = useState(options.to ?? today);
+  // Company-scoped screens read Tally's one shared period; screen-scoped ones
+  // (and any screen rendered outside the provider) keep their own.
+  const [ownPeriod, setOwnPeriod] = useState<AccountingPeriod>(() => {
+    const fy = currentFinancialYear();
+    return { from: options.from ?? fy.from, to: options.to ?? fy.to };
+  });
+  const shared = scope === 'company' ? periodContext : null;
+  const period = shared ? shared.period : ownPeriod;
+  const { from, to } = period;
+
   const [detailed, setDetailed] = useState(() => options.initialDetailed ?? getTallyConfig().defaultDetailed);
   const [basis, setBasis] = useState<ValueBasis>(DEFAULT_BASIS);
   const [filters, setFilters] = useState<ReportFilter[]>([]);
   const [columns, setColumns] = useState<PeriodColumn[]>([]);
   const [popup, setPopup] = useState<Popup>(null);
 
-  const setPeriod = useCallback((nextFrom: string, nextTo: string) => {
-    setFrom(nextFrom);
-    setTo(nextTo);
-  }, []);
+  const setPeriod = useCallback(
+    (nextFrom: string, nextTo: string) => {
+      if (shared) shared.setPeriod({ from: nextFrom, to: nextTo });
+      else setOwnPeriod({ from: nextFrom, to: nextTo });
+    },
+    [shared],
+  );
+
+  // Tally's PgDn / PgUp: walk the period forward or back by its own length.
+  useEffect(() => {
+    if (!supportsPeriod) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || tallyModalIsOpen() || isTypingTarget(e.target)) return;
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+      const direction = e.key === 'PageDown' ? 1 : e.key === 'PageUp' ? -1 : 0;
+      if (!direction) return;
+      e.preventDefault();
+      const next = stepPeriod(period, direction as 1 | -1);
+      setPeriod(next.from, next.to);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [supportsPeriod, period, setPeriod]);
 
   const fmtAmount = useCallback(
     (amount: number) => {
@@ -146,8 +182,8 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
     setColumns((cols) => [...cols, { ...column, id: `${column.from}:${column.to}:${cols.length}` }]);
   }, []);
 
-  // The screen's own buttons, plus report jumps in whatever F-slots are left
-  // over, all laid out in F4 → F10 order.
+  // The screen's own buttons, laid out in F4 → F10 order. Tally leaves every
+  // F-slot the report has no action for blank and greyed, so we do too.
   const screenRail = useMemo(() => {
     const own: RailItem[] = detailedToggle
       ? [
@@ -162,17 +198,10 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
       : screenKeys;
 
     const claimed = new Set(own.map((item) => item.hotkey?.toUpperCase()));
-    const spares = [...SPARE_SLOTS];
     const filler: RailItem[] = [];
     for (const slot of ['F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10']) {
       if (claimed.has(slot)) continue;
-      // F10 is Tally's "Other Reports"; the rest jump to a specific report
-      const spare = slot === 'F10' ? undefined : spares.shift();
-      filler.push(
-        spare
-          ? { hotkey: slot, label: spare.label, onClick: () => goTo(spare.target) }
-          : { hotkey: slot, label: 'Other Reports', onClick: () => setPopup('view') },
-      );
+      filler.push({ hotkey: slot, label: '', disabled: true });
     }
 
     // Sort by F-slot, keeping any hotkey-less buttons (ledger lists, voucher
@@ -185,13 +214,28 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
       else blocks.push({ slot: 0, items: [item] });
     }
     blocks.sort((a, b) => a.slot - b.slot);
-    const items = blocks.flatMap((b) => b.items);
-    return items.map((item, i) => (i === 0 ? { ...item, gapBefore: true } : item));
+    // Tally groups F2/F3/F4 together and starts a fresh group at F5
+    return blocks
+      .flatMap((b) => b.items)
+      .map((item) => (item.hotkey?.toUpperCase() === 'F5' ? { ...item, gapBefore: true } : item));
   }, [screenKeys, detailedToggle, detailed]);
+
+  // Tally puts "F2: Period" on a report and "F2: Date · Alt+F2: Period" on the
+  // day-scoped screens, where you pick a day first and widen to a range second.
+  const periodKeys = useMemo<RailItem[]>(() => {
+    if (!supportsPeriod) return [];
+    if (scope === 'screen') {
+      return [
+        { hotkey: 'F2', label: 'Date', onClick: () => setPopup('date') },
+        { hotkey: 'F2', mod: 'alt' as const, label: 'Period', onClick: () => setPopup('period') },
+      ];
+    }
+    return [{ hotkey: 'F2', label: 'Period', onClick: () => setPopup('period') }];
+  }, [supportsPeriod, scope]);
 
   const rail = useMemo<RailItem[]>(
     () => [
-      { hotkey: 'F2', label: 'Period', onClick: () => setPopup('period') },
+      ...periodKeys,
       { hotkey: 'F3', label: 'Company', onClick: accountingCompany?.cycleCompany },
       ...screenRail,
       {
@@ -234,17 +278,19 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
             { hotkey: 'N', label: 'Auto Column', onClick: () => setPopup('auto-column') },
           ]
         : []),
-      { hotkey: 'P', label: 'Print', gapBefore: true, onClick: () => window.print() },
+      // No P: Print here — Tally's report rail ends at Ctrl+F: Filter Details,
+      // Print sits in the top bar.
     ],
-    [accountingCompany, screenRail, basis, detailed, filters, columns.length, supportsColumns],
+    [periodKeys, accountingCompany, screenRail, basis, detailed, filters, columns.length, supportsColumns],
   );
 
   const lastColumn = columns[columns.length - 1];
 
   const popups = (
     <>
-      {popup === 'period' && (
+      {(popup === 'period' || popup === 'date') && (
         <ChangePeriod
+          mode={popup}
           from={from}
           to={to}
           onAccept={(nextFrom, nextTo) => {
@@ -327,6 +373,7 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
     from,
     to,
     setPeriod,
+    periodLabel: labelOf(period),
     detailed,
     setDetailed,
     basis,

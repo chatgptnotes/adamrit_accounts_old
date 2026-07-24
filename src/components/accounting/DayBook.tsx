@@ -2,15 +2,16 @@ import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
-import { TallyScreen, getTallyConfig } from './tally/TallyChrome';
+import { TallyReportHeader, TallyScreen, getTallyConfig, voucherBottomBar } from './tally/TallyChrome';
 import { TallyList } from './tally/TallyPopup';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
 import { fetchTallyVouchers } from '@/lib/mergedVouchers';
 import { normalizeName } from '@/lib/tallyCompanyMatch';
-import SourceBadge from './SourceBadge';
 import { useSourceFilter, matchesSource } from './useSourceFilter';
 import { useAccountingCompany } from './AccountingCompanyContext';
+import { useVoucherActions } from '@/hooks/useVoucherActions';
+import { toast } from 'sonner';
 
 type LedgerSource = 'adamrit' | 'tally';
 
@@ -91,6 +92,11 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
   const [scope, setScope] = useState<'Regular' | 'Optional' | 'Post-Dated'>('Regular');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [typePicker, setTypePicker] = useState(false);
+  // Space marks lines; R hides them from the report and U puts the last batch back
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
+  const [removedStack, setRemovedStack] = useState<string[][]>([]);
+  const { cancelVoucher, deleteVoucher } = useVoucherActions();
   const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
   const { selectedCompanyId } = useAccountingCompany();
 
@@ -108,6 +114,8 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
   });
 
   const report = useTallyReport({
+    // Tally's Day Book opens on a single date (F2: Date), not the shared period
+    scope: 'screen',
     from: getTallyConfig().dayBookMonth ? today.slice(0, 8) + '01' : today,
     to: today,
     filterFields: ['Particulars', 'Vch Type', 'Vch No.'],
@@ -117,7 +125,9 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
       { label: 'Cash/Bank Book', target: 'cash-bank-book' },
       { label: 'Edit Log', target: 'edit-log' },
     ],
-    detailedToggle: { hotkey: 'F8', label: 'Detailed' },
+    // Tally's Day Book rail: F4 Voucher Type, F7 Show Profit and F8 Columnar
+    // greyed, the rest blank. Detailed lives under H: Change View, not on F8.
+    supportsColumns: false,
     screenKeys: [
       { hotkey: 'F4', label: 'Voucher Type', onClick: () => setTypePicker(true) },
       {
@@ -130,7 +140,9 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
             return order[(order.indexOf(cur) + 1) % order.length];
           }),
       },
-      sourceRail,
+      { ...sourceRail, hotkey: 'F6', gapBefore: false },
+      { hotkey: 'F7', label: 'Show Profit', disabled: true },
+      { hotkey: 'F8', label: 'Columnar', disabled: true },
     ],
   });
   const { from: fromDate, to: toDate, detailed, fmtAmount: fmt } = report;
@@ -270,49 +282,131 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
       if (!existing || r.source === 'tally') byNumber.set(key, r);
     }
     return [...byNumber.values(), ...passthrough]
+      .filter((r) => !removedIds.has(r.id))
       .filter((r) => matchesSource(r.source, srcFilter))
       .filter((r) => report.passesFilter({ Particulars: r.particulars, 'Vch Type': r.type, 'Vch No.': r.number }))
       .filter((r) => report.passesBasis(r.debit || r.credit))
       .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-  }, [vouchers, tallyRows, typeName, srcFilter, report.passesFilter, report.passesBasis]);
+  }, [vouchers, tallyRows, typeName, srcFilter, removedIds, report.passesFilter, report.passesBasis]);
 
-  const totals = useMemo(
-    () => rows.reduce((sum, row) => ({ debit: sum.debit + row.debit, credit: sum.credit + row.credit }), { debit: 0, credit: 0 }),
-    [rows],
-  );
+  const openRow = (index: number) => {
+    const row = rows[index];
+    if (!row) return;
+    if (row.nativeId && onOpenVoucher) onOpenVoucher(row.nativeId);
+    else toggleExpanded(row.id);
+  };
 
-  const { cursor, setCursor } = useRowCursor({
-    count: rows.length,
-    onEnter: (index) => {
-      const row = rows[index];
-      if (!row) return;
-      if (row.nativeId && onOpenVoucher) onOpenVoucher(row.nativeId);
-      else toggleExpanded(row.id);
-    },
-  });
+  const { cursor, setCursor } = useRowCursor({ count: rows.length, onEnter: openRow });
+
+  // ---- Tally's voucher key bar, acting on the highlighted line ----
+  const cursorRow = rows[cursor];
+
+  /** Tally-sourced rows are a read-only mirror — they can only change in Tally. */
+  const nativeRow = (): DayRow | null => {
+    if (!cursorRow) return null;
+    if (!cursorRow.nativeId) {
+      toast.info(`${cursorRow.number || 'This voucher'} came from Tally — alter it in Tally.`);
+      return null;
+    }
+    return cursorRow;
+  };
+
+  const toggleSelected = () => {
+    if (!cursorRow) return;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(cursorRow.id)) next.delete(cursorRow.id);
+      else next.add(cursorRow.id);
+      return next;
+    });
+  };
+
+  // R / U are view-only: they hide and restore report lines, never data.
+  const removeLine = () => {
+    const target = selectedIds.size > 0 ? [...selectedIds] : cursorRow ? [cursorRow.id] : [];
+    if (target.length === 0) return;
+    setRemovedIds((prev) => new Set([...prev, ...target]));
+    setRemovedStack((prev) => [...prev, target]);
+    setSelectedIds(new Set());
+  };
+
+  const restoreLine = () => {
+    setRemovedStack((prev) => {
+      const last = prev[prev.length - 1];
+      if (!last) return prev;
+      setRemovedIds((ids) => {
+        const next = new Set(ids);
+        last.forEach((id) => next.delete(id));
+        return next;
+      });
+      return prev.slice(0, -1);
+    });
+  };
 
   return (
     <>
     <TallyScreen
       title={`Day Book${typeName ? ` — ${typeName}` : ''}${scope !== 'Regular' ? ` (${scope})` : ''}`}
       rail={report.rail}
+      bottomBar={voucherBottomBar({
+        onQuit: () => window.dispatchEvent(new CustomEvent('tally-escape')),
+        onAlter: cursorRow ? () => openRow(cursor) : undefined,
+        onSelect: cursorRow ? toggleSelected : undefined,
+        onAdd: () => window.dispatchEvent(new CustomEvent('tally-goto', { detail: 'voucher-entry' })),
+        onDuplicate: cursorRow
+          ? () => {
+              const row = nativeRow();
+              if (row) window.dispatchEvent(new CustomEvent('tally-duplicate-voucher', { detail: row.nativeId }));
+            }
+          : undefined,
+        onInsert: cursorRow
+          ? () => window.dispatchEvent(new CustomEvent('tally-insert-voucher', { detail: cursorRow.date }))
+          : undefined,
+        onDelete: cursorRow
+          ? () => {
+              const row = nativeRow();
+              if (row) void deleteVoucher(row.nativeId!, row.number);
+            }
+          : undefined,
+        onCancelVch: cursorRow
+          ? () => {
+              const row = nativeRow();
+              if (row) void cancelVoucher(row.nativeId!, row.number);
+            }
+          : undefined,
+        onRemoveLine: cursorRow ? removeLine : undefined,
+        onRestoreLine: removedStack.length > 0 ? restoreLine : undefined,
+      })}
     >
       <div className="px-3 pb-4 pt-1 text-[13px]">
-        {/* Period line, like Tally's "For x-Jul-26" subtitle */}
-        <div className="mb-1 text-center">
-          <span className="font-semibold">
-            {fromDate === toDate ? `For ${tallyDateLabel(fromDate)}` : `${tallyDateLabel(fromDate)} to ${tallyDateLabel(toDate)}`}
-          </span>
-        </div>
+        <TallyReportHeader
+          title="Day Book"
+          period={
+            fromDate === toDate
+              ? `For ${tallyDateLabel(fromDate)}`
+              : `${tallyDateLabel(fromDate)} to ${tallyDateLabel(toDate)}`
+          }
+        />
 
-        {/* Header row */}
-        <div className="flex border-y border-black bg-[#f0f4fa] font-semibold">
-          <div className="w-20 px-1">Date</div>
-          <div className="min-w-0 flex-1 px-1">Particulars</div>
-          <div className="w-32 px-1">Vch Type</div>
-          <div className="w-28 px-1">Vch No.</div>
-          <div className="w-32 px-1 text-right">Debit Amount</div>
-          <div className="w-32 px-1 text-right">Credit Amount</div>
+        {/* Column head — two lines, as Tally stacks the quantity captions
+            under the Debit / Credit amount captions */}
+        <div className="border-y border-black font-semibold">
+          <div className="flex">
+            <div className="w-20 px-1">Date</div>
+            <div className="min-w-0 flex-1 px-1">Particulars</div>
+            <div className="w-32 px-1">Vch Type</div>
+            <div className="w-28 px-1">Vch No.</div>
+            <div className="w-32 px-1 text-right">Debit Amount</div>
+            <div className="w-32 px-1 text-right">Credit Amount</div>
+          </div>
+          <div className="flex font-normal">
+            <div className="w-20 px-1" />
+            <div className="min-w-0 flex-1 px-1" />
+            <div className="w-32 px-1" />
+            <div className="w-28 px-1" />
+            <div className="w-32 px-1 text-right">Inwards Qty</div>
+            <div className="w-32 px-1 text-right">Outwards Qty</div>
+          </div>
         </div>
 
         {isLoading ? (
@@ -330,22 +424,19 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
                     onClick={() => (r.nativeId && onOpenVoucher ? onOpenVoucher(r.nativeId) : toggleExpanded(r.id))}
                     onMouseEnter={() => setCursor(i)}
                     title={r.nativeId ? 'Open voucher (alter)' : 'Tally voucher — expand'}
-                    className={`flex w-full border-b border-dashed border-gray-300 text-left ${
-                      cursor === i ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'
+                    className={`flex w-full text-left ${
+                      cursor === i ? 'bg-[#ffc423]' : selectedIds.has(r.id) ? 'bg-[#fde68a]' : 'hover:bg-[#fdf6d8]'
                     }`}
                   >
                     <div className="w-20 px-1">{tallyDateLabel(r.date)}</div>
-                    <div className="min-w-0 flex-1 truncate px-1 font-semibold">
-                      {r.particulars}
-                      <SourceBadge source={r.source} />
-                    </div>
+                    <div className="min-w-0 flex-1 truncate px-1 font-semibold">{r.particulars}</div>
                     <div className="w-32 px-1">{r.type}</div>
                     <div className="w-28 px-1 font-mono text-[12px]">{r.number}</div>
                     <div className="w-32 px-1 text-right font-mono">{r.debit > 0 ? fmt(r.debit) : ''}</div>
                     <div className="w-32 px-1 text-right font-mono">{r.credit > 0 ? fmt(r.credit) : ''}</div>
                   </button>
                   {expanded && (
-                    <div className="border-b border-dashed border-gray-300 bg-[#fffdf2] py-0.5">
+                    <div className="bg-[#fffdf2] py-0.5">
                       {r.entries.flatMap((e, i) => [
                         ...(e.debit > 0 ? [{ key: `${i}-debit`, label: e.label.replace(/^Cr /, 'Dr '), debit: e.debit, credit: 0 }] : []),
                         ...(e.credit > 0 ? [{ key: `${i}-credit`, label: e.label.replace(/^Dr /, 'Cr '), debit: 0, credit: e.credit }] : []),
@@ -371,14 +462,6 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
                 </React.Fragment>
               );
             })}
-            <div className="mt-2 flex border-t border-black pt-0.5 font-bold">
-              <div className="w-20 px-1" />
-              <div className="min-w-0 flex-1 px-1 tracking-[0.2em]">Total — {rows.length} voucher(s)</div>
-              <div className="w-32 px-1" />
-              <div className="w-28 px-1" />
-              <div className="w-32 px-1 text-right font-mono">{fmt(totals.debit)}</div>
-              <div className="w-32 px-1 text-right font-mono">{fmt(totals.credit)}</div>
-            </div>
           </>
         )}
       </div>

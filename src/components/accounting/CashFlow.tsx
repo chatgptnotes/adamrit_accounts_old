@@ -60,22 +60,6 @@ const formatCurrency = (val: number): string => {
 };
 
 /**
- * Returns the financial year start (April 1) for the given date.
- */
-const getFYStart = (date: Date): string => {
-  const year = date.getMonth() < 3 ? date.getFullYear() - 1 : date.getFullYear();
-  return `${year}-04-01`;
-};
-
-/**
- * Returns the financial year end (March 31) for the given date.
- */
-const getFYEnd = (date: Date): string => {
-  const year = date.getMonth() < 3 ? date.getFullYear() : date.getFullYear() + 1;
-  return `${year}-03-31`;
-};
-
-/**
  * Determines whether an account is a cash or bank account based on its
  * account_group and account_name fields.
  */
@@ -168,10 +152,7 @@ const exportCSV = (
  * and classified into the three activity categories.
  */
 const CashFlow: React.FC = () => {
-  const now = new Date();
   const report = useTallyReport({
-    from: getFYStart(now),
-    to: getFYEnd(now),
     supportsColumns: false,
     filterFields: ['Particulars'],
     views: [

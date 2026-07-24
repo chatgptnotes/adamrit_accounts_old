@@ -14,30 +14,6 @@ interface Account {
 }
 
 
-const currentFyStartYear = (): number => {
-  const now = new Date();
-  return now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-};
-
-const fyMonths = (fyStartYear: number): { label: string; from: string; upto: string }[] => {
-  const out: { label: string; from: string; upto: string }[] = [];
-  for (let i = 0; i < 12; i++) {
-    const m = 3 + i;
-    const year = fyStartYear + (m > 11 ? 1 : 0);
-    const month = (m % 12) + 1;
-    const first = new Date(year, month - 1, 1);
-    const last = new Date(year, month, 0);
-    const iso = (d: Date) =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    out.push({
-      label: first.toLocaleDateString('en-GB', { month: 'long', year: '2-digit' }).replace(' ', '-'),
-      from: iso(first),
-      upto: iso(last),
-    });
-  }
-  return out;
-};
-
 interface FlowLine {
   name: string;
   amount: number;
@@ -105,8 +81,6 @@ const FundsFlow: React.FC = () => {
   const [openMonth, setOpenMonth] = useState<MonthFlow | null>(null);
 
   const report = useTallyReport({
-    from: `${currentFyStartYear()}-04-01`,
-    to: `${currentFyStartYear() + 1}-03-31`,
     filterFields: ['Particulars'],
     views: [
       { label: 'Cash Flow', target: 'cash-flow' },
@@ -115,7 +89,7 @@ const FundsFlow: React.FC = () => {
       { label: 'Cash/Bank Summary', target: 'cash-bank-summary' },
     ],
   });
-  const fyYear = Number(report.from.slice(0, 4)) - (Number(report.from.slice(5, 7)) >= 4 ? 0 : 1);
+  const periodMonths = monthsInPeriod({ from: report.from, to: report.to });
   const fmt = report.fmtAmount;
 
   const { data: accounts = [] } = useQuery({
@@ -124,10 +98,10 @@ const FundsFlow: React.FC = () => {
   });
 
   const { data: months = [], isLoading } = useQuery({
-    queryKey: ['funds_flow', fyYear, accounts.length],
+    queryKey: ['funds_flow', report.from, report.to, accounts.length],
     enabled: accounts.length > 0,
     queryFn: async () => {
-      const defs = fyMonths(fyYear);
+      const defs = periodMonths;
       const movs = await Promise.all(defs.map((d) => accountMovements({ from: d.from, upto: d.upto })));
       return defs.map((d, i): MonthFlow => {
         const { sources, applications } = computeFlow(accounts, movs[i]);
@@ -193,7 +167,7 @@ const FundsFlow: React.FC = () => {
         ) : (
           <>
             <div className="text-center text-[11px]">
-              1-Apr-{String(fyYear).slice(2)} to 31-Mar-{String(fyYear + 1).slice(2)}
+              {report.periodLabel}
             </div>
             <div className="mt-1 flex border-y border-black bg-[#f0f4fa] font-semibold">
               <div className="min-w-0 flex-1 px-1">Particulars</div>

@@ -4,14 +4,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 
-const fyStart = (): string => {
-  const now = new Date();
-  const y = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-  return `${y}-04-01`;
-};
-
-const todayISO = (): string => new Date().toISOString().slice(0, 10);
-
 const count = async (table: string, filter?: (q: any) => any): Promise<number> => {
   let query = (supabase as any).from(table).select('id', { count: 'exact', head: true });
   if (filter) query = filter(query);
@@ -26,8 +18,6 @@ const count = async (table: string, filter?: (q: any) => any): Promise<number> =
  */
 const StatisticsScreen: React.FC = () => {
   const report = useTallyReport({
-    from: fyStart(),
-    to: todayISO(),
     supportsColumns: false,
     filterFields: ['Particulars'],
     views: [

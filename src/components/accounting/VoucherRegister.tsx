@@ -8,7 +8,6 @@ import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
 import { fetchTallyVouchers } from '@/lib/mergedVouchers';
 import { normalizeName } from '@/lib/tallyCompanyMatch';
-import SourceBadge from './SourceBadge';
 import { useSourceFilter, matchesSource } from './useSourceFilter';
 
 interface VoucherType {
@@ -30,26 +29,6 @@ const tallyDateLabel = (iso: string): string => {
   const d = new Date(iso + 'T00:00:00');
   const month = d.toLocaleDateString('en-GB', { month: 'short' });
   return `${d.getDate()}-${month}-${String(d.getFullYear()).slice(2)}`;
-};
-
-const fyMonths = (fyStartYear: number): { label: string; ym: string }[] => {
-  const out: { label: string; ym: string }[] = [];
-  for (let i = 0; i < 12; i++) {
-    const m = 3 + i;
-    const year = fyStartYear + (m > 11 ? 1 : 0);
-    const month = (m % 12) + 1;
-    const d = new Date(year, month - 1, 1);
-    out.push({
-      label: d.toLocaleDateString('en-GB', { month: 'long', year: '2-digit' }).replace(' ', '-'),
-      ym: `${year}-${String(month).padStart(2, '0')}`,
-    });
-  }
-  return out;
-};
-
-const currentFyStartYear = (): number => {
-  const now = new Date();
-  return now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
 };
 
 /**
@@ -91,8 +70,6 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
   const type = voucherTypes.find((t) => t.id === typeId) || null;
 
   const report = useTallyReport({
-    from: `${currentFyStartYear()}-04-01`,
-    to: `${currentFyStartYear() + 1}-03-31`,
     filterFields: ['Particulars', 'Vch No.'],
     views: [
       { label: 'Day Book', target: 'day-book' },
@@ -108,7 +85,7 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
     ],
   });
   const { from: fyFrom, to: fyTo, fmtAmount: fmt } = report;
-  const fyYear = Number(fyFrom.slice(0, 4)) - (Number(fyFrom.slice(5, 7)) >= 4 ? 0 : 1);
+  const periodMonths = monthsInPeriod({ from: fyFrom, to: fyTo });
 
   const { data: nativeVouchers = [], isLoading } = useQuery({
     queryKey: ['voucher_register', typeId, fyFrom, fyTo],
@@ -172,8 +149,8 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
       m.total += Number(v.total_amount) || 0;
       byMonth.set(ym, m);
     }
-    return fyMonths(fyYear).map(({ label, ym }) => ({ label, ym, ...(byMonth.get(ym) ?? { count: 0, total: 0 }) }));
-  }, [vouchers, fyYear]);
+    return periodMonths.map(({ label, ym }) => ({ label, ym, ...(byMonth.get(ym) ?? { count: 0, total: 0 }) }));
+  }, [vouchers, periodMonths]);
 
   const grandCount = months.reduce((s, m) => s + m.count, 0);
   const grandTotal = months.reduce((s, m) => s + m.total, 0);
@@ -256,7 +233,6 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
                 <div className="w-20 px-1">{tallyDateLabel(v.voucher_date)}</div>
                 <div className="min-w-0 flex-1 truncate px-1">
                   {v.narration || ''}
-                  <SourceBadge source={v.source} />
                 </div>
                 <div className="w-32 px-1 font-mono text-[12px]">{v.voucher_number}</div>
                 <div className="w-36 px-1 text-right font-mono">{fmt(Number(v.total_amount) || 0)}</div>
@@ -276,7 +252,7 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
             <div className="text-center">
               <div className="font-bold">{type.voucher_type_name} Register</div>
               <div className="text-[11px]">
-                {tallyDateLabel(fyFrom)} to {tallyDateLabel(fyTo)}
+                {report.periodLabel}
               </div>
             </div>
             <div className="mt-1 flex border-y border-black bg-[#f0f4fa] font-semibold">

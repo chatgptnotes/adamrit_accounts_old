@@ -92,33 +92,14 @@ const formatCurrency = (val: number): string => {
 };
 
 /**
- * Returns the financial year start (April 1) for the given date.
- */
-const getFYStart = (date: Date): string => {
-  const year = date.getMonth() < 3 ? date.getFullYear() - 1 : date.getFullYear();
-  return `${year}-04-01`;
-};
-
-/**
- * Returns the financial year end (March 31) for the given date.
- */
-const getFYEnd = (date: Date): string => {
-  const year = date.getMonth() < 3 ? date.getFullYear() : date.getFullYear() + 1;
-  return `${year}-03-31`;
-};
-
-/**
  * BankReconciliation - A bank account reconciliation tool.
  * Allows selecting a bank account, viewing its transactions, and marking
  * entries as reconciled. Reconciliation status is persisted in localStorage.
  */
 const BankReconciliation: React.FC = () => {
-  const now = new Date();
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
 
   const report = useTallyReport({
-    from: getFYStart(now),
-    to: getFYEnd(now),
     supportsColumns: false,
     filterFields: ['Particulars', 'Vch No.'],
     views: [

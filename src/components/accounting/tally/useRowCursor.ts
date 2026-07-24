@@ -25,6 +25,9 @@ export function useRowCursor({
   useEffect(() => {
     if (!enabled) return;
     const onKey = (e: KeyboardEvent) => {
+      // Someone upstream already owns this key — PgUp/PgDn in particular are
+      // the report's period step, not a cursor jump.
+      if (e.defaultPrevented) return;
       if (tallyModalIsOpen() || isTypingTarget(e.target)) return;
       if (e.altKey || e.ctrlKey || e.metaKey) return;
       const step =

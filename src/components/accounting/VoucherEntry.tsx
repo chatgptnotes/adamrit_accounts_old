@@ -24,6 +24,7 @@ import { TallyScreen, type RailItem } from './tally/TallyChrome';
 import { useCostCentres } from './CostCentres';
 import { useAccountingRights } from './tally/rights';
 import { useAccountingCompany } from './AccountingCompanyContext';
+import { useVoucherActions } from '@/hooks/useVoucherActions';
 
 // Type definition for a voucher type record
 interface VoucherType {
@@ -228,19 +229,32 @@ interface VoucherEntryProps {
   onDone?: () => void;
   /** Select an active voucher type when opening a new voucher from a shortcut. */
   initialVoucherCategory?: string;
+  /** Tally's "2: Duplicate Vch" — copy this voucher into a new, unsaved one */
+  duplicateFromId?: string;
+  /** Tally's "I: Insert Vch" — open a new voucher already dated to this day */
+  initialDate?: string;
 }
 
-const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialVoucherCategory }) => {
+const VoucherEntry: React.FC<VoucherEntryProps> = ({
+  voucherId,
+  onDone,
+  initialVoucherCategory,
+  duplicateFromId,
+  initialDate,
+}) => {
   const queryClient = useQueryClient();
   const { user, hospitalConfig } = useAuth();
   const { canAlter } = useAccountingRights();
   const { selectedCompanyId, setSelectedCompanyId } = useAccountingCompany();
+  const { cancelVoucher: cancelVoucherById, deleteVoucher: deleteVoucherById } = useVoucherActions();
   const alterMode = !!voucherId;
+  // Duplicating loads a voucher exactly like alteration does, but saves as new
+  const sourceVoucherId = voucherId ?? duplicateFromId;
   const username = user?.username || user?.email || 'system';
 
   // Form state
   const [selectedVoucherType, setSelectedVoucherType] = useState('');
-  const [voucherDate, setVoucherDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [voucherDate, setVoucherDate] = useState(initialDate ?? format(new Date(), 'yyyy-MM-dd'));
   const [voucherNumberOverride, setVoucherNumberOverride] = useState('');
   const [datePickerRequest, setDatePickerRequest] = useState(0);
   const [referenceNumber, setReferenceNumber] = useState('');
@@ -386,13 +400,13 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
 
   // ------ Alteration mode: load the voucher and populate the form ------
   const { data: loadedVoucher } = useQuery({
-    queryKey: ['alter_voucher', voucherId],
-    enabled: alterMode,
+    queryKey: ['alter_voucher', sourceVoucherId],
+    enabled: !!sourceVoucherId,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('vouchers')
         .select('*, voucher_entries(*)')
-        .eq('id', voucherId!)
+        .eq('id', sourceVoucherId!)
         .single();
       if (error) throw error;
       return data as any;
@@ -403,7 +417,8 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
     if (!loadedVoucher || accounts.length === 0 || voucherTypes.length === 0) return;
     const vt = voucherTypes.find((t) => t.id === loadedVoucher.voucher_type_id);
     setSelectedVoucherType(loadedVoucher.voucher_type_id || '');
-    setLoadedNumber(loadedVoucher.voucher_number || '');
+    // A duplicate keeps everything but the identity — it takes the next number
+    setLoadedNumber(alterMode ? loadedVoucher.voucher_number || '' : '');
     setVoucherDate(loadedVoucher.voucher_date || format(new Date(), 'yyyy-MM-dd'));
     setReferenceNumber(loadedVoucher.reference_number || '');
     setReferenceDate(loadedVoucher.reference_date || '');
@@ -769,49 +784,16 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({ voucherId, onDone, initialV
   };
 
   // ------ Alteration actions: Cancel Vch (soft) and Delete (hard) ------
+  // The mutations live in useVoucherActions so the Day Book key bar runs the
+  // exact same code path (confirm, edit-log stamp, cache invalidation).
   const cancelVoucher = async (): Promise<void> => {
     if (!alterMode) return;
-    if (!window.confirm(`Cancel voucher ${loadedNumber}? It will stop affecting all reports.`)) return;
-    setSaving(true);
-    try {
-      const { error } = await supabase
-        .from('vouchers')
-        .update({ status: 'CANCELLED', last_modified_by: username })
-        .eq('id', voucherId!);
-      if (error) throw error;
-      toast.info(`Voucher ${loadedNumber} cancelled`);
-      queryClient.invalidateQueries({ queryKey: ['vouchers'] });
-      queryClient.invalidateQueries({ queryKey: ['daybook_vouchers'] });
-      onDone?.();
-    } catch (err) {
-      console.error('Cancel failed:', err);
-      toast.error('Failed to cancel — please try again');
-    } finally {
-      setSaving(false);
-    }
+    if (await cancelVoucherById(voucherId!, loadedNumber)) onDone?.();
   };
 
   const deleteVoucher = async (): Promise<void> => {
     if (!alterMode) return;
-    if (!window.confirm(`Permanently DELETE voucher ${loadedNumber} and its entries? This cannot be undone.`)) return;
-    setSaving(true);
-    try {
-      // Stamp who is deleting so the edit-log trigger records it
-      await supabase.from('vouchers').update({ last_modified_by: username }).eq('id', voucherId!);
-      const { error: eErr } = await supabase.from('voucher_entries').delete().eq('voucher_id', voucherId!);
-      if (eErr) throw eErr;
-      const { error: vErr } = await supabase.from('vouchers').delete().eq('id', voucherId!);
-      if (vErr) throw vErr;
-      toast.info(`Voucher ${loadedNumber} deleted`);
-      queryClient.invalidateQueries({ queryKey: ['vouchers'] });
-      queryClient.invalidateQueries({ queryKey: ['daybook_vouchers'] });
-      onDone?.();
-    } catch (err) {
-      console.error('Delete failed:', err);
-      toast.error('Failed to delete — it may be referenced elsewhere');
-    } finally {
-      setSaving(false);
-    }
+    if (await deleteVoucherById(voucherId!, loadedNumber)) onDone?.();
   };
 
   // ------ Formal A4 voucher print (Tally-style) ------

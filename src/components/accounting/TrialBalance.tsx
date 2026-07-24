@@ -5,7 +5,6 @@ import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
 import { useAccountingCompany } from './AccountingCompanyContext';
-import SourceBadge from './SourceBadge';
 import { useSourceFilter, matchesSource } from './useSourceFilter';
 
 const tallyDateLabel = (iso: string): string => {
@@ -161,7 +160,6 @@ const TrialBalance: React.FC<{ onOpenGroup?: (head: string) => void }> = ({ onOp
                       <div key={`${l.source}:${l.name}`} className="flex text-[12px] italic text-gray-700">
                         <div className="w-64 flex-1 pl-5">
                           {l.name}
-                          <SourceBadge source={l.source} />
                         </div>
                         {amountPair(Math.max(0, l.bal), Math.max(0, -l.bal), '')}
                       </div>

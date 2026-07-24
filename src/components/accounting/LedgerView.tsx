@@ -9,7 +9,6 @@ import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
 import { fetchTallyVouchers } from '@/lib/mergedVouchers';
 import { normalizeName } from '@/lib/tallyCompanyMatch';
-import SourceBadge from './SourceBadge';
 import { useSourceFilter, matchesSource } from './useSourceFilter';
 
 interface Account {
@@ -46,12 +45,6 @@ const tallyDateLabel = (iso: string): string => {
 /** Rows shown at once in the List of Ledger Accounts drop-down */
 const PICKER_LIMIT = 50;
 
-const fy = (): { from: string; to: string } => {
-  const now = new Date();
-  const year = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-  return { from: `${year}-04-01`, to: `${year + 1}-03-31` };
-};
-
 /**
  * Ledger Vouchers — Tally Prime replica: pick a ledger (type-to-search like
  * Tally's List of Ledger Accounts), see Date / Particulars / Vch Type /
@@ -74,8 +67,6 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
   const { selectedCompanyId } = useAccountingCompany();
 
   const report = useTallyReport({
-    from: fy().from,
-    to: fy().to,
     filterFields: ['Particulars', 'Vch Type', 'Vch No.'],
     views: [
       { label: 'Group Summary', target: 'group-summary' },
@@ -350,7 +341,6 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
                     <div className="w-20 px-1">{tallyDateLabel(r.date)}</div>
                     <div className="min-w-0 flex-1 truncate px-1">
                       {r.particulars}
-                      <SourceBadge source={r.source} />
                     </div>
                     <div className="w-28 px-1">{r.type}</div>
                     <div className="w-28 px-1 font-mono text-[12px]">{r.number}</div>

@@ -43,12 +43,6 @@ const tallyDateLabel = (iso: string): string => {
   return `${d.getDate()}-${month}-${String(d.getFullYear()).slice(2)}`;
 };
 
-const fyStart = (): string => {
-  const now = new Date();
-  const y = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-  return `${y}-04-01`;
-};
-
 /** Active cost centres; empty (not an error) until the migration is run. */
 export const useCostCentres = () =>
   useQuery({
@@ -73,7 +67,6 @@ export const useCostCentres = () =>
 const CostCentres: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVoucher }) => {
   const queryClient = useQueryClient();
   const report = useTallyReport({
-    from: fyStart(),
     filterFields: ['Particulars', 'Vch No.'],
     views: [
       { label: 'Ledger Vouchers', target: 'ledger-view' },

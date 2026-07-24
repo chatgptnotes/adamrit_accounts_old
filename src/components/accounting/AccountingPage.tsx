@@ -51,10 +51,11 @@ import ExceptionReports from './ExceptionReports';
 import BillwiseOutstanding from './BillwiseOutstanding';
 import Banking from './Banking';
 import { AccountingCompanyProvider } from './AccountingCompanyContext';
+import { AccountingPeriodProvider } from './tally/PeriodContext';
 
 // Live Tally-gateway suite is heavy (12 sub-screens) — load on demand
 const TallyLivePage = lazy(() => import('@/components/tally/TallyPage'));
-import { TallyTopBar } from './tally/TallyChrome';
+import { TallyTopBar, tallyModalIsOpen, tallyTopMenuIsOpen } from './tally/TallyChrome';
 
 /** Navigation item definition for the accounting sidebar. */
 interface NavItem {
@@ -225,6 +226,16 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
     };
     // Drill from a report line straight into that ledger's vouchers
     const onOpenLedger = (e: Event) => setDrillLedgerId((e as CustomEvent).detail as string);
+    const onDuplicate = (e: Event) => {
+      setInsertDate(null);
+      setDuplicateVoucherId((e as CustomEvent).detail as string);
+    };
+    const onInsert = (e: Event) => {
+      setDuplicateVoucherId(null);
+      setInsertDate((e as CustomEvent).detail as string);
+      setInitialVoucherCategory(undefined);
+      setActiveTab('voucher-entry');
+    };
     const onSave = () => {
       localStorage.setItem('accounting-default-tab', activeTabRef.current);
       import('sonner').then(({ toast }) =>
@@ -235,11 +246,15 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
     window.addEventListener('tally-open-voucher', onOpenVoucher);
     window.addEventListener('tally-open-ledger', onOpenLedger);
     window.addEventListener('tally-save-view', onSave);
+    window.addEventListener('tally-duplicate-voucher', onDuplicate);
+    window.addEventListener('tally-insert-voucher', onInsert);
     return () => {
       window.removeEventListener('tally-goto', onGoto);
       window.removeEventListener('tally-open-voucher', onOpenVoucher);
       window.removeEventListener('tally-open-ledger', onOpenLedger);
       window.removeEventListener('tally-save-view', onSave);
+      window.removeEventListener('tally-duplicate-voucher', onDuplicate);
+      window.removeEventListener('tally-insert-voucher', onInsert);
     };
   }, []);
   // Tally's Esc from a screen with nothing to close returns to the Gateway
@@ -249,6 +264,9 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
     // suite): TallyScreen preventDefaults its own Esc handling, so only
     // unhandled Esc presses land here.
     const onKey = (e: KeyboardEvent) => {
+      // A pop-up or an open top-bar drop-down owns Esc — it closes itself
+      // first. Without this the whole screen would unwind instead.
+      if (tallyModalIsOpen() || tallyTopMenuIsOpen()) return;
       const target = e.target as HTMLElement | null;
       const typing =
         target &&
@@ -268,6 +286,9 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
 
   // Drill-down stack: group -> ledger -> voucher, each layer closable back
   const [alterVoucherId, setAlterVoucherId] = useState<string | null>(null);
+  // Tally's "2: Duplicate Vch" and "I: Insert Vch" from a report key bar
+  const [duplicateVoucherId, setDuplicateVoucherId] = useState<string | null>(null);
+  const [insertDate, setInsertDate] = useState<string | null>(null);
   const [drillLedgerId, setDrillLedgerId] = useState<string | null>(null);
   const [drillGroup, setDrillGroup] = useState<string | null>(null);
   // Collapsed icon rail by default — Tally-style full-width canvas.
@@ -275,6 +296,7 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
 
   return (
     <AccountingCompanyProvider>
+      <AccountingPeriodProvider>
       <div className="tally-skin min-h-screen flex overflow-x-hidden bg-[#d5e3f0]">
       {/* ---- Left Sidebar (icon rail when collapsed) ---- */}
       <aside
@@ -342,6 +364,12 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
         <div className="flex-1">
           {alterVoucherId ? (
             <VoucherEntry voucherId={alterVoucherId} onDone={() => setAlterVoucherId(null)} />
+          ) : duplicateVoucherId ? (
+            <VoucherEntry
+              key={`dup-${duplicateVoucherId}`}
+              duplicateFromId={duplicateVoucherId}
+              onDone={() => setDuplicateVoucherId(null)}
+            />
           ) : drillLedgerId ? (
             <LedgerView
               key={drillLedgerId}
@@ -353,12 +381,17 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
             <GroupSummary head={drillGroup} onOpenLedger={setDrillLedgerId} onClose={() => setDrillGroup(null)} />
           ) : (
             activeTab === 'voucher-entry'
-              ? <VoucherEntry initialVoucherCategory={initialVoucherCategory} />
+              ? <VoucherEntry
+                  key={`new-${insertDate ?? ''}`}
+                  initialVoucherCategory={initialVoucherCategory}
+                  initialDate={insertDate ?? undefined}
+                />
               : renderContent(activeTab, setActiveTab, setAlterVoucherId, setDrillGroup, setDrillLedgerId, canSeeTile)
           )}
         </div>
       </main>
       </div>
+      </AccountingPeriodProvider>
     </AccountingCompanyProvider>
   );
 };

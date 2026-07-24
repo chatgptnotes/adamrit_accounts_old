@@ -12,12 +12,6 @@ import { useRowCursor } from './tally/useRowCursor';
 const fmt = (n: number): string =>
   new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
-const fyStart = (): string => {
-  const now = new Date();
-  const y = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-  return `${y}-04-01`;
-};
-
 interface Exception {
   kind: string;
   voucherId?: string;
@@ -32,7 +26,6 @@ interface Exception {
  */
 const ExceptionReports: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVoucher }) => {
   const report = useTallyReport({
-    from: fyStart(),
     supportsColumns: false,
     filterFields: ['Exception', 'Reference', 'Details'],
     views: [

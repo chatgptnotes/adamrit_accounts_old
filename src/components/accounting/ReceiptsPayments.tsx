@@ -32,12 +32,6 @@ const tallyDateLabel = (iso: string): string => {
   return `${d.getDate()}-${month}-${String(d.getFullYear()).slice(2)}`;
 };
 
-const fyStart = (): string => {
-  const now = new Date();
-  const y = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-  return `${y}-04-01`;
-};
-
 const dayBefore = (iso: string): string => {
   const d = new Date(iso + 'T00:00:00');
   d.setDate(d.getDate() - 1);
@@ -52,7 +46,6 @@ const dayBefore = (iso: string): string => {
  */
 const ReceiptsPayments: React.FC = () => {
   const report = useTallyReport({
-    from: fyStart(),
     filterFields: ['Particulars'],
     views: [
       { label: 'Cash Flow', target: 'cash-flow' },

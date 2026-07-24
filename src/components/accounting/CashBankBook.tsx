@@ -38,27 +38,6 @@ const tallyDateLabel = (iso: string): string => {
   return `${d.getDate()}-${month}-${String(d.getFullYear()).slice(2)}`;
 };
 
-// Financial year months Apr..Mar as {label, ym}
-const fyMonths = (fyStartYear: number): { label: string; ym: string }[] => {
-  const out: { label: string; ym: string }[] = [];
-  for (let i = 0; i < 12; i++) {
-    const m = 3 + i; // 0-based month index from April
-    const year = fyStartYear + (m > 11 ? 1 : 0);
-    const month = (m % 12) + 1;
-    const d = new Date(year, month - 1, 1);
-    out.push({
-      label: d.toLocaleDateString('en-GB', { month: 'long', year: '2-digit' }).replace(' ', '-'),
-      ym: `${year}-${String(month).padStart(2, '0')}`,
-    });
-  }
-  return out;
-};
-
-const currentFyStartYear = (): number => {
-  const now = new Date();
-  return now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-};
-
 /** Round an axis maximum up to the next 1 / 2 / 5 × 10ⁿ step, like Tally's scale */
 const niceCeil = (value: number): number => {
   const power = Math.pow(10, Math.floor(Math.log10(value)));
@@ -149,7 +128,6 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
   const account = accounts.find((a) => a.id === selectedId) || null;
 
   const report = useTallyReport({
-    from: `${currentFyStartYear()}-04-01`,
     filterFields: ['Particulars', 'Vch Type', 'Vch No.'],
     views: [
       { label: 'Cash/Bank Summary', target: 'cash-bank-summary' },

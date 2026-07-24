@@ -4,7 +4,6 @@ import { mergedLedgerBalances, type LedgerBalanceRow, type LedgerSource } from '
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { useAccountingCompany } from './AccountingCompanyContext';
-import SourceBadge from './SourceBadge';
 import { useSourceFilter, matchesSource } from './useSourceFilter';
 
 interface Line {
@@ -135,7 +134,6 @@ const ProfitLoss: React.FC = () => {
             <div key={`${led.source}:${led.name}`} className="flex justify-between text-[12px] italic text-gray-700">
               <span className="pl-5">
                 {led.name}
-                <SourceBadge source={led.source} />
               </span>
               <span className="font-mono">{fmt(led.amount)}</span>
             </div>

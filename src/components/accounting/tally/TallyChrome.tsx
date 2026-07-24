@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { RefreshCw } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { HOSPITAL_CONFIGS, type HospitalType } from '@/types/hospital';
@@ -56,6 +55,38 @@ export interface BottomBarItem {
   disabled?: boolean;
 }
 
+/**
+ * The key bar Tally shows under a voucher-listing report (Day Book, Registers,
+ * Ledger Vouchers), in Tally's own order. A handler left out renders greyed,
+ * the way Tally greys an action that does not apply to the highlighted line.
+ *
+ * Remove / Restore Line are view-only in Tally — they hide a line from the
+ * report, they never touch the voucher.
+ */
+export const voucherBottomBar = (handlers: {
+  onQuit?: () => void;
+  onAlter?: () => void;
+  onSelect?: () => void;
+  onAdd?: () => void;
+  onDuplicate?: () => void;
+  onInsert?: () => void;
+  onDelete?: () => void;
+  onCancelVch?: () => void;
+  onRemoveLine?: () => void;
+  onRestoreLine?: () => void;
+}): BottomBarItem[] => [
+  { hotkey: 'Q', label: 'Quit', onClick: handlers.onQuit },
+  { hotkey: 'Enter', label: 'Alter', onClick: handlers.onAlter },
+  { hotkey: 'Space', label: 'Select', onClick: handlers.onSelect },
+  { hotkey: 'A', label: 'Add Vch', onClick: handlers.onAdd },
+  { hotkey: '2', label: 'Duplicate Vch', onClick: handlers.onDuplicate },
+  { hotkey: 'I', label: 'Insert Vch', onClick: handlers.onInsert },
+  { hotkey: 'D', label: 'Delete', onClick: handlers.onDelete },
+  { hotkey: 'X', label: 'Cancel Vch', onClick: handlers.onCancelVch },
+  { hotkey: 'R', label: 'Remove Line', onClick: handlers.onRemoveLine },
+  { hotkey: 'U', label: 'Restore Line', onClick: handlers.onRestoreLine },
+];
+
 /** "F" + ctrl -> "Ctrl+F"; the text shown in the blue key prefix. */
 export const hotkeyLabel = (hotkey: string, mod?: HotkeyMod): string =>
   mod === 'ctrl' ? `Ctrl+${hotkey}` : mod === 'alt' ? `Alt+${hotkey}` : hotkey;
@@ -76,6 +107,23 @@ export const useTallyModal = (): void => {
   }, []);
 };
 
+/**
+ * An open top-bar drop-down owns the keyboard too, but it must not silence its
+ * own handler — so it is counted separately from the modal pop-ups. Only the
+ * screen behind it steps aside.
+ */
+let openTopMenuCount = 0;
+export const tallyTopMenuIsOpen = (): boolean => openTopMenuCount > 0;
+const useTopMenuOwnsKeyboard = (open: boolean): void => {
+  useEffect(() => {
+    if (!open) return;
+    openTopMenuCount += 1;
+    return () => {
+      openTopMenuCount -= 1;
+    };
+  }, [open]);
+};
+
 /** True when the event landed in a field the user is typing into. */
 export const isTypingTarget = (target: EventTarget | null): boolean => {
   const el = target as HTMLElement | null;
@@ -84,7 +132,9 @@ export const isTypingTarget = (target: EventTarget | null): boolean => {
 
 /** Does this keydown match the item's hotkey (and only its modifier)? */
 export const hotkeyMatches = (e: KeyboardEvent, hotkey: string, mod: HotkeyMod | undefined): boolean => {
-  const hk = hotkey.toUpperCase();
+  // "Esc" and "Space" are how Tally labels them; the browser calls the same
+  // keys "Escape" and " ".
+  const hk = hotkey.toUpperCase() === 'ESC' ? 'ESCAPE' : hotkey.toUpperCase();
   const pressed = e.key === ' ' ? 'SPACE' : e.key.toUpperCase();
   if (pressed !== hk) return false;
   if (mod === 'ctrl') return (e.ctrlKey || e.metaKey) && !e.altKey;
@@ -106,7 +156,12 @@ interface TopMenu {
   items?: { label: string; onClick?: () => void }[];
 }
 
-const TallySyncButton: React.FC = () => {
+/**
+ * Pulls the latest ledgers for the selected company from Tally. Tally keeps
+ * data exchange on the Z: Exchange menu, so this hangs off there rather than
+ * on a button of its own.
+ */
+const useTallyQuickSync = (): { syncLatest: () => Promise<void>; syncing: boolean; enabled: boolean } => {
   const queryClient = useQueryClient();
   const accountingCompany = useAccountingCompanyOptional();
   const selectedCompanyId = accountingCompany?.selectedCompanyId || '';
@@ -185,18 +240,7 @@ const TallySyncButton: React.FC = () => {
     }
   }, [queryClient, selectedCompanyId, selectedTallyConfig]);
 
-  return (
-    <button
-      type="button"
-      onClick={() => void syncLatest()}
-      disabled={syncing || selectedTallyConfig?.auto_sync_enabled !== true}
-      className="mr-3 inline-flex items-center gap-1 border border-[#6f8fb5] bg-[#e9f0fa] px-2 py-0.5 text-[12px] font-semibold text-[#16437e] hover:bg-white disabled:cursor-default disabled:opacity-60"
-      title="Fetch and save latest data for the selected Accounting company"
-    >
-      <RefreshCw className={`h-3 w-3 ${syncing ? 'animate-spin' : ''}`} />
-      {syncing ? 'Syncing...' : selectedTallyConfig?.auto_sync_enabled === true ? 'Sync Latest' : 'Sync Disabled'}
-    </button>
-  );
+  return { syncLatest, syncing, enabled: selectedTallyConfig?.auto_sync_enabled === true };
 };
 
 export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) => {
@@ -210,6 +254,7 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const { user, switchHospital, hospitalConfig } = useAuth();
   const { data: companies = [] } = useCompanies();
+  const { syncLatest, syncing, enabled: syncEnabled } = useTallyQuickSync();
 
   const otherHospital = (Object.keys(HOSPITAL_CONFIGS) as HospitalType[]).find((h) => h !== user?.hospitalType);
 
@@ -261,6 +306,10 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
         key: 'Z',
         label: 'Exchange',
         items: [
+          {
+            label: syncing ? 'Syncing latest from Tally…' : 'Sync latest from Tally',
+            onClick: syncEnabled && !syncing ? () => void syncLatest() : undefined,
+          },
           { label: 'Tally Live (gateway sync)', onClick: () => onGoTo('tally-live') },
           { label: 'Export vouchers to Tally', onClick: () => onGoTo('tally-import-export') },
           { label: 'Import masters from Tally', onClick: () => onGoTo('tally-import-export') },
@@ -283,7 +332,7 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
       { key: 'F12', label: 'Configure', action: () => setConfigOpen(true) },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [otherHospital, hospitalConfig.name, companies, onGoTo, switchHospital],
+    [otherHospital, hospitalConfig.name, companies, onGoTo, switchHospital, syncLatest, syncing, syncEnabled],
   );
 
   const activeMenu = menus.find((m) => m.key === openMenu);
@@ -293,6 +342,9 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
     setOpenMenu((m) => (m === key ? null : key));
     setMenuHighlight(0);
   };
+
+  // While a drop-down is open the screen behind it stops answering its hotkeys
+  useTopMenuOwnsKeyboard(openMenu !== null);
 
   // Alt+F focuses the finder; the top-bar letters open their menus; an open
   // menu is walked with the arrow keys — Tally never needs the mouse here.
@@ -336,10 +388,14 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
         }
       }
       if (isTypingTarget(e.target) || e.altKey || e.ctrlKey || e.metaKey) return;
-      const hit = menus.find((m) => m.items && m.key.toUpperCase() === e.key.toUpperCase());
+      // Every top-bar button answers its key — the drop-downs (K/Y/Z) open,
+      // and the direct actions (O/E/M/P/F1) just run. Previously only the
+      // drop-downs were bound, which left P: Print and F1: Help unreachable.
+      const hit = menus.find((m) => m.key.toUpperCase() === e.key.toUpperCase());
       if (hit) {
         e.preventDefault();
-        openTopMenu(hit.key);
+        if (hit.items) openTopMenu(hit.key);
+        else hit.action?.();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -455,9 +511,6 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
               </div>
             )}
           </div>
-        </div>
-        <div className="ml-auto flex items-center">
-          <TallySyncButton />
         </div>
       </div>
       {/* Row 2: menu */}
@@ -609,6 +662,17 @@ const TallyConfigure: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   );
 };
 
+/**
+ * The line every Tally report opens with: the report's name on the left and
+ * the period it covers on the right — "Day Book … For 24-Jul-26".
+ */
+export const TallyReportHeader: React.FC<{ title: string; period: string }> = ({ title, period }) => (
+  <div className="flex items-baseline justify-between px-1 pb-1 pt-0.5">
+    <span className="text-[15px] font-bold">{title}</span>
+    <span className="font-semibold">{period}</span>
+  </div>
+);
+
 interface TallyScreenProps {
   /** Screen title in the light-blue strip, e.g. "Balance Sheet" */
   title: string;
@@ -625,7 +689,7 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
   const { hospitalConfig } = useAuth();
   const accountingCompany = useAccountingCompanyOptional();
   const handleClose = onClose ?? (() => window.dispatchEvent(new CustomEvent('tally-escape')));
-  const closeText = closeLabel || '← Back';
+  const closeText = closeLabel || '✕';
   const selectedCompanyName = accountingCompany?.companies.find(
     (company) => company.id === accountingCompany.selectedCompanyId,
   )?.company_name;
@@ -651,13 +715,35 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
     contentRef.current?.focus({ preventScroll: true });
   }, [title]);
 
-  // Bind F-key / letter hotkeys declared by the rail + bottom bar
+  // Bind F-key / letter hotkeys declared by the rail + bottom bar.
+  //
+  // Precedence, highest first: a pop-up or an open top-bar menu owns the
+  // keyboard → Esc closes the screen → the bottom bar → the rail. The bottom
+  // bar is searched first because its keys are the screen's own actions, while
+  // the rail carries the generic report keys (C/A/D/N) that Tally does not even
+  // show on a voucher listing.
   useEffect(() => {
-    const items = [...rail, ...(bottomBar ?? [])];
+    const items = [...(bottomBar ?? []), ...rail];
+    if (import.meta.env.DEV) {
+      const seen = new Map<string, string>();
+      for (const item of items) {
+        if (!item.hotkey) continue;
+        const key = `${item.mod ?? ''}+${item.hotkey.toUpperCase()}`;
+        const first = seen.get(key);
+        if (first) {
+          console.warn(
+            `[Tally] "${title}" binds ${hotkeyLabel(item.hotkey, item.mod)} twice — ` +
+              `"${first}" wins, "${item.label}" is unreachable by keyboard.`,
+          );
+        } else {
+          seen.set(key, item.label);
+        }
+      }
+    }
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
-      // A pop-up owns the keyboard while it is open
-      if (tallyModalIsOpen()) return;
+      // A pop-up or an open top-bar drop-down owns the keyboard
+      if (tallyModalIsOpen() || tallyTopMenuIsOpen()) return;
       const typing = isTypingTarget(e.target);
       // The browser's own F-key actions (F3 find, F5 reload, F7 caret
       // browsing, F10 menu, F11 fullscreen) must never fire over a report.
@@ -672,24 +758,32 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
         else window.dispatchEvent(new CustomEvent('tally-escape'));
         return;
       }
+      // Enter belongs to whatever is focused — a rail or bar button handles its
+      // own Enter, and the row cursor drills into the highlighted line.
+      const active = document.activeElement as HTMLElement | null;
+      const focusedControl = !!active && (active.tagName === 'BUTTON' || active.tagName === 'A');
+
       for (const item of items) {
-        if (!item.hotkey || item.disabled || !item.onClick) continue;
+        if (!item.hotkey) continue;
         // Letter hotkeys only fire outside inputs; F-keys fire anywhere.
         const isFKey = /^F\d+$/.test(item.hotkey.toUpperCase());
         if (!isFKey && typing) continue;
-        if (hotkeyMatches(e, item.hotkey, item.mod)) {
-          e.preventDefault();
-          e.stopPropagation();
-          item.onClick();
-          return;
-        }
+        if (!hotkeyMatches(e, item.hotkey, item.mod)) continue;
+        if (item.hotkey.toUpperCase() === 'ENTER' && focusedControl) return;
+        // A key the screen declares but cannot act on is still swallowed, so
+        // Space never scrolls the report out from under the cursor.
+        e.preventDefault();
+        if (item.disabled || !item.onClick) return;
+        e.stopPropagation();
+        item.onClick();
+        return;
       }
     };
     document.addEventListener('keydown', onKey, true);
     return () => {
       document.removeEventListener('keydown', onKey, true);
     };
-  }, [rail, bottomBar, onClose]);
+  }, [rail, bottomBar, onClose, title]);
 
   return (
     <div style={TALLY_FONT} className="flex min-h-[calc(100vh-64px)] flex-col border border-[#9db8d8] bg-[#fffefb]">
@@ -700,7 +794,7 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
           {headerCompanyName}
         </span>
         {headerAction}
-        <button type="button" onClick={handleClose} className="px-1 font-bold text-black hover:text-red-600" aria-label={closeText}>
+        <button type="button" onClick={handleClose} className="px-1 font-bold text-black hover:text-red-600" aria-label="Close">
           {closeText}
         </button>
       </div>
@@ -734,10 +828,13 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
                         item.active ? 'text-white' : 'text-[#1d5aa8]'
                       }`}
                     >
-                      <span className="underline">{hotkeyLabel(item.hotkey, item.mod)}</span>:{' '}
+                      <span className="underline">{hotkeyLabel(item.hotkey, item.mod)}</span>
+                      {item.label ? ':' : ''}{' '}
                     </span>
                   )}
-                  {item.label}
+                  <span className="min-w-0 truncate">{item.label}</span>
+                  {/* Tally's rail buttons all carry a right-edge chevron */}
+                  <span className={`ml-auto shrink-0 pl-1 ${item.active ? 'text-white' : 'text-[#8fa8c8]'}`}>‹</span>
                 </button>
               </div>
             ))}
@@ -779,14 +876,14 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
               type="button"
               onClick={b.onClick}
               disabled={b.disabled || !b.onClick}
-              className={`flex min-h-8 items-center border border-[#9db8d8] bg-white px-3 py-0.5 text-[13px] ${
+              className={`flex min-h-8 flex-1 items-center justify-center overflow-hidden whitespace-nowrap border border-[#9db8d8] bg-white px-1 py-0.5 text-[13px] ${
                 b.disabled || !b.onClick ? 'cursor-default text-[#8fa8c8]' : 'text-black hover:bg-[#fdf6d8]'
               }`}
             >
-              <span className="inline-flex min-w-[44px] shrink-0 pr-1 font-semibold text-[#1d5aa8]">
+              <span className="shrink-0 pr-1 font-semibold text-[#1d5aa8]">
                 <span className="underline">{hotkeyLabel(b.hotkey, b.mod)}</span>:
-              </span>{' '}
-              {b.label}
+              </span>
+              <span className="truncate">{b.label}</span>
             </button>
           ))}
         </div>
