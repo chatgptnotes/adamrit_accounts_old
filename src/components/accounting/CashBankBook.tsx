@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { fetchActiveAccounts } from '@/lib/fetchAccounts';
+import { accountMovements } from '@/lib/accountMovements';
 import { TallyScreen } from './tally/TallyChrome';
 import { TallyList } from './tally/TallyPopup';
 import { useTallyReport } from './tally/useTallyReport';
@@ -156,17 +157,11 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
       { label: 'Ledger Vouchers', target: 'ledger-view' },
       { label: 'Day Book', target: 'day-book' },
     ],
+    // The rail carries shortcuts only. The cash/bank ledgers are report content,
+    // so they are listed in the body below — F4 still opens them as a picker.
     screenKeys: [
       { hotkey: 'F4', label: 'Ledger', onClick: () => setLedgerPicker(true) },
       { hotkey: 'F6', label: 'Monthly', active: !openMonth, onClick: () => setOpenMonth(null) },
-      ...accounts.map((a) => ({
-        label: a.account_name,
-        active: a.id === selectedId,
-        onClick: () => {
-          setSelectedId(a.id);
-          setOpenMonth(null);
-        },
-      })),
     ],
   });
 
@@ -174,6 +169,39 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
   const fyYear = Number(report.from.slice(0, 4)) - (Number(report.from.slice(5, 7)) >= 4 ? 0 : 1);
   const fyFrom = report.from;
   const fyTo = report.to;
+
+  // Closing balance per ledger for the opening list — same source and arithmetic
+  // as Cash/Bank Summary, so the two screens can never disagree.
+  const { data: movements = {}, isLoading: listLoading } = useQuery({
+    queryKey: ['cash_bank_book_movements', fyTo],
+    enabled: !selectedId && accounts.length > 0,
+    queryFn: async () => {
+      const map = await accountMovements({ upto: fyTo });
+      const byAccount: Record<string, number> = {};
+      for (const a of accounts) {
+        const m = map.get(a.id);
+        if (m) byAccount[a.id] = m.debit - m.credit;
+      }
+      return byAccount;
+    },
+  });
+
+  const closingOf = (a: Account): number => {
+    const openingBalance = (Number(a.opening_balance) || 0) * (a.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1);
+    return openingBalance + (movements[a.id] ?? 0);
+  };
+
+  // Cash-in-Hand (111x) and Bank Accounts (112x) as one flat list, so the
+  // cursor walks group headers and ledgers exactly like Tally.
+  const ledgerGroups = useMemo(
+    () =>
+      [
+        { name: 'Cash-in-Hand', items: accounts.filter((a) => a.account_code.startsWith('111')) },
+        { name: 'Bank Accounts', items: accounts.filter((a) => a.account_code.startsWith('112')) },
+      ].filter((g) => g.items.length > 0),
+    [accounts],
+  );
+  const ledgerRows = useMemo(() => ledgerGroups.flatMap((g) => g.items), [ledgerGroups]);
 
   const { data: entries = [], isLoading } = useQuery({
     queryKey: ['cash_bank_book', selectedId, fyFrom, fyTo],
@@ -243,10 +271,16 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
     return idx <= 0 ? opening : months[idx - 1].closing;
   }, [months, openMonth, opening]);
 
-  // One cursor for whichever list is on screen — months, or a month's vouchers
+  // One cursor for whichever list is on screen — the ledgers, a ledger's
+  // months, or a month's vouchers
   const { cursor, setCursor } = useRowCursor({
-    count: openMonth ? monthEntries.length : months.length,
+    count: !account ? ledgerRows.length : openMonth ? monthEntries.length : months.length,
     onEnter: (index) => {
+      if (!account) {
+        const ledger = ledgerRows[index];
+        if (ledger) setSelectedId(ledger.id);
+        return;
+      }
       if (openMonth) {
         const voucherId = monthEntries[index]?.voucher?.id;
         if (voucherId) onOpenVoucher?.(voucherId);
@@ -280,9 +314,69 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
     >
       <div className="px-3 pb-4 pt-1 text-[13px]">
         {!account ? (
-          <div className="py-16 text-center text-gray-400">
-            Select a cash or bank ledger from the panel on the right.
-          </div>
+          <>
+            {/* Ledger list — Tally opens Cash/Bank Book on the ledgers themselves */}
+            <div className="text-center">
+              <div className="font-bold">{headerCompanyName}</div>
+              <div className="text-[11px]">Closing balance as on {tallyDateLabel(fyTo)}</div>
+            </div>
+            <div className="mt-1 flex border-y border-black bg-[#f0f4fa] font-semibold">
+              <div className="min-w-0 flex-1 px-1">Particulars</div>
+              <div className="w-44 px-1 text-right">Closing Balance</div>
+            </div>
+            {listLoading ? (
+              <div className="py-10 text-center text-gray-400">Loading…</div>
+            ) : (
+              <>
+                {ledgerGroups.map((group) => {
+                  const groupTotal = group.items.reduce((sum, a) => sum + closingOf(a), 0);
+                  return (
+                    <React.Fragment key={group.name}>
+                      <div className="mt-1.5 bg-[#eef3fa] px-1 font-bold">{group.name}</div>
+                      {group.items.map((a) => {
+                        const index = ledgerRows.findIndex((row) => row.id === a.id);
+                        const balance = closingOf(a);
+                        return (
+                          <button
+                            key={a.id}
+                            type="button"
+                            onMouseEnter={() => setCursor(index)}
+                            onClick={() => setSelectedId(a.id)}
+                            title={`Open ${a.account_name}`}
+                            className={`flex w-full border-b border-dashed border-gray-200 text-left ${
+                              cursor === index ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'
+                            }`}
+                          >
+                            <div className="min-w-0 flex-1 px-1 pl-4">{a.account_name}</div>
+                            <div className="w-44 px-1 text-right font-mono">
+                              {report.fmtAmount(Math.abs(balance))} {balance < 0 ? 'Cr' : 'Dr'}
+                            </div>
+                          </button>
+                        );
+                      })}
+                      <div className="flex border-b border-gray-400 font-semibold">
+                        <div className="min-w-0 flex-1 px-1 pl-4 italic">Total — {group.name}</div>
+                        <div className="w-44 px-1 text-right font-mono">
+                          {report.fmtAmount(Math.abs(groupTotal))} {groupTotal < 0 ? 'Cr' : 'Dr'}
+                        </div>
+                      </div>
+                    </React.Fragment>
+                  );
+                })}
+                <div className="mt-2 flex border-t border-black pt-1 font-bold">
+                  <div className="min-w-0 flex-1 px-1">Grand Total</div>
+                  {(() => {
+                    const total = ledgerRows.reduce((sum, a) => sum + closingOf(a), 0);
+                    return (
+                      <div className="w-44 px-1 text-right font-mono">
+                        {report.fmtAmount(Math.abs(total))} {total < 0 ? 'Cr' : 'Dr'}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </>
+            )}
+          </>
         ) : openMonth ? (
           <>
             {/* Month drill-down: daily vouchers */}

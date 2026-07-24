@@ -100,16 +100,10 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
       { label: 'Cash/Bank Book', target: 'cash-bank-book' },
       { label: 'Edit Log', target: 'edit-log' },
     ],
+    // The rail carries shortcuts only. The voucher types are report content, so
+    // they are listed in the body below — F4 still opens them as a picker.
     screenKeys: [
       { hotkey: 'F4', label: 'Voucher Type', onClick: () => setTypePicker(true) },
-      ...voucherTypes.map((t) => ({
-        label: t.voucher_type_name,
-        active: t.id === typeId,
-        onClick: () => {
-          setTypeId(t.id);
-          setOpenMonth(null);
-        },
-      })),
       sourceRail,
     ],
   });
@@ -190,9 +184,13 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
   );
 
   const { cursor, setCursor } = useRowCursor({
-    count: openMonth ? monthVouchers.length : months.length,
-    enabled: !!type,
+    count: !type ? voucherTypes.length : openMonth ? monthVouchers.length : months.length,
     onEnter: (index) => {
+      if (!type) {
+        const picked = voucherTypes[index];
+        if (picked) setTypeId(picked.id);
+        return;
+      }
       if (openMonth) {
         const v = monthVouchers[index];
         if (v?.source === 'adamrit') onOpenVoucher?.(v.id);
@@ -212,7 +210,26 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
     >
       <div className="px-3 pb-4 pt-1 text-[13px]">
         {!type ? (
-          <div className="py-16 text-center text-gray-400">Select a voucher type from the panel on the right.</div>
+          <>
+            {/* Voucher type list — the register opens on the types themselves */}
+            <div className="mt-1 flex border-y border-black bg-[#f0f4fa] font-semibold">
+              <div className="min-w-0 flex-1 px-1">Particulars</div>
+            </div>
+            {voucherTypes.map((t, i) => (
+              <button
+                key={t.id}
+                type="button"
+                onMouseEnter={() => setCursor(i)}
+                onClick={() => setTypeId(t.id)}
+                title={`Open ${t.voucher_type_name} Register`}
+                className={`flex w-full border-b border-dashed border-gray-200 text-left ${
+                  cursor === i ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'
+                }`}
+              >
+                <div className="min-w-0 flex-1 px-1 pl-4">{t.voucher_type_name}</div>
+              </button>
+            ))}
+          </>
         ) : openMonth ? (
           <>
             <div className="text-center">
