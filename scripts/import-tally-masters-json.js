@@ -307,27 +307,37 @@ async function main() {
   if (company) {
     const { data: existing, error: existingError } = await supabase
       .from('chart_of_accounts')
-      .select('account_name')
+      .select('account_code, account_name')
       .eq('company_id', company.id)
     if (existingError) { console.error(`ERROR: could not read chart_of_accounts: ${existingError.message}`); process.exit(1) }
 
-    const existingNames = new Set((existing || []).map((a) => a.account_name.trim().toLowerCase()))
-    const accountRows = mapped
-      .filter((l) => !existingNames.has(l.name.trim().toLowerCase()))
-      .map((l) => ({
+    // RESET_AND_IMPORT_DRM_LATEST.sql already seeded these 1,873 ledger names from
+    // Excel with a hardcoded opening_balance of 0 (see its INSERT, "0, 'DR'"), which
+    // is why the Opening Balances screen renders blank. So match on name and reuse
+    // the existing account_code — the upsert then updates that row in place instead
+    // of skipping it. Accounts that are not in the Tally export (the seeded
+    // CAPITAL ACCOUNT / Owner's Capital / Retained Earnings chart) never match and
+    // are left untouched.
+    const codeByName = new Map((existing || []).map((a) => [a.account_name.trim().toLowerCase(), a.account_code]))
+
+    let updated = 0
+    const accountRows = mapped.map((l) => {
+      const existingCode = codeByName.get(l.name.trim().toLowerCase())
+      if (existingCode) updated++
+      return {
         company_id: company.id,
-        account_code: tallyChartAccountCode(company.id, l.name),
+        account_code: existingCode || tallyChartAccountCode(company.id, l.name),
         account_name: l.name,
         account_type: l.accountType,
         account_group: l.parentGroup,
         opening_balance: Math.abs(l.opening),
         opening_balance_type: l.opening < 0 ? 'CR' : 'DR',
         is_active: true,
-      }))
+      }
+    })
 
-    const skipped = mapped.length - accountRows.length
     accountsSynced = await upsertChunks(supabase, 'chart_of_accounts', accountRows, { onConflict: 'account_code' })
-    console.log(`[ACCOUNTS] ${accountsSynced}/${accountRows.length} synced (${skipped} already existed, left untouched)`)
+    console.log(`[ACCOUNTS] ${accountsSynced}/${accountRows.length} synced (${updated} existing rows updated, ${accountRows.length - updated} new)`)
   }
 
   // ── Sync log ─────────────────────────────────────────────────────────────
