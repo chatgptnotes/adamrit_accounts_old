@@ -131,6 +131,33 @@ function parseNum(value) {
   return Number.isNaN(n) ? 0 : n
 }
 
+/**
+ * Match key for an account name. Collapses internal whitespace because the
+ * earlier Excel import squeezed double spaces and newlines out of 21 names
+ * ("C-Arm  (Alliengers)" became "C-Arm (Alliengers)"). Collapsing keeps all
+ * 1,873 names distinct, so it cannot merge two different ledgers.
+ */
+function nameKey(name) {
+  return (name || '').replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+/** PostgREST caps an unbounded select at 1000 rows — page through explicitly. */
+async function selectAll(supabase, table, columns, companyId) {
+  const rows = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(columns)
+      .eq('company_id', companyId)
+      .range(from, from + 999)
+    if (error) throw new Error(`${table}: ${error.message}`)
+    if (!data || data.length === 0) break
+    rows.push(...data)
+    if (data.length < 1000) break
+  }
+  return rows
+}
+
 function stateOf(ledger) {
   const details = ledger.ledmailingdetails
   if (!Array.isArray(details) || details.length === 0) return null
@@ -275,7 +302,9 @@ async function main() {
     last_synced_at: now,
   }))
 
-  const groupsSynced = await upsertChunks(supabase, 'tally_groups', groupRows, { onConflict: 'name' })
+  // UNIQUE(name) was migrated to UNIQUE(company_id, name) in
+  // 20260321100000_refactor_company_name_to_id.sql.
+  const groupsSynced = await upsertChunks(supabase, 'tally_groups', groupRows, { onConflict: 'company_id,name' })
   console.log(`[GROUPS] ${groupsSynced}/${groupRows.length} synced`)
 
   // ── Write: ledgers ───────────────────────────────────────────────────────
@@ -305,11 +334,11 @@ async function main() {
 
   let accountsSynced = 0
   if (company) {
-    const { data: existing, error: existingError } = await supabase
-      .from('chart_of_accounts')
-      .select('account_code, account_name')
-      .eq('company_id', company.id)
-    if (existingError) { console.error(`ERROR: could not read chart_of_accounts: ${existingError.message}`); process.exit(1) }
+    let existing
+    try {
+      existing = await selectAll(supabase, 'chart_of_accounts', 'account_code, account_name', company.id)
+    } catch (e) { console.error(`ERROR: could not read chart_of_accounts: ${e.message}`); process.exit(1) }
+    console.log(`[ACCOUNTS] ${existing.length} existing accounts read`)
 
     // RESET_AND_IMPORT_DRM_LATEST.sql already seeded these 1,873 ledger names from
     // Excel with a hardcoded opening_balance of 0 (see its INSERT, "0, 'DR'"), which
@@ -318,16 +347,18 @@ async function main() {
     // of skipping it. Accounts that are not in the Tally export (the seeded
     // CAPITAL ACCOUNT / Owner's Capital / Retained Earnings chart) never match and
     // are left untouched.
-    const codeByName = new Map((existing || []).map((a) => [a.account_name.trim().toLowerCase(), a.account_code]))
+    const existingByName = new Map(existing.map((a) => [nameKey(a.account_name), a]))
 
     let updated = 0
     const accountRows = mapped.map((l) => {
-      const existingCode = codeByName.get(l.name.trim().toLowerCase())
-      if (existingCode) updated++
+      const match = existingByName.get(nameKey(l.name))
+      if (match) updated++
       return {
         company_id: company.id,
-        account_code: existingCode || tallyChartAccountCode(company.id, l.name),
-        account_name: l.name,
+        account_code: match ? match.account_code : tallyChartAccountCode(company.id, l.name),
+        // Keep the stored spelling on existing rows — the Excel import collapsed
+        // double spaces in 21 names, and renaming them would break name-based lookups.
+        account_name: match ? match.account_name : l.name,
         account_type: l.accountType,
         account_group: l.parentGroup,
         opening_balance: Math.abs(l.opening),
