@@ -11,6 +11,8 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   "patient-profile": lazy(
     () => import("@/tablet/modules/patient-profile/PatientProfileFlow"),
   ),
+  "bed-shifting": lazy(() => import("@/tablet/modules/bed-shifting/BedShiftingFlow")),
+  "bed-booking": lazy(() => import("@/tablet/modules/bed-booking/BedBookingFlow")),
   "icu-admission": lazy(() => import("@/tablet/modules/icu-admission/IcuAdmissionFlow")),
   advance: lazy(() => import("@/tablet/modules/advance/AdvanceFlow")),
   "accounts-tilak": lazy(

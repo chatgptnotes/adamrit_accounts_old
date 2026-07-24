@@ -1,8 +1,10 @@
 import {
   AlertTriangle,
+  ArrowLeftRight,
   Banknote,
   BarChart3,
   BedDouble,
+  CalendarCheck,
   CalendarClock,
   Camera,
   ClipboardCheck,
@@ -68,6 +70,22 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: BedDouble,
     accent: "text-sky-600",
     tint: "from-sky-400 to-sky-600",
+  },
+  {
+    id: "bed-shifting",
+    label: "Bed Shifting",
+    description: "Drag a patient to another bed",
+    icon: ArrowLeftRight,
+    accent: "text-amber-600",
+    tint: "from-amber-400 to-amber-600",
+  },
+  {
+    id: "bed-booking",
+    label: "Bed Booking",
+    description: "Reserve a bed for an incoming patient",
+    icon: CalendarCheck,
+    accent: "text-orange-600",
+    tint: "from-orange-400 to-orange-600",
   },
   {
     id: "icu-admission",
