@@ -228,68 +228,62 @@ const uniqueByStableKey = (items: any[]) => {
   });
 };
 
-const isInvalidUuidFallbackError = (error: any) =>
-  error?.code === "22P02" && String(error?.message || "").includes("invalid input syntax for type uuid");
+function describeSupabaseError(error: any): string {
+  if (!error) return "Unknown error.";
+  if (error.code === "57014") return "the database query timed out (57014). Please try again.";
+  if (error instanceof Error) return error.message;
+  const code = error.code ? `${error.code}: ` : "";
+  return `${code}${error.message || error.details || JSON.stringify(error)}`;
+}
 
-async function loadVisitInvestigationText(visitUuid: string, visitNumber?: string | null): Promise<string> {
+const selectVisitLabResults = (visitUuid: string) =>
+  supabase
+    .from("lab_results" as any)
+    .select("id, test_name, main_test_name, test_category, result_value, result_unit, reference_range, comments, result_status, created_at, file_name, file_url")
+    .eq("visit_id", visitUuid)
+    .order("created_at", { ascending: false })
+    .limit(2000);
+
+interface VisitInvestigationText {
+  text: string;
+  warnings: string[];
+}
+
+async function loadVisitInvestigationText(
+  visitUuid: string,
+  visitNumber?: string | null,
+): Promise<VisitInvestigationText> {
   const visitKeys = [visitUuid, visitNumber].filter(Boolean) as string[];
-  const [
-    orderedLabsResult,
-    structuredLabsByUuid,
-    structuredLabsByVisitNumber,
-    radiologyByUuid,
-    radiologyByVisitNumber,
-  ] = await Promise.all([
+  const [orderedLabsResult, structuredLabsResult, radiologyResult] = await Promise.all([
     supabase
       .from("visit_labs" as any)
       .select("id, status, ordered_date, completed_date, result_value, normal_range, notes, lab:lab_id(name)")
       .eq("visit_id", visitUuid),
-    supabase
-      .from("lab_results" as any)
-      .select("id, test_name, main_test_name, test_category, result_value, result_unit, reference_range, comments, result_status, created_at, file_name, file_url")
-      .eq("visit_id", visitUuid)
-      .order("created_at", { ascending: false }),
-    visitNumber
-      ? supabase
-          .from("lab_results" as any)
-          .select("id, test_name, main_test_name, test_category, result_value, result_unit, reference_range, comments, result_status, created_at, file_name, file_url")
-          .eq("visit_id", visitNumber)
-          .order("created_at", { ascending: false })
-      : Promise.resolve({ data: [], error: null }),
+    // lab_results is a very large table and can hit the statement timeout, so
+    // give it one retry before reporting the section as failed.
+    selectVisitLabResults(visitUuid).then((result) =>
+      result.error?.code === "57014" ? selectVisitLabResults(visitUuid) : result,
+    ),
     supabase
       .from("visit_radiology" as any)
       .select("id, status, ordered_date, completed_date, findings, impression, notes, report_text, file_name, file_url, radiology:radiology_id(name, category)")
       .eq("visit_id", visitUuid)
       .order("ordered_date", { ascending: false }),
-    visitNumber
-      ? supabase
-          .from("visit_radiology" as any)
-          .select("id, status, ordered_date, completed_date, findings, impression, notes, report_text, file_name, file_url, radiology:radiology_id(name, category)")
-          .eq("visit_id", visitNumber)
-          .order("ordered_date", { ascending: false })
-      : Promise.resolve({ data: [], error: null }),
   ]);
 
-  const errors = [
-    orderedLabsResult.error,
-    structuredLabsByUuid.error,
-    isInvalidUuidFallbackError(structuredLabsByVisitNumber.error) ? null : structuredLabsByVisitNumber.error,
-    radiologyByUuid.error,
-    isInvalidUuidFallbackError(radiologyByVisitNumber.error) ? null : radiologyByVisitNumber.error,
-  ].filter(Boolean);
-  if (errors.length) {
-    throw errors[0];
-  }
+  const warnings: string[] = [];
+  const sectionBody = (label: string, error: any, lines: string[], emptyText: string) => {
+    if (error) {
+      const message = `Could not load ${label}: ${describeSupabaseError(error)}`;
+      warnings.push(message);
+      return message;
+    }
+    return lines.length ? lines.join("\n") : emptyText;
+  };
 
   const orderedLabs = uniqueByStableKey((orderedLabsResult.data || []) as any[]);
-  const structuredLabs = uniqueByStableKey([
-    ...((structuredLabsByUuid.data || []) as any[]),
-    ...((structuredLabsByVisitNumber.data || []) as any[]),
-  ]);
-  const radiologyItems = uniqueByStableKey([
-    ...((radiologyByUuid.data || []) as any[]),
-    ...((radiologyByVisitNumber.data || []) as any[]),
-  ]);
+  const structuredLabs = uniqueByStableKey((structuredLabsResult.data || []) as any[]);
+  const radiologyItems = uniqueByStableKey((radiologyResult.data || []) as any[]);
 
   const orderedLabLines = orderedLabs.map((item, index) => {
     const labName = item.lab?.name || "Lab investigation";
@@ -335,18 +329,20 @@ async function loadVisitInvestigationText(visitUuid: string, visitNumber?: strin
     return `${index + 1}. ${radiologyName}${details.length ? ` - ${details.join("; ")}` : ""}`;
   });
 
-  return [
+  const text = [
     `VISIT KEYS: ${visitKeys.join(", ")}`,
     "",
     "LAB ORDERS / VISIT LABS",
-    orderedLabLines.length ? orderedLabLines.join("\n") : "No lab orders found for this visit.",
+    sectionBody("lab orders", orderedLabsResult.error, orderedLabLines, "No lab orders found for this visit."),
     "",
     "LAB RESULTS",
-    structuredLabLines.length ? structuredLabLines.join("\n") : "No structured lab results found for this visit.",
+    sectionBody("lab results", structuredLabsResult.error, structuredLabLines, "No structured lab results found for this visit."),
     "",
     "RADIOLOGY INVESTIGATIONS",
-    radiologyLines.length ? radiologyLines.join("\n") : "No radiology investigations found for this visit.",
+    sectionBody("radiology investigations", radiologyResult.error, radiologyLines, "No radiology investigations found for this visit."),
   ].join("\n");
+
+  return { text, warnings };
 }
 
 /** Module 6 — view a patient's advance statement, collect an advance, and
@@ -390,6 +386,7 @@ export default function AdvanceFlow() {
   const [investigationText, setInvestigationText] = useState("");
   const [generatedDischargeSummary, setGeneratedDischargeSummary] = useState("");
   const [arshiaError, setArshiaError] = useState<string | null>(null);
+  const [arshiaWarning, setArshiaWarning] = useState<string | null>(null);
   const [isTranscribingPreauth, setIsTranscribingPreauth] = useState(false);
   const [isLoadingInvestigations, setIsLoadingInvestigations] = useState(false);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
@@ -978,6 +975,7 @@ export default function AdvanceFlow() {
 
     setIsTranscribingPreauth(true);
     setArshiaError(null);
+    setArshiaWarning(null);
     try {
       const images = await Promise.all(docs.slice(0, 4).map(docToVisionImage));
       const text = await runArshiaModel(
@@ -1009,10 +1007,13 @@ Return clean plain text with headings.`,
 
     setIsLoadingInvestigations(true);
     setArshiaError(null);
+    setArshiaWarning(null);
     try {
-      setInvestigationText(await loadVisitInvestigationText(visit.data.id, visit.data.visit_id));
+      const { text, warnings } = await loadVisitInvestigationText(visit.data.id, visit.data.visit_id);
+      setInvestigationText(text);
+      setArshiaWarning(warnings.length ? warnings.join(" ") : null);
     } catch (error) {
-      setArshiaError(error instanceof Error ? error.message : "Could not fetch investigations.");
+      setArshiaError(`Could not fetch investigations: ${describeSupabaseError(error)}`);
     } finally {
       setIsLoadingInvestigations(false);
     }
@@ -1026,11 +1027,14 @@ Return clean plain text with headings.`,
 
     setIsGeneratingSummary(true);
     setArshiaError(null);
+    setArshiaWarning(null);
     try {
       let currentInvestigationText = investigationText.trim();
       if (!currentInvestigationText) {
-        currentInvestigationText = await loadVisitInvestigationText(visit.data.id, visit.data.visit_id);
-        setInvestigationText(currentInvestigationText);
+        const { text, warnings } = await loadVisitInvestigationText(visit.data.id, visit.data.visit_id);
+        currentInvestigationText = text;
+        setInvestigationText(text);
+        setArshiaWarning(warnings.length ? warnings.join(" ") : null);
       }
 
       const sourceContext = {
@@ -1205,6 +1209,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
 
     setIsGeneratingArshiaPdf(true);
     setArshiaError(null);
+    setArshiaWarning(null);
     try {
       const blob = await buildArshiaSummaryPdfBlob();
       const fileName = `${arshiaSummaryFileBase()}.pdf`;
@@ -1283,6 +1288,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
 
     setIsSendingArshiaWhatsApp(true);
     setArshiaError(null);
+    setArshiaWarning(null);
     try {
       const pdf = generatedArshiaPdf?.summaryText === generatedDischargeSummary.trim()
         ? generatedArshiaPdf
@@ -1559,6 +1565,12 @@ ${JSON.stringify(sourceContext, null, 2)}`,
       {arshiaError ? (
         <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {arshiaError}
+        </p>
+      ) : null}
+
+      {arshiaWarning ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {arshiaWarning}
         </p>
       ) : null}
 
