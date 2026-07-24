@@ -3,6 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
 import { TallyScreen, getTallyConfig } from './tally/TallyChrome';
+import { TallyList } from './tally/TallyPopup';
+import { useTallyReport } from './tally/useTallyReport';
+import { useRowCursor } from './tally/useRowCursor';
 import { fetchTallyVouchers } from '@/lib/mergedVouchers';
 import { normalizeName } from '@/lib/tallyCompanyMatch';
 import SourceBadge from './SourceBadge';
@@ -51,9 +54,6 @@ interface Voucher {
   voucher_entries: EntryRow[];
 }
 
-const fmt = (n: number): string =>
-  new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
-
 const tallyDateLabel = (iso: string): string => {
   const d = new Date(iso + 'T00:00:00');
   const month = d.toLocaleDateString('en-GB', { month: 'short' });
@@ -86,16 +86,11 @@ const summarySides = (
  */
 const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVoucher }) => {
   const today = format(new Date(), 'yyyy-MM-dd');
-  const [fromDate, setFromDate] = useState(() =>
-    getTallyConfig().dayBookMonth ? today.slice(0, 8) + '01' : today,
-  );
-  const [toDate, setToDate] = useState(today);
-  const [showPeriod, setShowPeriod] = useState(false);
   const [typeFilter, setTypeFilter] = useState('');
-  const [detailed, setDetailed] = useState(() => getTallyConfig().defaultDetailed);
   // Regular = authorised up to today; Optional = is_optional; Post-Dated = future-dated
   const [scope, setScope] = useState<'Regular' | 'Optional' | 'Post-Dated'>('Regular');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [typePicker, setTypePicker] = useState(false);
   const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
   const { selectedCompanyId } = useAccountingCompany();
 
@@ -111,6 +106,34 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
       return data as VoucherType[];
     },
   });
+
+  const report = useTallyReport({
+    from: getTallyConfig().dayBookMonth ? today.slice(0, 8) + '01' : today,
+    to: today,
+    filterFields: ['Particulars', 'Vch Type', 'Vch No.'],
+    views: [
+      { label: 'Registers', target: 'voucher-register' },
+      { label: 'Ledger Vouchers', target: 'ledger-view' },
+      { label: 'Cash/Bank Book', target: 'cash-bank-book' },
+      { label: 'Edit Log', target: 'edit-log' },
+    ],
+    detailedToggle: { hotkey: 'F8', label: 'Detailed' },
+    screenKeys: [
+      { hotkey: 'F4', label: 'Voucher Type', onClick: () => setTypePicker(true) },
+      {
+        hotkey: 'F5',
+        label: scope,
+        active: scope !== 'Regular',
+        onClick: () =>
+          setScope((cur) => {
+            const order: ('Regular' | 'Optional' | 'Post-Dated')[] = ['Regular', 'Optional', 'Post-Dated'];
+            return order[(order.indexOf(cur) + 1) % order.length];
+          }),
+      },
+      sourceRail,
+    ],
+  });
+  const { from: fromDate, to: toDate, detailed, fmtAmount: fmt } = report;
 
   const { data: vouchers = [], isLoading } = useQuery({
     queryKey: ['daybook_vouchers', selectedCompanyId, fromDate, toDate, typeFilter, scope],
@@ -248,44 +271,31 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
     }
     return [...byNumber.values(), ...passthrough]
       .filter((r) => matchesSource(r.source, srcFilter))
+      .filter((r) => report.passesFilter({ Particulars: r.particulars, 'Vch Type': r.type, 'Vch No.': r.number }))
+      .filter((r) => report.passesBasis(r.debit || r.credit))
       .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-  }, [vouchers, tallyRows, typeName, srcFilter]);
+  }, [vouchers, tallyRows, typeName, srcFilter, report.passesFilter, report.passesBasis]);
 
   const totals = useMemo(
     () => rows.reduce((sum, row) => ({ debit: sum.debit + row.debit, credit: sum.credit + row.credit }), { debit: 0, credit: 0 }),
     [rows],
   );
 
+  const { cursor, setCursor } = useRowCursor({
+    count: rows.length,
+    onEnter: (index) => {
+      const row = rows[index];
+      if (!row) return;
+      if (row.nativeId && onOpenVoucher) onOpenVoucher(row.nativeId);
+      else toggleExpanded(row.id);
+    },
+  });
+
   return (
+    <>
     <TallyScreen
       title={`Day Book${typeName ? ` — ${typeName}` : ''}${scope !== 'Regular' ? ` (${scope})` : ''}`}
-      rail={[
-        { hotkey: 'F2', label: 'Period', onClick: () => setShowPeriod((v) => !v) },
-        {
-          hotkey: 'F4',
-          label: 'Voucher Type',
-          gapBefore: true,
-          onClick: () =>
-            setTypeFilter((cur) => {
-              const ids = ['', ...voucherTypes.map((t) => t.id)];
-              return ids[(ids.indexOf(cur) + 1) % ids.length];
-            }),
-        },
-        {
-          hotkey: 'F5',
-          label: scope,
-          onClick: () =>
-            setScope((cur) => {
-              const order: ('Regular' | 'Optional' | 'Post-Dated')[] = ['Regular', 'Optional', 'Post-Dated'];
-              return order[(order.indexOf(cur) + 1) % order.length];
-            }),
-          active: scope !== 'Regular',
-        },
-        { hotkey: 'H', label: detailed ? 'Condensed' : 'Detailed', gapBefore: true, onClick: () => setDetailed((v) => !v) },
-        { label: 'Save View', disabled: true },
-        sourceRail,
-        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
-      ]}
+      rail={report.rail}
     >
       <div className="px-3 pb-4 pt-1 text-[13px]">
         {/* Period line, like Tally's "For x-Jul-26" subtitle */}
@@ -294,23 +304,6 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
             {fromDate === toDate ? `For ${tallyDateLabel(fromDate)}` : `${tallyDateLabel(fromDate)} to ${tallyDateLabel(toDate)}`}
           </span>
         </div>
-        {showPeriod && (
-          <div className="mb-2 flex items-center gap-2 border border-[#9db8d8] bg-[#fdf6d8] px-2 py-1">
-            <span>Period:</span>
-            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="border bg-white px-1" />
-            <span>to</span>
-            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="border bg-white px-1" />
-            <span className="ml-4">Type:</span>
-            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="border bg-white px-1">
-              <option value="">All Vouchers</option>
-              {voucherTypes.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.voucher_type_name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
 
         {/* Header row */}
         <div className="flex border-y border-black bg-[#f0f4fa] font-semibold">
@@ -328,15 +321,18 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
           <div className="py-10 text-center text-gray-400">No vouchers in this period.</div>
         ) : (
           <>
-            {rows.map((r) => {
+            {rows.map((r, i) => {
               const expanded = detailed || expandedIds.has(r.id);
               return (
                 <React.Fragment key={r.id}>
                   <button
                     type="button"
                     onClick={() => (r.nativeId && onOpenVoucher ? onOpenVoucher(r.nativeId) : toggleExpanded(r.id))}
+                    onMouseEnter={() => setCursor(i)}
                     title={r.nativeId ? 'Open voucher (alter)' : 'Tally voucher — expand'}
-                    className="flex w-full border-b border-dashed border-gray-300 text-left hover:bg-[#fdf6d8]"
+                    className={`flex w-full border-b border-dashed border-gray-300 text-left ${
+                      cursor === i ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'
+                    }`}
                   >
                     <div className="w-20 px-1">{tallyDateLabel(r.date)}</div>
                     <div className="min-w-0 flex-1 truncate px-1 font-semibold">
@@ -387,6 +383,27 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
         )}
       </div>
     </TallyScreen>
+
+    {report.popups}
+
+    {typePicker && (
+      <TallyList
+        title="List of Voucher Types"
+        onClose={() => setTypePicker(false)}
+        items={[
+          { label: 'All Vouchers', active: !typeFilter, onSelect: () => { setTypeFilter(''); setTypePicker(false); } },
+          ...voucherTypes.map((t) => ({
+            label: t.voucher_type_name,
+            active: t.id === typeFilter,
+            onSelect: () => {
+              setTypeFilter(t.id);
+              setTypePicker(false);
+            },
+          })),
+        ]}
+      />
+    )}
+    </>
   );
 };
 

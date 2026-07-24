@@ -5,6 +5,7 @@ import { fetchAllRows } from '@/lib/fetchAllRows';
 import { accountMovements } from '@/lib/accountMovements';
 import { format } from 'date-fns';
 import { TallyScreen } from './tally/TallyChrome';
+import { useTallyReport } from './tally/useTallyReport';
 
 interface Account {
   id: string;
@@ -49,9 +50,17 @@ const dayBefore = (iso: string): string => {
  * combined cash+bank Opening and Closing balances.
  */
 const ReceiptsPayments: React.FC = () => {
-  const [fromDate, setFromDate] = useState(fyStart);
-  const [toDate, setToDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [showPeriod, setShowPeriod] = useState(false);
+  const report = useTallyReport({
+    from: fyStart(),
+    filterFields: ['Particulars'],
+    views: [
+      { label: 'Cash Flow', target: 'cash-flow' },
+      { label: 'Funds Flow', target: 'funds-flow' },
+      { label: 'Cash/Bank Summary', target: 'cash-bank-summary' },
+      { label: 'Profit & Loss A/c', target: 'profit-loss' },
+    ],
+  });
+  const { from: fromDate, to: toDate } = report;
 
   const { data: accounts = [] } = useQuery({
     queryKey: ['rp_accounts'],
@@ -176,26 +185,15 @@ const ReceiptsPayments: React.FC = () => {
   );
 
   return (
+    <>
     <TallyScreen
       title="Receipts and Payments"
-      rail={[
-        { hotkey: 'F2', label: 'Period', onClick: () => setShowPeriod((v) => !v) },
-        { hotkey: 'F3', label: 'Company', disabled: true },
-        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
-      ]}
+      rail={report.rail}
     >
       <div className="px-3 pb-4 pt-1 text-[13px]">
         <div className="text-center text-[11px]">
           {tallyDateLabel(fromDate)} to {tallyDateLabel(toDate)}
         </div>
-        {showPeriod && (
-          <div className="mb-2 mt-1 flex items-center gap-2 border border-[#9db8d8] bg-[#fdf6d8] px-2 py-1">
-            <span>Period:</span>
-            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="border bg-white px-1" />
-            <span>to</span>
-            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="border bg-white px-1" />
-          </div>
-        )}
         {isLoading ? (
           <div className="py-16 text-center text-gray-400">Loading…</div>
         ) : (
@@ -210,6 +208,9 @@ const ReceiptsPayments: React.FC = () => {
         )}
       </div>
     </TallyScreen>
+
+    {report.popups}
+    </>
   );
 };
 

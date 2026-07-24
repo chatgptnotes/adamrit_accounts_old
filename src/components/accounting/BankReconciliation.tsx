@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TallyScreen } from './tally/TallyChrome';
+import { useTallyReport } from './tally/useTallyReport';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { toast } from 'sonner';
 import {
@@ -113,8 +114,35 @@ const getFYEnd = (date: Date): string => {
 const BankReconciliation: React.FC = () => {
   const now = new Date();
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
-  const [fromDate, setFromDate] = useState<string>(getFYStart(now));
-  const [toDate, setToDate] = useState<string>(getFYEnd(now));
+
+  const report = useTallyReport({
+    from: getFYStart(now),
+    to: getFYEnd(now),
+    supportsColumns: false,
+    filterFields: ['Particulars', 'Vch No.'],
+    views: [
+      { label: 'Cash/Bank Book', target: 'cash-bank-book' },
+      { label: 'Cash/Bank Summary', target: 'cash-bank-summary' },
+      { label: 'Banking', target: 'banking' },
+      { label: 'Ledger Vouchers', target: 'ledger-view' },
+    ],
+    screenKeys: [
+      {
+        hotkey: 'F4',
+        label: 'Import Stmt',
+        onClick: () => {
+          if (!selectedAccountId) {
+            toast.error('Select a bank account first');
+            return;
+          }
+          fileRef.current?.click();
+        },
+      },
+    ],
+  });
+  const { from: fromDate, to: toDate, setPeriod } = report;
+  const setFromDate = (v: string) => setPeriod(v, toDate);
+  const setToDate = (v: string) => setPeriod(fromDate, v);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Reconciled IDs are persisted per bank account in localStorage
@@ -413,22 +441,10 @@ const BankReconciliation: React.FC = () => {
   }
 
   return (
+    <>
     <TallyScreen
       title="Bank Reconciliation"
-      rail={[
-        {
-          hotkey: 'I',
-          label: 'Import Stmt',
-          onClick: () => {
-            if (!selectedAccountId) {
-              toast.error('Select a bank account first');
-              return;
-            }
-            fileRef.current?.click();
-          },
-        },
-        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
-      ]}
+      rail={report.rail}
     >
       <input
         ref={fileRef}
@@ -736,6 +752,9 @@ const BankReconciliation: React.FC = () => {
       )}
     </div>
     </TallyScreen>
+
+    {report.popups}
+    </>
   );
 };
 

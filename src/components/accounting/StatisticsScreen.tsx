@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TallyScreen } from './tally/TallyChrome';
+import { useTallyReport } from './tally/useTallyReport';
 
 const fyStart = (): string => {
   const now = new Date();
@@ -24,9 +25,19 @@ const count = async (table: string, filter?: (q: any) => any): Promise<number> =
  * (plus pending/cancelled), and the masters counts, side by side.
  */
 const StatisticsScreen: React.FC = () => {
-  const [fromDate, setFromDate] = useState(fyStart);
-  const [toDate, setToDate] = useState(todayISO);
-  const [showPeriod, setShowPeriod] = useState(false);
+  const report = useTallyReport({
+    from: fyStart(),
+    to: todayISO(),
+    supportsColumns: false,
+    filterFields: ['Particulars'],
+    views: [
+      { label: 'Exception Reports', target: 'exception-reports' },
+      { label: 'Day Book', target: 'day-book' },
+      { label: 'Edit Log', target: 'edit-log' },
+      { label: 'Trial Balance', target: 'trial-balance' },
+    ],
+  });
+  const { from: fromDate, to: toDate } = report;
 
   const { data, isLoading } = useQuery({
     queryKey: ['statistics', fromDate, toDate],
@@ -69,26 +80,15 @@ const StatisticsScreen: React.FC = () => {
   );
 
   return (
+    <>
     <TallyScreen
       title="Statistics"
-      rail={[
-        { hotkey: 'F2', label: 'Period', onClick: () => setShowPeriod((v) => !v) },
-        { hotkey: 'F3', label: 'Company', disabled: true },
-        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
-      ]}
+      rail={report.rail}
     >
       <div className="px-3 pb-4 pt-1 text-[13px]">
         <div className="text-center text-[11px]">
           {fromDate} to {toDate}
         </div>
-        {showPeriod && (
-          <div className="mb-2 mt-1 flex items-center gap-2 border border-[#9db8d8] bg-[#fdf6d8] px-2 py-1">
-            <span>Period:</span>
-            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="border bg-white px-1" />
-            <span>to</span>
-            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="border bg-white px-1" />
-          </div>
-        )}
         {isLoading || !data ? (
           <div className="py-16 text-center text-gray-400">Counting…</div>
         ) : (
@@ -121,6 +121,9 @@ const StatisticsScreen: React.FC = () => {
         )}
       </div>
     </TallyScreen>
+
+    {report.popups}
+    </>
   );
 };
 

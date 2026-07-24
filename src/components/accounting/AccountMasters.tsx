@@ -7,6 +7,7 @@ import GroupCreation from './GroupCreation';
 import TallyLedgerCreation from './TallyLedgerCreation';
 import VoucherTypeCreation from './VoucherTypeCreation';
 import { TallyScreen } from './tally/TallyChrome';
+import { useTallyReport } from './tally/useTallyReport';
 
 interface MasterItem {
   id: 'group' | 'ledger' | 'voucher-type';
@@ -35,17 +36,24 @@ const AccountMasters: React.FC = () => {
     return q ? MASTERS.filter((m) => m.label.toLowerCase().includes(q)) : MASTERS;
   }, [search]);
 
+  const report = useTallyReport({
+    // Master creation screens have no report columns to compare
+    supportsColumns: false,
+    filterFields: ['Master'],
+    views: [
+      { label: 'Chart of Accounts', target: 'chart-of-accounts' },
+      { label: 'Opening Balances', target: 'opening-balances' },
+      { label: 'Trial Balance', target: 'trial-balance' },
+      { label: 'Voucher Entry', target: 'voucher-entry' },
+    ],
+    screenKeys: [{ hotkey: 'F10', label: 'Other Masters', onClick: () => setActive(null) }],
+  });
+
   if (active) {
     const activeTitle = MASTERS.find((m) => m.id === active)?.label ?? '';
     return (
-      <TallyScreen
-        title={`${activeTitle} Creation`}
-        onClose={() => setActive(null)}
-        rail={[
-          { hotkey: 'F3', label: 'Company', disabled: true },
-          { label: 'Other Masters', gapBefore: true, onClick: () => setActive(null) },
-        ]}
-      >
+      <>
+      <TallyScreen title={`${activeTitle} Creation`} onClose={() => setActive(null)} rail={report.rail}>
         <div className="space-y-3 p-2">
           <Button variant="outline" size="sm" className="h-7 rounded-none text-xs" onClick={() => setActive(null)}>
             <ArrowLeft className="mr-1 h-3.5 w-3.5" /> List of Masters
@@ -55,17 +63,15 @@ const AccountMasters: React.FC = () => {
           {active === 'voucher-type' && <VoucherTypeCreation />}
         </div>
       </TallyScreen>
+
+      {report.popups}
+      </>
     );
   }
 
   return (
-    <TallyScreen
-      title="Master Alteration"
-      rail={[
-        { hotkey: 'F3', label: 'Company', disabled: true },
-        { hotkey: 'F10', label: 'Other Masters', disabled: true, gapBefore: true },
-      ]}
-    >
+    <>
+    <TallyScreen title="Master Alteration" rail={report.rail}>
     <div className="mx-auto max-w-xl pt-4">
       <div className="overflow-hidden rounded-md border shadow-sm">
         {/* Company + title, Tally style */}
@@ -125,6 +131,9 @@ const AccountMasters: React.FC = () => {
       </div>
     </div>
     </TallyScreen>
+
+    {report.popups}
+    </>
   );
 };
 

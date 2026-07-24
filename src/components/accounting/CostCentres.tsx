@@ -5,6 +5,7 @@ import { fetchAllRows } from '@/lib/fetchAllRows';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { TallyScreen } from './tally/TallyChrome';
+import { useTallyReport } from './tally/useTallyReport';
 
 export interface CostCentre {
   id: string;
@@ -71,9 +72,17 @@ export const useCostCentres = () =>
  */
 const CostCentres: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVoucher }) => {
   const queryClient = useQueryClient();
-  const [fromDate, setFromDate] = useState(fyStart);
-  const [toDate, setToDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [showPeriod, setShowPeriod] = useState(false);
+  const report = useTallyReport({
+    from: fyStart(),
+    filterFields: ['Particulars', 'Vch No.'],
+    views: [
+      { label: 'Ledger Vouchers', target: 'ledger-view' },
+      { label: 'Day Book', target: 'day-book' },
+      { label: 'Profit & Loss A/c', target: 'profit-loss' },
+      { label: 'Trial Balance', target: 'trial-balance' },
+    ],
+  });
+  const { from: fromDate, to: toDate } = report;
   const [openCentre, setOpenCentre] = useState<CostCentre | null>(null);
   const [newName, setNewName] = useState('');
   const [newCategoryId, setNewCategoryId] = useState('');
@@ -173,14 +182,11 @@ const CostCentres: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpe
   const isLoading = centresLoading || entriesLoading;
 
   return (
+    <>
     <TallyScreen
       title={openCentre ? `Cost Centre — ${openCentre.name}` : 'Cost Centre Summary'}
       onClose={openCentre ? () => setOpenCentre(null) : undefined}
-      rail={[
-        { hotkey: 'F2', label: 'Period', onClick: () => setShowPeriod((v) => !v) },
-        { hotkey: 'F3', label: 'Company', disabled: true },
-        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
-      ]}
+      rail={report.rail}
     >
       <div className="px-3 pb-4 pt-1 text-[13px]">
         {openCentre ? (
@@ -223,15 +229,6 @@ const CostCentres: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpe
             <div className="text-center text-[11px]">
               {tallyDateLabel(fromDate)} to {tallyDateLabel(toDate)}
             </div>
-            {showPeriod && (
-              <div className="mb-2 mt-1 flex items-center gap-2 border border-[#9db8d8] bg-[#fdf6d8] px-2 py-1">
-                <span>Period:</span>
-                <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="border bg-white px-1" />
-                <span>to</span>
-                <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="border bg-white px-1" />
-              </div>
-            )}
-
             <div className="mt-1 flex border-y border-black bg-[#f0f4fa] font-semibold">
               <div className="min-w-0 flex-1 px-1">Cost Centre</div>
               <div className="w-24 px-1 text-right">Entries</div>
@@ -337,6 +334,9 @@ const CostCentres: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpe
         )}
       </div>
     </TallyScreen>
+
+    {report.popups}
+    </>
   );
 };
 

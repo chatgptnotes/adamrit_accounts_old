@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { accountMovements, type Movement } from '@/lib/accountMovements';
 import { format } from 'date-fns';
 import { TallyScreen } from './tally/TallyChrome';
+import { useTallyReport } from './tally/useTallyReport';
 
 interface Account {
   id: string;
@@ -36,8 +37,17 @@ const fyStart = (): string => {
  * Live figures from the chart of accounts + account_movements aggregate.
  */
 const RatioAnalysis: React.FC = () => {
-  const [asOfDate, setAsOfDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [showPeriod, setShowPeriod] = useState(false);
+  const report = useTallyReport({
+    supportsColumns: false,
+    filterFields: ['Ratio'],
+    views: [
+      { label: 'Balance Sheet', target: 'balance-sheet' },
+      { label: 'Profit & Loss A/c', target: 'profit-loss' },
+      { label: 'Trial Balance', target: 'trial-balance' },
+      { label: 'Cash Flow', target: 'cash-flow' },
+    ],
+  });
+  const asOfDate = report.to;
   const from = fyStart();
 
   const { data: accounts = [], isLoading: accountsLoading } = useQuery({
@@ -150,24 +160,15 @@ const RatioAnalysis: React.FC = () => {
   const ratio = (v: number | null, suffix = ''): string => (v === null ? '—' : `${fmt(v)}${suffix}`);
 
   return (
+    <>
     <TallyScreen
       title="Ratio Analysis"
-      rail={[
-        { hotkey: 'F2', label: 'Period', onClick: () => setShowPeriod((v) => !v) },
-        { hotkey: 'F3', label: 'Company', disabled: true },
-        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
-      ]}
+      rail={report.rail}
     >
       <div className="px-3 pb-4 pt-1 text-[13px]">
         <div className="text-center text-[11px]">
           {tallyDateLabel(from)} to {tallyDateLabel(asOfDate)}
         </div>
-        {showPeriod && (
-          <div className="mb-2 mt-1 flex items-center gap-2 border border-[#9db8d8] bg-[#fdf6d8] px-2 py-1">
-            <span>As at:</span>
-            <input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className="border bg-white px-1" />
-          </div>
-        )}
         {isLoading ? (
           <div className="py-16 text-center text-gray-400">Loading…</div>
         ) : (
@@ -211,6 +212,9 @@ const RatioAnalysis: React.FC = () => {
         )}
       </div>
     </TallyScreen>
+
+    {report.popups}
+    </>
   );
 };
 

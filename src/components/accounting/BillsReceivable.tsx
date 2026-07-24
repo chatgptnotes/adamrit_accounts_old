@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useBillAgingReport } from '@/hooks/useBillAgingReport';
 import type { BillAgingRecord } from '@/types/billAging';
 import { TallyScreen } from './tally/TallyChrome';
+import { useTallyReport } from './tally/useTallyReport';
 
 const fmt = (n: number): string =>
   new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
@@ -28,7 +29,39 @@ const BillsReceivable: React.FC = () => {
   const { hospitalConfig } = useAuth();
   const { data, isLoading, corporates, filters, setFilters } = useBillAgingReport(hospitalConfig?.name);
   const [ageWise, setAgeWise] = useState(false);
-  const [showOptions, setShowOptions] = useState(false);
+
+  const report = useTallyReport({
+    supportsColumns: false,
+    filterFields: ["Party's Name", 'Ref. No.'],
+    views: [
+      { label: 'Bills Payable', target: 'bills-payable' },
+      { label: 'Bill-wise Outstandings', target: 'billwise' },
+      { label: 'Bill Aging Statement', target: 'bill-aging' },
+      { label: 'Ledger Vouchers', target: 'ledger-view' },
+    ],
+    screenKeys: [
+      {
+        hotkey: 'F4',
+        label: filters.corporate === 'all' ? 'Party' : filters.corporate,
+        onClick: () =>
+          setFilters((prev) => {
+            const ids = ['all', ...corporates];
+            return { ...prev, corporate: ids[(ids.indexOf(prev.corporate) + 1) % ids.length] };
+          }),
+      },
+      { hotkey: 'F6', label: 'Age wise', active: ageWise, onClick: () => setAgeWise((v) => !v) },
+    ],
+  });
+
+  // F2: Period drives the bill window
+  useEffect(() => {
+    setFilters((prev) =>
+      prev.dateFrom === report.from && prev.dateTo === report.to
+        ? prev
+        : { ...prev, dateFrom: report.from, dateTo: report.to },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [report.from, report.to]);
 
   // Outstanding bills only — Tally's Bills Receivable never lists settled bills
   const outstanding = useMemo(
@@ -67,28 +100,8 @@ const BillsReceivable: React.FC = () => {
   );
 
   return (
-    <TallyScreen
-      title="Bills Receivable"
-      rail={[
-        { hotkey: 'F2', label: 'Period', onClick: () => setShowOptions((v) => !v) },
-        { hotkey: 'F3', label: 'Company', disabled: true },
-        {
-          hotkey: 'F4',
-          label: 'Party',
-          gapBefore: true,
-          onClick: () =>
-            setFilters((prev) => {
-              const ids = ['all', ...corporates];
-              const next = ids[(ids.indexOf(prev.corporate) + 1) % ids.length];
-              return { ...prev, corporate: next };
-            }),
-        },
-        { hotkey: 'F6', label: 'Age wise', gapBefore: true, onClick: () => setAgeWise((v) => !v), active: ageWise },
-        { label: 'Basis of Values', disabled: true },
-        { label: 'Save View', disabled: true },
-        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
-      ]}
-    >
+    <>
+    <TallyScreen title="Bills Receivable" rail={report.rail}>
       <div className="px-3 pb-4 pt-1 text-[13px]">
         <div className="text-center">
           <div className="font-bold">
@@ -97,38 +110,6 @@ const BillsReceivable: React.FC = () => {
           </div>
           <div className="text-[11px]">as at {asAt}</div>
         </div>
-
-        {showOptions && (
-          <div className="mb-2 mt-1 flex items-center gap-2 border border-[#9db8d8] bg-[#fdf6d8] px-2 py-1">
-            <span>Party:</span>
-            <select
-              value={filters.corporate}
-              onChange={(e) => setFilters((p) => ({ ...p, corporate: e.target.value }))}
-              className="border bg-white px-1"
-            >
-              <option value="all">All Parties</option>
-              {corporates.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-            <span className="ml-3">Submitted:</span>
-            <input
-              type="date"
-              value={filters.dateFrom ?? ''}
-              onChange={(e) => setFilters((p) => ({ ...p, dateFrom: e.target.value || null }))}
-              className="border bg-white px-1"
-            />
-            <span>to</span>
-            <input
-              type="date"
-              value={filters.dateTo ?? ''}
-              onChange={(e) => setFilters((p) => ({ ...p, dateTo: e.target.value || null }))}
-              className="border bg-white px-1"
-            />
-          </div>
-        )}
 
         {/* Column header */}
         <div className="mt-1 flex border-y border-black bg-[#f0f4fa] font-semibold">
@@ -176,6 +157,9 @@ const BillsReceivable: React.FC = () => {
         )}
       </div>
     </TallyScreen>
+
+    {report.popups}
+    </>
   );
 };
 

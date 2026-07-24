@@ -3,7 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { TallyScreen } from './tally/TallyChrome';
-import ChangePeriod from './tally/ChangePeriod';
+import { TallyList } from './tally/TallyPopup';
+import { useTallyReport } from './tally/useTallyReport';
+import { useRowCursor } from './tally/useRowCursor';
 import { useAccountingCompanyOptional } from './AccountingCompanyContext';
 
 interface Account {
@@ -27,9 +29,6 @@ interface EntryRow {
     voucher_type: { voucher_type_name: string } | null;
   } | null;
 }
-
-const fmt = (n: number): string =>
-  new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
 const tallyDateLabel = (iso: string): string => {
   const d = new Date(iso + 'T00:00:00');
@@ -131,19 +130,9 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
   const accountingCompany = useAccountingCompanyOptional();
   const headerCompanyName =
     accountingCompany?.companies.find((c) => c.id === accountingCompany.selectedCompanyId)?.company_name ?? '';
-  const [fromDate, setFromDate] = useState(() => `${currentFyStartYear()}-04-01`);
-  const [toDate, setToDate] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  });
-  const [showPeriod, setShowPeriod] = useState(false);
   const [selectedId, setSelectedId] = useState('');
   const [openMonth, setOpenMonth] = useState<string | null>(null); // 'YYYY-MM'
-  // Tally parks its row cursor on the current month
-  const [cursorYm, setCursorYm] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const [ledgerPicker, setLedgerPicker] = useState(false);
 
   // Cash-in-hand + bank ledgers (codes 111x / 112x)
   const { data: accounts = [] } = useQuery({
@@ -161,10 +150,34 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
   });
 
   const account = accounts.find((a) => a.id === selectedId) || null;
+
+  const report = useTallyReport({
+    from: `${currentFyStartYear()}-04-01`,
+    filterFields: ['Particulars', 'Vch Type', 'Vch No.'],
+    views: [
+      { label: 'Cash/Bank Summary', target: 'cash-bank-summary' },
+      { label: 'Bank Reconciliation', target: 'bank-reconciliation' },
+      { label: 'Ledger Vouchers', target: 'ledger-view' },
+      { label: 'Day Book', target: 'day-book' },
+    ],
+    screenKeys: [
+      { hotkey: 'F4', label: 'Ledger', onClick: () => setLedgerPicker(true) },
+      { hotkey: 'F6', label: 'Monthly', active: !openMonth, onClick: () => setOpenMonth(null) },
+      ...accounts.map((a) => ({
+        label: a.account_name,
+        active: a.id === selectedId,
+        onClick: () => {
+          setSelectedId(a.id);
+          setOpenMonth(null);
+        },
+      })),
+    ],
+  });
+
   // The monthly grid always spans the financial year the period starts in
-  const fyYear = Number(fromDate.slice(0, 4)) - (Number(fromDate.slice(5, 7)) >= 4 ? 0 : 1);
-  const fyFrom = fromDate;
-  const fyTo = toDate;
+  const fyYear = Number(report.from.slice(0, 4)) - (Number(report.from.slice(5, 7)) >= 4 ? 0 : 1);
+  const fyFrom = report.from;
+  const fyTo = report.to;
 
   const { data: entries = [], isLoading } = useQuery({
     queryKey: ['cash_bank_book', selectedId, fyFrom, fyTo],
@@ -218,8 +231,15 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
     if (!openMonth) return [];
     return entries
       .filter((e) => (e.voucher?.voucher_date || '').startsWith(openMonth))
+      .filter((e) =>
+        report.passesFilter({
+          Particulars: e.narration || e.voucher?.narration || '',
+          'Vch Type': e.voucher?.voucher_type?.voucher_type_name ?? '',
+          'Vch No.': e.voucher?.voucher_number ?? '',
+        }),
+      )
       .sort((a, b) => (a.voucher?.voucher_date || '').localeCompare(b.voucher?.voucher_date || ''));
-  }, [entries, openMonth]);
+  }, [entries, openMonth, report.passesFilter]);
 
   const monthOpening = useMemo(() => {
     if (!openMonth) return 0;
@@ -227,43 +247,34 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
     return idx <= 0 ? opening : months[idx - 1].closing;
   }, [months, openMonth, opening]);
 
+  // One cursor for whichever list is on screen — months, or a month's vouchers
+  const { cursor, setCursor } = useRowCursor({
+    count: openMonth ? monthEntries.length : months.length,
+    onEnter: (index) => {
+      if (openMonth) {
+        const voucherId = monthEntries[index]?.voucher?.id;
+        if (voucherId) onOpenVoucher?.(voucherId);
+        return;
+      }
+      const month = months[index];
+      if (month && (month.dr || month.cr)) setOpenMonth(month.ym);
+    },
+  });
+
   return (
     <>
     <TallyScreen
       title={openMonth ? 'Ledger Vouchers' : account ? 'Ledger Monthly Summary' : 'Cash/Bank Book'}
       closeLabel="✕"
       onClose={openMonth ? () => setOpenMonth(null) : undefined}
-      rail={[
-        { hotkey: 'F2', label: 'Period', onClick: () => setShowPeriod(true) },
-        { hotkey: 'F3', label: 'Company', onClick: accountingCompany?.cycleCompany },
-        { hotkey: 'F4', label: 'Ledger', disabled: true },
-        ...accounts.map((a, i) => ({
-          label: a.account_name,
-          gapBefore: i === 0,
-          active: a.id === selectedId,
-          onClick: () => {
-            setSelectedId(a.id);
-            setOpenMonth(null);
-          },
-        })),
-        { hotkey: 'F6', label: 'Monthly', active: !openMonth, onClick: () => setOpenMonth(null), gapBefore: true },
-        { hotkey: 'B', label: 'Basis of Values', disabled: true, gapBefore: true },
-        { hotkey: 'H', label: 'Change View', disabled: true },
-        {
-          hotkey: 'J',
-          label: 'Exception Reports',
-          onClick: () => window.dispatchEvent(new CustomEvent('tally-goto', { detail: 'exception-reports' })),
-        },
-        { hotkey: 'L', label: 'Save View', onClick: () => window.dispatchEvent(new CustomEvent('tally-save-view')) },
-        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
-      ]}
+      rail={report.rail}
       bottomBar={[
         { hotkey: 'Q', label: 'Quit', onClick: () => window.dispatchEvent(new CustomEvent('tally-escape')) },
         {
           hotkey: 'Space',
           label: 'Select',
           onClick: () => {
-            const month = months.find((m) => m.ym === cursorYm);
+            const month = months[cursor];
             if (month && (month.dr || month.cr)) setOpenMonth(month.ym);
           },
           disabled: !!openMonth,
@@ -296,25 +307,32 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
               <div className="min-w-0 flex-1 px-1 font-semibold">Opening Balance</div>
               <div className="w-28 px-1" />
               <div className="w-28 px-1" />
-              <div className="w-32 px-1 text-right font-mono">{monthOpening > 0 ? fmt(monthOpening) : ''}</div>
-              <div className="w-32 px-1 text-right font-mono">{monthOpening < 0 ? fmt(-monthOpening) : ''}</div>
+              <div className="w-32 px-1 text-right font-mono">
+                {monthOpening > 0 ? report.fmtAmount(monthOpening) : ''}
+              </div>
+              <div className="w-32 px-1 text-right font-mono">
+                {monthOpening < 0 ? report.fmtAmount(-monthOpening) : ''}
+              </div>
             </div>
-            {monthEntries.map((e) => (
+            {monthEntries.map((e, i) => (
               <div
                 key={e.id}
                 onClick={() => e.voucher?.id && onOpenVoucher?.(e.voucher.id)}
+                onMouseEnter={() => setCursor(i)}
                 title="Open voucher (alter)"
-                className="flex cursor-pointer border-b border-dashed border-gray-200 hover:bg-[#fdf6d8]"
+                className={`flex cursor-pointer border-b border-dashed border-gray-200 ${
+                  cursor === i ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'
+                }`}
               >
                 <div className="w-20 px-1">{tallyDateLabel(e.voucher?.voucher_date || '')}</div>
                 <div className="min-w-0 flex-1 truncate px-1">{e.narration || e.voucher?.narration || ''}</div>
                 <div className="w-28 px-1">{e.voucher?.voucher_type?.voucher_type_name?.replace(' Voucher', '') || ''}</div>
                 <div className="w-28 px-1 font-mono text-[12px]">{e.voucher?.voucher_number || ''}</div>
                 <div className="w-32 px-1 text-right font-mono">
-                  {Number(e.debit_amount) > 0 ? fmt(Number(e.debit_amount)) : ''}
+                  {Number(e.debit_amount) > 0 ? report.fmtAmount(Number(e.debit_amount)) : ''}
                 </div>
                 <div className="w-32 px-1 text-right font-mono">
-                  {Number(e.credit_amount) > 0 ? fmt(Number(e.credit_amount)) : ''}
+                  {Number(e.credit_amount) > 0 ? report.fmtAmount(Number(e.credit_amount)) : ''}
                 </div>
               </div>
             ))}
@@ -327,8 +345,8 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
                 const c = months.find((m) => m.ym === openMonth)?.closing ?? 0;
                 return (
                   <>
-                    <div className="w-32 px-1 text-right font-mono">{c < 0 ? fmt(-c) : ''}</div>
-                    <div className="w-32 px-1 text-right font-mono">{c > 0 ? fmt(c) : ''}</div>
+                    <div className="w-32 px-1 text-right font-mono">{c < 0 ? report.fmtAmount(-c) : ''}</div>
+                    <div className="w-32 px-1 text-right font-mono">{c > 0 ? report.fmtAmount(c) : ''}</div>
                   </>
                 );
               })()}
@@ -362,7 +380,7 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
                 <div className="w-[115px]" />
                 <div className="w-[115px]" />
                 <div className="w-[110px] pr-2 text-right font-mono font-semibold">
-                  {fmt(Math.abs(opening))} {opening >= 0 ? 'Dr' : 'Cr'}
+                  {report.fmtAmount(Math.abs(opening))} {opening >= 0 ? 'Dr' : 'Cr'}
                 </div>
               </div>
             </div>
@@ -370,20 +388,26 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
               <div className="py-10 text-center text-gray-400">Loading…</div>
             ) : (
               <>
-                {months.map((m) => (
+                {months.map((m, i) => (
                   <button
                     key={m.ym}
                     type="button"
-                    onMouseEnter={() => setCursorYm(m.ym)}
+                    onMouseEnter={() => setCursor(i)}
                     onClick={() => (m.dr || m.cr) && setOpenMonth(m.ym)}
-                    className={`flex w-full text-left ${cursorYm === m.ym ? 'bg-[#ffc423]' : ''}`}
+                    className={`flex w-full text-left ${cursor === i ? 'bg-[#ffc423]' : ''}`}
                   >
                     <div className="min-w-0 flex-1 px-1">{m.label.split('-')[0]}</div>
                     <div className="flex w-[340px] italic">
-                      <div className="w-[115px] pr-2 text-right font-mono">{m.dr > 0 ? fmt(m.dr) : ''}</div>
-                      <div className="w-[115px] pr-2 text-right font-mono">{m.cr > 0 ? fmt(m.cr) : ''}</div>
+                      <div className="w-[115px] pr-2 text-right font-mono">
+                        {m.dr > 0 ? report.fmtAmount(m.dr) : ''}
+                      </div>
+                      <div className="w-[115px] pr-2 text-right font-mono">
+                        {m.cr > 0 ? report.fmtAmount(m.cr) : ''}
+                      </div>
                       <div className="w-[110px] pr-2 text-right font-mono">
-                        {m.dr || m.cr ? `${fmt(Math.abs(m.closing))} ${m.closing >= 0 ? 'Dr' : 'Cr'}` : ''}
+                        {m.dr || m.cr
+                          ? `${report.fmtAmount(Math.abs(m.closing))} ${m.closing >= 0 ? 'Dr' : 'Cr'}`
+                          : ''}
                       </div>
                     </div>
                   </button>
@@ -391,10 +415,10 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
                 <div className="mt-6 flex border-t border-black pt-0.5 font-bold">
                   <div className="min-w-0 flex-1 px-1 tracking-[0.3em]">Grand Total</div>
                   <div className="flex w-[340px]">
-                    <div className="w-[115px] pr-2 text-right font-mono">{fmt(totalDr)}</div>
-                    <div className="w-[115px] pr-2 text-right font-mono">{fmt(totalCr)}</div>
+                    <div className="w-[115px] pr-2 text-right font-mono">{report.fmtAmount(totalDr)}</div>
+                    <div className="w-[115px] pr-2 text-right font-mono">{report.fmtAmount(totalCr)}</div>
                     <div className="w-[110px] pr-2 text-right font-mono">
-                      {fmt(Math.abs(months[months.length - 1]?.closing ?? opening))}{' '}
+                      {report.fmtAmount(Math.abs(months[months.length - 1]?.closing ?? opening))}{' '}
                       {(months[months.length - 1]?.closing ?? opening) >= 0 ? 'Dr' : 'Cr'}
                     </div>
                   </div>
@@ -407,16 +431,21 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
       </div>
     </TallyScreen>
 
-    {showPeriod && (
-      <ChangePeriod
-        from={fromDate}
-        to={toDate}
-        onAccept={(nextFrom, nextTo) => {
-          setFromDate(nextFrom);
-          setToDate(nextTo);
-          setShowPeriod(false);
-        }}
-        onClose={() => setShowPeriod(false)}
+    {report.popups}
+
+    {ledgerPicker && (
+      <TallyList
+        title="List of Cash / Bank Ledgers"
+        onClose={() => setLedgerPicker(false)}
+        items={accounts.map((a) => ({
+          label: a.account_name,
+          active: a.id === selectedId,
+          onSelect: () => {
+            setSelectedId(a.id);
+            setOpenMonth(null);
+            setLedgerPicker(false);
+          },
+        }))}
       />
     )}
     </>

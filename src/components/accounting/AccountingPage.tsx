@@ -223,6 +223,8 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
       setInitialVoucherCategory((e as CustomEvent).detail as string);
       setActiveTab('voucher-entry');
     };
+    // Drill from a report line straight into that ledger's vouchers
+    const onOpenLedger = (e: Event) => setDrillLedgerId((e as CustomEvent).detail as string);
     const onSave = () => {
       localStorage.setItem('accounting-default-tab', activeTabRef.current);
       import('sonner').then(({ toast }) =>
@@ -231,10 +233,12 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
     };
     window.addEventListener('tally-goto', onGoto);
     window.addEventListener('tally-open-voucher', onOpenVoucher);
+    window.addEventListener('tally-open-ledger', onOpenLedger);
     window.addEventListener('tally-save-view', onSave);
     return () => {
       window.removeEventListener('tally-goto', onGoto);
       window.removeEventListener('tally-open-voucher', onOpenVoucher);
+      window.removeEventListener('tally-open-ledger', onOpenLedger);
       window.removeEventListener('tally-save-view', onSave);
     };
   }, []);

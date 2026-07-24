@@ -3,6 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
 import { TallyScreen } from './tally/TallyChrome';
+import { TallyList } from './tally/TallyPopup';
+import { useTallyReport } from './tally/useTallyReport';
+import { useRowCursor } from './tally/useRowCursor';
 
 interface LogRow {
   id: string;
@@ -48,10 +51,22 @@ const summarize = (r: LogRow): string => {
  */
 const EditLog: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVoucher }) => {
   const today = format(new Date(), 'yyyy-MM-dd');
-  const [fromDate, setFromDate] = useState(today);
-  const [toDate, setToDate] = useState(today);
-  const [showPeriod, setShowPeriod] = useState(false);
   const [actionFilter, setActionFilter] = useState('');
+  const [actionPicker, setActionPicker] = useState(false);
+
+  const report = useTallyReport({
+    from: today,
+    to: today,
+    supportsColumns: false,
+    filterFields: ['Vch No.', 'User', 'Details'],
+    views: [
+      { label: 'Day Book', target: 'day-book' },
+      { label: 'Exception Reports', target: 'exception-reports' },
+      { label: 'Registers', target: 'voucher-register' },
+    ],
+    screenKeys: [{ hotkey: 'F4', label: actionFilter || 'All Actions', onClick: () => setActionPicker(true) }],
+  });
+  const { from: fromDate, to: toDate } = report;
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ['voucher_edit_log', fromDate, toDate, actionFilter],
@@ -70,39 +85,26 @@ const EditLog: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
     },
   });
 
+  const visible = rows.filter((r) =>
+    report.passesFilter({ 'Vch No.': r.voucher_number ?? '', User: r.changed_by ?? '', Details: summarize(r) }),
+  );
+
+  const { cursor, setCursor } = useRowCursor({
+    count: visible.length,
+    onEnter: (index) => {
+      const r = visible[index];
+      if (r && r.action !== 'DELETED' && r.voucher_id) onOpenVoucher?.(r.voucher_id);
+    },
+  });
+
   return (
-    <TallyScreen
-      title="Edit Log"
-      rail={[
-        { hotkey: 'F2', label: 'Period', onClick: () => setShowPeriod((v) => !v) },
-        { hotkey: 'F3', label: 'Company', disabled: true },
-        {
-          hotkey: 'F4',
-          label: actionFilter || 'All Actions',
-          gapBefore: true,
-          onClick: () =>
-            setActionFilter((cur) => {
-              const opts = ['', 'CREATED', 'ALTERED', 'CANCELLED', 'DELETED'];
-              return opts[(opts.indexOf(cur) + 1) % opts.length];
-            }),
-        },
-        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
-      ]}
-    >
+    <>
+    <TallyScreen title="Edit Log" rail={report.rail}>
       <div className="px-3 pb-4 pt-1 text-[13px]">
         <div className="text-center text-[11px]">
           {fromDate === toDate ? `For ${fromDate}` : `${fromDate} to ${toDate}`}
           {actionFilter ? ` — ${actionFilter}` : ''}
         </div>
-        {showPeriod && (
-          <div className="mb-2 mt-1 flex items-center gap-2 border border-[#9db8d8] bg-[#fdf6d8] px-2 py-1">
-            <span>Period:</span>
-            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="border bg-white px-1" />
-            <span>to</span>
-            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="border bg-white px-1" />
-          </div>
-        )}
-
         <div className="mt-1 flex border-y border-black bg-[#f0f4fa] font-semibold">
           <div className="w-32 px-1">Date / Time</div>
           <div className="w-28 px-1">Vch No.</div>
@@ -113,19 +115,20 @@ const EditLog: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
 
         {isLoading ? (
           <div className="py-10 text-center text-gray-400">Loading…</div>
-        ) : rows.length === 0 ? (
+        ) : visible.length === 0 ? (
           <div className="py-10 text-center text-gray-400">
             No log entries in this period (run the edit-log migration if you haven't).
           </div>
         ) : (
-          rows.map((r) => (
+          visible.map((r, i) => (
             <button
               key={r.id}
               type="button"
               onClick={() => r.action !== 'DELETED' && r.voucher_id && onOpenVoucher?.(r.voucher_id)}
+              onMouseEnter={() => setCursor(i)}
               title={r.action === 'DELETED' ? 'Voucher no longer exists' : 'Open voucher'}
               className={`flex w-full border-b border-dashed border-gray-200 text-left ${
-                r.action === 'DELETED' ? 'cursor-default' : 'hover:bg-[#fdf6d8]'
+                cursor === i ? 'bg-[#ffc423]' : r.action === 'DELETED' ? 'cursor-default' : 'hover:bg-[#fdf6d8]'
               }`}
             >
               <div className="w-32 shrink-0 px-1 font-mono text-[11px]">
@@ -143,6 +146,24 @@ const EditLog: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
         )}
       </div>
     </TallyScreen>
+
+    {report.popups}
+
+    {actionPicker && (
+      <TallyList
+        title="List of Actions"
+        onClose={() => setActionPicker(false)}
+        items={['', 'CREATED', 'ALTERED', 'CANCELLED', 'DELETED'].map((a) => ({
+          label: a || 'All Actions',
+          active: a === actionFilter,
+          onSelect: () => {
+            setActionFilter(a);
+            setActionPicker(false);
+          },
+        }))}
+      />
+    )}
+    </>
   );
 };
 

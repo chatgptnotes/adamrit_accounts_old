@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { accountMovements, type Movement } from '@/lib/accountMovements';
 import { TallyScreen } from './tally/TallyChrome';
+import { useTallyReport } from './tally/useTallyReport';
+import { useRowCursor } from './tally/useRowCursor';
 
 interface Account {
   id: string;
@@ -11,8 +13,6 @@ interface Account {
   account_type: string;
 }
 
-const fmt = (n: number): string =>
-  new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
 const currentFyStartYear = (): number => {
   const now = new Date();
@@ -102,8 +102,21 @@ const computeFlow = (
  * (funds from operations, non-current movements, working-capital change).
  */
 const FundsFlow: React.FC = () => {
-  const [fyYear, setFyYear] = useState(currentFyStartYear);
   const [openMonth, setOpenMonth] = useState<MonthFlow | null>(null);
+
+  const report = useTallyReport({
+    from: `${currentFyStartYear()}-04-01`,
+    to: `${currentFyStartYear() + 1}-03-31`,
+    filterFields: ['Particulars'],
+    views: [
+      { label: 'Cash Flow', target: 'cash-flow' },
+      { label: 'Receipts & Payments', target: 'receipts-payments' },
+      { label: 'Balance Sheet', target: 'balance-sheet' },
+      { label: 'Cash/Bank Summary', target: 'cash-bank-summary' },
+    ],
+  });
+  const fyYear = Number(report.from.slice(0, 4)) - (Number(report.from.slice(5, 7)) >= 4 ? 0 : 1);
+  const fmt = report.fmtAmount;
 
   const { data: accounts = [] } = useQuery({
     queryKey: ['ff_accounts'],
@@ -137,22 +150,18 @@ const FundsFlow: React.FC = () => {
 
   const grand = months.reduce((s, m) => s + m.total, 0);
 
+  const { cursor, setCursor } = useRowCursor({
+    count: months.length,
+    enabled: !openMonth,
+    onEnter: (index) => months[index] && setOpenMonth(months[index]),
+  });
+
   return (
+    <>
     <TallyScreen
       title={openMonth ? `Funds Flow — ${openMonth.label}` : 'Funds Flow'}
       onClose={openMonth ? () => setOpenMonth(null) : undefined}
-      rail={[
-        {
-          hotkey: 'F2',
-          label: `FY ${fyYear}-${String(fyYear + 1).slice(2)}`,
-          onClick: () => {
-            setOpenMonth(null);
-            setFyYear((y) => (y === currentFyStartYear() ? y - 1 : currentFyStartYear()));
-          },
-        },
-        { hotkey: 'F3', label: 'Company', disabled: true },
-        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
-      ]}
+      rail={report.rail}
     >
       <div className="px-3 pb-4 pt-1 text-[13px]">
         {openMonth ? (
@@ -202,13 +211,14 @@ const FundsFlow: React.FC = () => {
               <div className="py-10 text-center text-gray-400">Computing monthly flows…</div>
             ) : (
               <>
-                {months.map((m) => (
+                {months.map((m, i) => (
                   <button
                     key={m.label}
                     type="button"
                     onClick={() => m.total > 0 && setOpenMonth(m)}
+                    onMouseEnter={() => setCursor(i)}
                     className={`flex w-full border-b border-dashed border-gray-200 text-left ${
-                      m.total > 0 ? 'hover:bg-[#fdf6d8]' : 'text-gray-400'
+                      cursor === i ? 'bg-[#ffc423]' : m.total > 0 ? 'hover:bg-[#fdf6d8]' : 'text-gray-400'
                     }`}
                   >
                     <div className="min-w-0 flex-1 px-1">{m.label}</div>
@@ -229,6 +239,9 @@ const FundsFlow: React.FC = () => {
         )}
       </div>
     </TallyScreen>
+
+    {report.popups}
+    </>
   );
 };
 

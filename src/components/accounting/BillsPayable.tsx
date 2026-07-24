@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { TallyScreen } from './tally/TallyChrome';
+import { useTallyReport } from './tally/useTallyReport';
 
 interface ScheduleRow {
   id: string;
@@ -50,6 +51,29 @@ const BillsPayable: React.FC = () => {
   const { hospitalConfig } = useAuth();
   const [ageWise, setAgeWise] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState('all');
+
+  const report = useTallyReport({
+    supportsColumns: false,
+    filterFields: ['Particulars', 'Ref. No.'],
+    views: [
+      { label: 'Bills Receivable', target: 'bills-receivable' },
+      { label: 'Bill-wise Outstandings', target: 'billwise' },
+      { label: 'Banking', target: 'banking' },
+      { label: 'Ledger Vouchers', target: 'ledger-view' },
+    ],
+    screenKeys: [
+      {
+        hotkey: 'F4',
+        label: categoryFilter === 'all' ? 'Category' : categoryFilter,
+        onClick: () =>
+          setCategoryFilter((cur) => {
+            const ids = ['all', ...categories];
+            return ids[(ids.indexOf(cur) + 1) % ids.length];
+          }),
+      },
+      { hotkey: 'F6', label: 'Age wise', active: ageWise, onClick: () => setAgeWise((v) => !v) },
+    ],
+  });
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ['bills_payable', hospitalConfig?.name],
@@ -114,26 +138,10 @@ const BillsPayable: React.FC = () => {
   );
 
   return (
+    <>
     <TallyScreen
       title="Bills Payable"
-      rail={[
-        { hotkey: 'F2', label: 'Period', disabled: true },
-        { hotkey: 'F3', label: 'Company', disabled: true },
-        {
-          hotkey: 'F4',
-          label: 'Category',
-          gapBefore: true,
-          onClick: () =>
-            setCategoryFilter((cur) => {
-              const ids = ['all', ...categories];
-              return ids[(ids.indexOf(cur) + 1) % ids.length];
-            }),
-        },
-        { hotkey: 'F6', label: 'Age wise', gapBefore: true, onClick: () => setAgeWise((v) => !v), active: ageWise },
-        { label: 'Basis of Values', disabled: true },
-        { label: 'Save View', disabled: true },
-        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
-      ]}
+      rail={report.rail}
     >
       <div className="px-3 pb-4 pt-1 text-[13px]">
         <div className="text-center">
@@ -191,6 +199,9 @@ const BillsPayable: React.FC = () => {
         )}
       </div>
     </TallyScreen>
+
+    {report.popups}
+    </>
   );
 };
 

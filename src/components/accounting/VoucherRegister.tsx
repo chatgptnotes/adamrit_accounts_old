@@ -3,6 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { TallyScreen } from './tally/TallyChrome';
+import { TallyList } from './tally/TallyPopup';
+import { useTallyReport } from './tally/useTallyReport';
+import { useRowCursor } from './tally/useRowCursor';
 import { fetchTallyVouchers } from '@/lib/mergedVouchers';
 import { normalizeName } from '@/lib/tallyCompanyMatch';
 import SourceBadge from './SourceBadge';
@@ -22,9 +25,6 @@ interface VoucherRow {
   total_amount: number;
   source: 'adamrit' | 'tally';
 }
-
-const fmt = (n: number): string =>
-  new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
 const tallyDateLabel = (iso: string): string => {
   const d = new Date(iso + 'T00:00:00');
@@ -62,9 +62,9 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
   onOpenVoucher,
   initialTypeName,
 }) => {
-  const [fyYear, setFyYear] = useState(currentFyStartYear);
   const [typeId, setTypeId] = useState('');
   const [openMonth, setOpenMonth] = useState<string | null>(null);
+  const [typePicker, setTypePicker] = useState(false);
   const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
 
   const { data: voucherTypes = [] } = useQuery({
@@ -89,8 +89,32 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
   }, [initialTypeName, typeId, voucherTypes]);
 
   const type = voucherTypes.find((t) => t.id === typeId) || null;
-  const fyFrom = `${fyYear}-04-01`;
-  const fyTo = `${fyYear + 1}-03-31`;
+
+  const report = useTallyReport({
+    from: `${currentFyStartYear()}-04-01`,
+    to: `${currentFyStartYear() + 1}-03-31`,
+    filterFields: ['Particulars', 'Vch No.'],
+    views: [
+      { label: 'Day Book', target: 'day-book' },
+      { label: 'Ledger Vouchers', target: 'ledger-view' },
+      { label: 'Cash/Bank Book', target: 'cash-bank-book' },
+      { label: 'Edit Log', target: 'edit-log' },
+    ],
+    screenKeys: [
+      { hotkey: 'F4', label: 'Voucher Type', onClick: () => setTypePicker(true) },
+      ...voucherTypes.map((t) => ({
+        label: t.voucher_type_name,
+        active: t.id === typeId,
+        onClick: () => {
+          setTypeId(t.id);
+          setOpenMonth(null);
+        },
+      })),
+      sourceRail,
+    ],
+  });
+  const { from: fyFrom, to: fyTo, fmtAmount: fmt } = report;
+  const fyYear = Number(fyFrom.slice(0, 4)) - (Number(fyFrom.slice(5, 7)) >= 4 ? 0 : 1);
 
   const { data: nativeVouchers = [], isLoading } = useQuery({
     queryKey: ['voucher_register', typeId, fyFrom, fyTo],
@@ -140,8 +164,10 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
     }
     return [...byNumber.values(), ...passthrough]
       .filter((v) => matchesSource(v.source, srcFilter))
+      .filter((v) => report.passesFilter({ Particulars: v.narration ?? '', 'Vch No.': v.voucher_number }))
+      .filter((v) => report.passesBasis(Number(v.total_amount) || 0))
       .sort((a, b) => (a.voucher_date || '').localeCompare(b.voucher_date || ''));
-  }, [nativeVouchers, tallyRows, type, srcFilter]);
+  }, [nativeVouchers, tallyRows, type, srcFilter, report.passesFilter, report.passesBasis]);
 
   const months = useMemo(() => {
     const byMonth = new Map<string, { count: number; total: number }>();
@@ -163,29 +189,26 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
     [vouchers, openMonth],
   );
 
+  const { cursor, setCursor } = useRowCursor({
+    count: openMonth ? monthVouchers.length : months.length,
+    enabled: !!type,
+    onEnter: (index) => {
+      if (openMonth) {
+        const v = monthVouchers[index];
+        if (v?.source === 'adamrit') onOpenVoucher?.(v.id);
+        return;
+      }
+      const month = months[index];
+      if (month && month.count > 0) setOpenMonth(month.ym);
+    },
+  });
+
   return (
+    <>
     <TallyScreen
       title={type ? `${type.voucher_type_name} Register` : 'Voucher Register'}
       onClose={openMonth ? () => setOpenMonth(null) : undefined}
-      rail={[
-        {
-          hotkey: 'F2',
-          label: `FY ${fyYear}-${String(fyYear + 1).slice(2)}`,
-          onClick: () => setFyYear((y) => (y === currentFyStartYear() ? y - 1 : currentFyStartYear())),
-        },
-        { hotkey: 'F3', label: 'Company', disabled: true },
-        ...voucherTypes.map((t, i) => ({
-          label: t.voucher_type_name,
-          gapBefore: i === 0,
-          active: t.id === typeId,
-          onClick: () => {
-            setTypeId(t.id);
-            setOpenMonth(null);
-          },
-        })),
-        sourceRail,
-        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
-      ]}
+      rail={report.rail}
     >
       <div className="px-3 pb-4 pt-1 text-[13px]">
         {!type ? (
@@ -202,13 +225,16 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
               <div className="w-32 px-1">Vch No.</div>
               <div className="w-36 px-1 text-right">Amount</div>
             </div>
-            {monthVouchers.map((v) => (
+            {monthVouchers.map((v, i) => (
               <button
                 key={v.id}
                 type="button"
                 onClick={() => v.source === 'adamrit' && onOpenVoucher?.(v.id)}
+                onMouseEnter={() => setCursor(i)}
                 title={v.source === 'adamrit' ? 'Open voucher (alter)' : 'Tally voucher'}
-                className="flex w-full border-b border-dashed border-gray-200 text-left hover:bg-[#fdf6d8]"
+                className={`flex w-full border-b border-dashed border-gray-200 text-left ${
+                  cursor === i ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'
+                }`}
               >
                 <div className="w-20 px-1">{tallyDateLabel(v.voucher_date)}</div>
                 <div className="min-w-0 flex-1 truncate px-1">
@@ -245,13 +271,14 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
               <div className="py-10 text-center text-gray-400">Loading…</div>
             ) : (
               <>
-                {months.map((m) => (
+                {months.map((m, i) => (
                   <button
                     key={m.ym}
                     type="button"
                     onClick={() => m.count > 0 && setOpenMonth(m.ym)}
+                    onMouseEnter={() => setCursor(i)}
                     className={`flex w-full border-b border-dashed border-gray-200 text-left ${
-                      m.count > 0 ? 'hover:bg-[#fdf6d8]' : 'text-gray-400'
+                      cursor === i ? 'bg-[#ffc423]' : m.count > 0 ? 'hover:bg-[#fdf6d8]' : 'text-gray-400'
                     }`}
                   >
                     <div className="min-w-0 flex-1 px-1">{m.label}</div>
@@ -270,6 +297,25 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
         )}
       </div>
     </TallyScreen>
+
+    {report.popups}
+
+    {typePicker && (
+      <TallyList
+        title="List of Voucher Types"
+        onClose={() => setTypePicker(false)}
+        items={voucherTypes.map((t) => ({
+          label: t.voucher_type_name,
+          active: t.id === typeId,
+          onSelect: () => {
+            setTypeId(t.id);
+            setOpenMonth(null);
+            setTypePicker(false);
+          },
+        }))}
+      />
+    )}
+    </>
   );
 };
 

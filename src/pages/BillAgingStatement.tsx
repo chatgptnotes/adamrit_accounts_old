@@ -97,7 +97,6 @@ const BillAgingStatement: React.FC = () => {
         onClose={() => navigate(-1)}
         rail={[
           { hotkey: 'F2', label: 'Period', onClick: () => setShowOptions((v) => !v) },
-          { hotkey: 'F3', label: 'Company', disabled: true },
           {
             hotkey: 'F4',
             label: filters.corporate === 'all' ? 'Party' : filters.corporate.slice(0, 16),
@@ -119,7 +118,7 @@ const BillAgingStatement: React.FC = () => {
           },
           { hotkey: 'F6', label: 'Age wise', gapBefore: true, onClick: () => setAgeWise((v) => !v), active: ageWise },
           { hotkey: 'E', label: 'Export', gapBefore: true, onClick: exportExcel },
-          { label: 'Classic View', onClick: () => navigate('/bill-aging-statement-classic') },
+          { hotkey: 'V', label: 'Classic View', onClick: () => navigate('/bill-aging-statement-classic') },
           { hotkey: 'P', label: 'Print', onClick: () => window.print() },
         ]}
       >

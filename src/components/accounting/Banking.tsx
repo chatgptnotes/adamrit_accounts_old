@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { amountInWords } from '@/lib/amountInWords';
 import { TallyScreen } from './tally/TallyChrome';
+import { useTallyReport } from './tally/useTallyReport';
 
 interface Account {
   id: string;
@@ -123,6 +124,23 @@ const Banking: React.FC = () => {
     openPrint(`Payment Advice — ${payee}`, body);
   };
 
+  const report = useTallyReport({
+    // A cheque form has no amount column to compare, so Tally's column keys
+    // do not apply here.
+    supportsColumns: false,
+    filterFields: ['Payee'],
+    views: [
+      { label: 'Bank Reconciliation', target: 'bank-reconciliation' },
+      { label: 'Cash/Bank Book', target: 'cash-bank-book' },
+      { label: 'Cash/Bank Summary', target: 'cash-bank-summary' },
+      { label: 'Bills Payable', target: 'bills-payable' },
+    ],
+    screenKeys: [
+      { hotkey: 'C', label: 'Print Cheque', onClick: printCheque },
+      { hotkey: 'V', label: 'Payment Advice', onClick: printAdvice },
+    ],
+  });
+
   const field = (label: string, node: React.ReactNode) => (
     <div className="flex items-center gap-2">
       <span className="w-40 shrink-0">{label}</span>
@@ -132,14 +150,8 @@ const Banking: React.FC = () => {
   );
 
   return (
-    <TallyScreen
-      title="Banking"
-      rail={[
-        { hotkey: 'F3', label: 'Company', disabled: true },
-        { hotkey: 'C', label: 'Print Cheque', gapBefore: true, onClick: printCheque },
-        { hotkey: 'V', label: 'Payment Advice', onClick: printAdvice },
-      ]}
-    >
+    <>
+    <TallyScreen title="Banking" rail={report.rail}>
       <div className="px-3 pb-4 pt-2 text-[13px]">
         <div className="mx-auto max-w-2xl space-y-1.5">
           <div className="border-b border-black pb-0.5 font-semibold tracking-[0.2em]">Cheque / Payment Details</div>
@@ -233,6 +245,9 @@ const Banking: React.FC = () => {
         </div>
       </div>
     </TallyScreen>
+
+    {report.popups}
+    </>
   );
 };
 

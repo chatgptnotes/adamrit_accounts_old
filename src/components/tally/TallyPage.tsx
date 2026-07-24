@@ -409,8 +409,9 @@ export default function TallyPage({ initialTab = 'dashboard' }: { initialTab?: s
       onClick: () => void pushToTally(),
     },
     { hotkey: 'F9', label: 'Purchase', onClick: () => openVoucherCreation('PURCHASE') },
-    { label: 'Configure', onClick: () => window.dispatchEvent(new CustomEvent('tally-configure')) },
-    { label: 'Save View', onClick: saveTallyView },
+    { hotkey: 'F12', label: 'Configure', onClick: () => window.dispatchEvent(new CustomEvent('tally-configure')) },
+    { hotkey: 'L', label: 'Save View', onClick: saveTallyView },
+    { hotkey: 'J', label: 'Exception Reports', onClick: () => window.dispatchEvent(new CustomEvent('tally-goto', { detail: 'exception-reports' })) },
     { hotkey: 'P', label: 'Print', gapBefore: true, onClick: () => window.print() },
   ], [syncingLatest, syncEnabled, companyId, syncLatest, pushToTally, cycleCompany, companyOptions.length, openVoucherList, openVoucherCreation, saveTallyView])
 

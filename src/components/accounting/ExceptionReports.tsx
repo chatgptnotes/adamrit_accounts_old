@@ -5,6 +5,8 @@ import { fetchAllRows } from '@/lib/fetchAllRows';
 import { accountMovements } from '@/lib/accountMovements';
 import { format } from 'date-fns';
 import { TallyScreen } from './tally/TallyChrome';
+import { useTallyReport } from './tally/useTallyReport';
+import { useRowCursor } from './tally/useRowCursor';
 
 const fmt = (n: number): string =>
   new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
@@ -28,9 +30,18 @@ interface Exception {
  * and cash/bank ledgers with negative (credit) balances.
  */
 const ExceptionReports: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVoucher }) => {
-  const [fromDate, setFromDate] = useState(fyStart);
-  const [toDate, setToDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [showPeriod, setShowPeriod] = useState(false);
+  const report = useTallyReport({
+    from: fyStart(),
+    supportsColumns: false,
+    filterFields: ['Exception', 'Reference', 'Details'],
+    views: [
+      { label: 'Edit Log', target: 'edit-log' },
+      { label: 'Day Book', target: 'day-book' },
+      { label: 'Trial Balance', target: 'trial-balance' },
+      { label: 'Statistics', target: 'statistics' },
+    ],
+  });
+  const { from: fromDate, to: toDate } = report;
 
   const { data, isLoading } = useQuery({
     queryKey: ['exception_reports', fromDate, toDate],
@@ -116,28 +127,25 @@ const ExceptionReports: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ 
     'Negative cash/bank': 'text-red-700',
   };
 
+  const visible = (data?.exceptions ?? []).filter((e) =>
+    report.passesFilter({ Exception: e.kind, Reference: e.label, Details: e.detail }),
+  );
+
+  const { cursor, setCursor } = useRowCursor({
+    count: visible.length,
+    onEnter: (index) => {
+      const voucherId = visible[index]?.voucherId;
+      if (voucherId) onOpenVoucher?.(voucherId);
+    },
+  });
+
   return (
-    <TallyScreen
-      title="Exception Reports"
-      rail={[
-        { hotkey: 'F2', label: 'Period', onClick: () => setShowPeriod((v) => !v) },
-        { hotkey: 'F3', label: 'Company', disabled: true },
-        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
-      ]}
-    >
+    <>
+    <TallyScreen title="Exception Reports" rail={report.rail}>
       <div className="px-3 pb-4 pt-1 text-[13px]">
         <div className="text-center text-[11px]">
           {fromDate} to {toDate}
         </div>
-        {showPeriod && (
-          <div className="mb-2 mt-1 flex items-center gap-2 border border-[#9db8d8] bg-[#fdf6d8] px-2 py-1">
-            <span>Period:</span>
-            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="border bg-white px-1" />
-            <span>to</span>
-            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="border bg-white px-1" />
-          </div>
-        )}
-
         <div className="mt-1 flex border-y border-black bg-[#f0f4fa] font-semibold">
           <div className="w-40 px-1">Exception</div>
           <div className="w-32 px-1">Reference</div>
@@ -146,20 +154,21 @@ const ExceptionReports: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ 
 
         {isLoading || !data ? (
           <div className="py-10 text-center text-gray-400">Checking the books…</div>
-        ) : data.exceptions.length === 0 ? (
+        ) : visible.length === 0 ? (
           <div className="py-10 text-center font-semibold text-green-700">
             No exceptions found — {data.checked} voucher(s) checked, all balanced, numbered uniquely, and cash/bank
             positive.
           </div>
         ) : (
           <>
-            {data.exceptions.map((e, i) => (
+            {visible.map((e, i) => (
               <button
                 key={i}
                 type="button"
                 onClick={() => e.voucherId && onOpenVoucher?.(e.voucherId)}
+                onMouseEnter={() => setCursor(i)}
                 className={`flex w-full border-b border-dashed border-gray-200 text-left ${
-                  e.voucherId ? 'hover:bg-[#fdf6d8]' : 'cursor-default'
+                  cursor === i ? 'bg-[#ffc423]' : e.voucherId ? 'hover:bg-[#fdf6d8]' : 'cursor-default'
                 }`}
               >
                 <div className={`w-40 shrink-0 px-1 font-semibold ${KIND_STYLE[e.kind] ?? ''}`}>{e.kind}</div>
@@ -168,12 +177,15 @@ const ExceptionReports: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ 
               </button>
             ))}
             <div className="mt-2 text-[11px] italic text-gray-500">
-              {data.exceptions.length} exception(s) across {data.checked} voucher(s) — click a row to open the voucher.
+              {visible.length} exception(s) across {data.checked} voucher(s) — Enter or click opens the voucher.
             </div>
           </>
         )}
       </div>
     </TallyScreen>
+
+    {report.popups}
+    </>
   );
 };
 

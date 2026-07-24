@@ -32,9 +32,14 @@ export const getTallyConfig = (): { defaultDetailed: boolean; dayBookMonth: bool
 // Tally's classic UI is small, tight sans-serif.
 export const TALLY_FONT = { fontFamily: 'Verdana, "Segoe UI", Tahoma, Arial, sans-serif' } as const;
 
+/** Modifier a hotkey needs, so two buttons can share a letter (F / Ctrl+F). */
+export type HotkeyMod = 'alt' | 'ctrl';
+
 export interface RailItem {
   /** Shortcut label shown in blue, e.g. "F5" or "A" */
   hotkey?: string;
+  /** Modifier the hotkey needs — shown as "Ctrl+F" / "Alt+F12" */
+  mod?: HotkeyMod;
   label: string;
   onClick?: () => void;
   active?: boolean;
@@ -45,15 +50,60 @@ export interface RailItem {
 }
 export interface BottomBarItem {
   hotkey: string;
+  mod?: HotkeyMod;
   label: string;
   onClick?: () => void;
   disabled?: boolean;
 }
 
+/** "F" + ctrl -> "Ctrl+F"; the text shown in the blue key prefix. */
+export const hotkeyLabel = (hotkey: string, mod?: HotkeyMod): string =>
+  mod === 'ctrl' ? `Ctrl+${hotkey}` : mod === 'alt' ? `Alt+${hotkey}` : hotkey;
+
+/**
+ * Pop-ups (Change Period, Basis of Values, …) register while they are open so
+ * the screen behind them stops answering its own hotkeys — Tally's modal
+ * pop-ups own the keyboard until they are accepted or quit.
+ */
+let openModalCount = 0;
+export const tallyModalIsOpen = (): boolean => openModalCount > 0;
+export const useTallyModal = (): void => {
+  useEffect(() => {
+    openModalCount += 1;
+    return () => {
+      openModalCount -= 1;
+    };
+  }, []);
+};
+
+/** True when the event landed in a field the user is typing into. */
+export const isTypingTarget = (target: EventTarget | null): boolean => {
+  const el = target as HTMLElement | null;
+  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
+};
+
+/** Does this keydown match the item's hotkey (and only its modifier)? */
+export const hotkeyMatches = (e: KeyboardEvent, hotkey: string, mod: HotkeyMod | undefined): boolean => {
+  const hk = hotkey.toUpperCase();
+  const pressed = e.key === ' ' ? 'SPACE' : e.key.toUpperCase();
+  if (pressed !== hk) return false;
+  if (mod === 'ctrl') return (e.ctrlKey || e.metaKey) && !e.altKey;
+  if (mod === 'alt') return e.altKey && !e.ctrlKey && !e.metaKey;
+  return !e.altKey && !e.ctrlKey && !e.metaKey;
+};
+
 interface TallyTopBarProps {
   /** Section names for the Alt+F / Go To jump list */
   sections: { id: string; label: string }[];
   onGoTo: (id: string) => void;
+}
+
+/** One button in the top menu row — either a direct action or a drop-down. */
+interface TopMenu {
+  key: string;
+  label: string;
+  action?: () => void;
+  items?: { label: string; onClick?: () => void }[];
 }
 
 const TallySyncButton: React.FC = () => {
@@ -156,35 +206,12 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
   const [helpOpen, setHelpOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [menuHighlight, setMenuHighlight] = useState(0);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const { user, switchHospital, hospitalConfig } = useAuth();
   const { data: companies = [] } = useCompanies();
 
   const otherHospital = (Object.keys(HOSPITAL_CONFIGS) as HospitalType[]).find((h) => h !== user?.hospitalType);
-
-  // Alt+F focuses the finder, like Tally
-  useEffect(() => {
-    const onHelp = () => setHelpOpen(true);
-    const onConfigure = () => setConfigOpen(true);
-    window.addEventListener('tally-help', onHelp);
-    window.addEventListener('tally-configure', onConfigure);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.altKey && (e.key === 'f' || e.key === 'F')) {
-        e.preventDefault();
-        inputRef.current?.focus();
-      }
-      if (e.key === 'F12') {
-        e.preventDefault();
-        setConfigOpen(true);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      window.removeEventListener('tally-help', onHelp);
-      window.removeEventListener('tally-configure', onConfigure);
-    };
-  }, []);
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -198,15 +225,136 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
     inputRef.current?.blur();
   };
 
-  // Tally Prime's top-bar buttons each drop a menu of destinations.
-  const menu = (key: string, label: string, action?: () => void, items?: { label: string; onClick?: () => void }[]) => (
+  // Tally Prime's top-bar buttons: each is either a direct action or a menu of
+  // destinations. Held as data so the keyboard can drive them too.
+  const menus: TopMenu[] = useMemo(
+    () => [
+      {
+        key: 'K',
+        label: 'Company',
+        items: [
+          {
+            label: otherHospital ? `Switch to ${HOSPITAL_CONFIGS[otherHospital].fullName}` : 'Switch hospital',
+            onClick: otherHospital
+              ? () => {
+                  switchHospital(otherHospital);
+                  toast.success(`Switched to ${HOSPITAL_CONFIGS[otherHospital].fullName}`);
+                }
+              : undefined,
+          },
+          { label: `Current: ${hospitalConfig.name} Hospital` },
+          ...companies.map((c: any) => ({ label: `· ${c.company_name}` })),
+          { label: 'Gateway of Tally', onClick: () => onGoTo('gateway') },
+        ],
+      },
+      {
+        key: 'Y',
+        label: 'Data',
+        items: [
+          { label: 'Import / Export (Tally XML)', onClick: () => onGoTo('tally-import-export') },
+          { label: 'Statistics', onClick: () => onGoTo('statistics') },
+          { label: 'Edit Log (audit trail)', onClick: () => onGoTo('edit-log') },
+          { label: 'Exception Reports', onClick: () => onGoTo('exception-reports') },
+        ],
+      },
+      {
+        key: 'Z',
+        label: 'Exchange',
+        items: [
+          { label: 'Tally Live (gateway sync)', onClick: () => onGoTo('tally-live') },
+          { label: 'Export vouchers to Tally', onClick: () => onGoTo('tally-import-export') },
+          { label: 'Import masters from Tally', onClick: () => onGoTo('tally-import-export') },
+        ],
+      },
+      { key: 'O', label: 'Import', action: () => onGoTo('tally-import-export') },
+      { key: 'E', label: 'Export', action: () => onGoTo('tally-import-export') },
+      {
+        key: 'M',
+        label: 'Share',
+        action: () => {
+          navigator.clipboard
+            .writeText(window.location.href)
+            .then(() => toast.success('Link copied — share it with your team'))
+            .catch(() => toast.error('Could not copy the link'));
+        },
+      },
+      { key: 'P', label: 'Print', action: () => window.print() },
+      { key: 'F1', label: 'Help', action: () => setHelpOpen(true) },
+      { key: 'F12', label: 'Configure', action: () => setConfigOpen(true) },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [otherHospital, hospitalConfig.name, companies, onGoTo, switchHospital],
+  );
+
+  const activeMenu = menus.find((m) => m.key === openMenu);
+  const activeItems = activeMenu?.items?.filter((it) => it.onClick) ?? [];
+
+  const openTopMenu = (key: string) => {
+    setOpenMenu((m) => (m === key ? null : key));
+    setMenuHighlight(0);
+  };
+
+  // Alt+F focuses the finder; the top-bar letters open their menus; an open
+  // menu is walked with the arrow keys — Tally never needs the mouse here.
+  useEffect(() => {
+    const onHelp = () => setHelpOpen(true);
+    const onConfigure = () => setConfigOpen(true);
+    window.addEventListener('tally-help', onHelp);
+    window.addEventListener('tally-configure', onConfigure);
+    const onKey = (e: KeyboardEvent) => {
+      if (tallyModalIsOpen()) return;
+      if (e.altKey && (e.key === 'f' || e.key === 'F')) {
+        e.preventDefault();
+        inputRef.current?.focus();
+        return;
+      }
+      // F12 with or without Alt — Chrome keeps F12 for DevTools, Alt+F12 is ours
+      if (e.key === 'F12') {
+        e.preventDefault();
+        setConfigOpen(true);
+        return;
+      }
+      if (openMenu) {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          setMenuHighlight((h) =>
+            Math.max(0, Math.min(activeItems.length - 1, h + (e.key === 'ArrowDown' ? 1 : -1))),
+          );
+          return;
+        }
+        if (e.key === 'Enter' && activeItems[menuHighlight]) {
+          e.preventDefault();
+          setOpenMenu(null);
+          activeItems[menuHighlight].onClick?.();
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          setOpenMenu(null);
+          return;
+        }
+      }
+      if (isTypingTarget(e.target) || e.altKey || e.ctrlKey || e.metaKey) return;
+      const hit = menus.find((m) => m.items && m.key.toUpperCase() === e.key.toUpperCase());
+      if (hit) {
+        e.preventDefault();
+        openTopMenu(hit.key);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('tally-help', onHelp);
+      window.removeEventListener('tally-configure', onConfigure);
+    };
+  }, [menus, openMenu, menuHighlight, activeItems]);
+
+  const menu = ({ key, label, action, items }: TopMenu) => (
     <div key={key} className="relative">
       <button
         type="button"
-        onClick={() => {
-          if (items) setOpenMenu((m) => (m === key ? null : key));
-          else action?.();
-        }}
+        onClick={() => (items ? openTopMenu(key) : action?.())}
         disabled={!action && !items}
         className={`px-4 py-0.5 text-[13px] ${
           action || items ? 'text-white hover:bg-[#1d5aa8]' : 'cursor-default text-[#9db8d8]'
@@ -216,22 +364,28 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
       </button>
       {items && openMenu === key && (
         <div className="absolute left-0 z-50 min-w-[220px] border border-[#0d2f5c] bg-[#eef3fa] shadow-lg">
-          {items.map((it, i) => (
-            <button
-              key={i}
-              type="button"
-              disabled={!it.onClick}
-              onClick={() => {
-                setOpenMenu(null);
-                it.onClick?.();
-              }}
-              className={`block w-full px-3 py-1 text-left text-[13px] ${
-                it.onClick ? 'text-black hover:bg-[#fdd835]' : 'cursor-default text-gray-400'
-              }`}
-            >
-              {it.label}
-            </button>
-          ))}
+          {items.map((it, i) => {
+            const activeIndex = activeItems.indexOf(it);
+            return (
+              <button
+                key={i}
+                type="button"
+                disabled={!it.onClick}
+                onMouseEnter={() => activeIndex >= 0 && setMenuHighlight(activeIndex)}
+                onClick={() => {
+                  setOpenMenu(null);
+                  it.onClick?.();
+                }}
+                className={`block w-full px-3 py-1 text-left text-[13px] ${
+                  it.onClick
+                    ? `text-black hover:bg-[#fdd835] ${activeIndex === menuHighlight ? 'bg-[#fdd835]' : ''}`
+                    : 'cursor-default text-gray-400'
+                }`}
+              >
+                {it.label}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -308,47 +462,13 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
       </div>
       {/* Row 2: menu */}
       <div className="flex items-center justify-center pb-0.5 pt-1" onMouseLeave={() => setOpenMenu(null)}>
-        {menu('K', 'Company', undefined, [
-          {
-            label: otherHospital ? `Switch to ${HOSPITAL_CONFIGS[otherHospital].fullName}` : 'Switch hospital',
-            onClick: otherHospital
-              ? () => {
-                  switchHospital(otherHospital);
-                  toast.success(`Switched to ${HOSPITAL_CONFIGS[otherHospital].fullName}`);
-                }
-              : undefined,
-          },
-          { label: `Current: ${hospitalConfig.name} Hospital` },
-          ...companies.map((c: any) => ({ label: `· ${c.company_name}` })),
-          { label: 'Gateway of Tally', onClick: () => onGoTo('gateway') },
-        ])}
-        {menu('Y', 'Data', undefined, [
-          { label: 'Import / Export (Tally XML)', onClick: () => onGoTo('tally-import-export') },
-          { label: 'Statistics', onClick: () => onGoTo('statistics') },
-          { label: 'Edit Log (audit trail)', onClick: () => onGoTo('edit-log') },
-          { label: 'Exception Reports', onClick: () => onGoTo('exception-reports') },
-        ])}
-        {menu('Z', 'Exchange', undefined, [
-          { label: 'Tally Live (gateway sync)', onClick: () => onGoTo('tally-live') },
-          { label: 'Export vouchers to Tally', onClick: () => onGoTo('tally-import-export') },
-          { label: 'Import masters from Tally', onClick: () => onGoTo('tally-import-export') },
-        ])}
+        {menus.slice(0, 3).map(menu)}
         <span className="mx-2 border border-[#0d2f5c] bg-[#e9f0fa] px-4 py-0.5 text-[13px] font-semibold text-[#16437e]">
           <button type="button" onClick={() => inputRef.current?.focus()}>
             <span className="underline">G</span>: Go To
           </button>
         </span>
-        {menu('O', 'Import', () => onGoTo('tally-import-export'))}
-        {menu('E', 'Export', () => onGoTo('tally-import-export'))}
-        {menu('M', 'Share', () => {
-          navigator.clipboard
-            .writeText(window.location.href)
-            .then(() => toast.success('Link copied — share it with your team'))
-            .catch(() => toast.error('Could not copy the link'));
-        })}
-        {menu('P', 'Print', () => window.print())}
-        {menu('F1', 'Help', () => setHelpOpen(true))}
-        {menu('F12', 'Configure', () => setConfigOpen(true))}
+        {menus.slice(3).map(menu)}
       </div>
       {helpOpen && <TallyHelp onClose={() => setHelpOpen(false)} />}
       {configOpen && <TallyConfigure onClose={() => setConfigOpen(false)} />}
@@ -359,28 +479,35 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
 /** F1 — the Tally shortcut reference. */
 const SHORTCUTS: [string, string][] = [
   ['Alt+F', 'Go To — find and open any screen'],
+  ['↑ ↓', 'Move the row cursor · PgUp/PgDn, Home/End jump'],
+  ['Enter', 'Drill into the highlighted row'],
   ['Esc', 'Back one screen (or to the Gateway of Tally)'],
   ['F2', 'Date / Period'],
-  ['F3', 'Switch company (Hope ↔ Ayushman)'],
-  ['F4', 'Contra voucher · or the screen\'s filter (party, type, ledger)'],
-  ['F5', 'Payment voucher · Ledger-wise / Status toggles'],
-  ['F6', 'Receipt voucher · Age wise analysis'],
-  ['F7', 'Journal voucher'],
-  ['F8', 'Sales voucher'],
-  ['F9', 'Purchase voucher'],
+  ['F3', 'Switch company'],
+  ['F4', 'The screen\'s main filter (group, ledger, party, voucher type)'],
+  ['F5', 'The screen\'s second filter / Ledger-wise toggle'],
+  ['F6 – F10', 'Screen actions, then quick jumps to the other reports'],
+  ['B', 'Basis of Values — scale, paise, hide zero / small balances'],
+  ['H', 'Change View — Detailed / Condensed and related reports'],
+  ['J', 'Exception Reports'],
+  ['L', 'Save View — open the module here next time'],
+  ['F', 'Apply Filter'],
+  ['Ctrl+F', 'Filter Details — see and clear active filters'],
   ['C', 'New Column — compare with another period'],
-  ['H', 'Detailed / Condensed toggle'],
-  ['A', 'Accept (save)'],
+  ['A', 'Alter Column — change the last column\'s period'],
+  ['D', 'Delete Column'],
+  ['N', 'Auto Column — monthly / quarterly / yearly breakup'],
+  ['Space', 'Select the highlighted line'],
+  ['R / U', 'Remove / restore a line'],
   ['Q', 'Quit / clear the form'],
   ['X', 'Cancel voucher (in alteration)'],
-  ['D', 'Delete voucher (in alteration)'],
   ['E', 'Export (Excel, where available)'],
   ['P', 'Print — clean report / formal A4 voucher'],
-  ['F12', 'Configure — detailed-by-default, Day Book month view'],
-  ['L / T', 'Optional / Post-Dated voucher (in voucher entry)'],
+  ['Alt+F12', 'Configure — detailed-by-default, Day Book month view'],
 ];
 
 const TallyHelp: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  useTallyModal();
   // Esc closes the overlay before any screen-level Esc handling runs
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -416,6 +543,9 @@ const TallyHelp: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         ))}
         <div className="pt-2 text-[11px] italic text-gray-500">
           Buttons on the right rail show their shortcut before the label — press the key or click.
+          <br />
+          Chrome keeps F12 for its developer tools and will not release it: use Alt+F12 (or the
+          F12: Configure button) for Configure.
         </div>
       </div>
     </div>
@@ -424,6 +554,7 @@ const TallyHelp: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 };
 
 const TallyConfigure: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  useTallyModal();
   const [cfg, setCfg] = useState(getTallyConfig());
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -508,13 +639,30 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
     ? [{ hotkey: 'F3', label: 'Company', onClick: accountingCompany.cycleCompany }, ...railProp]
     : railProp;
 
+  // Take the keyboard when a screen opens. Without this the sidebar button
+  // that opened it keeps focus, so Enter re-clicks that button and the arrow
+  // keys scroll the page instead of walking the report's rows.
+  const contentRef = React.useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const active = document.activeElement as HTMLElement | null;
+    if (active && contentRef.current?.contains(active)) return;
+    if (isTypingTarget(active)) return;
+    active?.blur();
+    contentRef.current?.focus({ preventScroll: true });
+  }, [title]);
+
   // Bind F-key / letter hotkeys declared by the rail + bottom bar
   useEffect(() => {
     const items = [...rail, ...(bottomBar ?? [])];
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
-      const target = e.target as HTMLElement | null;
-      const typing = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      // A pop-up owns the keyboard while it is open
+      if (tallyModalIsOpen()) return;
+      const typing = isTypingTarget(e.target);
+      // The browser's own F-key actions (F3 find, F5 reload, F7 caret
+      // browsing, F10 menu, F11 fullscreen) must never fire over a report.
+      // F12 is the one Chrome refuses to release — Alt+F12 covers Configure.
+      if (/^F([1-9]|1[01])$/.test(e.key)) e.preventDefault();
       // Tally's Esc: step back one level — close this screen if it can close,
       // otherwise let the page fall back to the Gateway.
       if (e.key === 'Escape' && !typing) {
@@ -526,11 +674,10 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
       }
       for (const item of items) {
         if (!item.hotkey || item.disabled || !item.onClick) continue;
-        const hk = item.hotkey.toUpperCase();
-        const isFKey = /^F\d+$/.test(hk);
-        const pressed = e.key === ' ' ? 'SPACE' : e.key.toUpperCase();
         // Letter hotkeys only fire outside inputs; F-keys fire anywhere.
-        if (isFKey ? pressed === hk : !typing && !e.metaKey && !e.ctrlKey && !e.altKey && pressed === hk) {
+        const isFKey = /^F\d+$/.test(item.hotkey.toUpperCase());
+        if (!isFKey && typing) continue;
+        if (hotkeyMatches(e, item.hotkey, item.mod)) {
           e.preventDefault();
           e.stopPropagation();
           item.onClick();
@@ -559,8 +706,10 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
       </div>
 
       <div className="flex min-h-0 flex-1">
-        {/* Content */}
-        <div className="min-w-0 flex-1 overflow-auto">{children}</div>
+        {/* Content — focusable so the report owns the keyboard, not the sidebar */}
+        <div ref={contentRef} tabIndex={-1} className="min-w-0 flex-1 overflow-auto outline-none">
+          {children}
+        </div>
 
         {/* Right button rail */}
         {rail.length > 0 && (
@@ -580,8 +729,12 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
                   }`}
                 >
                   {item.hotkey && (
-                    <span className={`inline-flex w-11 shrink-0 font-semibold ${item.active ? 'text-white' : 'text-[#1d5aa8]'}`}>
-                      <span className="underline">{item.hotkey}</span>:{' '}
+                    <span
+                      className={`inline-flex min-w-[44px] shrink-0 pr-1 font-semibold ${
+                        item.active ? 'text-white' : 'text-[#1d5aa8]'
+                      }`}
+                    >
+                      <span className="underline">{hotkeyLabel(item.hotkey, item.mod)}</span>:{' '}
                     </span>
                   )}
                   {item.label}
@@ -607,13 +760,15 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
               onClick={b.onClick}
               className="flex min-h-8 items-center border border-[#9db8d8] bg-white px-3 py-0.5 text-[13px] text-black hover:bg-[#fdf6d8]"
             >
-              <span className="inline-flex w-11 shrink-0 font-semibold text-[#1d5aa8]">
+              <span className="inline-flex min-w-[44px] shrink-0 pr-1 font-semibold text-[#1d5aa8]">
                 <span className="underline">{b.hotkey}</span>:
               </span>{' '}
               {b.label}
             </button>
           ))}
-          <span className="ml-auto self-center pr-2 text-[11px] italic text-[#5b7aa0]">Alt+F: Go To · F12: Configure</span>
+          <span className="ml-auto self-center pr-2 text-[11px] italic text-[#5b7aa0]">
+            Alt+F: Go To · Alt+F12: Configure
+          </span>
         </div>
       )}
       {bottomBar && bottomBar.length > 0 && (
@@ -628,8 +783,8 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
                 b.disabled || !b.onClick ? 'cursor-default text-[#8fa8c8]' : 'text-black hover:bg-[#fdf6d8]'
               }`}
             >
-              <span className="inline-flex w-11 shrink-0 font-semibold text-[#1d5aa8]">
-                <span className="underline">{b.hotkey}</span>:
+              <span className="inline-flex min-w-[44px] shrink-0 pr-1 font-semibold text-[#1d5aa8]">
+                <span className="underline">{hotkeyLabel(b.hotkey, b.mod)}</span>:
               </span>{' '}
               {b.label}
             </button>

@@ -1,14 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { format } from 'date-fns';
 import { TallyScreen } from './tally/TallyChrome';
+import { useTallyReport } from './tally/useTallyReport';
+import { useRowCursor } from './tally/useRowCursor';
 import { HEAD_ORDER } from './tally/heads';
 import { mergedLedgerBalances } from '@/lib/mergedLedgerBalances';
 import { useSourceFilter, matchesSource } from './useSourceFilter';
 import SourceBadge from './SourceBadge';
-
-const fmt = (n: number): string =>
-  new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
 const tallyDateLabel = (iso: string): string => {
   const d = new Date(iso + 'T00:00:00');
@@ -31,9 +29,22 @@ interface GroupSummaryProps {
 const GroupSummary: React.FC<GroupSummaryProps> = ({ head: headProp, onOpenLedger, onClose }) => {
   const [pickedHead, setPickedHead] = useState<string | null>(null);
   const head = headProp ?? pickedHead;
-  const [asOfDate, setAsOfDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [showPeriod, setShowPeriod] = useState(false);
   const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
+
+  const report = useTallyReport({
+    filterFields: ['Particulars'],
+    views: [
+      { label: 'Trial Balance', target: 'trial-balance' },
+      { label: 'Ledger Vouchers', target: 'ledger-view' },
+      { label: 'Balance Sheet', target: 'balance-sheet' },
+      { label: 'Chart of Accounts', target: 'chart-of-accounts' },
+    ],
+    screenKeys: [
+      { hotkey: 'F4', label: 'Group', onClick: () => setPickedHead(null), disabled: !!headProp },
+      sourceRail,
+    ],
+  });
+  const { to: asOfDate, fmtAmount: fmt } = report;
 
   const { data: ledgerRows = [], isLoading } = useQuery({
     queryKey: ['group_summary_merged', asOfDate],
@@ -43,30 +54,33 @@ const GroupSummary: React.FC<GroupSummaryProps> = ({ head: headProp, onOpenLedge
   const rows = useMemo(() => {
     if (!head) return [];
     return ledgerRows
-      .filter((r) => r.head === head && matchesSource(r.source, srcFilter) && Math.abs(r.balance) >= 0.005)
+      .filter((r) => r.head === head && matchesSource(r.source, srcFilter))
+      .filter((r) => report.passesBasis(r.balance) && report.passesFilter({ Particulars: r.name }))
       .map((r) => ({ name: r.name, bal: r.balance, source: r.source, accountId: r.accountId }));
-  }, [ledgerRows, head, srcFilter]);
+  }, [ledgerRows, head, srcFilter, report.passesBasis, report.passesFilter]);
 
   const totalDr = rows.reduce((s, r) => s + Math.max(0, r.bal), 0);
   const totalCr = rows.reduce((s, r) => s + Math.max(0, -r.bal), 0);
 
+  // The cursor walks the List of Groups first, then the group's ledgers
+  const { cursor, setCursor } = useRowCursor({
+    count: head ? rows.length : HEAD_ORDER.length,
+    onEnter: (index) => {
+      if (!head) {
+        setPickedHead(HEAD_ORDER[index]);
+        return;
+      }
+      const accountId = rows[index]?.accountId;
+      if (accountId) onOpenLedger?.(accountId);
+    },
+  });
+
   return (
+    <>
     <TallyScreen
       title={head ? `Group Summary — ${head}` : 'Group Summary'}
       onClose={onClose ?? (head && !headProp ? () => setPickedHead(null) : undefined)}
-      rail={[
-        { hotkey: 'F2', label: 'Period', onClick: () => setShowPeriod((v) => !v) },
-        { hotkey: 'F3', label: 'Company', disabled: true },
-        {
-          hotkey: 'F4',
-          label: 'Group',
-          gapBefore: true,
-          onClick: () => setPickedHead(null),
-          disabled: !!headProp,
-        },
-        sourceRail,
-        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
-      ]}
+      rail={report.rail}
     >
       <div className="px-3 pb-4 pt-1 text-[13px]">
         {!head ? (
@@ -74,12 +88,15 @@ const GroupSummary: React.FC<GroupSummaryProps> = ({ head: headProp, onOpenLedge
           <div className="mx-auto max-w-md pt-4">
             <div className="border bg-[#eef3fa]">
               <div className="bg-[#16437e] px-3 py-1 text-xs font-semibold text-white">List of Groups</div>
-              {HEAD_ORDER.map((h) => (
+              {HEAD_ORDER.map((h, i) => (
                 <button
                   key={h}
                   type="button"
                   onClick={() => setPickedHead(h)}
-                  className="block w-full border-b border-white px-3 py-1 text-left hover:bg-[#fdf6d8]"
+                  onMouseEnter={() => setCursor(i)}
+                  className={`block w-full border-b border-white px-3 py-1 text-left ${
+                    cursor === i ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'
+                  }`}
                 >
                   {h}
                 </button>
@@ -92,13 +109,6 @@ const GroupSummary: React.FC<GroupSummaryProps> = ({ head: headProp, onOpenLedge
               <div className="font-bold">{head}</div>
               <div className="text-[11px]">as at {tallyDateLabel(asOfDate)}</div>
             </div>
-            {showPeriod && (
-              <div className="mb-2 mt-1 flex items-center gap-2 border border-[#9db8d8] bg-[#fdf6d8] px-2 py-1">
-                <span>As at:</span>
-                <input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className="border bg-white px-1" />
-              </div>
-            )}
-
             <div className="mt-1 flex border-y border-black bg-[#f0f4fa] font-semibold">
               <div className="min-w-0 flex-1 px-1">Particulars</div>
               <div className="w-36 px-1 text-right">Debit</div>
@@ -111,13 +121,16 @@ const GroupSummary: React.FC<GroupSummaryProps> = ({ head: headProp, onOpenLedge
               <div className="py-10 text-center text-gray-400">No ledgers with balances under this group.</div>
             ) : (
               <>
-                {rows.map((r) => (
+                {rows.map((r, i) => (
                   <button
                     key={`${r.source}:${r.name}`}
                     type="button"
                     onClick={() => r.accountId && onOpenLedger?.(r.accountId)}
+                    onMouseEnter={() => setCursor(i)}
                     title={r.accountId ? 'Open ledger vouchers' : 'Tally ledger'}
-                    className="flex w-full border-b border-dashed border-gray-200 text-left hover:bg-[#fdf6d8]"
+                    className={`flex w-full border-b border-dashed border-gray-200 text-left ${
+                      cursor === i ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'
+                    }`}
                   >
                     <div className="min-w-0 flex-1 truncate px-1">
                       {r.name}
@@ -138,6 +151,9 @@ const GroupSummary: React.FC<GroupSummaryProps> = ({ head: headProp, onOpenLedge
         )}
       </div>
     </TallyScreen>
+
+    {report.popups}
+    </>
   );
 };
 

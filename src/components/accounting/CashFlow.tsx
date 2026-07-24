@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TallyScreen } from './tally/TallyChrome';
+import { useTallyReport } from './tally/useTallyReport';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { toast } from 'sonner';
 import { Printer, Download, Loader2, AlertCircle } from 'lucide-react';
@@ -167,8 +168,21 @@ const exportCSV = (
  */
 const CashFlow: React.FC = () => {
   const now = new Date();
-  const [fromDate, setFromDate] = useState<string>(getFYStart(now));
-  const [toDate, setToDate] = useState<string>(getFYEnd(now));
+  const report = useTallyReport({
+    from: getFYStart(now),
+    to: getFYEnd(now),
+    supportsColumns: false,
+    filterFields: ['Particulars'],
+    views: [
+      { label: 'Funds Flow', target: 'funds-flow' },
+      { label: 'Receipts & Payments', target: 'receipts-payments' },
+      { label: 'Cash/Bank Summary', target: 'cash-bank-summary' },
+      { label: 'Balance Sheet', target: 'balance-sheet' },
+    ],
+  });
+  const { from: fromDate, to: toDate, setPeriod } = report;
+  const setFromDate = (v: string) => setPeriod(v, toDate);
+  const setToDate = (v: string) => setPeriod(fromDate, v);
 
   // Fetch all active accounts
   const {
@@ -398,7 +412,8 @@ const CashFlow: React.FC = () => {
   }
 
   return (
-    <TallyScreen title="Cash Flow" rail={[{ hotkey: 'P', label: 'Print', onClick: () => window.print() }]}>
+    <>
+    <TallyScreen title="Cash Flow" rail={report.rail}>
     
     <div className="space-y-6">
       {/* Header */}
@@ -569,6 +584,9 @@ const CashFlow: React.FC = () => {
       </Card>
     </div>
     </TallyScreen>
+
+    {report.popups}
+    </>
   );
 };
 

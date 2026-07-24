@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { accountMovements, type Movement } from '@/lib/accountMovements';
 import { format } from 'date-fns';
 import { TallyScreen } from './tally/TallyChrome';
+import { useTallyReport } from './tally/useTallyReport';
 
 interface Account {
   id: string;
@@ -44,6 +45,16 @@ const tallyDateLabel = (iso: string): string => {
  * vouchers, all from the instant account_movements aggregate.
  */
 const Dashboard: React.FC<{ onOpenVoucher?: (id: string) => void; canSeeTile?: (tileId: string, role?: string | null) => boolean }> = ({ onOpenVoucher, canSeeTile }) => {
+  const report = useTallyReport({
+    supportsColumns: false,
+    filterFields: ['Particulars'],
+    views: [
+      { label: 'Balance Sheet', target: 'balance-sheet' },
+      { label: 'Profit & Loss A/c', target: 'profit-loss' },
+      { label: 'Day Book', target: 'day-book' },
+      { label: 'Cash/Bank Summary', target: 'cash-bank-summary' },
+    ],
+  });
   const today = format(new Date(), 'yyyy-MM-dd');
   const from = fyStart();
 
@@ -128,7 +139,8 @@ const Dashboard: React.FC<{ onOpenVoucher?: (id: string) => void; canSeeTile?: (
   };
 
   return (
-    <TallyScreen title="Dashboard" rail={[{ hotkey: 'P', label: 'Print', onClick: () => window.print() }]}>
+    <>
+    <TallyScreen title="Dashboard" rail={report.rail}>
       <div className="px-3 pb-4 pt-1 text-[13px]">
         <div className="text-center text-[11px]">
           {tallyDateLabel(from)} to {tallyDateLabel(today)}
@@ -192,6 +204,9 @@ const Dashboard: React.FC<{ onOpenVoucher?: (id: string) => void; canSeeTile?: (
         </div>
       </div>
     </TallyScreen>
+
+    {report.popups}
+    </>
   );
 };
 

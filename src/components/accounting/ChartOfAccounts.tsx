@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { TallyScreen } from './tally/TallyChrome';
+import { useTallyReport } from './tally/useTallyReport';
 import { HEAD_ORDER, headOfType } from './tally/heads';
 
 interface Account {
@@ -48,7 +49,28 @@ const ChartOfAccounts: React.FC = () => {
   const [openingType, setOpeningType] = useState<'DR' | 'CR'>('DR');
   const [active, setActive] = useState(true);
   const [saving, setSaving] = useState(false);
+
   const [showInactive, setShowInactive] = useState(false);
+
+  const report = useTallyReport({
+    supportsColumns: false,
+    filterFields: ['Particulars'],
+    views: [
+      { label: 'Trial Balance', target: 'trial-balance' },
+      { label: 'Group Summary', target: 'group-summary' },
+      { label: 'Masters', target: 'masters' },
+      { label: 'Opening Balances', target: 'opening-balances' },
+    ],
+    screenKeys: [
+      { hotkey: 'F4', label: 'Create', onClick: () => openForm(null) },
+      {
+        hotkey: 'F6',
+        label: showInactive ? 'Hide Inactive' : 'Show Inactive',
+        active: showInactive,
+        onClick: () => setShowInactive((v) => !v),
+      },
+    ],
+  });
 
   const { data: accounts = [], isLoading } = useQuery({
     queryKey: ['coa_all'],
@@ -152,19 +174,11 @@ const ChartOfAccounts: React.FC = () => {
   const formOpen = creating || !!editing;
 
   return (
+    <>
     <TallyScreen
       title="Chart of Accounts"
       onClose={formOpen ? closeForm : undefined}
-      rail={[
-        { hotkey: 'C', label: 'Create', onClick: () => openForm(null), gapBefore: true },
-        {
-          hotkey: 'I',
-          label: showInactive ? 'Hide Inactive' : 'Show Inactive',
-          onClick: () => setShowInactive((v) => !v),
-          active: showInactive,
-        },
-        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
-      ]}
+      rail={report.rail}
     >
       <div className="px-3 pb-4 pt-1 text-[13px]">
         <div className="text-center">
@@ -320,6 +334,9 @@ const ChartOfAccounts: React.FC = () => {
         )}
       </div>
     </TallyScreen>
+
+    {report.popups}
+    </>
   );
 };
 

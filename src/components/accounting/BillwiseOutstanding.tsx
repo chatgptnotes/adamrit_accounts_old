@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { TallyScreen } from './tally/TallyChrome';
+import { useTallyReport } from './tally/useTallyReport';
+import { useRowCursor } from './tally/useRowCursor';
 
 interface Account {
   id: string;
@@ -19,8 +21,6 @@ interface EntryRow {
   voucher: { id: string; voucher_number: string; voucher_date: string } | null;
 }
 
-const fmt = (n: number): string =>
-  new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
 const tallyDateLabel = (iso: string): string => {
   const d = new Date(iso + 'T00:00:00');
@@ -39,6 +39,28 @@ const BillwiseOutstanding: React.FC<{ onOpenVoucher?: (id: string) => void }> = 
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const report = useTallyReport({
+    filterFields: ['Ref. No.'],
+    views: [
+      { label: 'Bills Receivable', target: 'bills-receivable' },
+      { label: 'Bills Payable', target: 'bills-payable' },
+      { label: 'Ledger Vouchers', target: 'ledger-view' },
+      { label: 'Bill Aging Statement', target: 'bill-aging' },
+    ],
+    screenKeys: [
+      {
+        hotkey: 'F4',
+        label: 'Ledger',
+        onClick: () => {
+          setSelectedId('');
+          setSearch('');
+          setTimeout(() => inputRef.current?.focus(), 0);
+        },
+      },
+    ],
+  });
+  const fmt = report.fmtAmount;
 
   const { data: accounts = [] } = useQuery({
     queryKey: ['chart_of_accounts_leaves_bw'],
@@ -92,30 +114,24 @@ const BillwiseOutstanding: React.FC<{ onOpenVoucher?: (id: string) => void }> = 
     }
     return [...byRef.entries()]
       .map(([ref, g]) => ({ ref, ...g, days: Math.floor((Date.now() - new Date(g.first).getTime()) / 86400000) }))
-      .filter((b) => Math.abs(b.pending) > 0.005)
+      .filter((b) => report.passesBasis(b.pending) && report.passesFilter({ 'Ref. No.': b.ref }))
       .sort((a, b) => Math.abs(b.pending) - Math.abs(a.pending));
-  }, [entries]);
+  }, [entries, report.passesBasis, report.passesFilter]);
 
   const total = bills.reduce((s, b) => s + b.pending, 0);
 
+  const { cursor, setCursor } = useRowCursor({
+    count: bills.length,
+    enabled: !open,
+    onEnter: (index) => {
+      const voucherId = bills[index]?.entries[0]?.voucher?.id;
+      if (voucherId) onOpenVoucher?.(voucherId);
+    },
+  });
+
   return (
-    <TallyScreen
-      title="Bill-wise Outstandings"
-      rail={[
-        { hotkey: 'F3', label: 'Company', disabled: true },
-        {
-          hotkey: 'F4',
-          label: 'Ledger',
-          gapBefore: true,
-          onClick: () => {
-            setSelectedId('');
-            setSearch('');
-            setTimeout(() => inputRef.current?.focus(), 0);
-          },
-        },
-        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
-      ]}
-    >
+    <>
+    <TallyScreen title="Bill-wise Outstandings" rail={report.rail}>
       <div className="px-3 pb-4 pt-1 text-[13px]">
         <div className="flex items-center gap-2">
           <span className="w-24 shrink-0 font-semibold">Ledger</span>
@@ -197,13 +213,16 @@ const BillwiseOutstanding: React.FC<{ onOpenVoucher?: (id: string) => void }> = 
               <div className="py-10 text-center text-gray-400">Nothing pending on this ledger.</div>
             ) : (
               <>
-                {bills.map((b) => (
+                {bills.map((b, i) => (
                   <button
                     key={b.ref}
                     type="button"
                     onClick={() => b.entries[0]?.voucher?.id && onOpenVoucher?.(b.entries[0].voucher.id)}
+                    onMouseEnter={() => setCursor(i)}
                     title="Open first voucher of this bill"
-                    className="flex w-full border-b border-dashed border-gray-200 text-left hover:bg-[#fdf6d8]"
+                    className={`flex w-full border-b border-dashed border-gray-200 text-left ${
+                      cursor === i ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'
+                    }`}
                   >
                     <div className="w-24 shrink-0 px-1">{b.first ? tallyDateLabel(b.first) : ''}</div>
                     <div className={`min-w-0 flex-1 truncate px-1 ${b.ref === 'On Account' ? 'italic text-gray-500' : 'font-semibold'}`}>
@@ -231,6 +250,9 @@ const BillwiseOutstanding: React.FC<{ onOpenVoucher?: (id: string) => void }> = 
         )}
       </div>
     </TallyScreen>
+
+    {report.popups}
+    </>
   );
 };
 

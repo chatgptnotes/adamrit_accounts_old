@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { TallyScreen } from './tally/TallyChrome';
+import { useTallyReport } from './tally/useTallyReport';
 import { HEAD_ORDER, headOfType } from './tally/heads';
 
 interface Account {
@@ -42,6 +43,19 @@ const OpeningBalances: React.FC = () => {
   const queryClient = useQueryClient();
   const [rows, setRows] = useState<Row[]>([]);
   const [saving, setSaving] = useState(false);
+
+  const report = useTallyReport({
+    // An entry grid has one editable column — Tally's column keys do not apply
+    supportsColumns: false,
+    filterFields: ['Particulars'],
+    views: [
+      { label: 'Chart of Accounts', target: 'chart-of-accounts' },
+      { label: 'Trial Balance', target: 'trial-balance' },
+      { label: 'Balance Sheet', target: 'balance-sheet' },
+      { label: 'Masters', target: 'masters' },
+    ],
+    screenKeys: [{ hotkey: 'F4', label: 'Accept', onClick: () => void handleAccept() }],
+  });
 
   const { data: accounts = [], isLoading } = useQuery({
     queryKey: ['opening_accounts'],
@@ -127,13 +141,10 @@ const OpeningBalances: React.FC = () => {
   };
 
   return (
+    <>
     <TallyScreen
       title="Opening Balances"
-      rail={[
-        { hotkey: 'F3', label: 'Company', disabled: true },
-        { hotkey: 'A', label: 'Accept', gapBefore: true, onClick: handleAccept },
-        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
-      ]}
+      rail={report.rail}
       bottomBar={[
         { hotkey: 'A', label: saving ? 'Saving…' : 'Accept', onClick: handleAccept },
       ]}
@@ -206,6 +217,9 @@ const OpeningBalances: React.FC = () => {
         </div>
       </div>
     </TallyScreen>
+
+    {report.popups}
+    </>
   );
 };
 

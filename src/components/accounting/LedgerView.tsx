@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { TallyScreen } from './tally/TallyChrome';
+import { useTallyReport } from './tally/useTallyReport';
+import { useRowCursor } from './tally/useRowCursor';
 import { fetchTallyVouchers } from '@/lib/mergedVouchers';
 import { normalizeName } from '@/lib/tallyCompanyMatch';
 import SourceBadge from './SourceBadge';
@@ -32,9 +34,6 @@ interface VoucherEntryRow {
   } | null;
 }
 
-const fmt = (n: number): string =>
-  new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
-
 const tallyDateLabel = (iso: string): string => {
   const d = new Date(iso + 'T00:00:00');
   if (Number.isNaN(d.getTime())) return iso;
@@ -62,14 +61,36 @@ interface LedgerViewProps {
 
 const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId, onClose }) => {
   const [selectedAccountId, setSelectedAccountId] = useState<string>(initialAccountId ?? '');
-  const [fromDate, setFromDate] = useState(fy().from);
-  const [toDate, setToDate] = useState(fy().to);
-  const [showPeriod, setShowPeriod] = useState(false);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
+
+  const report = useTallyReport({
+    from: fy().from,
+    to: fy().to,
+    filterFields: ['Particulars', 'Vch Type', 'Vch No.'],
+    views: [
+      { label: 'Group Summary', target: 'group-summary' },
+      { label: 'Day Book', target: 'day-book' },
+      { label: 'Registers', target: 'voucher-register' },
+      { label: 'Trial Balance', target: 'trial-balance' },
+    ],
+    screenKeys: [
+      {
+        hotkey: 'F4',
+        label: 'Ledger',
+        onClick: () => {
+          setSelectedAccountId('');
+          setSearch('');
+          setTimeout(() => inputRef.current?.focus(), 0);
+        },
+      },
+      sourceRail,
+    ],
+  });
+  const { from: fromDate, to: toDate, fmtAmount: fmt } = report;
 
   const { data: accounts = [] } = useQuery({
     queryKey: ['ledger_accounts'],
@@ -191,6 +212,7 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
     }
     const rows = [...byNumber.values(), ...passthrough]
       .filter((r) => matchesSource(r.source, srcFilter))
+      .filter((r) => report.passesFilter({ Particulars: r.particulars, 'Vch Type': r.type, 'Vch No.': r.number }))
       .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 
     let totalDr = 0;
@@ -200,30 +222,20 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
       totalCr += r.cr;
     }
     return { rows, opening, totalDr, totalCr, closing: opening + totalDr - totalCr };
-  }, [rawEntries, tallyVouchers, selectedAccount, srcFilter]);
+  }, [rawEntries, tallyVouchers, selectedAccount, srcFilter, report.passesFilter]);
+
+  const { cursor, setCursor } = useRowCursor({
+    count: rows.length,
+    enabled: !open,
+    onEnter: (index) => {
+      const voucherId = rows[index]?.voucherId;
+      if (voucherId) onOpenVoucher?.(voucherId);
+    },
+  });
 
   return (
-    <TallyScreen
-      title="Ledger Vouchers"
-      onClose={onClose}
-      rail={[
-        { hotkey: 'F2', label: 'Period', onClick: () => setShowPeriod((v) => !v) },
-        { hotkey: 'F3', label: 'Company', disabled: true },
-        {
-          hotkey: 'F4',
-          label: 'Ledger',
-          gapBefore: true,
-          onClick: () => {
-            setSelectedAccountId('');
-            setSearch('');
-            setTimeout(() => inputRef.current?.focus(), 0);
-          },
-        },
-        { label: 'Save View', disabled: true, gapBefore: true },
-        sourceRail,
-        { hotkey: 'P', label: 'Print', onClick: () => window.print(), gapBefore: true },
-      ]}
-    >
+    <>
+    <TallyScreen title="Ledger Vouchers" onClose={onClose} rail={report.rail}>
       <div className="px-3 pb-4 pt-1 text-[13px]">
         {/* Ledger picker */}
         <div className="flex items-center gap-2">
@@ -280,15 +292,6 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
             )}
           </div>
         </div>
-        {showPeriod && (
-          <div className="mt-2 flex items-center gap-2 border border-[#9db8d8] bg-[#fdf6d8] px-2 py-1">
-            <span>Period:</span>
-            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="border bg-white px-1" />
-            <span>to</span>
-            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="border bg-white px-1" />
-          </div>
-        )}
-
         {selectedAccount && (
           <>
             {/* Ledger header, Tally style */}
@@ -323,12 +326,15 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
               <div className="py-10 text-center text-gray-400">Loading…</div>
             ) : (
               <>
-                {rows.map((r) => (
+                {rows.map((r, i) => (
                   <div
                     key={r.id}
                     onClick={() => r.voucherId && onOpenVoucher?.(r.voucherId)}
+                    onMouseEnter={() => setCursor(i)}
                     title="Open voucher (alter)"
-                    className="flex cursor-pointer border-b border-dashed border-gray-200 hover:bg-[#fdf6d8]"
+                    className={`flex cursor-pointer border-b border-dashed border-gray-200 ${
+                      cursor === i ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'
+                    }`}
                   >
                     <div className="w-20 px-1">{tallyDateLabel(r.date)}</div>
                     <div className="min-w-0 flex-1 truncate px-1">
@@ -371,6 +377,9 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
         )}
       </div>
     </TallyScreen>
+
+    {report.popups}
+    </>
   );
 };
 

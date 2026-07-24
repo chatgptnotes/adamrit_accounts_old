@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TallyScreen } from './tally/TallyChrome';
+import { useTallyReport } from './tally/useTallyReport';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -114,6 +115,20 @@ const TallyImportExport: React.FC = () => {
   const [fromDate, setFromDate] = useState(today);
   const [toDate, setToDate] = useState(today);
   const [exportingVouchers, setExportingVouchers] = useState(false);
+
+  const report = useTallyReport({
+    from: today,
+    to: today,
+    // A transfer utility has no report columns to compare
+    supportsColumns: false,
+    filterFields: ['Particulars'],
+    views: [
+      { label: 'Tally Live (Gateway)', target: 'tally-live' },
+      { label: 'Chart of Accounts', target: 'chart-of-accounts' },
+      { label: 'Day Book', target: 'day-book' },
+      { label: 'Statistics', target: 'statistics' },
+    ],
+  });
 
   // ------ Masters: Tally XML file → preview ------
   const handleFile = async (file: File): Promise<void> => {
@@ -406,7 +421,8 @@ const TallyImportExport: React.FC = () => {
   };
 
   return (
-    <TallyScreen title="Import / Export — Tally Data" rail={[]}>
+    <>
+    <TallyScreen title="Import / Export — Tally Data" rail={report.rail}>
     <div className="p-2">
     <div className="space-y-6">
       {/* ----- Masters ----- */}
@@ -516,6 +532,9 @@ const TallyImportExport: React.FC = () => {
     </div>
     </div>
     </TallyScreen>
+
+    {report.popups}
+    </>
   );
 };
 
