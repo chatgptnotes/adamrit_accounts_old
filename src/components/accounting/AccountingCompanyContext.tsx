@@ -12,13 +12,37 @@ const AccountingCompanyContext = createContext<AccountingCompanyContextValue | n
 
 const companyKey = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]+/g, '');
 
+const companyIdentity = (company: Company): string =>
+  companyKey(`${company.company_key} ${company.company_name}`);
+
 const preferredCompany = (companies: Company[], preferredKey?: string): Company | undefined => {
   if (preferredKey) {
     const wanted = companyKey(preferredKey);
-    const matched = companies.find((company) =>
-      companyKey(company.company_key || company.company_name).includes(wanted)
-      || wanted.includes(companyKey(company.company_key || company.company_name)),
-    );
+
+    // Hospital configuration uses short keys such as "hope" and "ayushman".
+    // Resolve those before generic substring matching so "hope" cannot select
+    // the separately maintained Hope Pharmacy company.
+    if (wanted === 'hope' || wanted.includes('hopemultispecialty')) {
+      const hopeHospital = companies.find((company) => {
+        const identity = companyIdentity(company);
+        return identity.includes('drm') && identity.includes('hope') && identity.includes('hospital');
+      });
+      if (hopeHospital) return hopeHospital;
+    }
+    if (wanted.includes('ayushman')) {
+      const ayushman = companies.find((company) => companyIdentity(company).includes('ayushman'));
+      if (ayushman) return ayushman;
+    }
+    if (wanted.includes('pharmacy')) {
+      const pharmacy = companies.find((company) => companyIdentity(company).includes('hopepharmacy'));
+      if (pharmacy) return pharmacy;
+    }
+
+    const matched = companies.find((company) => {
+      const key = companyKey(company.company_key);
+      const name = companyKey(company.company_name);
+      return key === wanted || name === wanted || name.includes(wanted) || wanted.includes(name);
+    });
     if (matched) return matched;
   }
   const exact = companyKey('DRM Hope Hospital Private Limited');

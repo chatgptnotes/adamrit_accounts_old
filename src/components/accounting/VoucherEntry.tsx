@@ -60,6 +60,13 @@ interface Account {
   patient_name?: string;
 }
 
+interface NarrationPatient {
+  id: string;
+  name: string;
+  patientCode: string;
+  phone: string;
+}
+
 // A particulars row (single-amount modes: Payment / Receipt / Contra)
 interface ParticularsLine {
   key: number;
@@ -308,10 +315,19 @@ interface NarrationTagTextareaProps {
   value: string;
   onChange: (value: string) => void;
   ledgerAccounts: Account[];
-  patientLedgerAccounts: Account[];
+  patients: NarrationPatient[];
+  onPatientSelect: (patient: NarrationPatient) => void;
   textareaRef: React.MutableRefObject<HTMLTextAreaElement | null>;
   rows: number;
   className?: string;
+}
+
+interface NarrationTagOption {
+  key: string;
+  label: string;
+  secondary: string;
+  searchText: string;
+  patient?: NarrationPatient;
 }
 
 const activeNarrationTag = (value: string, caret: number): ActiveNarrationTag | null => {
@@ -335,7 +351,8 @@ const NarrationTagTextarea = ({
   value,
   onChange,
   ledgerAccounts,
-  patientLedgerAccounts,
+  patients,
+  onPatientSelect,
   textareaRef,
   rows,
   className,
@@ -344,16 +361,25 @@ const NarrationTagTextarea = ({
   const [highlight, setHighlight] = useState(0);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const source = activeTag?.trigger === '#' ? patientLedgerAccounts : ledgerAccounts;
-  const options = useMemo(() => {
+  const options = useMemo<NarrationTagOption[]>(() => {
     if (!activeTag) return [];
     const query = activeTag.query.trim().toLocaleLowerCase();
-    if (!query) return source;
-    return source.filter((account) => {
-      const name = (account.patient_name || account.account_name).toLocaleLowerCase();
-      return name.includes(query) || account.account_code.toLocaleLowerCase().includes(query);
-    });
-  }, [activeTag, source]);
+    const source = activeTag.trigger === '#'
+      ? patients.map((patient) => ({
+          key: patient.id,
+          label: patient.name,
+          secondary: [patient.patientCode, patient.phone].filter(Boolean).join(' · '),
+          searchText: `${patient.name} ${patient.patientCode} ${patient.phone}`.toLocaleLowerCase(),
+          patient,
+        }))
+      : ledgerAccounts.map((account) => ({
+          key: account.id,
+          label: account.account_name,
+          secondary: account.account_code,
+          searchText: `${account.account_name} ${account.account_code}`.toLocaleLowerCase(),
+        }));
+    return query ? source.filter((option) => option.searchText.includes(query)) : source;
+  }, [activeTag, ledgerAccounts, patients]);
 
   const updateActiveTag = (nextValue: string, caret: number | null) => {
     const next = activeNarrationTag(nextValue, caret ?? nextValue.length);
@@ -361,12 +387,9 @@ const NarrationTagTextarea = ({
     setHighlight(0);
   };
 
-  const pick = (account: Account) => {
+  const pick = (option: NarrationTagOption) => {
     if (!activeTag) return;
-    const label = activeTag.trigger === '#'
-      ? account.patient_name || account.account_name
-      : account.account_name;
-    const tag = `${activeTag.trigger}${label}`;
+    const tag = `${activeTag.trigger}${option.label}`;
     const before = value.slice(0, activeTag.start);
     const after = value.slice(activeTag.end);
     const separator = after.startsWith(' ') ? '' : ' ';
@@ -374,6 +397,7 @@ const NarrationTagTextarea = ({
     const nextCaret = before.length + tag.length + separator.length;
 
     onChange(nextValue);
+    if (option.patient) onPatientSelect(option.patient);
     setActiveTag(null);
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
@@ -427,7 +451,7 @@ const NarrationTagTextarea = ({
           }
         }}
         rows={rows}
-        placeholder="Type @ for ledgers or # for patient ledgers"
+        placeholder="Type @ for ledgers or # for patients"
         className={className}
       />
 
@@ -436,33 +460,28 @@ const NarrationTagTextarea = ({
           <div className={`sticky top-0 flex items-center justify-between px-3 py-1.5 text-xs font-semibold text-white ${
             activeTag.trigger === '#' ? 'bg-violet-700' : 'bg-[#16437e]'
           }`}>
-            <span>{activeTag.trigger === '#' ? 'Patient Ledgers' : 'Ledger Accounts'}</span>
+            <span>{activeTag.trigger === '#' ? 'Patients' : 'Ledger Accounts'}</span>
             <span>{options.length}</span>
           </div>
-          {options.length > 0 ? options.map((account, index) => {
-            const label = activeTag.trigger === '#'
-              ? account.patient_name || account.account_name
-              : account.account_name;
-            return (
+          {options.length > 0 ? options.map((option, index) => (
               <button
                 type="button"
-                key={activeTag.trigger === '#' ? account.patient_ledger_id || account.id : account.id}
+                key={option.key}
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => setHighlight(index)}
-                onClick={() => pick(account)}
+                onClick={() => pick(option)}
                 className={`flex w-full items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 text-left text-sm ${
                   index === highlight ? 'bg-[#fdf6d8]' : 'bg-white hover:bg-slate-50'
                 }`}
               >
-                <span className="min-w-0 truncate font-medium">{activeTag.trigger}{label}</span>
-                {activeTag.trigger === '@' && (
-                  <span className="shrink-0 font-mono text-xs text-slate-500">{account.account_code}</span>
+                <span className="min-w-0 truncate font-medium">{activeTag.trigger}{option.label}</span>
+                {option.secondary && (
+                  <span className="shrink-0 font-mono text-xs text-slate-500">{option.secondary}</span>
                 )}
               </button>
-            );
-          }) : (
+            )) : (
             <div className="px-3 py-3 text-sm text-slate-500">
-              No {activeTag.trigger === '#' ? 'patient ledgers' : 'ledger accounts'} match “{activeTag.query}”.
+              No {activeTag.trigger === '#' ? 'patients' : 'ledger accounts'} match “{activeTag.query}”.
             </div>
           )}
         </div>
@@ -672,6 +691,33 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
           patient_id: row.patient_id,
           patient_name: row.patient?.name || row.ledger_name || 'Patient',
         }));
+    },
+  });
+
+  const { data: narrationPatients = [] } = useQuery({
+    queryKey: ['voucher_narration_patients', hospitalConfig.name],
+    enabled: !!hospitalConfig.name,
+    queryFn: async () => {
+      const pageSize = 1000;
+      const allRows: NarrationPatient[] = [];
+      for (let from = 0; ; from += pageSize) {
+        const { data, error } = await supabase
+          .from('patients')
+          .select('id, name, patients_id, phone')
+          .eq('hospital_name', hospitalConfig.name)
+          .order('name')
+          .order('id')
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        allRows.push(...(data || []).map((patient) => ({
+          id: patient.id,
+          name: patient.name,
+          patientCode: patient.patients_id || '',
+          phone: patient.phone || '',
+        })));
+        if (!data || data.length < pageSize) break;
+      }
+      return allRows;
     },
   });
 
@@ -933,6 +979,17 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     }
   };
 
+  // Tablet number keyboards do not consistently emit Enter. Keep one blank
+  // journal row available as soon as the current last row is complete; the
+  // Enter handler above then only needs to move focus to that row.
+  useEffect(() => {
+    setJournalLines((current) => {
+      const last = current[current.length - 1];
+      if (!last?.account || !(Number(last.amount) > 0)) return current;
+      return [...current, newJournalLine(last.drcr === 'Dr' ? 'Cr' : 'Dr')];
+    });
+  }, [journalLines]);
+
   // ------ Clear / reset the entire form ------
   const resetForm = () => {
     setIsOptional(false);
@@ -1069,7 +1126,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
             reference_date: referenceDate || null,
             narration: narration || '',
             total_amount: debitSum,
-            patient_id: inferredPatientId || patientId || null,
+            patient_id: patientId || inferredPatientId || null,
             status: isOptional ? 'PENDING' : status === 'posted' ? 'AUTHORISED' : 'PENDING',
             is_optional: isOptional,
             last_modified_by: username,
@@ -1130,7 +1187,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
           reference_date: referenceDate || null,
           narration: narration || '',
           total_amount: debitSum,
-          patient_id: inferredPatientId || patientId || null,
+          patient_id: patientId || inferredPatientId || null,
           company_id: selectedCompanyId || null,
           // vouchers.status CHECK constraint allows PENDING / AUTHORISED / CANCELLED
           status: isOptional ? 'PENDING' : status === 'posted' ? 'AUTHORISED' : 'PENDING',
@@ -1764,7 +1821,8 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
                   value={narration}
                   onChange={setNarration}
                   ledgerAccounts={accounts}
-                  patientLedgerAccounts={patientLedgerAccounts}
+                  patients={narrationPatients}
+                  onPatientSelect={(patient) => setPatientId(patient.id)}
                   textareaRef={narrationRef}
                   rows={tabletMode ? 4 : 2}
                   className={`mt-1 resize-none rounded-none border-gray-400 bg-white ${
