@@ -75,7 +75,7 @@ export function HospitalPanel({ hospital, period, drill }: Props) {
           subtitle={subtitle}
           icon={LogOut}
           tint="from-green-400 to-green-600"
-          onClick={() => drill(hospital, "/discharged-patients")}
+          onClick={() => drill(hospital, "/discharge")}
         />
         <KpiTile
           label="Currently Admitted"
@@ -83,7 +83,7 @@ export function HospitalPanel({ hospital, period, drill }: Props) {
           subtitle="Live"
           icon={BedDouble}
           tint="from-amber-400 to-amber-600"
-          onClick={() => drill(hospital, "/todays-ipd")}
+          onClick={() => drill(hospital, "/occupancy")}
         />
         <KpiTile
           label="Advance / Collections"
@@ -91,7 +91,7 @@ export function HospitalPanel({ hospital, period, drill }: Props) {
           subtitle={subtitle}
           icon={Wallet}
           tint="from-emerald-400 to-emerald-600"
-          onClick={() => drill(hospital, "/daily-payment-allocation")}
+          onClick={() => drill(hospital, "/advance")}
         />
       </div>
 
