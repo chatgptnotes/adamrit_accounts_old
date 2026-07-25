@@ -12,13 +12,48 @@ const AccountingCompanyContext = createContext<AccountingCompanyContextValue | n
 
 const companyKey = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]+/g, '');
 
-const preferredCompany = (companies: Company[]): Company | undefined => {
+const companyIdentity = (company: Company): string =>
+  companyKey(`${company.company_key} ${company.company_name}`);
+
+const preferredCompany = (companies: Company[], preferredKey?: string): Company | undefined => {
+  if (preferredKey) {
+    const wanted = companyKey(preferredKey);
+
+    // Hospital configuration uses short keys such as "hope" and "ayushman".
+    // Resolve those before generic substring matching so "hope" cannot select
+    // the separately maintained Hope Pharmacy company.
+    if (wanted === 'hope' || wanted.includes('hopemultispecialty')) {
+      const hopeHospital = companies.find((company) => {
+        const identity = companyIdentity(company);
+        return identity.includes('drm') && identity.includes('hope') && identity.includes('hospital');
+      });
+      if (hopeHospital) return hopeHospital;
+    }
+    if (wanted.includes('ayushman')) {
+      const ayushman = companies.find((company) => companyIdentity(company).includes('ayushman'));
+      if (ayushman) return ayushman;
+    }
+    if (wanted.includes('pharmacy')) {
+      const pharmacy = companies.find((company) => companyIdentity(company).includes('hopepharmacy'));
+      if (pharmacy) return pharmacy;
+    }
+
+    const matched = companies.find((company) => {
+      const key = companyKey(company.company_key);
+      const name = companyKey(company.company_name);
+      return key === wanted || name === wanted || name.includes(wanted) || wanted.includes(name);
+    });
+    if (matched) return matched;
+  }
   const exact = companyKey('DRM Hope Hospital Private Limited');
   return companies.find((company) => companyKey(company.company_name) === exact)
     ?? companies.find((company) => companyKey(company.company_name).includes('drmhopehospital'));
 };
 
-export const AccountingCompanyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const AccountingCompanyProvider: React.FC<{
+  children: React.ReactNode;
+  preferredCompanyKey?: string;
+}> = ({ children, preferredCompanyKey }) => {
   const { data: companies = [] } = useCompanies();
   const [selectedCompanyId, setSelectedCompanyId] = useState('');
 
@@ -26,9 +61,9 @@ export const AccountingCompanyProvider: React.FC<{ children: React.ReactNode }> 
     if (companies.length === 0) return;
     setSelectedCompanyId((current) => {
       if (current && companies.some((company) => company.id === current)) return current;
-      return preferredCompany(companies)?.id ?? companies[0].id;
+      return preferredCompany(companies, preferredCompanyKey)?.id ?? companies[0].id;
     });
-  }, [companies]);
+  }, [companies, preferredCompanyKey]);
 
   const cycleCompany = useCallback(() => {
     if (companies.length === 0) return;

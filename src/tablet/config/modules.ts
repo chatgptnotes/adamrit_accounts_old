@@ -28,6 +28,7 @@ import {
   Wallet,
   type LucideIcon,
 } from "lucide-react";
+import { canCreateAccountingVouchers } from "@/lib/accounting-access";
 
 export interface TabletModule {
   /** URL segment under /t/ and lookup key. */
@@ -41,6 +42,8 @@ export interface TabletModule {
   tint: string;
   /** Optional role metadata; tablet home currently does not hard-gate by role. */
   roles?: string[];
+  /** Voucher creation tiles use the shared desktop accounting rights. */
+  accountingOnly?: boolean;
   /** Hide from the tablet home grid while still allowing direct navigation. */
   hiddenFromHome?: boolean;
 }
@@ -118,6 +121,42 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: NotebookPen,
     accent: "text-emerald-700",
     tint: "from-emerald-500 to-cyan-600",
+  },
+  {
+    id: "payment-voucher",
+    label: "Payment Voucher",
+    description: "Create payment voucher with invoice proof",
+    icon: Banknote,
+    accent: "text-red-700",
+    tint: "from-red-500 to-rose-700",
+    accountingOnly: true,
+  },
+  {
+    id: "receipt-voucher",
+    label: "Receipt Voucher",
+    description: "Create receipt voucher with invoice proof",
+    icon: Receipt,
+    accent: "text-emerald-700",
+    tint: "from-emerald-500 to-green-700",
+    accountingOnly: true,
+  },
+  {
+    id: "contra-voucher",
+    label: "Contra Voucher",
+    description: "Transfer between cash and bank ledgers",
+    icon: ArrowLeftRight,
+    accent: "text-blue-700",
+    tint: "from-blue-500 to-indigo-700",
+    accountingOnly: true,
+  },
+  {
+    id: "journal-voucher",
+    label: "Journal Voucher",
+    description: "Create balanced general journal entry",
+    icon: NotebookPen,
+    accent: "text-violet-700",
+    tint: "from-violet-500 to-purple-700",
+    accountingOnly: true,
   },
   {
     id: "payment-collection-gaurav",
@@ -333,6 +372,7 @@ export function modulesForUser(
   // full tile-access filtering here when the tablet role matrix is finalized.
   return TABLET_MODULES.filter((module) => {
     if (module.hiddenFromHome) return false;
+    if (module.accountingOnly && !canCreateAccountingVouchers(user)) return false;
     if (module.roles && module.roles.length > 0) {
       return !!user?.role && module.roles.includes(user.role);
     }

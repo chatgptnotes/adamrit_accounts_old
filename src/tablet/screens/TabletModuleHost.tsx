@@ -22,6 +22,18 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   "accounts-tilak": lazy(
     () => import("@/tablet/modules/accounts-tilak/AccountsTilakFlow"),
   ),
+  "payment-voucher": lazy(
+    () => import("@/tablet/modules/accounting-vouchers/TabletVoucherFlow"),
+  ),
+  "receipt-voucher": lazy(
+    () => import("@/tablet/modules/accounting-vouchers/TabletVoucherFlow"),
+  ),
+  "contra-voucher": lazy(
+    () => import("@/tablet/modules/accounting-vouchers/TabletVoucherFlow"),
+  ),
+  "journal-voucher": lazy(
+    () => import("@/tablet/modules/accounting-vouchers/TabletVoucherFlow"),
+  ),
   "payment-collection-gaurav": lazy(
     () => import("@/tablet/modules/payment-collection-gaurav/PaymentCollectionGauravFlow"),
   ),

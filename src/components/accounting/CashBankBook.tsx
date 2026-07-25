@@ -10,6 +10,7 @@ import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
 import { monthsInPeriod } from './tally/PeriodContext';
 import { useAccountingCompanyOptional } from './AccountingCompanyContext';
+import { VoucherAttachmentButton, useVoucherAttachmentMap } from './VoucherAttachmentViewer';
 
 interface Account {
   id: string;
@@ -129,7 +130,7 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
   const account = accounts.find((a) => a.id === selectedId) || null;
 
   const report = useTallyReport({
-    filterFields: ['Particulars', 'Vch Type', 'Vch No.'],
+    filterFields: ['Particulars', 'Narration', 'Vch Type', 'Vch No.'],
     views: [
       { label: 'Cash/Bank Summary', target: 'cash-bank-summary' },
       { label: 'Bank Reconciliation', target: 'bank-reconciliation' },
@@ -204,6 +205,11 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
       return data as unknown as EntryRow[];
     },
   });
+  const voucherIds = useMemo(
+    () => entries.map((entry) => entry.voucher?.id || '').filter(Boolean),
+    [entries],
+  );
+  const { data: attachmentMap = new Map() } = useVoucherAttachmentMap(voucherIds);
 
   const opening = account
     ? (Number(account.opening_balance) || 0) * (account.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1)
@@ -238,6 +244,7 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
       .filter((e) =>
         report.passesFilter({
           Particulars: e.narration || e.voucher?.narration || '',
+          Narration: e.voucher?.narration || e.narration || '',
           'Vch Type': e.voucher?.voucher_type?.voucher_type_name ?? '',
           'Vch No.': e.voucher?.voucher_number ?? '',
         }),
@@ -369,6 +376,7 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
               <div className="min-w-0 flex-1 px-1">Particulars</div>
               <div className="w-28 px-1">Vch Type</div>
               <div className="w-28 px-1">Vch No.</div>
+              <div className="w-10 px-1 text-center">Files</div>
               <div className="w-32 px-1 text-right">Debit</div>
               <div className="w-32 px-1 text-right">Credit</div>
             </div>
@@ -377,6 +385,7 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
               <div className="min-w-0 flex-1 px-1 font-semibold">Opening Balance</div>
               <div className="w-28 px-1" />
               <div className="w-28 px-1" />
+              <div className="w-10 px-1" />
               <div className="w-32 px-1 text-right font-mono">
                 {monthOpening > 0 ? report.fmtAmount(monthOpening) : ''}
               </div>
@@ -398,6 +407,14 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
                 <div className="min-w-0 flex-1 truncate px-1">{e.narration || e.voucher?.narration || ''}</div>
                 <div className="w-28 px-1">{e.voucher?.voucher_type?.voucher_type_name?.replace(' Voucher', '') || ''}</div>
                 <div className="w-28 px-1 font-mono text-[12px]">{e.voucher?.voucher_number || ''}</div>
+                <div className="w-10 px-1 text-center">
+                  {e.voucher?.id && (
+                    <VoucherAttachmentButton
+                      attachments={attachmentMap.get(e.voucher.id) || []}
+                      voucherNumber={e.voucher.voucher_number || ''}
+                    />
+                  )}
+                </div>
                 <div className="w-32 px-1 text-right font-mono">
                   {Number(e.debit_amount) > 0 ? report.fmtAmount(Number(e.debit_amount)) : ''}
                 </div>
@@ -411,6 +428,7 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
               <div className="min-w-0 flex-1 px-1 font-semibold">Closing Balance</div>
               <div className="w-28 px-1" />
               <div className="w-28 px-1" />
+              <div className="w-10 px-1" />
               {(() => {
                 const c = months.find((m) => m.ym === openMonth)?.closing ?? 0;
                 return (

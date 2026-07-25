@@ -5591,6 +5591,7 @@ export type Database = {
           storage_path: string
           updated_at: string | null
           uploaded_by: string | null
+          voucher_id: string | null
         }
         Insert: {
           capture_source?: string | null
@@ -5615,6 +5616,7 @@ export type Database = {
           storage_path: string
           updated_at?: string | null
           uploaded_by?: string | null
+          voucher_id?: string | null
         }
         Update: {
           capture_source?: string | null
@@ -5639,8 +5641,17 @@ export type Database = {
           storage_path?: string
           updated_at?: string | null
           uploaded_by?: string | null
+          voucher_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "file_uploads_voucher_id_fkey"
+            columns: ["voucher_id"]
+            isOneToOne: false
+            referencedRelation: "vouchers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       final_payments: {
         Row: {

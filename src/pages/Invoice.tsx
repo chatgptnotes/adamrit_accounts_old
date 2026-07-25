@@ -6,6 +6,22 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
+interface InvoiceAmountPaidOverrideEvent {
+  id: string;
+  action: 'set' | 'restore';
+  display_amount: number | string | null;
+  created_by_email: string;
+  created_at: string;
+}
+
+const CMD_EMAIL = 'cmd@hopehospital.com';
+
+const formatMoney = (amount: number): string =>
+  amount.toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
 // Convert amount to words (Indian format)
 const convertAmountToWords = (amount: number): string => {
   const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
@@ -32,10 +48,14 @@ const Invoice = () => {
   const [discountRemoved, setDiscountRemoved] = useState(false);
   const [chargeFilter, setChargeFilter] = useState('all'); // 'all', 'lab', 'radiology', 'surgery'
   const [hideLabRadiology, setHideLabRadiology] = useState(false);
+  const [isEditingPaidOverride, setIsEditingPaidOverride] = useState(false);
+  const [paidOverrideInput, setPaidOverrideInput] = useState('');
+  const [isSavingPaidOverride, setIsSavingPaidOverride] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { visitId } = useParams<{ visitId: string }>();
-  const { hospitalConfig } = useAuth();
+  const { hospitalConfig, user } = useAuth();
+  const isCmdUser = user?.email?.trim().toLowerCase() === CMD_EMAIL;
   const hospitalName = hospitalConfig?.name === 'ayushman' ? 'Ayushman Hospital Nagpur' : 'Hope Hospital Nagpur';
 
   // Fetch patient and visit data
@@ -714,6 +734,33 @@ const Invoice = () => {
       return { totalAmount: pendingAmount };
     },
     enabled: !!visitId && !!visitData?.patients?.patients_id && !!hospitalConfig?.name
+  });
+
+  // The newest append-only event determines whether a display override is active.
+  // Until the supplied migration is applied, this query safely falls back to the
+  // actual paid amount so the existing invoice remains usable.
+  const { data: amountPaidOverrideEvent } = useQuery<InvoiceAmountPaidOverrideEvent | null>({
+    queryKey: ['invoice-amount-paid-override', visitId],
+    queryFn: async () => {
+      if (!visitId) return null;
+
+      const { data, error } = await (supabase as any)
+        .from('invoice_amount_paid_override_events')
+        .select('id, action, display_amount, created_by_email, created_at')
+        .eq('visit_id', visitId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.warn('Amount Paid override is unavailable. Apply the supplied migration to enable it:', error);
+        return null;
+      }
+
+      return data as InvoiceAmountPaidOverrideEvent | null;
+    },
+    enabled: !!visitId,
+    retry: false,
   });
 
   // Show loading state
@@ -1614,10 +1661,96 @@ const Invoice = () => {
 
   const visibleTotal = calculateVisibleTotal();
 
-  // Calculate current discount and balance using actual data
+  const overriddenAmountPaid =
+    amountPaidOverrideEvent?.action === 'set' && amountPaidOverrideEvent.display_amount !== null
+      ? Number(amountPaidOverrideEvent.display_amount)
+      : null;
+  const hasAmountPaidOverride =
+    overriddenAmountPaid !== null && Number.isFinite(overriddenAmountPaid);
+  const displayedAmountPaid = hasAmountPaidOverride
+    ? overriddenAmountPaid
+    : actualAmounts.amountPaid;
+
+  // Calculate the visible balance from the amount shown on the invoice.
   const currentDiscount = discountRemoved ? 0 : actualAmounts.discount;
   // Balance = visibleTotal − (gross paid − refund) − discount
-  const currentBalance = visibleTotal - (actualAmounts.amountPaid - (actualAmounts.refunded || 0)) - currentDiscount;
+  const currentBalance = visibleTotal - (displayedAmountPaid - (actualAmounts.refunded || 0)) - currentDiscount;
+
+  const openPaidOverrideEditor = () => {
+    setPaidOverrideInput(displayedAmountPaid.toFixed(2));
+    setIsEditingPaidOverride(true);
+  };
+
+  const savePaidOverride = async () => {
+    if (!isCmdUser || !visitId) return;
+
+    const normalizedInput = paidOverrideInput.trim();
+    if (!/^\d+(?:\.\d{1,2})?$/.test(normalizedInput)) {
+      toast.error('Enter a non-negative amount with no more than 2 decimal places.');
+      return;
+    }
+
+    const displayAmount = Number(normalizedInput);
+    if (!Number.isFinite(displayAmount) || displayAmount < 0) {
+      toast.error('Enter a valid non-negative amount.');
+      return;
+    }
+
+    setIsSavingPaidOverride(true);
+    try {
+      const { error } = await (supabase as any)
+        .from('invoice_amount_paid_override_events')
+        .insert({
+          visit_id: visitId,
+          action: 'set',
+          display_amount: displayAmount,
+          created_by_email: CMD_EMAIL,
+        });
+
+      if (error) throw error;
+
+      await queryClient.invalidateQueries({
+        queryKey: ['invoice-amount-paid-override', visitId],
+      });
+      setIsEditingPaidOverride(false);
+      toast.success('Displayed Amount Paid updated.');
+    } catch (error) {
+      console.error('Failed to save Amount Paid override:', error);
+      toast.error('Could not save the displayed amount. Confirm the migration has been applied.');
+    } finally {
+      setIsSavingPaidOverride(false);
+    }
+  };
+
+  const restoreActualAmountPaid = async () => {
+    if (!isCmdUser || !visitId || !hasAmountPaidOverride) return;
+    if (!window.confirm('Restore the actual Amount Paid for everyone?')) return;
+
+    setIsSavingPaidOverride(true);
+    try {
+      const { error } = await (supabase as any)
+        .from('invoice_amount_paid_override_events')
+        .insert({
+          visit_id: visitId,
+          action: 'restore',
+          display_amount: null,
+          created_by_email: CMD_EMAIL,
+        });
+
+      if (error) throw error;
+
+      await queryClient.invalidateQueries({
+        queryKey: ['invoice-amount-paid-override', visitId],
+      });
+      setIsEditingPaidOverride(false);
+      toast.success('Actual Amount Paid restored.');
+    } catch (error) {
+      console.error('Failed to restore actual Amount Paid:', error);
+      toast.error('Could not restore the actual amount. Confirm the migration has been applied.');
+    } finally {
+      setIsSavingPaidOverride(false);
+    }
+  };
 
   // Print functionality - matches exact screenshot format
   const handlePrint = () => {
@@ -1875,7 +2008,7 @@ const Invoice = () => {
                 <table>
                   <tr>
                     <td class="label-cell">Amount Paid</td>
-                    <td style="text-align: right;">Rs ${invoiceData.amountPaid.toLocaleString()}.00</td>
+                    <td style="text-align: right;">Rs ${formatMoney(displayedAmountPaid)}</td>
                   </tr>
                   ${(invoiceData.refunded || 0) > 0 ? `
                   <tr>
@@ -2143,8 +2276,85 @@ const Invoice = () => {
                   <tbody>
                     <tr>
                       <td className="border border-gray-400 p-2 bg-gray-100 font-medium">Amount Paid</td>
-                      <td className="border border-gray-400 p-2 text-right">Rs {invoiceData.amountPaid.toLocaleString()}.00</td>
+                      <td className="border border-gray-400 p-2 text-right">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div>Rs {formatMoney(displayedAmountPaid)}</div>
+                            {isCmdUser && hasAmountPaidOverride && (
+                              <div className="mt-1 text-xs text-gray-500">
+                                Actual paid: Rs {formatMoney(actualAmounts.amountPaid)}
+                              </div>
+                            )}
+                          </div>
+                          {isCmdUser && (
+                            <div className="flex shrink-0 justify-end gap-1 no-print">
+                              <button
+                                type="button"
+                                onClick={openPaidOverrideEditor}
+                                disabled={isSavingPaidOverride}
+                                className="rounded bg-amber-500 px-2 py-1 text-xs text-white transition-colors hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {hasAmountPaidOverride ? 'Edit' : 'Hide / Replace'}
+                              </button>
+                              {hasAmountPaidOverride && (
+                                <button
+                                  type="button"
+                                  onClick={restoreActualAmountPaid}
+                                  disabled={isSavingPaidOverride}
+                                  className="rounded bg-gray-600 px-2 py-1 text-xs text-white transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  Restore
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </td>
                     </tr>
+                    {isCmdUser && isEditingPaidOverride && (
+                      <tr className="no-print">
+                        <td className="border border-gray-400 p-2 bg-amber-50 font-medium">
+                          Replacement Amount
+                        </td>
+                        <td className="border border-gray-400 p-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-600">Rs</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              inputMode="decimal"
+                              value={paidOverrideInput}
+                              onChange={(event) => setPaidOverrideInput(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  event.preventDefault();
+                                  void savePaidOverride();
+                                }
+                              }}
+                              className="min-w-0 flex-1 rounded border border-gray-300 px-2 py-1 text-right focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                              autoFocus
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void savePaidOverride()}
+                              disabled={isSavingPaidOverride}
+                              className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {isSavingPaidOverride ? 'Saving…' : 'Save'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setIsEditingPaidOverride(false)}
+                              disabled={isSavingPaidOverride}
+                              className="rounded bg-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-300 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
                     {(invoiceData.refunded || 0) > 0 && (
                       <tr>
                         <td className="border border-gray-400 p-2 bg-gray-100 font-medium">Refund Given</td>

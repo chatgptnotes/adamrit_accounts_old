@@ -26,6 +26,16 @@ import { useCostCentres } from './CostCentres';
 import { useAccountingRights } from './tally/rights';
 import { useAccountingCompany } from './AccountingCompanyContext';
 import { useVoucherActions } from '@/hooks/useVoucherActions';
+import { VoucherAttachmentFields } from './VoucherAttachmentFields';
+import {
+  discardVoucherAttachments,
+  linkVoucherAttachments,
+  missingVoucherTags,
+  VOUCHER_INVOICE_CATEGORY,
+  VOUCHER_ATTACHMENT_CATEGORIES,
+  type VoucherAttachment,
+  type VoucherAttachmentCategory,
+} from '@/lib/voucher-attachments';
 
 // Type definition for a voucher type record
 interface VoucherType {
@@ -45,6 +55,16 @@ interface Account {
   account_name: string;
   account_type: string;
   account_group?: string | null;
+  patient_ledger_id?: string;
+  patient_id?: string;
+  patient_name?: string;
+}
+
+interface NarrationPatient {
+  id: string;
+  name: string;
+  patientCode: string;
+  phone: string;
 }
 
 // A particulars row (single-amount modes: Payment / Receipt / Contra)
@@ -265,7 +285,7 @@ const AccountSearch = ({ accounts, selected, onSelect, placeholder, className, i
           {options.map((a, i) => (
             <button
               type="button"
-              key={a.id}
+              key={a.patient_ledger_id || a.id}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => pick(a)}
               onMouseEnter={() => setHighlight(i)}
@@ -276,6 +296,194 @@ const AccountSearch = ({ accounts, selected, onSelect, placeholder, className, i
               <span>{a.account_name}</span>
             </button>
           ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+type NarrationTagTrigger = '@' | '#';
+
+interface ActiveNarrationTag {
+  trigger: NarrationTagTrigger;
+  query: string;
+  start: number;
+  end: number;
+}
+
+interface NarrationTagTextareaProps {
+  value: string;
+  onChange: (value: string) => void;
+  ledgerAccounts: Account[];
+  patients: NarrationPatient[];
+  onPatientSelect: (patient: NarrationPatient) => void;
+  textareaRef: React.MutableRefObject<HTMLTextAreaElement | null>;
+  rows: number;
+  className?: string;
+}
+
+interface NarrationTagOption {
+  key: string;
+  label: string;
+  secondary: string;
+  searchText: string;
+  patient?: NarrationPatient;
+}
+
+const activeNarrationTag = (value: string, caret: number): ActiveNarrationTag | null => {
+  const beforeCaret = value.slice(0, caret);
+  const match = beforeCaret.match(/(?:^|[\s([{,:;])([@#])([^\s@#]*)$/);
+  if (!match) return null;
+
+  const trigger = match[1] as NarrationTagTrigger;
+  const query = match[2] || '';
+  const start = caret - query.length - 1;
+  let end = caret;
+  while (end < value.length && !/[\s@#]/.test(value[end])) end += 1;
+  return { trigger, query, start, end };
+};
+
+/**
+ * Plain-text @ledger / #patient autocomplete. Tags stay normal narration text
+ * so existing report search and exports continue to work without a new format.
+ */
+const NarrationTagTextarea = ({
+  value,
+  onChange,
+  ledgerAccounts,
+  patients,
+  onPatientSelect,
+  textareaRef,
+  rows,
+  className,
+}: NarrationTagTextareaProps) => {
+  const [activeTag, setActiveTag] = useState<ActiveNarrationTag | null>(null);
+  const [highlight, setHighlight] = useState(0);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const options = useMemo<NarrationTagOption[]>(() => {
+    if (!activeTag) return [];
+    const query = activeTag.query.trim().toLocaleLowerCase();
+    const source = activeTag.trigger === '#'
+      ? patients.map((patient) => ({
+          key: patient.id,
+          label: patient.name,
+          secondary: [patient.patientCode, patient.phone].filter(Boolean).join(' · '),
+          searchText: `${patient.name} ${patient.patientCode} ${patient.phone}`.toLocaleLowerCase(),
+          patient,
+        }))
+      : ledgerAccounts.map((account) => ({
+          key: account.id,
+          label: account.account_name,
+          secondary: account.account_code,
+          searchText: `${account.account_name} ${account.account_code}`.toLocaleLowerCase(),
+        }));
+    return query ? source.filter((option) => option.searchText.includes(query)) : source;
+  }, [activeTag, ledgerAccounts, patients]);
+
+  const updateActiveTag = (nextValue: string, caret: number | null) => {
+    const next = activeNarrationTag(nextValue, caret ?? nextValue.length);
+    setActiveTag(next);
+    setHighlight(0);
+  };
+
+  const pick = (option: NarrationTagOption) => {
+    if (!activeTag) return;
+    const tag = `${activeTag.trigger}${option.label}`;
+    const before = value.slice(0, activeTag.start);
+    const after = value.slice(activeTag.end);
+    const separator = after.startsWith(' ') ? '' : ' ';
+    const nextValue = `${before}${tag}${separator}${after}`;
+    const nextCaret = before.length + tag.length + separator.length;
+
+    onChange(nextValue);
+    if (option.patient) onPatientSelect(option.patient);
+    setActiveTag(null);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
+  useEffect(() => () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+  }, []);
+
+  return (
+    <div className="relative">
+      <Textarea
+        id="voucher_narration"
+        ref={textareaRef}
+        value={value}
+        onChange={(event) => {
+          const nextValue = event.target.value;
+          onChange(nextValue);
+          updateActiveTag(nextValue, event.target.selectionStart);
+        }}
+        onSelect={(event) => {
+          const target = event.currentTarget;
+          updateActiveTag(value, target.selectionStart);
+        }}
+        onFocus={(event) => updateActiveTag(value, event.currentTarget.selectionStart)}
+        onBlur={() => {
+          closeTimer.current = setTimeout(() => setActiveTag(null), 150);
+        }}
+        onKeyDown={(event) => {
+          if (!activeTag) return;
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            setActiveTag(null);
+            return;
+          }
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            setHighlight((current) => Math.min(current + 1, Math.max(options.length - 1, 0)));
+            return;
+          }
+          if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            setHighlight((current) => Math.max(current - 1, 0));
+            return;
+          }
+          if ((event.key === 'Enter' || event.key === 'Tab') && options[highlight]) {
+            event.preventDefault();
+            pick(options[highlight]);
+          }
+        }}
+        rows={rows}
+        placeholder="Type @ for ledgers or # for patients"
+        className={className}
+      />
+
+      {activeTag && (
+        <div className="absolute z-40 mt-1 max-h-72 w-full overflow-y-auto border border-[#9db8d8] bg-white text-slate-900 shadow-xl">
+          <div className={`sticky top-0 flex items-center justify-between px-3 py-1.5 text-xs font-semibold text-white ${
+            activeTag.trigger === '#' ? 'bg-violet-700' : 'bg-[#16437e]'
+          }`}>
+            <span>{activeTag.trigger === '#' ? 'Patients' : 'Ledger Accounts'}</span>
+            <span>{options.length}</span>
+          </div>
+          {options.length > 0 ? options.map((option, index) => (
+              <button
+                type="button"
+                key={option.key}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setHighlight(index)}
+                onClick={() => pick(option)}
+                className={`flex w-full items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 text-left text-sm ${
+                  index === highlight ? 'bg-[#fdf6d8]' : 'bg-white hover:bg-slate-50'
+                }`}
+              >
+                <span className="min-w-0 truncate font-medium">{activeTag.trigger}{option.label}</span>
+                {option.secondary && (
+                  <span className="shrink-0 font-mono text-xs text-slate-500">{option.secondary}</span>
+                )}
+              </button>
+            )) : (
+            <div className="px-3 py-3 text-sm text-slate-500">
+              No {activeTag.trigger === '#' ? 'patients' : 'ledger accounts'} match “{activeTag.query}”.
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -293,6 +501,10 @@ interface VoucherEntryProps {
   duplicateFromId?: string;
   /** Tally's "I: Insert Vch" — open a new voucher already dated to this day */
   initialDate?: string;
+  /** Keep a tablet tile on its requested voucher type. */
+  lockedVoucherCategory?: string;
+  /** Applies touch-sized controls while retaining the canonical form and save path. */
+  tabletMode?: boolean;
 }
 
 const VoucherEntry: React.FC<VoucherEntryProps> = ({
@@ -301,6 +513,8 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
   initialVoucherCategory,
   duplicateFromId,
   initialDate,
+  lockedVoucherCategory,
+  tabletMode = false,
 }) => {
   const queryClient = useQueryClient();
   const { user, hospitalConfig } = useAuth();
@@ -322,6 +536,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
   const [narration, setNarration] = useState('');
   const [patientId, setPatientId] = useState('');
   const [saving, setSaving] = useState(false);
+  const [attachments, setAttachments] = useState<VoucherAttachment[]>([]);
   // Alteration mode: keep the original number/status; force journal layout
   // when an old voucher's entries don't fit the single-account shape.
   const [loadedNumber, setLoadedNumber] = useState('');
@@ -442,6 +657,104 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     },
   });
 
+  const { data: patientLedgerAccounts = [] } = useQuery({
+    queryKey: ['voucher_patient_ledgers', selectedCompanyId],
+    enabled: !!selectedCompanyId,
+    queryFn: async () => {
+      const pageSize = 1000;
+      const allRows: any[] = [];
+      for (let from = 0; ; from += pageSize) {
+        const { data, error } = await (supabase as any)
+          .from('patient_ledgers')
+          .select(`
+            id, patient_id, ledger_name, account_id,
+            patient:patients(id, name),
+            account:chart_of_accounts!inner(id, account_code, account_name, account_type, account_group, company_id)
+          `)
+          .eq('is_active', true)
+          .eq('account.company_id', selectedCompanyId)
+          .order('ledger_name')
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        allRows.push(...(data || []));
+        if (!data || data.length < pageSize) break;
+      }
+      return allRows
+        .filter((row: any) => row.account_id && row.patient_id)
+        .map((row: any): Account => ({
+          id: row.account_id,
+          account_code: row.account?.account_code || '',
+          account_name: row.patient?.name || row.ledger_name || 'Patient',
+          account_type: row.account?.account_type || 'CURRENT_ASSETS',
+          account_group: row.account?.account_group || null,
+          patient_ledger_id: row.id,
+          patient_id: row.patient_id,
+          patient_name: row.patient?.name || row.ledger_name || 'Patient',
+        }));
+    },
+  });
+
+  const { data: narrationPatients = [] } = useQuery({
+    queryKey: ['voucher_narration_patients', hospitalConfig.name],
+    enabled: !!hospitalConfig.name,
+    queryFn: async () => {
+      const pageSize = 1000;
+      const allRows: NarrationPatient[] = [];
+      for (let from = 0; ; from += pageSize) {
+        const { data, error } = await supabase
+          .from('patients')
+          .select('id, name, patients_id, phone')
+          .eq('hospital_name', hospitalConfig.name)
+          .order('name')
+          .order('id')
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        allRows.push(...(data || []).map((patient) => ({
+          id: patient.id,
+          name: patient.name,
+          patientCode: patient.patients_id || '',
+          phone: patient.phone || '',
+        })));
+        if (!data || data.length < pageSize) break;
+      }
+      return allRows;
+    },
+  });
+
+  const selectableAccounts = useMemo(
+    () => [...patientLedgerAccounts, ...accounts],
+    [patientLedgerAccounts, accounts],
+  );
+
+  const { data: linkedAttachments = [] } = useQuery({
+    queryKey: ['voucher-entry-attachments', voucherId],
+    enabled: !!voucherId,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('file_uploads')
+        .select('id, voucher_id, file_name, file_url, file_type, file_size, storage_path, category, created_at')
+        .eq('voucher_id', voucherId)
+        .in('category', [...VOUCHER_ATTACHMENT_CATEGORIES])
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      return (data || []).map((row: any): VoucherAttachment => ({
+        id: row.id,
+        voucherId: row.voucher_id,
+        fileName: row.file_name,
+        fileUrl: row.file_url || '',
+        fileType: row.file_type || 'application/octet-stream',
+        fileSize: Number(row.file_size || 0),
+        storagePath: row.storage_path || '',
+        category: row.category as VoucherAttachmentCategory,
+        createdAt: row.created_at,
+      }));
+    },
+  });
+
+  useEffect(() => {
+    if (linkedAttachments.length) setAttachments(linkedAttachments);
+  }, [linkedAttachments]);
+
   // In payment, receipt and contra vouchers the Account side must be a cash or
   // bank ledger, matching the account picker in Tally. Particulars still shows
   // the remaining company ledgers.
@@ -453,19 +766,20 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
   // When opened from a Tally shortcut, select the requested voucher category
   // once the active voucher types have loaded. Alteration mode always wins.
   useEffect(() => {
-    if (alterMode || selectedVoucherType || !initialVoucherCategory || voucherTypes.length === 0) return;
-    const requested = initialVoucherCategory.toUpperCase();
+    const requestedCategory = lockedVoucherCategory || initialVoucherCategory;
+    if (alterMode || selectedVoucherType || !requestedCategory || voucherTypes.length === 0) return;
+    const requested = requestedCategory.toUpperCase();
     const matchingType = voucherTypes.find((type) => type.voucher_category?.toUpperCase() === requested);
     if (matchingType) setSelectedVoucherType(matchingType.id);
-  }, [alterMode, initialVoucherCategory, selectedVoucherType, voucherTypes]);
+  }, [alterMode, initialVoucherCategory, lockedVoucherCategory, selectedVoucherType, voucherTypes]);
 
   // New voucher entry opens on Payment by default. Explicit shortcuts and
   // alteration mode take priority over this default.
   useEffect(() => {
-    if (alterMode || selectedVoucherType || initialVoucherCategory || voucherTypes.length === 0) return;
+    if (alterMode || selectedVoucherType || initialVoucherCategory || lockedVoucherCategory || voucherTypes.length === 0) return;
     const paymentType = voucherTypes.find((type) => type.voucher_category?.toUpperCase() === 'PAYMENT');
     if (paymentType) setSelectedVoucherType(paymentType.id);
-  }, [alterMode, initialVoucherCategory, selectedVoucherType, voucherTypes]);
+  }, [alterMode, initialVoucherCategory, lockedVoucherCategory, selectedVoucherType, voucherTypes]);
 
   // ------ Alteration mode: load the voucher and populate the form ------
   const { data: loadedVoucher } = useQuery({
@@ -497,6 +811,15 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     setIsOptional(!!loadedVoucher.is_optional);
 
     const byId = new Map(accounts.map((a) => [a.id, a]));
+    const patientByLedgerId = new Map<string, Account>(
+      patientLedgerAccounts
+        .filter((a) => !!a.patient_ledger_id)
+        .map((a) => [a.patient_ledger_id!, a]),
+    );
+    const resolveAccount = (entry: any): Account | null =>
+      (entry.patient_ledger_id ? patientByLedgerId.get(entry.patient_ledger_id) : undefined)
+      ?? byId.get(entry.account_id)
+      ?? null;
     const entries = [...(loadedVoucher.voucher_entries ?? [])].sort(
       (a: any, b: any) => (a.entry_order || 0) - (b.entry_order || 0),
     );
@@ -505,9 +828,9 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     const accSide = mode
       ? entries.filter((e: any) => (mode.accountIsDebit ? Number(e.debit_amount) > 0 : Number(e.credit_amount) > 0))
       : [];
-    if (mode && accSide.length === 1 && byId.has(accSide[0].account_id)) {
+    if (mode && accSide.length === 1 && resolveAccount(accSide[0])) {
       setForceJournal(false);
-      setAccount(byId.get(accSide[0].account_id) ?? null);
+      setAccount(resolveAccount(accSide[0]));
       const partSide = entries.filter((e: any) =>
         mode.accountIsDebit ? Number(e.credit_amount) > 0 : Number(e.debit_amount) > 0,
       );
@@ -515,7 +838,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
         partSide.length > 0
           ? partSide.map((e: any) => ({
               key: ++lineKey.current,
-              account: byId.get(e.account_id) ?? null,
+              account: resolveAccount(e),
               amount: String(mode.accountIsDebit ? Number(e.credit_amount) : Number(e.debit_amount)),
               costCentreId: e.cost_centre_id ?? undefined,
               billRef: e.bill_ref ?? undefined,
@@ -530,7 +853,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
         .map((e: any) => ({
           key: ++lineKey.current,
           drcr: (Number(e.debit_amount) > 0 ? 'Dr' : 'Cr') as 'Dr' | 'Cr',
-          account: byId.get(e.account_id) ?? null,
+          account: resolveAccount(e),
           amount: String(Number(e.debit_amount) > 0 ? Number(e.debit_amount) : Number(e.credit_amount)),
           costCentreId: e.cost_centre_id ?? undefined,
           billRef: e.bill_ref ?? undefined,
@@ -538,7 +861,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
       setJournalLines(rows.length >= 2 ? rows : [newJournalLine('Dr'), newJournalLine('Cr')]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadedVoucher, accounts, voucherTypes]);
+  }, [loadedVoucher, accounts, patientLedgerAccounts, voucherTypes]);
 
   // ------ Derive the auto-generated voucher number ------
   const selectedType = useMemo(
@@ -561,6 +884,28 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     ? loadedNumber
     : voucherNumberOverride || generatedVoucherNumber;
   const singleMode = forceJournal ? undefined : SINGLE_ACCOUNT_MODES[category];
+  const voucherAccounts = useMemo(() => {
+    if (singleMode) {
+      return [
+        ...(account ? [account] : []),
+        ...partLines.filter((line) => line.account && Number(line.amount) > 0).map((line) => line.account!),
+      ];
+    }
+    return journalLines.filter((line) => line.account && Number(line.amount) > 0).map((line) => line.account!);
+  }, [singleMode, account, partLines, journalLines]);
+  const requiredTags = useMemo(
+    () => [...new Set(voucherAccounts.map((ledger) =>
+      ledger.patient_ledger_id
+        ? `#${ledger.patient_name || ledger.account_name}`
+        : `@${ledger.account_name}`,
+    ))],
+    [voucherAccounts],
+  );
+  const inferredPatientId = useMemo(() => {
+    const ids = [...new Set(voucherAccounts.map((ledger) => ledger.patient_id).filter(Boolean))];
+    return ids.length === 1 ? ids[0]! : '';
+  }, [voucherAccounts]);
+  const requiresAttachments = !alterMode && ['PAYMENT', 'RECEIPT', 'CONTRA', 'JOURNAL'].includes(category);
 
   // ------ Computed totals ------
   const partTotal = useMemo(
@@ -634,8 +979,19 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     }
   };
 
+  // Tablet number keyboards do not consistently emit Enter. Keep one blank
+  // journal row available as soon as the current last row is complete; the
+  // Enter handler above then only needs to move focus to that row.
+  useEffect(() => {
+    setJournalLines((current) => {
+      const last = current[current.length - 1];
+      if (!last?.account || !(Number(last.amount) > 0)) return current;
+      return [...current, newJournalLine(last.drcr === 'Dr' ? 'Cr' : 'Dr')];
+    });
+  }, [journalLines]);
+
   // ------ Clear / reset the entire form ------
-  const handleClear = () => {
+  const resetForm = () => {
     setIsOptional(false);
     setVoucherDate(format(new Date(), 'yyyy-MM-dd'));
     setReferenceNumber('');
@@ -645,10 +1001,30 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     setAccount(null);
     setPartLines([newParticularsLine()]);
     setJournalLines([newJournalLine('Dr'), newJournalLine('Cr')]);
+    setAttachments([]);
+  };
+
+  const handleClear = async () => {
+    await discardVoucherAttachments(attachments);
+    resetForm();
+  };
+
+  const handleQuit = async () => {
+    await discardVoucherAttachments(attachments);
+    if (alterMode) onDone?.();
+    else resetForm();
   };
 
   // Build the double-entry rows for the current mode.
-  const buildEntries = (): { account_id: string; debit_amount: number; credit_amount: number; narration: string }[] | null => {
+  const buildEntries = (): {
+    account_id: string;
+    patient_ledger_id?: string | null;
+    debit_amount: number;
+    credit_amount: number;
+    narration: string;
+    cost_centre_id?: string | null;
+    bill_ref?: string | null;
+  }[] | null => {
     if (singleMode) {
       if (!account) {
         toast.error('Select the Account ledger.');
@@ -666,6 +1042,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
         credit_amount: singleMode.accountIsDebit ? 0 : total,
         narration: '',
         cost_centre_id: null as string | null,
+        patient_ledger_id: account.patient_ledger_id || null,
       };
       const lineRows = filled.map((l) => ({
         account_id: l.account!.id,
@@ -674,6 +1051,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
         narration: '',
         cost_centre_id: l.costCentreId || null,
         bill_ref: l.billRef?.trim() || null,
+        patient_ledger_id: l.account!.patient_ledger_id || null,
       }));
       return [accountRow, ...lineRows];
     }
@@ -689,6 +1067,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
       narration: '',
       cost_centre_id: l.costCentreId || null,
       bill_ref: l.billRef?.trim() || null,
+      patient_ledger_id: l.account!.patient_ledger_id || null,
     }));
   };
 
@@ -701,6 +1080,21 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     if (!selectedVoucherType) {
       toast.error('Select a voucher type.');
       return;
+    }
+    if (requiresAttachments && !attachments.some((item) => item.category === VOUCHER_INVOICE_CATEGORY)) {
+      toast.error('Upload at least one invoice, bill, or approval before saving.');
+      return;
+    }
+    if (requiresAttachments && !narration.trim()) {
+      toast.error('Generate or enter a narration before saving.');
+      return;
+    }
+    if (requiresAttachments) {
+      const missingTags = missingVoucherTags(narration, requiredTags);
+      if (missingTags.length) {
+        toast.error(`Narration must include: ${missingTags.join(', ')}`);
+        return;
+      }
     }
 
     const validEntries = buildEntries();
@@ -732,7 +1126,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
             reference_date: referenceDate || null,
             narration: narration || '',
             total_amount: debitSum,
-            patient_id: patientId || null,
+            patient_id: patientId || inferredPatientId || null,
             status: isOptional ? 'PENDING' : status === 'posted' ? 'AUTHORISED' : 'PENDING',
             is_optional: isOptional,
             last_modified_by: username,
@@ -755,6 +1149,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
             credit_amount: e.credit_amount || 0,
             narration: e.narration || '',
             entry_order: i + 1,
+            patient_ledger_id: e.patient_ledger_id || null,
             ...(costCentres.length > 0 ? { cost_centre_id: (e as any).cost_centre_id ?? null } : {}),
             ...(billRefEnabled ? { bill_ref: (e as any).bill_ref ?? null } : {}),
           })),
@@ -763,10 +1158,12 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
           toast.error('Failed to save entries: ' + iErr.message);
           throw iErr;
         }
+        await linkVoucherAttachments(voucherId!, attachments, username);
         toast.success(`Voucher ${loadedNumber} altered.`);
         queryClient.invalidateQueries({ queryKey: ['vouchers'] });
         queryClient.invalidateQueries({ queryKey: ['daybook_vouchers'] });
         queryClient.invalidateQueries({ queryKey: ['ledger_entries'] });
+        queryClient.invalidateQueries({ queryKey: ['voucher-attachments'] });
         setBalances({});
         onDone?.();
         return;
@@ -790,7 +1187,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
           reference_date: referenceDate || null,
           narration: narration || '',
           total_amount: debitSum,
-          patient_id: patientId || null,
+          patient_id: patientId || inferredPatientId || null,
           company_id: selectedCompanyId || null,
           // vouchers.status CHECK constraint allows PENDING / AUTHORISED / CANCELLED
           status: isOptional ? 'PENDING' : status === 'posted' ? 'AUTHORISED' : 'PENDING',
@@ -813,14 +1210,24 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
         credit_amount: e.credit_amount || 0,
         narration: e.narration || '',
         entry_order: i + 1,
+        patient_ledger_id: e.patient_ledger_id || null,
         ...(costCentres.length > 0 ? { cost_centre_id: (e as any).cost_centre_id ?? null } : {}),
         ...(billRefEnabled ? { bill_ref: (e as any).bill_ref ?? null } : {}),
       }));
 
       const { error: eErr } = await supabase.from('voucher_entries').insert(entryRows);
       if (eErr) {
+        await supabase.from('vouchers').delete().eq('id', voucher.id);
         toast.error('Failed to save entries: ' + eErr.message);
         throw eErr;
+      }
+
+      try {
+        await linkVoucherAttachments(voucher.id, attachments, username);
+      } catch (attachmentError) {
+        await supabase.from('vouchers').delete().eq('id', voucher.id);
+        await discardVoucherAttachments(attachments);
+        throw attachmentError;
       }
 
       await supabase
@@ -848,10 +1255,13 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
 
       queryClient.invalidateQueries({ queryKey: ['vouchers'] });
       queryClient.invalidateQueries({ queryKey: ['voucher_types'] });
+      queryClient.invalidateQueries({ queryKey: ['voucher-attachments'] });
       setBalances({});
-      handleClear();
-    } catch {
-      // Error toasts are already shown above
+      resetForm();
+    } catch (error) {
+      if (error instanceof Error && !error.message.toLowerCase().includes('failed')) {
+        toast.error(error.message);
+      }
     } finally {
       setSaving(false);
     }
@@ -971,6 +1381,13 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
           : []),
       ];
     }
+    if (lockedVoucherCategory) {
+      return [
+        { hotkey: 'F2', label: 'Date', onClick: openDatePicker },
+        { hotkey: 'L', label: 'Optional', gapBefore: true, onClick: () => setIsOptional((v) => !v), active: isOptional },
+        { hotkey: 'P', label: 'Print Vch', gapBefore: true, onClick: printVoucher },
+      ];
+    }
     // Match on the category, falling back to the type's name — companies label
     // these inconsistently ("CREDIT NOTE" / "CREDIT_NOTE" / a Credit Note type
     // filed under the Sales category), and a greyed Ctrl+F8 next to a working
@@ -1024,7 +1441,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     items.push({ hotkey: 'P', label: 'Print Vch', gapBefore: true, onClick: printVoucher });
     return items;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [voucherTypes, selectedVoucherType, alterMode, isOptional, canAlter, openDatePicker, voucherDate]);
+  }, [voucherTypes, selectedVoucherType, alterMode, isOptional, canAlter, openDatePicker, voucherDate, lockedVoucherCategory]);
 
   const accountBalance = account ? balances[account.id] : undefined;
 
@@ -1039,7 +1456,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
         : undefined;
 
   return (
-    <>
+    <div className={tabletMode ? 'tablet-voucher-flow h-full overflow-auto' : undefined}>
     <TallyScreen
       title={alterMode ? "Accounting Voucher Alteration" : "Accounting Voucher Creation"}
       rail={rail}
@@ -1059,7 +1476,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
           mod: 'ctrl',
           aliases: [{ hotkey: 'Q' }],
           label: 'Quit',
-          onClick: () => (alterMode ? onDone?.() : handleClear()),
+          onClick: () => void handleQuit(),
         },
         { hotkey: 'F1', label: 'Help', onClick: () => window.dispatchEvent(new CustomEvent('tally-help')) },
         { hotkey: 'P', label: 'Print Vch', onClick: selectedType ? printVoucher : undefined },
@@ -1164,7 +1581,9 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
                 <div key={line.key} className="flex items-start gap-2 py-0.5">
                   <div className="flex-1">
                     <AccountSearch
-                      accounts={accounts.filter((candidate) => candidate.id !== account?.id)}
+                      accounts={selectableAccounts.filter((candidate) =>
+                        candidate.patient_ledger_id || candidate.id !== account?.id,
+                      )}
                       selected={line.account}
                       onSelect={(a) => {
                         updatePartLine(line.key, { account: a });
@@ -1266,7 +1685,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
                   </Select>
                   <div className="flex-1">
                     <AccountSearch
-                      accounts={accounts}
+                      accounts={selectableAccounts}
                       selected={line.account}
                       onSelect={(a) => {
                         updateJournalLine(line.key, { account: a });
@@ -1366,71 +1785,104 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
           </>
         )}
 
-        {/* Narration + patient + actions */}
+        {/* Voucher evidence, searchable narration tags, and actions */}
         {selectedType && (
-          <div className="mt-8 flex items-end justify-between gap-4">
-            <div className="w-full max-w-2xl">
-              <Label htmlFor="voucher_narration" className="text-[13px] font-semibold">
-                Narration:
-              </Label>
-              <Textarea
-                id="voucher_narration"
-                ref={narrationRef}
-                value={narration}
-                onChange={(e) => setNarration(e.target.value)}
-                rows={2}
-                className="mt-1 resize-none rounded-none border-gray-400 bg-white text-[13px]"
+          <div className="mt-8 space-y-4">
+            {(['PAYMENT', 'RECEIPT', 'CONTRA', 'JOURNAL'].includes(category) || attachments.length > 0) && (
+              <VoucherAttachmentFields
+                attachments={attachments}
+                onChange={setAttachments}
+                disabled={saving || !canAlter}
+                compact={!tabletMode}
               />
-              <div className="mt-2 flex items-center gap-2">
-                <Label htmlFor="patient_id" className="shrink-0 text-xs text-gray-600">
-                  Patient (optional)
-                </Label>
-                <Input
-                  id="patient_id"
-                  value={patientId}
-                  onChange={(e) => setPatientId(e.target.value)}
-                  placeholder="Enter patient ID"
-                  className="h-6 w-56 text-xs"
+            )}
+            <div className={`flex items-end justify-between gap-4 ${tabletMode ? 'flex-col items-stretch' : ''}`}>
+              <div className="w-full max-w-3xl">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Label htmlFor="voucher_narration" className="text-[13px] font-semibold">
+                    Narration:
+                  </Label>
+                  {requiredTags.length > 0 && (
+                    <div className="flex flex-wrap justify-end gap-1">
+                      {requiredTags.map((tag) => (
+                        <span
+                          key={tag}
+                          className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${
+                            tag.startsWith('#') ? 'bg-violet-100 text-violet-800' : 'bg-blue-100 text-blue-800'
+                          }`}
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <NarrationTagTextarea
+                  value={narration}
+                  onChange={setNarration}
+                  ledgerAccounts={accounts}
+                  patients={narrationPatients}
+                  onPatientSelect={(patient) => setPatientId(patient.id)}
+                  textareaRef={narrationRef}
+                  rows={tabletMode ? 4 : 2}
+                  className={`mt-1 resize-none rounded-none border-gray-400 bg-white ${
+                    tabletMode ? 'min-h-28 text-base' : 'text-[13px]'
+                  }`}
                 />
+                {inferredPatientId && (
+                  <div className="mt-1 text-xs font-medium text-violet-700">
+                    Patient ledger linked automatically from the selected #patient.
+                  </div>
+                )}
               </div>
-            </div>
-            <div className="flex shrink-0 gap-1">
-              {!canAlter && (
-                <span className="self-center bg-gray-200 px-2 py-0.5 text-[11px] font-semibold text-gray-600">VIEW ONLY</span>
-              )}
-              {canAlter && (
-              <>
-              <Button variant="outline" size="sm" className="h-7 rounded-none text-xs" onClick={() => saveVoucher('draft')} disabled={saving}>
-                {saving && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-                Save as Pending
-              </Button>
-              {/* Tally ends a voucher with "Accept? Yes / No", not a Save button */}
-              <span className="self-center pl-2 pr-1 text-[13px] font-semibold">Accept?</span>
-              <Button size="sm" className="h-7 rounded-none bg-[#16437e] text-xs hover:bg-[#0f3363]" onClick={() => saveVoucher('posted')} disabled={saving}>
-                {saving && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-                Yes
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                className="h-7 rounded-none text-xs"
-                onClick={() => (alterMode ? onDone?.() : handleClear())}
-                disabled={saving}
-              >
-                No
-              </Button>
-              </>
-              )}
-              {!canAlter && (
+              <div className={`flex shrink-0 flex-wrap gap-2 ${tabletMode ? 'w-full' : ''}`}>
+                {!canAlter && (
+                  <span className="self-center bg-gray-200 px-2 py-0.5 text-[11px] font-semibold text-gray-600">VIEW ONLY</span>
+                )}
+                {canAlter && (
+                <>
+                <Button
+                  variant="outline"
+                  size={tabletMode ? 'default' : 'sm'}
+                  className={tabletMode ? 'h-12 flex-1 text-base' : 'h-7 rounded-none text-xs'}
+                  onClick={() => void saveVoucher('draft')}
+                  disabled={saving}
+                >
+                  {saving && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                  Save as Pending
+                </Button>
+                {!tabletMode && <span className="self-center pl-2 pr-1 text-[13px] font-semibold">Accept?</span>}
+                <Button
+                  size={tabletMode ? 'default' : 'sm'}
+                  className={tabletMode ? 'h-12 flex-1 bg-[#16437e] text-base' : 'h-7 rounded-none bg-[#16437e] text-xs hover:bg-[#0f3363]'}
+                  onClick={() => void saveVoucher('posted')}
+                  disabled={saving}
+                >
+                  {saving && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                  {tabletMode ? 'Save Voucher' : 'Yes'}
+                </Button>
                 <Button
                   variant="secondary"
-                  size="sm"
-                  className="h-7 rounded-none text-xs"
-                  onClick={() => (alterMode ? onDone?.() : handleClear())}
+                  size={tabletMode ? 'default' : 'sm'}
+                  className={tabletMode ? 'h-12' : 'h-7 rounded-none text-xs'}
+                  onClick={() => void handleQuit()}
+                  disabled={saving}
                 >
-                  <span className="underline">Q</span>: Quit
+                  {tabletMode ? 'Clear' : 'No'}
                 </Button>
-              )}
+                </>
+                )}
+                {!canAlter && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="h-7 rounded-none text-xs"
+                    onClick={() => void handleQuit()}
+                  >
+                    <span className="underline">Q</span>: Quit
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -1453,7 +1905,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
         onClose={() => setAllocFor(null)}
       />
     )}
-    </>
+    </div>
   );
 };
 

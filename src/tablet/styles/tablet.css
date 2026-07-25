@@ -48,6 +48,50 @@
   overscroll-behavior: none;
 }
 
+/* The tablet voucher tiles reuse the canonical desktop accounting form.
+   It is a light Tally canvas inside the dark tablet shell, so reset the
+   shadcn colour tokens here as well as increasing the tap targets. Without
+   this scope, tablet foreground/background tokens produce white text on the
+   pale Tally header, fields, and ledger rows. */
+.tablet-voucher-flow {
+  --background: 0 0% 100%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --primary: 214 67% 30%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 210 40% 94%;
+  --accent-foreground: 222 47% 11%;
+  --border: 214 32% 80%;
+  --input: 214 32% 80%;
+  --ring: 214 67% 30%;
+  color: hsl(var(--foreground));
+  color-scheme: light;
+}
+
+.tablet-voucher-flow input,
+.tablet-voucher-flow textarea,
+.tablet-voucher-flow [role="combobox"] {
+  min-height: 44px;
+  font-size: 16px;
+}
+
+.tablet-voucher-flow button {
+  min-height: 40px;
+}
+
+@media (max-width: 760px) {
+  .tablet-voucher-flow > div {
+    min-width: 720px;
+  }
+}
+
 /* Text inputs must remain selectable/editable */
 .tablet-root input,
 .tablet-root textarea,
