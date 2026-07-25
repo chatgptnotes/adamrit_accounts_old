@@ -28,22 +28,29 @@ DECLARE
   -- Enabled 25 Jul 2026 to post the current financial year only.
   v_confirm           BOOLEAN := true;
 
-  -- Months to post, inclusive. Starts at the current financial year:
-  -- FY 2025-26 (Rs 2.17 crore, Sep 2025 - Mar 2026) is deliberately left
-  -- alone and will be handled separately if that year is reopened.
-  v_from_period       DATE := '2026-04-01';
+  -- Months to post, inclusive. Extended back to Sep 2025 on 26 Jul 2026:
+  -- FY 2025-26 receipts were restored to their original months by
+  -- post_missing_fy2025_receipts.sql, so that year's advances are recognised
+  -- in the periods they were earned. Apr-Jul 2026 already posted and are
+  -- skipped by the reference check.
+  v_from_period       DATE := '2025-09-01';
   v_upto_period       DATE := '2026-07-01';
 
   -- Start of the current financial year. Months before this use
   -- v_income_prior_fy; months on or after use v_income_current_fy.
   v_fy_split          DATE := '2026-04-01';
 
-  -- Where the recognised revenue goes. 4160 matches where receipts already
-  -- post. v_income_prior_fy is unused while v_from_period sits on or after
-  -- v_fy_split - it only applies if the prior year is brought in later, in
-  -- which case 3200 Retained Earnings is the usual treatment.
+  -- Where the recognised revenue goes.
+  --
+  -- Both are 4160 because the FY 2025-26 receipts were deliberately restored
+  -- to their own months rather than brought in as opening balances - so that
+  -- year is being treated as workable, and its revenue belongs in its own P&L.
+  --
+  -- If your accountant would rather treat it as a prior-period adjustment
+  -- (because the year is filed), set v_income_prior_fy to '3200' Retained
+  -- Earnings. That one line is the whole difference.
   v_income_current_fy TEXT := '4160';
-  v_income_prior_fy   TEXT := '3200';
+  v_income_prior_fy   TEXT := '4160';
   -- =================================================
 
   r                RECORD;
