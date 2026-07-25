@@ -4,9 +4,10 @@ import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { useAccountingCompany } from './AccountingCompanyContext';
-import { TallyScreen } from './tally/TallyChrome';
+import { TallyScreen, voucherBottomBar } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
+import { dayLabel, monthsInPeriod } from './tally/PeriodContext';
 import { fetchTallyVouchers } from '@/lib/mergedVouchers';
 import { normalizeName } from '@/lib/tallyCompanyMatch';
 import { useSourceFilter, matchesSource } from './useSourceFilter';
@@ -32,18 +33,33 @@ interface VoucherEntryRow {
     narration: string | null;
     status: string;
     voucher_type: { voucher_type_name: string } | null;
+    /** Every line of the voucher, so the contra ledger can be named */
+    entries: {
+      account_id: string;
+      debit_amount: number | null;
+      credit_amount: number | null;
+      account: { account_name: string } | null;
+    }[] | null;
   } | null;
 }
 
-const tallyDateLabel = (iso: string): string => {
-  const d = new Date(iso + 'T00:00:00');
-  if (Number.isNaN(d.getTime())) return iso;
-  const month = d.toLocaleDateString('en-GB', { month: 'short' });
-  return `${d.getDate()}-${month}-${String(d.getFullYear()).slice(2)}`;
-};
+/** The other side of a voucher, as Tally prints it under Particulars. */
+interface ContraLine {
+  name: string;
+  dr: number;
+  cr: number;
+}
 
 /** Rows shown at once in the List of Ledger Accounts drop-down */
 const PICKER_LIMIT = 50;
+
+/**
+ * What Tally prints under Particulars: the single ledger on the other side, or
+ * "(as per details)" when the voucher has several — the breakup then shows in
+ * Detailed mode.
+ */
+const particularsOf = (contra: ContraLine[]): string =>
+  contra.length === 0 ? '' : contra.length === 1 ? contra[0].name : '(as per details)';
 
 /**
  * Ledger Vouchers — Tally Prime replica: pick a ledger (type-to-search like
@@ -62,6 +78,7 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
+  const [monthly, setMonthly] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
   const { selectedCompanyId } = useAccountingCompany();
@@ -74,6 +91,12 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
       { label: 'Registers', target: 'voucher-register' },
       { label: 'Trial Balance', target: 'trial-balance' },
     ],
+    // Tally's Ledger Vouchers F12
+    configFields: [
+      { key: 'runningBalance', label: 'Show Running Balance' },
+      { key: 'narrations', label: 'Show Narrations also', value: true },
+    ],
+    detailedToggle: { hotkey: 'F5', label: 'Ledger-wise' },
     screenKeys: [
       {
         hotkey: 'F4',
@@ -84,10 +107,13 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
           setTimeout(() => inputRef.current?.focus(), 0);
         },
       },
+      // Tally's Ledger Monthly Summary — one line per month instead of per voucher
+      { hotkey: 'F6', label: 'Monthly', active: monthly, onClick: () => setMonthly((v) => !v) },
       sourceRail,
     ],
   });
-  const { from: fromDate, to: toDate, fmtAmount: fmt } = report;
+  const { from: fromDate, to: toDate, fmtAmount: fmt, detailed, config } = report;
+  const showRunning = !!config.runningBalance;
 
   const { data: accounts = [] } = useQuery({
     queryKey: ['ledger_accounts', selectedCompanyId],
@@ -127,7 +153,10 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
           .select(`
             id, debit_amount, credit_amount, narration,
             voucher:vouchers!inner(id, voucher_number, voucher_date, narration, status,
-              voucher_type:voucher_types(voucher_type_name)
+              voucher_type:voucher_types(voucher_type_name),
+              entries:voucher_entries(account_id, debit_amount, credit_amount,
+                account:chart_of_accounts(account_name)
+              )
             )
           `)
           .eq('account_id', selectedAccountId)
@@ -142,10 +171,12 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
 
   // Tally mirror vouchers touching this ledger (by name). Tally-preferred: a
   // Tally row overwrites a native row that shares the same voucher number.
+  // Scoped to the selected company — without companyId this pulled the mirror
+  // vouchers of every Tally company into whichever ledger you were looking at.
   const { data: tallyVouchers = [] } = useQuery({
-    queryKey: ['ledger_tally', fromDate, toDate],
+    queryKey: ['ledger_tally', selectedCompanyId, fromDate, toDate],
     enabled: !!selectedAccountId,
-    queryFn: () => fetchTallyVouchers({ from: fromDate, upto: toDate }),
+    queryFn: () => fetchTallyVouchers({ companyId: selectedCompanyId, from: fromDate, upto: toDate }),
   });
 
   const { rows, opening, totalDr, totalCr, closing } = useMemo(() => {
@@ -157,7 +188,9 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
       id: string;
       voucherId: string;
       date: string;
-      particulars: string;
+      /** The ledger(s) on the other side — what Tally prints under Particulars */
+      contra: ContraLine[];
+      narration: string;
       type: string;
       number: string;
       dr: number;
@@ -169,7 +202,17 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
       id: e.id,
       voucherId: e.voucher?.id || '',
       date: e.voucher?.voucher_date || '',
-      particulars: e.narration || e.voucher?.narration || '',
+      // Tally names the opposite ledger here, not the narration. This screen
+      // printed the narration, which is the one thing Tally does NOT put in
+      // this column (it belongs under the row, in Detailed mode).
+      contra: (e.voucher?.entries ?? [])
+        .filter((line) => line.account_id !== selectedAccountId)
+        .map((line) => ({
+          name: line.account?.account_name || '',
+          dr: Number(line.debit_amount) || 0,
+          cr: Number(line.credit_amount) || 0,
+        })),
+      narration: e.narration || e.voucher?.narration || '',
       type: e.voucher?.voucher_type?.voucher_type_name?.replace(' Voucher', '') || '',
       number: e.voucher?.voucher_number || '',
       dr: Number(e.debit_amount) || 0,
@@ -182,12 +225,14 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
     for (const v of tallyVouchers) {
       v.entries.forEach((entry, idx) => {
         if (normalizeName(entry.ledger) !== ledgerKey) return;
-        const other = v.entries.find((x) => normalizeName(x.ledger) !== ledgerKey);
         tallyRows.push({
           id: `${v.id}:${idx}`,
           voucherId: '',
           date: v.date,
-          particulars: v.narration || other?.ledger || '',
+          contra: v.entries
+            .filter((x) => normalizeName(x.ledger) !== ledgerKey)
+            .map((x) => ({ name: x.ledger, dr: x.debit, cr: x.credit })),
+          narration: v.narration || '',
           type: v.voucher_type.replace(' Voucher', ''),
           number: v.voucher_number,
           dr: entry.debit,
@@ -207,7 +252,9 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
     }
     const rows = [...byNumber.values(), ...passthrough]
       .filter((r) => matchesSource(r.source, srcFilter))
-      .filter((r) => report.passesFilter({ Particulars: r.particulars, 'Vch Type': r.type, 'Vch No.': r.number }))
+      .filter((r) =>
+        report.passesFilter({ Particulars: particularsOf(r.contra), 'Vch Type': r.type, 'Vch No.': r.number }),
+      )
       .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 
     let totalDr = 0;
@@ -217,12 +264,34 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
       totalCr += r.cr;
     }
     return { rows, opening, totalDr, totalCr, closing: opening + totalDr - totalCr };
-  }, [rawEntries, tallyVouchers, selectedAccount, srcFilter, report.passesFilter]);
+  }, [rawEntries, tallyVouchers, selectedAccount, selectedAccountId, srcFilter, report.passesFilter]);
+
+  // F6: Monthly — Tally's Ledger Monthly Summary, one line per month with the
+  // balance carried forward.
+  const monthRows = useMemo(() => {
+    if (!monthly) return [];
+    let running = opening;
+    return monthsInPeriod({ from: fromDate, to: toDate }).map((m) => {
+      const inMonth = rows.filter((r) => r.date >= m.from && r.date <= m.upto);
+      const dr = inMonth.reduce((sum, r) => sum + r.dr, 0);
+      const cr = inMonth.reduce((sum, r) => sum + r.cr, 0);
+      running += dr - cr;
+      return { key: m.ym, label: m.label, from: m.from, upto: m.upto, dr, cr, closing: running, count: inMonth.length };
+    });
+  }, [monthly, rows, opening, fromDate, toDate]);
 
   const { cursor, setCursor } = useRowCursor({
-    count: rows.length,
+    count: monthly ? monthRows.length : rows.length,
     enabled: !open,
     onEnter: (index) => {
+      // Tally drills a month down to that month's vouchers
+      if (monthly) {
+        const month = monthRows[index];
+        if (!month) return;
+        report.setPeriod(month.from, month.upto);
+        setMonthly(false);
+        return;
+      }
       const voucherId = rows[index]?.voucherId;
       if (voucherId) onOpenVoucher?.(voucherId);
     },
@@ -230,7 +299,18 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
 
   return (
     <>
-    <TallyScreen title="Ledger Vouchers" onClose={onClose} rail={report.rail}>
+    <TallyScreen
+      title={monthly ? 'Ledger Monthly Summary' : 'Ledger Vouchers'}
+      onClose={onClose}
+      rail={report.rail}
+      bottomBar={voucherBottomBar({
+        onQuit: onClose,
+        onAlter: () => {
+          const voucherId = rows[cursor]?.voucherId;
+          if (voucherId) onOpenVoucher?.(voucherId);
+        },
+      })}
+    >
       <div className="px-3 pb-4 pt-1 text-[13px]">
         {/* Ledger picker */}
         <div className="flex items-center gap-2">
@@ -300,75 +380,166 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
             <div className="mt-2 text-center">
               <div className="font-bold">{selectedAccount.account_name}</div>
               <div className="text-[11px]">
-                {tallyDateLabel(fromDate)} to {tallyDateLabel(toDate)}
+                {dayLabel(fromDate)} to {dayLabel(toDate)}
               </div>
             </div>
 
-            {/* Column header */}
-            <div className="mt-1 flex border-y border-black bg-[#f0f4fa] font-semibold">
-              <div className="w-20 px-1">Date</div>
-              <div className="min-w-0 flex-1 px-1">Particulars</div>
-              <div className="w-28 px-1">Vch Type</div>
-              <div className="w-28 px-1">Vch No.</div>
-              <div className="w-32 px-1 text-right">Debit</div>
-              <div className="w-32 px-1 text-right">Credit</div>
-            </div>
-
-            {/* Opening balance */}
-            <div className="flex border-b border-dashed border-gray-300 italic">
-              <div className="w-20 px-1" />
-              <div className="min-w-0 flex-1 px-1 font-semibold">Opening Balance</div>
-              <div className="w-28 px-1" />
-              <div className="w-28 px-1" />
-              <div className="w-32 px-1 text-right font-mono">{opening > 0 ? fmt(opening) : ''}</div>
-              <div className="w-32 px-1 text-right font-mono">{opening < 0 ? fmt(-opening) : ''}</div>
-            </div>
-
-            {isLoading ? (
-              <div className="py-10 text-center text-gray-400">Loading…</div>
-            ) : (
+            {monthly ? (
               <>
-                {rows.map((r, i) => (
+                {/* F6: Monthly — Tally's Ledger Monthly Summary */}
+                <div className="mt-1 flex border-y border-black bg-[#f0f4fa] font-semibold">
+                  <div className="min-w-0 flex-1 px-1">Particulars</div>
+                  <div className="w-32 px-1 text-right">Debit</div>
+                  <div className="w-32 px-1 text-right">Credit</div>
+                  <div className="w-36 px-1 text-right">Closing Balance</div>
+                </div>
+                {monthRows.map((m, i) => (
                   <div
-                    key={r.id}
-                    onClick={() => r.voucherId && onOpenVoucher?.(r.voucherId)}
+                    key={m.key}
+                    onClick={() => {
+                      report.setPeriod(m.from, m.upto);
+                      setMonthly(false);
+                    }}
                     onMouseEnter={() => setCursor(i)}
-                    title="Open voucher (alter)"
+                    title="Show this month's vouchers"
                     className={`flex cursor-pointer border-b border-dashed border-gray-200 ${
                       cursor === i ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'
                     }`}
                   >
-                    <div className="w-20 px-1">{tallyDateLabel(r.date)}</div>
-                    <div className="min-w-0 flex-1 truncate px-1">
-                      {r.particulars}
+                    <div className="min-w-0 flex-1 px-1">{m.label}</div>
+                    <div className="w-32 px-1 text-right font-mono">{m.dr > 0 ? fmt(m.dr) : ''}</div>
+                    <div className="w-32 px-1 text-right font-mono">{m.cr > 0 ? fmt(m.cr) : ''}</div>
+                    <div className="w-36 px-1 text-right font-mono">
+                      {fmt(Math.abs(m.closing))} {m.closing >= 0 ? 'Dr' : 'Cr'}
                     </div>
-                    <div className="w-28 px-1">{r.type}</div>
-                    <div className="w-28 px-1 font-mono text-[12px]">{r.number}</div>
-                    <div className="w-32 px-1 text-right font-mono">{r.dr > 0 ? fmt(r.dr) : ''}</div>
-                    <div className="w-32 px-1 text-right font-mono">{r.cr > 0 ? fmt(r.cr) : ''}</div>
                   </div>
                 ))}
-
-                {/* Totals + closing, Tally style */}
                 <div className="mt-1 flex border-t border-gray-400 pt-0.5 font-semibold">
+                  <div className="min-w-0 flex-1 px-1">Grand Total</div>
+                  <div className="w-32 px-1 text-right font-mono">{fmt(totalDr)}</div>
+                  <div className="w-32 px-1 text-right font-mono">{fmt(totalCr)}</div>
+                  <div className="w-36 px-1 text-right font-mono">
+                    {fmt(Math.abs(closing))} {closing >= 0 ? 'Dr' : 'Cr'}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Column header */}
+                <div className="mt-1 flex border-y border-black bg-[#f0f4fa] font-semibold">
+                  <div className="w-20 px-1">Date</div>
+                  <div className="min-w-0 flex-1 px-1">Particulars</div>
+                  <div className="w-28 px-1">Vch Type</div>
+                  <div className="w-28 px-1">Vch No.</div>
+                  <div className="w-32 px-1 text-right">Debit</div>
+                  <div className="w-32 px-1 text-right">Credit</div>
+                  {showRunning && <div className="w-36 px-1 text-right">Balance</div>}
+                </div>
+
+                {/* Opening balance */}
+                <div className="flex border-b border-dashed border-gray-300 italic">
                   <div className="w-20 px-1" />
-                  <div className="min-w-0 flex-1 px-1" />
+                  <div className="min-w-0 flex-1 px-1 font-semibold">Opening Balance</div>
                   <div className="w-28 px-1" />
                   <div className="w-28 px-1" />
-                  <div className="w-32 px-1 text-right font-mono">{fmt(totalDr + Math.max(0, opening))}</div>
-                  <div className="w-32 px-1 text-right font-mono">{fmt(totalCr + Math.max(0, -opening))}</div>
+                  <div className="w-32 px-1 text-right font-mono">{opening > 0 ? fmt(opening) : ''}</div>
+                  <div className="w-32 px-1 text-right font-mono">{opening < 0 ? fmt(-opening) : ''}</div>
+                  {showRunning && (
+                    <div className="w-36 px-1 text-right font-mono">
+                      {fmt(Math.abs(opening))} {opening >= 0 ? 'Dr' : 'Cr'}
+                    </div>
+                  )}
                 </div>
-                <div className="flex italic">
-                  <div className="w-20 px-1" />
-                  <div className="min-w-0 flex-1 px-1 font-semibold">Closing Balance</div>
-                  <div className="w-28 px-1" />
-                  <div className="w-28 px-1" />
-                  <div className="w-32 px-1 text-right font-mono">{closing < 0 ? fmt(-closing) : ''}</div>
-                  <div className="w-32 px-1 text-right font-mono">{closing > 0 ? fmt(closing) : ''}</div>
-                </div>
-                <div className="mt-1 text-right text-[12px] text-gray-600">
-                  {rows.length} voucher(s) · Closing: <span className="font-mono font-semibold">{fmt(Math.abs(closing))} {closing >= 0 ? 'Dr' : 'Cr'}</span>
-                </div>
+
+                {isLoading ? (
+                  <div className="py-10 text-center text-gray-400">Loading…</div>
+                ) : (
+                  <>
+                    {(() => {
+                      let running = opening;
+                      return rows.map((r, i) => {
+                        running += r.dr - r.cr;
+                        const balance = running;
+                        return (
+                          <div key={r.id}>
+                            <div
+                              onClick={() => r.voucherId && onOpenVoucher?.(r.voucherId)}
+                              onMouseEnter={() => setCursor(i)}
+                              title="Open voucher (alter)"
+                              className={`flex cursor-pointer border-b border-dashed border-gray-200 ${
+                                cursor === i ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'
+                              }`}
+                            >
+                              <div className="w-20 px-1">{dayLabel(r.date)}</div>
+                              <div className="min-w-0 flex-1 truncate px-1">{particularsOf(r.contra)}</div>
+                              <div className="w-28 px-1">{r.type}</div>
+                              <div className="w-28 px-1 font-mono text-[12px]">{r.number}</div>
+                              <div className="w-32 px-1 text-right font-mono">{r.dr > 0 ? fmt(r.dr) : ''}</div>
+                              <div className="w-32 px-1 text-right font-mono">{r.cr > 0 ? fmt(r.cr) : ''}</div>
+                              {showRunning && (
+                                <div className="w-36 px-1 text-right font-mono">
+                                  {fmt(Math.abs(balance))} {balance >= 0 ? 'Dr' : 'Cr'}
+                                </div>
+                              )}
+                            </div>
+                            {/* Detailed: the full other side, then the narration */}
+                            {detailed && (
+                              <div className="border-b border-dashed border-gray-100 pb-0.5">
+                                {r.contra.map((line, li) => (
+                                  <div key={`${r.id}-c${li}`} className="flex italic text-[12px] text-gray-700">
+                                    <div className="w-20 px-1" />
+                                    <div className="min-w-0 flex-1 truncate px-1 pl-4">
+                                      {line.dr > 0 ? 'By' : 'To'} {line.name}
+                                    </div>
+                                    <div className="w-28 px-1" />
+                                    <div className="w-28 px-1" />
+                                    <div className="w-32 px-1 text-right font-mono">
+                                      {line.dr > 0 ? fmt(line.dr) : ''}
+                                    </div>
+                                    <div className="w-32 px-1 text-right font-mono">
+                                      {line.cr > 0 ? fmt(line.cr) : ''}
+                                    </div>
+                                    {showRunning && <div className="w-36 px-1" />}
+                                  </div>
+                                ))}
+                                {!!config.narrations && r.narration && (
+                                  <div className="flex text-[12px] italic text-gray-500">
+                                    <div className="w-20 px-1" />
+                                    <div className="min-w-0 flex-1 px-1 pl-4">({r.narration})</div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      });
+                    })()}
+
+                    {/* Tally closes a ledger with Current Total, then Closing Balance */}
+                    <div className="mt-1 flex border-t border-gray-400 pt-0.5 font-semibold">
+                      <div className="w-20 px-1" />
+                      <div className="min-w-0 flex-1 px-1">Current Total</div>
+                      <div className="w-28 px-1" />
+                      <div className="w-28 px-1" />
+                      <div className="w-32 px-1 text-right font-mono">{fmt(totalDr)}</div>
+                      <div className="w-32 px-1 text-right font-mono">{fmt(totalCr)}</div>
+                      {showRunning && <div className="w-36 px-1" />}
+                    </div>
+                    <div className="flex italic">
+                      <div className="w-20 px-1" />
+                      <div className="min-w-0 flex-1 px-1 font-semibold">Closing Balance</div>
+                      <div className="w-28 px-1" />
+                      <div className="w-28 px-1" />
+                      <div className="w-32 px-1 text-right font-mono">{closing < 0 ? fmt(-closing) : ''}</div>
+                      <div className="w-32 px-1 text-right font-mono">{closing > 0 ? fmt(closing) : ''}</div>
+                      {showRunning && (
+                        <div className="w-36 px-1 text-right font-mono">
+                          {fmt(Math.abs(closing))} {closing >= 0 ? 'Dr' : 'Cr'}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
               </>
             )}
           </>

@@ -7,6 +7,7 @@ import { HOSPITAL_CONFIGS, type HospitalType } from '@/types/hospital';
 import { useCompanies } from '@/hooks/useCompanies';
 import { useAccountingCompanyOptional } from '../AccountingCompanyContext';
 import { companyKey } from '@/lib/tallyCompanyMatch';
+import { dayLabel, periodLabel as labelOfPeriod, useAccountingPeriodOptional } from './PeriodContext';
 
 /**
  * Shared Tally Prime chrome for the accounting module:
@@ -34,11 +35,24 @@ export const TALLY_FONT = { fontFamily: 'Verdana, "Segoe UI", Tahoma, Arial, san
 /** Modifier a hotkey needs, so two buttons can share a letter (F / Ctrl+F). */
 export type HotkeyMod = 'alt' | 'ctrl';
 
+/**
+ * Extra key combinations that fire the same action but are not drawn on the
+ * button. Tally labels a report key "Ctrl+B"; this module shipped the bare
+ * letter first, so the bare letter stays bound as an alias and nobody's muscle
+ * memory breaks when the label catches up with Tally.
+ */
+export interface HotkeyAlias {
+  hotkey: string;
+  mod?: HotkeyMod;
+}
+
 export interface RailItem {
   /** Shortcut label shown in blue, e.g. "F5" or "A" */
   hotkey?: string;
   /** Modifier the hotkey needs — shown as "Ctrl+F" / "Alt+F12" */
   mod?: HotkeyMod;
+  /** Unlabelled key combinations that fire the same action */
+  aliases?: HotkeyAlias[];
   label: string;
   onClick?: () => void;
   active?: boolean;
@@ -50,6 +64,7 @@ export interface RailItem {
 export interface BottomBarItem {
   hotkey: string;
   mod?: HotkeyMod;
+  aliases?: HotkeyAlias[];
   label: string;
   onClick?: () => void;
   disabled?: boolean;
@@ -76,15 +91,17 @@ export const voucherBottomBar = (handlers: {
   onRestoreLine?: () => void;
 }): BottomBarItem[] => [
   { hotkey: 'Q', label: 'Quit', onClick: handlers.onQuit },
-  { hotkey: 'Enter', label: 'Alter', onClick: handlers.onAlter },
+  // Tally alters the highlighted voucher with Ctrl+Enter; bare Enter is how the
+  // row cursor has always drilled here, so both are bound.
+  { hotkey: 'Enter', mod: 'ctrl', label: 'Alter', aliases: [{ hotkey: 'Enter' }], onClick: handlers.onAlter },
   { hotkey: 'Space', label: 'Select', onClick: handlers.onSelect },
-  { hotkey: 'A', label: 'Add Vch', onClick: handlers.onAdd },
-  { hotkey: '2', label: 'Duplicate Vch', onClick: handlers.onDuplicate },
-  { hotkey: 'I', label: 'Insert Vch', onClick: handlers.onInsert },
-  { hotkey: 'D', label: 'Delete', onClick: handlers.onDelete },
-  { hotkey: 'X', label: 'Cancel Vch', onClick: handlers.onCancelVch },
-  { hotkey: 'R', label: 'Remove Line', onClick: handlers.onRemoveLine },
-  { hotkey: 'U', label: 'Restore Line', onClick: handlers.onRestoreLine },
+  { hotkey: 'A', mod: 'alt', label: 'Add Vch', aliases: [{ hotkey: 'A' }], onClick: handlers.onAdd },
+  { hotkey: '2', mod: 'alt', label: 'Duplicate Vch', aliases: [{ hotkey: '2' }], onClick: handlers.onDuplicate },
+  { hotkey: 'I', mod: 'alt', label: 'Insert Vch', aliases: [{ hotkey: 'I' }], onClick: handlers.onInsert },
+  { hotkey: 'D', mod: 'alt', label: 'Delete', aliases: [{ hotkey: 'D' }], onClick: handlers.onDelete },
+  { hotkey: 'X', mod: 'alt', label: 'Cancel Vch', aliases: [{ hotkey: 'X' }], onClick: handlers.onCancelVch },
+  { hotkey: 'R', mod: 'alt', label: 'Remove Line', aliases: [{ hotkey: 'R' }], onClick: handlers.onRemoveLine },
+  { hotkey: 'U', mod: 'alt', label: 'Restore Line', aliases: [{ hotkey: 'U' }], onClick: handlers.onRestoreLine },
 ];
 
 /** "F" + ctrl -> "Ctrl+F"; the text shown in the blue key prefix. */
@@ -130,16 +147,31 @@ export const isTypingTarget = (target: EventTarget | null): boolean => {
   return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
 };
 
-/** Does this keydown match the item's hotkey (and only its modifier)? */
+/**
+ * Does this keydown match the item's hotkey (and only its modifier)?
+ *
+ * Tally is a Windows product, so its modifier is Ctrl. macOS Cmd (metaKey) is
+ * deliberately NOT accepted as Ctrl — treating them as the same key made
+ * Cmd+F hijack the browser's own Find, and the same for Cmd+A / Cmd+P.
+ */
 export const hotkeyMatches = (e: KeyboardEvent, hotkey: string, mod: HotkeyMod | undefined): boolean => {
   // "Esc" and "Space" are how Tally labels them; the browser calls the same
   // keys "Escape" and " ".
   const hk = hotkey.toUpperCase() === 'ESC' ? 'ESCAPE' : hotkey.toUpperCase();
   const pressed = e.key === ' ' ? 'SPACE' : e.key.toUpperCase();
   if (pressed !== hk) return false;
-  if (mod === 'ctrl') return (e.ctrlKey || e.metaKey) && !e.altKey;
+  if (mod === 'ctrl') return e.ctrlKey && !e.altKey && !e.metaKey;
   if (mod === 'alt') return e.altKey && !e.ctrlKey && !e.metaKey;
   return !e.altKey && !e.ctrlKey && !e.metaKey;
+};
+
+/** The item's own hotkey, plus any unlabelled aliases. */
+export const itemMatches = (
+  e: KeyboardEvent,
+  item: { hotkey?: string; mod?: HotkeyMod; aliases?: HotkeyAlias[] },
+): boolean => {
+  if (item.hotkey && hotkeyMatches(e, item.hotkey, item.mod)) return true;
+  return (item.aliases ?? []).some((a) => hotkeyMatches(e, a.hotkey, a.mod));
 };
 
 interface TallyTopBarProps {
@@ -249,6 +281,7 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
   const [highlight, setHighlight] = useState(0);
   const [helpOpen, setHelpOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
+  const [featuresOpen, setFeaturesOpen] = useState(false);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [menuHighlight, setMenuHighlight] = useState(0);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
@@ -351,8 +384,10 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
   useEffect(() => {
     const onHelp = () => setHelpOpen(true);
     const onConfigure = () => setConfigOpen(true);
+    const onFeatures = () => setFeaturesOpen(true);
     window.addEventListener('tally-help', onHelp);
     window.addEventListener('tally-configure', onConfigure);
+    window.addEventListener('tally-features', onFeatures);
     const onKey = (e: KeyboardEvent) => {
       if (tallyModalIsOpen()) return;
       if (e.altKey && (e.key === 'f' || e.key === 'F')) {
@@ -364,6 +399,12 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
       if (e.key === 'F12') {
         e.preventDefault();
         setConfigOpen(true);
+        return;
+      }
+      // F11: Features — Tally's company feature switches
+      if (e.key === 'F11') {
+        e.preventDefault();
+        setFeaturesOpen(true);
         return;
       }
       if (openMenu) {
@@ -388,6 +429,12 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
         }
       }
       if (isTypingTarget(e.target) || e.altKey || e.ctrlKey || e.metaKey) return;
+      // The screen in front owns its letters. TallyScreen binds in the capture
+      // phase and preventDefaults whatever it claims, so without this guard a
+      // screen key that happens to collide with a top-bar letter fired both:
+      // on the Gateway, "P" opened Profit & Loss *and* the print dialog, and
+      // "M"/"K"/"E"/"O" misfired the same way.
+      if (e.defaultPrevented) return;
       // Every top-bar button answers its key — the drop-downs (K/Y/Z) open,
       // and the direct actions (O/E/M/P/F1) just run. Previously only the
       // drop-downs were bound, which left P: Print and F1: Help unreachable.
@@ -403,6 +450,7 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('tally-help', onHelp);
       window.removeEventListener('tally-configure', onConfigure);
+      window.removeEventListener('tally-features', onFeatures);
     };
   }, [menus, openMenu, menuHighlight, activeItems]);
 
@@ -525,6 +573,7 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
       </div>
       {helpOpen && <TallyHelp onClose={() => setHelpOpen(false)} />}
       {configOpen && <TallyConfigure onClose={() => setConfigOpen(false)} />}
+      {featuresOpen && <TallyFeatures onClose={() => setFeaturesOpen(false)} />}
     </div>
   );
 };
@@ -540,23 +589,26 @@ const SHORTCUTS: [string, string][] = [
   ['F4', 'The screen\'s main filter (group, ledger, party, voucher type)'],
   ['F5', 'The screen\'s second filter / Ledger-wise toggle'],
   ['F6 – F10', 'Screen actions, then quick jumps to the other reports'],
-  ['B', 'Basis of Values — scale, paise, hide zero / small balances'],
-  ['H', 'Change View — Detailed / Condensed and related reports'],
-  ['J', 'Exception Reports'],
-  ['L', 'Save View — open the module here next time'],
+  ['F11', 'Features — company-level switches'],
+  ['Ctrl+B', 'Basis of Values — scale, paise, hide zero / small balances'],
+  ['Ctrl+H', 'Change View — Detailed / Condensed and related reports'],
+  ['Ctrl+J', 'Exception Reports'],
+  ['Ctrl+L', 'Save View — open the module here next time'],
   ['F', 'Apply Filter'],
   ['Ctrl+F', 'Filter Details — see and clear active filters'],
-  ['C', 'New Column — compare with another period'],
-  ['A', 'Alter Column — change the last column\'s period'],
-  ['D', 'Delete Column'],
-  ['N', 'Auto Column — monthly / quarterly / yearly breakup'],
+  ['Alt+C', 'New Column — compare with another period'],
+  ['Alt+A', 'Alter Column — change the last column\'s period'],
+  ['Alt+D', 'Delete Column'],
+  ['Alt+N', 'Auto Column — monthly / quarterly / yearly breakup'],
   ['Space', 'Select the highlighted line'],
-  ['R / U', 'Remove / restore a line'],
+  ['Alt+R / Alt+U', 'Remove / restore a line'],
+  ['Ctrl+Enter', 'Alter the highlighted voucher'],
+  ['Alt+A / Alt+2 / Alt+I', 'Add / duplicate / insert a voucher'],
   ['Q', 'Quit / clear the form'],
-  ['X', 'Cancel voucher (in alteration)'],
+  ['Alt+X', 'Cancel voucher (in alteration)'],
   ['E', 'Export (Excel, where available)'],
   ['P', 'Print — clean report / formal A4 voucher'],
-  ['Alt+F12', 'Configure — detailed-by-default, Day Book month view'],
+  ['Alt+F12', 'Configure — report options for the screen you are on'],
 ];
 
 const TallyHelp: React.FC<{ onClose: () => void }> = ({ onClose }) => {
@@ -596,6 +648,9 @@ const TallyHelp: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         ))}
         <div className="pt-2 text-[11px] italic text-gray-500">
           Buttons on the right rail show their shortcut before the label — press the key or click.
+          <br />
+          The bare letters (B, H, J, L, C, A, D, N, A, 2, I, X, R, U) still work as before, so
+          nothing you already know has changed.
           <br />
           Chrome keeps F12 for its developer tools and will not release it: use Alt+F12 (or the
           F12: Configure button) for Configure.
@@ -663,6 +718,100 @@ const TallyConfigure: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 };
 
 /**
+ * F11: Features — Tally's company-level switches. Only the switches this
+ * module can actually honour are listed; Tally greys the rest the same way.
+ */
+export interface TallyFeatureFlags {
+  billWise: boolean;
+  costCentres: boolean;
+  postDated: boolean;
+  auditTrail: boolean;
+}
+
+const DEFAULT_FEATURES: TallyFeatureFlags = {
+  billWise: true,
+  costCentres: true,
+  postDated: true,
+  auditTrail: true,
+};
+
+export const getTallyFeatures = (): TallyFeatureFlags => {
+  try {
+    return { ...DEFAULT_FEATURES, ...JSON.parse(localStorage.getItem('tally-features') || '{}') };
+  } catch {
+    return { ...DEFAULT_FEATURES };
+  }
+};
+
+const TallyFeatures: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  useTallyModal();
+  const [flags, setFlags] = useState(getTallyFeatures);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+
+  const set = (patch: Partial<TallyFeatureFlags>) => {
+    const next = { ...flags, ...patch };
+    setFlags(next);
+    localStorage.setItem('tally-features', JSON.stringify(next));
+    window.dispatchEvent(new CustomEvent('tally-features-changed'));
+  };
+
+  const row = (label: string, key: keyof TallyFeatureFlags) => (
+    <div className="flex items-center justify-between gap-4">
+      <span>{label}</span>
+      <button
+        type="button"
+        onClick={() => set({ [key]: !flags[key] } as Partial<TallyFeatureFlags>)}
+        className="min-w-[44px] border-b border-dashed border-gray-400 px-2 text-left font-semibold hover:bg-[#fdf6d8]"
+      >
+        {flags[key] ? 'Yes' : 'No'}
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        style={TALLY_FONT}
+        className="w-[460px] border border-[#9db8d8] bg-[#fffefb] shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center bg-[#16437e] px-3 py-1 text-[13px] font-semibold text-white">
+          F11: Company Features
+          <button type="button" onClick={onClose} className="ml-auto px-1 font-bold hover:text-red-300">✕</button>
+        </div>
+        <div className="p-3 text-[13px]">
+          <div className="mb-1 font-semibold tracking-wide text-[#16437e]">ACCOUNTING FEATURES</div>
+          <div className="space-y-1">
+            {row('Maintain Bill-wise details', 'billWise')}
+            {row('Maintain Cost Centres', 'costCentres')}
+            {row('Allow Post-Dated vouchers', 'postDated')}
+            {row('Maintain Edit Log (audit trail)', 'auditTrail')}
+          </div>
+          <div className="mt-3 mb-1 font-semibold tracking-wide text-gray-400">INVENTORY FEATURES</div>
+          <div className="space-y-1 text-gray-400">
+            <div className="flex items-center justify-between gap-4"><span>Maintain Inventory</span><span className="min-w-[44px] px-2 font-semibold">No</span></div>
+            <div className="flex items-center justify-between gap-4"><span>Integrate Accounts with Inventory</span><span className="min-w-[44px] px-2 font-semibold">No</span></div>
+          </div>
+          <div className="pt-2 text-[11px] italic text-gray-500">
+            Inventory is not part of this installation. Settings are saved on this device.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
  * The line every Tally report opens with: the report's name on the left and
  * the period it covers on the right — "Day Book … For 24-Jul-26".
  */
@@ -688,7 +837,13 @@ interface TallyScreenProps {
 export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp = [], bottomBar, onClose, closeLabel, headerAction, children }) => {
   const { hospitalConfig } = useAuth();
   const accountingCompany = useAccountingCompanyOptional();
-  const handleClose = onClose ?? (() => window.dispatchEvent(new CustomEvent('tally-escape')));
+  const periodContext = useAccountingPeriodOptional();
+  // Stable, so the default key bar below (and the hotkey binding that reads it)
+  // is not rebuilt on every render.
+  const handleClose = useCallback(
+    () => (onClose ? onClose() : window.dispatchEvent(new CustomEvent('tally-escape'))),
+    [onClose],
+  );
   const closeText = closeLabel || '✕';
   const selectedCompanyName = accountingCompany?.companies.find(
     (company) => company.id === accountingCompany.selectedCompanyId,
@@ -702,6 +857,22 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
   const rail = accountingCompany && !hasCompanySwitch
     ? [{ hotkey: 'F3', label: 'Company', onClick: accountingCompany.cycleCompany }, ...railProp]
     : railProp;
+
+  // Tally's key bar. A screen that supplies none still gets Quit / Back / Help
+  // / Print — and these must be real hotkeys, not just buttons: they used to be
+  // rendered inline and never reached the binder, so pressing Q or P did
+  // nothing on every screen that relied on the default bar.
+  const defaultBottomBar = useMemo<BottomBarItem[]>(
+    () => [
+      { hotkey: 'Q', label: 'Quit', onClick: handleClose },
+      { hotkey: 'Esc', label: 'Back', onClick: handleClose },
+      { hotkey: 'F1', label: 'Help', onClick: () => window.dispatchEvent(new CustomEvent('tally-help')) },
+      { hotkey: 'P', label: 'Print', onClick: () => window.print() },
+    ],
+    [handleClose],
+  );
+  const bar = bottomBar && bottomBar.length > 0 ? bottomBar : defaultBottomBar;
+  const isDefaultBar = bar === defaultBottomBar;
 
   // Take the keyboard when a screen opens. Without this the sidebar button
   // that opened it keeps focus, so Enter re-clicks that button and the arrow
@@ -723,21 +894,29 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
   // the rail carries the generic report keys (C/A/D/N) that Tally does not even
   // show on a voucher listing.
   useEffect(() => {
-    const items = [...(bottomBar ?? []), ...rail];
-    if (import.meta.env.DEV) {
-      const seen = new Map<string, string>();
-      for (const item of items) {
-        if (!item.hotkey) continue;
-        const key = `${item.mod ?? ''}+${item.hotkey.toUpperCase()}`;
-        const first = seen.get(key);
-        if (first) {
-          console.warn(
-            `[Tally] "${title}" binds ${hotkeyLabel(item.hotkey, item.mod)} twice — ` +
-              `"${first}" wins, "${item.label}" is unreachable by keyboard.`,
-          );
-        } else {
-          seen.set(key, item.label);
-        }
+    // One key, one action. A screen legitimately shows the same button in two
+    // places — F1: Help sits on both the key bar and the rail — so bind the
+    // first and drop the rest rather than letting the loop below match twice.
+    const seen = new Map<string, string>();
+    const items: (RailItem | BottomBarItem)[] = [];
+    for (const item of [...bar, ...rail]) {
+      if (!item.hotkey) {
+        items.push(item);
+        continue;
+      }
+      const key = `${item.mod ?? ''}+${item.hotkey.toUpperCase()}`;
+      const first = seen.get(key);
+      if (first === undefined) {
+        seen.set(key, item.label);
+        items.push(item);
+        continue;
+      }
+      // Same key, same button — a deliberate duplicate, nothing to report.
+      if (import.meta.env.DEV && first !== item.label) {
+        console.warn(
+          `[Tally] "${title}" binds ${hotkeyLabel(item.hotkey, item.mod)} to two different actions — ` +
+            `"${first}" wins, "${item.label}" is unreachable by keyboard.`,
+        );
       }
     }
     const onKey = (e: KeyboardEvent) => {
@@ -768,7 +947,7 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
         // Letter hotkeys only fire outside inputs; F-keys fire anywhere.
         const isFKey = /^F\d+$/.test(item.hotkey.toUpperCase());
         if (!isFKey && typing) continue;
-        if (!hotkeyMatches(e, item.hotkey, item.mod)) continue;
+        if (!itemMatches(e, item)) continue;
         if (item.hotkey.toUpperCase() === 'ENTER' && focusedControl) return;
         // A key the screen declares but cannot act on is still swallowed, so
         // Space never scrolls the report out from under the cursor.
@@ -783,7 +962,7 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
     return () => {
       document.removeEventListener('keydown', onKey, true);
     };
-  }, [rail, bottomBar, onClose, title]);
+  }, [rail, bar, onClose, title]);
 
   return (
     <div style={TALLY_FONT} className="flex min-h-[calc(100vh-64px)] flex-col border border-[#9db8d8] bg-[#fffefb]">
@@ -843,51 +1022,50 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
       </div>
 
       {/* Bottom action bar — Tally always shows the key bar */}
-      {(!bottomBar || bottomBar.length === 0) && (
-        <div className="flex items-stretch gap-px border-t border-[#9db8d8] bg-[#cfe0f1] px-1 py-0.5 print:hidden">
-          {[
-            { hotkey: 'Q', label: 'Quit', onClick: () => (onClose ? onClose() : window.dispatchEvent(new CustomEvent('tally-escape'))) },
-            { hotkey: 'Esc', label: 'Back', onClick: () => (onClose ? onClose() : window.dispatchEvent(new CustomEvent('tally-escape'))) },
-            { hotkey: 'F1', label: 'Help', onClick: () => window.dispatchEvent(new CustomEvent('tally-help')) },
-            { hotkey: 'P', label: 'Print', onClick: () => window.print() },
-          ].map((b) => (
-            <button
-              key={b.hotkey}
-              type="button"
-              onClick={b.onClick}
-              className="flex min-h-8 items-center border border-[#9db8d8] bg-white px-3 py-0.5 text-[13px] text-black hover:bg-[#fdf6d8]"
-            >
-              <span className="inline-flex min-w-[44px] shrink-0 pr-1 font-semibold text-[#1d5aa8]">
-                <span className="underline">{b.hotkey}</span>:
-              </span>{' '}
-              {b.label}
-            </button>
-          ))}
+      <div className="flex items-stretch gap-px border-t border-[#9db8d8] bg-[#cfe0f1] px-1 py-0.5 print:hidden">
+        {bar.map((b) => (
+          <button
+            key={`${b.mod ?? ''}${b.hotkey}`}
+            type="button"
+            onClick={b.onClick}
+            disabled={b.disabled || !b.onClick}
+            className={`flex min-h-8 items-center overflow-hidden whitespace-nowrap border border-[#9db8d8] bg-white py-0.5 text-[13px] ${
+              isDefaultBar ? 'px-3' : 'flex-1 justify-center px-1'
+            } ${b.disabled || !b.onClick ? 'cursor-default text-[#8fa8c8]' : 'text-black hover:bg-[#fdf6d8]'}`}
+          >
+            <span className="shrink-0 pr-1 font-semibold text-[#1d5aa8]">
+              <span className="underline">{hotkeyLabel(b.hotkey, b.mod)}</span>:
+            </span>
+            <span className="truncate">{b.label}</span>
+          </button>
+        ))}
+        {isDefaultBar && (
           <span className="ml-auto self-center pr-2 text-[11px] italic text-[#5b7aa0]">
             Alt+F: Go To · Alt+F12: Configure
           </span>
-        </div>
-      )}
-      {bottomBar && bottomBar.length > 0 && (
-        <div className="flex items-stretch gap-px border-t border-[#9db8d8] bg-[#cfe0f1] px-1 py-0.5 print:hidden">
-          {bottomBar.map((b) => (
-            <button
-              key={b.hotkey}
-              type="button"
-              onClick={b.onClick}
-              disabled={b.disabled || !b.onClick}
-              className={`flex min-h-8 flex-1 items-center justify-center overflow-hidden whitespace-nowrap border border-[#9db8d8] bg-white px-1 py-0.5 text-[13px] ${
-                b.disabled || !b.onClick ? 'cursor-default text-[#8fa8c8]' : 'text-black hover:bg-[#fdf6d8]'
-              }`}
-            >
-              <span className="shrink-0 pr-1 font-semibold text-[#1d5aa8]">
-                <span className="underline">{hotkeyLabel(b.hotkey, b.mod)}</span>:
-              </span>
-              <span className="truncate">{b.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
+        )}
+      </div>
+
+      {/*
+        Tally's status line, under the key bar: the company you are in, the
+        Current Period and Current Date, and the calculator toggle on the right.
+      */}
+      <div className="flex items-center gap-3 border-t border-[#9db8d8] bg-[#e4eefa] px-2 py-0.5 text-[11px] text-[#16437e] print:hidden">
+        <span className="min-w-0 truncate font-semibold">{headerCompanyName}</span>
+        {periodContext && (
+          <>
+            <span className="text-[#8fa8c8]">|</span>
+            <span className="shrink-0">
+              Current Period <span className="font-semibold">{labelOfPeriod(periodContext.period)}</span>
+            </span>
+            <span className="text-[#8fa8c8]">|</span>
+            <span className="shrink-0">
+              Current Date <span className="font-semibold">{dayLabel(periodContext.currentDate)}</span>
+            </span>
+          </>
+        )}
+        <span className="ml-auto shrink-0 italic text-[#5b7aa0]">Ctrl+N: Calculator · Ctrl+M: Panel</span>
+      </div>
     </div>
   );
 };

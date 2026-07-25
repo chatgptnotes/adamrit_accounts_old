@@ -1,22 +1,25 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { mergedLedgerBalances, type LedgerBalanceRow, type LedgerSource } from '@/lib/mergedLedgerBalances';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
+import { useRowCursor } from './tally/useRowCursor';
+import { dayLabel, monthsInPeriod } from './tally/PeriodContext';
 import { useAccountingCompany } from './AccountingCompanyContext';
 import { useSourceFilter, matchesSource } from './useSourceFilter';
 
 interface Line {
   name: string;
   amount: number;
-  ledgers: { name: string; amount: number; source: LedgerSource }[];
+  ledgers: { name: string; amount: number; source: LedgerSource; accountId?: string }[];
 }
 
-const tallyDateLabel = (iso: string): string => {
-  const d = new Date(iso + 'T00:00:00');
-  const month = d.toLocaleDateString('en-GB', { month: 'short' });
-  return `${d.getDate()}-${month}-${String(d.getFullYear()).slice(2)}`;
-};
+/** A line Enter can drill from — the head, or one of its ledgers. */
+interface CursorTarget {
+  kind: 'head' | 'ledger';
+  head: string;
+  accountId?: string;
+}
 
 /**
  * Profit & Loss A/c — Tally Prime two-panel replica with the trading
@@ -24,9 +27,13 @@ const tallyDateLabel = (iso: string): string => {
  * indirect expenses vs indirect incomes below, ending in Nett Profit/Loss.
  * Adding a column with C / A / N switches it to Tally's columnar layout.
  */
-const ProfitLoss: React.FC = () => {
+const ProfitLoss: React.FC<{
+  onOpenGroup?: (head: string) => void;
+  onOpenLedger?: (accountId: string) => void;
+}> = ({ onOpenGroup, onOpenLedger }) => {
   const { companies, selectedCompanyId } = useAccountingCompany();
   const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
+  const [monthly, setMonthly] = useState(false);
 
   const report = useTallyReport({
     filterFields: ['Particulars'],
@@ -36,10 +43,37 @@ const ProfitLoss: React.FC = () => {
       { label: 'Ratio Analysis', target: 'ratio-analysis' },
       { label: 'Receipts & Payments', target: 'receipts-payments' },
     ],
+    // Tally's P&L F12
+    configFields: [{ key: 'percentages', label: 'Show Percentages' }],
     detailedToggle: { hotkey: 'F5', label: 'Ledger-wise' },
-    screenKeys: [sourceRail],
+    screenKeys: [
+      // Tally's most-used P&L view: one column per month across the period
+      { hotkey: 'F6', label: 'Monthly', active: monthly, onClick: () => setMonthly((v) => !v) },
+      sourceRail,
+    ],
   });
   const { from: fromDate, to: toDate } = report;
+  const percentages = !!report.config.percentages;
+
+  // Lay the month columns out (and take them away again) without touching a
+  // comparison column the user added themselves with Alt+C.
+  const ownsColumns = useRef(false);
+  useEffect(() => {
+    if (monthly) {
+      report.replaceColumns(
+        monthsInPeriod({ from: fromDate, to: toDate }).map((m) => ({
+          title: m.label,
+          from: m.from,
+          to: m.upto,
+        })),
+      );
+      ownsColumns.current = true;
+    } else if (ownsColumns.current) {
+      report.replaceColumns([]);
+      ownsColumns.current = false;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthly, fromDate, toDate]);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ['profit_loss_merged', fromDate, toDate, selectedCompanyId],
@@ -60,36 +94,47 @@ const ProfitLoss: React.FC = () => {
       const dirExp = mk('Direct Expenses');
       const purch = mk('Purchase Accounts');
       const indExp = mk('Indirect Expenses');
-      const dirInc = mk('Sales Accounts');
+      const sales = mk('Sales Accounts');
+      const dirInc = mk('Direct Incomes');
       const indInc = mk('Indirect Incomes');
+
+      // Purchase Accounts and Direct Incomes are real Tally primary groups and
+      // now come straight off the ledger's head. This used to guess purchases
+      // by testing whether the ledger name contained the word "purchase".
+      const INCOME_LINES: Record<string, Line> = {
+        'Sales Accounts': sales,
+        'Direct Incomes': dirInc,
+        'Indirect Incomes': indInc,
+      };
+      const EXPENSE_LINES: Record<string, Line> = {
+        'Purchase Accounts': purch,
+        'Direct Expenses': dirExp,
+        'Indirect Expenses': indExp,
+      };
 
       for (const r of ledgerRows) {
         // r.balance is signed Debit-positive / Credit-negative.
-        const income = r.head === 'Sales Accounts' || r.head === 'Indirect Incomes';
-        const expense = r.head === 'Direct Expenses' || r.head === 'Indirect Expenses';
-        if (!income && !expense) continue;
-        const bal = income ? -r.balance : r.balance; // both shown positive
+        const line = INCOME_LINES[r.head] ?? EXPENSE_LINES[r.head];
+        if (!line) continue;
+        const bal = INCOME_LINES[r.head] ? -r.balance : r.balance; // both shown positive
         if (!report.passesBasis(bal)) continue;
         if (!report.passesFilter({ Particulars: r.name })) continue;
-        const line = income
-          ? r.head === 'Indirect Incomes'
-            ? indInc
-            : dirInc
-          : r.head === 'Indirect Expenses'
-            ? indExp
-            : r.name.toLowerCase().includes('purchase')
-              ? purch
-              : dirExp;
         line.amount += bal;
-        line.ledgers.push({ name: r.name, amount: bal, source: r.source });
+        line.ledgers.push({ name: r.name, amount: bal, source: r.source, accountId: r.accountId });
       }
 
-      const grossProfit = dirInc.amount - purch.amount - dirExp.amount;
+      // Tally's trading account: sales + direct incomes against purchases +
+      // direct expenses. (No opening/closing stock — this installation has no
+      // inventory module, so there is no stock figure to bring in.)
+      const tradingIncome = sales.amount + dirInc.amount;
+      const tradingExpense = purch.amount + dirExp.amount;
+      const grossProfit = tradingIncome - tradingExpense;
       const nett = grossProfit + indInc.amount - indExp.amount;
       return {
         purchase: purch,
         directExpense: dirExp,
         indirectExpense: indExp,
+        sales,
         directIncome: dirInc,
         indirectIncome: indInc,
         grossProfit,
@@ -99,7 +144,7 @@ const ProfitLoss: React.FC = () => {
     [report.passesBasis, report.passesFilter],
   );
 
-  const { purchase, directExpense, indirectExpense, directIncome, indirectIncome, grossProfit, nett, prevs } =
+  const { purchase, directExpense, indirectExpense, sales, directIncome, indirectIncome, grossProfit, nett, prevs } =
     useMemo(() => {
       const cur = compute(rows.filter((r) => matchesSource(r.source, srcFilter)));
       return {
@@ -115,38 +160,128 @@ const ProfitLoss: React.FC = () => {
   const tradingTopLeft = grossProfit >= 0 ? grossProfit : 0; // Gross Profit c/o on left when profit
   const tradingTopRight = grossProfit < 0 ? -grossProfit : 0; // Gross Loss c/o on right
   const leftTradingTotal = purchase.amount + directExpense.amount + tradingTopLeft;
-  const rightTradingTotal = directIncome.amount + tradingTopRight;
+  const rightTradingTotal = sales.amount + directIncome.amount + tradingTopRight;
   const tradingTotal = Math.max(leftTradingTotal, rightTradingTotal);
 
   const bottomLeftTotal = indirectExpense.amount + (nett >= 0 ? nett : 0);
   const bottomRightTotal = (grossProfit >= 0 ? grossProfit : 0) + indirectIncome.amount + (nett < 0 ? -nett : 0);
   const bottomTotal = Math.max(bottomLeftTotal, bottomRightTotal);
 
-  const lineRow = (l: Line, bold = true) =>
-    Math.abs(l.amount) >= 0.005 && (
+  // Percentages are of turnover, the way Tally's Show Percentages reads them.
+  const turnover = sales.amount + directIncome.amount;
+
+  const leftLines = [purchase, directExpense, indirectExpense];
+  const rightLines = [sales, directIncome, indirectIncome];
+  const shown = (l: Line) => Math.abs(l.amount) >= 0.005;
+
+  // Enter drills a head to its Group Summary and a ledger to its vouchers —
+  // left column first, then right, matching the reading order.
+  const targets = useMemo<CursorTarget[]>(() => {
+    const out: CursorTarget[] = [];
+    for (const l of [...leftLines, ...rightLines]) {
+      if (!shown(l)) continue;
+      out.push({ kind: 'head', head: l.name });
+      if (report.detailed) {
+        for (const led of l.ledgers) out.push({ kind: 'ledger', head: l.name, accountId: led.accountId });
+      }
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [purchase, directExpense, indirectExpense, sales, directIncome, indirectIncome, report.detailed]);
+
+  const { cursor, setCursor } = useRowCursor({
+    count: targets.length,
+    onEnter: (index) => {
+      const t = targets[index];
+      if (!t) return;
+      if (t.kind === 'ledger') {
+        if (t.accountId) onOpenLedger?.(t.accountId);
+        return;
+      }
+      onOpenGroup?.(t.head);
+    },
+  });
+
+  // Cursor index of each head, computed in the same order as `targets`.
+  const indexOf = useMemo(() => {
+    const map = new Map<string, number>();
+    let at = 0;
+    for (const l of [...leftLines, ...rightLines]) {
+      if (!shown(l)) continue;
+      map.set(l.name, at);
+      at += 1 + (report.detailed ? l.ledgers.length : 0);
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [purchase, directExpense, indirectExpense, sales, directIncome, indirectIncome, report.detailed]);
+
+  const pct = (amount: number) =>
+    percentages ? (
+      <span className="w-20 shrink-0 text-right font-mono text-[11px] text-gray-500">
+        {turnover ? `${((amount / turnover) * 100).toFixed(2)} %` : ''}
+      </span>
+    ) : null;
+
+  const lineRow = (l: Line, bold = true) => {
+    if (!shown(l)) return null;
+    const headIndex = indexOf.get(l.name) ?? -1;
+    return (
       <React.Fragment key={l.name}>
-        <div className="flex justify-between">
-          <span className={bold ? 'font-bold' : ''}>{l.name}</span>
-          <span className="font-mono">{fmt(l.amount)}</span>
-        </div>
+        <button
+          type="button"
+          onClick={() => onOpenGroup?.(l.name)}
+          onMouseEnter={() => setCursor(headIndex)}
+          title="Open Group Summary"
+          className={`flex w-full justify-between text-left ${
+            cursor === headIndex ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'
+          }`}
+        >
+          <span className={`min-w-0 flex-1 ${bold ? 'font-bold' : ''}`}>{l.name}</span>
+          {pct(l.amount)}
+          <span className="w-36 shrink-0 text-right font-mono">{fmt(l.amount)}</span>
+        </button>
         {report.detailed &&
-          l.ledgers.map((led) => (
-            <div key={`${led.source}:${led.name}`} className="flex justify-between text-[12px] italic text-gray-700">
-              <span className="pl-5">
-                {led.name}
-              </span>
-              <span className="font-mono">{fmt(led.amount)}</span>
-            </div>
-          ))}
+          l.ledgers.map((led, li) => {
+            const ledgerIndex = headIndex + 1 + li;
+            return (
+              <button
+                key={`${led.source}:${led.name}`}
+                type="button"
+                onClick={() => led.accountId && onOpenLedger?.(led.accountId)}
+                onMouseEnter={() => setCursor(ledgerIndex)}
+                title="Open Ledger Vouchers"
+                className={`flex w-full justify-between text-left text-[12px] italic text-gray-700 ${
+                  cursor === ledgerIndex ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'
+                }`}
+              >
+                <span className="min-w-0 flex-1 pl-5">{led.name}</span>
+                {pct(led.amount)}
+                <span className="w-36 shrink-0 text-right font-mono">{fmt(led.amount)}</span>
+              </button>
+            );
+          })}
       </React.Fragment>
     );
+  };
 
-  const header = (
-    <div className="border-b border-black text-right">
-      <div className="font-bold">{companyName}</div>
-      <div className="text-[11px]">
-        {tallyDateLabel(fromDate)} to {tallyDateLabel(toDate)}
-      </div>
+  /** A total / carried-forward line — not drillable. */
+  const plainRow = (label: string, amount: number, italic = false) => (
+    <div className="flex justify-between">
+      <span className={`min-w-0 flex-1 font-bold ${italic ? 'italic' : ''}`}>{label}</span>
+      {percentages && <span className="w-20 shrink-0" />}
+      <span className="w-36 shrink-0 text-right font-mono">{fmt(amount)}</span>
+    </div>
+  );
+
+  const header = (title: string) => (
+    <div className="flex items-end justify-between border-b border-black">
+      <span className="font-semibold tracking-[0.3em]">{title}</span>
+      <span className="text-right">
+        <span className="block font-bold">{companyName}</span>
+        <span className="block text-[11px]">
+          {dayLabel(fromDate)} to {dayLabel(toDate)}
+        </span>
+      </span>
     </div>
   );
 
@@ -156,7 +291,7 @@ const ProfitLoss: React.FC = () => {
       <div className="flex border-y border-black bg-[#f0f4fa] font-semibold">
         <div className="w-64 flex-1 px-1">Particulars</div>
         <div className="w-44 shrink-0 px-1 text-right">
-          {tallyDateLabel(fromDate)}–{tallyDateLabel(toDate)}
+          {dayLabel(fromDate)}–{dayLabel(toDate)}
         </div>
         {report.columns.map((c) => (
           <div key={c.id} className="w-44 shrink-0 px-1 text-right text-gray-600">
@@ -166,7 +301,8 @@ const ProfitLoss: React.FC = () => {
       </div>
       {(
         [
-          ['Sales Accounts', directIncome.amount, (p) => p.directIncome.amount],
+          ['Sales Accounts', sales.amount, (p) => p.sales.amount],
+          ['Direct Incomes', directIncome.amount, (p) => p.directIncome.amount],
           ['Purchase Accounts', purchase.amount, (p) => p.purchase.amount],
           ['Direct Expenses', directExpense.amount, (p) => p.directExpense.amount],
           ['Gross Profit', grossProfit, (p) => p.grossProfit],
@@ -203,72 +339,35 @@ const ProfitLoss: React.FC = () => {
             columnar
           ) : (
             <div className="flex">
-              {/* Left panel */}
+              {/* Left panel — Tally's expense side */}
               <div className="min-w-0 flex-1 border-r border-gray-400 pr-3">
-                {header}
-                <div className="-mt-10 pb-6 font-semibold tracking-[0.3em]">Particulars</div>
+                {header('Particulars')}
                 <div className="mt-2 space-y-0.5">
                   {lineRow(purchase)}
                   {lineRow(directExpense)}
-                  {grossProfit >= 0 && (
-                    <div className="flex justify-between">
-                      <span className="font-bold italic">Gross Profit c/o</span>
-                      <span className="font-mono">{fmt(grossProfit)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between border-t border-gray-400 pt-0.5">
-                    <span />
-                    <span className="font-mono font-semibold">{fmt(tradingTotal)}</span>
-                  </div>
+                  {grossProfit >= 0 && plainRow('Gross Profit c/o', grossProfit, true)}
+                  {/* Tally prints "Total" on both sides of the trading section too */}
+                  <div className="border-t border-gray-400 pt-0.5">{plainRow('Total', tradingTotal)}</div>
                   <div className="pt-2">{lineRow(indirectExpense)}</div>
-                  {nett >= 0 && (
-                    <div className="flex justify-between">
-                      <span className="font-bold italic">Nett Profit</span>
-                      <span className="font-mono">{fmt(nett)}</span>
-                    </div>
-                  )}
+                  {nett >= 0 && plainRow('Nett Profit', nett, true)}
                 </div>
-                <div className="mt-10 flex justify-between border-t border-black pt-1 font-bold">
-                  <span className="tracking-[0.3em]">Total</span>
-                  <span className="font-mono">{fmt(bottomTotal)}</span>
-                </div>
+                <div className="mt-10 border-t border-black pt-1">{plainRow('Total', bottomTotal)}</div>
               </div>
-              {/* Right panel */}
+              {/* Right panel — Tally's income side */}
               <div className="min-w-0 flex-1 pl-3">
-                {header}
-                <div className="-mt-10 pb-6 font-semibold tracking-[0.3em]">Particulars</div>
+                {header('Particulars')}
                 <div className="mt-2 space-y-0.5">
+                  {lineRow(sales)}
                   {lineRow(directIncome)}
-                  {grossProfit < 0 && (
-                    <div className="flex justify-between">
-                      <span className="font-bold italic">Gross Loss c/o</span>
-                      <span className="font-mono">{fmt(-grossProfit)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between border-t border-gray-400 pt-0.5">
-                    <span />
-                    <span className="font-mono font-semibold">{fmt(tradingTotal)}</span>
-                  </div>
+                  {grossProfit < 0 && plainRow('Gross Loss c/o', -grossProfit, true)}
+                  <div className="border-t border-gray-400 pt-0.5">{plainRow('Total', tradingTotal)}</div>
                   <div className="pt-2">
-                    {grossProfit >= 0 && (
-                      <div className="flex justify-between">
-                        <span className="font-bold italic">Gross Profit b/f</span>
-                        <span className="font-mono">{fmt(grossProfit)}</span>
-                      </div>
-                    )}
+                    {grossProfit >= 0 && plainRow('Gross Profit b/f', grossProfit, true)}
                     {lineRow(indirectIncome)}
-                    {nett < 0 && (
-                      <div className="flex justify-between">
-                        <span className="font-bold italic">Nett Loss</span>
-                        <span className="font-mono">{fmt(-nett)}</span>
-                      </div>
-                    )}
+                    {nett < 0 && plainRow('Nett Loss', -nett, true)}
                   </div>
                 </div>
-                <div className="mt-10 flex justify-between border-t border-black pt-1 font-bold">
-                  <span className="tracking-[0.3em]">Total</span>
-                  <span className="font-mono">{fmt(bottomTotal)}</span>
-                </div>
+                <div className="mt-10 border-t border-black pt-1">{plainRow('Total', bottomTotal)}</div>
               </div>
             </div>
           )}

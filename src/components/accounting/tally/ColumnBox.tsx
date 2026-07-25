@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { TallyPopup, TallyTextField, TallyChoiceField } from './TallyPopup';
 import { parseTallyDate, toTallyDateInput } from './ChangePeriod';
+import { dayLabel, isoDate } from './PeriodContext';
 
 /**
  * C: New Column / A: Alter Column — a second period shown beside the report's
@@ -15,20 +16,19 @@ export interface PeriodColumn {
   to: string;
 }
 
-/** Shift an ISO date back a whole year — Tally's default comparison column. */
+/**
+ * Shift an ISO date back a whole year — Tally's default comparison column.
+ *
+ * Formatted with `isoDate`, not `toISOString`: the latter converts to UTC
+ * first, so east of Greenwich every column date came out a day early.
+ */
 export const shiftYear = (iso: string, years = -1): string => {
   const d = new Date(`${iso}T00:00:00`);
   d.setFullYear(d.getFullYear() + years);
-  return d.toISOString().slice(0, 10);
+  return isoDate(d);
 };
 
-export const columnTitle = (from: string, to: string): string => {
-  const label = (iso: string) => {
-    const d = new Date(`${iso}T00:00:00`);
-    return `${d.getDate()}-${d.toLocaleDateString('en-GB', { month: 'short' })}-${String(d.getFullYear()).slice(2)}`;
-  };
-  return `${label(from)} to ${label(to)}`;
-};
+export const columnTitle = (from: string, to: string): string => `${dayLabel(from)} to ${dayLabel(to)}`;
 
 export const ColumnBox: React.FC<{
   title: string;

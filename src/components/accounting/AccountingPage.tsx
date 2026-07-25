@@ -175,11 +175,11 @@ const renderContent = (
         </Suspense>
       );
     case 'trial-balance':
-      return <TrialBalance onOpenGroup={openGroup} />;
+      return <TrialBalance onOpenGroup={openGroup} onOpenLedger={openLedger} />;
     case 'balance-sheet':
-      return <BalanceSheet />;
+      return <BalanceSheet onOpenGroup={openGroup} onOpenLedger={openLedger} />;
     case 'profit-loss':
-      return <ProfitLoss />;
+      return <ProfitLoss onOpenGroup={openGroup} onOpenLedger={openLedger} />;
     case 'cash-flow':
       return <CashFlow />;
     case 'funds-flow':

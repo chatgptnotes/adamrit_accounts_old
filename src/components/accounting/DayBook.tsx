@@ -26,6 +26,7 @@ interface DayRow {
   credit: number;
   narration: string | null;
   entries: { label: string; debit: number; credit: number }[];
+  cancelled: boolean;
   source: LedgerSource;
 }
 
@@ -125,13 +126,19 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
       { label: 'Cash/Bank Book', target: 'cash-bank-book' },
       { label: 'Edit Log', target: 'edit-log' },
     ],
-    // Tally's Day Book rail: F4 Voucher Type, F7 Show Profit and F8 Columnar
-    // greyed, the rest blank. Detailed lives under H: Change View, not on F8.
     supportsColumns: false,
+    // Tally's Day Book F12
+    configFields: [
+      { key: 'narrations', label: 'Show Narrations also', value: true },
+      { key: 'cancelled', label: 'Show Cancelled Vouchers' },
+    ],
+    // Tally's Alt+F5 — the Day Book had no Detailed F-key at all, it was only
+    // reachable through Change View.
+    detailedToggle: { hotkey: 'F5', mod: 'alt', label: 'Detailed' },
     screenKeys: [
       { hotkey: 'F4', label: 'Voucher Type', onClick: () => setTypePicker(true) },
       {
-        hotkey: 'F5',
+        hotkey: 'F6',
         label: scope,
         active: scope !== 'Regular',
         onClick: () =>
@@ -140,15 +147,17 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
             return order[(order.indexOf(cur) + 1) % order.length];
           }),
       },
-      { ...sourceRail, hotkey: 'F6', gapBefore: false },
-      { hotkey: 'F7', label: 'Show Profit', disabled: true },
-      { hotkey: 'F8', label: 'Columnar', disabled: true },
+      { ...sourceRail, hotkey: 'F7', gapBefore: false },
+      // No F7: Show Profit / F8: Columnar. Both need per-voucher cost of sales,
+      // which this installation has no inventory module to supply — a greyed
+      // button that can never light up is worse than no button.
     ],
   });
-  const { from: fromDate, to: toDate, detailed, fmtAmount: fmt } = report;
+  const { from: fromDate, to: toDate, detailed, fmtAmount: fmt, config } = report;
+  const showCancelled = !!config.cancelled;
 
   const { data: vouchers = [], isLoading } = useQuery({
-    queryKey: ['daybook_vouchers', selectedCompanyId, fromDate, toDate, typeFilter, scope],
+    queryKey: ['daybook_vouchers', selectedCompanyId, fromDate, toDate, typeFilter, scope, showCancelled],
     enabled: Boolean(selectedCompanyId),
     queryFn: async () => {
       let query = supabase
@@ -162,12 +171,15 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
           )
         `);
       query = query.eq('company_id', selectedCompanyId);
+      // Tally lists cancelled vouchers struck through when F12 asks for them;
+      // otherwise only authorised ones show.
+      const statuses = showCancelled ? ['AUTHORISED', 'CANCELLED'] : ['AUTHORISED'];
       if (scope === 'Optional') {
         query = (query as any).eq('is_optional', true);
       } else if (scope === 'Post-Dated') {
-        query = query.eq('status', 'AUTHORISED').gt('voucher_date', format(new Date(), 'yyyy-MM-dd'));
+        query = query.in('status', statuses).gt('voucher_date', format(new Date(), 'yyyy-MM-dd'));
       } else {
-        query = query.eq('status', 'AUTHORISED');
+        query = query.in('status', statuses);
       }
       query = query
         .gte('voucher_date', scope === 'Post-Dated' ? format(new Date(), 'yyyy-MM-dd') : fromDate)
@@ -241,6 +253,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
           debit: Number(e.debit_amount) || 0,
           credit: Number(e.credit_amount) || 0,
         })),
+        cancelled: v.status === 'CANCELLED',
         source: 'adamrit',
       };
     });
@@ -268,6 +281,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
           debit: e.debit,
           credit: e.credit,
         })),
+        cancelled: false,
         source: 'tally',
       };
     });
@@ -288,6 +302,15 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
       .filter((r) => report.passesBasis(r.debit || r.credit))
       .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   }, [vouchers, tallyRows, typeName, srcFilter, removedIds, report.passesFilter, report.passesBasis]);
+
+  const { totalDebit, totalCredit } = useMemo(
+    () =>
+      rows.reduce(
+        (acc, r) => ({ totalDebit: acc.totalDebit + r.debit, totalCredit: acc.totalCredit + r.credit }),
+        { totalDebit: 0, totalCredit: 0 },
+      ),
+    [rows],
+  );
 
   const openRow = (index: number) => {
     const row = rows[index];
@@ -388,25 +411,16 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
           }
         />
 
-        {/* Column head — two lines, as Tally stacks the quantity captions
-            under the Debit / Credit amount captions */}
-        <div className="border-y border-black font-semibold">
-          <div className="flex">
-            <div className="w-20 px-1">Date</div>
-            <div className="min-w-0 flex-1 px-1">Particulars</div>
-            <div className="w-32 px-1">Vch Type</div>
-            <div className="w-28 px-1">Vch No.</div>
-            <div className="w-32 px-1 text-right">Debit Amount</div>
-            <div className="w-32 px-1 text-right">Credit Amount</div>
-          </div>
-          <div className="flex font-normal">
-            <div className="w-20 px-1" />
-            <div className="min-w-0 flex-1 px-1" />
-            <div className="w-32 px-1" />
-            <div className="w-28 px-1" />
-            <div className="w-32 px-1 text-right">Inwards Qty</div>
-            <div className="w-32 px-1 text-right">Outwards Qty</div>
-          </div>
+        {/* Column head. The Inwards / Outwards Qty captions Tally stacks under
+            the amounts are gone — there is no inventory module behind them, so
+            they were two permanently empty columns. */}
+        <div className="flex border-y border-black font-semibold">
+          <div className="w-20 px-1">Date</div>
+          <div className="min-w-0 flex-1 px-1">Particulars</div>
+          <div className="w-32 px-1">Vch Type</div>
+          <div className="w-28 px-1">Vch No.</div>
+          <div className="w-32 px-1 text-right">Debit Amount</div>
+          <div className="w-32 px-1 text-right">Credit Amount</div>
         </div>
 
         {isLoading ? (
@@ -429,11 +443,22 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
                     }`}
                   >
                     <div className="w-20 px-1">{tallyDateLabel(r.date)}</div>
-                    <div className="min-w-0 flex-1 truncate px-1 font-semibold">{r.particulars}</div>
+                    <div
+                      className={`min-w-0 flex-1 truncate px-1 font-semibold ${
+                        r.cancelled ? 'text-gray-500 line-through' : ''
+                      }`}
+                    >
+                      {r.particulars}
+                      {r.cancelled && <span className="pl-2 text-[11px] not-italic">(Cancelled)</span>}
+                    </div>
                     <div className="w-32 px-1">{r.type}</div>
                     <div className="w-28 px-1 font-mono text-[12px]">{r.number}</div>
-                    <div className="w-32 px-1 text-right font-mono">{r.debit > 0 ? fmt(r.debit) : ''}</div>
-                    <div className="w-32 px-1 text-right font-mono">{r.credit > 0 ? fmt(r.credit) : ''}</div>
+                    <div className={`w-32 px-1 text-right font-mono ${r.cancelled ? 'line-through' : ''}`}>
+                      {r.debit > 0 ? fmt(r.debit) : ''}
+                    </div>
+                    <div className={`w-32 px-1 text-right font-mono ${r.cancelled ? 'line-through' : ''}`}>
+                      {r.credit > 0 ? fmt(r.credit) : ''}
+                    </div>
                   </button>
                   {expanded && (
                     <div className="bg-[#fffdf2] py-0.5">
@@ -454,7 +479,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
                           </div>
                         </div>
                       ))}
-                      {r.narration && (
+                      {!!config.narrations && r.narration && (
                         <div className="px-24 text-[11px] italic text-gray-500">({r.narration})</div>
                       )}
                     </div>
@@ -462,6 +487,20 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
                 </React.Fragment>
               );
             })}
+
+            {/* Tally closes the Day Book with the column totals and a count */}
+            <div className="mt-1 flex border-t border-black pt-0.5 font-semibold">
+              <div className="w-20 px-1" />
+              <div className="min-w-0 flex-1 px-1">Total</div>
+              <div className="w-32 px-1" />
+              <div className="w-28 px-1" />
+              <div className="w-32 px-1 text-right font-mono">{fmt(totalDebit)}</div>
+              <div className="w-32 px-1 text-right font-mono">{fmt(totalCredit)}</div>
+            </div>
+            <div className="pt-1 text-[11px] italic text-gray-500">
+              {rows.length} voucher{rows.length === 1 ? '' : 's'}
+              {removedIds.size > 0 && ` · ${removedIds.size} line(s) removed from this view`}
+            </div>
           </>
         )}
       </div>

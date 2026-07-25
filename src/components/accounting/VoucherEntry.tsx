@@ -20,7 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { TallyScreen, type RailItem } from './tally/TallyChrome';
+import { TallyScreen, getTallyFeatures, type RailItem, type TallyFeatureFlags } from './tally/TallyChrome';
+import { TallyChoiceField, TallyPopup, TallyTextField } from './tally/TallyPopup';
 import { useCostCentres } from './CostCentres';
 import { useAccountingRights } from './tally/rights';
 import { useAccountingCompany } from './AccountingCompanyContext';
@@ -98,14 +99,73 @@ const SINGLE_ACCOUNT_MODES: Record<string, { accountIsDebit: boolean }> = {
 };
 
 // Tally's F4–F9 rail order
-const RAIL_KEYS: { hotkey: string; category: string; label: string }[] = [
+const RAIL_KEYS: { hotkey: string; mod?: 'ctrl'; category: string; label: string }[] = [
   { hotkey: 'F4', category: 'CONTRA', label: 'Contra' },
   { hotkey: 'F5', category: 'PAYMENT', label: 'Payment' },
   { hotkey: 'F6', category: 'RECEIPT', label: 'Receipt' },
   { hotkey: 'F7', category: 'JOURNAL', label: 'Journal' },
   { hotkey: 'F8', category: 'SALES', label: 'Sales' },
+  // Tally puts the notes on the shifted sales/purchase keys
+  { hotkey: 'F8', mod: 'ctrl', category: 'CREDIT NOTE', label: 'Credit Note' },
   { hotkey: 'F9', category: 'PURCHASE', label: 'Purchase' },
+  { hotkey: 'F9', mod: 'ctrl', category: 'DEBIT NOTE', label: 'Debit Note' },
 ];
+
+/**
+ * Tally's Bill-wise Details / Cost Centre Allocation sub-screen, opened from
+ * the ledger line it belongs to.
+ *
+ * Both fields were already persisted and reloaded with the voucher — there was
+ * simply no way to type them in. Each half only appears when the matching
+ * F11 company feature is on, exactly as Tally hides them.
+ */
+const AllocationPopup: React.FC<{
+  ledgerName: string;
+  amount: string;
+  billRef: string;
+  costCentreId: string;
+  costCentres: { id: string; name: string }[];
+  features: TallyFeatureFlags;
+  onAccept: (next: { billRef: string; costCentreId: string }) => void;
+  onClose: () => void;
+}> = ({ ledgerName, amount, billRef, costCentreId, costCentres, features, onAccept, onClose }) => {
+  const [ref, setRef] = useState(billRef);
+  const [centre, setCentre] = useState(costCentreId);
+  const centreNames = ['(none)', ...costCentres.map((c) => c.name)];
+  const centreName = costCentres.find((c) => c.id === centre)?.name ?? '(none)';
+
+  return (
+    <TallyPopup
+      title={features.billWise ? 'Bill-wise Details' : 'Cost Centre Allocation'}
+      width={360}
+      onAccept={() => onAccept({ billRef: ref.trim(), costCentreId: centre })}
+      onClose={onClose}
+    >
+      <div className="pb-1 text-center text-[12px]">
+        <span className="font-semibold">{ledgerName || '(ledger)'}</span>
+        {Number(amount) > 0 && <span className="pl-2 font-mono">{fmtINR(Number(amount))}</span>}
+      </div>
+      {features.billWise && (
+        <TallyTextField label="Bill Reference" value={ref} onChange={setRef} width={170} labelWidth={130} />
+      )}
+      {features.costCentres && costCentres.length > 0 && (
+        <TallyChoiceField
+          label="Cost Centre"
+          value={centreName}
+          options={centreNames}
+          width={170}
+          labelWidth={130}
+          onChange={(name) => setCentre(costCentres.find((c) => c.name === name)?.id ?? '')}
+        />
+      )}
+      {!features.billWise && !(features.costCentres && costCentres.length > 0) && (
+        <div className="py-2 text-center text-[12px] italic text-gray-500">
+          Turn on Bill-wise details or Cost Centres in F11: Features.
+        </div>
+      )}
+    </TallyPopup>
+  );
+};
 
 // Current balance = opening + posted debits - credits, formatted "1,234.00 Dr".
 const balanceLabel = (bal: number | undefined): string => {
@@ -245,7 +305,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
   const queryClient = useQueryClient();
   const { user, hospitalConfig } = useAuth();
   const { canAlter } = useAccountingRights();
-  const { selectedCompanyId, setSelectedCompanyId } = useAccountingCompany();
+  const { companies, selectedCompanyId, setSelectedCompanyId } = useAccountingCompany();
   const { cancelVoucher: cancelVoucherById, deleteVoucher: deleteVoucherById } = useVoucherActions();
   const alterMode = !!voucherId;
   // Duplicating loads a voucher exactly like alteration does, but saves as new
@@ -302,6 +362,15 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
 
   // Current-balance cache per account id (opening + AUTHORISED debits - credits)
   const [balances, setBalances] = useState<Record<string, number>>({});
+  // Which ledger line has its Bill-wise / Cost Centre sub-screen open
+  const [allocFor, setAllocFor] = useState<{ kind: 'part' | 'journal'; key: number } | null>(null);
+  const [features, setFeatures] = useState<TallyFeatureFlags>(getTallyFeatures);
+  useEffect(() => {
+    const onChange = () => setFeatures(getTallyFeatures());
+    window.addEventListener('tally-features-changed', onChange);
+    return () => window.removeEventListener('tally-features-changed', onChange);
+  }, []);
+  const allocationsOn = features.billWise || features.costCentres;
   const loadBalance = useCallback(async (accountId: string) => {
     if (accountId in balances) return;
     try {
@@ -769,7 +838,10 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
           alert_type: 'receipt',
           amount: debitSum,
           patient_name: narration || 'Voucher Entry',
-          hospital_name: 'Hope',
+          // The company the voucher was actually entered against, not a
+          // hardcoded "Hope" — this alert goes out for either hospital.
+          hospital_name:
+            companies.find((c) => c.id === selectedCompanyId)?.company_name || hospitalConfig.name,
             additional_info: `Voucher: ${numberToSave}, Type: ${voucherType?.voucher_type_name || 'N/A'}`,
         });
       }
@@ -899,16 +971,28 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
           : []),
       ];
     }
-    const byCategory = (cat: string) => voucherTypes.find((vt) => vt.voucher_category?.toUpperCase() === cat);
+    // Match on the category, falling back to the type's name — companies label
+    // these inconsistently ("CREDIT NOTE" / "CREDIT_NOTE" / a Credit Note type
+    // filed under the Sales category), and a greyed Ctrl+F8 next to a working
+    // "Credit Note" button lower down is just confusing.
+    const squash = (s: string | null | undefined) => (s ?? '').toUpperCase().replace(/[^A-Z]/g, '');
+    const byCategory = (cat: string) => {
+      const want = squash(cat);
+      return (
+        voucherTypes.find((vt) => squash(vt.voucher_category) === want) ??
+        voucherTypes.find((vt) => squash(vt.voucher_type_name).replace('VOUCHER', '') === want)
+      );
+    };
     const mainIds = new Set<string>();
     const items: RailItem[] = [
       { hotkey: 'F2', label: 'Date', onClick: openDatePicker },
     ];
-    RAIL_KEYS.forEach(({ hotkey, category: cat, label }, i) => {
+    RAIL_KEYS.forEach(({ hotkey, mod, category: cat, label }, i) => {
       const vt = byCategory(cat);
       if (vt) mainIds.add(vt.id);
       items.push({
         hotkey,
+        mod,
         label,
         gapBefore: i === 0,
         onClick: vt ? () => setSelectedVoucherType(vt.id) : undefined,
@@ -930,30 +1014,56 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     items.push({
       hotkey: 'T',
       label: 'Post-Dated',
+      active: voucherDate > format(new Date(), 'yyyy-MM-dd'),
       onClick: () => {
-        // Tally: a post-dated voucher simply carries a future date
-        const d = new Date();
-        d.setDate(d.getDate() + 30);
-        setVoucherDate(format(d, 'yyyy-MM-dd'));
-        toast.info('Date set 30 days ahead — adjust as needed. Post-dated vouchers stay out of reports until due.');
-        setTimeout(openDatePicker, 0);
+        // Tally: a post-dated voucher simply carries a future date, so this
+        // opens the date picker rather than guessing 30 days ahead.
+        openDatePicker();
       },
     });
     items.push({ hotkey: 'P', label: 'Print Vch', gapBefore: true, onClick: printVoucher });
     return items;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [voucherTypes, selectedVoucherType, alterMode, isOptional, canAlter, openDatePicker]);
+  }, [voucherTypes, selectedVoucherType, alterMode, isOptional, canAlter, openDatePicker, voucherDate]);
 
   const accountBalance = account ? balances[account.id] : undefined;
 
   const amountInputClass =
     'h-7 w-36 rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-right font-mono text-[13px] shadow-none focus-visible:ring-0 focus-visible:border-blue-600 focus-visible:border-solid disabled:border-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none';
 
+  const allocLine =
+    allocFor?.kind === 'part'
+      ? partLines.find((l) => l.key === allocFor.key)
+      : allocFor
+        ? journalLines.find((l) => l.key === allocFor.key)
+        : undefined;
+
   return (
+    <>
     <TallyScreen
       title={alterMode ? "Accounting Voucher Alteration" : "Accounting Voucher Creation"}
       rail={rail}
       onClose={onDone}
+      // A: Accept and Q: Quit were drawn with underlined hotkeys but bound to
+      // nothing — only the mouse worked. Ctrl+A / Ctrl+Q are Tally's own.
+      bottomBar={[
+        {
+          hotkey: 'A',
+          mod: 'ctrl',
+          aliases: [{ hotkey: 'A' }],
+          label: 'Accept',
+          onClick: canAlter && !saving && selectedType ? () => void saveVoucher('posted') : undefined,
+        },
+        {
+          hotkey: 'Q',
+          mod: 'ctrl',
+          aliases: [{ hotkey: 'Q' }],
+          label: 'Quit',
+          onClick: () => (alterMode ? onDone?.() : handleClear()),
+        },
+        { hotkey: 'F1', label: 'Help', onClick: () => window.dispatchEvent(new CustomEvent('tally-help')) },
+        { hotkey: 'P', label: 'Print Vch', onClick: selectedType ? printVoucher : undefined },
+      ]}
     >
       {/* Voucher type / No. / Ref / Date strip */}
       <div className="flex items-start justify-between border-b border-[#9db8d8] bg-[#eef3fa] px-2 py-1 text-[13px]">
@@ -979,6 +1089,26 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
             {voucherDate > format(new Date(), 'yyyy-MM-dd') && (
               <span className="bg-purple-700 px-2 py-0.5 text-[11px] font-bold text-white">POST-DATED</span>
             )}
+          </div>
+          {/* Tally's party Ref. No. / Ref. Date. Both were already saved and
+              reloaded with the voucher — there was simply nowhere to type them. */}
+          <div className="mt-1 flex items-center gap-2 text-[12px]">
+            <span className="font-medium">Ref. No.</span>
+            <Input
+              value={referenceNumber}
+              onChange={(e) => setReferenceNumber(e.target.value)}
+              placeholder="—"
+              className="h-6 w-36 rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-[12px] shadow-none focus-visible:border-solid focus-visible:border-blue-600 focus-visible:ring-0"
+              aria-label="Reference number"
+            />
+            <span className="pl-2 font-medium">Ref. Date</span>
+            <Input
+              type="date"
+              value={referenceDate}
+              onChange={(e) => setReferenceDate(e.target.value)}
+              className="h-6 w-36 rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-[12px] shadow-none focus-visible:border-solid focus-visible:border-blue-600 focus-visible:ring-0"
+              aria-label="Reference date"
+            />
           </div>
         </div>
         <div className="text-right">
@@ -1072,6 +1202,21 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
                     }}
                     className={amountInputClass}
                   />
+                  {allocationsOn && (
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      title="Bill-wise details / Cost centre allocation"
+                      onClick={() => setAllocFor({ kind: 'part', key: line.key })}
+                      className={`h-7 shrink-0 px-1 text-[11px] leading-7 ${
+                        line.billRef || line.costCentreId
+                          ? 'font-bold text-[#16437e] underline'
+                          : 'text-gray-400 hover:text-[#16437e]'
+                      }`}
+                    >
+                      Alloc
+                    </button>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -1107,12 +1252,16 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
                     value={line.drcr}
                     onValueChange={(v) => updateJournalLine(line.key, { drcr: v as 'Dr' | 'Cr' })}
                   >
-                    <SelectTrigger className="h-7 w-12 rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-[13px] font-semibold shadow-none focus:ring-0">
-                      <SelectValue />
+                    {/* Tally writes a journal as By (debit) / To (credit) */}
+                    <SelectTrigger
+                      title={line.drcr === 'Dr' ? 'By — debit side' : 'To — credit side'}
+                      className="h-7 w-12 rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-[13px] font-semibold shadow-none focus:ring-0"
+                    >
+                      {line.drcr === 'Dr' ? 'By' : 'To'}
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Dr">Dr</SelectItem>
-                      <SelectItem value="Cr">Cr</SelectItem>
+                      <SelectItem value="Dr">By (Dr)</SelectItem>
+                      <SelectItem value="Cr">To (Cr)</SelectItem>
                     </SelectContent>
                   </Select>
                   <div className="flex-1">
@@ -1173,6 +1322,21 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
                     }}
                     className={amountInputClass}
                   />
+                  {allocationsOn && (
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      title="Bill-wise details / Cost centre allocation"
+                      onClick={() => setAllocFor({ kind: 'journal', key: line.key })}
+                      className={`h-7 shrink-0 px-1 text-[11px] leading-7 ${
+                        line.billRef || line.costCentreId
+                          ? 'font-bold text-[#16437e] underline'
+                          : 'text-gray-400 hover:text-[#16437e]'
+                      }`}
+                    >
+                      Alloc
+                    </button>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -1240,12 +1404,12 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
                 {saving && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
                 Save as Pending
               </Button>
+              {/* Tally ends a voucher with "Accept? Yes / No", not a Save button */}
+              <span className="self-center pl-2 pr-1 text-[13px] font-semibold">Accept?</span>
               <Button size="sm" className="h-7 rounded-none bg-[#16437e] text-xs hover:bg-[#0f3363]" onClick={() => saveVoucher('posted')} disabled={saving}>
                 {saving && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-                <span className="underline">A</span>: Accept
+                Yes
               </Button>
-              </>
-              )}
               <Button
                 variant="secondary"
                 size="sm"
@@ -1253,13 +1417,43 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
                 onClick={() => (alterMode ? onDone?.() : handleClear())}
                 disabled={saving}
               >
-                <span className="underline">Q</span>: Quit
+                No
               </Button>
+              </>
+              )}
+              {!canAlter && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="h-7 rounded-none text-xs"
+                  onClick={() => (alterMode ? onDone?.() : handleClear())}
+                >
+                  <span className="underline">Q</span>: Quit
+                </Button>
+              )}
             </div>
           </div>
         )}
       </div>
     </TallyScreen>
+
+    {allocFor && allocLine && (
+      <AllocationPopup
+        ledgerName={allocLine.account?.account_name ?? ''}
+        amount={allocLine.amount}
+        billRef={allocLine.billRef ?? ''}
+        costCentreId={allocLine.costCentreId ?? ''}
+        costCentres={costCentres}
+        features={features}
+        onAccept={({ billRef, costCentreId }) => {
+          if (allocFor.kind === 'part') updatePartLine(allocFor.key, { billRef, costCentreId });
+          else updateJournalLine(allocFor.key, { billRef, costCentreId });
+          setAllocFor(null);
+        }}
+        onClose={() => setAllocFor(null)}
+      />
+    )}
+    </>
   );
 };
 

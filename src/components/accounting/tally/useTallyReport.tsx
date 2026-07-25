@@ -14,6 +14,7 @@ import BasisOfValues, { DEFAULT_BASIS, SCALE_DIVISOR, type ValueBasis } from './
 import ChangeView, { DEFAULT_VIEWS, type AlternateView } from './ChangeView';
 import ApplyFilter, { type ReportFilter } from './ApplyFilter';
 import { AutoColumnBox, ColumnBox, columnTitle, shiftYear, type PeriodColumn } from './ColumnBox';
+import ReportConfigure, { defaultsOf, type ReportConfig, type ReportConfigField } from './ReportConfigure';
 
 /**
  * The state behind Tally's right-hand button rail, shared by every accounting
@@ -26,7 +27,7 @@ import { AutoColumnBox, ColumnBox, columnTitle, shiftYear, type PeriodColumn } f
  * rail is ever dead.
  */
 
-export type { PeriodColumn, ReportFilter, ValueBasis };
+export type { PeriodColumn, ReportFilter, ValueBasis, ReportConfig, ReportConfigField };
 
 type Popup =
   | null
@@ -38,7 +39,8 @@ type Popup =
   | 'filter-details'
   | 'new-column'
   | 'alter-column'
-  | 'auto-column';
+  | 'auto-column'
+  | 'configure';
 
 const goTo = (target: string) => window.dispatchEvent(new CustomEvent('tally-goto', { detail: target }));
 
@@ -66,7 +68,7 @@ export interface UseTallyReportOptions {
    * Puts the Detailed / Condensed toggle on this F-key, the way Tally's
    * reports carry "F5: Ledger-wise". H: Change View sets the same state.
    */
-  detailedToggle?: { hotkey: string; label?: string };
+  detailedToggle?: { hotkey: string; mod?: 'alt' | 'ctrl'; label?: string };
   /** Screens that open expanded regardless of the F12 preference */
   initialDetailed?: boolean;
   /** Columns offered by F: Apply Filter (first one is the default) */
@@ -75,6 +77,12 @@ export interface UseTallyReportOptions {
   views?: AlternateView[];
   /** Screens with no comparison column of their own opt out of C/A/D/N */
   supportsColumns?: boolean;
+  /**
+   * This report's own F12: Configure switches. Tally's F12 is per-report —
+   * "Show Opening Balance" on the Trial Balance, "Show Narrations" on the Day
+   * Book. Answers come back on `report.config`.
+   */
+  configFields?: ReportConfigField[];
 }
 
 export interface TallyReport {
@@ -88,12 +96,19 @@ export interface TallyReport {
   basis: ValueBasis;
   filters: ReportFilter[];
   columns: PeriodColumn[];
+  /**
+   * Replace the comparison columns outright. F6: Monthly uses this to lay one
+   * column per month across the report; pass [] to go back to a single period.
+   */
+  replaceColumns: (columns: Omit<PeriodColumn, 'id'>[]) => void;
   /** Format an amount under the current Basis of Values */
   fmtAmount: (amount: number) => string;
   /** False when Basis of Values says this line should be dropped */
   passesBasis: (amount: number) => boolean;
   /** False when an active filter excludes this row */
   passesFilter: (values: Record<string, string | number | null | undefined>) => boolean;
+  /** Answers to this report's F12: Configure switches, keyed by field */
+  config: ReportConfig;
   /** The full rail, ready to hand to TallyScreen */
   rail: RailItem[];
   /** Render next to <TallyScreen> — the pop-ups the rail opens */
@@ -109,6 +124,7 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
     filterFields = ['Particulars'],
     views = DEFAULT_VIEWS,
     supportsColumns = true,
+    configFields = [],
   } = options;
   const accountingCompany = useAccountingCompanyOptional();
   const periodContext = useAccountingPeriodOptional();
@@ -128,6 +144,7 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
   const [filters, setFilters] = useState<ReportFilter[]>([]);
   const [columns, setColumns] = useState<PeriodColumn[]>([]);
   const [popup, setPopup] = useState<Popup>(null);
+  const [config, setConfig] = useState<ReportConfig>(() => defaultsOf(configFields));
 
   const setPeriod = useCallback(
     (nextFrom: string, nextTo: string) => {
@@ -178,6 +195,10 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
     [filters],
   );
 
+  const replaceColumns = useCallback((next: Omit<PeriodColumn, 'id'>[]) => {
+    setColumns(next.map((c, i) => ({ ...c, id: `${c.from}:${c.to}:${i}` })));
+  }, []);
+
   const addColumn = useCallback((column: Omit<PeriodColumn, 'id'>) => {
     setColumns((cols) => [...cols, { ...column, id: `${column.from}:${column.to}:${cols.length}` }]);
   }, []);
@@ -190,6 +211,7 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
           ...screenKeys,
           {
             hotkey: detailedToggle.hotkey,
+            mod: detailedToggle.mod,
             label: detailedToggle.label ?? 'Ledger-wise',
             active: detailed,
             onClick: () => setDetailed((v) => !v),
@@ -197,27 +219,29 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
         ]
       : screenKeys;
 
-    const claimed = new Set(own.map((item) => item.hotkey?.toUpperCase()));
-    const filler: RailItem[] = [];
-    for (const slot of ['F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10']) {
-      if (claimed.has(slot)) continue;
-      filler.push({ hotkey: slot, label: '', disabled: true });
-    }
-
     // Sort by F-slot, keeping any hotkey-less buttons (ledger lists, voucher
     // types) attached to the button they were declared under.
+    //
+    // An F-slot the report has no action for is left genuinely blank. We used
+    // to push a `{ label: '', disabled: true }` filler into every unclaimed
+    // slot, which drew a row of empty bordered grey buttons — Tally shows
+    // nothing at all there.
     const blocks: { slot: number; items: RailItem[] }[] = [];
-    for (const item of [...own, ...filler]) {
+    for (const item of own) {
       const slot = /^F(\d+)$/.exec(item.hotkey?.toUpperCase() ?? '');
       if (slot) blocks.push({ slot: Number(slot[1]), items: [item] });
       else if (blocks.length > 0) blocks[blocks.length - 1].items.push(item);
       else blocks.push({ slot: 0, items: [item] });
     }
     blocks.sort((a, b) => a.slot - b.slot);
-    // Tally groups F2/F3/F4 together and starts a fresh group at F5
-    return blocks
-      .flatMap((b) => b.items)
-      .map((item) => (item.hotkey?.toUpperCase() === 'F5' ? { ...item, gapBefore: true } : item));
+    // Tally groups F2/F3/F4 together and starts a fresh group at F5 — with the
+    // fillers gone the gap goes on whichever button opens the F5-and-up group.
+    const gapAt = blocks.findIndex((b) => b.slot >= 5);
+    return blocks.flatMap((block, i) =>
+      i === gapAt && i >= 0
+        ? block.items.map((item, j) => (j === 0 ? { ...item, gapBefore: true } : item))
+        : block.items,
+    );
   }, [screenKeys, detailedToggle, detailed]);
 
   // Tally puts "F2: Period" on a report and "F2: Date · Alt+F2: Period" on the
@@ -238,17 +262,37 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
       ...periodKeys,
       { hotkey: 'F3', label: 'Company', onClick: accountingCompany?.cycleCompany },
       ...screenRail,
+      // Tally labels these report keys with Ctrl / Alt. The bare letters this
+      // module shipped with stay bound as unlabelled aliases so nothing anyone
+      // has learned stops working.
       {
         hotkey: 'B',
+        mod: 'ctrl' as const,
+        aliases: [{ hotkey: 'B' }],
         label: 'Basis of Values',
         gapBefore: true,
         active: !isDefaultBasis(basis),
         onClick: () => setPopup('basis'),
       },
-      { hotkey: 'H', label: 'Change View', active: detailed, onClick: () => setPopup('view') },
-      { hotkey: 'J', label: 'Exception Reports', onClick: () => goTo('exception-reports') },
+      {
+        hotkey: 'H',
+        mod: 'ctrl' as const,
+        aliases: [{ hotkey: 'H' }],
+        label: 'Change View',
+        active: detailed,
+        onClick: () => setPopup('view'),
+      },
+      {
+        hotkey: 'J',
+        mod: 'ctrl' as const,
+        aliases: [{ hotkey: 'J' }],
+        label: 'Exception Reports',
+        onClick: () => goTo('exception-reports'),
+      },
       {
         hotkey: 'L',
+        mod: 'ctrl' as const,
+        aliases: [{ hotkey: 'L' }],
         label: 'Save View',
         onClick: () => window.dispatchEvent(new CustomEvent('tally-save-view')),
       },
@@ -262,26 +306,74 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
       { hotkey: 'F', mod: 'ctrl' as const, label: 'Filter Details', onClick: () => setPopup('filter-details') },
       ...(supportsColumns
         ? [
-            { hotkey: 'C', label: 'New Column', gapBefore: true, onClick: () => setPopup('new-column') },
+            {
+              hotkey: 'C',
+              mod: 'alt' as const,
+              aliases: [{ hotkey: 'C' }],
+              label: 'New Column',
+              gapBefore: true,
+              onClick: () => setPopup('new-column'),
+            },
             {
               hotkey: 'A',
+              mod: 'alt' as const,
+              aliases: [{ hotkey: 'A' }],
               label: 'Alter Column',
               disabled: columns.length === 0,
               onClick: () => setPopup('alter-column'),
             },
             {
               hotkey: 'D',
+              mod: 'alt' as const,
+              aliases: [{ hotkey: 'D' }],
               label: 'Delete Column',
               disabled: columns.length === 0,
               onClick: () => setColumns((cols) => cols.slice(0, -1)),
             },
-            { hotkey: 'N', label: 'Auto Column', onClick: () => setPopup('auto-column') },
+            {
+              hotkey: 'N',
+              mod: 'alt' as const,
+              aliases: [{ hotkey: 'N' }],
+              label: 'Auto Column',
+              onClick: () => setPopup('auto-column'),
+            },
           ]
         : []),
-      // No P: Print here — Tally's report rail ends at Ctrl+F: Filter Details,
-      // Print sits in the top bar.
+      // Tally's rail ends with Help / Features / Configure.
+      {
+        hotkey: 'F1',
+        label: 'Help',
+        gapBefore: true,
+        onClick: () => window.dispatchEvent(new CustomEvent('tally-help')),
+      },
+      { hotkey: 'F11', label: 'Features', onClick: () => window.dispatchEvent(new CustomEvent('tally-features')) },
+      {
+        // Chrome will not release a bare F12 — Alt+F12 is the one that works.
+        hotkey: 'F12',
+        mod: 'alt' as const,
+        aliases: [{ hotkey: 'F12' }],
+        label: 'Configure',
+        active: configFields.some((f) => config[f.key] !== (f.value ?? false)),
+        onClick: () =>
+          configFields.length > 0
+            ? setPopup('configure')
+            : window.dispatchEvent(new CustomEvent('tally-configure')),
+      },
+      // No P: Print here — Tally's report rail ends at Configure, Print sits in
+      // the top bar and on the bottom key bar.
     ],
-    [periodKeys, accountingCompany, screenRail, basis, detailed, filters, columns.length, supportsColumns],
+    [
+      periodKeys,
+      accountingCompany,
+      screenRail,
+      basis,
+      detailed,
+      filters,
+      columns.length,
+      supportsColumns,
+      configFields,
+      config,
+    ],
   );
 
   const lastColumn = columns[columns.length - 1];
@@ -355,6 +447,17 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
           onClose={() => setPopup(null)}
         />
       )}
+      {popup === 'configure' && configFields.length > 0 && (
+        <ReportConfigure
+          fields={configFields}
+          config={config}
+          onAccept={(next) => {
+            setConfig(next);
+            setPopup(null);
+          }}
+          onClose={() => setPopup(null)}
+        />
+      )}
       {popup === 'auto-column' && (
         <AutoColumnBox
           from={from}
@@ -379,9 +482,11 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
     basis,
     filters,
     columns,
+    replaceColumns,
     fmtAmount,
     passesBasis,
     passesFilter,
+    config,
     rail,
     popups,
   };

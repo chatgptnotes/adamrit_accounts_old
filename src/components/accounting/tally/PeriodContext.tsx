@@ -94,15 +94,16 @@ export const monthsInPeriod = (
   return out;
 };
 
-/** "1-Apr-26 to 31-Mar-27" — the caption Tally prints under every report title. */
-export const periodLabel = (period: AccountingPeriod): string => {
-  const label = (iso: string): string => {
-    const d = new Date(`${iso}T00:00:00`);
-    if (Number.isNaN(d.getTime())) return iso;
-    return `${d.getDate()}-${d.toLocaleDateString('en-GB', { month: 'short' })}-${String(d.getFullYear()).slice(2)}`;
-  };
-  return `${label(period.from)} to ${label(period.to)}`;
+/** "31-Mar-27" — how Tally writes a single date, everywhere. */
+export const dayLabel = (iso: string): string => {
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return `${d.getDate()}-${d.toLocaleDateString('en-GB', { month: 'short' })}-${String(d.getFullYear()).slice(2)}`;
 };
+
+/** "1-Apr-26 to 31-Mar-27" — the caption Tally prints under every report title. */
+export const periodLabel = (period: AccountingPeriod): string =>
+  `${dayLabel(period.from)} to ${dayLabel(period.to)}`;
 
 interface AccountingPeriodContextValue {
   period: AccountingPeriod;

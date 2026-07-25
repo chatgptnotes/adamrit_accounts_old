@@ -1,22 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
 import { TallyScreen } from './tally/TallyChrome';
+import { TallyList, TallyPopup } from './tally/TallyPopup';
 import ChangePeriod from './tally/ChangePeriod';
+import { dayLabel, periodLabel, useAccountingPeriod } from './tally/PeriodContext';
 import { useAccountingCompanyOptional } from './AccountingCompanyContext';
 
-const tallyDateLabel = (d: Date): string => {
-  const month = d.toLocaleDateString('en-GB', { month: 'short' });
-  return `${d.getDate()}-${month}-${String(d.getFullYear()).slice(2)}`;
-};
-
-const isoDateLabel = (iso: string): string => tallyDateLabel(new Date(`${iso}T00:00:00`));
-
-const fyRange = (d: Date): string => {
-  const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
-  return `1-Apr-${String(y).slice(2)} to 31-Mar-${String(y + 1).slice(2)}`;
-};
+const isoDateLabel = (iso: string): string => dayLabel(iso);
 
 interface MenuItem {
   label: string;
@@ -185,15 +176,19 @@ const MENUS: Record<string, Menu> = {
  * menu on the right, descending into Display More Reports → Account Books.
  */
 const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNavigate }) => {
-  const { hospitalConfig } = useAuth();
   const accountingCompany = useAccountingCompanyOptional();
   const companies = accountingCompany?.companies ?? [];
   const selectedCompany = companies.find((c) => c.id === accountingCompany?.selectedCompanyId);
 
+  // Tally keeps ONE Current Period and Current Date per company, and the
+  // Gateway is where you read them. This screen used to derive both from a
+  // date of its own, so changing the period on any report left the Gateway
+  // still showing the financial year it started in.
+  const { period, setPeriod, currentDate, setCurrentDate } = useAccountingPeriod();
+
   const [stack, setStack] = useState<string[]>(['gateway']);
   const [cursor, setCursor] = useState(0);
-  const [currentDate, setCurrentDate] = useState(() => new Date());
-  const [showDate, setShowDate] = useState(false);
+  const [popup, setPopup] = useState<null | 'date' | 'period' | 'company' | 'quit'>(null);
 
   const menu = MENUS[stack[stack.length - 1]];
   // Flat list drives arrow-key movement and the Quit row at the end
@@ -251,17 +246,26 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
       setStack((s) => s.slice(0, -1));
       setCursor(0);
     } else {
-      window.history.back();
+      // Tally never drops you out of the Gateway silently — it asks first.
+      setPopup('quit');
     }
   };
 
-  // Tally's hot letters and arrow-key navigation are live on the menu
+  // Tally's hot letters and arrow-key navigation are live on the menu.
+  //
+  // Bound in the capture phase so the menu's hot letters beat the top bar's
+  // own K/Y/Z/O/E/M/P handler: they overlap (Day BooK / Display More Reports /
+  // DashbOard / Profit & Loss), and whoever ran first used to win by accident.
+  // preventDefault here is what tells the top bar to stand down.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
       const target = e.target as HTMLElement | null;
       const typing =
         target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
       if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      // A pop-up (Change Date, company list, Quit?) owns the keyboard
+      if (popup) return;
 
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
@@ -299,10 +303,10 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
         }
       }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flat, cursor, stack]);
+  }, [flat, cursor, stack, popup]);
 
   const hotLabel = (item: MenuItem) => {
     const i = item.hotIndex ?? 0;
@@ -343,8 +347,25 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
         closeLabel="✕"
         onClose={back}
         rail={[
-          { hotkey: 'F2', label: 'Date', onClick: () => setShowDate(true) },
-          { hotkey: 'F3', label: 'Company', onClick: accountingCompany?.cycleCompany },
+          { hotkey: 'F2', label: 'Date', onClick: () => setPopup('date') },
+          { hotkey: 'F2', mod: 'alt', label: 'Period', onClick: () => setPopup('period') },
+          // Tally opens the company list here; it does not silently rotate to
+          // the next company the way this button used to.
+          { hotkey: 'F3', label: 'Company', onClick: companies.length > 0 ? () => setPopup('company') : undefined },
+          {
+            hotkey: 'F1',
+            label: 'Help',
+            gapBefore: true,
+            onClick: () => window.dispatchEvent(new CustomEvent('tally-help')),
+          },
+          { hotkey: 'F11', label: 'Features', onClick: () => window.dispatchEvent(new CustomEvent('tally-features')) },
+          {
+            hotkey: 'F12',
+            mod: 'alt',
+            aliases: [{ hotkey: 'F12' }],
+            label: 'Configure',
+            onClick: () => window.dispatchEvent(new CustomEvent('tally-configure')),
+          },
         ]}
       >
         <div className="flex min-h-[70vh] text-[13px]">
@@ -355,10 +376,10 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
               <span>CURRENT DATE</span>
             </div>
             <div className="flex items-baseline justify-between pb-1">
-              <span>{fyRange(currentDate)}</span>
+              <span>{periodLabel(period)}</span>
               <span className="font-semibold">
-                {currentDate.toLocaleDateString('en-GB', { weekday: 'long' })},{' '}
-                {currentDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).replace(/ /g, '-')}
+                {new Date(`${currentDate}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'long' })},{' '}
+                {dayLabel(currentDate)}
               </span>
             </div>
 
@@ -436,16 +457,59 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
         </div>
       </TallyScreen>
 
-      {showDate && (
+      {popup === 'date' && (
         <ChangePeriod
           mode="date"
-          from={currentDate.toISOString().slice(0, 10)}
+          from={currentDate}
           onAccept={(iso) => {
-            setCurrentDate(new Date(`${iso}T00:00:00`));
-            setShowDate(false);
+            setCurrentDate(iso);
+            setPopup(null);
           }}
-          onClose={() => setShowDate(false)}
+          onClose={() => setPopup(null)}
         />
+      )}
+
+      {popup === 'period' && (
+        <ChangePeriod
+          mode="period"
+          from={period.from}
+          to={period.to}
+          onAccept={(from, to) => {
+            setPeriod({ from, to });
+            setPopup(null);
+          }}
+          onClose={() => setPopup(null)}
+        />
+      )}
+
+      {popup === 'company' && (
+        <TallyList
+          title="List of Companies"
+          items={companies.map((c) => ({
+            label: c.company_name,
+            active: c.id === accountingCompany?.selectedCompanyId,
+            onSelect: () => {
+              accountingCompany?.setSelectedCompanyId(c.id);
+              setPopup(null);
+            },
+          }))}
+          onClose={() => setPopup(null)}
+        />
+      )}
+
+      {popup === 'quit' && (
+        <TallyPopup
+          title="Quit?"
+          width={220}
+          onAccept={() => {
+            setPopup(null);
+            window.history.back();
+          }}
+          onClose={() => setPopup(null)}
+        >
+          <div className="py-1 text-center">Leave the accounting module?</div>
+          <div className="pt-1 text-center text-[11px] italic text-gray-500">A: Accept · Q: Quit</div>
+        </TallyPopup>
       )}
     </>
   );

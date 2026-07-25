@@ -11,6 +11,12 @@ export interface LedgerBalanceRow {
   name: string;
   /** One of HEAD_ORDER (shared with native Trial Balance). */
   head: string;
+  /**
+   * Tally's sub-group under the head — `parent_group` for Tally ledgers, the
+   * account_type for native ones. Lets a report show head → group → ledger
+   * instead of dumping every ledger flat under the head.
+   */
+  group: string;
   /** Signed balance, Debit positive / Credit negative. */
   balance: number;
   source: LedgerSource;
@@ -46,6 +52,14 @@ interface TallyLedgerRow {
  * `from`/`upto` bound the Adamrit movements. Tally rows are a snapshot from the
  * last sync and are not date-filtered.
  */
+/** "CURRENT_ASSETS" → "Current Assets", so a native account_type reads as a Tally group. */
+const groupLabel = (accountType: string | null | undefined): string =>
+  (accountType ?? '')
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
+
 export async function mergedLedgerBalances(opts: {
   companyId?: string;
   from?: string;
@@ -71,7 +85,14 @@ export async function mergedLedgerBalances(opts: {
     const m = movements.get(a.id);
     const balance = opening + (m ? m.debit - m.credit : 0);
     if (Math.abs(balance) < 0.005) continue;
-    byName.set(normalizeName(a.account_name), { name: a.account_name, head, balance, source: 'adamrit', accountId: a.id });
+    byName.set(normalizeName(a.account_name), {
+      name: a.account_name,
+      head,
+      group: groupLabel(a.account_type) || head,
+      balance,
+      source: 'adamrit',
+      accountId: a.id,
+    });
   }
 
   // Tally rows (only when a paired Tally company exists). Page through all rows
@@ -90,7 +111,13 @@ export async function mergedLedgerBalances(opts: {
       const mag = Math.abs(Number(l.closing_balance) || 0);
       if (mag < 0.005) continue;
       const balance = CREDIT_NATURE_HEADS.has(head) ? -mag : mag;
-      byName.set(normalizeName(l.name), { name: l.name, head, balance, source: 'tally' });
+      byName.set(normalizeName(l.name), {
+        name: l.name,
+        head,
+        group: l.parent_group?.trim() || head,
+        balance,
+        source: 'tally',
+      });
     }
   }
 
