@@ -1,4 +1,15 @@
 -- ============================================================================
+-- DO NOT RUN. Superseded by
+-- supabase/migrations/20260725110000_fix_duplicate_final_payment_vouchers.sql
+--
+-- The trigger below is named differently from trg_final_payment_create_voucher
+-- in supabase/migrations/20250617000003_create_payment_voucher_triggers.sql, so
+-- running this leaves BOTH on final_payments and every final payment mints two
+-- receipt vouchers. It also fires on UPDATE, so touching a final_payments row
+-- mints another one. Kept for history only.
+-- ============================================================================
+
+-- ============================================================================
 -- CREATE: Trigger for Final Payments Voucher Creation
 -- Date: 2025-11-08
 -- Purpose: Automatically create vouchers when final payments are saved
