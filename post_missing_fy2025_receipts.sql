@@ -42,7 +42,9 @@
 DO $$
 DECLARE
   -- ==================== SETTINGS ====================
-  v_confirm      BOOLEAN := false;
+  -- Enabled 26 Jul 2026, dated in the original months: these receipts are
+  -- restored to the period they actually belong to.
+  v_confirm      BOOLEAN := true;
 
   v_from_period  DATE := '2025-09-01';
   v_upto_period  DATE := '2026-03-01';
