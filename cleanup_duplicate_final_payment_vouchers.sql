@@ -38,6 +38,7 @@ DECLARE
   v_entries INTEGER;
   v_vouchers INTEGER;
 BEGIN
+  DROP TABLE IF EXISTS dup_vouchers;
   CREATE TEMP TABLE dup_vouchers ON COMMIT DROP AS
   WITH ranked AS (
     SELECT id,
