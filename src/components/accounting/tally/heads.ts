@@ -29,6 +29,7 @@ export const HEAD_OF: { match: (t: string) => boolean; head: string }[] = [
  */
 export const HEAD_ORDER = [
   'Capital Account',
+  'Profit & Loss A/c',
   'Loans (Liability)',
   'Current Liabilities',
   'Fixed Assets',
@@ -54,6 +55,16 @@ export const LIABILITY_HEADS = [
   'Branch / Divisions',
   'Suspense A/c',
 ];
+
+/**
+ * Tally's one reserved ledger. It is NOT a Capital Account member — Tally
+ * gives it a primary group of its own and prints it as a separate line on
+ * both the Trial Balance and the Balance Sheet. Verified against live Tally:
+ * Capital Account 8,09,55,539.12 Cr and Profit & Loss A/c 4,12,88,217.43 Cr
+ * are two rows, where this module was reporting their sum as Capital Account.
+ */
+export const PNL_LEDGER_NAME = 'profit & loss a/c';
+export const PNL_HEAD = 'Profit & Loss A/c';
 
 export const ASSET_HEADS = [
   'Fixed Assets',
@@ -104,6 +115,7 @@ export const headOfTallyGroup = (parentGroup: string | null | undefined): string
 /** Heads whose natural balance sits on the Credit side (liabilities + incomes). */
 export const CREDIT_NATURE_HEADS = new Set([
   'Capital Account',
+  'Profit & Loss A/c',
   'Loans (Liability)',
   'Current Liabilities',
   'Branch / Divisions',

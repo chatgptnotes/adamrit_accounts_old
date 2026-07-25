@@ -6,7 +6,7 @@ import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
 import { dayLabel } from './tally/PeriodContext';
-import { ASSET_HEADS, LIABILITY_HEADS } from './tally/heads';
+import { ASSET_HEADS, LIABILITY_HEADS, PNL_LEDGER_NAME } from './tally/heads';
 import { useAccountingCompany } from './AccountingCompanyContext';
 import { useSourceFilter, matchesSource } from './useSourceFilter';
 
@@ -29,7 +29,7 @@ const LIABILITY_ORDER = LIABILITY_HEADS;
 const ASSET_ORDER = ASSET_HEADS;
 
 // Tally's one reserved ledger that carries profit brought forward.
-const PNL_LEDGER = 'profit & loss a/c';
+const PNL_LEDGER = PNL_LEDGER_NAME;
 
 /**
  * Balance Sheet — Tally Prime two-panel replica: Liabilities | Assets,

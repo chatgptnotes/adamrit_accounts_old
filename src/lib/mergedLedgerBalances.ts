@@ -3,7 +3,13 @@ import { accountMovements } from '@/lib/accountMovements';
 import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { normalizeName, resolveTallyCompanyIds } from '@/lib/tallyCompanyMatch';
-import { headOfType, headOfTallyGroup, CREDIT_NATURE_HEADS } from '@/components/accounting/tally/heads';
+import {
+  headOfType,
+  headOfTallyGroup,
+  CREDIT_NATURE_HEADS,
+  PNL_HEAD,
+  PNL_LEDGER_NAME,
+} from '@/components/accounting/tally/heads';
 
 export type LedgerSource = 'adamrit' | 'tally';
 
@@ -79,7 +85,10 @@ export async function mergedLedgerBalances(opts: {
 
   // Adamrit rows first — Tally overwrites on name match below.
   for (const a of accounts) {
-    const head = headOfType(a.account_type);
+    // Tally's reserved Profit & Loss A/c is its own primary group, whatever
+    // account_type it was filed under locally.
+    const head =
+      normalizeName(a.account_name) === PNL_LEDGER_NAME ? PNL_HEAD : headOfType(a.account_type);
     if (!head) continue;
     const opening = (Number(a.opening_balance) || 0) * (a.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1);
     const m = movements.get(a.id);
@@ -106,7 +115,8 @@ export async function mergedLedgerBalances(opts: {
         .range(from, to),
     );
     for (const l of tallyRows) {
-      const head = headOfTallyGroup(l.parent_group);
+      const head =
+        normalizeName(l.name) === PNL_LEDGER_NAME ? PNL_HEAD : headOfTallyGroup(l.parent_group);
       if (!head) continue;
       const mag = Math.abs(Number(l.closing_balance) || 0);
       if (mag < 0.005) continue;
