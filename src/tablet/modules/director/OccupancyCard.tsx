@@ -4,11 +4,20 @@ import { ArrowRight, BedDouble, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import { useOccupancy } from "@/hooks/useOccupancy";
+import type { HospitalType } from "@/types/hospital";
+
+interface OccupancyCardProps {
+  /** Read this hospital's occupancy instead of the logged-in one. */
+  hospital?: HospitalType;
+  /** Hospital-aware drill (switches context when needed). Falls back to plain navigate. */
+  onOpen?: () => void;
+}
 
 /** Compact ward occupancy summary — links to the full /occupancy module. */
-export function OccupancyCard() {
+export function OccupancyCard({ hospital, onOpen }: OccupancyCardProps = {}) {
   const navigate = useNavigate();
-  const { data, isLoading, error } = useOccupancy();
+  const { data, isLoading, error } = useOccupancy(hospital);
+  const open = onOpen ?? (() => navigate("/occupancy"));
 
   const topWards = useMemo(() => {
     if (!data) return [];
@@ -27,7 +36,7 @@ export function OccupancyCard() {
   return (
     <TabletCard
       interactive
-      onClick={() => navigate("/occupancy")}
+      onClick={open}
       className="space-y-3"
     >
       <header className="flex items-center justify-between">

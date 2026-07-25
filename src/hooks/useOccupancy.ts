@@ -28,18 +28,21 @@ export interface OccupancySnapshot {
 
 /**
  * Live bed occupancy: room_management wards cross-referenced with currently
- * admitted IPD visits. Hospital-scoped and read-only.
+ * admitted IPD visits. Hospital-scoped and read-only. Defaults to the logged-in
+ * hospital; pass `hospitalOverride` to read another (the director view shows
+ * both Hope and Ayushman).
  */
-export function useOccupancy() {
+export function useOccupancy(hospitalOverride?: string) {
   const { hospitalConfig } = useAuth();
+  const hospital = hospitalOverride ?? hospitalConfig.name;
   return useQuery({
-    queryKey: ["tablet-occupancy", hospitalConfig.name],
+    queryKey: ["tablet-occupancy", hospital],
     staleTime: 1000 * 30,
     queryFn: async (): Promise<OccupancySnapshot> => {
       const { data: rooms, error: rErr } = await supabase
         .from("room_management")
         .select("id, ward_type, ward_id, location, maximum_rooms, hospital_name")
-        .eq("hospital_name", hospitalConfig.name);
+        .eq("hospital_name", hospital);
       if (rErr) throw rErr;
 
       const { data: visits, error: vErr } = await supabase
@@ -49,7 +52,7 @@ export function useOccupancy() {
         )
         .in("patient_type", ["IPD", "IPD (Inpatient)", "Emergency"])
         .is("discharge_date", null)
-        .eq("patients.hospital_name", hospitalConfig.name);
+        .eq("patients.hospital_name", hospital);
       if (vErr) throw vErr;
 
       const admitted = (visits || []).map((v: any) => ({

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import type { HospitalType } from '@/types/hospital';
 
 export type KpiPeriod = 'today' | 'month' | 'year' | 'specific';
 
@@ -170,13 +171,15 @@ async function fetchLiveKpis(hospitalType: string) {
 }
 
 /**
- * Director Dashboard KPIs, scoped to the director's own hospital.
+ * Director Dashboard KPIs, scoped to a hospital. Defaults to the director's own
+ * hospital; pass `hospitalOverride` to read another one (the both-hospitals
+ * director view fetches Hope and Ayushman side by side).
  * Period-bound metrics (admissions/discharges/OPD/collection) refetch when `period`
  * changes; live metrics (active IPD, pending approvals) auto-refresh every 60s.
  */
-export function useDirectorKpis(period: KpiPeriod, specificMonth: string) {
+export function useDirectorKpis(period: KpiPeriod, specificMonth: string, hospitalOverride?: HospitalType) {
   const { user } = useAuth();
-  const hospitalType = user?.hospitalType;
+  const hospitalType = hospitalOverride ?? user?.hospitalType;
 
   const countsQuery = useQuery({
     queryKey: ['director-kpis-counts', hospitalType, period, specificMonth],
