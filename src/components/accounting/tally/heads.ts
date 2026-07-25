@@ -80,6 +80,21 @@ export const TRADING_INCOME_HEADS = ['Sales Accounts', 'Direct Incomes'];
 export const PL_EXPENSE_HEADS = ['Indirect Expenses'];
 export const PL_INCOME_HEADS = ['Indirect Incomes'];
 
+/**
+ * Every revenue head — Tally's nominal accounts.
+ *
+ * These carry NO opening balance: Tally closes them to Profit & Loss A/c at
+ * year end, so a new year starts them at zero and their reported figure is
+ * pure period movement. Verified against the live server, whose Sales Accounts
+ * figure is the period's sales alone.
+ */
+export const PL_HEADS = new Set([
+  ...TRADING_INCOME_HEADS,
+  ...TRADING_EXPENSE_HEADS,
+  ...PL_INCOME_HEADS,
+  ...PL_EXPENSE_HEADS,
+]);
+
 export const headOfType = (accountType: string | null | undefined): string | null =>
   HEAD_OF.find((h) => h.match((accountType ?? '').toUpperCase()))?.head ?? null;
 

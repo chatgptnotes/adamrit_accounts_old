@@ -7,6 +7,7 @@ import {
   headOfType,
   headOfTallyGroup,
   CREDIT_NATURE_HEADS,
+  PL_HEADS,
   PNL_HEAD,
   PNL_LEDGER_NAME,
 } from '@/components/accounting/tally/heads';
@@ -90,7 +91,13 @@ export async function mergedLedgerBalances(opts: {
     const head =
       normalizeName(a.account_name) === PNL_LEDGER_NAME ? PNL_HEAD : headOfType(a.account_type);
     if (!head) continue;
-    const opening = (Number(a.opening_balance) || 0) * (a.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1);
+    // Revenue heads are nominal accounts: Tally closes them to Profit & Loss
+    // A/c at year end, so they carry no opening balance and their figure is
+    // period movement alone. The Tally masters importer seeds an opening for
+    // income/expense ledgers too, and adding it here inflated every P&L line.
+    const opening = PL_HEADS.has(head)
+      ? 0
+      : (Number(a.opening_balance) || 0) * (a.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1);
     const m = movements.get(a.id);
     const balance = opening + (m ? m.debit - m.credit : 0);
     if (Math.abs(balance) < 0.005) continue;
@@ -118,6 +125,9 @@ export async function mergedLedgerBalances(opts: {
       const head =
         normalizeName(l.name) === PNL_LEDGER_NAME ? PNL_HEAD : headOfTallyGroup(l.parent_group);
       if (!head) continue;
+      // NOTE: closing_balance is an undated snapshot from the last sync, so a
+      // Tally-sourced row is never period-filtered — on a P&L it reports the
+      // ledger's whole balance regardless of the report's from/upto.
       const mag = Math.abs(Number(l.closing_balance) || 0);
       if (mag < 0.005) continue;
       const balance = CREDIT_NATURE_HEADS.has(head) ? -mag : mag;

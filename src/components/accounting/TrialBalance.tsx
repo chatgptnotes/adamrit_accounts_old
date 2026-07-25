@@ -387,7 +387,9 @@ const TrialBalance: React.FC<{
                   </React.Fragment>
                 ))}
               </div>
-              {Math.abs(grandDr - grandCr) > 0.01 && (
+              {/* Only meaningful across the whole trial balance — a single
+                  group never balances on its own, so F4: Group hides it. */}
+              {!headFilter && Math.abs(grandDr - grandCr) > 0.01 && (
                 <div className="mt-1 text-right text-[12px] font-semibold text-red-600">
                   Difference in Opening Balances: {report.fmtAmount(Math.abs(grandDr - grandCr))}
                 </div>
