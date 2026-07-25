@@ -25,11 +25,13 @@
 DO $$
 DECLARE
   -- ==================== SETTINGS ====================
-  -- Set to true only after the accounts below are agreed.
-  v_confirm           BOOLEAN := false;
+  -- Enabled 25 Jul 2026 to post the current financial year only.
+  v_confirm           BOOLEAN := true;
 
-  -- Months to post, inclusive. Raise v_from_period to skip a filed year.
-  v_from_period       DATE := '2025-09-01';
+  -- Months to post, inclusive. Starts at the current financial year:
+  -- FY 2025-26 (Rs 2.17 crore, Sep 2025 - Mar 2026) is deliberately left
+  -- alone and will be handled separately if that year is reopened.
+  v_from_period       DATE := '2026-04-01';
   v_upto_period       DATE := '2026-07-01';
 
   -- Start of the current financial year. Months before this use
@@ -37,10 +39,11 @@ DECLARE
   v_fy_split          DATE := '2026-04-01';
 
   -- Where the recognised revenue goes. 4160 matches where receipts already
-  -- post. If FY 2025-26 is filed, the prior-year months usually belong in
-  -- 3200 Retained Earnings as a prior-period adjustment instead.
+  -- post. v_income_prior_fy is unused while v_from_period sits on or after
+  -- v_fy_split - it only applies if the prior year is brought in later, in
+  -- which case 3200 Retained Earnings is the usual treatment.
   v_income_current_fy TEXT := '4160';
-  v_income_prior_fy   TEXT := '4160';
+  v_income_prior_fy   TEXT := '3200';
   -- =================================================
 
   r                RECORD;
