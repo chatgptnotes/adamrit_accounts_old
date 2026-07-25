@@ -29,7 +29,15 @@
 DO $$
 DECLARE
   -- ==================== SETTINGS ====================
-  v_confirm      BOOLEAN := false;
+  -- Enabled 25 Jul 2026. Apr-Jul 2026 refunds total Rs 5,67,100, so this
+  -- posts Rs 11,34,200 across 9 vouchers.
+  --
+  -- Note: this closes Rs 11.34 lakh of the Rs 20.87 lakh gap between the 2110
+  -- ledger and the advance_payment table. The remaining Rs 9.53 lakh has a
+  -- different cause - most likely duplicate vouchers - and is not addressed
+  -- here. If some refunds were also duplicated, this under-corrects rather
+  -- than overshoots.
+  v_confirm      BOOLEAN := true;
 
   -- Months to correct, inclusive. Defaults to the current financial year, to
   -- match the decision taken on the advance liability - FY 2025-26 was left
