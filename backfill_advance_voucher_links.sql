@@ -43,7 +43,9 @@ BEGIN
        AND advance_amount IS NOT NULL
   ),
   ap_groups AS (
-    SELECT patient_id, d, amt, count(*) AS n, min(id) AS ap_id
+    -- array_agg rather than min(): there is no min() for uuid, and the group
+    -- only matters when it holds exactly one row anyway.
+    SELECT patient_id, d, amt, count(*) AS n, (array_agg(id))[1] AS ap_id
       FROM ap
      GROUP BY 1, 2, 3
   ),
@@ -58,7 +60,7 @@ BEGIN
        AND v.patient_id IS NOT NULL
   ),
   v_groups AS (
-    SELECT patient_id, d, amt, count(*) AS n, min(id) AS voucher_id
+    SELECT patient_id, d, amt, count(*) AS n, (array_agg(id))[1] AS voucher_id
       FROM v
      GROUP BY 1, 2, 3
   ),
@@ -96,21 +98,25 @@ SELECT 'linked by this backfill'                       AS item,
  WHERE v.last_modified_by = 'voucher-link-backfill'
 
 UNION ALL
-SELECT 'linked in total (incl. new postings)',
-       count(*), round(sum(v.total_amount), 2)
-  FROM vouchers v
-  JOIN voucher_entries e   ON e.voucher_id = v.id
-  JOIN chart_of_accounts a ON a.id = e.account_id
- WHERE a.account_code = '2110'
-   AND v.status = 'AUTHORISED'
-   AND v.reference_number IS NOT NULL
+SELECT 'linked in total (incl. new postings)', count(*), round(sum(total_amount), 2)
+  FROM (
+    SELECT DISTINCT v.id, v.total_amount
+      FROM vouchers v
+      JOIN voucher_entries e   ON e.voucher_id = v.id
+      JOIN chart_of_accounts a ON a.id = e.account_id
+     WHERE a.account_code = '2110'
+       AND v.status = 'AUTHORISED'
+       AND v.reference_number IS NOT NULL
+  ) linked
 
 UNION ALL
-SELECT 'unlinked remaining (ambiguous)',
-       count(DISTINCT v.id), round(sum(DISTINCT v.total_amount), 2)
-  FROM vouchers v
-  JOIN voucher_entries e   ON e.voucher_id = v.id
-  JOIN chart_of_accounts a ON a.id = e.account_id
- WHERE a.account_code = '2110'
-   AND v.status = 'AUTHORISED'
-   AND v.reference_number IS NULL;
+SELECT 'unlinked remaining (ambiguous)', count(*), round(sum(total_amount), 2)
+  FROM (
+    SELECT DISTINCT v.id, v.total_amount
+      FROM vouchers v
+      JOIN voucher_entries e   ON e.voucher_id = v.id
+      JOIN chart_of_accounts a ON a.id = e.account_id
+     WHERE a.account_code = '2110'
+       AND v.status = 'AUTHORISED'
+       AND v.reference_number IS NULL
+  ) unlinked;
