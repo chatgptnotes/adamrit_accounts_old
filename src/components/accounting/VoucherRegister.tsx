@@ -6,6 +6,7 @@ import { TallyScreen } from './tally/TallyChrome';
 import { TallyList } from './tally/TallyPopup';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
+import { monthsInPeriod } from './tally/PeriodContext';
 import { fetchTallyVouchers } from '@/lib/mergedVouchers';
 import { normalizeName } from '@/lib/tallyCompanyMatch';
 import { useSourceFilter, matchesSource } from './useSourceFilter';

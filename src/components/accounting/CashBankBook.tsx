@@ -8,6 +8,7 @@ import { TallyScreen } from './tally/TallyChrome';
 import { TallyList } from './tally/TallyPopup';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
+import { monthsInPeriod } from './tally/PeriodContext';
 import { useAccountingCompanyOptional } from './AccountingCompanyContext';
 
 interface Account {
@@ -144,7 +145,6 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
   });
 
   // The monthly grid always spans the financial year the period starts in
-  const fyYear = Number(report.from.slice(0, 4)) - (Number(report.from.slice(5, 7)) >= 4 ? 0 : 1);
   const fyFrom = report.from;
   const fyTo = report.to;
 
@@ -219,12 +219,14 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
       byMonth.set(ym, m);
     }
     let running = opening;
-    return fyMonths(fyYear).map(({ label, ym }) => {
+    // The months the report's own period covers — `fyMonths` never existed, so
+    // this threw the moment the screen rendered.
+    return monthsInPeriod({ from: report.from, to: report.to }).map(({ label, ym }) => {
       const m = byMonth.get(ym) ?? { dr: 0, cr: 0 };
       running += m.dr - m.cr;
       return { label, ym, dr: m.dr, cr: m.cr, closing: running };
     });
-  }, [entries, opening, fyYear]);
+  }, [entries, opening, report.from, report.to]);
 
   const totalDr = months.reduce((s, m) => s + m.dr, 0);
   const totalCr = months.reduce((s, m) => s + m.cr, 0);

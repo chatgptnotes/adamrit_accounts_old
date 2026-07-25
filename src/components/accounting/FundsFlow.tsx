@@ -5,6 +5,7 @@ import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
+import { monthsInPeriod } from './tally/PeriodContext';
 
 interface Account {
   id: string;
