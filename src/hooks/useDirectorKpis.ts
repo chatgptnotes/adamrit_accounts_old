@@ -1,9 +1,18 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { fetchAllByIn, fetchAllRows } from '@/utils/fetchAllRows';
+import {
+  VISIT_METRICS,
+  getDateRange,
+  type DateRange,
+  type KpiPeriod,
+} from '@/lib/director-metrics';
 import type { HospitalType } from '@/types/hospital';
 
-export type KpiPeriod = 'today' | 'month' | 'year' | 'specific';
+// Re-exported so existing callers keep importing these from here.
+export { getDateRange };
+export type { KpiPeriod };
 
 export interface DirectorKpiData {
   admissions: number | null;
@@ -14,56 +23,12 @@ export interface DirectorKpiData {
   pendingApprovals: number | null;
 }
 
-interface DateRange {
-  startISO: string;
-  endISO: string;
-  startDate: string;
-  endDate: string;
-}
-
 // The generated Supabase types are stale — visits.is_discharged / patient_type and the
 // advance_payment / final_payments tables are absent from them. Query through an untyped
 // client, the way the rest of the app already does for these tables.
 const sb = supabase as unknown as {
   from: (table: string) => any;
 };
-
-const pad = (n: number) => String(n).padStart(2, '0');
-const toDateStr = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-
-/**
- * Resolve a KpiPeriod into a half-open [start, end) range. Returns both a timestamp pair
- * (for created_at / admission_date / discharge_date) and a date-only pair (for visit_date).
- * Dates are built in local time — the app is single-region (India).
- */
-export function getDateRange(period: KpiPeriod, specificMonth: string): DateRange {
-  const now = new Date();
-  let start: Date;
-  let end: Date;
-
-  if (period === 'today') {
-    start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-  } else if (period === 'year') {
-    start = new Date(now.getFullYear(), 0, 1);
-    end = new Date(now.getFullYear() + 1, 0, 1);
-  } else if (period === 'specific' && /^\d{4}-\d{2}$/.test(specificMonth)) {
-    const [y, m] = specificMonth.split('-').map(Number);
-    start = new Date(y, m - 1, 1);
-    end = new Date(y, m, 1);
-  } else {
-    // 'month', or 'specific' with no month picked yet → current month
-    start = new Date(now.getFullYear(), now.getMonth(), 1);
-    end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  }
-
-  return {
-    startISO: start.toISOString(),
-    endISO: end.toISOString(),
-    startDate: toDateStr(start),
-    endDate: toDateStr(end),
-  };
-}
 
 // A hospital-scoped exact-count query over visits (head:true → no rows transferred).
 // The visits → patients !inner embed is proven (MarketingDashboard.tsx uses the same shape).
@@ -74,19 +39,12 @@ const visitCount = (hospitalType: string) =>
     .eq('patients.hospital_name', hospitalType);
 
 async function fetchPeriodCounts(hospitalType: string, range: DateRange) {
+  // Filters come from VISIT_METRICS so these counts and the drill lists that open when
+  // a tile is tapped can never diverge.
   const [adm, dis, opd] = await Promise.all([
-    visitCount(hospitalType)
-      .not('admission_date', 'is', null)
-      .gte('admission_date', range.startISO)
-      .lt('admission_date', range.endISO),
-    visitCount(hospitalType)
-      .not('discharge_date', 'is', null)
-      .gte('discharge_date', range.startISO)
-      .lt('discharge_date', range.endISO),
-    visitCount(hospitalType)
-      .eq('patient_type', 'OPD')
-      .gte('visit_date', range.startDate)
-      .lt('visit_date', range.endDate),
+    VISIT_METRICS.admissions.apply(visitCount(hospitalType), range),
+    VISIT_METRICS.discharges.apply(visitCount(hospitalType), range),
+    VISIT_METRICS.opd.apply(visitCount(hospitalType), range),
   ]);
   if (adm.error) throw adm.error;
   if (dis.error) throw dis.error;
@@ -100,61 +58,83 @@ async function fetchPeriodCounts(hospitalType: string, range: DateRange) {
 }
 
 /**
- * Every visit_id belonging to the hospital. Used to scope payments client-side:
+ * Of the payments given, the subset whose visit belongs to this hospital.
+ *
  * advance_payment / final_payments have no usable PostgREST relationship to embed
- * through, so we can't filter them by a join. The visits → patients !inner embed,
- * however, is proven to work (it backs the count cards above).
+ * through, so the hospital has to be resolved via visits. We look up only the visits the
+ * period's payments actually reference — the reverse (pulling every visit for the
+ * hospital) silently truncated at PostgREST's ~1000-row cap and under-reported the
+ * Collection tile on any hospital with more visits than that.
  */
-async function fetchHospitalVisitIds(hospitalType: string): Promise<Set<string>> {
-  const { data, error } = await sb
-    .from('visits')
-    .select('visit_id, patients!inner(hospital_name)')
-    .eq('patients.hospital_name', hospitalType);
-  if (error) throw error;
-  return new Set((data || []).map((v: any) => v.visit_id).filter(Boolean));
+async function hospitalVisitIds(
+  hospitalType: string,
+  visitIds: string[],
+): Promise<Set<string>> {
+  const rows = await fetchAllByIn<{ visit_id: string }>(visitIds, (chunk) =>
+    sb
+      .from('visits')
+      .select('visit_id, patients!inner(hospital_name)')
+      .eq('patients.hospital_name', hospitalType)
+      .in('visit_id', chunk)
+      .order('visit_id', { ascending: true }),
+  );
+  return new Set(rows.map((r) => r.visit_id).filter(Boolean));
 }
 
 /**
  * Total money received in the period for the hospital = advance payments + final
  * payments. Both tables are queried plainly (no embeds — proven shapes from
  * DailyReconciliation.tsx and useFinancialSummary.ts) and then filtered to the
- * hospital's visits client-side.
+ * hospital's visits.
  */
-async function fetchCollection(range: DateRange, hospitalVisitIds: Set<string>) {
+async function fetchCollection(hospitalType: string, range: DateRange) {
+  // Paged: a year-long period can exceed the 1000-row cap on either table.
+  // `.order('id')` gives .range() a unique key so pages can't overlap or skip.
   const [advance, finalPay] = await Promise.all([
-    sb
-      .from('advance_payment')
-      .select('advance_amount, visit_id')
-      .eq('status', 'ACTIVE')
-      .eq('is_refund', false)
-      .gte('created_at', range.startISO)
-      .lt('created_at', range.endISO),
-    sb
-      .from('final_payments')
-      .select('amount, visit_id')
-      .gte('created_at', range.startISO)
-      .lt('created_at', range.endISO),
+    fetchAllRows<{ advance_amount: number | null; visit_id: string | null }>(() =>
+      sb
+        .from('advance_payment')
+        // The column is advance_amount — selecting a nonexistent `amount` fallback
+        // 400s the whole request (42703) and blanks the Collection KPI.
+        .select('advance_amount, visit_id')
+        .eq('status', 'ACTIVE')
+        .eq('is_refund', false)
+        .gte('created_at', range.startISO)
+        .lt('created_at', range.endISO)
+        .order('id', { ascending: true }),
+    ),
+    fetchAllRows<{ amount: number | null; visit_id: string | null }>(() =>
+      sb
+        .from('final_payments')
+        .select('amount, visit_id')
+        .gte('created_at', range.startISO)
+        .lt('created_at', range.endISO)
+        .order('id', { ascending: true }),
+    ),
   ]);
-  if (advance.error) throw advance.error;
-  if (finalPay.error) throw finalPay.error;
 
-  // The column is advance_amount — selecting a nonexistent `amount` fallback
-  // 400s the whole request (42703) and blanks the Collection KPI.
-  const advanceTotal = (advance.data || [])
-    .filter((r: any) => hospitalVisitIds.has(r.visit_id))
-    .reduce((s: number, r: any) => s + (Number(r.advance_amount) || 0), 0);
-  const finalTotal = (finalPay.data || [])
-    .filter((r: any) => hospitalVisitIds.has(r.visit_id))
-    .reduce((s: number, r: any) => s + (Number(r.amount) || 0), 0);
+  const referenced = [...advance, ...finalPay]
+    .map((r) => r.visit_id)
+    .filter((v): v is string => !!v);
+  if (referenced.length === 0) return 0;
+
+  const owned = await hospitalVisitIds(hospitalType, referenced);
+
+  const advanceTotal = advance
+    .filter((r) => r.visit_id && owned.has(r.visit_id))
+    .reduce((s, r) => s + (Number(r.advance_amount) || 0), 0);
+  const finalTotal = finalPay
+    .filter((r) => r.visit_id && owned.has(r.visit_id))
+    .reduce((s, r) => s + (Number(r.amount) || 0), 0);
 
   return advanceTotal + finalTotal;
 }
 
 async function fetchLiveKpis(hospitalType: string) {
   const [active, pending] = await Promise.all([
-    visitCount(hospitalType)
-      .not('admission_date', 'is', null)
-      .is('discharge_date', null),
+    // Same definition the "Currently Admitted" drill list uses. It is a live metric,
+    // so its `apply` ignores the range it is handed.
+    VISIT_METRICS.admitted.apply(visitCount(hospitalType), getDateRange('today', '')),
     // bills has no hospital column and no confirmed patients FK — this count is org-wide.
     sb
       .from('bills')
@@ -189,22 +169,12 @@ export function useDirectorKpis(period: KpiPeriod, specificMonth: string, hospit
     placeholderData: (prev) => prev,
   });
 
-  // Hospital → visit_id set. Period-independent, so it is cached on its own key and
-  // is NOT refetched when the period selector changes.
-  const visitIdsQuery = useQuery({
-    queryKey: ['director-hospital-visit-ids', hospitalType],
-    queryFn: () => fetchHospitalVisitIds(hospitalType as string),
-    enabled: !!hospitalType,
-    staleTime: 5 * 60_000,
-  });
-
-  // Collection is its own query: it depends on the visit-id set, and if it fails it
-  // must degrade only the Collection card — not the whole strip.
+  // Collection is its own query: if it fails it must degrade only the Collection card —
+  // not the whole strip.
   const collectionQuery = useQuery({
     queryKey: ['director-kpis-collection', hospitalType, period, specificMonth],
-    queryFn: () =>
-      fetchCollection(getDateRange(period, specificMonth), visitIdsQuery.data as Set<string>),
-    enabled: !!hospitalType && !!visitIdsQuery.data,
+    queryFn: () => fetchCollection(hospitalType as string, getDateRange(period, specificMonth)),
+    enabled: !!hospitalType,
     staleTime: 60_000,
     placeholderData: (prev) => prev,
   });
@@ -234,7 +204,6 @@ export function useDirectorKpis(period: KpiPeriod, specificMonth: string, hospit
     error: (countsQuery.error || liveQuery.error) as Error | null,
     refetch: () => {
       countsQuery.refetch();
-      visitIdsQuery.refetch();
       collectionQuery.refetch();
       liveQuery.refetch();
     },

@@ -5,7 +5,6 @@ import { TabletWatermark } from "@/tablet/components/TabletWatermark";
 import { DeadlinesPreview } from "./DeadlinesPreview";
 import { HospitalPanel } from "./HospitalPanel";
 import { PeriodPills } from "./PeriodPills";
-import { useDirectorDrill } from "./useDirectorDrill";
 import { GovernmentPortalGeneralMedicalSection } from "@/components/GovernmentPortalGeneralMedicalSection";
 
 // Both hospitals, always shown together regardless of the logged-in one.
@@ -20,7 +19,6 @@ const HOSPITALS: HospitalType[] = ["hope", "ayushman"];
  */
 export default function DirectorView() {
   const [period, setPeriod] = useState<KpiPeriod>("today");
-  const drill = useDirectorDrill();
 
   return (
     <div className="relative isolate h-full">
@@ -30,7 +28,7 @@ export default function DirectorView() {
           <PeriodPills value={period} onChange={setPeriod} />
 
           {HOSPITALS.map((hospital) => (
-            <HospitalPanel key={hospital} hospital={hospital} period={period} drill={drill} />
+            <HospitalPanel key={hospital} hospital={hospital} period={period} />
           ))}
 
           <GovernmentPortalGeneralMedicalSection surface="tablet" maxRows={6} />

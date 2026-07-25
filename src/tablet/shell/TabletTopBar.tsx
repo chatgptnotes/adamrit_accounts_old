@@ -3,6 +3,8 @@ import { ArrowLeft, ArrowLeftRight, LogOut, Monitor, Moon, Sun } from "lucide-re
 import { useAuth } from "@/contexts/AuthContext";
 import { HOSPITAL_CONFIGS, HospitalType } from "@/types/hospital";
 import { getModule } from "@/tablet/config/modules";
+import { DIRECTOR_HOSPITALS } from "@/lib/director-metrics";
+import { cn } from "@/lib/utils";
 import { setOverride } from "@/lib/device-class";
 import { useTabletTheme } from "@/tablet/theme/TabletTheme";
 import { SyncIndicator } from "./SyncIndicator";
@@ -22,6 +24,16 @@ export function TabletTopBar() {
   const moduleId = location.pathname.split("/")[1];
   const moduleLabel = getModule(moduleId)?.label;
   const subtitle = moduleLabel || user?.username || user?.email || "";
+
+  // The director dashboard and the drill lists behind its tiles report on Hope AND
+  // Ayushman together, so the brand must not claim just the logged-in hospital.
+  const isCrossHospital = moduleId === "director" || moduleId === "director-list";
+  const brandName = isCrossHospital
+    ? DIRECTOR_HOSPITALS.map((h) => HOSPITAL_CONFIGS[h].fullName.split(" ")[0]).join(" + ")
+    : hospitalConfig?.fullName || "Adamrit Tablet";
+  const brandInitials = isCrossHospital
+    ? DIRECTOR_HOSPITALS.map((h) => HOSPITAL_CONFIGS[h].fullName[0]).join("")
+    : hospitalConfig?.name?.[0]?.toUpperCase() || "A";
 
   // Admin/superadmin only: toggle to the other hospital. Mirrors the desktop
   // sidebar switcher (SidebarHeaderComponent). switchHospital flips
@@ -71,12 +83,17 @@ export function TabletTopBar() {
 
         {/* Hospital brand — left aligned */}
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-12 w-12 shrink-0 select-none items-center justify-center rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 text-xl font-bold text-white shadow-[0_0_20px_-4px_hsl(152_56%_45%/0.75)]">
-            {hospitalConfig?.name?.[0]?.toUpperCase() || "A"}
+          <div
+            className={cn(
+              "flex h-12 w-12 shrink-0 select-none items-center justify-center rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 font-bold text-white shadow-[0_0_20px_-4px_hsl(152_56%_45%/0.75)]",
+              brandInitials.length > 1 ? "text-base" : "text-xl",
+            )}
+          >
+            {brandInitials}
           </div>
           <div className="min-w-0">
             <p className="truncate text-base font-bold leading-tight text-foreground sm:text-lg md:text-xl">
-              {hospitalConfig?.fullName || "Adamrit Tablet"}
+              {brandName}
             </p>
             {subtitle ? (
               <p className="truncate text-xs text-muted-foreground sm:text-sm">

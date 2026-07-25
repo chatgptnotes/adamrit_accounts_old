@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { BedDouble, LogIn, LogOut, Stethoscope, Wallet } from "lucide-react";
 import { HOSPITAL_CONFIGS, type HospitalType } from "@/types/hospital";
 import { useDirectorKpis, type KpiPeriod } from "@/hooks/useDirectorKpis";
+import type { DirectorMetric } from "@/lib/director-metrics";
 import { inr } from "@/tablet/lib/format";
 import { AlertStrip } from "./AlertStrip";
 import { ArAgingCard } from "./ArAgingCard";
@@ -22,20 +23,21 @@ const fmtMoney = (n: number | null) => (n == null ? "—" : inr(n));
 interface Props {
   hospital: HospitalType;
   period: KpiPeriod;
-  /** Hospital-scoped drill: (hospital, path) => void. */
-  drill: (hospital: HospitalType, path: string) => void;
 }
 
 /**
  * One hospital's slice of the director dashboard: OPD / admissions / discharges
  * / currently-admitted / collections, plus its live bed occupancy. Every tile
- * drills into the matching detail page scoped to this hospital.
+ * opens the list of records behind its number, carrying this hospital and the
+ * selected period along in the URL.
  */
-export function HospitalPanel({ hospital, period, drill }: Props) {
+export function HospitalPanel({ hospital, period }: Props) {
   const navigate = useNavigate();
   const config = HOSPITAL_CONFIGS[hospital];
   const { data: kpis, error } = useDirectorKpis(period, "", hospital);
   const subtitle = PERIOD_SUBTITLE[period];
+  const drillTo = (metric: DirectorMetric) =>
+    `/director-list?metric=${metric}&hospital=${hospital}&period=${period}`;
 
   return (
     <section className="space-y-3 rounded-2xl border border-border/60 bg-card/30 p-3 sm:p-4">
@@ -55,14 +57,15 @@ export function HospitalPanel({ hospital, period, drill }: Props) {
       <AlertStrip pendingApprovals={kpis.pendingApprovals} hospital={hospital} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        {/* OPD & Admissions lists cover both hospitals, so no hospital switch. */}
+        {/* Every tile opens the same drill list, which loads both hospitals and opens on
+            this one. No hospital switch, so the logged-in hospital is never changed. */}
         <KpiTile
           label="OPD Visits"
           value={fmtCount(kpis.opdVisits)}
           subtitle={subtitle}
           icon={Stethoscope}
           tint="from-purple-400 to-purple-600"
-          onClick={() => navigate("/todays-opd")}
+          onClick={() => navigate(drillTo("opd"))}
         />
         <KpiTile
           label="Admissions"
@@ -70,7 +73,7 @@ export function HospitalPanel({ hospital, period, drill }: Props) {
           subtitle={subtitle}
           icon={LogIn}
           tint="from-blue-400 to-blue-600"
-          onClick={() => navigate("/todays-ipd")}
+          onClick={() => navigate(drillTo("admissions"))}
         />
         <KpiTile
           label="Discharges"
@@ -78,7 +81,7 @@ export function HospitalPanel({ hospital, period, drill }: Props) {
           subtitle={subtitle}
           icon={LogOut}
           tint="from-green-400 to-green-600"
-          onClick={() => drill(hospital, "/discharge")}
+          onClick={() => navigate(drillTo("discharges"))}
         />
         <KpiTile
           label="Currently Admitted"
@@ -86,7 +89,7 @@ export function HospitalPanel({ hospital, period, drill }: Props) {
           subtitle="Live"
           icon={BedDouble}
           tint="from-amber-400 to-amber-600"
-          onClick={() => drill(hospital, "/occupancy")}
+          onClick={() => navigate(drillTo("admitted"))}
         />
         <KpiTile
           label="Advance / Collections"
@@ -94,12 +97,15 @@ export function HospitalPanel({ hospital, period, drill }: Props) {
           subtitle={subtitle}
           icon={Wallet}
           tint="from-emerald-400 to-emerald-600"
-          onClick={() => drill(hospital, "/advance")}
+          onClick={() => navigate(drillTo("collections"))}
         />
       </div>
 
       <div className="grid gap-3 lg:grid-cols-2">
-        <OccupancyCard hospital={hospital} onOpen={() => drill(hospital, "/occupancy")} />
+        <OccupancyCard
+          hospital={hospital}
+          onOpen={() => navigate(`/occupancy?hospital=${hospital}`)}
+        />
         <CashFundsCard hospital={hospital} />
         <ArAgingCard hospital={hospital} />
       </div>

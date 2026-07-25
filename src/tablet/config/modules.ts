@@ -17,7 +17,6 @@ import {
   LogOut,
   Megaphone,
   NotebookPen,
-  LogIn,
   Package,
   Pill,
   Receipt,
@@ -304,21 +303,15 @@ export const TABLET_MODULES: TabletModule[] = [
     roles: ["superadmin", "super_admin"],
   },
   {
-    id: "todays-opd",
-    label: "OPD Visits",
-    description: "Today's OPD patients",
-    icon: Stethoscope,
+    // Drill list behind every Director Dashboard tile. Which metric it shows comes
+    // from ?metric=, so the flow renders its own heading rather than relying on this
+    // label.
+    id: "director-list",
+    label: "Director Dashboard",
+    description: "Patients behind a dashboard tile",
+    icon: ClipboardList,
     accent: "text-purple-600",
     tint: "from-purple-400 to-purple-600",
-    hiddenFromHome: true,
-  },
-  {
-    id: "todays-ipd",
-    label: "Admissions",
-    description: "Today's IPD admissions",
-    icon: LogIn,
-    accent: "text-blue-600",
-    tint: "from-blue-400 to-blue-600",
     hiddenFromHome: true,
   },
 ];

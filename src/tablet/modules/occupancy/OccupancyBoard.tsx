@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ArrowLeft, BedDouble, Loader2, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOccupancy, type WardOccupancy } from "@/hooks/useOccupancy";
@@ -15,7 +16,14 @@ function occupancyColor(occupied: number, capacity: number): string {
 
 /** Module 8 — live bed occupancy board (read-only). */
 export default function OccupancyBoard() {
-  const { data, isLoading, error } = useOccupancy();
+  const [params] = useSearchParams();
+  // The director dashboard shows both hospitals, so it links here with ?hospital=<slug>
+  // to see the other one's beds without switching the logged-in hospital. Defaults to
+  // the logged-in hospital when absent.
+  const hospital = params.get("hospital");
+  const { data, isLoading, error } = useOccupancy(
+    hospital === "hope" || hospital === "ayushman" ? hospital : undefined,
+  );
   const [ward, setWard] = useState<WardOccupancy | null>(null);
 
   if (isLoading) {
