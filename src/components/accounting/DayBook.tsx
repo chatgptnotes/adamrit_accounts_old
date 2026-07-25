@@ -12,6 +12,7 @@ import { useSourceFilter, matchesSource } from './useSourceFilter';
 import { useAccountingCompany } from './AccountingCompanyContext';
 import { useVoucherActions } from '@/hooks/useVoucherActions';
 import { toast } from 'sonner';
+import { VoucherAttachmentButton, useVoucherAttachmentMap } from './VoucherAttachmentViewer';
 
 type LedgerSource = 'adamrit' | 'tally';
 
@@ -119,7 +120,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
     scope: 'screen',
     from: getTallyConfig().dayBookMonth ? today.slice(0, 8) + '01' : today,
     to: today,
-    filterFields: ['Particulars', 'Vch Type', 'Vch No.'],
+    filterFields: ['Particulars', 'Narration', 'Vch Type', 'Vch No.'],
     views: [
       { label: 'Registers', target: 'voucher-register' },
       { label: 'Ledger Vouchers', target: 'ledger-view' },
@@ -193,6 +194,8 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
       return data as unknown as Voucher[];
     },
   });
+  const nativeVoucherIds = useMemo(() => vouchers.map((voucher) => voucher.id), [vouchers]);
+  const { data: attachmentMap = new Map() } = useVoucherAttachmentMap(nativeVoucherIds);
 
   // Tally mirror vouchers for the same window (Regular scope only — Optional /
   // Post-Dated are native-only concepts). Deduped against native by number.
@@ -298,7 +301,12 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
     return [...byNumber.values(), ...passthrough]
       .filter((r) => !removedIds.has(r.id))
       .filter((r) => matchesSource(r.source, srcFilter))
-      .filter((r) => report.passesFilter({ Particulars: r.particulars, 'Vch Type': r.type, 'Vch No.': r.number }))
+      .filter((r) => report.passesFilter({
+        Particulars: r.particulars,
+        Narration: r.narration,
+        'Vch Type': r.type,
+        'Vch No.': r.number,
+      }))
       .filter((r) => report.passesBasis(r.debit || r.credit))
       .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   }, [vouchers, tallyRows, typeName, srcFilter, removedIds, report.passesFilter, report.passesBasis]);
@@ -419,6 +427,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
           <div className="min-w-0 flex-1 px-1">Particulars</div>
           <div className="w-32 px-1">Vch Type</div>
           <div className="w-28 px-1">Vch No.</div>
+          <div className="w-10 px-1 text-center">Files</div>
           <div className="w-32 px-1 text-right">Debit Amount</div>
           <div className="w-32 px-1 text-right">Credit Amount</div>
         </div>
@@ -433,9 +442,16 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
               const expanded = detailed || expandedIds.has(r.id);
               return (
                 <React.Fragment key={r.id}>
-                  <button
-                    type="button"
+                  <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => (r.nativeId && onOpenVoucher ? onOpenVoucher(r.nativeId) : toggleExpanded(r.id))}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return;
+                      event.preventDefault();
+                      if (r.nativeId && onOpenVoucher) onOpenVoucher(r.nativeId);
+                      else toggleExpanded(r.id);
+                    }}
                     onMouseEnter={() => setCursor(i)}
                     title={r.nativeId ? 'Open voucher (alter)' : 'Tally voucher — expand'}
                     className={`flex w-full text-left ${
@@ -453,13 +469,21 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
                     </div>
                     <div className="w-32 px-1">{r.type}</div>
                     <div className="w-28 px-1 font-mono text-[12px]">{r.number}</div>
+                    <div className="w-10 px-1 text-center">
+                      {r.nativeId && (
+                        <VoucherAttachmentButton
+                          attachments={attachmentMap.get(r.nativeId) || []}
+                          voucherNumber={r.number}
+                        />
+                      )}
+                    </div>
                     <div className={`w-32 px-1 text-right font-mono ${r.cancelled ? 'line-through' : ''}`}>
                       {r.debit > 0 ? fmt(r.debit) : ''}
                     </div>
                     <div className={`w-32 px-1 text-right font-mono ${r.cancelled ? 'line-through' : ''}`}>
                       {r.credit > 0 ? fmt(r.credit) : ''}
                     </div>
-                  </button>
+                  </div>
                   {expanded && (
                     <div className="bg-[#fffdf2] py-0.5">
                       {r.entries.flatMap((e, i) => [
@@ -471,6 +495,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
                           <div className="min-w-0 flex-1 truncate px-1">{entry.label}</div>
                           <div className="w-32" />
                           <div className="w-28" />
+                          <div className="w-10" />
                           <div className="w-32 px-1 text-right font-mono">
                             {entry.debit > 0 ? fmt(entry.debit) : ''}
                           </div>

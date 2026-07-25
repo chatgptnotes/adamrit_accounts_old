@@ -12,13 +12,24 @@ const AccountingCompanyContext = createContext<AccountingCompanyContextValue | n
 
 const companyKey = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]+/g, '');
 
-const preferredCompany = (companies: Company[]): Company | undefined => {
+const preferredCompany = (companies: Company[], preferredKey?: string): Company | undefined => {
+  if (preferredKey) {
+    const wanted = companyKey(preferredKey);
+    const matched = companies.find((company) =>
+      companyKey(company.company_key || company.company_name).includes(wanted)
+      || wanted.includes(companyKey(company.company_key || company.company_name)),
+    );
+    if (matched) return matched;
+  }
   const exact = companyKey('DRM Hope Hospital Private Limited');
   return companies.find((company) => companyKey(company.company_name) === exact)
     ?? companies.find((company) => companyKey(company.company_name).includes('drmhopehospital'));
 };
 
-export const AccountingCompanyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const AccountingCompanyProvider: React.FC<{
+  children: React.ReactNode;
+  preferredCompanyKey?: string;
+}> = ({ children, preferredCompanyKey }) => {
   const { data: companies = [] } = useCompanies();
   const [selectedCompanyId, setSelectedCompanyId] = useState('');
 
@@ -26,9 +37,9 @@ export const AccountingCompanyProvider: React.FC<{ children: React.ReactNode }> 
     if (companies.length === 0) return;
     setSelectedCompanyId((current) => {
       if (current && companies.some((company) => company.id === current)) return current;
-      return preferredCompany(companies)?.id ?? companies[0].id;
+      return preferredCompany(companies, preferredCompanyKey)?.id ?? companies[0].id;
     });
-  }, [companies]);
+  }, [companies, preferredCompanyKey]);
 
   const cycleCompany = useCallback(() => {
     if (companies.length === 0) return;
