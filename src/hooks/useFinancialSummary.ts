@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -172,6 +173,35 @@ export const useFinancialSummary = (billId?: string, visitId?: string, savedMedi
     initCount: initCount.current,
     isReInitialization: initCount.current > 1,
     visitId: visitId
+  });
+
+  // Display-only Amount Paid override shared with /invoice/:visitId.
+  // The underlying financial summary and payment records remain unchanged.
+  const { data: amountPaidOverrideEvent } = useQuery<{
+    action: 'set' | 'restore';
+    display_amount: number | string | null;
+  } | null>({
+    queryKey: ['invoice-amount-paid-override', visitId],
+    queryFn: async () => {
+      if (!visitId) return null;
+
+      const { data, error } = await (supabase as any)
+        .from('invoice_amount_paid_override_events')
+        .select('action, display_amount')
+        .eq('visit_id', visitId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.warn('Amount Paid display override is unavailable:', error);
+        return null;
+      }
+
+      return data;
+    },
+    enabled: !!visitId,
+    retry: false,
   });
 
 
@@ -2071,8 +2101,30 @@ const fetchAnesthetistTotal = async (): Promise<number> => {
   // Note: Auto-populate is now manual only via "Refresh table" button
   // This prevents overwriting saved discount values on page load
 
+  const displayedFinancialSummaryData = useMemo<FinancialSummaryData>(() => {
+    if (
+      amountPaidOverrideEvent?.action !== 'set' ||
+      amountPaidOverrideEvent.display_amount === null
+    ) {
+      return financialSummaryData;
+    }
+
+    const displayAmount = Number(amountPaidOverrideEvent.display_amount);
+    if (!Number.isFinite(displayAmount) || displayAmount < 0) {
+      return financialSummaryData;
+    }
+
+    return {
+      ...financialSummaryData,
+      amountPaid: {
+        ...financialSummaryData.amountPaid,
+        advancePayment: displayAmount.toString(),
+      },
+    };
+  }, [amountPaidOverrideEvent, financialSummaryData]);
+
   return {
-    financialSummaryData,
+    financialSummaryData: displayedFinancialSummaryData,
     setFinancialSummaryData: setFinancialSummaryDataTracked,
     packageDates,
     setPackageDates,
