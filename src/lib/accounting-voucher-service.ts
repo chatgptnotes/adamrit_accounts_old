@@ -106,6 +106,8 @@ export async function createAccountingVoucher(input: CreateAccountingVoucherInpu
     .from('voucher_types')
     .update({ current_number: nextNumber })
     .eq('id', voucherType.id)
+    // nextNumber comes from a cached read, so only ever move the counter forward.
+    .lt('current_number', nextNumber)
   if (counterError) throw voucherSaveError(counterError)
 
   return voucher

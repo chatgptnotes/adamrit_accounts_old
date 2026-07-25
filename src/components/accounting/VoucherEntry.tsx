@@ -757,7 +757,9 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
       await supabase
         .from('voucher_types')
         .update({ current_number: nextNum })
-        .eq('id', selectedVoucherType);
+        .eq('id', selectedVoucherType)
+        // nextNum comes from a cached read, so only ever move the counter forward.
+        .lt('current_number', nextNum);
 
       toast.success(`Voucher ${numberToSave} saved${status === 'posted' ? '' : ' as pending'}.`);
 
