@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import { BedDouble, LogIn, LogOut, Stethoscope, Wallet } from "lucide-react";
 import { HOSPITAL_CONFIGS, type HospitalType } from "@/types/hospital";
 import { useDirectorKpis, type KpiPeriod } from "@/hooks/useDirectorKpis";
@@ -31,6 +32,7 @@ interface Props {
  * drills into the matching detail page scoped to this hospital.
  */
 export function HospitalPanel({ hospital, period, drill }: Props) {
+  const navigate = useNavigate();
   const config = HOSPITAL_CONFIGS[hospital];
   const { data: kpis, error } = useDirectorKpis(period, "", hospital);
   const subtitle = PERIOD_SUBTITLE[period];
@@ -53,13 +55,14 @@ export function HospitalPanel({ hospital, period, drill }: Props) {
       <AlertStrip pendingApprovals={kpis.pendingApprovals} hospital={hospital} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+        {/* OPD & Admissions lists cover both hospitals, so no hospital switch. */}
         <KpiTile
           label="OPD Visits"
           value={fmtCount(kpis.opdVisits)}
           subtitle={subtitle}
           icon={Stethoscope}
           tint="from-purple-400 to-purple-600"
-          onClick={() => drill(hospital, "/todays-opd")}
+          onClick={() => navigate("/todays-opd")}
         />
         <KpiTile
           label="Admissions"
@@ -67,7 +70,7 @@ export function HospitalPanel({ hospital, period, drill }: Props) {
           subtitle={subtitle}
           icon={LogIn}
           tint="from-blue-400 to-blue-600"
-          onClick={() => drill(hospital, "/todays-ipd")}
+          onClick={() => navigate("/todays-ipd")}
         />
         <KpiTile
           label="Discharges"
