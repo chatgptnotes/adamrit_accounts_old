@@ -25,8 +25,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useTabletTheme } from "@/tablet/theme/TabletTheme";
 import { haptics } from "@/tablet/lib/haptics";
 
-const QUERY_KEY = ["tablet-superadmin-notifications"];
-const SUPER_ADMIN_ROLES = ["superadmin", "super_admin"];
+const QUERY_KEY = ["tablet-notifications"];
 
 interface NotificationRow {
   id: string;
@@ -70,54 +69,38 @@ const formatTimeAgo = (iso: string) => {
 };
 
 /**
- * Super Admin notification bell (pharmacy threshold alerts and future
- * notification types). Rows come from public.notifications — one row per
- * super admin, inserted by check_pharmacy_threshold_after_sale.
+ * Notification bell for every logged-in user (pharmacy threshold alerts and
+ * future notification types). Rows come from public.notifications — one shared
+ * row per event, inserted by check_pharmacy_threshold_after_sale. Read state is
+ * global: whoever marks a notification read clears it for everyone.
  */
 export function TabletNotificationBell() {
-  const { user, isSuperAdmin } = useAuth();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { theme } = useTabletTheme();
   const [open, setOpen] = useState(false);
 
   const { data: rows = [], isFetching, refetch, error } = useQuery({
-    queryKey: [...QUERY_KEY, user?.id ?? user?.email ?? "anon"],
-    enabled: isSuperAdmin,
+    queryKey: QUERY_KEY,
+    enabled: Boolean(user),
     queryFn: async () => {
-      // One row is inserted per super admin (recipient_user_id = that admin's
-      // User.id). Query by role rather than by the session's user.id — the
-      // stored id can be stale/missing across sessions — then collapse the
-      // per-admin fan-out to a single card per event below.
       const { data, error: queryError } = await (supabase as any)
         .from("notifications")
         .select("*")
-        .in("recipient_role", SUPER_ADMIN_ROLES)
         .order("created_at", { ascending: false })
-        .limit(200);
+        .limit(50);
       if (queryError) throw queryError;
-      const all = (data || []) as NotificationRow[];
-      // Same event => same notification_type + visit_id + created_at (all the
-      // per-admin rows share one insert timestamp). Prefer the current admin's
-      // own row so mark-as-read stays per-user when the id does line up.
-      const byEvent = new Map<string, NotificationRow>();
-      for (const row of all) {
-        const key = `${row.notification_type}|${row.visit_id ?? ""}|${row.created_at}`;
-        const existing = byEvent.get(key);
-        if (!existing || (user?.id && row.recipient_user_id === user.id)) {
-          byEvent.set(key, row);
-        }
-      }
-      return Array.from(byEvent.values()).slice(0, 50);
+      return (data || []) as NotificationRow[];
     },
     refetchInterval: 5 * 60 * 1000,
     staleTime: 60 * 1000,
   });
 
   useEffect(() => {
-    if (!isSuperAdmin) return;
+    if (!user) return;
     const channel = (supabase as any)
-      .channel("tablet-superadmin-notifications")
+      .channel("tablet-notifications")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "notifications" },
@@ -130,9 +113,9 @@ export function TabletNotificationBell() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [isSuperAdmin, queryClient]);
+  }, [user, queryClient]);
 
-  if (!isSuperAdmin) return null;
+  if (!user) return null;
 
   const unreadCount = rows.filter((row) => !row.is_read).length;
   const displayCount = unreadCount > 99 ? "99+" : String(unreadCount);

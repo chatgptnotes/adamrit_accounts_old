@@ -96,7 +96,7 @@ export function TabletTopBar() {
 
           <GovernmentPortalExtensionBell />
 
-          {/* Super admin only — the component renders null for other roles */}
+          {/* All logged-in users — the component renders null when signed out */}
           <TabletNotificationBell />
 
           <span className="hidden sm:inline-flex">
