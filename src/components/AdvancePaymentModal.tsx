@@ -230,39 +230,24 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
           .eq('is_active', true)
           .order('account_name');
 
-        if (error) {
-          console.error('❌ Error fetching bank accounts:', error);
-          // Fallback to hardcoded banks if database query fails
-          const fallbackBanks = [
-            { id: '1', account_name: 'Canara Bank [A/C120023677813)JARIPATHKA ]', account_code: '1123' },
-            { id: '2', account_name: 'SARASWAT BANK', account_code: '1122' },
-            { id: '3', account_name: 'STATE BANK OF INDIA (DRM)', account_code: '1121' }
-          ];
-          setBankAccounts(fallbackBanks);
-          return;
-        }
+        if (error) throw error;
 
+        // No hardcoded fallback here. These ids are written straight into
+        // advance_payment.bank_account_id, which the receipt trigger uses to
+        // find the ledger to debit. The placeholders that used to live here
+        // ('1', '2', '3') match no account, so the payment would either fail
+        // to insert or post to nothing at all - the same silent
+        // account-resolution failure that hid a real problem for months.
+        // An empty list is honest; a fabricated one corrupts the ledger.
+        setBankAccounts(data ?? []);
 
-        // If no banks found in database, use fallback
         if (!data || data.length === 0) {
-          const fallbackBanks = [
-            { id: '1', account_name: 'Canara Bank [A/C120023677813)JARIPATHKA ]', account_code: '1123' },
-            { id: '2', account_name: 'SARASWAT BANK', account_code: '1122' },
-            { id: '3', account_name: 'STATE BANK OF INDIA (DRM)', account_code: '1121' }
-          ];
-          setBankAccounts(fallbackBanks);
-        } else {
-          setBankAccounts(data);
+          toast.error('No bank accounts are configured. Cash payments still work.');
         }
       } catch (error) {
-        console.error('❌ Exception fetching bank accounts:', error);
-        // Fallback to hardcoded banks on exception
-        const fallbackBanks = [
-          { id: '1', account_name: 'Canara Bank [A/C120023677813)JARIPATHKA ]', account_code: '1123' },
-          { id: '2', account_name: 'SARASWAT BANK', account_code: '1122' },
-          { id: '3', account_name: 'STATE BANK OF INDIA (DRM)', account_code: '1121' }
-        ];
-        setBankAccounts(fallbackBanks);
+        console.error('❌ Error fetching bank accounts:', error);
+        setBankAccounts([]);
+        toast.error('Could not load bank accounts. Cash payments still work.');
       }
     };
 

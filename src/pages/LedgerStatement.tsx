@@ -68,30 +68,21 @@ const LedgerStatement: React.FC = () => {
           .eq('is_active', true)
           .order('account_name');
 
-        if (error) {
-          console.error('Error fetching bank accounts:', error);
-          toast.error('Failed to load bank accounts');
-          // Fallback to hardcoded list if fetch fails
-          setBankAccounts([
-            { id: '1', account_name: 'STATE BANK OF INDIA (DRM)' },
-            { id: '2', account_name: 'SARASWAT BANK' }
-          ]);
-        } else if (data && data.length > 0) {
-          setBankAccounts(data);
-        } else {
-          // Fallback if no data returned
-          setBankAccounts([
-            { id: '1', account_name: 'STATE BANK OF INDIA (DRM)' },
-            { id: '2', account_name: 'SARASWAT BANK' }
-          ]);
+        if (error) throw error;
+
+        // No hardcoded fallback. The placeholder ids ('1', '2') match no
+        // account, so selecting one silently produces an empty statement that
+        // looks like a real ledger with no activity. Showing nothing at all is
+        // honest; showing a bank that does not exist is not.
+        setBankAccounts(data ?? []);
+
+        if (!data || data.length === 0) {
+          toast.error('No bank accounts are configured.');
         }
       } catch (err) {
         console.error('Exception fetching bank accounts:', err);
-        // Fallback to hardcoded list on exception
-        setBankAccounts([
-          { id: '1', account_name: 'STATE BANK OF INDIA (DRM)' },
-          { id: '2', account_name: 'SARASWAT BANK' }
-        ]);
+        setBankAccounts([]);
+        toast.error('Failed to load bank accounts');
       }
     };
 
