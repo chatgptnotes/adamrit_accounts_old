@@ -40,6 +40,9 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   "expense-bills": lazy(
     () => import("@/tablet/modules/expense-bills/ExpenseBillsFlow"),
   ),
+  "payments-due": lazy(
+    () => import("@/tablet/modules/payments-due/PaymentsDueFlow"),
+  ),
   "payment-collection-gaurav": lazy(
     () => import("@/tablet/modules/payment-collection-gaurav/PaymentCollectionGauravFlow"),
   ),

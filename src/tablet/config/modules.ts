@@ -21,6 +21,7 @@ import {
   Pill,
   Receipt,
   ReceiptIndianRupee,
+  CalendarClock,
   ScanLine,
   Stethoscope,
   UserPlus,
@@ -166,6 +167,15 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: ReceiptIndianRupee,
     accent: "text-rose-700",
     tint: "from-rose-500 to-red-700",
+    accountingOnly: true,
+  },
+  {
+    id: "payments-due",
+    label: "Payments Due",
+    description: "Pay today's salary, rent and vendor obligations",
+    icon: CalendarClock,
+    accent: "text-amber-700",
+    tint: "from-amber-500 to-orange-700",
     accountingOnly: true,
   },
   {
