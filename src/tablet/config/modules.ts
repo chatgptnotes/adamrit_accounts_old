@@ -20,6 +20,7 @@ import {
   Package,
   Pill,
   Receipt,
+  ReceiptIndianRupee,
   ScanLine,
   Stethoscope,
   UserPlus,
@@ -156,6 +157,15 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: NotebookPen,
     accent: "text-violet-700",
     tint: "from-violet-500 to-purple-700",
+    accountingOnly: true,
+  },
+  {
+    id: "expense-bills",
+    label: "Expense Bills",
+    description: "Record supplier and utility invoices",
+    icon: ReceiptIndianRupee,
+    accent: "text-rose-700",
+    tint: "from-rose-500 to-red-700",
     accountingOnly: true,
   },
   {
