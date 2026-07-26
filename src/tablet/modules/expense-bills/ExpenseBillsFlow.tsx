@@ -6,12 +6,14 @@ import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletInput, TabletLabel } from "@/tablet/ui/TabletInput";
 import { LedgerPicker } from "./LedgerPicker";
+import { BillPaymentSheet } from "./BillPaymentSheet";
 import {
   useExpenseLedgers,
   useOutstandingBills,
   usePartyLedgers,
   useRecordExpenseBill,
   type LedgerOption,
+  type OutstandingBill,
 } from "./useExpenseBills";
 
 const rupees = (n: number) =>
@@ -19,7 +21,7 @@ const rupees = (n: number) =>
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-function OutstandingList() {
+function OutstandingList({ onPay }: { onPay: (bill: OutstandingBill) => void }) {
   const { data: bills = [], isLoading } = useOutstandingBills();
 
   if (isLoading) {
@@ -42,7 +44,13 @@ function OutstandingList() {
   return (
     <div className="space-y-3">
       {bills.map((b) => (
-        <TabletCard key={b.id} variant="flat" className="space-y-2">
+        <TabletCard
+          key={b.id}
+          variant="flat"
+          interactive={b.outstanding > 0.005}
+          onClick={b.outstanding > 0.005 ? () => onPay(b) : undefined}
+          className="space-y-2"
+        >
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
               <h3 className="truncate text-base font-semibold">{b.party}</h3>
@@ -60,7 +68,7 @@ function OutstandingList() {
                 {rupees(b.outstanding)}
               </div>
               <p className="text-[11px] text-muted-foreground">
-                {b.outstanding > 0 ? "outstanding" : "settled"}
+                {b.outstanding > 0.005 ? "tap to pay" : "settled"}
               </p>
             </div>
           </div>
@@ -90,6 +98,7 @@ function OutstandingList() {
 
 export default function ExpenseBillsFlow() {
   const [showForm, setShowForm] = useState(false);
+  const [paying, setPaying] = useState<OutstandingBill | null>(null);
   const [party, setParty] = useState<LedgerOption | null>(null);
   const [head, setHead] = useState<LedgerOption | null>(null);
   const [billNumber, setBillNumber] = useState("");
@@ -142,15 +151,19 @@ export default function ExpenseBillsFlow() {
     );
   };
 
+  if (paying) {
+    return <BillPaymentSheet bill={paying} onClose={() => setPaying(null)} />;
+  }
+
   if (!showForm) {
     return (
       <div className="space-y-4 pb-28">
         <p className="text-sm text-muted-foreground">
           Invoices recorded here post their own accounting entry. Record the bill when it
-          arrives; pay it later from the Payment Voucher tile.
+          arrives, then tap it to pay when the money goes out.
         </p>
 
-        <OutstandingList />
+        <OutstandingList onPay={setPaying} />
 
         <div className="fixed inset-x-0 bottom-0 border-t bg-background/95 p-4 backdrop-blur">
           <TabletButton className="w-full" onClick={() => setShowForm(true)}>

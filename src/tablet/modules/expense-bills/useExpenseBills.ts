@@ -61,6 +61,27 @@ function useLedgers(kind: "party" | "expense", search: string) {
 export const usePartyLedgers = (search: string) => useLedgers("party", search);
 export const useExpenseLedgers = (search: string) => useLedgers("expense", search);
 
+/** Cash and bank accounts a payment can be made from. */
+export function useCashBankLedgers() {
+  return useQuery({
+    queryKey: ["expense-bill-cash-bank"],
+    queryFn: async (): Promise<LedgerOption[]> => {
+      const { data, error } = await supabase
+        .from("chart_of_accounts")
+        .select("id, account_code, account_name, account_group")
+        .eq("is_active", true)
+        .in("account_group", ["BANK", "CASH", "Bank Accounts", "Cash-in-Hand"])
+        .order("account_name");
+      if (error) throw error;
+      return (data ?? []).map((r: any) => ({
+        id: r.id,
+        code: r.account_code,
+        name: r.account_name,
+      }));
+    },
+  });
+}
+
 /** Recently recorded bills and what is still owed on each. */
 export function useOutstandingBills(limit = 25) {
   return useQuery({
@@ -146,6 +167,41 @@ export function useRecordExpenseBill() {
 
       if (error) throw error;
       return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["expense-bills-outstanding"] });
+    },
+  });
+}
+
+export interface BillPayment {
+  billId: string;
+  amount: number;
+  bankAccountId: string;
+  paymentDate: string;
+}
+
+/**
+ * Settles a bill. The voucher is written by a database function so the header,
+ * both legs and the amount validation happen in one transaction - a half
+ * written payment is not possible, and the outstanding is recalculated from
+ * the ledger rather than trusted from the screen.
+ */
+export function useRecordBillPayment() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (p: BillPayment): Promise<string> => {
+      const { data: userData } = await supabase.auth.getUser();
+      const { data, error } = await supabase.rpc("record_expense_bill_payment" as any, {
+        p_bill_id: p.billId,
+        p_amount: p.amount,
+        p_bank_account_id: p.bankAccountId,
+        p_payment_date: p.paymentDate,
+        p_created_by: userData?.user?.email ?? "tablet",
+      });
+      if (error) throw new Error(error.message);
+      return data as string;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["expense-bills-outstanding"] });
