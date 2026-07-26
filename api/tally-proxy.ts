@@ -46,9 +46,30 @@ function buildTallyReachabilityError(serverUrl: string, details?: string): Error
   )
 }
 
+/**
+ * Tally's XML arrives HTML-escaped, so a group called "Duties & Taxes" comes
+ * through as "Duties &amp; Taxes". Storing it raw split every such name into
+ * two groups in the reports - `heads.ts` un-escapes when classifying, but the
+ * group label itself stayed encoded. Numeric control-character entities like
+ * `&#4;` are junk from the export and are dropped rather than decoded, since
+ * decoding would embed an invisible control byte in an account name.
+ * `&amp;` is handled last so a doubly-escaped value unwinds one level only.
+ */
+function unescapeXml(value: string): string {
+  return value
+    .replace(/&#(?:[0-9]|[12][0-9]|3[01]);/g, '')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/gi, '&')
+    .trim()
+}
+
 function getVal(xml: string, tag: string): string {
   const m = xml.match(new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`, 'i'))
-  return m ? m[1].trim() : ''
+  return m ? unescapeXml(m[1]) : ''
 }
 
 function getAll(xml: string, tag: string): string[] {

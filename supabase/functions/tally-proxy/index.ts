@@ -105,9 +105,28 @@ async function mirrorTallyLedgersToChartAccounts(supabase: any, tallyCompanyName
   }
 }
 
+/**
+ * Tally's XML arrives HTML-escaped, so "Duties & Taxes" comes through as
+ * "Duties &amp; Taxes" and split into two groups in every report. Numeric
+ * control-character entities like `&#4;` are junk from the export and are
+ * dropped rather than decoded. `&amp;` last, so a doubly-escaped value
+ * unwinds one level only. Mirrors api/tally-proxy.ts.
+ */
+function unescapeXml(value: string): string {
+  return value
+    .replace(/&#(?:[0-9]|[12][0-9]|3[01]);/g, '')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/gi, '&')
+    .trim()
+}
+
 function getVal(xml: string, tag: string): string {
   const m = xml.match(new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`, 'i'))
-  return m ? m[1].trim() : ''
+  return m ? unescapeXml(m[1]) : ''
 }
 
 function getAll(xml: string, tag: string): string[] {
