@@ -157,15 +157,17 @@ export default function ExpenseBillsFlow() {
 
   if (!showForm) {
     return (
-      <div className="space-y-4 pb-28">
-        <p className="text-sm text-muted-foreground">
-          Invoices recorded here post their own accounting entry. Record the bill when it
-          arrives, then tap it to pay when the money goes out.
-        </p>
+      <div className="flex h-full flex-col">
+        <div className="tablet-no-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
+          <p className="text-sm text-muted-foreground">
+            Invoices recorded here post their own accounting entry. Record the bill when it
+            arrives, then tap it to pay when the money goes out.
+          </p>
 
-        <OutstandingList onPay={setPaying} />
+          <OutstandingList onPay={setPaying} />
+        </div>
 
-        <div className="fixed inset-x-0 bottom-0 border-t bg-background/95 p-4 backdrop-blur">
+        <div className="tablet-safe-bottom flex-shrink-0 border-t bg-background/95 p-4 backdrop-blur">
           <TabletButton className="w-full" onClick={() => setShowForm(true)}>
             <Plus className="mr-2 h-5 w-5" />
             Record an invoice
@@ -176,122 +178,124 @@ export default function ExpenseBillsFlow() {
   }
 
   return (
-    <div className="space-y-5 pb-28">
-      <LedgerPicker
-        label="Who is the bill from"
-        placeholder="Search suppliers and creditors"
-        selected={party}
-        onSelect={setParty}
-        useOptions={usePartyLedgers}
-      />
-
-      <LedgerPicker
-        label="What is it for"
-        placeholder="Search expense heads"
-        selected={head}
-        onSelect={setHead}
-        useOptions={useExpenseLedgers}
-      />
-
-      <div>
-        <TabletLabel htmlFor="bill-number">Invoice number</TabletLabel>
-        <TabletInput
-          id="bill-number"
-          value={billNumber}
-          onChange={(e) => setBillNumber(e.target.value)}
-          placeholder="As printed on the invoice"
+    <div className="flex h-full flex-col">
+      <div className="tablet-no-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto p-4 sm:p-6">
+        <LedgerPicker
+          label="Who is the bill from"
+          placeholder="Search suppliers and creditors"
+          selected={party}
+          onSelect={setParty}
+          useOptions={usePartyLedgers}
         />
-      </div>
 
-      <div>
-        <TabletLabel htmlFor="amount">Amount</TabletLabel>
-        <TabletInput
-          id="amount"
-          inputMode="decimal"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          placeholder="0.00"
-          className="text-2xl font-semibold tabular-nums"
+        <LedgerPicker
+          label="What is it for"
+          placeholder="Search expense heads"
+          selected={head}
+          onSelect={setHead}
+          useOptions={useExpenseLedgers}
         />
-      </div>
 
-      <div className="grid grid-cols-2 gap-3">
         <div>
-          <TabletLabel htmlFor="bill-date">Invoice date</TabletLabel>
+          <TabletLabel htmlFor="bill-number">Invoice number</TabletLabel>
           <TabletInput
-            id="bill-date"
-            type="date"
-            value={billDate}
-            onChange={(e) => setBillDate(e.target.value)}
+            id="bill-number"
+            value={billNumber}
+            onChange={(e) => setBillNumber(e.target.value)}
+            placeholder="As printed on the invoice"
           />
         </div>
+
         <div>
-          <TabletLabel htmlFor="due-date">Due date</TabletLabel>
+          <TabletLabel htmlFor="amount">Amount</TabletLabel>
           <TabletInput
-            id="due-date"
-            type="date"
-            value={dueDate}
-            onChange={(e) => setDueDate(e.target.value)}
+            id="amount"
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="0.00"
+            className="text-2xl font-semibold tabular-nums"
           />
         </div>
-      </div>
 
-      <div>
-        <TabletLabel htmlFor="narration">Note (optional)</TabletLabel>
-        <TabletInput
-          id="narration"
-          value={narration}
-          onChange={(e) => setNarration(e.target.value)}
-          placeholder="Anything worth recording"
-        />
-      </div>
-
-      {/* The approved invoice, kept as evidence against the entry. */}
-      <div>
-        <TabletLabel>Approved invoice</TabletLabel>
-        {file ? (
-          <TabletCard variant="flat" className="flex items-center gap-3">
-            <FileText className="h-6 w-6 shrink-0 text-primary" />
-            <span className="min-w-0 flex-1 truncate text-sm">{file.name}</span>
-            <button
-              type="button"
-              onClick={() => setFile(null)}
-              className="shrink-0 rounded-full p-2 active:bg-muted"
-              aria-label="Remove the attached invoice"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </TabletCard>
-        ) : (
-          <div className="grid grid-cols-2 gap-3">
-            <TabletButton variant="outline" onClick={() => cameraRef.current?.click()}>
-              <Camera className="mr-2 h-5 w-5" />
-              Photo
-            </TabletButton>
-            <TabletButton variant="outline" onClick={() => fileRef.current?.click()}>
-              <Paperclip className="mr-2 h-5 w-5" />
-              File
-            </TabletButton>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <TabletLabel htmlFor="bill-date">Invoice date</TabletLabel>
+            <TabletInput
+              id="bill-date"
+              type="date"
+              value={billDate}
+              onChange={(e) => setBillDate(e.target.value)}
+            />
           </div>
-        )}
-        <input
-          ref={cameraRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          hidden
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-        />
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*,application/pdf"
-          hidden
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-        />
+          <div>
+            <TabletLabel htmlFor="due-date">Due date</TabletLabel>
+            <TabletInput
+              id="due-date"
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div>
+          <TabletLabel htmlFor="narration">Note (optional)</TabletLabel>
+          <TabletInput
+            id="narration"
+            value={narration}
+            onChange={(e) => setNarration(e.target.value)}
+            placeholder="Anything worth recording"
+          />
+        </div>
+
+        {/* The approved invoice, kept as evidence against the entry. */}
+        <div>
+          <TabletLabel>Approved invoice</TabletLabel>
+          {file ? (
+            <TabletCard variant="flat" className="flex items-center gap-3">
+              <FileText className="h-6 w-6 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1 truncate text-sm">{file.name}</span>
+              <button
+                type="button"
+                onClick={() => setFile(null)}
+                className="shrink-0 rounded-full p-2 active:bg-muted"
+                aria-label="Remove the attached invoice"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </TabletCard>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <TabletButton variant="outline" onClick={() => cameraRef.current?.click()}>
+                <Camera className="mr-2 h-5 w-5" />
+                Photo
+              </TabletButton>
+              <TabletButton variant="outline" onClick={() => fileRef.current?.click()}>
+                <Paperclip className="mr-2 h-5 w-5" />
+                File
+              </TabletButton>
+            </div>
+          )}
+          <input
+            ref={cameraRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            hidden
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          />
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*,application/pdf"
+            hidden
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          />
+        </div>
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 flex gap-3 border-t bg-background/95 p-4 backdrop-blur">
+      <div className="tablet-safe-bottom flex flex-shrink-0 gap-3 border-t bg-background/95 p-4 backdrop-blur">
         <TabletButton
           variant="outline"
           className="flex-1"
