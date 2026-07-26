@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 /** A ledger the user can pick as the party or the expense head. */
 export interface LedgerOption {
@@ -24,20 +25,56 @@ export interface OutstandingBill {
 const BUCKET = "uploads";
 
 /**
+ * The company this tablet is posting for. Same mapping the database uses in
+ * resolve_patient_company: Ayushman is its own company, everything else is
+ * DRM Hope.
+ */
+function useCompanyId() {
+  const { hospitalConfig } = useAuth();
+  const key = hospitalConfig?.name === "ayushman" ? "ayushman_nagpur" : "drm_pvt_ltd";
+  return useQuery({
+    queryKey: ["tablet-company-id", key],
+    queryFn: async (): Promise<string | null> => {
+      const { data, error } = await supabase
+        .from("companies" as any)
+        .select("id")
+        .eq("company_key", key)
+        .maybeSingle();
+      if (error) throw error;
+      return (data as any)?.id ?? null;
+    },
+    staleTime: Infinity,
+  });
+}
+
+/**
  * Ledgers the bill can be charged against. Creditors for the party, expenses
  * for the head. Searching the chart rather than free text keeps the credit on
  * a real account and stops the chart drifting with spelling variants.
+ *
+ * The chart holds one row per company for most parties, so a name like Aarav
+ * Enterprises appears once for every company that trades with them. Listing all
+ * of them is confusing and, worse, lets someone charge a bill to another
+ * company's ledger - which is what put voucher legs in two companies and left
+ * three of them out of balance on 2026-07-26.
+ *
+ * So the copies are collapsed to one entry per name, keeping this company's own
+ * row, then a shared one, then whatever exists. Nothing is hidden: a party this
+ * company has never traded with still appears, on the only row there is.
  */
 function useLedgers(kind: "party" | "expense", search: string) {
+  const { data: companyId } = useCompanyId();
+
   return useQuery({
-    queryKey: ["expense-bill-ledgers", kind, search],
+    queryKey: ["expense-bill-ledgers", kind, search, companyId],
     queryFn: async (): Promise<LedgerOption[]> => {
       let q = supabase
         .from("chart_of_accounts")
-        .select("id, account_code, account_name")
+        .select("id, account_code, account_name, company_id")
         .eq("is_active", true)
         .order("account_name")
-        .limit(30);
+        // fetched wide because collapsing duplicates thins the list
+        .limit(200);
 
       q =
         kind === "party"
@@ -48,11 +85,21 @@ function useLedgers(kind: "party" | "expense", search: string) {
 
       const { data, error } = await q;
       if (error) throw error;
-      return (data ?? []).map((r: any) => ({
-        id: r.id,
-        code: r.account_code,
-        name: r.account_name,
-      }));
+
+      const rank = (r: any) =>
+        companyId && r.company_id === companyId ? 0 : r.company_id === null ? 1 : 2;
+
+      const best = new Map<string, any>();
+      for (const r of (data ?? []) as any[]) {
+        const key = (r.account_name ?? "").trim().toLowerCase();
+        const held = best.get(key);
+        if (!held || rank(r) < rank(held)) best.set(key, r);
+      }
+
+      return [...best.values()]
+        .sort((a, b) => (a.account_name ?? "").localeCompare(b.account_name ?? ""))
+        .slice(0, 30)
+        .map((r) => ({ id: r.id, code: r.account_code, name: r.account_name }));
     },
     enabled: search.trim().length === 0 || search.trim().length >= 2,
   });
