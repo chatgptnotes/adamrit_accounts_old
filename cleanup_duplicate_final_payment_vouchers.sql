@@ -16,59 +16,59 @@
 
 -- 1. Preview -------------------------------------------------------------------
 WITH ranked AS (
-  SELECT id, voucher_number, reference_number, total_amount, created_at,
-         ROW_NUMBER() OVER (
-           PARTITION BY reference_number, narration, created_at
-           ORDER BY voucher_number
-         ) AS rn
-  FROM vouchers
-  WHERE narration ILIKE '%final bill%'
-    AND status = 'AUTHORISED'
-    AND reference_number IS NOT NULL
+SELECT id, voucher_number, reference_number, total_amount, created_at,
+        ROW_NUMBER() OVER (
+          PARTITION BY reference_number, narration, created_at
+          ORDER BY voucher_number
+        ) AS rn
+FROM vouchers
+WHERE narration ILIKE '%final bill%'
+  AND status = 'AUTHORISED'
+  AND reference_number IS NOT NULL
 )
 SELECT COUNT(*)                       AS vouchers_to_delete,
-       COUNT(*) FILTER (WHERE total_amount <> 0) AS with_nonzero_amount,
-       COALESCE(SUM(total_amount), 0) AS total_amount_removed
+      COUNT(*) FILTER (WHERE total_amount <> 0) AS with_nonzero_amount,
+      COALESCE(SUM(total_amount), 0) AS total_amount_removed
 FROM ranked
 WHERE rn > 1;
 
 -- 2. Delete --------------------------------------------------------------------
 DO $$
 DECLARE
-  v_entries INTEGER;
-  v_vouchers INTEGER;
+v_entries INTEGER;
+v_vouchers INTEGER;
 BEGIN
-  DROP TABLE IF EXISTS dup_vouchers;
-  CREATE TEMP TABLE dup_vouchers ON COMMIT DROP AS
-  WITH ranked AS (
-    SELECT id,
-           ROW_NUMBER() OVER (
-             PARTITION BY reference_number, narration, created_at
-             ORDER BY voucher_number
-           ) AS rn
-    FROM vouchers
-    WHERE narration ILIKE '%final bill%'
-      AND status = 'AUTHORISED'
-      AND reference_number IS NOT NULL
-  )
-  SELECT id FROM ranked WHERE rn > 1;
+DROP TABLE IF EXISTS dup_vouchers;
+CREATE TEMP TABLE dup_vouchers ON COMMIT DROP AS
+WITH ranked AS (
+  SELECT id,
+          ROW_NUMBER() OVER (
+            PARTITION BY reference_number, narration, created_at
+            ORDER BY voucher_number
+          ) AS rn
+  FROM vouchers
+  WHERE narration ILIKE '%final bill%'
+    AND status = 'AUTHORISED'
+    AND reference_number IS NOT NULL
+)
+SELECT id FROM ranked WHERE rn > 1;
 
-  DELETE FROM voucher_entries WHERE voucher_id IN (SELECT id FROM dup_vouchers);
-  GET DIAGNOSTICS v_entries = ROW_COUNT;
+DELETE FROM voucher_entries WHERE voucher_id IN (SELECT id FROM dup_vouchers);
+GET DIAGNOSTICS v_entries = ROW_COUNT;
 
-  DELETE FROM vouchers WHERE id IN (SELECT id FROM dup_vouchers);
-  GET DIAGNOSTICS v_vouchers = ROW_COUNT;
+DELETE FROM vouchers WHERE id IN (SELECT id FROM dup_vouchers);
+GET DIAGNOSTICS v_vouchers = ROW_COUNT;
 
-  RAISE NOTICE 'Deleted % duplicate final-bill vouchers and % voucher entries',
-    v_vouchers, v_entries;
+RAISE NOTICE 'Deleted % duplicate final-bill vouchers and % voucher entries',
+  v_vouchers, v_entries;
 END $$;
 
 -- 3. Verify --------------------------------------------------------------------
 SELECT reference_number, created_at, COUNT(*) AS vouchers
 FROM vouchers
 WHERE narration ILIKE '%final bill%'
-  AND status = 'AUTHORISED'
-  AND reference_number IS NOT NULL
+AND status = 'AUTHORISED'
+AND reference_number IS NOT NULL
 GROUP BY reference_number, narration, created_at
 HAVING COUNT(*) > 1;
 -- Expected: zero rows.

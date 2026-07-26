@@ -4,6 +4,7 @@ import type { HospitalType } from "@/types/hospital";
 import { TabletWatermark } from "@/tablet/components/TabletWatermark";
 import { DeadlinesPreview } from "./DeadlinesPreview";
 import { HospitalPanel } from "./HospitalPanel";
+import { PanelDocumentsPreview } from "./PanelDocumentsPreview";
 import { PeriodPills } from "./PeriodPills";
 import { GovernmentPortalGeneralMedicalSection } from "@/components/GovernmentPortalGeneralMedicalSection";
 
@@ -35,6 +36,7 @@ export default function DirectorView() {
 
           <div className="grid gap-3 lg:grid-cols-2">
             <DeadlinesPreview />
+            <PanelDocumentsPreview />
           </div>
         </div>
       </div>

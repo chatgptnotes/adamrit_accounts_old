@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Bell,
   CalendarClock,
   ClipboardList,
+  FileWarning,
   ImageIcon,
   Loader2,
   RefreshCw,
@@ -15,6 +17,11 @@ import {
   fetchLatestGovernmentPortalExtensionAlerts,
   type GovernmentPortalExtensionAlertRow,
 } from "@/lib/governmentPortalReportDb";
+import {
+  fetchPendingPanelDocumentPatients,
+  type PanelDocumentStatusRow,
+} from "@/lib/panelDocumentsDb";
+import { panelFor } from "@/tablet/lib/panelColors";
 import {
   Sheet,
   SheetContent,
@@ -30,6 +37,10 @@ const QUERY_KEY = ["tablet-government-portal-extension-alerts"];
 const SEEN_IMPORT_STORAGE_KEY = "tablet_seen_government_portal_extension_import";
 const ADVANCE_IMAGE_CATEGORY = "advance_image";
 const APPROVAL_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+/** Rows listed in the documents tab. The badge always uses the true total. */
+const PENDING_DOC_LIST_LIMIT = 50;
+/** Pending document names shown per patient card before collapsing to "+N more". */
+const PENDING_DOC_CHIP_LIMIT = 4;
 
 interface AdvanceApprovalRow {
   id: string;
@@ -108,9 +119,12 @@ async function fetchAdvanceApprovalUploads(): Promise<AdvanceApprovalRow[]> {
 
 export function GovernmentPortalExtensionBell() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { theme } = useTabletTheme();
   const [open, setOpen] = useState(false);
-  const [selectedView, setSelectedView] = useState<"extensions" | "approvals">("extensions");
+  const [selectedView, setSelectedView] = useState<
+    "extensions" | "approvals" | "documents"
+  >("extensions");
   const [seenImportId, setSeenImportId] = useState(() => {
     try {
       return localStorage.getItem(SEEN_IMPORT_STORAGE_KEY) || "";
@@ -122,9 +136,11 @@ export function GovernmentPortalExtensionBell() {
   const { data, isFetching, refetch, error } = useQuery({
     queryKey: QUERY_KEY,
     queryFn: async () => {
-      const [extensionResult, approvalsResult] = await Promise.allSettled([
+      const [extensionResult, approvalsResult, documentsResult] = await Promise.allSettled([
         fetchLatestGovernmentPortalExtensionAlerts(),
         fetchAdvanceApprovalUploads(),
+        // Cross-hospital, matching the Director view.
+        fetchPendingPanelDocumentPatients({ limit: PENDING_DOC_LIST_LIMIT }),
       ]);
 
       const extensionData =
@@ -139,6 +155,11 @@ export function GovernmentPortalExtensionBell() {
       return {
         extensionData,
         approvalRows,
+        docRows: documentsResult.status === "fulfilled" ? documentsResult.value.rows : [],
+        docTotal: documentsResult.status === "fulfilled" ? documentsResult.value.total : 0,
+        // Tracked separately so the tab can say "could not load" rather than
+        // showing a confident zero that hides real pending documents.
+        docError: documentsResult.status === "rejected",
       };
     },
     refetchInterval: 5 * 60 * 1000,
@@ -147,9 +168,14 @@ export function GovernmentPortalExtensionBell() {
 
   const extensionData = data?.extensionData ?? null;
   const approvalRows = data?.approvalRows ?? [];
+  const docRows: PanelDocumentStatusRow[] = data?.docRows ?? [];
+  const docTotal = data?.docTotal ?? 0;
+  const docError = data?.docError ?? false;
   const extensionCount = extensionData?.count ?? 0;
   const approvalCount = approvalRows.length;
-  const count = extensionCount + approvalCount;
+  // docTotal, not docRows.length — the list is capped at PENDING_DOC_LIST_LIMIT
+  // but the badge must report every patient with a pending document.
+  const count = extensionCount + approvalCount + docTotal;
   const rows = extensionData?.rows ?? [];
   const isNewImportWithPendingRows = Boolean(
     extensionData?.importId && extensionCount > 0 && extensionData.importId !== seenImportId,
@@ -159,16 +185,21 @@ export function GovernmentPortalExtensionBell() {
   const sheetIsLight = theme === "light";
   const hasExtensions = rows.length > 0;
   const hasApprovals = approvalRows.length > 0;
+  const hasPendingDocs = docRows.length > 0;
 
   const summaryText = useMemo(() => {
+    const documentClause = docTotal
+      ? ` ${docTotal} patient${docTotal === 1 ? "" : "s"} have pending panel documents.`
+      : "";
+
     if (!extensionData && approvalCount === 0) {
-      return "No government portal import has been saved yet.";
+      return `No government portal import has been saved yet.${documentClause}`;
     }
     if (extensionCount === 0) {
-      return `Latest import has no pending extension patients. ${importedAt}.`;
+      return `Latest import has no pending extension patients. ${importedAt}.${documentClause}`;
     }
-    return `${extensionCount} patient${extensionCount === 1 ? "" : "s"} need extension action. ${importedAt}.`;
-  }, [approvalCount, extensionCount, extensionData, importedAt]);
+    return `${extensionCount} patient${extensionCount === 1 ? "" : "s"} need extension action. ${importedAt}.${documentClause}`;
+  }, [approvalCount, docTotal, extensionCount, extensionData, importedAt]);
 
   const markSeen = () => {
     if (!extensionData?.importId) return;
@@ -186,15 +217,19 @@ export function GovernmentPortalExtensionBell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, extensionData?.importId]);
 
+  // Open on whichever source actually has something, so a single-source alert
+  // never lands the user on an empty tab.
   useEffect(() => {
     if (hasExtensions) {
       setSelectedView("extensions");
     } else if (hasApprovals) {
       setSelectedView("approvals");
+    } else if (hasPendingDocs) {
+      setSelectedView("documents");
     } else {
       setSelectedView("extensions");
     }
-  }, [hasApprovals, hasExtensions]);
+  }, [hasApprovals, hasExtensions, hasPendingDocs]);
 
   useEffect(() => {
     const refresh = () => {
@@ -226,8 +261,17 @@ export function GovernmentPortalExtensionBell() {
         },
       )
       .on(
+        // "*" not "INSERT": deleting a registration document re-opens a pending
+        // item, which has to raise the count again.
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "file_uploads" },
+        { event: "*", schema: "public", table: "file_uploads" },
+        () => {
+          queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "panel_document_waivers" },
         () => {
           queryClient.invalidateQueries({ queryKey: QUERY_KEY });
         },
@@ -245,12 +289,8 @@ export function GovernmentPortalExtensionBell() {
         <button
           type="button"
           onClick={() => haptics.tap()}
-          aria-label={
-            count > 0
-              ? `${count} total notifications`
-              : "No pending extension patients"
-          }
-          title="Pending extensions"
+          aria-label={count > 0 ? `${count} total notifications` : "No alerts"}
+          title="Alerts"
           className={cn(
             "relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition-all active:scale-95",
             count > 0
@@ -298,7 +338,7 @@ export function GovernmentPortalExtensionBell() {
             </span>
             <div className="min-w-0">
               <SheetTitle className={sheetIsLight ? "text-slate-950" : "text-slate-50"}>
-                Pending Extensions
+                Alerts
               </SheetTitle>
               <SheetDescription
                 className={cn("mt-1", sheetIsLight ? "text-slate-600" : "text-slate-400")}
@@ -350,7 +390,7 @@ export function GovernmentPortalExtensionBell() {
             >
               Could not load pending extensions. Pull down a fresh import or tap refresh.
             </div>
-          ) : rows.length === 0 && approvalRows.length === 0 ? (
+          ) : rows.length === 0 && approvalRows.length === 0 && docRows.length === 0 && !docError ? (
             <div
               className={cn(
                 "flex min-h-64 flex-col items-center justify-center rounded-2xl border border-dashed p-6 text-center",
@@ -361,17 +401,17 @@ export function GovernmentPortalExtensionBell() {
             >
               <ClipboardList className="mb-3 h-8 w-8" />
               <p className={cn("text-base font-semibold", sheetIsLight ? "text-slate-900" : "text-slate-100")}>
-                No pending extensions
+                No alerts
               </p>
               <p className="mt-1 text-sm">
-                The latest saved government portal import has no patients marked for extension.
+                No pending extensions, patient approvals, or pending panel documents.
               </p>
             </div>
           ) : (
             <div className="space-y-4">
               <div
                 className={cn(
-                  "grid grid-cols-2 gap-2 rounded-2xl border p-2",
+                  "grid grid-cols-3 gap-2 rounded-2xl border p-2",
                   sheetIsLight ? "border-slate-200 bg-slate-50" : "border-slate-800 bg-slate-900/80",
                 )}
               >
@@ -389,7 +429,7 @@ export function GovernmentPortalExtensionBell() {
                         : "text-slate-400",
                   )}
                 >
-                  Pending extensions
+                  Extensions
                 </button>
                 <button
                   type="button"
@@ -405,7 +445,23 @@ export function GovernmentPortalExtensionBell() {
                         : "text-slate-400",
                   )}
                 >
-                  Patient approvals
+                  Approvals
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedView("documents")}
+                  className={cn(
+                    "rounded-xl px-3 py-2 text-sm font-semibold transition-colors",
+                    selectedView === "documents"
+                      ? sheetIsLight
+                        ? "bg-white text-slate-950 shadow-sm"
+                        : "bg-slate-800 text-slate-50"
+                      : sheetIsLight
+                        ? "text-slate-600"
+                        : "text-slate-400",
+                  )}
+                >
+                  Docs pending
                 </button>
               </div>
 
@@ -493,7 +549,7 @@ export function GovernmentPortalExtensionBell() {
                     </div>
                   )}
                 </section>
-              ) : (
+              ) : selectedView === "approvals" ? (
                 <section className="space-y-3">
                   <div className="flex items-center gap-2 px-1 pt-1">
                     <ImageIcon className={cn("h-4 w-4", sheetIsLight ? "text-sky-700" : "text-sky-300")} />
@@ -562,6 +618,119 @@ export function GovernmentPortalExtensionBell() {
                       </p>
                       <p className="mt-1 text-sm">
                         No approval uploads were added in the last 24 hours.
+                      </p>
+                    </div>
+                  )}
+                </section>
+              ) : (
+                <section className="space-y-3">
+                  <div className="flex items-center gap-2 px-1 pt-1">
+                    <FileWarning className={cn("h-4 w-4", sheetIsLight ? "text-amber-700" : "text-amber-300")} />
+                    <h3 className={cn("text-sm font-semibold", sheetIsLight ? "text-slate-900" : "text-slate-100")}>
+                      Pending panel documents
+                    </h3>
+                    {docTotal > docRows.length ? (
+                      <span className={cn("text-xs", sheetIsLight ? "text-slate-500" : "text-slate-400")}>
+                        Showing {docRows.length} of {docTotal.toLocaleString("en-IN")}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {docError ? (
+                    <div
+                      className={cn(
+                        "rounded-xl border p-4 text-sm",
+                        sheetIsLight
+                          ? "border-red-200 bg-red-50 text-red-700"
+                          : "border-red-900/70 bg-red-950/40 text-red-200",
+                      )}
+                    >
+                      Could not load pending panel documents. Tap refresh to try again.
+                    </div>
+                  ) : docRows.length > 0 ? (
+                    docRows.map((row) => {
+                      const panel = panelFor(row.corporate);
+                      const visibleDocuments = row.pendingDocuments.slice(0, PENDING_DOC_CHIP_LIMIT);
+                      const hiddenCount = row.pendingDocuments.length - visibleDocuments.length;
+
+                      return (
+                        <button
+                          key={row.patientUuid}
+                          type="button"
+                          onClick={() => {
+                            haptics.tap();
+                            setOpen(false);
+                            navigate(`/panel-documents?patient=${row.patientUuid}`);
+                          }}
+                          className={cn(
+                            "w-full rounded-2xl border p-4 text-left transition-transform active:scale-[0.99]",
+                            sheetIsLight
+                              ? "border-amber-200 bg-amber-50/70 shadow-sm"
+                              : "border-amber-900/60 bg-amber-950/20",
+                          )}
+                        >
+                          <div className="flex items-start gap-3">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500 text-sm font-bold text-slate-950">
+                              {row.pendingCount}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h4 className={cn("min-w-0 truncate text-sm font-semibold", sheetIsLight ? "text-slate-950" : "text-slate-50")}>
+                                  {row.patientName}
+                                </h4>
+                                <span className={cn("rounded-full px-2 py-0.5 text-[0.65rem] font-semibold", panel.badge)}>
+                                  {row.panel}
+                                </span>
+                              </div>
+                              <p className={cn("mt-1 text-xs", sheetIsLight ? "text-slate-600" : "text-slate-400")}>
+                                {row.patientsId || "No UHID"}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div
+                            className={cn(
+                              "mt-3 flex flex-wrap gap-1.5 border-t pt-3",
+                              sheetIsLight ? "border-amber-100" : "border-amber-900/50",
+                            )}
+                          >
+                            {visibleDocuments.map((name) => (
+                              <span
+                                key={name}
+                                className={cn(
+                                  "rounded-full px-2 py-0.5 text-[0.65rem] font-medium",
+                                  sheetIsLight
+                                    ? "bg-amber-100 text-amber-800"
+                                    : "bg-amber-400/15 text-amber-200",
+                                )}
+                              >
+                                {name}
+                              </span>
+                            ))}
+                            {hiddenCount > 0 ? (
+                              <span className={cn("text-[0.65rem] font-medium", sheetIsLight ? "text-slate-500" : "text-slate-400")}>
+                                +{hiddenCount} more
+                              </span>
+                            ) : null}
+                          </div>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div
+                      className={cn(
+                        "flex min-h-48 flex-col items-center justify-center rounded-2xl border border-dashed p-6 text-center",
+                        sheetIsLight
+                          ? "border-amber-200 bg-amber-50/50 text-slate-600"
+                          : "border-amber-900/60 bg-amber-950/20 text-slate-400",
+                      )}
+                    >
+                      <FileWarning className="mb-3 h-8 w-8" />
+                      <p className={cn("text-base font-semibold", sheetIsLight ? "text-slate-900" : "text-slate-100")}>
+                        No pending panel documents
+                      </p>
+                      <p className="mt-1 text-sm">
+                        Every panel patient has submitted or waived all mandatory documents.
                       </p>
                     </div>
                   )}

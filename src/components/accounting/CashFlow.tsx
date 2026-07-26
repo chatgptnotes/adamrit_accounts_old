@@ -2,8 +2,10 @@ import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchActiveAccounts } from '@/lib/fetchAccounts';
+import { accountMovements, type Movement } from '@/lib/accountMovements';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
+import { dayBefore } from './tally/PeriodContext';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { toast } from 'sonner';
 import { Printer, Download, Loader2, AlertCircle } from 'lucide-react';
@@ -178,6 +180,15 @@ const CashFlow: React.FC = () => {
     queryFn: () => fetchActiveAccounts<Account>({ columns: '*' }),
   });
 
+  // Cash and bank movements before the period, so Opening Cash is the balance
+  // the books actually stood at on the day the period starts. This used to be
+  // the chart-of-accounts opening alone, which is only right when the period
+  // begins on the first day of the books.
+  const { data: priorMovements = new Map<string, Movement>() } = useQuery({
+    queryKey: ['cash_flow_prior', fromDate],
+    queryFn: () => accountMovements({ upto: dayBefore(fromDate) }),
+  });
+
   // Fetch voucher entries for posted vouchers within the date range
   const {
     data: entries = [],
@@ -283,17 +294,17 @@ const CashFlow: React.FC = () => {
     const netInvesting = investingItems.reduce((s, i) => s + i.amount, 0);
     const netFinancing = financingItems.reduce((s, i) => s + i.amount, 0);
 
-    // Calculate opening cash balance from cash/bank accounts
+    // Opening cash = what the cash and bank ledgers stood at the day before the
+    // period: their chart opening plus everything posted to them since. A null
+    // opening_balance_type means Dr, the same way it does everywhere else in
+    // the module — this block used to read it as Cr.
     let openingCash = 0;
     accounts.forEach((acc) => {
-      if (isCashOrBankAccount(acc)) {
-        const bal = Number(acc.opening_balance || 0);
-        if (acc.opening_balance_type?.toUpperCase() === 'DR') {
-          openingCash += bal;
-        } else {
-          openingCash -= bal;
-        }
-      }
+      if (!isCashOrBankAccount(acc)) return;
+      const bal = Number(acc.opening_balance || 0);
+      openingCash += acc.opening_balance_type?.toUpperCase() === 'CR' ? -bal : bal;
+      const m = priorMovements.get(acc.id);
+      if (m) openingCash += m.debit - m.credit;
     });
 
     return {
@@ -305,7 +316,7 @@ const CashFlow: React.FC = () => {
       netFinancing,
       openingCash,
     };
-  }, [accounts, entries]);
+  }, [accounts, entries, priorMovements]);
 
   const netChange = netOperating + netInvesting + netFinancing;
   const closingCash = openingCash + netChange;

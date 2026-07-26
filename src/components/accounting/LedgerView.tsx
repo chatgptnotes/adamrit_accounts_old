@@ -7,9 +7,11 @@ import { useAccountingCompany } from './AccountingCompanyContext';
 import { TallyScreen, voucherBottomBar } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
-import { dayLabel, monthsInPeriod } from './tally/PeriodContext';
+import { dayBefore, dayLabel, monthsInPeriod } from './tally/PeriodContext';
 import { fetchTallyVouchers } from '@/lib/mergedVouchers';
 import { normalizeName } from '@/lib/tallyCompanyMatch';
+import { accountMovements, type Movement } from '@/lib/accountMovements';
+import { headOfType, PL_HEADS } from './tally/heads';
 import { useSourceFilter, matchesSource } from './useSourceFilter';
 
 interface Account {
@@ -179,10 +181,29 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
     queryFn: () => fetchTallyVouchers({ companyId: selectedCompanyId, from: fromDate, upto: toDate }),
   });
 
+  // Everything posted before the period, so the Opening Balance below is the
+  // ledger's balance on the day the period starts.
+  const { data: priorMovements = new Map<string, Movement>() } = useQuery({
+    queryKey: ['ledger_prior', selectedCompanyId, fromDate],
+    enabled: !!selectedAccountId,
+    queryFn: () => accountMovements({ upto: dayBefore(fromDate), companyId: selectedCompanyId }),
+  });
+
   const { rows, opening, totalDr, totalCr, closing } = useMemo(() => {
-    const opening = selectedAccount
-      ? (Number(selectedAccount.opening_balance) || 0) * (selectedAccount.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1)
-      : 0;
+    // Tally's Opening Balance is the ledger as it stood the day before the
+    // period, not the figure typed into the master. Reading the master alone
+    // meant that setting F2 to July still showed the 1-Apr balance, and every
+    // running balance below it inherited the error. Revenue ledgers are closed
+    // to Profit & Loss A/c each year, so they open at zero — the same rule the
+    // Trial Balance and P&L apply.
+    const head = headOfType(selectedAccount?.account_type);
+    const master =
+      selectedAccount && !(head && PL_HEADS.has(head))
+        ? (Number(selectedAccount.opening_balance) || 0) *
+          (selectedAccount.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1)
+        : 0;
+    const prior = selectedAccountId ? priorMovements.get(selectedAccountId) : undefined;
+    const opening = master + (prior ? prior.debit - prior.credit : 0);
 
     type Row = {
       id: string;
@@ -264,7 +285,7 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
       totalCr += r.cr;
     }
     return { rows, opening, totalDr, totalCr, closing: opening + totalDr - totalCr };
-  }, [rawEntries, tallyVouchers, selectedAccount, selectedAccountId, srcFilter, report.passesFilter]);
+  }, [rawEntries, tallyVouchers, selectedAccount, selectedAccountId, priorMovements, srcFilter, report.passesFilter]);
 
   // F6: Monthly — Tally's Ledger Monthly Summary, one line per month with the
   // balance carried forward.

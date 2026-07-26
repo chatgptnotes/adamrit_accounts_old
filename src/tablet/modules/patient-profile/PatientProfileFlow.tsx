@@ -11,14 +11,22 @@ import { shortDate } from "@/tablet/lib/format";
 import { cn } from "@/lib/utils";
 import { PatientDocsTab } from "@/tablet/modules/patient-profile/PatientDocsTab";
 import {
-  PATIENT_DOC_CATEGORIES,
+  DOCUMENTS_AND_PHOTOS_CATEGORIES,
   type PatientDocCategory,
 } from "@/tablet/hooks/usePatientDocs";
+import {
+  buildRegistrationDocumentNotes,
+  getCorporateRegistrationDocuments,
+  REGISTRATION_DOCUMENT_CATEGORY,
+} from "@/lib/registrationDocuments";
 
-/** Tabs shown under a selected patient: profile details + one per doc category. */
+/**
+ * Tabs shown under a selected patient: profile details + one per doc category.
+ * Includes Registration Documents so panel documents can be uploaded here.
+ */
 const TABS = [
   { id: "profile", label: "Patient Profile" },
-  ...PATIENT_DOC_CATEGORIES,
+  ...DOCUMENTS_AND_PHOTOS_CATEGORIES,
 ] as const;
 
 /** A single labelled read-only field in the profile grid. */
@@ -99,6 +107,12 @@ function PatientList({ onSelect }: { onSelect: (p: TabletPatient) => void }) {
 export default function PatientProfileFlow() {
   const [selected, setSelected] = useState<TabletPatient | null>(null);
   const [tab, setTab] = useState<string>("profile");
+  const [registrationDocumentName, setRegistrationDocumentName] = useState("");
+
+  const isRegistrationTab = tab === REGISTRATION_DOCUMENT_CATEGORY;
+  const requiredDocuments = selected
+    ? getCorporateRegistrationDocuments(selected.corporate || "")
+    : [];
 
   if (!selected) {
     return <PatientList onSelect={setSelected} />;
@@ -115,6 +129,7 @@ export default function PatientProfileFlow() {
           onClick={() => {
             setSelected(null);
             setTab("profile");
+            setRegistrationDocumentName("");
           }}
         >
           Back
@@ -136,7 +151,10 @@ export default function PatientProfileFlow() {
                   type="button"
                   role="tab"
                   aria-selected={active}
-                  onClick={() => setTab(t.id)}
+                  onClick={() => {
+                    setTab(t.id);
+                    setRegistrationDocumentName("");
+                  }}
                   className={cn(
                     "min-h-[44px] shrink-0 rounded-full border px-5 text-base font-medium transition-colors",
                     active
@@ -188,12 +206,64 @@ export default function PatientProfileFlow() {
             </dl>
           </>
         ) : (
-          <PatientDocsTab
-            patientId={selected.id}
-            patientName={selected.name}
-            category={tab as PatientDocCategory}
-            label={TABS.find((t) => t.id === tab)?.label || ""}
-          />
+          <>
+            {/* Registration documents are identified by name, not filename. The
+                checklist and the pending-document bell match on that name, so
+                an upload without one would stay Pending forever. */}
+            {isRegistrationTab ? (
+              requiredDocuments.length > 0 ? (
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="registration-document-name"
+                    className="text-sm font-medium text-muted-foreground"
+                  >
+                    Which document is this?
+                  </label>
+                  <select
+                    id="registration-document-name"
+                    value={registrationDocumentName}
+                    onChange={(e) => setRegistrationDocumentName(e.target.value)}
+                    className="min-h-[48px] w-full rounded-xl border border-border bg-card px-3 text-base font-medium"
+                  >
+                    <option value="">Select a document…</option>
+                    {requiredDocuments.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <p className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                  No mandatory documents are defined for “{selected.corporate || "no panel"}”, so
+                  uploads here cannot be named. Use the Panel Documents screen for panel patients.
+                </p>
+              )
+            ) : null}
+
+            <PatientDocsTab
+              patientId={selected.id}
+              patientName={selected.name}
+              category={tab as PatientDocCategory}
+              label={TABS.find((t) => t.id === tab)?.label || ""}
+              uploadNotes={
+                isRegistrationTab && registrationDocumentName
+                  ? buildRegistrationDocumentNotes({
+                      source: "patient_registration",
+                      corporate: selected.corporate || "",
+                      documentName: registrationDocumentName,
+                    })
+                  : null
+              }
+              uploadDisabledReason={
+                isRegistrationTab && !registrationDocumentName
+                  ? requiredDocuments.length > 0
+                    ? "Select which document you are uploading first."
+                    : "This patient's panel has no mandatory documents to upload."
+                  : null
+              }
+            />
+          </>
         )}
       </div>
     </FlowScaffold>

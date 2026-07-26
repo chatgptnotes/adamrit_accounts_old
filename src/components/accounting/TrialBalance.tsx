@@ -9,6 +9,7 @@ import { dayBefore, dayLabel } from './tally/PeriodContext';
 import { useAccountingCompany } from './AccountingCompanyContext';
 import { useSourceFilter, matchesSource } from './useSourceFilter';
 import { normalizeName } from '@/lib/tallyCompanyMatch';
+import { accountMovements, type Movement } from '@/lib/accountMovements';
 import { HEAD_ORDER } from './tally/heads';
 
 interface LedgerLine {
@@ -16,6 +17,9 @@ interface LedgerLine {
   group: string;
   bal: number;
   opening: number;
+  /** Debits and credits posted within the period — Tally's Transactions block */
+  txDr: number;
+  txCr: number;
   source: LedgerSource;
   accountId?: string;
 }
@@ -25,8 +29,13 @@ interface HeadTotals {
   cr: number;
   openDr: number;
   openCr: number;
+  txDr: number;
+  txCr: number;
   ledgers: LedgerLine[];
 }
+
+const EMPTY_OPENINGS: Map<string, number> = new Map();
+const EMPTY_MOVEMENTS: Map<string, Movement> = new Map();
 
 /** One row of the report body — a head, one of its groups, or a ledger. */
 interface BodyRow {
@@ -39,6 +48,8 @@ interface BodyRow {
   cr: number;
   openDr: number;
   openCr: number;
+  txDr: number;
+  txCr: number;
   accountId?: string;
 }
 
@@ -103,6 +114,15 @@ const TrialBalance: React.FC<{
     queryFn: () => mergedLedgerBalances({ upto: openingDate, companyId: selectedCompanyId }),
   });
 
+  // Tally's Transactions block is the debits and credits actually posted in the
+  // period, not the movement between the opening and closing balance columns.
+  // account_movements() already returns exactly that per account.
+  const { data: txMovements = new Map<string, Movement>() } = useQuery({
+    queryKey: ['tb_tx', selectedCompanyId, report.from, report.to],
+    enabled: showTransactions,
+    queryFn: () => accountMovements({ from: report.from, upto: report.to, companyId: selectedCompanyId }),
+  });
+
   // One query per comparison column added with C / A / N
   const columnResults = useQueries({
     queries: report.columns.map((c) => ({
@@ -118,63 +138,96 @@ const TrialBalance: React.FC<{
   }, [openingRows]);
 
   const computeGroups = useMemo(
-    () => (ledgerRows: LedgerBalanceRow[], openings: Map<string, number>) => {
-      const byHead = new Map<string, HeadTotals>();
-      for (const r of ledgerRows) {
-        const bal = r.balance;
-        if (headFilter && r.head !== headFilter) continue;
-        if (!report.passesBasis(bal)) continue;
-        if (!report.passesFilter({ Particulars: r.name })) continue;
-        const opening = openings.get(normalizeName(r.name)) ?? 0;
-        const g = byHead.get(r.head) ?? { dr: 0, cr: 0, openDr: 0, openCr: 0, ledgers: [] };
-        if (bal > 0) g.dr += bal;
-        else g.cr += -bal;
-        if (opening > 0) g.openDr += opening;
-        else g.openCr += -opening;
-        g.ledgers.push({
-          name: r.name,
-          group: r.group,
-          bal,
-          opening,
-          source: r.source,
-          accountId: r.accountId,
-        });
-        byHead.set(r.head, g);
-      }
-      let grandDr = 0;
-      let grandCr = 0;
-      let grandOpenDr = 0;
-      let grandOpenCr = 0;
-      for (const g of byHead.values()) {
-        grandDr += g.dr;
-        grandCr += g.cr;
-        grandOpenDr += g.openDr;
-        grandOpenCr += g.openCr;
-      }
-      return { byHead, grandDr, grandCr, grandOpenDr, grandOpenCr };
-    },
+    () =>
+      (
+        ledgerRows: LedgerBalanceRow[],
+        openings: Map<string, number>,
+        movements: Map<string, Movement>,
+      ) => {
+        const byHead = new Map<string, HeadTotals>();
+        for (const r of ledgerRows) {
+          const bal = r.balance;
+          if (headFilter && r.head !== headFilter) continue;
+          if (!report.passesBasis(bal)) continue;
+          if (!report.passesFilter({ Particulars: r.name })) continue;
+          const opening = openings.get(normalizeName(r.name)) ?? 0;
+          // A Tally-sourced row carries no accountId and its balance is an
+          // undated snapshot, so it has no period transactions to report.
+          const mv = r.accountId ? movements.get(r.accountId) : undefined;
+          const txDr = mv?.debit ?? 0;
+          const txCr = mv?.credit ?? 0;
+          const g =
+            byHead.get(r.head) ?? { dr: 0, cr: 0, openDr: 0, openCr: 0, txDr: 0, txCr: 0, ledgers: [] };
+          if (bal > 0) g.dr += bal;
+          else g.cr += -bal;
+          if (opening > 0) g.openDr += opening;
+          else g.openCr += -opening;
+          g.txDr += txDr;
+          g.txCr += txCr;
+          g.ledgers.push({
+            name: r.name,
+            group: r.group,
+            bal,
+            opening,
+            txDr,
+            txCr,
+            source: r.source,
+            accountId: r.accountId,
+          });
+          byHead.set(r.head, g);
+        }
+        let grandDr = 0;
+        let grandCr = 0;
+        let grandOpenDr = 0;
+        let grandOpenCr = 0;
+        let grandTxDr = 0;
+        let grandTxCr = 0;
+        for (const g of byHead.values()) {
+          grandDr += g.dr;
+          grandCr += g.cr;
+          grandOpenDr += g.openDr;
+          grandOpenCr += g.openCr;
+          grandTxDr += g.txDr;
+          grandTxCr += g.txCr;
+        }
+        return { byHead, grandDr, grandCr, grandOpenDr, grandOpenCr, grandTxDr, grandTxCr };
+      },
     [report.passesBasis, report.passesFilter, headFilter],
   );
 
-  const { groups, grandDr, grandCr, grandOpenDr, grandOpenCr, comparisons } = useMemo(() => {
-    const cur = computeGroups(rows.filter((r) => matchesSource(r.source, srcFilter)), openingByName);
+  const { groups, grandDr, grandCr, grandOpenDr, grandOpenCr, grandTxDr, grandTxCr, comparisons } = useMemo(() => {
+    const cur = computeGroups(
+      rows.filter((r) => matchesSource(r.source, srcFilter)),
+      openingByName,
+      txMovements,
+    );
+    // A comparison column covers its own dates, and we hold no opening or
+    // movement figures for those. Tally would not print a figure it cannot
+    // compute, so the Opening and Transactions blocks stay blank there — they
+    // used to repeat the main period's opening, which belonged to other dates.
     const cmps = columnResults.map((q) =>
-      computeGroups((q.data ?? []).filter((r) => matchesSource(r.source, srcFilter)), openingByName),
+      computeGroups(
+        (q.data ?? []).filter((r) => matchesSource(r.source, srcFilter)),
+        EMPTY_OPENINGS,
+        EMPTY_MOVEMENTS,
+      ),
     );
     const heads = HEAD_ORDER.filter((h) => cur.byHead.has(h) || cmps.some((c) => c.byHead.has(h)));
     return {
       groups: heads.map((h) => ({
         head: h,
-        ...(cur.byHead.get(h) ?? { dr: 0, cr: 0, openDr: 0, openCr: 0, ledgers: [] }),
+        ...(cur.byHead.get(h) ?? { dr: 0, cr: 0, openDr: 0, openCr: 0, txDr: 0, txCr: 0, ledgers: [] }),
       })),
       grandDr: cur.grandDr,
       grandCr: cur.grandCr,
       grandOpenDr: cur.grandOpenDr,
       grandOpenCr: cur.grandOpenCr,
+      grandTxDr: cur.grandTxDr,
+      grandTxCr: cur.grandTxCr,
       comparisons: cmps,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, columnResults.map((q) => q.dataUpdatedAt).join(','), srcFilter, computeGroups, openingByName]);
+  }, [rows, columnResults.map((q) => q.dataUpdatedAt).join(','), srcFilter, computeGroups, openingByName, txMovements]);
 
   /**
    * Tally walks head → group → ledger, and every one of those lines is a row
@@ -194,6 +247,8 @@ const TrialBalance: React.FC<{
         cr: g.cr,
         openDr: g.openDr,
         openCr: g.openCr,
+        txDr: g.txDr,
+        txCr: g.txCr,
       });
       // Comparison columns replace the breakup — Tally cannot print both.
       if (!report.detailed || report.columns.length > 0) continue;
@@ -220,6 +275,8 @@ const TrialBalance: React.FC<{
             cr,
             openDr: ledgers.reduce((s, l) => s + Math.max(0, l.opening), 0),
             openCr: ledgers.reduce((s, l) => s + Math.max(0, -l.opening), 0),
+            txDr: ledgers.reduce((s, l) => s + l.txDr, 0),
+            txCr: ledgers.reduce((s, l) => s + l.txCr, 0),
           });
         }
         for (const l of ledgers) {
@@ -233,6 +290,8 @@ const TrialBalance: React.FC<{
             cr: Math.max(0, -l.bal),
             openDr: Math.max(0, l.opening),
             openCr: Math.max(0, -l.opening),
+            txDr: l.txDr,
+            txCr: l.txCr,
             accountId: l.accountId,
           });
         }
@@ -266,19 +325,20 @@ const TrialBalance: React.FC<{
   /**
    * Tally prints up to three Debit/Credit blocks side by side — Opening
    * Balance, Transactions for the period, and Closing Balance. Transactions is
-   * simply the movement between the two, so it needs no query of its own.
+   * the debits and credits posted in the period, which is a figure of its own:
+   * deriving it as (closing − opening) reported nothing for a ledger that took
+   * in and paid out the same amount, and mixed up ledgers that changed side.
    */
-  const amountBlocks = (row: { dr: number; cr: number; openDr: number; openCr: number }, className: string) => {
-    const txDr = row.dr - row.openDr;
-    const txCr = row.cr - row.openCr;
-    return (
-      <>
-        {showOpening && amountPair(row.openDr, row.openCr, className)}
-        {showTransactions && amountPair(Math.max(0, txDr), Math.max(0, txCr), className)}
-        {showClosing && amountPair(row.dr, row.cr, className)}
-      </>
-    );
-  };
+  const amountBlocks = (
+    row: { dr: number; cr: number; openDr: number; openCr: number; txDr: number; txCr: number },
+    className: string,
+  ) => (
+    <>
+      {showOpening && amountPair(row.openDr, row.openCr, className)}
+      {showTransactions && amountPair(row.txDr, row.txCr, className)}
+      {showClosing && amountPair(row.dr, row.cr, className)}
+    </>
+  );
 
   const drCrHead = (caption: string) => (
     <div className="w-72 shrink-0 border-l border-gray-400 text-center">
@@ -361,6 +421,8 @@ const TrialBalance: React.FC<{
                               cr: cmpFor(cmp)?.cr ?? 0,
                               openDr: cmpFor(cmp)?.openDr ?? 0,
                               openCr: cmpFor(cmp)?.openCr ?? 0,
+                              txDr: cmpFor(cmp)?.txDr ?? 0,
+                              txCr: cmpFor(cmp)?.txCr ?? 0,
                             },
                             'font-semibold',
                           )}
@@ -372,7 +434,10 @@ const TrialBalance: React.FC<{
 
               <div className="mt-10 flex border-t border-black pt-1 font-bold">
                 <div className="w-64 flex-1 tracking-[0.3em]">Grand Total</div>
-                {amountBlocks({ dr: grandDr, cr: grandCr, openDr: grandOpenDr, openCr: grandOpenCr }, '')}
+                {amountBlocks(
+                  { dr: grandDr, cr: grandCr, openDr: grandOpenDr, openCr: grandOpenCr, txDr: grandTxDr, txCr: grandTxCr },
+                  '',
+                )}
                 {comparisons.map((cmp, ci) => (
                   <React.Fragment key={report.columns[ci].id}>
                     {amountBlocks(
@@ -381,6 +446,8 @@ const TrialBalance: React.FC<{
                         cr: cmp.grandCr,
                         openDr: cmp.grandOpenDr,
                         openCr: cmp.grandOpenCr,
+                        txDr: cmp.grandTxDr,
+                        txCr: cmp.grandTxCr,
                       },
                       '',
                     )}
@@ -388,10 +455,18 @@ const TrialBalance: React.FC<{
                 ))}
               </div>
               {/* Only meaningful across the whole trial balance — a single
-                  group never balances on its own, so F4: Group hides it. */}
+                  group never balances on its own, so F4: Group hides it.
+                  Each line names the block it is actually measured on: the
+                  one line this used to print was computed from the closing
+                  columns while calling itself an opening difference. */}
+              {!headFilter && Math.abs(grandOpenDr - grandOpenCr) > 0.01 && (
+                <div className="mt-1 text-right text-[12px] font-semibold text-red-600">
+                  Difference in Opening Balances: {report.fmtAmount(Math.abs(grandOpenDr - grandOpenCr))}
+                </div>
+              )}
               {!headFilter && Math.abs(grandDr - grandCr) > 0.01 && (
                 <div className="mt-1 text-right text-[12px] font-semibold text-red-600">
-                  Difference in Opening Balances: {report.fmtAmount(Math.abs(grandDr - grandCr))}
+                  Difference in Closing Balances: {report.fmtAmount(Math.abs(grandDr - grandCr))}
                 </div>
               )}
             </>

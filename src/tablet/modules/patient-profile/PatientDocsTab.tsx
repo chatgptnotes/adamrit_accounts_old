@@ -38,6 +38,15 @@ interface PatientDocsTabProps {
   patientName: string | null;
   category: PatientDocCategory;
   label: string;
+  /**
+   * Written to `file_uploads.notes`. Registration documents MUST carry the
+   * document-name JSON from buildRegistrationDocumentNotes — the panel document
+   * checklist and the pending-document bell identify a document by that value,
+   * so an upload without it stays Pending forever.
+   */
+  uploadNotes?: string | null;
+  /** Blocks upload until the caller supplies uploadNotes (e.g. picks a name). */
+  uploadDisabledReason?: string | null;
 }
 
 function isImage(type: string | null): boolean {
@@ -71,6 +80,8 @@ export function PatientDocsTab({
   patientName,
   category,
   label,
+  uploadNotes = null,
+  uploadDisabledReason = null,
 }: PatientDocsTabProps) {
   const { user, hospitalConfig } = useAuth();
   const { toast } = useToast();
@@ -84,6 +95,14 @@ export function PatientDocsTab({
 
   const handleFiles = async (items: File[] | CapturedPhotoItem[]) => {
     if (items.length === 0) return;
+    if (uploadDisabledReason) {
+      toast({
+        title: "Cannot upload yet",
+        description: uploadDisabledReason,
+        variant: "destructive",
+      });
+      return;
+    }
     setUploading(true);
     try {
       const normalized: CapturedPhotoItem[] = items.map((item) =>
@@ -123,6 +142,7 @@ export function PatientDocsTab({
           category,
           uploadedBy: user?.id ?? null,
           placeLabel: `${hospitalConfig.fullName}, ${hospitalConfig.contactInfo.address}, India`,
+          notes: uploadNotes,
         },
       );
       await qc.invalidateQueries({
@@ -172,7 +192,7 @@ export function PatientDocsTab({
         />
         <TabletButton
           className="flex-1"
-          disabled={uploading}
+          disabled={uploading || !!uploadDisabledReason}
           onClick={() => chooseRef.current?.click()}
         >
           {uploading ? (
@@ -185,12 +205,16 @@ export function PatientDocsTab({
         <TabletButton
           variant="outline"
           className="flex-1"
-          disabled={uploading}
+          disabled={uploading || !!uploadDisabledReason}
           onClick={() => setCameraOpen(true)}
         >
           <Camera className="h-5 w-5" /> Take Photos
         </TabletButton>
       </div>
+
+      {uploadDisabledReason ? (
+        <p className="text-sm text-muted-foreground">{uploadDisabledReason}</p>
+      ) : null}
 
       <MultiShotCamera
         open={cameraOpen}

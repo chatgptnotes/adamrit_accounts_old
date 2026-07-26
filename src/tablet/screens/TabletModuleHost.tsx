@@ -12,6 +12,9 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   "director-list": lazy(
     () => import("@/tablet/modules/director-list/DirectorListFlow"),
   ),
+  "panel-documents": lazy(
+    () => import("@/tablet/modules/panel-documents/PanelDocumentsFlow"),
+  ),
   "patient-profile": lazy(
     () => import("@/tablet/modules/patient-profile/PatientProfileFlow"),
   ),

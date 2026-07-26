@@ -353,6 +353,16 @@ export const TABLET_MODULES: TabletModule[] = [
     tint: "from-purple-400 to-purple-600",
     hiddenFromHome: true,
   },
+  {
+    // Panel-wise mandatory documents. Also reached from the Director Dashboard
+    // preview card and from the yellow bell (?patient= opens one checklist).
+    id: "panel-documents",
+    label: "Panel Documents",
+    description: "Panel-wise mandatory docs",
+    icon: ClipboardCheck,
+    accent: "text-cyan-600",
+    tint: "from-cyan-400 to-cyan-600",
+  },
 ];
 
 /**

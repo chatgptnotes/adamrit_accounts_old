@@ -67,24 +67,56 @@ export type RegistrationDocumentMetadata = {
   documentName: string;
 };
 
+/** The nine panels that declare mandatory registration documents. */
+export type RegistrationPanelName = keyof typeof CORPORATE_REGISTRATION_DOCUMENTS;
+
+export const REGISTRATION_PANEL_NAMES = Object.keys(
+  CORPORATE_REGISTRATION_DOCUMENTS,
+) as RegistrationPanelName[];
+
 const normalize = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase();
 
-export function getCorporateRegistrationDocuments(corporate: string): string[] {
-  const normalizedCorporate = normalize(corporate);
-  if (!normalizedCorporate) return [];
+/**
+ * Trim, collapse internal whitespace, lowercase. Exported because the panel
+ * document RPC normalizes corporate names and document names the same way — if
+ * the two implementations drift, documents stop matching their uploads.
+ */
+export function normalizeCorporateName(value: string): string {
+  return normalize(value);
+}
 
-  for (const [name, documents] of Object.entries(CORPORATE_REGISTRATION_DOCUMENTS)) {
-    const aliases = [name, ...(CORPORATE_NAME_ALIASES[name] || [])];
-    if (aliases.some((alias) => normalize(alias) === normalizedCorporate)) {
-      const uniqueDocuments = new Map<string, string>();
-      for (const document of documents) {
-        const key = normalize(document);
-        if (!uniqueDocuments.has(key)) uniqueDocuments.set(key, document);
-      }
-      return [...uniqueDocuments.values()];
-    }
+/** Every `patients.corporate` spelling that resolves to this panel. */
+export function getPanelCorporateSpellings(panel: RegistrationPanelName): string[] {
+  return [panel, ...(CORPORATE_NAME_ALIASES[panel] || [])];
+}
+
+/**
+ * Resolve a free-text `patients.corporate` to its panel, or null when no alias
+ * matches. Matching is exact (after normalizing), so an unlisted spelling
+ * yields null rather than a near-miss — see findUnmappedPanelCorporates in
+ * src/lib/panelDocumentsDb.ts for the diagnostic that surfaces those.
+ */
+export function resolveRegistrationPanel(corporate: string): RegistrationPanelName | null {
+  const normalizedCorporate = normalize(corporate);
+  if (!normalizedCorporate) return null;
+
+  for (const panel of REGISTRATION_PANEL_NAMES) {
+    const aliases = getPanelCorporateSpellings(panel);
+    if (aliases.some((alias) => normalize(alias) === normalizedCorporate)) return panel;
   }
-  return [];
+  return null;
+}
+
+export function getCorporateRegistrationDocuments(corporate: string): string[] {
+  const panel = resolveRegistrationPanel(corporate);
+  if (!panel) return [];
+
+  const uniqueDocuments = new Map<string, string>();
+  for (const document of CORPORATE_REGISTRATION_DOCUMENTS[panel]) {
+    const key = normalize(document);
+    if (!uniqueDocuments.has(key)) uniqueDocuments.set(key, document);
+  }
+  return [...uniqueDocuments.values()];
 }
 
 export function buildRegistrationDocumentNotes(metadata: RegistrationDocumentMetadata): string {

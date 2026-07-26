@@ -6,7 +6,15 @@ import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
 import { dayLabel } from './tally/PeriodContext';
-import { ASSET_HEADS, LIABILITY_HEADS, PNL_LEDGER_NAME } from './tally/heads';
+import {
+  ASSET_HEADS,
+  LIABILITY_HEADS,
+  PL_EXPENSE_HEADS,
+  PL_INCOME_HEADS,
+  PNL_LEDGER_NAME,
+  TRADING_EXPENSE_HEADS,
+  TRADING_INCOME_HEADS,
+} from './tally/heads';
 import { useAccountingCompany } from './AccountingCompanyContext';
 import { useSourceFilter, matchesSource } from './useSourceFilter';
 
@@ -27,6 +35,12 @@ interface CursorTarget {
 // using Investments / Suspense A/c / Loans & Advances is not silently dropped.
 const LIABILITY_ORDER = LIABILITY_HEADS;
 const ASSET_ORDER = ASSET_HEADS;
+// All six revenue heads feed the Profit & Loss A/c line, the same way the P&L
+// screen counts them. Listing them by hand here left Purchase Accounts and
+// Direct Incomes in no bucket at all, so they were dropped from the Balance
+// Sheet entirely and the gap surfaced as "Difference in Opening Balances".
+const INCOME_HEADS = new Set([...TRADING_INCOME_HEADS, ...PL_INCOME_HEADS]);
+const EXPENSE_HEADS = new Set([...TRADING_EXPENSE_HEADS, ...PL_EXPENSE_HEADS]);
 
 // Tally's one reserved ledger that carries profit brought forward.
 const PNL_LEDGER = PNL_LEDGER_NAME;
@@ -110,9 +124,9 @@ const BalanceSheet: React.FC<{
           // not a Capital Account member. Its balance is profit brought forward, so
           // it joins the current period's income - expense on the P&L line below.
           broughtForward += -r.balance;
-        } else if (r.head === 'Sales Accounts' || r.head === 'Indirect Incomes') {
+        } else if (INCOME_HEADS.has(r.head)) {
           income += -r.balance;
-        } else if (r.head === 'Direct Expenses' || r.head === 'Indirect Expenses') {
+        } else if (EXPENSE_HEADS.has(r.head)) {
           expense += r.balance;
         } else if (LIABILITY_ORDER.includes(r.head) || ASSET_ORDER.includes(r.head)) {
           const liability = LIABILITY_ORDER.includes(r.head);
@@ -133,9 +147,13 @@ const BalanceSheet: React.FC<{
 
       const totalLiab = liabilityLines.reduce((s, l) => s + l.amount, 0) + pnlAmount;
       const totalAssets = assetLines.reduce((s, l) => s + l.amount, 0);
-      // Tally never lets the two sides disagree: whatever is missing is shown
-      // as "Difference in Opening Balances" on the short side.
+      // Tally shows whatever is missing as "Difference in Opening Balances" on
+      // the short side, so both Totals are the sum of the rows actually
+      // printed under them — the plug row included. That makes the two sides
+      // tie, but the gap stays on screen as a labelled line rather than being
+      // absorbed silently; `difference` is what drives it.
       const difference = totalLiab - totalAssets;
+      const grandTotal = totalLiab + Math.max(0, -difference);
       return {
         liabilityLines,
         assetLines,
@@ -144,8 +162,8 @@ const BalanceSheet: React.FC<{
         expense,
         broughtForward,
         difference,
-        totalLiab: Math.max(totalLiab, totalAssets),
-        totalAssets: Math.max(totalLiab, totalAssets),
+        totalLiab: grandTotal,
+        totalAssets: grandTotal,
       };
     },
     [report.passesBasis, report.passesFilter],
