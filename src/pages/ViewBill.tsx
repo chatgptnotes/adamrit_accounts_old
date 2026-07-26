@@ -5,14 +5,21 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Printer } from 'lucide-react';
 import { format } from 'date-fns';
+import { useInvoiceAccess } from '@/hooks/useInvoiceAccess';
+import InvoicePasswordGate from '@/components/invoice/InvoicePasswordGate';
 
 const ViewBill = () => {
   const { billId } = useParams<{ billId: string }>();
   const navigate = useNavigate();
 
+  // This page replays a saved bill with its own Print button. Before the gate it
+  // had no lock at all, so it re-printed bills the Final Bill page refused to —
+  // which is exactly the hole this closes.
+  const access = useInvoiceAccess(billId);
+
   // Fetch real bill data from bills, bill_sections, and bill_line_items tables
   const { data: billData, isLoading } = useQuery({
-    queryKey: ['view-bill', billId],
+    queryKey: ['view-bill', billId, access.grantToken],
     queryFn: async () => {
       if (!billId) return null;
 
@@ -46,29 +53,22 @@ const ViewBill = () => {
         throw new Error('Bill not found');
       }
 
-      // Fetch bill sections
-      const { data: sections, error: sectionsError } = await supabase
-        .from('bill_sections')
-        .select('*')
-        .eq('bill_id', billId)
-        .order('section_order');
+      // Line items come through the gated RPC rather than straight off the
+      // tables. For an unlocked or corporate bill it returns content freely; for
+      // a locked private bill it refuses unless the grant token is valid. Once
+      // anon's SELECT on these tables is revoked, this is the only way in.
+      const { data: content, error: contentError } = await supabase.rpc('get_invoice_content' as any, {
+        p_bill_id: billId,
+        p_grant_token: access.grantToken,
+      });
 
-      if (sectionsError) {
-        console.error('Error fetching bill sections:', sectionsError);
-        throw sectionsError;
+      if (contentError) {
+        console.error('Error fetching invoice content:', contentError);
+        throw contentError;
       }
 
-      // Fetch bill line items
-      const { data: lineItems, error: lineItemsError } = await supabase
-        .from('bill_line_items')
-        .select('*')
-        .eq('bill_id', billId)
-        .order('item_order');
-
-      if (lineItemsError) {
-        console.error('Error fetching bill line items:', lineItemsError);
-        throw lineItemsError;
-      }
+      const sections = (content as any)?.ok ? (content as any).sections : [];
+      const lineItems = (content as any)?.ok ? (content as any).line_items : [];
 
       const billWithRelations = {
         ...bill,
@@ -82,7 +82,9 @@ const ViewBill = () => {
 
       return billWithRelations;
     },
-    enabled: !!billId
+    // Do not fetch bill content at all while the gate is up — an unauthorised
+    // response should never be in the page, even unrendered.
+    enabled: !!billId && !access.needsGate && !access.isLockLoading
   });
 
   // Patient data is now included in billData.patients
@@ -99,7 +101,22 @@ const ViewBill = () => {
     navigate(-1);
   };
 
-  if (isLoading) {
+  // The gate replaces the bill entirely rather than covering it, so the
+  // protected content is never present in the DOM behind an overlay.
+  if (access.needsGate) {
+    return (
+      <InvoicePasswordGate
+        billNo={access.lockState?.bill_no}
+        patientName={access.lockState?.patient_name}
+        verifying={access.verifying}
+        error={access.error}
+        onUnlock={access.unlock}
+        onBack={handleGoBack}
+      />
+    );
+  }
+
+  if (isLoading || access.isLockLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
