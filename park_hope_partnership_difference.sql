@@ -25,13 +25,15 @@
 -- REMOVE THIS ENTRY once the missing balances are found and imported properly.
 -- To undo:
 --   UPDATE chart_of_accounts SET opening_balance = 0, opening_balance_type = 'DR'
---    WHERE account_code = 'SUSPENSE-HOPE-PARTNERSHIP';
+--    WHERE account_code = 'SUSPENSE-HOPE';
+--
+-- The code is kept short deliberately: account_code is VARCHAR(20).
 
 INSERT INTO public.chart_of_accounts (
   account_code, account_name, account_type, account_group,
   opening_balance, opening_balance_type, is_active, company_id
 )
-SELECT 'SUSPENSE-HOPE-PARTNERSHIP',
+SELECT 'SUSPENSE-HOPE',
        'Suspense A/c - opening difference from the 2026-07-25 Tally import',
        'CURRENT_ASSETS',
        'Suspense A/c',
@@ -54,9 +56,9 @@ UPDATE public.chart_of_accounts s
       FROM public.chart_of_accounts a
       JOIN public.companies c ON c.id = a.company_id
      WHERE c.company_key = 'hope_partnership'
-       AND a.account_code <> 'SUSPENSE-HOPE-PARTNERSHIP'
+       AND a.account_code <> 'SUSPENSE-HOPE'
   ) gap
- WHERE s.account_code = 'SUSPENSE-HOPE-PARTNERSHIP';
+ WHERE s.account_code = 'SUSPENSE-HOPE';
 
 
 -- Every entity should now read balanced, with the unknown named.
