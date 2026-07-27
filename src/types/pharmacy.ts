@@ -686,6 +686,8 @@ export interface GoodsReceivedNote {
 
   // Invoice Details
   invoice_number?: string;
+  /** CREDIT leaves the supplier owed; CASH settles them from Cash in Hand. */
+  payment_terms?: 'CREDIT' | 'CASH';
   invoice_date?: string;
   invoice_amount?: number;
 

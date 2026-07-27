@@ -106,6 +106,7 @@ export async function createGRNFromPO(
         po_number: poData.po_number,
         supplier_id: poData.supplier_id,
         invoice_number: payload.invoice_number,
+        payment_terms: payload.payment_terms ?? 'CREDIT',
         invoice_date: payload.invoice_date,
         invoice_amount: payload.invoice_amount,
         total_items,

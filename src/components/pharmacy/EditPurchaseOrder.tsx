@@ -59,6 +59,7 @@ const EditPurchaseOrder: React.FC<EditPurchaseOrderProps> = ({ purchaseOrderId, 
 
   // Form state
   const [partyInvoiceNumber, setPartyInvoiceNumber] = useState('');
+  const [paymentTerms, setPaymentTerms] = useState<'CREDIT' | 'CASH'>('CREDIT');
   const [goodsReceivedDate, setGoodsReceivedDate] = useState('');
   const [discount, setDiscount] = useState<number>(0);
   const [manualTotalTax, setManualTotalTax] = useState<number | null>(null);
@@ -97,6 +98,11 @@ const EditPurchaseOrder: React.FC<EditPurchaseOrderProps> = ({ purchaseOrderId, 
         setGrnStatus(existingGRN.status as 'DRAFT' | 'POSTED');
         setGrnNumber(existingGRN.grn_number);
         setPartyInvoiceNumber(existingGRN.invoice_number || '');
+        setPaymentTerms(
+          String((existingGRN as any).payment_terms || 'CREDIT').toUpperCase() === 'CASH'
+            ? 'CASH'
+            : 'CREDIT',
+        );
         setDiscount(existingGRN.discount || 0);
 
         // Map GRN items to PO item format
@@ -341,6 +347,7 @@ const EditPurchaseOrder: React.FC<EditPurchaseOrderProps> = ({ purchaseOrderId, 
           .from('goods_received_notes')
           .update({
             invoice_number: partyInvoiceNumber || null,
+            payment_terms: paymentTerms,
             discount: discount || 0,
             total_amount: totalAmount,
           })
@@ -389,6 +396,7 @@ const EditPurchaseOrder: React.FC<EditPurchaseOrderProps> = ({ purchaseOrderId, 
           purchase_order_id: purchaseOrderId,
           grn_date: goodsReceivedDate.split('T')[0],
           invoice_number: partyInvoiceNumber || undefined,
+          payment_terms: paymentTerms,
           invoice_date: undefined,
           invoice_amount: undefined,
           discount: discount || undefined,
@@ -624,6 +632,26 @@ const EditPurchaseOrder: React.FC<EditPurchaseOrderProps> = ({ purchaseOrderId, 
                     value={partyInvoiceNumber}
                     onChange={(e) => setPartyInvoiceNumber(e.target.value)}
                   />
+                </div>
+                <div className="flex-1">
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">
+                    Payment Terms
+                  </label>
+                  <select
+                    className="h-10 w-full rounded-md border border-gray-300 bg-white px-3 text-sm"
+                    value={paymentTerms}
+                    onChange={(e) =>
+                      setPaymentTerms(e.target.value === 'CASH' ? 'CASH' : 'CREDIT')
+                    }
+                  >
+                    <option value="CREDIT">Credit - supplier is owed</option>
+                    <option value="CASH">Cash - paid at the counter</option>
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {paymentTerms === 'CASH'
+                      ? 'The purchase posts and the supplier is settled from Cash in Hand.'
+                      : 'The purchase posts and stays outstanding against the supplier.'}
+                  </p>
                 </div>
                 <div className="flex-1">
                   <label className="text-sm font-medium text-gray-700 mb-2 block">
