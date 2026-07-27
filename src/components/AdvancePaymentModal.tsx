@@ -15,6 +15,10 @@ import { isUuid } from '@/utils/visitId';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Printer } from 'lucide-react';
+import {
+  PaymentSupportPanel,
+} from '@/components/payment/PaymentSupportPanel';
+import { uploadPaymentProof, type PaymentProofSelection } from '@/lib/paymentProof';
 
 interface AdvancePaymentModalProps {
   isOpen: boolean;
@@ -133,7 +137,7 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
   patientData,
   onPaymentAdded
 }) => {
-  const { hospitalType } = useAuth();
+  const { hospitalType, user } = useAuth();
 
   const [formData, setFormData] = useState({
     advanceAmount: '',
@@ -163,6 +167,9 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
   const [bankAccounts, setBankAccounts] = useState<Array<{ id: string; account_name: string }>>([]);
   const [packages, setPackages] = useState<Array<{ id: string; name: string }>>([]);
   const [billingExecutives, setBillingExecutives] = useState<string[]>([]);
+  const [paymentProof, setPaymentProof] = useState<PaymentProofSelection | null>(null);
+  const [pendingProofPaymentId, setPendingProofPaymentId] = useState<string | null>(null);
+  const [proofUploadMessage, setProofUploadMessage] = useState<string | null>(null);
 
   // Load billing executives when the modal opens: the curated base list is
   // always present, merged with real staff from the Supabase User table (junk /
@@ -537,6 +544,36 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
   };
 
   const handleSave = async () => {
+    if (pendingProofPaymentId) {
+      if (!paymentProof || !patientId || !visitId) {
+        toast.error('Select the payment proof again before retrying.');
+        return;
+      }
+      setIsSaving(true);
+      try {
+        await uploadPaymentProof({
+          proof: paymentProof,
+          patientId,
+          patientName: patientInfo.name || patientData?.name || null,
+          visitId,
+          paymentKind: 'advance_payment',
+          paymentId: pendingProofPaymentId,
+          uploadedBy: user?.id ?? null,
+        });
+        setPaymentProof(null);
+        setPendingProofPaymentId(null);
+        setProofUploadMessage(null);
+        toast.success('Payment proof uploaded successfully');
+      } catch (proofError) {
+        console.error('❌ Advance payment proof retry failed:', proofError);
+        setProofUploadMessage('Payment is already saved. The proof upload failed; tap Retry Proof Upload to try again.');
+        toast.error('Payment proof upload failed. The payment was not duplicated.');
+      } finally {
+        setIsSaving(false);
+      }
+      return;
+    }
+
     // Validate payment mode first
     if (!formData.paymentMode || formData.paymentMode.trim() === '') {
       toast.error('Please select a payment mode');
@@ -642,6 +679,29 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
       }).catch(console.error);
 
       toast.success('Advance payment saved successfully');
+
+      if (paymentProof) {
+        try {
+          await uploadPaymentProof({
+            proof: paymentProof,
+            patientId,
+            patientName: patientInfo.name || patientData?.name || null,
+            visitId,
+            paymentKind: 'advance_payment',
+            paymentId: data.id,
+            uploadedBy: user?.id ?? null,
+          });
+          setPaymentProof(null);
+          setPendingProofPaymentId(null);
+          setProofUploadMessage(null);
+          toast.success('Payment proof uploaded successfully');
+        } catch (proofError) {
+          console.error('❌ Advance payment saved but proof upload failed:', proofError);
+          setPendingProofPaymentId(data.id);
+          setProofUploadMessage('Payment saved successfully, but the proof upload failed. Use Retry Proof Upload; it will not create another payment.');
+          toast.warning('Payment saved, but proof upload failed');
+        }
+      }
 
       // WhatsApp alert for receipts > Rs. 10,000
       const paymentAmount = parseFloat(formData.advanceAmount) || 0;
@@ -933,7 +993,7 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[calc(100vw-1rem)] max-w-4xl max-h-[92vh] overflow-y-auto p-4 sm:p-6">
         <DialogHeader>
           <DialogTitle className="text-xl font-bold text-blue-600">
             Advance Payment
@@ -942,7 +1002,7 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
 
         {/* Patient Information Section */}
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <div>
               <span className="font-medium text-gray-700">Name:</span>
               <div className="text-gray-900">{patientInfo.name}</div>
@@ -966,7 +1026,7 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
           {/* Left Column - Form */}
           <div className="space-y-4">
             {/* Returned Amount */}
-            <div className="grid grid-cols-2 items-center gap-4">
+            <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-2 sm:gap-4">
               <Label htmlFor="returnedAmount" className="text-sm font-medium">
                 Returned Amount:
               </Label>
@@ -976,7 +1036,7 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
             </div>
 
             {/* Advance Amount */}
-            <div className="grid grid-cols-2 items-center gap-4">
+            <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-2 sm:gap-4">
               <Label htmlFor="advanceAmount" className="text-sm font-medium">
                 {formData.isRefund ? 'Refund Amount' : 'Advance Amount'}
                 {!formData.isRefund && <span className="text-red-500"> *</span>}
@@ -996,7 +1056,7 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
             </div>
 
             {/* Is Refund */}
-            <div className="grid grid-cols-2 items-start gap-4">
+            <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-2 sm:gap-4">
               <Label className="text-sm font-medium">Is Refund:</Label>
               <div className="space-y-2">
                 <div className="flex items-center space-x-2">
@@ -1021,7 +1081,7 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
             </div>
 
             {/* Payment Date */}
-            <div className="grid grid-cols-2 items-center gap-4">
+            <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-2 sm:gap-4">
               <Label htmlFor="paymentDate" className="text-sm font-medium">
                 Payment Date <span className="text-red-500">*</span>
               </Label>
@@ -1034,7 +1094,7 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
             </div>
 
             {/* Mode of Payment */}
-            <div className="grid grid-cols-2 items-center gap-4">
+            <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-2 sm:gap-4">
               <Label htmlFor="paymentMode" className="text-sm font-medium">
                 Mode Of Payment <span className="text-red-500">*</span>
               </Label>
@@ -1057,7 +1117,7 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
 
             {/* Bank Selection - Show for all payment modes except CASH and CREDIT */}
             {['ONLINE', 'UPI', 'NEFT', 'RTGS', 'CHEQUE', 'CARD', 'DD'].includes(formData.paymentMode) && (
-              <div className="grid grid-cols-2 items-center gap-4">
+              <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-2 sm:gap-4">
                 <Label htmlFor="bankAccount" className="text-sm font-medium">
                   Select Bank Account <span className="text-red-500">*</span>
                 </Label>
@@ -1091,7 +1151,7 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
             )}
 
             {/* Billing Executive */}
-            <div className="grid grid-cols-2 items-center gap-4">
+            <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-2 sm:gap-4">
               <Label htmlFor="billingExecutive" className="text-sm font-medium">
                 Billing Executive
               </Label>
@@ -1114,7 +1174,7 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
 
             {/* Reference Number */}
             {formData.paymentMode !== 'CASH' && (
-              <div className="grid grid-cols-2 items-center gap-4">
+              <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-2 sm:gap-4">
                 <Label htmlFor="referenceNumber" className="text-sm font-medium">
                   Reference Number
                 </Label>
@@ -1129,8 +1189,8 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
             )}
 
             {/* Package Detail + Package Days */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid grid-cols-2 items-center gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-2 sm:gap-4">
                 <Label className="text-sm font-medium">Package Detail</Label>
                 <Select
                   value={formData.packageName}
@@ -1148,7 +1208,7 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid grid-cols-2 items-center gap-4">
+              <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-2 sm:gap-4">
                 <Label className="text-sm font-medium">Package Days</Label>
                 <Input
                   type="number"
@@ -1162,7 +1222,7 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
             </div>
 
             {/* Remarks */}
-            <div className="grid grid-cols-2 items-start gap-4">
+            <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-2 sm:gap-4">
               <Label htmlFor="remarks" className="text-sm font-medium">
                 Remark
               </Label>
@@ -1183,13 +1243,26 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
             </div>
 
             {/* Save Button */}
+            <PaymentSupportPanel
+              proof={paymentProof}
+              onProofChange={(proof) => {
+                setPaymentProof(proof);
+                if (!proof) {
+                  setPendingProofPaymentId(null);
+                  setProofUploadMessage(null);
+                }
+              }}
+              disabled={isSaving}
+              uploadMessage={proofUploadMessage}
+            />
+
             <div className="flex justify-start">
               <Button 
                 onClick={handleSave}
                 disabled={isSaving}
-                className="bg-blue-500 hover:bg-blue-600 text-white"
+                className="min-h-11 w-full bg-blue-500 text-white hover:bg-blue-600 sm:w-auto"
               >
-                {isSaving ? 'Saving...' : 'Save'}
+                {isSaving ? 'Saving...' : pendingProofPaymentId ? 'Retry Proof Upload' : 'Save'}
               </Button>
             </div>
           </div>

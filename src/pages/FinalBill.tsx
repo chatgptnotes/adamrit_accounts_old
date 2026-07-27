@@ -63,6 +63,10 @@ import { DiscountTab } from "@/components/DiscountTab"
 import { AdvancePaymentModal } from "@/components/AdvancePaymentModal"
 import { DrugInteractionPanel } from "@/components/pharmacy/DrugInteractionPanel"
 import { withTimeout } from "@/utils/withTimeout"
+import {
+  PaymentSupportPanel,
+} from "@/components/payment/PaymentSupportPanel"
+import { uploadPaymentProof, type PaymentProofSelection } from "@/lib/paymentProof"
 
 // This component needs to be created or installed. It is not a standard shadcn/ui component.
 // You can find implementations online or build one yourself.
@@ -654,10 +658,50 @@ const deriveOTAnaesthesiaType = (anaesthetist?: OTStaffMaster, savedType?: strin
 const FinalBill = () => {
   const { visitId } = useParams<{ visitId: string }>();
   const navigate = useNavigate();
-  const { billData, isLoading: isBillLoading, error: billError, refetch: refetchBill, saveBill, isSaving } = useFinalBillData(visitId || '');
+  const {
+    billData,
+    isLoading: isBillLoading,
+    error: billError,
+    refetch: refetchBill,
+    saveBillAsync,
+    isSaving,
+  } = useFinalBillData(visitId || '');
   const { generateAccommodationsFromShiftings, isGenerating } = useShiftingAccommodation();
   const queryClient = useQueryClient();
   const { hospitalConfig, user, isAdmin } = useAuth();
+  const { data: currentDiscountDecision } = useQuery({
+    queryKey: ['final-bill-discount-decision', visitId],
+    enabled: !!visitId,
+    queryFn: async () => {
+      const { data: visit, error: visitError } = await supabase
+        .from('visits')
+        .select('id, patient_type')
+        .eq('visit_id', visitId)
+        .single();
+      if (visitError) throw visitError;
+
+      const { data: discount, error: discountError } = await supabase
+        .from('visit_discounts')
+        .select('id, discount_amount, approval_status')
+        .eq('visit_id', visit.id)
+        .maybeSingle();
+      if (discountError) throw discountError;
+
+      return discount
+        ? {
+            id: discount.id,
+            amount: Number(discount.discount_amount || 0),
+            status: String((discount as any).approval_status || '').toLowerCase(),
+            patientType: String((visit as any).patient_type || '').toLowerCase().trim(),
+          }
+        : {
+            id: null,
+            amount: 0,
+            status: '',
+            patientType: String((visit as any).patient_type || '').toLowerCase().trim(),
+          };
+    },
+  });
   const [showHiddenLabTests, setShowHiddenLabTests] = useState(false);
   const [surgeons, setSurgeons] = useState<OTStaffMaster[]>([]);
   const [anaesthetists, setAnaesthetists] = useState<OTStaffMaster[]>([]);
@@ -697,6 +741,9 @@ const FinalBill = () => {
   const [isSavingFinalPayment, setIsSavingFinalPayment] = useState(false);
   const [isPatientDischarged, setIsPatientDischarged] = useState(false);
   const [finalPaymentSelectedBank, setFinalPaymentSelectedBank] = useState('');
+  const [finalPaymentProof, setFinalPaymentProof] = useState<PaymentProofSelection | null>(null);
+  const [finalProofRetry, setFinalProofRetry] = useState<{ paymentId: string; patientId: string } | null>(null);
+  const [finalProofUploadMessage, setFinalProofUploadMessage] = useState<string | null>(null);
 
   const getVisitContext = useCallback(async (): Promise<VisitContextRecord | null> => {
     if (!visitId) return null;
@@ -1918,6 +1965,7 @@ const FinalBill = () => {
   const [serviceSearchTerm, setServiceSearchTerm] = useState("");
   const [accommodationSearchTerm, setAccommodationSearchTerm] = useState("");
   const [activeServiceTab, setActiveServiceTab] = useState("Laboratory services");
+  const [mobileExpandedServiceTab, setMobileExpandedServiceTab] = useState<string | null>(null);
   const [implantCategoryFilter, setImplantCategoryFilter] = useState<string>('ALL');
   const [diagnosisSearchTerm, setDiagnosisSearchTerm] = useState("");
   const [selectedDiagnoses, setSelectedDiagnoses] = useState<any[]>([]);
@@ -4281,6 +4329,37 @@ const FinalBill = () => {
   };
 
   const handleSaveAndDischarge = async () => {
+    if (finalProofRetry) {
+      if (!finalPaymentProof || !visitId) {
+        toast.error('Select the payment proof again before retrying.');
+        return;
+      }
+      setIsSavingFinalPayment(true);
+      try {
+        await uploadPaymentProof({
+          proof: finalPaymentProof,
+          patientId: finalProofRetry.patientId,
+          patientName: patientData?.name || billData?.name || null,
+          visitId,
+          paymentKind: 'final_payment',
+          paymentId: finalProofRetry.paymentId,
+          uploadedBy: user?.id ?? null,
+        });
+        setFinalPaymentProof(null);
+        setFinalProofRetry(null);
+        setFinalProofUploadMessage(null);
+        toast.success('Payment proof uploaded successfully');
+        setIsFinalPaymentModalOpen(false);
+      } catch (proofError) {
+        console.error('❌ Final payment proof retry failed:', proofError);
+        setFinalProofUploadMessage('The patient is already discharged and payment is saved. The proof upload failed; retrying will not repeat the payment.');
+        toast.error('Payment proof upload failed. The payment was not duplicated.');
+      } finally {
+        setIsSavingFinalPayment(false);
+      }
+      return;
+    }
+
     try {
       // Validate required fields
       if (!finalPaymentAmount || !finalPaymentMode || !finalPaymentReason) {
@@ -4331,7 +4410,7 @@ const FinalBill = () => {
         .maybeSingle();
 
       // Upsert final payment (insert or update)
-      const { error } = await supabase
+      const { data: savedFinalPayment, error } = await supabase
         .from('final_payments')
         .upsert({
           id: existingPayment?.id, // Include id if updating existing record
@@ -4350,7 +4429,9 @@ const FinalBill = () => {
           bank_account_name: bankAccounts.find(b => b.id === finalPaymentSelectedBank)?.account_name || null
         }, {
           onConflict: 'visit_id' // Use visit_id as conflict target since it's unique
-        });
+        })
+        .select('id')
+        .single();
 
       if (error) {
         console.error('❌ Error saving final payment:', error);
@@ -4458,6 +4539,34 @@ const FinalBill = () => {
         return;
       }
 
+      if (finalPaymentProof && savedFinalPayment?.id) {
+        try {
+          await uploadPaymentProof({
+            proof: finalPaymentProof,
+            patientId: visitData.patient_id,
+            patientName: patientData?.name || billData?.name || null,
+            visitId,
+            paymentKind: 'final_payment',
+            paymentId: savedFinalPayment.id,
+            uploadedBy: user?.id ?? null,
+          });
+          setFinalPaymentProof(null);
+          setFinalProofRetry(null);
+          setFinalProofUploadMessage(null);
+          toast.success('Payment proof uploaded successfully');
+        } catch (proofError) {
+          console.error('❌ Final payment saved but proof upload failed:', proofError);
+          setFinalProofRetry({ paymentId: savedFinalPayment.id, patientId: visitData.patient_id });
+          setFinalProofUploadMessage('Payment and discharge completed, but the proof upload failed. Use Retry Proof Upload; it will not repeat the payment.');
+          setIsPatientDischarged(true);
+          toast.warning('Patient discharged, but payment proof upload failed');
+          queryClient.invalidateQueries({ queryKey: ["finalBillData", visitId] });
+          queryClient.invalidateQueries({ queryKey: ["discharged-patients"] });
+          queryClient.invalidateQueries({ queryKey: ["currently-admitted-patients"] });
+          return;
+        }
+      }
+
 
       toast.success('Patient discharged successfully!');
 
@@ -4467,6 +4576,9 @@ const FinalBill = () => {
       setFinalPaymentReason('');
       setFinalPaymentRemark('');
       setFinalPaymentSelectedBank('');
+      setFinalPaymentProof(null);
+      setFinalProofRetry(null);
+      setFinalProofUploadMessage(null);
       setFinalPaymentDischargeDate(new Date().toISOString());
       setIsFinalPaymentModalOpen(false);
 
@@ -16123,7 +16235,49 @@ Dr. Murali B K
       console.log('📋 Line Items Count:', lineItems.length);
       console.log('📑 Sections Count:', sections.length);
 
-      await saveBill(billDataToSave);
+      const savedBill = await saveBillAsync(billDataToSave);
+      let saveOutcome: 'approved' | 'pending_discount' | 'zero' = 'zero';
+
+      if (billDataToSave.total_amount > 0) {
+        const { data: discountDecision, error: discountDecisionError } = await supabase
+          .from('visit_discounts')
+          .select('discount_amount, approval_status')
+          .eq('visit_id', visitData.id)
+          .maybeSingle();
+        if (discountDecisionError) throw discountDecisionError;
+
+        const normalizedPatientType = String(
+          visitData?.patient_type || visitPatientType || patientInfo?.patient_type || ''
+        ).toLowerCase().trim();
+        const isIpdBill = normalizedPatientType === 'ipd'
+          || normalizedPatientType === 'ipd (inpatient)';
+        const hasPendingDiscount =
+          isIpdBill
+          &&
+          Number(discountDecision?.discount_amount || 0) > 0
+          && String((discountDecision as any)?.approval_status || '').toLowerCase() === 'pending_approval';
+
+        if (hasPendingDiscount) {
+          saveOutcome = 'pending_discount';
+        } else if (savedBill?.status === 'APPROVED') {
+          saveOutcome = 'approved';
+        } else {
+          const approvedBy = user?.email || user?.username || 'automatic-bill-finalization';
+          const { error: approvalError } = await supabase
+            .from('bills')
+            .update({
+              status: 'APPROVED',
+              approved_by: approvedBy,
+              approved_at: new Date().toISOString(),
+              rejection_reason: null,
+              updated_at: new Date().toISOString(),
+            } as any)
+            .eq('id', savedBill.id)
+            .in('status', ['DRAFT', 'PENDING_APPROVAL']);
+          if (approvalError) throw approvalError;
+          saveOutcome = 'approved';
+        }
+      }
 
       // Fire-and-forget: push bill to Tally
       pushBillToTally({
@@ -16134,11 +16288,27 @@ Dr. Murali B K
         items: lineItems.map(li => ({ description: li.item_description || li.description || '', amount: li.amount || 0 })),
       }).catch(console.error);
 
-      // Success toast
-      toast.success(`✅ Bill saved successfully! Total: ₹${totalAmount.toLocaleString('en-IN')}`, {
-        id: 'save-bill',
-        duration: 4000
-      });
+      if (saveOutcome === 'pending_discount') {
+        toast.success(`Bill saved. Awaiting discount approval before accounting is posted.`, {
+          id: 'save-bill',
+          duration: 5000,
+        });
+      } else if (saveOutcome === 'approved') {
+        toast.success(`✅ Bill saved and finalized! Total: ₹${totalAmount.toLocaleString('en-IN')}`, {
+          id: 'save-bill',
+          duration: 4000,
+        });
+      } else {
+        toast.success(`Bill saved as draft. Add billable charges before finalization.`, {
+          id: 'save-bill',
+          duration: 5000,
+        });
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['final-bill', visitId] });
+      queryClient.invalidateQueries({ queryKey: ['invoice-bill', visitId] });
+      queryClient.invalidateQueries({ queryKey: ['final-bill-discount-decision', visitId] });
+      queryClient.invalidateQueries({ queryKey: ['approved-bills'] });
 
       // Small delay before allowing data reload to prevent duplication
       setTimeout(() => {
@@ -16149,34 +16319,6 @@ Dr. Murali B K
       toast.error("Failed to save bill. Please try again.", { id: 'save-bill' });
     } finally {
       setIsSavingBill(false);
-    }
-  };
-
-  // Handle Request Approval - sets bill status to PENDING_APPROVAL
-  const handleRequestApproval = async () => {
-    if (!billData?.id) {
-      toast.error('Please save the bill first before requesting approval.');
-      return;
-    }
-
-    try {
-      const raw = localStorage.getItem('hmis_user');
-      const currentUser = raw ? JSON.parse(raw) : {};
-      const requestedBy = currentUser.email || currentUser.username || 'Unknown';
-
-      const { error } = await supabase
-        .from('bills')
-        .update({ status: 'PENDING_APPROVAL', created_by: requestedBy } as any)
-        .eq('id', billData.id);
-
-      if (error) throw error;
-
-      toast.success('Bill submitted for approval successfully!');
-      queryClient.invalidateQueries({ queryKey: ['final-bill', visitId] });
-      queryClient.invalidateQueries({ queryKey: ['pending-bill-count'] });
-    } catch (error) {
-      console.error('Error requesting approval:', error);
-      toast.error('Failed to submit bill for approval.');
     }
   };
 
@@ -16252,15 +16394,24 @@ Dr. Murali B K
     );
   }
 
-  // Approval gating: only IPD + Private bills need approval.
-  // OPD (any payer) and IPD Corporate/Panel (CGHS, ECHS, ESIC, etc.) bypass it.
-  const fbEffectiveCorporate = (visitCorporateOverride || patientInfo?.corporate || '').toLowerCase().trim();
-  const fbHasCorporate = fbEffectiveCorporate.length > 0 && fbEffectiveCorporate !== 'private';
-  const fbIsIPD = visitPatientType === 'ipd';
-  const needsApproval = fbIsIPD && !fbHasCorporate;
   const billStatusStr = (billData as any)?.status as string | undefined;
   const fbIsApproved = billStatusStr === 'APPROVED';
-  const fbPrintLockedByApproval = !!billData?.id && needsApproval && !fbIsApproved;
+  const fbNormalizedPatientType = String(
+    visitData?.patient_type
+      || currentDiscountDecision?.patientType
+      || visitPatientType
+      || patientInfo?.patient_type
+      || ''
+  ).toLowerCase().trim();
+  const fbIsIpdBill = fbNormalizedPatientType === 'ipd'
+    || fbNormalizedPatientType === 'ipd (inpatient)';
+  const fbHasPendingDiscount =
+    fbIsIpdBill
+    &&
+    Number(currentDiscountDecision?.amount || 0) > 0
+    && currentDiscountDecision?.status === 'pending_approval';
+  const fbPrintLockedByApproval = !!billData?.id && fbHasPendingDiscount;
+  const fbPrintLockReason = 'Awaiting IPD discount approval';
 
   return (
     <>
@@ -16624,9 +16775,9 @@ Dr. Murali B K
         </div>
       )}
 
-      <div className="flex h-screen bg-gray-50 min-w-[2400px]">
+      <div className="flex min-h-screen min-w-0 flex-col bg-gray-50 xl:h-screen xl:min-w-[2400px] xl:flex-row">
         {/* Left Sidebar */}
-        <div className={`${isLeftSidebarCollapsed ? 'w-12' : 'w-[500px] flex-shrink-0'} bg-white border-r border-gray-200 flex flex-col transition-all duration-300`}>
+        <div className={`${isLeftSidebarCollapsed ? 'h-16 w-full xl:h-auto xl:w-12' : 'w-full xl:w-[500px] xl:flex-shrink-0'} bg-white border-r border-gray-200 flex flex-col transition-all duration-300`}>
           <div className="p-4 border-b border-gray-200">
             <div className="flex items-center justify-between mb-2">
               {!isLeftSidebarCollapsed && (
@@ -18064,8 +18215,53 @@ Dr. Murali B K
           )}
         </div>
 
+        {/* Mobile and tablet billing actions */}
+        <div className="w-full border-b border-gray-200 bg-white p-4 xl:hidden">
+          <h3 className="mb-3 text-base font-semibold text-blue-600">Billing Actions</h3>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setIsAdvancePaymentModalOpen(true)}
+              className="min-h-11 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+            >
+              Advance Payment
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setFinalPaymentDischargeDate(new Date().toISOString());
+                setIsFinalPaymentModalOpen(true);
+              }}
+              className="min-h-11 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-green-700"
+            >
+              Final Payment
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate(`/invoice/${visitId}`)}
+              className="min-h-11 rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-50"
+            >
+              Invoice
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate(`/yojna-bill/${visitId}`)}
+              className="min-h-11 rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-50"
+            >
+              Yojna Bill
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate(`/detailed-invoice/${visitId}`)}
+              className="col-span-2 min-h-11 rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-50"
+            >
+              Detailed Invoice
+            </button>
+          </div>
+        </div>
+
         {/* Middle Section - Service Selection */}
-        <div className={`${isMiddleSectionCollapsed ? 'w-12' : 'w-[1000px] flex-shrink-0'} bg-white border-r border-gray-200 flex flex-col transition-all duration-300`}>
+        <div className={`${isMiddleSectionCollapsed ? 'h-16 w-full xl:h-auto xl:w-12 xl:flex-shrink-0' : 'w-full min-w-0 xl:w-[1000px] xl:flex-shrink-0'} bg-white border-r border-gray-200 flex flex-col transition-all duration-300`}>
           {/* Service Selection Header */}
           <div className="p-4 border-b border-gray-200">
             <div className="flex items-center justify-between">
@@ -18094,7 +18290,44 @@ Dr. Murali B K
             <>
               {/* Service Type Tabs */}
               <div className="p-4 border-b border-gray-200">
-                <div className="flex flex-wrap gap-1 text-xs">
+                <div className="space-y-2 xl:hidden">
+                  {[
+                    "Clinical services",
+                    "Laboratory services",
+                    "Radiology",
+                    "Pharmacy",
+                    "Implant",
+                    "Mandatory services",
+                    "Accommodation charges",
+                    "Anesthetist"
+                  ].map((tab) => {
+                    const isExpanded = mobileExpandedServiceTab === tab;
+                    return (
+                      <button
+                        key={tab}
+                        type="button"
+                        aria-expanded={isExpanded}
+                        className={`${mobileExpandedServiceTab && !isExpanded ? 'hidden' : 'flex'} min-h-12 w-full items-center justify-between rounded-lg border px-3 py-2 text-left transition-colors ${
+                          isExpanded
+                            ? "border-blue-400 bg-blue-50 text-blue-800"
+                            : "border-gray-200 bg-white text-gray-900 hover:border-blue-300 hover:bg-blue-50/50"
+                        }`}
+                        onClick={() => {
+                          setActiveServiceTab(tab);
+                          setServiceSearchTerm("");
+                          setMobileExpandedServiceTab((current) => current === tab ? null : tab);
+                        }}
+                      >
+                        <span className="text-sm font-semibold">{tab}</span>
+                        <span className="flex items-center gap-2 text-sm font-semibold text-blue-600">
+                          {isExpanded ? "Close" : "+ Add"}
+                          {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="hidden flex-wrap gap-1 text-xs xl:flex">
                   {[
                     "Clinical services",
                     "Laboratory services",
@@ -18122,17 +18355,17 @@ Dr. Murali B K
               </div>
 
               {/* Search and Add Section */}
-              <div className="p-4 border-b border-gray-200">
+              <div className={`${mobileExpandedServiceTab ? 'block' : 'hidden'} p-4 border-b border-gray-200 xl:block`}>
                 <div className="space-y-3">
                   {activeServiceTab === "Pharmacy" ? (
-                    <div className="grid grid-cols-4 gap-2 text-xs font-medium text-gray-700">
+                    <div className="hidden grid-cols-4 gap-2 text-xs font-medium text-gray-700 lg:grid">
                       <div>Medicine Name</div>
                       <div>Administration Time</div>
                       <div>Quantity</div>
                       <div>Instructions</div>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-4 gap-2 text-xs font-medium text-gray-700">
+                    <div className="hidden grid-cols-4 gap-2 text-xs font-medium text-gray-700 lg:grid">
                       <div>Service Name</div>
                       <div>External Requisition</div>
                       <div>Amount(Rs.)</div>
@@ -18141,14 +18374,14 @@ Dr. Murali B K
                   )}
 
                   {activeServiceTab === "Pharmacy" ? (
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                       <Input
                         placeholder="Search Medicine"
-                        className="text-xs h-8"
+                        className="min-h-10 text-xs lg:h-8 lg:min-h-0"
                         value={serviceSearchTerm}
                         onChange={(e) => setServiceSearchTerm(e.target.value)}
                       />
-                      <select className="text-xs h-8 border border-gray-300 rounded px-2">
+                      <select aria-label="Administration time" className="min-h-10 text-xs border border-gray-300 rounded px-2 lg:h-8 lg:min-h-0">
                         <option value="">Select Time</option>
                         <option value="MORNING">MORNING</option>
                         <option value="AFTERNOON">AFTERNOON</option>
@@ -18162,26 +18395,27 @@ Dr. Murali B K
                       </select>
                       <Input
                         placeholder="Quantity"
-                        className="text-xs h-8"
+                        className="min-h-10 text-xs lg:h-8 lg:min-h-0"
                         type="number"
                         min="1"
                       />
                       <Input
                         placeholder="Instructions"
-                        className="text-xs h-8"
+                        className="min-h-10 text-xs lg:h-8 lg:min-h-0"
                       />
                     </div>
                   ) : (
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                       <Input
                         placeholder="Type To Search"
-                        className="text-xs h-8"
+                        className="min-h-10 text-xs lg:h-8 lg:min-h-0"
                         value={serviceSearchTerm}
                         onChange={(e) => setServiceSearchTerm(e.target.value)}
                       />
                       {activeServiceTab === "Radiology" ? (
                         <select
-                          className="text-xs h-8 border border-gray-300 rounded px-2"
+                          aria-label="External requisition scan centre"
+                          className="min-h-10 text-xs border border-gray-300 rounded px-2 lg:h-8 lg:min-h-0"
                           value={selectedScanCentre}
                           onChange={(e) => setSelectedScanCentre(e.target.value)}
                         >
@@ -18193,7 +18427,7 @@ Dr. Murali B K
                           ))}
                         </select>
                       ) : (
-                        <select className="text-xs h-8 border border-gray-300 rounded px-2">
+                        <select aria-label="External requisition" className="min-h-10 text-xs border border-gray-300 rounded px-2 lg:h-8 lg:min-h-0">
                           <option>None</option>
                           <option>Required</option>
                           <option>Optional</option>
@@ -18201,18 +18435,18 @@ Dr. Murali B K
                       )}
                       <Input
                         placeholder="Amount"
-                        className="text-xs h-8"
+                        className="min-h-10 text-xs lg:h-8 lg:min-h-0"
                       />
                       <Input
                         placeholder="Description"
-                        className="text-xs h-8"
+                        className="min-h-10 text-xs lg:h-8 lg:min-h-0"
                       />
                     </div>
                   )}
 
                   <Button
                     size="sm"
-                    className="bg-blue-600 text-white text-xs px-4 py-1 h-7"
+                    className="min-h-10 w-full bg-blue-600 text-white text-xs px-4 py-1 sm:w-auto lg:h-7 lg:min-h-0"
                     onClick={() => {
                       console.log('🔍 Add More button clicked for tab:', activeServiceTab);
 
@@ -19597,7 +19831,42 @@ Dr. Murali B K
                   <div className="p-4">
                     <div className="bg-white border border-gray-200 rounded-lg">
                       {/* Tab Headers */}
-                      <div className="flex border-b border-gray-200">
+                      <div className="border-b border-gray-200 p-3 xl:hidden">
+                        <label>
+                          <span className="mb-1 block text-xs font-medium text-gray-600">Saved data category</span>
+                          <select
+                            value={savedDataTab}
+                            onChange={async (event) => {
+                              const nextTab = event.target.value;
+                              setSavedDataTab(nextTab);
+                              if (nextTab === 'prescriptions') {
+                                await fetchPatientPrescriptions();
+                              } else if (nextTab === 'mandatory_services' && savedMandatoryServicesData.length === 0 && visitId) {
+                                await fetchSavedMandatoryServicesData();
+                              } else if (nextTab === 'accommodation' && savedAccommodationData.length === 0 && visitId) {
+                                await fetchSavedAccommodationData();
+                              } else if (nextTab === 'implant' && savedImplantData.length === 0 && visitId) {
+                                await fetchSavedImplantData();
+                              } else if (nextTab === 'anesthetist' && savedAnesthetistData.length === 0 && visitId) {
+                                await fetchSavedAnesthetistData();
+                              }
+                            }}
+                            className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          >
+                            <option value="labs">Lab Tests</option>
+                            <option value="radiology">Radiology</option>
+                            <option value="medications">Medications ({savedMedicationData.length})</option>
+                            <option value="prescriptions">Prescriptions ({prescriptionsForPatient.length})</option>
+                            <option value="clinical_services">Clinical Services</option>
+                            <option value="mandatory_services">Mandatory Services</option>
+                            <option value="accommodation">Accommodation ({savedAccommodationData.length})</option>
+                            <option value="implant">Implant ({savedImplantData.length})</option>
+                            <option value="anesthetist">Anesthetist ({savedAnesthetistData.length})</option>
+                            <option value="discount">Discount</option>
+                          </select>
+                        </label>
+                      </div>
+                      <div className="hidden overflow-x-auto border-b border-gray-200 xl:flex">
                         <button
                           className={`px-4 py-2 text-sm font-medium ${savedDataTab === 'labs'
                             ? 'border-b-2 border-blue-500 text-blue-600 bg-blue-50'
@@ -20502,6 +20771,7 @@ Dr. Murali B K
                         {savedDataTab === 'discount' && (
                           <DiscountTab
                             visitId={visitId}
+                            requiresApproval={fbIsIpdBill}
                             onDiscountUpdate={async (discountAmount) => {
                               // Callback when discount is updated
                               console.log('🔥 [FINALBILL CALLBACK] Discount updated:', discountAmount);
@@ -20509,6 +20779,7 @@ Dr. Murali B K
                               console.log('🔥 [FINALBILL CALLBACK] Current billData?.id:', billData?.id);
                               console.log('🔥 [FINALBILL CALLBACK] loadFinancialSummary available:', !!loadFinancialSummary);
                               console.log('🔥 [FINALBILL CALLBACK] calculateBalanceWithDiscount available:', !!calculateBalanceWithDiscount);
+                              queryClient.invalidateQueries({ queryKey: ['final-bill-discount-decision', visitId] });
 
                               // Add delay to ensure database transaction is committed
                               setTimeout(async () => {
@@ -21923,8 +22194,8 @@ Dr. Murali B K
         </div>
 
         {/* Main Content Area */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="p-4 bg-gray-50 min-h-full font-sans">
+        <div className="w-full min-w-0 overflow-y-auto xl:flex-1">
+          <div className="p-2 sm:p-4 bg-gray-50 min-h-full font-sans">
             <style>{`
             /* CRITICAL: Hide print-only elements on screen to prevent duplication */
             .print-only {
@@ -22009,32 +22280,32 @@ Dr. Murali B K
               }
             }
           `}</style>
-            <div className="max-w-full mx-auto bg-white shadow-lg p-6 printable-area avoid-break">
+            <div className="max-w-full mx-auto bg-white shadow-lg p-3 sm:p-4 lg:p-6 printable-area avoid-break">
               {/* Complete Financial Summary UI - Above FINAL BILL */}
-              <div className="mb-8 bg-white border border-gray-300 rounded-lg p-6 w-full no-print">
+              <div className="mb-8 hidden bg-white border border-gray-300 rounded-lg p-3 sm:p-4 lg:p-6 w-full no-print xl:block">
                 {/* Date Input and Action Buttons */}
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="flex items-center gap-2">
+                <div className="flex flex-col gap-3 mb-4 lg:flex-row lg:items-center lg:gap-4">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
                     <label className="text-sm font-medium">Date:</label>
                     <input 
                       type="date" 
-                      className="border border-gray-300 rounded px-3 py-1 text-sm"
+                      className="min-h-10 w-full border border-gray-300 rounded px-3 py-1 text-sm sm:w-auto"
                       defaultValue={format(new Date(), 'yyyy-MM-dd')}
                     />
                   </div>
-                  <button className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors text-sm">
+                  <button className="min-h-10 w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors text-sm sm:w-auto">
                     Start Package
                   </button>
                   <button
                     onClick={saveFinancialSummary}
                     disabled={isFinancialSummarySaving || !billData?.id}
-                    className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors text-sm disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    className="min-h-10 w-full px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors text-sm disabled:bg-gray-400 disabled:cursor-not-allowed sm:w-auto"
                   >
                     {isFinancialSummarySaving ? 'Saving...' : '💾 Save Financial Summary'}
                   </button>
 
                   {/* Visual indicators for save/load status */}
-                  <div className="flex items-center gap-2 text-sm">
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
                     {isFinancialSummaryAutoSaving && (
                       <span className="text-orange-600 flex items-center gap-1">
                         <div className="w-3 h-3 border-2 border-orange-600 border-t-transparent rounded-full animate-spin"></div>
@@ -22075,9 +22346,9 @@ Dr. Murali B K
                 {/* Clean Financial Summary Table - Properly Aligned */}
                 <div className="no-print bg-white rounded-lg shadow-lg overflow-hidden">
                   {/* Manual Refresh and Calculate Buttons */}
-                  <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
+                  <div className="bg-gray-50 px-3 py-3 border-b border-gray-200 flex flex-col gap-3 sm:px-4 sm:flex-row sm:justify-between sm:items-center">
                     <h3 className="text-lg font-semibold text-gray-900">Financial Summary</h3>
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <button
                         onClick={() => {
                           console.log('🧮 Manual calculate triggered for discount application');
@@ -22087,7 +22358,7 @@ Dr. Murali B K
                             console.error('❌ Cannot calculate: calculateBalanceWithDiscount function not available');
                           }
                         }}
-                        className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-sm font-medium"
+                        className="min-h-10 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-sm font-medium"
                         title="Apply discount to balance calculation"
                       >
                         💰 Apply Discount
@@ -22101,14 +22372,14 @@ Dr. Murali B K
                             }
                           }
                         }}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm font-medium"
+                        className="min-h-10 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm font-medium"
                         title="Refresh financial data only"
                       >
                         🔄 Refresh Data
                       </button>
                     </div>
                   </div>
-                  <div className="overflow-x-auto">
+                  <div className="hidden overflow-x-auto xl:block">
                     <table className="w-full border-collapse text-sm">
                       <thead>
                         <tr className="bg-blue-100">
@@ -22534,20 +22805,20 @@ Dr. Murali B K
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex flex-wrap gap-2 mt-4 justify-center">
+                <div className="grid grid-cols-1 gap-2 mt-4 sm:grid-cols-2 lg:flex lg:flex-wrap lg:justify-center">
                   <button 
                     onClick={() => setIsAdvancePaymentModalOpen(true)}
-                    className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                    className="min-h-11 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
                   >
                     Advance Payment
                   </button>
                   <button
                     onClick={() => navigate(`/invoice/${visitId}`)}
-                    className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                    className="min-h-11 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
                   >
                     Invoice
                   </button>
-                  <button className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors" onClick={() => navigate(`/yojna-bill/${visitId}`)}>
+                  <button className="min-h-11 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors" onClick={() => navigate(`/yojna-bill/${visitId}`)}>
                     Yojna Bill
                   </button>
                   <button
@@ -22555,13 +22826,13 @@ Dr. Murali B K
                       setFinalPaymentDischargeDate(new Date().toISOString());
                       setIsFinalPaymentModalOpen(true);
                     }}
-                    className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                    className="min-h-11 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
                   >
                     Final Payment
                   </button>
                   <button
                     onClick={() => navigate(`/detailed-invoice/${visitId}`)}
-                    className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                    className="min-h-11 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
                   >
                     Detailed Invoice
                   </button>
@@ -22620,7 +22891,7 @@ Dr. Murali B K
                   <span className="print-only">{patientData.billDate ? format(new Date(patientData.billDate), 'dd/MM/yyyy') : ''}</span>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-x-12 gap-y-2 text-sm mt-4 pb-4 border-0 patient-info-grid w-full">
+              <div className="grid grid-cols-1 gap-x-4 gap-y-3 text-sm mt-4 pb-4 border-0 patient-info-grid w-full lg:grid-cols-2 lg:gap-x-12 lg:gap-y-2">
                 {/* Row 1: BILL NO | DATE OF ADMISSION */}
                 <div className="flex items-start">
                   <span className="font-semibold w-48 shrink-0">BILL NO:</span>
@@ -23620,27 +23891,18 @@ Dr. Murali B K
                   size="lg"
                   className="px-6 py-2"
                   disabled={isBillSubmitted || isAmountReceived || fbPrintLockedByApproval}
-                  title={isBillSubmitted ? 'Print disabled - Bill already submitted' : isAmountReceived ? 'Print disabled - Amount already received' : fbPrintLockedByApproval ? 'Print disabled - Awaiting approval' : 'Print / Save PDF'}
+                  title={isBillSubmitted ? 'Print disabled - Bill already submitted' : isAmountReceived ? 'Print disabled - Amount already received' : fbPrintLockedByApproval ? `Print disabled - ${fbPrintLockReason}` : 'Print / Save PDF'}
                 >
-                  {isBillSubmitted || isAmountReceived ? '🔒 Print Locked' : fbPrintLockedByApproval ? '🔒 Awaiting Approval' : '🖨️ Print / Save PDF'}
+                  {isBillSubmitted || isAmountReceived ? '🔒 Print Locked' : fbPrintLockedByApproval ? `🔒 ${fbPrintLockReason}` : '🖨️ Print / Save PDF'}
                 </Button>
-                {billData?.id && (billData as any)?.status !== 'PENDING_APPROVAL' && (billData as any)?.status !== 'APPROVED' && needsApproval && (
-                  <Button
-                    onClick={handleRequestApproval}
-                    className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2"
-                    size="lg"
-                  >
-                    Request Approval
-                  </Button>
-                )}
-                {(billData as any)?.status === 'PENDING_APPROVAL' && needsApproval && (
+                {fbHasPendingDiscount && (
                   <span className="flex items-center text-orange-600 font-medium px-4">
-                    Pending Approval
+                    Awaiting Discount Approval
                   </span>
                 )}
-                {(billData as any)?.status === 'APPROVED' && (
+                {fbIsApproved && (
                   <span className="flex items-center text-green-600 font-medium px-4">
-                    Approved
+                    Finalized
                   </span>
                 )}
               </div>
@@ -24685,8 +24947,8 @@ Dr. Murali B K
 
       {/* Final Payment Modal */}
       <Dialog open={isFinalPaymentModalOpen} onOpenChange={setIsFinalPaymentModalOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-gradient-to-br from-gray-50 to-white">
-          <DialogHeader className="bg-gradient-to-r from-blue-600 to-indigo-700 -mx-6 -mt-6 px-6 py-4 rounded-t-lg">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-4xl max-h-[92vh] overflow-y-auto bg-gradient-to-br from-gray-50 to-white p-4 sm:p-6">
+          <DialogHeader className="bg-gradient-to-r from-blue-600 to-indigo-700 -mx-4 -mt-4 px-4 py-4 rounded-t-lg sm:-mx-6 sm:-mt-6 sm:px-6">
             <DialogTitle className="text-2xl font-bold text-white flex items-center gap-2">
               <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -24698,7 +24960,7 @@ Dr. Murali B K
           <div className="mt-6 space-y-6">
             {/* Date Information Card */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-              <div className="grid grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-6">
                 <div className="flex flex-col">
                   <span className="text-xs font-medium text-gray-500 mb-1">Date Of Registration</span>
                   <span className="text-base font-semibold text-gray-900">
@@ -24745,7 +25007,7 @@ Dr. Murali B K
                 </svg>
                 Financial Summary
               </h3>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-200">
                   <label className="text-sm font-medium text-gray-700 mb-2 block">Total Amount</label>
                   <div className="text-2xl font-bold text-indigo-700">
@@ -24786,7 +25048,7 @@ Dr. Murali B K
                   </div>
                 </div>
                 {/* Pending Pharmacy Amount - Full width */}
-                <div className={`col-span-2 bg-gradient-to-br from-purple-50 to-violet-50 rounded-lg p-4 border ${pendingPharmacyAmount > 0 && !pharmacyAmountAcknowledged ? 'border-red-400 border-2' : 'border-purple-200'}`}>
+                <div className={`bg-gradient-to-br from-purple-50 to-violet-50 rounded-lg p-4 border sm:col-span-2 ${pendingPharmacyAmount > 0 && !pharmacyAmountAcknowledged ? 'border-red-400 border-2' : 'border-purple-200'}`}>
                   <div className="flex justify-between items-start">
                     <div>
                       <label className="text-sm font-medium text-purple-600 mb-2 block">Pending Pharmacy Amount (Credit)</label>
@@ -24963,11 +25225,24 @@ Dr. Murali B K
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors resize-none disabled:bg-gray-100 disabled:cursor-not-allowed"
                   />
                 </div>
+
+                <PaymentSupportPanel
+                  proof={finalPaymentProof}
+                  onProofChange={(proof) => {
+                    setFinalPaymentProof(proof);
+                    if (!proof) {
+                      setFinalProofRetry(null);
+                      setFinalProofUploadMessage(null);
+                    }
+                  }}
+                  disabled={isSavingFinalPayment}
+                  uploadMessage={finalProofUploadMessage}
+                />
               </div>
             </div>
 
             {/* Action Buttons */}
-            <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+            <div className="flex flex-col gap-4 border-t border-gray-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
               <button
                 onClick={() => setIsFinalPaymentModalOpen(false)}
                 disabled={isSavingFinalPayment}
@@ -24975,19 +25250,21 @@ Dr. Murali B K
               >
                 Cancel
               </button>
-              <div className="flex items-center gap-4">
+              <div className="flex flex-col gap-3 sm:items-end">
                 <span className="text-xs text-gray-500 max-w-xs">
                   {isPatientDischarged
                     ? 'Patient has been discharged - View only mode'
                     : 'Save and discharge button is visible only on Zero balance for private patients'}
                 </span>
-                <div className="flex gap-3">
+                <div className="flex flex-col gap-3 sm:flex-row">
                   <button
                     onClick={handleSaveAndDischarge}
-                    disabled={isSavingFinalPayment || isPatientDischarged || (pendingPharmacyAmount > 0 && !pharmacyAmountAcknowledged)}
-                    className="px-8 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-lg hover:from-indigo-700 hover:to-blue-700 font-semibold transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={isSavingFinalPayment || (!finalProofRetry && isPatientDischarged) || (!finalProofRetry && pendingPharmacyAmount > 0 && !pharmacyAmountAcknowledged)}
+                    className="min-h-11 w-full px-6 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-lg hover:from-indigo-700 hover:to-blue-700 font-semibold transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed sm:w-auto sm:px-8"
                   >
-                    {isPatientDischarged
+                    {finalProofRetry
+                      ? isSavingFinalPayment ? 'Uploading...' : 'Retry Proof Upload'
+                      : isPatientDischarged
                       ? 'Patient Already Discharged'
                       : (pendingPharmacyAmount > 0 && !pharmacyAmountAcknowledged)
                         ? 'Acknowledge Pharmacy Amount'

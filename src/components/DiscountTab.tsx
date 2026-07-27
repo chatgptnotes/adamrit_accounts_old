@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 interface DiscountTabProps {
   visitId?: string;
   onDiscountUpdate?: (discountAmount: number) => void;
+  requiresApproval?: boolean;
 }
 
 interface DiscountData {
@@ -20,9 +21,11 @@ interface DiscountData {
 
 export const DiscountTab: React.FC<DiscountTabProps> = ({
   visitId,
-  onDiscountUpdate
+  onDiscountUpdate,
+  requiresApproval = true,
 }) => {
   const { isAdmin, hospitalConfig } = useAuth() as any;
+  const approvalRequiredForUser = requiresApproval && !isAdmin;
   const [discountData, setDiscountData] = useState<DiscountData>({
     discount_amount: 0,
     discount_reason: ''
@@ -132,16 +135,20 @@ export const DiscountTab: React.FC<DiscountTabProps> = ({
       // Get current user
       const currentUser = localStorage.getItem('userEmail') || localStorage.getItem('userName') || 'Unknown User';
 
-      // Prepare data for upsert — discount goes to admin for approval
+      // Only non-admin IPD discounts require approval. OPD discounts are
+      // approved immediately and never enter the approval queue.
+      const approveImmediately = isAdmin || !requiresApproval;
       const upsertData: any = {
         visit_id: visitData.id,
         discount_amount: discountData.discount_amount,
         discount_reason: discountData.discount_reason,
         applied_by: currentUser,
         updated_at: new Date().toISOString(),
-        approval_status: isAdmin ? 'approved' : 'pending_approval',
+        approval_status: approveImmediately ? 'approved' : 'pending_approval',
         hospital_name: hospitalConfig?.name || 'unknown',
-        ...(isAdmin ? { approved_by: currentUser, approved_at: new Date().toISOString() } : { approved_by: null, approved_at: null, rejection_reason: null })
+        ...(approveImmediately
+          ? { approved_by: currentUser, approved_at: new Date().toISOString(), rejection_reason: null }
+          : { approved_by: null, approved_at: null, rejection_reason: null })
       };
 
       // Upsert discount data
@@ -161,15 +168,15 @@ export const DiscountTab: React.FC<DiscountTabProps> = ({
       setDiscountData(prev => ({
         ...prev,
         id: savedData.id,
-        approval_status: isAdmin ? 'approved' : 'pending_approval'
+        approval_status: approveImmediately ? 'approved' : 'pending_approval'
       }));
 
-      // Notify parent — only apply discount amount if approved (admin saves directly)
+      // Apply OPD discounts immediately; only non-admin IPD requests wait.
       if (onDiscountUpdate) {
-        onDiscountUpdate(isAdmin ? discountData.discount_amount : 0);
+        onDiscountUpdate(approveImmediately ? discountData.discount_amount : 0);
       }
 
-      if (isAdmin) {
+      if (approveImmediately) {
         toast.success('Discount approved and saved!');
       } else {
         toast.success('Discount submitted for admin approval!');
@@ -268,7 +275,7 @@ export const DiscountTab: React.FC<DiscountTabProps> = ({
           <div className="flex justify-end pt-4">
             <button
               onClick={handleSaveDiscount}
-              disabled={isSaving || (discountData.approval_status === 'pending_approval' && !isAdmin)}
+              disabled={isSaving || (discountData.approval_status === 'pending_approval' && approvalRequiredForUser)}
               className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
             >
               {isSaving ? (
@@ -278,6 +285,8 @@ export const DiscountTab: React.FC<DiscountTabProps> = ({
                 </span>
               ) : isAdmin ? (
                 'Approve & Save Discount'
+              ) : !requiresApproval ? (
+                'Save Discount'
               ) : (
                 'Submit for Approval'
               )}

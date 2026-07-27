@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { logActivity } from '@/lib/activity-logger';
 import { CheckCircle, XCircle, FileText, Clock, IndianRupee, Search, Percent, ExternalLink, Eye, Package } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { resolveDiscountAndFinalizeBill } from '@/lib/discountBillFinalization';
 
 // Two-step enrichment: fetch bills first, then batch-fetch all referenced
 // patients in a single .in() query. Avoids PostgREST relationship ambiguity
@@ -136,23 +137,32 @@ const BillApprovals = () => {
       if (!data || data.length === 0) return [];
       // Batch fetch all visits in one query instead of N individual queries
       const visitIds = data.map((d: any) => d.visit_id).filter(Boolean);
-      const visitMap = new Map<string, { visit_id: string; patients?: { name?: string; patients_id?: string } }>();
+      const visitMap = new Map<string, {
+        visit_id: string;
+        patient_type?: string;
+        patients?: { name?: string; patients_id?: string };
+      }>();
       if (visitIds.length > 0) {
         const { data: visits } = await supabase
           .from('visits')
-          .select('id, visit_id, patients(name, patients_id)')
+          .select('id, visit_id, patient_type, patients(name, patients_id)')
           .in('id', visitIds) as { data: any };
         (visits || []).forEach((v: any) => visitMap.set(v.id, v));
       }
-      return data.map((disc: any) => {
-        const visit = disc.visit_id ? visitMap.get(disc.visit_id) : undefined;
-        return {
-          ...disc,
-          patientName: visit?.patients?.name || 'Unknown',
-          visitIdStr: visit?.visit_id || '',
-          registrationNumber: visit?.patients?.patients_id || '',
-        };
-      });
+      return data
+        .map((disc: any) => {
+          const visit = disc.visit_id ? visitMap.get(disc.visit_id) : undefined;
+          return {
+            ...disc,
+            patientName: visit?.patients?.name || 'Unknown',
+            visitIdStr: visit?.visit_id || '',
+            registrationNumber: visit?.patients?.patients_id || '',
+            patientType: String(visit?.patient_type || '').toLowerCase().trim(),
+          };
+        })
+        .filter((disc: any) =>
+          disc.patientType === 'ipd' || disc.patientType === 'ipd (inpatient)'
+        );
     },
     enabled: isAdmin,
     refetchInterval: 120000,
@@ -370,18 +380,17 @@ const BillApprovals = () => {
     setIsProcessing(true);
     try {
       const approver = getUserIdentifier();
-      const { error } = await supabase
-        .from('visit_discounts')
-        .update({
-          approval_status: 'approved',
-          approved_by: approver,
-          approved_at: new Date().toISOString(),
-        } as any)
-        .eq('id', discountId);
-      if (error) throw error;
+      await resolveDiscountAndFinalizeBill({
+        discountId,
+        decision: 'approved',
+        approver,
+      });
       await logActivity('discount_approved', { discount_id: discountId, amount, approved_by: approver }, 'BillApprovals');
-      toast.success(`Discount of Rs. ${amount.toLocaleString('en-IN')} approved`);
+      toast.success(`Discount of Rs. ${amount.toLocaleString('en-IN')} approved and bill finalized`);
       queryClient.invalidateQueries({ queryKey: ['pending-discount-approvals'] });
+      queryClient.invalidateQueries({ queryKey: ['approved-bills'] });
+      queryClient.invalidateQueries({ queryKey: ['final-bill'] });
+      queryClient.invalidateQueries({ queryKey: ['invoice-bill'] });
     } catch { toast.error('Failed to approve discount'); }
     setIsProcessing(false);
   };
@@ -394,22 +403,21 @@ const BillApprovals = () => {
     setIsProcessing(true);
     try {
       const approver = getUserIdentifier();
-      const { error } = await supabase
-        .from('visit_discounts')
-        .update({
-          approval_status: 'rejected',
-          rejection_reason: discountRejectionReason.trim(),
-          approved_by: approver,
-          approved_at: new Date().toISOString(),
-        } as any)
-        .eq('id', rejectingDiscountId);
-      if (error) throw error;
+      await resolveDiscountAndFinalizeBill({
+        discountId: rejectingDiscountId,
+        decision: 'rejected',
+        approver,
+        rejectionReason: discountRejectionReason.trim(),
+      });
       await logActivity('discount_rejected', { discount_id: rejectingDiscountId, reason: discountRejectionReason, rejected_by: approver }, 'BillApprovals');
-      toast.success('Discount rejected');
+      toast.success('Discount rejected and bill finalized at full value');
       setDiscountRejectDialogOpen(false);
       setRejectingDiscountId(null);
       setDiscountRejectionReason('');
       queryClient.invalidateQueries({ queryKey: ['pending-discount-approvals'] });
+      queryClient.invalidateQueries({ queryKey: ['approved-bills'] });
+      queryClient.invalidateQueries({ queryKey: ['final-bill'] });
+      queryClient.invalidateQueries({ queryKey: ['invoice-bill'] });
     } catch { toast.error('Failed to reject discount'); }
     setIsProcessing(false);
   };
