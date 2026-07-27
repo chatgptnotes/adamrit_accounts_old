@@ -31,6 +31,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { supabase } from '@/integrations/supabase/client';
+import { useTallyLedgerSearch } from '@/hooks/usePaymentObligations';
 
 // Right-aligned numeric input that hides the native up/down spinner steppers.
 const numberInputClass =
@@ -39,6 +40,8 @@ const numberInputClass =
 interface VendorRow {
   id: string;
   vendor: string;
+  ledgerId: string | null;
+  ledgerName: string | null;
   paidThisMonth: number | null;
   balanceThisMonth: number | null;
   ledgerBalance: number | null;
@@ -93,6 +96,8 @@ const makeEmptySheet = (): SheetData => ({
   vendors: DEFAULT_VENDORS.map((v) => ({
     id: newId(),
     vendor: v,
+    ledgerId: null,
+    ledgerName: null,
     paidThisMonth: null,
     balanceThisMonth: null,
     ledgerBalance: null,
@@ -115,6 +120,8 @@ const normalizeSheet = (raw: unknown): SheetData => {
     vendors: vendors.map((v) => ({
       id: v?.id ?? newId(),
       vendor: v?.vendor ?? '',
+      ledgerId: v?.ledgerId ?? null,
+      ledgerName: v?.ledgerName ?? null,
       paidThisMonth: v?.paidThisMonth ?? null,
       balanceThisMonth: v?.balanceThisMonth ?? null,
       ledgerBalance: v?.ledgerBalance ?? null,
@@ -137,6 +144,8 @@ const carryForwardSheet = (prev: SheetData): SheetData => ({
   vendors: prev.vendors.map((v) => ({
     id: newId(),
     vendor: v.vendor,
+    ledgerId: v.ledgerId ?? null,
+    ledgerName: v.ledgerName ?? null,
     paidThisMonth: v.paidThisMonth,
     balanceThisMonth: v.balanceThisMonth,
     ledgerBalance: v.ledgerBalance,
@@ -314,6 +323,70 @@ interface SortableVendorRowProps {
   onRemove: (id: string) => void;
 }
 
+function LedgerVendorInput({
+  vendor,
+  onUpdate,
+}: {
+  vendor: VendorRow;
+  onUpdate: SortableVendorRowProps['onUpdate'];
+}) {
+  const [searchTerm, setSearchTerm] = useState(vendor.vendor);
+  const [open, setOpen] = useState(false);
+  const { data: ledgers = [] } = useTallyLedgerSearch(searchTerm);
+
+  useEffect(() => {
+    setSearchTerm(vendor.vendor);
+  }, [vendor.vendor]);
+
+  return (
+    <div className="relative min-w-[220px]">
+      <Input
+        value={searchTerm}
+        onFocus={() => setOpen(true)}
+        onChange={(e) => {
+          const value = e.target.value;
+          setSearchTerm(value);
+          onUpdate(vendor.id, 'vendor', value);
+          onUpdate(vendor.id, 'ledgerId', '');
+          onUpdate(vendor.id, 'ledgerName', '');
+        }}
+        onBlur={() => window.setTimeout(() => setOpen(false), 150)}
+        placeholder="Type vendor or ledger"
+        className="h-8"
+      />
+      {open && searchTerm.length >= 2 && ledgers.length > 0 && (
+        <div className="absolute left-0 right-0 top-9 z-50 max-h-52 overflow-y-auto rounded-md border bg-white shadow-lg">
+          {ledgers.map((ledger) => (
+            <button
+              key={ledger.id}
+              type="button"
+              className="block w-full px-3 py-2 text-left text-sm hover:bg-blue-50"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                setSearchTerm(ledger.name);
+                onUpdate(vendor.id, 'vendor', ledger.name);
+                onUpdate(vendor.id, 'ledgerId', ledger.id);
+                onUpdate(vendor.id, 'ledgerName', ledger.name);
+                onUpdate(vendor.id, 'ledgerBalance', String(Number(ledger.closing_balance) || 0));
+                setOpen(false);
+              }}
+            >
+              <div className="font-medium">{ledger.name}</div>
+              <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
+                <span>{ledger.parent_group || 'Tally ledger'}</span>
+                <span className="font-mono">Balance: {fmtINR(Number(ledger.closing_balance) || 0)}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+      {vendor.ledgerId && (
+        <div className="mt-0.5 text-[10px] text-green-700">Ledger selected</div>
+      )}
+    </div>
+  );
+}
+
 function SortableVendorRow({ vendor, index, onUpdate, onRemove }: SortableVendorRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: vendor.id,
@@ -337,11 +410,7 @@ function SortableVendorRow({ vendor, index, onUpdate, onRemove }: SortableVendor
       </TableCell>
       <TableCell className="text-center">{index + 1}</TableCell>
       <TableCell>
-        <Input
-          value={vendor.vendor}
-          onChange={(e) => onUpdate(vendor.id, 'vendor', e.target.value)}
-          className="h-8"
-        />
+        <LedgerVendorInput vendor={vendor} onUpdate={onUpdate} />
       </TableCell>
       <TableCell>
         <Input
@@ -609,7 +678,12 @@ export function DailyAllocationSheet({ hospital = 'hope' }: DailyAllocationSheet
       ...prev,
       vendors: prev.vendors.map((v) => {
         if (v.id !== id) return v;
-        const next = { ...v, [field]: field === 'vendor' ? value : parseNumber(value) };
+        const next = {
+          ...v,
+          [field]: field === 'vendor' || field === 'ledgerId' || field === 'ledgerName'
+            ? (value || null)
+            : parseNumber(value),
+        };
         // When Paid This Month changes, deduct the change from both Balance This
         // Month and Ledger Balance (what is still outstanding goes down by what
         // was paid). Only fields that already hold a value are adjusted.
@@ -631,6 +705,8 @@ export function DailyAllocationSheet({ hospital = 'hope' }: DailyAllocationSheet
         {
           id: newId(),
           vendor: '',
+          ledgerId: null,
+          ledgerName: null,
           paidThisMonth: null,
           balanceThisMonth: null,
           ledgerBalance: null,
