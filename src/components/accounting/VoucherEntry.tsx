@@ -721,9 +721,25 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     },
   });
 
+  // Patient ledgers are deliberately absent when writing a new voucher.
+  //
+  // A receipt typed here would post correctly - the entry carries
+  // patient_ledger_id and bill_ref - but it would never become an
+  // advance_payment or final_payments row. So the Final Bill would still show
+  // the money as unpaid, discharge and gate pass would not know it was
+  // collected, and the front desk would chase a patient who had already paid.
+  // Worse, the same money can be taken at the desk AND typed here, and nothing
+  // would catch it, because they are two separate records of one payment.
+  //
+  // Patient money is collected on the Final Bill page, which raises its own
+  // voucher. This screen is for what only it can do: vendors, expenses,
+  // contras and corrections.
+  //
+  // They stay available when altering, so an existing patient voucher still
+  // renders its ledger name instead of coming up blank.
   const selectableAccounts = useMemo(
-    () => [...patientLedgerAccounts, ...accounts],
-    [patientLedgerAccounts, accounts],
+    () => (alterMode ? [...patientLedgerAccounts, ...accounts] : accounts),
+    [alterMode, patientLedgerAccounts, accounts],
   );
 
   const { data: linkedAttachments = [] } = useQuery({
@@ -1576,6 +1592,12 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
             </div>
 
             {/* Particulars */}
+            {!alterMode && (
+              <p className="mt-3 text-xs italic text-gray-500">
+                Patient receipts and advances are entered on the Final Bill page, not
+                here, so the bill and the discharge know they have been paid.
+              </p>
+            )}
             <div className="mt-3 flex items-center justify-between border-y border-gray-400 bg-[#f0f4fa] px-2 py-0.5">
               <span className="font-bold">Particulars</span>
               <span className="pr-9 font-bold">Amount</span>
