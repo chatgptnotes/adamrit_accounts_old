@@ -113,6 +113,20 @@ const Invoice = () => {
     enabled: !!visitId
   });
 
+  const { data: invoiceDiscountDecision } = useQuery({
+    queryKey: ['invoice-discount-decision', visitId, visitData?.id],
+    enabled: !!visitData?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('visit_discounts')
+        .select('discount_amount, approval_status')
+        .eq('visit_id', visitData.id)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+
   // Fetch payment data
   const { data: paymentData } = useQuery({
     queryKey: ['invoice-payments', visitId],
@@ -2067,48 +2081,19 @@ const Invoice = () => {
     }, 500);
   };
 
-  // Request approval — flips bills.status to PENDING_APPROVAL so admin/superadmin
-  // can review it from the /bill-approvals tab. Print stays locked until APPROVED.
-  const handleRequestApproval = async () => {
-    if (!billData?.id) {
-      toast.error('Please save the bill first before requesting approval.');
-      return;
-    }
-
-    try {
-      const raw = localStorage.getItem('hmis_user');
-      const currentUser = raw ? JSON.parse(raw) : {};
-      const requestedBy = currentUser.email || currentUser.username || 'Unknown';
-
-      const { error } = await supabase
-        .from('bills')
-        .update({ status: 'PENDING_APPROVAL', created_by: requestedBy } as any)
-        .eq('id', billData.id);
-
-      if (error) throw error;
-
-      toast.success('Bill submitted for approval successfully!');
-      queryClient.invalidateQueries({ queryKey: ['invoice-bill', visitId] });
-      queryClient.invalidateQueries({ queryKey: ['pending-bill-count'] });
-    } catch (error) {
-      console.error('Error requesting approval:', error);
-      toast.error('Failed to submit bill for approval.');
-    }
-  };
-
   const billStatus = (billData as any)?.status as string | undefined;
   const isApproved = billStatus === 'APPROVED';
-  const isPendingApproval = billStatus === 'PENDING_APPROVAL';
-
-  // Approval is required only for IPD + Private bills.
-  // OPD (any payer) and IPD Corporate/Panel bills bypass approval.
-  const visitPatientType = (visitData?.patient_type || '').toLowerCase().trim();
-  const visitCorporate = (visitData?.patients?.corporate || '').toLowerCase().trim();
-  const visitHasCorporate = visitCorporate.length > 0 && visitCorporate !== 'private';
-  const isIPDVisit = visitPatientType === 'ipd';
-  const needsApproval = isIPDVisit && !visitHasCorporate;
-
-  const printDisabled = !!billData?.id && needsApproval && !isApproved;
+  const normalizedPatientType = String(
+    visitData?.patient_type || visitData?.patients?.patient_type || ''
+  ).toLowerCase().trim();
+  const isIpdBill = normalizedPatientType === 'ipd'
+    || normalizedPatientType === 'ipd (inpatient)';
+  const hasPendingDiscount =
+    isIpdBill
+    &&
+    Number(invoiceDiscountDecision?.discount_amount || 0) > 0
+    && String((invoiceDiscountDecision as any)?.approval_status || '').toLowerCase() === 'pending_approval';
+  const printDisabled = !!billData?.id && hasPendingDiscount;
 
   return (
     <div className="min-h-screen bg-white p-4">
@@ -2122,28 +2107,20 @@ const Invoice = () => {
               Close
             </button>
             <div className="flex items-center gap-3">
-              {billData?.id && !isPendingApproval && !isApproved && needsApproval && (
-                <button
-                  onClick={handleRequestApproval}
-                  className="px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors"
-                >
-                  Request Approval
-                </button>
-              )}
-              {isPendingApproval && needsApproval && (
+              {hasPendingDiscount && (
                 <span className="text-orange-600 font-medium px-2">
-                  Pending Approval
+                  Awaiting Discount Approval
                 </span>
               )}
               {isApproved && (
                 <span className="text-green-600 font-medium px-2">
-                  Approved
+                  Finalized
                 </span>
               )}
               <button
                 onClick={handlePrint}
                 disabled={printDisabled}
-                title={printDisabled ? 'Print disabled - Awaiting approval' : 'Print'}
+                title={printDisabled ? 'Print disabled - Awaiting IPD discount approval' : 'Print'}
                 className={`px-4 py-2 text-white rounded transition-colors ${
                   printDisabled
                     ? 'bg-gray-400 cursor-not-allowed'

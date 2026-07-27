@@ -341,6 +341,7 @@ export const useFinalBillData = (visitId: string) => {
     error,
     refetch,
     saveBill: saveBillMutation.mutate,
+    saveBillAsync: saveBillMutation.mutateAsync,
     isSaving: saveBillMutation.isPending
   };
 };
