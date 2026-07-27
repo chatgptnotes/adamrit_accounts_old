@@ -237,6 +237,54 @@ export const useTallyLedgerSearch = (searchTerm: string | null | undefined, comp
   });
 };
 
+// Cash and bank ledgers available for the credit side of a payment voucher.
+export const useTallyCashBankLedgers = (companyId?: string | string[] | null) => {
+  const companyIds = Array.isArray(companyId) ? companyId : companyId ? [companyId] : [];
+
+  return useQuery({
+    queryKey: ['tally-cash-bank-ledgers', companyIds.join(',') || 'none'],
+    queryFn: async () => {
+      if (companyIds.length === 0) return [];
+      let query = (supabase as any)
+        .from('tally_ledgers')
+        .select('id, name, parent_group, closing_balance, company_id, accounting_account_id, is_hidden, tally_config(company_name)')
+        .or('parent_group.ilike.%cash%,parent_group.ilike.%bank%')
+        .order('name');
+      if (companyIds.length === 1) query = query.eq('company_id', companyIds[0]);
+      else query = query.in('company_id', companyIds);
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data || []).filter((ledger: any) => !ledger.is_hidden && ledger.accounting_account_id) as Array<{
+        id: string;
+        name: string;
+        parent_group: string | null;
+        closing_balance: number;
+        company_id: string | null;
+        accounting_account_id: string;
+        tally_config?: { company_name: string } | null;
+      }>;
+    },
+    enabled: companyIds.length > 0,
+  });
+};
+
+export const useTallyLedgerDetails = (ledgerId?: string | null) => {
+  return useQuery({
+    queryKey: ['tally-ledger-details', ledgerId || 'none'],
+    queryFn: async () => {
+      if (!ledgerId) return null;
+      const { data, error } = await (supabase as any)
+        .from('tally_ledgers')
+        .select('id, name, parent_group, company_id, tally_config(company_name)')
+        .eq('id', ledgerId)
+        .maybeSingle();
+      if (error) throw error;
+      return data as { id: string; name: string; parent_group: string | null; company_id: string | null; tally_config?: { company_name: string } | null } | null;
+    },
+    enabled: Boolean(ledgerId),
+  });
+};
+
 // Sub-categories master (editable). Each row declares which Obligations
 // Master section it rolls up into.
 export interface SubCategoryRow {

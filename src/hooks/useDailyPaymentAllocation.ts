@@ -20,6 +20,9 @@ export interface ScheduleEntry {
   notes: string | null;
   hospital_name: string;
   company_id: string | null;
+  tally_company_id: string | null;
+  tally_ledger_id: string | null;
+  credit_tally_ledger_id: string | null;
 }
 
 export interface BankAccount {
@@ -95,7 +98,15 @@ export const useDailyPaymentSchedule = (date: string, hospital: string = 'hope')
 
   // Inline edit a schedule entry (daily_amount, notes, or skip)
   const updateScheduleEntry = useMutation({
-    mutationFn: async ({ id, ...updates }: { id: string; daily_amount?: number; notes?: string; status?: string }) => {
+    mutationFn: async ({ id, ...updates }: {
+      id: string;
+      daily_amount?: number;
+      notes?: string;
+      status?: string;
+      tally_company_id?: string | null;
+      tally_ledger_id?: string | null;
+      credit_tally_ledger_id?: string | null;
+    }) => {
       const { error } = await (supabase as any)
         .from('daily_payment_schedule')
         .update({ ...updates, updated_at: new Date().toISOString() })
@@ -108,6 +119,37 @@ export const useDailyPaymentSchedule = (date: string, hospital: string = 'hope')
     },
     onError: (err: any) => {
       toast.error('Update failed: ' + err.message);
+    },
+  });
+
+  const savePaymentLedgers = useMutation({
+    mutationFn: async ({
+      id,
+      tallyCompanyId,
+      debitLedgerId,
+      creditLedgerId,
+    }: {
+      id: string;
+      tallyCompanyId: string;
+      debitLedgerId: string;
+      creditLedgerId: string;
+    }) => {
+      const { error } = await (supabase as any)
+        .from('daily_payment_schedule')
+        .update({
+          tally_company_id: tallyCompanyId,
+          tally_ledger_id: debitLedgerId,
+          credit_tally_ledger_id: creditLedgerId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['daily-payment-schedule'] });
+    },
+    onError: (err: any) => {
+      toast.error('Payment ledger selection could not be saved: ' + err.message);
     },
   });
 
@@ -159,6 +201,7 @@ export const useDailyPaymentSchedule = (date: string, hospital: string = 'hope')
     error: schedule.error,
     refetch: schedule.refetch,
     markPaid,
+    savePaymentLedgers,
     updateScheduleEntry,
     skipEntry,
     reorderSchedule,

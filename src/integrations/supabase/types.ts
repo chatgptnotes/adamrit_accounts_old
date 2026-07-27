@@ -3157,6 +3157,7 @@ export type Database = {
           category: string
           company_id: string | null
           created_at: string | null
+          credit_tally_ledger_id: string | null
           daily_amount: number
           days_overdue: number | null
           hospital_name: string | null
@@ -3169,6 +3170,8 @@ export type Database = {
           party_name: string
           schedule_date: string
           status: string
+          tally_company_id: string | null
+          tally_ledger_id: string | null
           total_due: number | null
           updated_at: string | null
           voucher_id: string | null
@@ -3178,6 +3181,7 @@ export type Database = {
           category: string
           company_id?: string | null
           created_at?: string | null
+          credit_tally_ledger_id?: string | null
           daily_amount: number
           days_overdue?: number | null
           hospital_name?: string | null
@@ -3190,6 +3194,8 @@ export type Database = {
           party_name: string
           schedule_date: string
           status?: string
+          tally_company_id?: string | null
+          tally_ledger_id?: string | null
           total_due?: number | null
           updated_at?: string | null
           voucher_id?: string | null
@@ -3199,6 +3205,7 @@ export type Database = {
           category?: string
           company_id?: string | null
           created_at?: string | null
+          credit_tally_ledger_id?: string | null
           daily_amount?: number
           days_overdue?: number | null
           hospital_name?: string | null
@@ -3211,6 +3218,8 @@ export type Database = {
           party_name?: string
           schedule_date?: string
           status?: string
+          tally_company_id?: string | null
+          tally_ledger_id?: string | null
           total_due?: number | null
           updated_at?: string | null
           voucher_id?: string | null
@@ -17163,12 +17172,15 @@ export type Database = {
           company_id: string | null
           created_at: string | null
           created_by: string | null
+          credit_tally_ledger_id: string | null
+          debit_tally_ledger_id: string | null
           id: string
           narration: string | null
           patient_id: string | null
           reference_date: string | null
           reference_number: string | null
           status: string | null
+          tally_company_id: string | null
           total_amount: number
           updated_at: string | null
           voucher_date: string
@@ -17180,12 +17192,15 @@ export type Database = {
           company_id?: string | null
           created_at?: string | null
           created_by?: string | null
+          credit_tally_ledger_id?: string | null
+          debit_tally_ledger_id?: string | null
           id?: string
           narration?: string | null
           patient_id?: string | null
           reference_date?: string | null
           reference_number?: string | null
           status?: string | null
+          tally_company_id?: string | null
           total_amount?: number
           updated_at?: string | null
           voucher_date: string
@@ -17197,12 +17212,15 @@ export type Database = {
           company_id?: string | null
           created_at?: string | null
           created_by?: string | null
+          credit_tally_ledger_id?: string | null
+          debit_tally_ledger_id?: string | null
           id?: string
           narration?: string | null
           patient_id?: string | null
           reference_date?: string | null
           reference_number?: string | null
           status?: string | null
+          tally_company_id?: string | null
           total_amount?: number
           updated_at?: string | null
           voucher_date?: string

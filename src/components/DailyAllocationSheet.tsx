@@ -42,6 +42,7 @@ interface VendorRow {
   id: string;
   vendor: string;
   companyId: string | null;
+  ledgerCompanyId: string | null;
   ledgerId: string | null;
   ledgerName: string | null;
   paidThisMonth: number | null;
@@ -99,6 +100,7 @@ const makeEmptySheet = (): SheetData => ({
     id: newId(),
     vendor: v,
     companyId: null,
+    ledgerCompanyId: null,
     ledgerId: null,
     ledgerName: null,
     paidThisMonth: null,
@@ -124,6 +126,7 @@ const normalizeSheet = (raw: unknown): SheetData => {
       id: v?.id ?? newId(),
       vendor: v?.vendor ?? '',
       companyId: v?.companyId ?? null,
+      ledgerCompanyId: v?.ledgerCompanyId ?? null,
       ledgerId: v?.ledgerId ?? null,
       ledgerName: v?.ledgerName ?? null,
       paidThisMonth: v?.paidThisMonth ?? null,
@@ -149,6 +152,7 @@ const carryForwardSheet = (prev: SheetData): SheetData => ({
     id: newId(),
     vendor: v.vendor,
     companyId: v.companyId ?? null,
+    ledgerCompanyId: v.ledgerCompanyId ?? null,
     ledgerId: v.ledgerId ?? null,
     ledgerName: v.ledgerName ?? null,
     paidThisMonth: v.paidThisMonth,
@@ -354,6 +358,7 @@ function LedgerVendorInput({
         value={vendor.companyId || ''}
         onChange={(e) => {
           onUpdate(vendor.id, 'companyId', e.target.value);
+          onUpdate(vendor.id, 'ledgerCompanyId', '');
           onUpdate(vendor.id, 'ledgerId', '');
           onUpdate(vendor.id, 'ledgerName', '');
           onUpdate(vendor.id, 'ledgerBalance', '');
@@ -374,6 +379,7 @@ function LedgerVendorInput({
           setSearchTerm(value);
           onUpdate(vendor.id, 'vendor', value);
           onUpdate(vendor.id, 'ledgerId', '');
+          onUpdate(vendor.id, 'ledgerCompanyId', '');
           onUpdate(vendor.id, 'ledgerName', '');
         }}
         onBlur={() => window.setTimeout(() => setOpen(false), 150)}
@@ -397,6 +403,7 @@ function LedgerVendorInput({
                 setSearchTerm(ledger.name);
                 onUpdate(vendor.id, 'vendor', ledger.name);
                 onUpdate(vendor.id, 'ledgerId', ledger.id);
+                onUpdate(vendor.id, 'ledgerCompanyId', ledger.company_id || '');
                 onUpdate(vendor.id, 'ledgerName', ledger.name);
                 onUpdate(vendor.id, 'ledgerBalance', String(Number(ledger.closing_balance) || 0));
                 setOpen(false);
@@ -661,6 +668,11 @@ export function DailyAllocationSheet({ hospital = 'hope', onSent }: DailyAllocat
       toast.info('Enter a positive Payable Today amount for at least one vendor');
       return;
     }
+    const missingLedgerRows = rows.filter((row) => !row.companyId || !row.ledgerId);
+    if (missingLedgerRows.length > 0) {
+      toast.error(`Select a Tally company and ledger for: ${missingLedgerRows.map((row) => row.vendor.trim()).join(', ')}`);
+      return;
+    }
     setTransferBusy(true);
     try {
       await saveSheet(sheet, date);
@@ -734,6 +746,7 @@ export function DailyAllocationSheet({ hospital = 'hope', onSent }: DailyAllocat
             priority: 10,
             is_active: true,
             hospital_name: hospital,
+            tally_ledger_id: row.ledgerId,
             notes: `Created from Daily Allocation for ${date}`,
           })
           .select('id')
@@ -741,6 +754,21 @@ export function DailyAllocationSheet({ hospital = 'hope', onSent }: DailyAllocat
         if (error) throw error;
         existingByKey.set(row.id, data.id);
         created++;
+      }
+      for (const row of rows) {
+        const obligationId = existingByKey.get(row.id);
+        if (!obligationId || !row.ledgerId) continue;
+        const tallyCompanyId = row.ledgerCompanyId || row.companyId;
+        if (!tallyCompanyId) throw new Error(`No Tally company was selected for ${row.vendor}`);
+        const { error: ledgerLinkError } = await (supabase as any)
+          .from('payment_obligation_ledgers')
+          .upsert({
+            obligation_id: obligationId,
+            company_id: tallyCompanyId,
+            ledger_id: row.ledgerId,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'obligation_id,company_id' });
+        if (ledgerLinkError) throw ledgerLinkError;
       }
       const { error: generateError } = await (supabase as any).rpc('generate_daily_payment_schedule', { p_date: date, p_hospital: hospital });
       if (generateError) throw generateError;
@@ -761,7 +789,13 @@ export function DailyAllocationSheet({ hospital = 'hope', onSent }: DailyAllocat
           if (!scheduleId) throw new Error(`No schedule row was created for ${row.vendor}`);
           const { error: updateError } = await (supabase as any)
             .from('daily_payment_schedule')
-            .update({ daily_amount: Number(row.payableToday), notes: `Sent from Daily Allocation on ${date}`, updated_at: new Date().toISOString() })
+            .update({
+              daily_amount: Number(row.payableToday),
+              tally_company_id: row.ledgerCompanyId || row.companyId,
+              tally_ledger_id: row.ledgerId,
+              notes: `Sent from Daily Allocation on ${date}`,
+              updated_at: new Date().toISOString(),
+            })
             .eq('id', scheduleId);
           if (updateError) throw updateError;
           if (conflictByKey.has(row.id)) updated++;
@@ -859,7 +893,7 @@ export function DailyAllocationSheet({ hospital = 'hope', onSent }: DailyAllocat
         if (v.id !== id) return v;
         const next = {
           ...v,
-          [field]: field === 'vendor' || field === 'companyId' || field === 'ledgerId' || field === 'ledgerName'
+          [field]: field === 'vendor' || field === 'companyId' || field === 'ledgerCompanyId' || field === 'ledgerId' || field === 'ledgerName'
             ? (value || null)
             : parseNumber(value),
         };
@@ -885,6 +919,7 @@ export function DailyAllocationSheet({ hospital = 'hope', onSent }: DailyAllocat
           id: newId(),
           vendor: '',
           companyId: null,
+          ledgerCompanyId: null,
           ledgerId: null,
           ledgerName: null,
           paidThisMonth: null,

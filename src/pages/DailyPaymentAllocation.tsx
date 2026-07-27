@@ -50,7 +50,7 @@ import {
   type SubAllocation,
   type SavedAllocation,
 } from '@/hooks/useDailyPaymentAllocation';
-import { usePaymentObligations, usePayeeSearch, useMultiPayeeSearch, useObligationDefaultPayees, useTallyLedgerSearch, useTallyCompanies, useSaveObligationLedgerLinks, useObligationSubCategories, type PaymentObligation, type DefaultPayee, type TallyCompany, type SubCategoryRow } from '@/hooks/usePaymentObligations';
+import { usePaymentObligations, usePayeeSearch, useMultiPayeeSearch, useObligationDefaultPayees, useTallyLedgerSearch, useTallyCashBankLedgers, useTallyLedgerDetails, useTallyCompanies, useSaveObligationLedgerLinks, useObligationSubCategories, type PaymentObligation, type DefaultPayee, type TallyCompany, type SubCategoryRow } from '@/hooks/usePaymentObligations';
 import { useCompanies } from '@/hooks/useCompanies';
 import { DailyAllocationSheet } from '@/components/DailyAllocationSheet';
 import { useAccountingRights } from '@/components/accounting/tally/rights';
@@ -404,6 +404,12 @@ const DailyPaymentAllocation = () => {
   const [payDialogOpen, setPayDialogOpen] = useState(false);
   const [payingEntry, setPayingEntry] = useState<ScheduleEntry | null>(null);
   const [payAmount, setPayAmount] = useState('');
+  const [payTallyCompanyId, setPayTallyCompanyId] = useState('');
+  const [payLedgerCompanyId, setPayLedgerCompanyId] = useState('');
+  const [payDebitLedgerId, setPayDebitLedgerId] = useState('');
+  const [payDebitLedgerName, setPayDebitLedgerName] = useState('');
+  const [payDebitLedgerSearch, setPayDebitLedgerSearch] = useState('');
+  const [payCreditLedgerId, setPayCreditLedgerId] = useState('');
 
   // Sub-allocation dialog mode: 'plan' = manage payees, 'confirm' = confirm payment for one payee
   const [subAllocDialogMode, setSubAllocDialogMode] = useState<'plan' | 'confirm'>('plan');
@@ -437,6 +443,14 @@ const DailyPaymentAllocation = () => {
   const [ledgerSearchTerm, setLedgerSearchTerm] = useState('');
   const { data: ledgerSearchResults = [] } = useTallyLedgerSearch(ledgerSearchTerm, openPickerCompanyId);
   const { data: tallyCompanies = [] } = useTallyCompanies();
+  const tallyCompanyNameMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    tallyCompanies.forEach((company) => {
+      map[company.id] = company.company_name;
+      (company.company_ids || []).forEach((id) => { map[id] = company.company_name; });
+    });
+    return map;
+  }, [tallyCompanies]);
   const saveLedgerLinks = useSaveObligationLedgerLinks();
   const { subCategories, upsert: upsertSubCategory, remove: removeSubCategory } = useObligationSubCategories();
 
@@ -507,7 +521,7 @@ const DailyPaymentAllocation = () => {
   const [saveNotes, setSaveNotes] = useState('');
 
   // Queries
-  const { schedule, isLoading, markPaid, updateScheduleEntry, skipEntry, reorderSchedule, refetch } = useDailyPaymentSchedule(selectedDate, selectedHospital);
+  const { schedule, isLoading, markPaid, savePaymentLedgers, updateScheduleEntry, skipEntry, reorderSchedule, refetch } = useDailyPaymentSchedule(selectedDate, selectedHospital);
   const { funds, refetch: refetchFunds, saveActualBalance, addManualAccount } = useFundAccounts(selectedDate);
   const { data: cashCollections = 0 } = useTodayCashCollections(selectedDate);
 
@@ -543,6 +557,15 @@ const DailyPaymentAllocation = () => {
   // payeeResults for the sub-allocation payee search in plan mode (multi-table search)
   const { data: subPayeeResults = [] } = useMultiPayeeSearch(subPayeeSearchTerm, selectedHospital);
   const { data: history = [] } = usePaymentHistory(historyFrom, historyTo, selectedHospital);
+  const selectedPayTallyCompany = tallyCompanies.find((company) => company.id === payTallyCompanyId || company.company_ids?.includes(payTallyCompanyId));
+  const { data: payDebitLedgerDetails } = useTallyLedgerDetails(payDebitLedgerId);
+  const { data: payDebitLedgers = [] } = useTallyLedgerSearch(
+    payDebitLedgerSearch,
+    selectedPayTallyCompany?.company_ids || payTallyCompanyId,
+  );
+  const { data: payCreditLedgers = [] } = useTallyCashBankLedgers(
+    selectedPayTallyCompany?.company_ids || payTallyCompanyId,
+  );
 
   // Use actual cash if manually entered, else system value
   const effectiveCash = actualCashCollection !== '' ? parseFloat(actualCashCollection) || 0 : cashCollections;
@@ -839,8 +862,17 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
   }
 
   const handlePay = (entry: ScheduleEntry) => {
+    const entryTallyCompany = tallyCompanies.find((company) =>
+      company.id === entry.tally_company_id || company.company_ids?.includes(entry.tally_company_id || ''),
+    );
     setPayingEntry(entry);
     setPayAmount(String(entry.daily_amount + entry.carryforward_amount - entry.paid_amount));
+    setPayTallyCompanyId(entryTallyCompany?.id || entry.tally_company_id || '');
+    setPayLedgerCompanyId(entry.tally_company_id || '');
+    setPayDebitLedgerId(entry.tally_ledger_id || '');
+    setPayDebitLedgerName('');
+    setPayDebitLedgerSearch('');
+    setPayCreditLedgerId(entry.credit_tally_ledger_id || '');
     setPayeeSearchTerm('');
     setSelectedPayeeName('');
     setSubAllocDialogMode('plan');
@@ -882,11 +914,25 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
   };
 
   // Confirm the actual voucher creation
-  const confirmPay = () => {
+  const confirmPay = async () => {
     if (!payingEntry || !payAmount) return;
     const amount = parseFloat(payAmount);
     if (isNaN(amount) || amount <= 0) {
       toast.error('Enter a valid amount');
+      return;
+    }
+    if (!payTallyCompanyId || !payDebitLedgerId || !payCreditLedgerId) {
+      toast.error('Select the Tally company, debit ledger, and credit Cash/Bank ledger before payment');
+      return;
+    }
+    try {
+      await savePaymentLedgers.mutateAsync({
+        id: payingEntry.id,
+        tallyCompanyId: payLedgerCompanyId || payTallyCompanyId,
+        debitLedgerId: payDebitLedgerId,
+        creditLedgerId: payCreditLedgerId,
+      });
+    } catch {
       return;
     }
     markPaid.mutate({
@@ -1647,7 +1693,9 @@ ${sectionsHtml}
                                   editNotes={editScheduleNotes}
                                   skipConfirmId={skipConfirmId}
                                   subAllocations={allSubAllocations.filter(sa => sa.schedule_id === entry.id)}
-                                  companyName={entry.company_id ? (companyNameMap[entry.company_id] || '') : ''}
+                                  companyName={entry.tally_company_id
+                                    ? (tallyCompanyNameMap[entry.tally_company_id] || '')
+                                    : (entry.company_id ? (companyNameMap[entry.company_id] || '') : '')}
                                   onStartEdit={() => startEditSchedule(entry)}
                                   onSaveEdit={saveEditSchedule}
                                   onCancelEdit={() => setEditingScheduleId(null)}
@@ -2188,6 +2236,75 @@ ${sectionsHtml}
                 )}
               </div>
               <div>
+                <Label>Tally Company</Label>
+                <Select
+                  value={payTallyCompanyId}
+                  onValueChange={(value) => {
+                    setPayTallyCompanyId(value);
+                    setPayLedgerCompanyId(value);
+                    setPayDebitLedgerId('');
+                    setPayDebitLedgerName('');
+                    setPayDebitLedgerSearch('');
+                    setPayCreditLedgerId('');
+                  }}
+                >
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Select Tally company" /></SelectTrigger>
+                  <SelectContent>
+                    {tallyCompanies.map((company) => (
+                      <SelectItem key={company.id} value={company.id}>{company.company_name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="relative">
+                <Label>Debit Ledger</Label>
+                <Input
+                  value={payDebitLedgerSearch || payDebitLedgerName || payDebitLedgerDetails?.name || ''}
+                  onChange={(e) => {
+                    setPayDebitLedgerSearch(e.target.value);
+                    setPayDebitLedgerId('');
+                    setPayDebitLedgerName('');
+                  }}
+                  placeholder="Search vendor ledger"
+                  className="mt-1"
+                  disabled={!payTallyCompanyId}
+                />
+                {payDebitLedgerSearch.length >= 1 && payDebitLedgers.length > 0 && (
+                  <div className="absolute left-0 right-0 top-[4.5rem] z-50 max-h-44 overflow-y-auto rounded-md border bg-white shadow-lg">
+                    {payDebitLedgers.map((ledger: any) => (
+                      <button
+                        key={ledger.id}
+                        type="button"
+                        className="block w-full px-3 py-2 text-left text-sm hover:bg-blue-50"
+                        onClick={() => {
+                          setPayDebitLedgerId(ledger.id);
+                          setPayLedgerCompanyId(ledger.company_id || payTallyCompanyId);
+                          setPayDebitLedgerName(ledger.name);
+                          setPayDebitLedgerSearch('');
+                        }}
+                      >
+                        <span className="font-medium">{ledger.name}</span>
+                        <span className="ml-2 text-xs text-muted-foreground">{ledger.parent_group || 'Ledger'}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {payDebitLedgerId && (
+                  <p className="mt-1 text-xs text-green-700">Selected: {payDebitLedgerName || payDebitLedgerDetails?.name || payDebitLedgerId}</p>
+                )}
+              </div>
+              <div>
+                <Label>Credit Cash / Bank Ledger</Label>
+                <Select value={payCreditLedgerId} onValueChange={setPayCreditLedgerId}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Select payment account" /></SelectTrigger>
+                  <SelectContent>
+                    {payCreditLedgers.map((ledger: any) => (
+                      <SelectItem key={ledger.id} value={ledger.id}>{ledger.name} ({ledger.parent_group || 'Cash/Bank'})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
                 <Label>Payment Amount (Rs.)</Label>
                 <Input
                   type="number"
@@ -2240,8 +2357,8 @@ ${sectionsHtml}
             ) : (
               <>
                 <Button variant="outline" onClick={() => setSubAllocDialogMode('plan')}>Back</Button>
-                <Button onClick={confirmPay} disabled={markPaid.isPending} className="bg-green-600 hover:bg-green-700">
-                  {markPaid.isPending ? 'Processing...' : 'Confirm Payment'}
+                <Button onClick={confirmPay} disabled={markPaid.isPending || savePaymentLedgers.isPending} className="bg-green-600 hover:bg-green-700">
+                  {markPaid.isPending || savePaymentLedgers.isPending ? 'Processing...' : 'Confirm Payment'}
                 </Button>
               </>
             )}
