@@ -1944,7 +1944,14 @@ ${sectionsHtml}
 
         {/* TAB 5: Daily Allocation — editable today's expenses sheet (database-backed, carries forward) */}
         <TabsContent value="daily-allocation" className="mt-4">
-          <DailyAllocationSheet hospital={selectedHospital} />
+          <DailyAllocationSheet
+            hospital={selectedHospital}
+            onSent={({ date }) => {
+              setSelectedDate(date);
+              setActiveTab('allocation');
+              void refetch();
+            }}
+          />
         </TabsContent>
       </Tabs>
 

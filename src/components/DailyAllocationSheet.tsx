@@ -12,7 +12,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { toast } from 'sonner';
-import { Plus, Trash2, Save, RotateCcw, FileSpreadsheet, GripVertical, Printer } from 'lucide-react';
+import { Plus, Trash2, Save, RotateCcw, FileSpreadsheet, GripVertical, Printer, Send, Loader2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   DndContext,
   closestCenter,
@@ -31,7 +32,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { supabase } from '@/integrations/supabase/client';
-import { useTallyLedgerSearch } from '@/hooks/usePaymentObligations';
+import { useTallyCompanies, useTallyLedgerSearch, type TallyCompany } from '@/hooks/usePaymentObligations';
 
 // Right-aligned numeric input that hides the native up/down spinner steppers.
 const numberInputClass =
@@ -40,6 +41,7 @@ const numberInputClass =
 interface VendorRow {
   id: string;
   vendor: string;
+  companyId: string | null;
   ledgerId: string | null;
   ledgerName: string | null;
   paidThisMonth: number | null;
@@ -96,6 +98,7 @@ const makeEmptySheet = (): SheetData => ({
   vendors: DEFAULT_VENDORS.map((v) => ({
     id: newId(),
     vendor: v,
+    companyId: null,
     ledgerId: null,
     ledgerName: null,
     paidThisMonth: null,
@@ -120,6 +123,7 @@ const normalizeSheet = (raw: unknown): SheetData => {
     vendors: vendors.map((v) => ({
       id: v?.id ?? newId(),
       vendor: v?.vendor ?? '',
+      companyId: v?.companyId ?? null,
       ledgerId: v?.ledgerId ?? null,
       ledgerName: v?.ledgerName ?? null,
       paidThisMonth: v?.paidThisMonth ?? null,
@@ -144,6 +148,7 @@ const carryForwardSheet = (prev: SheetData): SheetData => ({
   vendors: prev.vendors.map((v) => ({
     id: newId(),
     vendor: v.vendor,
+    companyId: v.companyId ?? null,
     ledgerId: v.ledgerId ?? null,
     ledgerName: v.ledgerName ?? null,
     paidThisMonth: v.paidThisMonth,
@@ -321,25 +326,46 @@ interface SortableVendorRowProps {
   index: number;
   onUpdate: (id: string, field: keyof Omit<VendorRow, 'id'>, value: string) => void;
   onRemove: (id: string) => void;
+  companies: TallyCompany[];
 }
 
 function LedgerVendorInput({
   vendor,
   onUpdate,
+  companies,
 }: {
   vendor: VendorRow;
   onUpdate: SortableVendorRowProps['onUpdate'];
+  companies: TallyCompany[];
 }) {
-  const [searchTerm, setSearchTerm] = useState(vendor.vendor);
+  const [searchTerm, setSearchTerm] = useState(vendor.vendor || '');
   const [open, setOpen] = useState(false);
-  const { data: ledgers = [] } = useTallyLedgerSearch(searchTerm);
+  const selectedCompany = companies.find((company) => company.id === vendor.companyId);
+  const { data } = useTallyLedgerSearch(searchTerm || '', selectedCompany?.company_ids || vendor.companyId);
+  const ledgers = Array.isArray(data) ? data : [];
 
   useEffect(() => {
-    setSearchTerm(vendor.vendor);
+    setSearchTerm(vendor.vendor || '');
   }, [vendor.vendor]);
 
   return (
-    <div className="relative min-w-[220px]">
+    <div className="relative min-w-[250px] space-y-1">
+      <select
+        value={vendor.companyId || ''}
+        onChange={(e) => {
+          onUpdate(vendor.id, 'companyId', e.target.value);
+          onUpdate(vendor.id, 'ledgerId', '');
+          onUpdate(vendor.id, 'ledgerName', '');
+          onUpdate(vendor.id, 'ledgerBalance', '');
+        }}
+        className="h-7 w-full rounded-md border border-input bg-background px-2 text-xs"
+        aria-label="Tally company"
+      >
+        <option value="">Select company for ledger search</option>
+        {companies.map((company) => (
+          <option key={company.id} value={company.id}>{company.company_name}</option>
+        ))}
+      </select>
       <Input
         value={searchTerm}
         onFocus={() => setOpen(true)}
@@ -354,8 +380,13 @@ function LedgerVendorInput({
         placeholder="Type vendor or ledger"
         className="h-8"
       />
-      {open && searchTerm.length >= 2 && ledgers.length > 0 && (
-        <div className="absolute left-0 right-0 top-9 z-50 max-h-52 overflow-y-auto rounded-md border bg-white shadow-lg">
+      {open && !vendor.companyId && searchTerm.length >= 1 && (
+        <div className="absolute left-0 right-0 top-16 z-50 rounded-md border bg-white px-3 py-2 text-xs text-gray-500 shadow-lg">
+          Select a Tally company to search ledgers
+        </div>
+      )}
+      {open && vendor.companyId && searchTerm.length >= 1 && ledgers.length > 0 && (
+        <div className="absolute left-0 right-0 top-16 z-50 max-h-52 overflow-y-auto rounded-md border bg-white shadow-lg">
           {ledgers.map((ledger) => (
             <button
               key={ledger.id}
@@ -373,11 +404,20 @@ function LedgerVendorInput({
             >
               <div className="font-medium">{ledger.name}</div>
               <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
-                <span>{ledger.parent_group || 'Tally ledger'}</span>
+                <span>
+                  {ledger.tally_config?.company_name || 'Company not linked'}
+                  {' · '}
+                  {ledger.parent_group || 'Tally ledger'}
+                </span>
                 <span className="font-mono">Balance: {fmtINR(Number(ledger.closing_balance) || 0)}</span>
               </div>
             </button>
           ))}
+        </div>
+      )}
+      {open && vendor.companyId && searchTerm.length >= 1 && ledgers.length === 0 && (
+        <div className="absolute left-0 right-0 top-16 z-50 rounded-md border bg-white px-3 py-2 text-xs text-gray-500 shadow-lg">
+          No matching Tally ledgers
         </div>
       )}
       {vendor.ledgerId && (
@@ -387,7 +427,7 @@ function LedgerVendorInput({
   );
 }
 
-function SortableVendorRow({ vendor, index, onUpdate, onRemove }: SortableVendorRowProps) {
+function SortableVendorRow({ vendor, index, onUpdate, onRemove, companies }: SortableVendorRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: vendor.id,
   });
@@ -410,7 +450,7 @@ function SortableVendorRow({ vendor, index, onUpdate, onRemove }: SortableVendor
       </TableCell>
       <TableCell className="text-center">{index + 1}</TableCell>
       <TableCell>
-        <LedgerVendorInput vendor={vendor} onUpdate={onUpdate} />
+        <LedgerVendorInput vendor={vendor} onUpdate={onUpdate} companies={companies} />
       </TableCell>
       <TableCell>
         <Input
@@ -465,15 +505,30 @@ function SortableVendorRow({ vendor, index, onUpdate, onRemove }: SortableVendor
 
 interface DailyAllocationSheetProps {
   hospital?: string;
+  onSent?: (result: { date: string; created: number; updated: number; skipped: number }) => void;
 }
 
-export function DailyAllocationSheet({ hospital = 'hope' }: DailyAllocationSheetProps) {
+interface TransferConflict {
+  key: string;
+  vendor: string;
+  amount: number;
+  obligationId: string;
+  existingAmount: number;
+}
+
+export function DailyAllocationSheet({ hospital = 'hope', onSent }: DailyAllocationSheetProps) {
+  const { data: tallyCompanies = [] } = useTallyCompanies();
   const [date, setDate] = useState<string>(todayISO);
   const [sheet, setSheet] = useState<SheetData>(makeEmptySheet);
   const [savedDates, setSavedDates] = useState<ReadonlyArray<string>>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [loadedSheetKey, setLoadedSheetKey] = useState<string>('');
+  const [transferConflicts, setTransferConflicts] = useState<TransferConflict[]>([]);
+  const [transferRows, setTransferRows] = useState<VendorRow[]>([]);
+  const [transferDecisions, setTransferDecisions] = useState<Record<string, 'update' | 'skip'>>({});
+  const [transferDialogOpen, setTransferDialogOpen] = useState(false);
+  const [transferBusy, setTransferBusy] = useState(false);
   const skipNextAutoSaveRef = useRef<boolean>(true);
 
   const refreshSavedDates = useCallback(async (): Promise<void> => {
@@ -598,6 +653,130 @@ export function DailyAllocationSheet({ hospital = 'hope' }: DailyAllocationSheet
     refreshSavedDates();
   };
 
+  const normalizeVendorName = (value: string): string => value.trim().replace(/\s+/g, ' ').toLowerCase();
+
+  const sendToTodaysAllocation = async (): Promise<void> => {
+    const rows = sheet.vendors.filter((v) => v.vendor?.trim() && Number(v.payableToday) > 0);
+    if (rows.length === 0) {
+      toast.info('Enter a positive Payable Today amount for at least one vendor');
+      return;
+    }
+    setTransferBusy(true);
+    try {
+      await saveSheet(sheet, date);
+      const { data: obligations, error: obligationError } = await (supabase as any)
+        .from('payment_obligations')
+        .select('id, party_name, default_daily_amount')
+        .eq('hospital_name', hospital);
+      if (obligationError) throw obligationError;
+      const { data: schedules, error: scheduleError } = await (supabase as any)
+        .from('daily_payment_schedule')
+        .select('obligation_id, daily_amount')
+        .eq('hospital_name', hospital)
+        .eq('schedule_date', date);
+      if (scheduleError) throw scheduleError;
+      const scheduleMap = new Map((schedules || []).map((s: any) => [s.obligation_id, Number(s.daily_amount) || 0]));
+      const obligationMap = new Map((obligations || []).map((o: any) => [normalizeVendorName(o.party_name), o]));
+      const conflicts = rows
+        .map((row) => {
+          const obligation = obligationMap.get(normalizeVendorName(row.vendor));
+          if (!obligation) return null;
+          return {
+            key: row.id,
+            vendor: row.vendor.trim(),
+            amount: Number(row.payableToday),
+            obligationId: obligation.id,
+            existingAmount: scheduleMap.get(obligation.id) ?? (Number(obligation.default_daily_amount) || 0),
+          };
+        })
+        .filter(Boolean) as TransferConflict[];
+      setTransferRows(rows);
+      setTransferConflicts(conflicts);
+      setTransferDecisions(Object.fromEntries(conflicts.map((c) => [c.key, 'update'])));
+      if (conflicts.length > 0) {
+        setTransferDialogOpen(true);
+      } else {
+        await completeTransfer(rows, [], {});
+      }
+    } catch (error: any) {
+      toast.error(`Could not prepare transfer: ${error?.message || 'unknown error'}`);
+    } finally {
+      setTransferBusy(false);
+    }
+  };
+
+  const completeTransfer = async (
+    rows: VendorRow[],
+    conflicts: TransferConflict[],
+    decisions: Record<string, 'update' | 'skip'>,
+  ): Promise<void> => {
+    setTransferBusy(true);
+    try {
+      const conflictByKey = new Map(conflicts.map((c) => [c.key, c]));
+      const existingByKey = new Map<string, string>();
+      let created = 0;
+      let updated = 0;
+      let skipped = 0;
+      for (const row of rows) {
+        const conflict = conflictByKey.get(row.id);
+        if (conflict) {
+          if (decisions[row.id] === 'skip') { skipped++; continue; }
+          existingByKey.set(row.id, conflict.obligationId);
+          continue;
+        }
+        const { data, error } = await (supabase as any)
+          .from('payment_obligations')
+          .insert({
+            party_name: row.vendor.trim(),
+            category: 'variable',
+            sub_category: 'other',
+            default_daily_amount: Number(row.payableToday),
+            priority: 10,
+            is_active: true,
+            hospital_name: hospital,
+            notes: `Created from Daily Allocation for ${date}`,
+          })
+          .select('id')
+          .single();
+        if (error) throw error;
+        existingByKey.set(row.id, data.id);
+        created++;
+      }
+      const { error: generateError } = await (supabase as any).rpc('generate_daily_payment_schedule', { p_date: date, p_hospital: hospital });
+      if (generateError) throw generateError;
+      const ids = Array.from(existingByKey.values());
+      if (ids.length > 0) {
+        const { data: scheduleRows, error } = await (supabase as any)
+          .from('daily_payment_schedule')
+          .select('id, obligation_id')
+          .eq('hospital_name', hospital)
+          .eq('schedule_date', date)
+          .in('obligation_id', ids);
+        if (error) throw error;
+        const scheduleIdMap = new Map((scheduleRows || []).map((s: any) => [s.obligation_id, s.id]));
+        for (const row of rows) {
+          const obligationId = existingByKey.get(row.id);
+          if (!obligationId) continue;
+          const scheduleId = scheduleIdMap.get(obligationId);
+          if (!scheduleId) throw new Error(`No schedule row was created for ${row.vendor}`);
+          const { error: updateError } = await (supabase as any)
+            .from('daily_payment_schedule')
+            .update({ daily_amount: Number(row.payableToday), notes: `Sent from Daily Allocation on ${date}`, updated_at: new Date().toISOString() })
+            .eq('id', scheduleId);
+          if (updateError) throw updateError;
+          if (conflictByKey.has(row.id)) updated++;
+        }
+      }
+      toast.success(`Sent to Today's Allocation: ${created} created, ${updated} updated, ${skipped} skipped`);
+      setTransferDialogOpen(false);
+      onSent?.({ date, created, updated, skipped });
+    } catch (error: any) {
+      toast.error(`Transfer failed: ${error?.message || 'unknown error'}`);
+    } finally {
+      setTransferBusy(false);
+    }
+  };
+
   const handleReset = async (): Promise<void> => {
     const ok = window.confirm(`Reset the sheet for ${date}? This clears saved data for this date.`);
     if (!ok) return;
@@ -680,7 +859,7 @@ export function DailyAllocationSheet({ hospital = 'hope' }: DailyAllocationSheet
         if (v.id !== id) return v;
         const next = {
           ...v,
-          [field]: field === 'vendor' || field === 'ledgerId' || field === 'ledgerName'
+          [field]: field === 'vendor' || field === 'companyId' || field === 'ledgerId' || field === 'ledgerName'
             ? (value || null)
             : parseNumber(value),
         };
@@ -705,6 +884,7 @@ export function DailyAllocationSheet({ hospital = 'hope' }: DailyAllocationSheet
         {
           id: newId(),
           vendor: '',
+          companyId: null,
           ledgerId: null,
           ledgerName: null,
           paidThisMonth: null,
@@ -802,6 +982,10 @@ export function DailyAllocationSheet({ hospital = 'hope' }: DailyAllocationSheet
           <Button variant="outline" size="sm" onClick={handlePrint}>
             <Printer className="mr-1 h-4 w-4" /> Print
           </Button>
+          <Button variant="outline" size="sm" onClick={sendToTodaysAllocation} disabled={transferBusy || loading}>
+            {transferBusy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
+            Send to Today’s Allocation
+          </Button>
           <Button size="sm" onClick={handleSave}>
             <Save className="mr-1 h-4 w-4" /> Save
           </Button>
@@ -886,6 +1070,7 @@ export function DailyAllocationSheet({ hospital = 'hope' }: DailyAllocationSheet
                         index={idx}
                         onUpdate={updateVendor}
                         onRemove={removeVendor}
+                        companies={tallyCompanies}
                       />
                     ))}
                   </SortableContext>
@@ -955,6 +1140,37 @@ export function DailyAllocationSheet({ hospital = 'hope' }: DailyAllocationSheet
           </section>
         ))}
       </CardContent>
+      <Dialog open={transferDialogOpen} onOpenChange={(open) => { if (!transferBusy) setTransferDialogOpen(open); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Confirm Today’s Allocation Updates</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-80 space-y-2 overflow-y-auto">
+            {transferConflicts.map((conflict) => {
+              const decision = transferDecisions[conflict.key] || 'update';
+              return (
+                <div key={conflict.key} className="flex items-center gap-3 rounded-md border p-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium">{conflict.vendor}</div>
+                    <div className="text-xs text-muted-foreground">
+                      Existing: {fmtINR(conflict.existingAmount)} · New: {fmtINR(conflict.amount)}
+                    </div>
+                  </div>
+                  <Button size="sm" variant={decision === 'update' ? 'default' : 'outline'} onClick={() => setTransferDecisions((prev) => ({ ...prev, [conflict.key]: 'update' }))}>Update</Button>
+                  <Button size="sm" variant={decision === 'skip' ? 'destructive' : 'outline'} onClick={() => setTransferDecisions((prev) => ({ ...prev, [conflict.key]: 'skip' }))}>Skip</Button>
+                </div>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTransferDialogOpen(false)} disabled={transferBusy}>Cancel</Button>
+            <Button onClick={() => completeTransfer(transferRows, transferConflicts, transferDecisions)} disabled={transferBusy}>
+              {transferBusy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              Confirm and Send
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

@@ -38,7 +38,18 @@ export interface ObligationLedgerLink {
 export interface TallyCompany {
   id: string;
   company_name: string;
+  company_ids?: string[];
 }
+
+const canonicalTallyCompany = (name: string): string =>
+  name.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/pvtltd|privatelimited|limited|ltd/g, '');
+
+const SUPPORTED_TALLY_COMPANIES = new Map<string, string>([
+  ['ayushmannagpurhospital', 'Ayushman Nagpur Hospital'],
+  ['drmhopehospital', 'DRM Hope Hospital Pvt Ltd'],
+  ['drmhopehospitalayushmanhospital', 'DRM Hope Hospital Pvt Ltd & Ayushman Hospital'],
+  ['hopepharmacy', 'Hope Pharmacy'],
+]);
 
 export type NewObligation = Omit<PaymentObligation, 'id' | 'created_at' | 'updated_at'>;
 
@@ -192,26 +203,37 @@ export const usePayeeSearch = (searchTable: string, searchTerm: string) => {
 };
 
 // Search Tally ledgers by name, optionally scoped to a single Tally company
-export const useTallyLedgerSearch = (searchTerm: string, companyId?: string | null) => {
+export const useTallyLedgerSearch = (searchTerm: string | null | undefined, companyId?: string | string[] | null) => {
+  const normalizedSearchTerm = searchTerm || '';
+  const companyIds = Array.isArray(companyId) ? companyId : companyId ? [companyId] : [];
+
   return useQuery({
-    queryKey: ['tally-ledger-search', searchTerm, companyId || 'any'],
+    queryKey: ['tally-ledger-search', normalizedSearchTerm, companyIds.join(',') || 'any'],
     queryFn: async () => {
-      if (!searchTerm || searchTerm.length < 2) return [];
+      if (normalizedSearchTerm.length < 1) return [];
       let query = (supabase as any)
         .from('tally_ledgers')
-        .select('id, name, parent_group, closing_balance, company_id')
-        .ilike('name', `%${searchTerm}%`)
+        .select('id, name, parent_group, closing_balance, company_id, tally_config(company_name)')
+        .ilike('name', `%${normalizedSearchTerm}%`)
         .order('name')
         .limit(20);
-      if (companyId) query = query.eq('company_id', companyId);
+      if (companyIds.length === 1) query = query.eq('company_id', companyIds[0]);
+      if (companyIds.length > 1) query = query.in('company_id', companyIds);
       const { data, error } = await query;
       if (error) {
         console.error('Ledger search error:', error);
         return [];
       }
-      return (data || []) as { id: string; name: string; parent_group: string | null; closing_balance: number; company_id: string | null }[];
+      return (data || []) as {
+        id: string;
+        name: string;
+        parent_group: string | null;
+        closing_balance: number;
+        company_id: string | null;
+        tally_config?: { company_name: string } | null;
+      }[];
     },
-    enabled: searchTerm.length >= 2,
+    enabled: normalizedSearchTerm.length >= 1,
   });
 };
 
@@ -302,10 +324,22 @@ export const useTallyCompanies = () => {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from('tally_config')
-        .select('id, company_name')
-        .order('company_name', { ascending: true });
+        .select('id, company_name, is_active, updated_at, created_at')
+        .order('updated_at', { ascending: false });
       if (error) throw error;
-      return (data || []) as TallyCompany[];
+      const grouped = new Map<string, TallyCompany>();
+      for (const row of data || []) {
+        const key = canonicalTallyCompany(row.company_name || '');
+        const canonicalName = SUPPORTED_TALLY_COMPANIES.get(key);
+        if (!canonicalName) continue;
+        const existing = grouped.get(key);
+        if (existing) {
+          existing.company_ids = [...(existing.company_ids || [existing.id]), row.id];
+        } else {
+          grouped.set(key, { id: row.id, company_name: canonicalName, company_ids: [row.id] });
+        }
+      }
+      return Array.from(grouped.values()).sort((a, b) => a.company_name.localeCompare(b.company_name));
     },
   });
 };
