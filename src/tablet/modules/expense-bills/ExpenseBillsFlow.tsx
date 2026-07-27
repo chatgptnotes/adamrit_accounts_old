@@ -7,6 +7,7 @@ import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletInput, TabletLabel } from "@/tablet/ui/TabletInput";
 import { LedgerPicker } from "./LedgerPicker";
 import { BillPaymentSheet } from "./BillPaymentSheet";
+import { InvoiceCamera } from "./InvoiceCamera";
 import {
   useExpenseLedgers,
   useOutstandingBills,
@@ -107,8 +108,8 @@ export default function ExpenseBillsFlow() {
   const [amount, setAmount] = useState("");
   const [narration, setNarration] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const cameraRef = useRef<HTMLInputElement>(null);
 
   const record = useRecordExpenseBill();
 
@@ -267,7 +268,7 @@ export default function ExpenseBillsFlow() {
             </TabletCard>
           ) : (
             <div className="grid grid-cols-2 gap-3">
-              <TabletButton variant="outline" onClick={() => cameraRef.current?.click()}>
+              <TabletButton variant="outline" onClick={() => setCameraOpen(true)}>
                 <Camera className="mr-2 h-5 w-5" />
                 Photo
               </TabletButton>
@@ -277,13 +278,10 @@ export default function ExpenseBillsFlow() {
               </TabletButton>
             </div>
           )}
-          <input
-            ref={cameraRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            hidden
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          <InvoiceCamera
+            open={cameraOpen}
+            onClose={() => setCameraOpen(false)}
+            onCapture={setFile}
           />
           <input
             ref={fileRef}
