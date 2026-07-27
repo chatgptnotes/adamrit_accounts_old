@@ -893,12 +893,16 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     }
     return journalLines.filter((line) => line.account && Number(line.amount) > 0).map((line) => line.account!);
   }, [singleMode, account, partLines, journalLines]);
+  // Only the patient has to be named in the narration. The ledgers are already
+  // chosen in Account and Particulars, so requiring them again as @mentions
+  // made the typist repeat what the voucher already says, and blocked the save
+  // when they did not.
   const requiredTags = useMemo(
-    () => [...new Set(voucherAccounts.map((ledger) =>
-      ledger.patient_ledger_id
-        ? `#${ledger.patient_name || ledger.account_name}`
-        : `@${ledger.account_name}`,
-    ))],
+    () => [...new Set(
+      voucherAccounts
+        .filter((ledger) => ledger.patient_ledger_id)
+        .map((ledger) => `#${ledger.patient_name || ledger.account_name}`),
+    )],
     [voucherAccounts],
   );
   const inferredPatientId = useMemo(() => {

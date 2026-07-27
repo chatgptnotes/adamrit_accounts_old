@@ -72,6 +72,9 @@ export async function discardVoucherAttachments(attachments: VoucherAttachment[]
   if (stagedPaths.length) await supabase.storage.from(BUCKET).remove(stagedPaths);
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function linkVoucherAttachments(
   voucherId: string,
   attachments: VoucherAttachment[],
@@ -88,7 +91,14 @@ export async function linkVoucherAttachments(
       file_size: item.fileSize,
       storage_path: item.storagePath,
       category: item.category,
-      uploaded_by: uploadedBy ?? null,
+      // uploaded_by is a uuid column. Callers pass a display name - username,
+      // email, or 'system' - and a superadmin logging in as 'superadmin' made
+      // that a hard failure on save: the voucher was written, then linking the
+      // attachment threw 'invalid input syntax for type uuid'. Anything that is
+      // not a uuid is dropped rather than sent; the column is nullable.
+      uploaded_by: uploadedBy && UUID_RE.test(uploadedBy.trim())
+        ? uploadedBy.trim()
+        : null,
       status: 'completed',
       capture_source: 'file_picker',
     })),
