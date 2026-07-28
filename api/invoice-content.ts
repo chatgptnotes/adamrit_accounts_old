@@ -8,8 +8,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
   if (!serviceKey) return res.status(500).json({ error: 'supabase_not_configured' });
   const sb = serviceClient(serviceKey);
-  const user = getSessionUser(req, serviceKey);
-  if (!user) return res.status(401).json({ error: 'not_authenticated' });
   const billId = text(req.body?.billId);
   const accessToken = text(req.body?.grantToken);
   if (!billId) return res.status(400).json({ error: 'bill_id_required' });
@@ -18,6 +16,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   let innerGrant: string | null = null;
   if (lockState?.is_locked) {
+    const user = getSessionUser(req, serviceKey);
+    if (!user) return res.status(401).json({ error: 'not_authenticated' });
     const grant = verifyToken<{ type: string; sub: string; billId: string; innerGrant: string; exp: number }>(accessToken, serviceKey);
     if (!grant || grant.type !== 'invoice-grant' || grant.sub !== user.id || grant.billId !== billId) {
       return res.status(403).json({ error: 'invoice_access_denied', reason: 'locked' });
