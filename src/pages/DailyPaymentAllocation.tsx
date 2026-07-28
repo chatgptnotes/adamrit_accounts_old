@@ -888,6 +888,10 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
   const handleAddSubPayee = () => {
     const name = subSelectedPayeeName || newPayeeName.trim();
     const amount = parseFloat(newPayeeAmount);
+    if (!payTallyCompanyId || !payDebitLedgerId || !payCreditLedgerId) {
+      toast.error('Select company, ledger to pay, and Cash/Bank source first');
+      return;
+    }
     if (!name) { toast.error('Enter a payee name'); return; }
     if (isNaN(amount) || amount <= 0) { toast.error('Enter a valid amount'); return; }
     addPayee.mutate({ payeeName: name, amount });
@@ -2105,6 +2109,85 @@ ${sectionsHtml}
                 )}
               </div>
 
+              {/* Accounting setup stays in the same planning popup. It is
+                  saved to the schedule on payment confirmation, not merely
+                  by opening this dialog. */}
+              <div className="border rounded-md p-3 space-y-3 bg-amber-50/40">
+                <p className="text-xs font-semibold text-amber-900">Payment Accounting</p>
+                <div>
+                  <Label className="text-xs">Company</Label>
+                  <Select
+                    value={payTallyCompanyId}
+                    onValueChange={(value) => {
+                      setPayTallyCompanyId(value);
+                      setPayLedgerCompanyId(value);
+                      setPayDebitLedgerId('');
+                      setPayDebitLedgerName('');
+                      setPayDebitLedgerSearch('');
+                      setPayCreditLedgerId('');
+                    }}
+                  >
+                    <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="Select company first" /></SelectTrigger>
+                    <SelectContent>
+                      {tallyCompanies.map((company) => (
+                        <SelectItem key={company.id} value={company.id}>{company.company_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="relative">
+                  <Label className="text-xs">Ledger to Pay (Debit)</Label>
+                  <Input
+                    value={payDebitLedgerSearch || payDebitLedgerName || payDebitLedgerDetails?.name || ''}
+                    onChange={(e) => {
+                      setPayDebitLedgerSearch(e.target.value);
+                      setPayDebitLedgerId('');
+                      setPayDebitLedgerName('');
+                    }}
+                    placeholder="Search expense or payable ledger"
+                    className="mt-1 h-8 text-sm"
+                    disabled={!payTallyCompanyId}
+                  />
+                  {payDebitLedgerSearch.length >= 1 && payDebitLedgers.length > 0 && (
+                    <div className="absolute left-0 right-0 top-[3.75rem] z-50 max-h-44 overflow-y-auto rounded-md border bg-white shadow-lg">
+                      {payDebitLedgers.map((ledger: any) => (
+                        <button
+                          key={ledger.id}
+                          type="button"
+                          className="block w-full px-3 py-2 text-left text-sm hover:bg-blue-50"
+                          onClick={() => {
+                            setPayDebitLedgerId(ledger.id);
+                            setPayLedgerCompanyId(ledger.company_id || payTallyCompanyId);
+                            setPayDebitLedgerName(ledger.name);
+                            setPayDebitLedgerSearch('');
+                          }}
+                        >
+                          <span className="font-medium">{ledger.name}</span>
+                          <span className="ml-2 text-xs text-muted-foreground">{ledger.parent_group || 'Ledger'}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {payDebitLedgerId && (
+                    <p className="mt-1 text-xs text-green-700">Selected: {payDebitLedgerName || payDebitLedgerDetails?.name || payDebitLedgerId}</p>
+                  )}
+                </div>
+                <div>
+                  <Label className="text-xs">Pay From (Credit Cash / Bank)</Label>
+                  <Select value={payCreditLedgerId} onValueChange={setPayCreditLedgerId}>
+                    <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="Select Cash or Bank account" /></SelectTrigger>
+                    <SelectContent>
+                      {payCreditLedgers.map((ledger: any) => (
+                        <SelectItem key={ledger.id} value={ledger.id}>{ledger.name} ({ledger.parent_group || 'Cash/Bank'})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  JV: Debit the selected ledger and credit the selected Cash/Bank account.
+                </p>
+              </div>
+
               {/* Existing sub-allocations list */}
               {dialogSubAllocations.length > 0 && (
                 <div className="border rounded-md divide-y">
@@ -2201,7 +2284,7 @@ ${sectionsHtml}
                     className="h-8 text-sm flex-1"
                     onKeyDown={(e) => { if (e.key === 'Enter') handleAddSubPayee(); }}
                   />
-                  <Button size="sm" className="h-8" onClick={handleAddSubPayee} disabled={addPayee.isPending}>
+                  <Button size="sm" className="h-8" onClick={handleAddSubPayee} disabled={addPayee.isPending || !payTallyCompanyId || !payDebitLedgerId || !payCreditLedgerId}>
                     <Plus className="h-3.5 w-3.5 mr-1" /> Add
                   </Button>
                 </div>
@@ -2360,6 +2443,7 @@ ${sectionsHtml}
                   <Button
                     className="bg-green-600 hover:bg-green-700"
                     onClick={() => setSubAllocDialogMode('confirm')}
+                    disabled={!payTallyCompanyId || !payDebitLedgerId || !payCreditLedgerId}
                   >
                     Proceed to Pay
                   </Button>
