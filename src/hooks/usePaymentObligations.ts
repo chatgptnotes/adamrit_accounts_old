@@ -285,6 +285,60 @@ export const useTallyLedgerDetails = (ledgerId?: string | null) => {
   });
 };
 
+export interface AccountingLedgerOption {
+  id: string;
+  account_name: string;
+  account_group: string | null;
+  account_type: string | null;
+  company_id: string | null;
+}
+
+// Accounting-ledger equivalents used by the Payment Allocation UI. These are
+// deliberately read-only: confirming an operational payment still follows the
+// existing create_daily_payment_voucher flow and does not post ledger entries.
+export const useAccountingLedgerSearch = (
+  searchTerm: string | null | undefined,
+  companyId?: string | null,
+) => {
+  const normalizedSearchTerm = (searchTerm || '').trim();
+  return useQuery({
+    queryKey: ['accounting-ledger-search', normalizedSearchTerm, companyId || 'none'],
+    queryFn: async (): Promise<AccountingLedgerOption[]> => {
+      if (!companyId || normalizedSearchTerm.length < 1) return [];
+      const { data, error } = await (supabase as any)
+        .from('chart_of_accounts')
+        .select('id, account_name, account_group, account_type, company_id')
+        .eq('is_active', true)
+        .or(`company_id.eq.${companyId},company_id.is.null`)
+        .ilike('account_name', `%${normalizedSearchTerm}%`)
+        .order('account_name')
+        .limit(20);
+      if (error) throw error;
+      return (data || []) as AccountingLedgerOption[];
+    },
+    enabled: Boolean(companyId) && normalizedSearchTerm.length >= 1,
+  });
+};
+
+export const useAccountingCashBankLedgers = (companyId?: string | null) => {
+  return useQuery({
+    queryKey: ['accounting-cash-bank-ledgers', companyId || 'none'],
+    queryFn: async (): Promise<AccountingLedgerOption[]> => {
+      if (!companyId) return [];
+      const { data, error } = await (supabase as any)
+        .from('chart_of_accounts')
+        .select('id, account_name, account_group, account_type, company_id')
+        .eq('is_active', true)
+        .or(`company_id.eq.${companyId},company_id.is.null`)
+        .or('account_group.ilike.%cash%,account_group.ilike.%bank%')
+        .order('account_name');
+      if (error) throw error;
+      return (data || []) as AccountingLedgerOption[];
+    },
+    enabled: Boolean(companyId),
+  });
+};
+
 // Sub-categories master (editable). Each row declares which Obligations
 // Master section it rolls up into.
 export interface SubCategoryRow {
