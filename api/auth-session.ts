@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import bcrypt from 'bcryptjs';
-import { getSessionUser, parseCookies, serviceClient, sessionCookie, signToken, SESSION_COOKIE, SESSION_TTL_SECONDS } from './_auth';
+import { getSessionUser, parseCookies, serviceClient, sessionCookie, signToken, SESSION_COOKIE, SESSION_TTL_SECONDS } from './_auth.js';
 
 const text = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
 

@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getSessionUser, serviceClient, verifyToken } from './_auth';
+import { getSessionUser, serviceClient, verifyToken } from './_auth.js';
 
 const text = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
 
