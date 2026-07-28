@@ -878,7 +878,7 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
     setSubAllocDialogMode('plan');
     setConfirmingSubAlloc(null);
     setNewPayeeName('');
-    setNewPayeeAmount('');
+    setNewPayeeAmount(String(entry.daily_amount + entry.carryforward_amount - entry.paid_amount));
     setSubPayeeSearchTerm('');
     setSubSelectedPayeeName('');
     setPayDialogOpen(true);
@@ -2183,6 +2183,19 @@ ${sectionsHtml}
                     </SelectContent>
                   </Select>
                 </div>
+                <div>
+                  <Label className="text-xs">Amount to Pay (Rs.)</Label>
+                  <Input
+                    type="number"
+                    value={newPayeeAmount}
+                    onChange={(e) => setNewPayeeAmount(e.target.value)}
+                    placeholder="Enter amount"
+                    className="mt-1 h-8 text-sm"
+                    min="0.01"
+                    step="0.01"
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddSubPayee(); }}
+                  />
+                </div>
                 <p className="text-xs text-muted-foreground">
                   JV: Debit the selected ledger and credit the selected Cash/Bank account.
                 </p>
@@ -2224,9 +2237,9 @@ ${sectionsHtml}
 
               {/* Add new payee row */}
               <div className="border rounded-md p-3 space-y-2 bg-blue-50/40">
-                <p className="text-xs font-medium text-muted-foreground">Add Payee for later payment</p>
+                <p className="text-xs font-medium text-muted-foreground">Add Payee</p>
                 <p className="text-xs text-muted-foreground">
-                  This only prepares the payee allocation. Company, debit ledger, and Cash/Bank source are selected before payment is posted.
+                  Select the company, debit ledger, Cash/Bank account, payee, and amount before adding.
                 </p>
                 <div>
                   <Label className="text-xs">Payee / Vendor Name</Label>
@@ -2275,16 +2288,8 @@ ${sectionsHtml}
                     </p>
                   )}
                 </div>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    value={newPayeeAmount}
-                    onChange={(e) => setNewPayeeAmount(e.target.value)}
-                    placeholder="Amount"
-                    className="h-8 text-sm flex-1"
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddSubPayee(); }}
-                  />
-                  <Button size="sm" className="h-8" onClick={handleAddSubPayee} disabled={addPayee.isPending || !payTallyCompanyId || !payDebitLedgerId || !payCreditLedgerId}>
+                <div className="flex justify-end">
+                  <Button size="sm" className="h-8" onClick={handleAddSubPayee} disabled={addPayee.isPending || !payTallyCompanyId || !payDebitLedgerId || !payCreditLedgerId || !newPayeeAmount}>
                     <Plus className="h-3.5 w-3.5 mr-1" /> Add
                   </Button>
                 </div>
