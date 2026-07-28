@@ -5,6 +5,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { useInvoiceAccess } from '@/hooks/useInvoiceAccess';
+import InvoicePasswordGate from '@/components/invoice/InvoicePasswordGate';
 
 interface InvoiceAmountPaidOverrideEvent {
   id: string;
@@ -55,6 +57,8 @@ const Invoice = () => {
   const queryClient = useQueryClient();
   const { visitId } = useParams<{ visitId: string }>();
   const { hospitalConfig, user } = useAuth();
+  const access = useInvoiceAccess({ visitId });
+  const financialQueriesEnabled = !!visitId && !access.needsGate && !access.isLockLoading;
   const isCmdUser = user?.email?.trim().toLowerCase() === CMD_EMAIL;
   const hospitalName = hospitalConfig?.name === 'ayushman' ? 'Ayushman Hospital Nagpur' : 'Hope Hospital Nagpur';
 
@@ -110,12 +114,12 @@ const Invoice = () => {
 
       return data;
     },
-    enabled: !!visitId
+    enabled: financialQueriesEnabled
   });
 
   const { data: invoiceDiscountDecision } = useQuery({
     queryKey: ['invoice-discount-decision', visitId, visitData?.id],
-    enabled: !!visitData?.id,
+    enabled: financialQueriesEnabled && !!visitData?.id,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('visit_discounts')
@@ -136,7 +140,7 @@ const Invoice = () => {
       // payment totals come from advance_payment below.
       return [];
     },
-    enabled: !!visitId
+    enabled: financialQueriesEnabled
   });
 
   // Fetch advance payments
@@ -148,7 +152,7 @@ const Invoice = () => {
       // advance totals come from advance_payment below.
       return [];
     },
-    enabled: !!visitId
+    enabled: financialQueriesEnabled
   });
 
   // Fetch advance payment data from advance_payment table (same as Financial Summary)
@@ -203,7 +207,7 @@ const Invoice = () => {
         return [];
       }
     },
-    enabled: !!visitId
+    enabled: financialQueriesEnabled
   });
 
   // Fetch final payment from final_payments table
@@ -225,7 +229,7 @@ const Invoice = () => {
 
       return data;
     },
-    enabled: !!visitId
+    enabled: financialQueriesEnabled
   });
 
   // Fetch discount from visit_discounts table (same as Final Bill)
@@ -269,7 +273,7 @@ const Invoice = () => {
 
       return discountAmount;
     },
-    enabled: !!visitId
+    enabled: financialQueriesEnabled
   });
 
   // Fetch lab tests from visit_labs table (Service Selection data)
@@ -325,7 +329,7 @@ const Invoice = () => {
 
       return data || [];
     },
-    enabled: !!visitId
+    enabled: financialQueriesEnabled
   });
 
   // Fetch radiology tests from visit_radiology (service selection data)
@@ -383,7 +387,7 @@ const Invoice = () => {
 
       return data || [];
     },
-    enabled: !!visitId
+    enabled: financialQueriesEnabled
   });
 
   // Fetch surgeries from visit_surgeries table
@@ -425,7 +429,7 @@ const Invoice = () => {
       }
       return data || [];
     },
-    enabled: !!visitId
+    enabled: financialQueriesEnabled
   });
 
   // Fetch anesthetists from visit_anesthetists table
@@ -458,7 +462,7 @@ const Invoice = () => {
       }
       return data || [];
     },
-    enabled: !!visitId
+    enabled: financialQueriesEnabled
   });
 
   // Fetch implants from visit_implants table
@@ -493,7 +497,7 @@ const Invoice = () => {
       }
       return data || [];
     },
-    enabled: !!visitId
+    enabled: financialQueriesEnabled
   });
 
   // Fetch mandatory services from junction table (actual saved services for this visit)
@@ -568,7 +572,7 @@ const Invoice = () => {
 
       return mappedData;
     },
-    enabled: !!visitId
+    enabled: financialQueriesEnabled
   });
 
   // Fetch clinical services from junction table (actual saved services for this visit)
@@ -643,7 +647,7 @@ const Invoice = () => {
 
       return mappedData;
     },
-    enabled: !!visitId
+    enabled: financialQueriesEnabled
   });
 
   // Fetch accommodation charges from visit_accommodations table
@@ -688,7 +692,7 @@ const Invoice = () => {
       }
       return data || [];
     },
-    enabled: !!visitId
+    enabled: financialQueriesEnabled
   });
 
   // Fetch pharmacy charges (CREDIT sales for this visit)
@@ -747,7 +751,7 @@ const Invoice = () => {
 
       return { totalAmount: pendingAmount };
     },
-    enabled: !!visitId && !!visitData?.patients?.patients_id && !!hospitalConfig?.name
+    enabled: financialQueriesEnabled && !!visitData?.patients?.patients_id && !!hospitalConfig?.name
   });
 
   // The newest append-only event determines whether a display override is active.
@@ -773,12 +777,26 @@ const Invoice = () => {
 
       return data as InvoiceAmountPaidOverrideEvent | null;
     },
-    enabled: !!visitId,
+    enabled: financialQueriesEnabled,
     retry: false,
   });
 
   // Show loading state
-  if (isLoading) {
+  if (access.needsGate) {
+    return (
+      <InvoicePasswordGate
+        billNo={access.lockState?.bill_no}
+        patientName={access.lockState?.patient_name}
+        verifying={access.verifying}
+        error={access.error}
+        onUnlock={access.unlock}
+        onBack={() => navigate(-1)}
+        adjustmentRequired={access.lockState?.archive_status === 'adjustment_required'}
+      />
+    );
+  }
+
+  if (isLoading || access.isLockLoading) {
     return (
       <div className="min-h-screen bg-white p-4 flex items-center justify-center">
         <div className="text-center">

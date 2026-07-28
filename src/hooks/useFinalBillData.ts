@@ -2,6 +2,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { withTimeout } from '@/utils/withTimeout';
+import { useInvoiceAccess } from '@/hooks/useInvoiceAccess';
 
 const FINAL_BILL_REQUEST_TIMEOUT_MS = 15_000;
 
@@ -52,9 +53,10 @@ export interface BillData {
 
 export const useFinalBillData = (visitId: string) => {
   const queryClient = useQueryClient();
+  const access = useInvoiceAccess({ visitId });
 
   const { data: billData, isLoading, error, refetch } = useQuery({
-    queryKey: ['final-bill', visitId],
+    queryKey: ['final-bill', visitId, access.grantToken],
     queryFn: async () => {
       try {
         console.log('🔍 Fetching bill data for visit ID:', visitId);
@@ -111,35 +113,18 @@ export const useFinalBillData = (visitId: string) => {
         }
 
 
-        // Get sections
-        const { data: sectionsData, error: sectionsError } = await withTimeout(
-          supabase
-            .from('bill_sections')
-            .select('*')
-            .eq('bill_id', billsData.id)
-            .order('section_order') as { data: any; error: any },
+        const { data: content, error: contentError } = await withTimeout(
+          supabase.rpc('get_invoice_content' as any, {
+            p_bill_id: billsData.id,
+            p_grant_token: access.grantToken,
+          }) as any,
           FINAL_BILL_REQUEST_TIMEOUT_MS,
-          'Loading bill sections',
+          'Loading bill content',
         );
+        if (contentError) throw contentError;
 
-        if (sectionsError) {
-          console.error('❌ Error fetching sections:', sectionsError);
-        }
-
-        // Get line items
-        const { data: lineItemsData, error: lineItemsError } = await withTimeout(
-          supabase
-            .from('bill_line_items')
-            .select('*')
-            .eq('bill_id', billsData.id)
-            .order('item_order') as { data: any; error: any },
-          FINAL_BILL_REQUEST_TIMEOUT_MS,
-          'Loading bill line items',
-        );
-
-        if (lineItemsError) {
-          console.error('❌ Error fetching line items:', lineItemsError);
-        }
+        const sectionsData = (content as any)?.sections || [];
+        const lineItemsData = (content as any)?.line_items || [];
 
         const result = {
           ...billsData,
@@ -148,7 +133,9 @@ export const useFinalBillData = (visitId: string) => {
           visit_date: visitData.visit_date,
           visit_created_at: visitData.created_at,
           sections: sectionsData || [],
-          line_items: lineItemsData || []
+          line_items: lineItemsData || [],
+          bill_items_json: (content as any)?.bill_items_json ?? null,
+          bill_patient_data: (content as any)?.bill_patient_data ?? null,
         } as BillData;
 
         return result;
@@ -157,7 +144,7 @@ export const useFinalBillData = (visitId: string) => {
         throw err;
       }
     },
-    enabled: !!visitId,
+    enabled: !!visitId && !access.needsGate && !access.isLockLoading,
     retry: false,
   });
 
@@ -342,6 +329,7 @@ export const useFinalBillData = (visitId: string) => {
     refetch,
     saveBill: saveBillMutation.mutate,
     saveBillAsync: saveBillMutation.mutateAsync,
-    isSaving: saveBillMutation.isPending
+    isSaving: saveBillMutation.isPending,
+    access,
   };
 };

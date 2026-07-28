@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, ReactNode } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { canAccessReferralRegister } from "@/lib/referralRegisterAccess";
+import ProtectedFinalBillRoute from "@/components/invoice/ProtectedFinalBillRoute";
 
 // Import critical pages synchronously
 import LandingPage from "../pages/LandingPage";
@@ -344,10 +345,10 @@ export const AppRoutes = () => {
         <Route path="/patient-documents-report" element={<Suspense fallback={<PageLoader />}><PatientDocumentsReport /></Suspense>} />
         <Route path="/yojana-billing-todo-documents-report" element={<Suspense fallback={<PageLoader />}><YojanaBillingTodoDocumentsReport /></Suspense>} />
         <Route path="/pmjay-mjpjay-package-usage-report" element={<Suspense fallback={<PageLoader />}><PmjayMjpjayPackageUsageReport /></Suspense>} />
-        <Route path="/final-bill/:visitId" element={<Suspense fallback={<PageLoader />}><FinalBill /></Suspense>} />
+        <Route path="/final-bill/:visitId" element={<ProtectedFinalBillRoute><Suspense fallback={<PageLoader />}><FinalBill /></Suspense></ProtectedFinalBillRoute>} />
         <Route path="/no-deduction-letter/:visitId" element={<NoDeductionLetterPage />} />
-        <Route path="/edit-final-bill/:visitId" element={<Suspense fallback={<PageLoader />}><EditFinalBill /></Suspense>} />
-        <Route path="/old-bills/:visitId" element={<Suspense fallback={<PageLoader />}><OldBills /></Suspense>} />
+        <Route path="/edit-final-bill/:visitId" element={<ProtectedFinalBillRoute><Suspense fallback={<PageLoader />}><EditFinalBill /></Suspense></ProtectedFinalBillRoute>} />
+        <Route path="/old-bills/:visitId" element={<ProtectedFinalBillRoute><Suspense fallback={<PageLoader />}><OldBills /></Suspense></ProtectedFinalBillRoute>} />
         <Route path="/old-bills" element={<Suspense fallback={<PageLoader />}><OldBills /></Suspense>} />
         <Route path="/view-bill/:billId" element={<Suspense fallback={<PageLoader />}><ViewBill /></Suspense>} />
         <Route path="/financial-summary" element={<Suspense fallback={<PageLoader />}><FinancialSummary /></Suspense>} />
@@ -355,10 +356,10 @@ export const AppRoutes = () => {
         <Route path="/lab-print-demo" element={<Suspense fallback={<PageLoader />}><LabPrintDemo /></Suspense>} />
         <Route path="/lab-results-entry-demo" element={<Suspense fallback={<PageLoader />}><LabResultsEntryDemo /></Suspense>} />
         <Route path="/daywise-bills" element={<Suspense fallback={<PageLoader />}><DaywiseBills /></Suspense>} />
-        <Route path="/invoice/:visitId" element={<Suspense fallback={<PageLoader />}><Invoice /></Suspense>} />
-        <Route path="/detailed-invoice/:visitId" element={<Suspense fallback={<PageLoader />}><DetailedInvoice /></Suspense>} />
+        <Route path="/invoice/:visitId" element={<ProtectedFinalBillRoute><Suspense fallback={<PageLoader />}><Invoice /></Suspense></ProtectedFinalBillRoute>} />
+        <Route path="/detailed-invoice/:visitId" element={<ProtectedFinalBillRoute><Suspense fallback={<PageLoader />}><DetailedInvoice /></Suspense></ProtectedFinalBillRoute>} />
         <Route path="/detailed-invoice" element={<Suspense fallback={<PageLoader />}><DetailedInvoice /></Suspense>} />
-        <Route path="/discharge-invoice/:visitId" element={<Suspense fallback={<PageLoader />}><DischargeInvoice /></Suspense>} />
+        <Route path="/discharge-invoice/:visitId" element={<ProtectedFinalBillRoute><Suspense fallback={<PageLoader />}><DischargeInvoice /></Suspense></ProtectedFinalBillRoute>} />
         <Route path="/ipd-discharge-summary/:visitId" element={<IpdDischargeSummary />} />
         <Route path="/quick-discharge-summary/:visitId" element={<QuickDischargeSummary />} />
         <Route path="/death-certificate/:visitId" element={<Suspense fallback={<PageLoader />}><DeathCertificate /></Suspense>} />

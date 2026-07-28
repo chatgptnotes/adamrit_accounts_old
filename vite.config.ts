@@ -494,6 +494,16 @@ export default defineConfig(({ mode }) => {
   server: {
     host: "::",
     port: 8080,
+    proxy: {
+      // Vite does not execute Vercel functions. Keep the private-invoice
+      // password verification server-side during local testing by forwarding
+      // only this API route to the deployed function.
+      "/api/invoice-otp-verify": {
+        target: "https://www.adamrit.com",
+        changeOrigin: true,
+        secure: true,
+      },
+    },
   },
   plugins: [
     ...(mode === 'development' ? [slackProxyPlugin(env), doubleTickExtensionAlertPlugin(env), tallyProxyPlugin(env), gmailProxyPlugin(env)] : []),

@@ -17,6 +17,7 @@ import { TabletConfirm } from "@/tablet/components/TabletConfirm";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import { inr } from "@/tablet/lib/format";
+import ProtectedFinalBillContent from "@/components/invoice/ProtectedFinalBillContent";
 
 const MODES = ["CASH", "CARD", "UPI", "CHEQUE", "NEFT"] as const;
 
@@ -55,6 +56,20 @@ function BillingPicker({ onSelect }: { onSelect: (v: TabletVisit) => void }) {
 }
 
 function BillingView({
+  visit,
+  onBack,
+}: {
+  visit: TabletVisit;
+  onBack: () => void;
+}) {
+  return (
+    <ProtectedFinalBillContent visitId={visit.visitId} onBack={onBack}>
+      <BillingUnlockedView visit={visit} onBack={onBack} />
+    </ProtectedFinalBillContent>
+  );
+}
+
+function BillingUnlockedView({
   visit,
   onBack,
 }: {

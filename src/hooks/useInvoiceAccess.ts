@@ -26,6 +26,9 @@ export interface InvoiceLockState {
   patient_name: string | null;
   is_private: boolean;
   is_paid: boolean;
+  is_discharged?: boolean;
+  billing_complete?: boolean;
+  archive_status?: 'protected' | 'adjustment_required' | null;
   is_locked: boolean;
 }
 

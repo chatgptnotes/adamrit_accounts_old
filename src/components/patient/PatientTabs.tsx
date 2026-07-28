@@ -6,6 +6,7 @@ import FinalBillTab from './tabs/FinalBillTab';
 import { EditableFinalBillTab } from './tabs/EditableFinalBillTab';
 import LabTrendChart from '@/components/lab/LabTrendChart';
 import RadiologyOrdersTab from './tabs/RadiologyOrdersTab';
+import ProtectedFinalBillContent from '@/components/invoice/ProtectedFinalBillContent';
 
 interface PatientTabsProps {
   patient: any;
@@ -44,11 +45,15 @@ const PatientTabs = ({ patient, visitId }: PatientTabsProps) => {
       </TabsContent>
 
       <TabsContent value="billing" className="space-y-4">
-        <FinalBillTab patient={patient} visitId={visitId} />
+        <ProtectedFinalBillContent visitId={visitId}>
+          <FinalBillTab patient={patient} visitId={visitId} />
+        </ProtectedFinalBillContent>
       </TabsContent>
 
       <TabsContent value="edit-billing" className="space-y-4">
-        <EditableFinalBillTab patient={patient} visitId={visitId || ''} />
+        <ProtectedFinalBillContent visitId={visitId}>
+          <EditableFinalBillTab patient={patient} visitId={visitId || ''} />
+        </ProtectedFinalBillContent>
       </TabsContent>
     </Tabs>
   );

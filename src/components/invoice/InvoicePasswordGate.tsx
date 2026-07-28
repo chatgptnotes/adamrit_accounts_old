@@ -19,6 +19,8 @@ interface InvoicePasswordGateProps {
   error: string | null;
   onUnlock: (code: string) => void;
   onBack?: () => void;
+  adjustmentRequired?: boolean;
+  embedded?: boolean;
 }
 
 export const InvoicePasswordGate: React.FC<InvoicePasswordGateProps> = ({
@@ -28,6 +30,8 @@ export const InvoicePasswordGate: React.FC<InvoicePasswordGateProps> = ({
   error,
   onUnlock,
   onBack,
+  adjustmentRequired = false,
+  embedded = false,
 }) => {
   const [code, setCode] = useState('');
   const [reveal, setReveal] = useState(false);
@@ -38,7 +42,7 @@ export const InvoicePasswordGate: React.FC<InvoicePasswordGateProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+    <div className={`${embedded ? 'min-h-[420px] rounded-lg border' : 'min-h-screen'} bg-gray-50 flex items-center justify-center p-4`}>
       <div className="w-full max-w-md bg-white rounded-lg shadow-lg p-8">
         <div className="flex flex-col items-center text-center">
           <div className="h-14 w-14 rounded-full bg-amber-100 flex items-center justify-center mb-4">
@@ -47,7 +51,9 @@ export const InvoicePasswordGate: React.FC<InvoicePasswordGateProps> = ({
 
           <h1 className="text-xl font-bold text-gray-900">This invoice is protected</h1>
           <p className="mt-2 text-sm text-gray-600">
-            Payment has been received for this bill. Enter the access password to view it.
+            {adjustmentRequired
+              ? 'This protected record has a billing adjustment pending. Enter the access password to review it.'
+              : 'This patient’s billing is complete and protected. Enter the access password to view it.'}
           </p>
 
           {(billNo || patientName) && (
