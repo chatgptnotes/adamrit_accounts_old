@@ -12152,6 +12152,7 @@ export type Database = {
           doctor_id: number | null
           doctor_name: string | null
           hospital_name: string | null
+          is_ot_surgical: boolean
           is_third_party_payment: boolean | null
           patient_id: string | null
           patient_name: string | null
@@ -12162,6 +12163,7 @@ export type Database = {
           sale_date: string | null
           sale_id: number
           sale_type: string | null
+          save_request_id: string | null
           status: string | null
           subtotal: number | null
           tax_gst: number | null
@@ -12183,6 +12185,7 @@ export type Database = {
           doctor_id?: number | null
           doctor_name?: string | null
           hospital_name?: string | null
+          is_ot_surgical?: boolean
           is_third_party_payment?: boolean | null
           patient_id?: string | null
           patient_name?: string | null
@@ -12193,6 +12196,7 @@ export type Database = {
           sale_date?: string | null
           sale_id?: number
           sale_type?: string | null
+          save_request_id?: string | null
           status?: string | null
           subtotal?: number | null
           tax_gst?: number | null
@@ -12214,6 +12218,7 @@ export type Database = {
           doctor_id?: number | null
           doctor_name?: string | null
           hospital_name?: string | null
+          is_ot_surgical?: boolean
           is_third_party_payment?: boolean | null
           patient_id?: string | null
           patient_name?: string | null
@@ -12224,6 +12229,7 @@ export type Database = {
           sale_date?: string | null
           sale_id?: number
           sale_type?: string | null
+          save_request_id?: string | null
           status?: string | null
           subtotal?: number | null
           tax_gst?: number | null
@@ -18375,6 +18381,15 @@ export type Database = {
           p_visit_id: string
         }
         Returns: number
+      }
+      save_pharmacy_sale_atomic: {
+        Args: {
+          p_created_by?: string
+          p_items: Json
+          p_request_id?: string
+          p_sale: Json
+        }
+        Returns: Json
       }
       create_work_order_with_assignment: {
         Args: {
