@@ -16,7 +16,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
 
 export interface InvoiceLockState {
   found: boolean;
@@ -74,8 +73,6 @@ interface UseInvoiceAccessArgs {
 
 export const useInvoiceAccess = (args: UseInvoiceAccessArgs | string | null | undefined) => {
   const opts: UseInvoiceAccessArgs = typeof args === 'string' ? { billId: args } : (args || {});
-  const { user } = useAuth();
-
   // Resolve visit → bill. Only `id` is selected: that column stays readable to
   // anon after the lockdown, whereas the invoice content does not.
   const { data: resolvedBillId, isLoading: isResolving } = useQuery({
@@ -157,7 +154,6 @@ export const useInvoiceAccess = (args: UseInvoiceAccessArgs | string | null | un
           body: JSON.stringify({
             billId,
             code,
-            userEmail: user?.email || user?.username || '',
           }),
         });
         const body = await res.json().catch(() => ({}));
@@ -186,7 +182,7 @@ export const useInvoiceAccess = (args: UseInvoiceAccessArgs | string | null | un
         setVerifying(false);
       }
     },
-    [billId, user],
+    [billId],
   );
 
   const clearGrant = useCallback(() => {

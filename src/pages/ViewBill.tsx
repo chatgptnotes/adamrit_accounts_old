@@ -57,14 +57,15 @@ const ViewBill = () => {
       // tables. For an unlocked or corporate bill it returns content freely; for
       // a locked private bill it refuses unless the grant token is valid. Once
       // anon's SELECT on these tables is revoked, this is the only way in.
-      const { data: content, error: contentError } = await (supabase as any).rpc('get_invoice_content', {
-        p_bill_id: billId,
-        p_grant_token: access.grantToken,
+      const contentResponse = await fetch('/api/invoice-content', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ billId, grantToken: access.grantToken }),
       });
-
-      if (contentError) {
-        console.error('Error fetching invoice content:', contentError);
-        throw contentError;
+      const content = await contentResponse.json().catch(() => ({}));
+      if (!contentResponse.ok || !content?.ok) {
+        throw new Error(content?.reason || content?.error || 'Unable to load invoice content');
       }
 
       const sections = (content as any)?.ok ? (content as any).sections : [];

@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useMemo, useCallback, R
 import { createClient } from '@supabase/supabase-js';
 import { HospitalType, getHospitalConfig } from '@/types/hospital';
 import { supabase } from '@/integrations/supabase/client';
-import { hashPassword, comparePassword, validateEmail, sanitizeInput, signupRateLimiter } from '@/utils/auth';
+import { hashPassword, validateEmail, sanitizeInput, signupRateLimiter } from '@/utils/auth';
 import { logActivity } from '@/lib/activity-logger';
 
 // Separate anon client for User table lookups — not affected by OAuth session RLS
@@ -88,6 +88,20 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       role: data.role,
       hospitalType: data.hospital_type || 'hope'
     };
+
+    const { data: googleSession } = await supabase.auth.getSession();
+    const sessionResponse = await fetch('/api/auth-session', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'google', accessToken: googleSession.session?.access_token || '' }),
+    });
+    if (!sessionResponse.ok) {
+      setAuthError('Could not establish a secure application session. Please try again.');
+      await supabase.auth.signOut();
+      setIsAuthLoading(false);
+      return;
+    }
 
     setUser(appUser);
     localStorage.setItem('hmis_user', JSON.stringify(appUser));
@@ -205,87 +219,20 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   // Database authentication
   const login = async (credentials: { email: string; password: string; hospitalType?: HospitalType }): Promise<boolean> => {
     try {
-      // Staff pin login: blank email + @XXXX password
-      const isStaffPin = !credentials.email.trim() && credentials.password.startsWith('@') && credentials.password.length === 5;
+      const response = await fetch('/api/auth-session', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(credentials),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body?.ok || !body.user) return false;
 
-      let data: any = null;
-      let error: any = null;
-
-      if (isStaffPin) {
-        const pin = credentials.password.substring(1); // Remove @ prefix
-        // Tablet edition passes hospitalType (device-provisioned); desktop legacy
-        // PIN login passes none and stays scoped to ayushman, unchanged.
-        const result = await supabase
-          .from('User')
-          .select('*')
-          .eq('staff_pin', pin)
-          .eq('hospital_type', credentials.hospitalType || 'ayushman')
-          .single();
-        data = result.data;
-        error = result.error;
-      } else {
-        const result = await supabase
-          .from('User')
-          .select('*')
-          .ilike('email', credentials.email.trim())
-          .single();
-        data = result.data;
-        error = result.error;
-      }
-
-      if (error || !data) {
-        console.error('Login error:', error);
-        return false;
-      }
-
-      // Staff pin login: pin already verified by the query, skip password check
-      if (!isStaffPin) {
-        const dbPassword = (data as any)?.password || (data as any)?.password_hash || null;
-
-        if (!dbPassword) {
-          console.error('User has no password set.');
-          return false;
-        }
-
-        // Check if password is hashed (new users) or plain text (existing users)
-        let isPasswordValid = false;
-
-        if (dbPassword.startsWith('$2')) {
-          // Hashed password - use bcrypt compare with setTimeout to prevent UI blocking
-          isPasswordValid = await new Promise<boolean>((resolve) => {
-            setTimeout(async () => {
-              const result = await comparePassword(credentials.password, dbPassword);
-              resolve(result);
-            }, 10);
-          });
-        } else {
-          // Plain text password - direct comparison (for backward compatibility)
-          isPasswordValid = dbPassword === credentials.password;
-        }
-
-        if (!isPasswordValid) {
-          console.error('Invalid password');
-          return false;
-        }
-      }
-
-      const appUser: User = {
-        id: data.id,
-        email: data.email,
-        username: data.email.split('@')[0], // Use email prefix as username
-        role: data.role,
-        hospitalType: data.hospital_type || 'hope'
-      };
-
+      const appUser: User = body.user;
       setUser(appUser);
       localStorage.setItem('hmis_user', JSON.stringify(appUser));
-
-      // Update last_login_at
-      (supabase as any).from('User').update({ last_login_at: new Date().toISOString() }).eq('id', data.id).then(() => {});
-
-      // Log activity
+      (supabase as any).from('User').update({ last_login_at: new Date().toISOString() }).eq('id', appUser.id).then(() => {});
       logActivity('user_login', { email: appUser.email, role: appUser.role, hospital: appUser.hospitalType });
-
       return true;
     } catch (error) {
       console.error('Login failed:', error);
@@ -375,6 +322,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     // Must be awaited — otherwise the session may still be active on next page load,
     // causing the user to be silently re-authenticated via getSession() in the init effect.
     try {
+      await fetch('/api/auth-session', { method: 'DELETE', credentials: 'include' });
       await supabase.auth.signOut();
     } catch {
       // Ignore signOut errors — local state is already cleared

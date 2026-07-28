@@ -17,9 +17,7 @@
 // land.
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createClient } from '@supabase/supabase-js';
-
-const SUPABASE_URL = 'https://xvkxccqaopbnkvwgyfjv.supabase.co';
+import { getSessionUser, serviceClient, signToken } from './_auth';
 
 const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
 
@@ -65,19 +63,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const billId = text(req.body?.billId);
   const code = text(req.body?.code);
-  const userEmail = text(req.body?.userEmail);
   const ip = clientIp(req);
 
   if (!billId) return res.status(400).json({ error: 'billId required' });
   if (!code) return res.status(400).json({ error: 'code required' });
-  if (!userEmail) return res.status(400).json({ error: 'userEmail required' });
 
-  const sb = createClient(SUPABASE_URL, serviceKey);
+  const sb = serviceClient(serviceKey);
+  const sessionUser = getSessionUser(req, serviceKey);
+  if (!sessionUser) return res.status(401).json({ error: 'not_authenticated' });
 
   const { data, error } = await sb.rpc('verify_invoice_otp', {
     p_bill_id: billId,
     p_code: code,
-    p_user_email: userEmail,
+    p_user_email: sessionUser.email,
     p_challenge_id: null,
     p_ip: ip,
   });
@@ -88,7 +86,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (!data?.ok) {
     const action = data?.reason === 'locked_out' ? 'invoice_unlock_locked_out' : 'invoice_unlock_failed';
-    await audit(sb, action, userEmail, { bill_id: billId, reason: data?.reason }, ip);
+    await audit(sb, action, sessionUser.email, { bill_id: billId, reason: data?.reason }, ip);
     return res.status(200).json({
       ok: false,
       reason: data?.reason || 'unknown',
@@ -96,17 +94,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
+  const grantToken = signToken({
+    type: 'invoice-grant',
+    sub: sessionUser.id,
+    billId,
+    innerGrant: data.grant_token,
+    exp: Math.floor(new Date(data.expires_at).getTime() / 1000),
+  }, serviceKey);
+
   await audit(
     sb,
     data.via === 'master_key' ? 'invoice_master_key_used' : 'invoice_otp_verified',
-    userEmail,
+    sessionUser.email,
     { bill_id: billId, bill_no: data.bill_no, via: data.via },
     ip,
   );
 
   return res.status(200).json({
     ok: true,
-    grantToken: data.grant_token,
+    grantToken,
     expiresAt: data.expires_at,
     via: data.via,
   });

@@ -503,6 +503,16 @@ export default defineConfig(({ mode }) => {
         changeOrigin: true,
         secure: true,
       },
+      "/api/auth-session": {
+        target: "https://www.adamrit.com",
+        changeOrigin: true,
+        secure: true,
+      },
+      "/api/invoice-content": {
+        target: "https://www.adamrit.com",
+        changeOrigin: true,
+        secure: true,
+      },
     },
   },
   plugins: [

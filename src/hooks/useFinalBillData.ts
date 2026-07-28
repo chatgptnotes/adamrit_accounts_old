@@ -113,15 +113,20 @@ export const useFinalBillData = (visitId: string) => {
         }
 
 
-        const { data: content, error: contentError } = await withTimeout(
-          supabase.rpc('get_invoice_content' as any, {
-            p_bill_id: billsData.id,
-            p_grant_token: access.grantToken,
-          }) as any,
+        const contentResponse = await withTimeout(
+          fetch('/api/invoice-content', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ billId: billsData.id, grantToken: access.grantToken }),
+          }),
           FINAL_BILL_REQUEST_TIMEOUT_MS,
           'Loading bill content',
         );
-        if (contentError) throw contentError;
+        const content = await contentResponse.json().catch(() => ({}));
+        if (!contentResponse.ok || !content?.ok) {
+          throw new Error(content?.reason || content?.error || 'Unable to load bill content');
+        }
 
         const sectionsData = (content as any)?.sections || [];
         const lineItemsData = (content as any)?.line_items || [];
