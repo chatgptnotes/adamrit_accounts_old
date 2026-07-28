@@ -534,7 +534,6 @@ const DailyPaymentAllocation = () => {
   // Sub-allocations for the currently open pay dialog entry
   const {
     subAllocations: dialogSubAllocations,
-    addPayee,
     removePayee,
     markPayeePaid,
   } = useSubAllocations(payingEntry?.id || null);
@@ -876,34 +875,10 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
     setPayDialogOpen(true);
   };
 
-  // Add a new ledger allocation in plan mode. The selected debit ledger is
-  // also the recipient/payee identity, so no duplicate name field is needed.
-  const handleAddSubPayee = () => {
-    const name = (payDebitLedgerName || payDebitLedgerDetails?.name || '').trim();
-    const amount = parseFloat(newPayeeAmount);
-    if (!payTallyCompanyId || !payDebitLedgerId || !payCreditLedgerId) {
-      toast.error('Select company, ledger to pay, and Cash/Bank source first');
-      return;
-    }
-    if (!name) { toast.error('Select the ledger to pay'); return; }
-    if (isNaN(amount) || amount <= 0) { toast.error('Enter a valid amount'); return; }
-    addPayee.mutate({ payeeName: name, amount });
-    setNewPayeeAmount('');
-  };
-
   // Confirm payment for a single sub-allocation
   const handleConfirmSubPayment = (sa: SubAllocation) => {
     setConfirmingSubAlloc(sa);
     setPayAmount(String(sa.amount));
-    setSubAllocDialogMode('confirm');
-  };
-
-  // Pay all unpaid sub-allocations at once (full obligation amount)
-  const handlePayAll = () => {
-    if (!payingEntry) return;
-    const balance = payingEntry.daily_amount + payingEntry.carryforward_amount - payingEntry.paid_amount;
-    setPayAmount(String(balance));
-    setConfirmingSubAlloc(null);
     setSubAllocDialogMode('confirm');
   };
 
@@ -2064,13 +2039,13 @@ ${sectionsHtml}
         </DialogContent>
       </Dialog>
 
-      {/* Pay Dialog — two-mode: Plan Payees / Confirm Payment */}
+      {/* Pay Dialog — accounting setup / confirm payment */}
       <Dialog open={payDialogOpen} onOpenChange={(open) => { setPayDialogOpen(open); }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {subAllocDialogMode === 'plan' ? (
-                <><Users className="h-5 w-5" /> Plan Payees — {payingEntry?.party_name}</>
+                <><Wallet className="h-5 w-5" /> Payment Setup — {payingEntry?.party_name}</>
               ) : (
                 <><CheckCircle className="h-5 w-5 text-green-600" /> Confirm Payment</>
               )}
@@ -2183,7 +2158,6 @@ ${sectionsHtml}
                     className="mt-1 h-8 text-sm"
                     min="0.01"
                     step="0.01"
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddSubPayee(); }}
                   />
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -2224,19 +2198,6 @@ ${sectionsHtml}
                   ))}
                 </div>
               )}
-
-              {/* Add new payee row */}
-              <div className="border rounded-md p-3 space-y-2 bg-blue-50/40">
-                <p className="text-xs font-medium text-muted-foreground">Add Payee</p>
-                <p className="text-xs text-muted-foreground">
-                  The selected debit ledger identifies the payee. Select the accounting fields and amount before adding.
-                </p>
-                <div className="flex justify-end">
-                  <Button size="sm" className="h-8" onClick={handleAddSubPayee} disabled={addPayee.isPending || !payTallyCompanyId || !payDebitLedgerId || !payCreditLedgerId || !newPayeeAmount}>
-                    <Plus className="h-3.5 w-3.5 mr-1" /> Add
-                  </Button>
-                </div>
-              </div>
 
               {/* No sub-allocations — show single-payee fallback info */}
               {dialogSubAllocations.length === 0 && !payeeTable && (
@@ -2390,8 +2351,11 @@ ${sectionsHtml}
                 {dialogSubAllocations.length === 0 && (
                   <Button
                     className="bg-green-600 hover:bg-green-700"
-                    onClick={() => setSubAllocDialogMode('confirm')}
-                    disabled={!payTallyCompanyId || !payDebitLedgerId || !payCreditLedgerId}
+                    onClick={() => {
+                      setPayAmount(newPayeeAmount);
+                      setSubAllocDialogMode('confirm');
+                    }}
+                    disabled={!payTallyCompanyId || !payDebitLedgerId || !payCreditLedgerId || !newPayeeAmount}
                   >
                     Proceed to Pay
                   </Button>
