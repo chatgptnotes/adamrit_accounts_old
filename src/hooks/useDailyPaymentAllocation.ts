@@ -23,6 +23,9 @@ export interface ScheduleEntry {
   tally_company_id: string | null;
   tally_ledger_id: string | null;
   credit_tally_ledger_id: string | null;
+  accounting_company_id: string | null;
+  debit_account_id: string | null;
+  credit_account_id: string | null;
 }
 
 export interface BankAccount {
@@ -96,6 +99,37 @@ export const useDailyPaymentSchedule = (date: string, hospital: string = 'hope')
     },
   });
 
+  const createPaymentVoucher = useMutation({
+    mutationFn: async ({
+      scheduleId, amount, userId, payeeName, hospitalType,
+    }: {
+      scheduleId: string;
+      amount: number;
+      userId: string;
+      payeeName?: string | null;
+      hospitalType: string;
+    }) => {
+      const { data, error } = await (supabase as any).rpc('create_daily_payment_voucher', {
+        p_schedule_id: scheduleId,
+        p_amount: amount,
+        p_user_id: userId,
+        p_payee_name: payeeName || null,
+        p_hospital_type: hospitalType,
+      });
+      if (error) throw error;
+      return data as {
+        paymentVoucherId: string;
+        paymentVoucherNumber: string;
+      };
+    },
+    onSuccess: (result, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['daily-payment-schedule'] });
+      queryClient.invalidateQueries({ queryKey: ['payment-history'] });
+      toast.success(`Payment Voucher ${result.paymentVoucherNumber} created for Rs. ${variables.amount.toLocaleString('en-IN')}.`);
+    },
+    onError: (err: any) => toast.error('Payment failed: ' + err.message),
+  });
+
   // Inline edit a schedule entry (daily_amount, notes, or skip)
   const updateScheduleEntry = useMutation({
     mutationFn: async ({ id, ...updates }: {
@@ -106,6 +140,9 @@ export const useDailyPaymentSchedule = (date: string, hospital: string = 'hope')
       tally_company_id?: string | null;
       tally_ledger_id?: string | null;
       credit_tally_ledger_id?: string | null;
+      accounting_company_id?: string | null;
+      debit_account_id?: string | null;
+      credit_account_id?: string | null;
     }) => {
       const { error } = await (supabase as any)
         .from('daily_payment_schedule')
@@ -201,6 +238,7 @@ export const useDailyPaymentSchedule = (date: string, hospital: string = 'hope')
     error: schedule.error,
     refetch: schedule.refetch,
     markPaid,
+    createPaymentVoucher,
     savePaymentLedgers,
     updateScheduleEntry,
     skipEntry,
@@ -507,14 +545,14 @@ export const useSubAllocations = (scheduleId: string | null) => {
   });
 
   const markPayeePaid = useMutation({
-    mutationFn: async ({ id, paidBy, voucherId }: { id: string; paidBy: string; voucherId?: string | null }) => {
+    mutationFn: async ({ id, paidBy, paymentVoucherId }: { id: string; paidBy: string; paymentVoucherId?: string | null }) => {
       const { error } = await (supabase as any)
         .from('payment_sub_allocations')
         .update({
           is_paid: true,
           paid_at: new Date().toISOString(),
           paid_by: paidBy,
-          voucher_id: voucherId || null,
+          payment_voucher_id: paymentVoucherId || null,
           updated_at: new Date().toISOString(),
         })
         .eq('id', id);
