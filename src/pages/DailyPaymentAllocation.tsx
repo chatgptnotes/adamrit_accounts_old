@@ -415,12 +415,8 @@ const DailyPaymentAllocation = () => {
   const [subAllocDialogMode, setSubAllocDialogMode] = useState<'plan' | 'confirm'>('plan');
   // When confirming a single sub-allocation payment
   const [confirmingSubAlloc, setConfirmingSubAlloc] = useState<SubAllocation | null>(null);
-  // New payee row inputs (in plan mode)
-  const [newPayeeName, setNewPayeeName] = useState('');
+  // New ledger allocation input (in plan mode)
   const [newPayeeAmount, setNewPayeeAmount] = useState('');
-  // Whether the paying entry has a payee search table (determines if plan mode is active)
-  const [subPayeeSearchTerm, setSubPayeeSearchTerm] = useState('');
-  const [subSelectedPayeeName, setSubSelectedPayeeName] = useState('');
 
   // Add/Edit obligation dialog
   const [addDialogOpen, setAddDialogOpen] = useState(false);
@@ -555,7 +551,6 @@ const DailyPaymentAllocation = () => {
   // payeeResults for the original single-payee flow (the add-obligation dialog search term)
   const { data: payeeResults = [] } = usePayeeSearch(payeeTable, payeeSearchTerm);
   // payeeResults for the sub-allocation payee search in plan mode (multi-table search)
-  const { data: subPayeeResults = [] } = useMultiPayeeSearch(subPayeeSearchTerm, selectedHospital);
   const { data: history = [] } = usePaymentHistory(historyFrom, historyTo, selectedHospital);
   const selectedPayTallyCompany = tallyCompanies.find((company) => company.id === payTallyCompanyId || company.company_ids?.includes(payTallyCompanyId));
   const { data: payDebitLedgerDetails } = useTallyLedgerDetails(payDebitLedgerId);
@@ -877,28 +872,23 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
     setSelectedPayeeName('');
     setSubAllocDialogMode('plan');
     setConfirmingSubAlloc(null);
-    setNewPayeeName('');
     setNewPayeeAmount(String(entry.daily_amount + entry.carryforward_amount - entry.paid_amount));
-    setSubPayeeSearchTerm('');
-    setSubSelectedPayeeName('');
     setPayDialogOpen(true);
   };
 
-  // Add a new payee row in plan mode
+  // Add a new ledger allocation in plan mode. The selected debit ledger is
+  // also the recipient/payee identity, so no duplicate name field is needed.
   const handleAddSubPayee = () => {
-    const name = subSelectedPayeeName || newPayeeName.trim();
+    const name = (payDebitLedgerName || payDebitLedgerDetails?.name || '').trim();
     const amount = parseFloat(newPayeeAmount);
     if (!payTallyCompanyId || !payDebitLedgerId || !payCreditLedgerId) {
       toast.error('Select company, ledger to pay, and Cash/Bank source first');
       return;
     }
-    if (!name) { toast.error('Enter a payee name'); return; }
+    if (!name) { toast.error('Select the ledger to pay'); return; }
     if (isNaN(amount) || amount <= 0) { toast.error('Enter a valid amount'); return; }
     addPayee.mutate({ payeeName: name, amount });
-    setNewPayeeName('');
     setNewPayeeAmount('');
-    setSubPayeeSearchTerm('');
-    setSubSelectedPayeeName('');
   };
 
   // Confirm payment for a single sub-allocation
@@ -2239,55 +2229,8 @@ ${sectionsHtml}
               <div className="border rounded-md p-3 space-y-2 bg-blue-50/40">
                 <p className="text-xs font-medium text-muted-foreground">Add Payee</p>
                 <p className="text-xs text-muted-foreground">
-                  Select the company, debit ledger, Cash/Bank account, payee, and amount before adding.
+                  The selected debit ledger identifies the payee. Select the accounting fields and amount before adding.
                 </p>
-                <div>
-                  <Label className="text-xs">Payee / Vendor Name</Label>
-                  <Input
-                    value={subPayeeSearchTerm || newPayeeName}
-                    onChange={(e) => {
-                      setSubPayeeSearchTerm(e.target.value);
-                      setNewPayeeName(e.target.value);
-                      setSubSelectedPayeeName('');
-                    }}
-                    placeholder="Search or enter a payee name..."
-                    className="h-8 text-sm mt-1"
-                  />
-                  {subPayeeResults.length > 0 && !subSelectedPayeeName && (
-                    <div className="border rounded-md mt-1 max-h-40 overflow-y-auto bg-white shadow-sm z-10 relative">
-                      {subPayeeResults.map((p: any) => (
-                        <div
-                          key={p.id}
-                          className="px-3 py-1.5 hover:bg-blue-50 cursor-pointer text-sm flex justify-between items-center"
-                          onClick={() => {
-                            setSubSelectedPayeeName(p.name);
-                            setSubPayeeSearchTerm(p.name);
-                            setNewPayeeName(p.name);
-                            // Auto-fill amount from master (e.g., RMO daily_remuneration)
-                            if (p.amount && p.amount > 0) {
-                              setNewPayeeAmount(String(p.amount));
-                            }
-                          }}
-                        >
-                          <div>
-                            <span className="font-medium">{p.name}</span>
-                            {p.amount > 0 && (
-                              <span className="ml-2 text-green-700 font-mono text-xs">₹{p.amount.toLocaleString('en-IN')}</span>
-                            )}
-                          </div>
-                          <span className="text-muted-foreground text-xs">
-                            {p.source}{p.specialty ? ` · ${p.specialty}` : ''}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {subSelectedPayeeName && (
-                    <p className="text-xs text-green-700 mt-1 flex items-center gap-1">
-                      <CheckCircle className="h-3 w-3" /> Selected: {subSelectedPayeeName}
-                    </p>
-                  )}
-                </div>
                 <div className="flex justify-end">
                   <Button size="sm" className="h-8" onClick={handleAddSubPayee} disabled={addPayee.isPending || !payTallyCompanyId || !payDebitLedgerId || !payCreditLedgerId || !newPayeeAmount}>
                     <Plus className="h-3.5 w-3.5 mr-1" /> Add
