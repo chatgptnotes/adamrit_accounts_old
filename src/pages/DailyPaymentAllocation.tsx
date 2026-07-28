@@ -913,7 +913,9 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
     setSubAllocDialogMode('confirm');
   };
 
-  // Confirm the actual voucher creation
+  // Confirm the actual voucher creation. Ledger selection is deliberately
+  // made here, after the payee plan is saved, so planning a payment never
+  // posts accounting entries by itself.
   const confirmPay = async () => {
     if (!payingEntry || !payAmount) return;
     const amount = parseFloat(payAmount);
@@ -925,6 +927,10 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
       toast.error('Select the Tally company, debit ledger, and credit Cash/Bank ledger before payment');
       return;
     }
+    if (confirmingSubAlloc && Math.abs(amount - confirmingSubAlloc.amount) > 0.005) {
+      toast.error('Payee payments must match the allocated amount exactly');
+      return;
+    }
     try {
       await savePaymentLedgers.mutateAsync({
         id: payingEntry.id,
@@ -932,17 +938,22 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
         debitLedgerId: payDebitLedgerId,
         creditLedgerId: payCreditLedgerId,
       });
+      const voucherId = await markPaid.mutateAsync({
+        scheduleId: payingEntry.id,
+        amount,
+        userId: user?.username || 'admin',
+      });
+      // Link the exact accounting voucher to the sub-payee row. This keeps
+      // the payee-level audit trail aligned with the parent schedule voucher.
+      if (confirmingSubAlloc) {
+        await markPayeePaid.mutateAsync({
+          id: confirmingSubAlloc.id,
+          paidBy: user?.username || 'admin',
+          voucherId,
+        });
+      }
     } catch {
       return;
-    }
-    markPaid.mutate({
-      scheduleId: payingEntry.id,
-      amount,
-      userId: user?.username || 'admin',
-    });
-    // If confirming a specific sub-allocation, mark it paid too
-    if (confirmingSubAlloc) {
-      markPayeePaid.mutate({ id: confirmingSubAlloc.id, paidBy: user?.username || 'admin' });
     }
     setPayDialogOpen(false);
   };
@@ -2130,8 +2141,12 @@ ${sectionsHtml}
 
               {/* Add new payee row */}
               <div className="border rounded-md p-3 space-y-2 bg-blue-50/40">
-                <p className="text-xs font-medium text-muted-foreground">Add Payee</p>
+                <p className="text-xs font-medium text-muted-foreground">Add Payee for later payment</p>
+                <p className="text-xs text-muted-foreground">
+                  This only prepares the payee allocation. Company, debit ledger, and Cash/Bank source are selected before payment is posted.
+                </p>
                 <div>
+                  <Label className="text-xs">Payee / Vendor Name</Label>
                   <Input
                     value={subPayeeSearchTerm || newPayeeName}
                     onChange={(e) => {
@@ -2139,8 +2154,8 @@ ${sectionsHtml}
                       setNewPayeeName(e.target.value);
                       setSubSelectedPayeeName('');
                     }}
-                    placeholder="Search by name (doctors, consultants, vendors, ledgers)..."
-                    className="h-8 text-sm"
+                    placeholder="Search or enter a payee name..."
+                    className="h-8 text-sm mt-1"
                   />
                   {subPayeeResults.length > 0 && !subSelectedPayeeName && (
                     <div className="border rounded-md mt-1 max-h-40 overflow-y-auto bg-white shadow-sm z-10 relative">
@@ -2236,7 +2251,7 @@ ${sectionsHtml}
                 )}
               </div>
               <div>
-                <Label>Tally Company</Label>
+                <Label>Company</Label>
                 <Select
                   value={payTallyCompanyId}
                   onValueChange={(value) => {
@@ -2248,7 +2263,7 @@ ${sectionsHtml}
                     setPayCreditLedgerId('');
                   }}
                 >
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="Select Tally company" /></SelectTrigger>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Select company first" /></SelectTrigger>
                   <SelectContent>
                     {tallyCompanies.map((company) => (
                       <SelectItem key={company.id} value={company.id}>{company.company_name}</SelectItem>
@@ -2257,7 +2272,7 @@ ${sectionsHtml}
                 </Select>
               </div>
               <div className="relative">
-                <Label>Debit Ledger</Label>
+                <Label>Ledger to Pay (Debit)</Label>
                 <Input
                   value={payDebitLedgerSearch || payDebitLedgerName || payDebitLedgerDetails?.name || ''}
                   onChange={(e) => {
@@ -2265,7 +2280,7 @@ ${sectionsHtml}
                     setPayDebitLedgerId('');
                     setPayDebitLedgerName('');
                   }}
-                  placeholder="Search vendor ledger"
+                  placeholder="Search expense or payable ledger"
                   className="mt-1"
                   disabled={!payTallyCompanyId}
                 />
@@ -2294,7 +2309,7 @@ ${sectionsHtml}
                 )}
               </div>
               <div>
-                <Label>Credit Cash / Bank Ledger</Label>
+                <Label>Pay From (Credit Cash / Bank)</Label>
                 <Select value={payCreditLedgerId} onValueChange={setPayCreditLedgerId}>
                   <SelectTrigger className="mt-1"><SelectValue placeholder="Select payment account" /></SelectTrigger>
                   <SelectContent>
@@ -2315,7 +2330,7 @@ ${sectionsHtml}
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                A payment voucher will be automatically created in the accounting system.
+                On confirmation, one payment voucher/JV will debit the selected ledger and credit the selected Cash/Bank account for this company.
               </p>
             </div>
           )}
@@ -2336,14 +2351,10 @@ ${sectionsHtml}
                     <Save className="h-4 w-4 mr-1" /> Save & Pay Later
                   </Button>
                 )}
-                {dialogSubAllocations.length > 0 && (
-                  <Button
-                    className="bg-green-600 hover:bg-green-700"
-                    onClick={handlePayAll}
-                    disabled={markPaid.isPending}
-                  >
-                    Pay All ({formatINR(payingEntry ? payingEntry.daily_amount + payingEntry.carryforward_amount - payingEntry.paid_amount : 0)})
-                  </Button>
+                {dialogSubAllocations.length > 0 && dialogSubAllocations.some((sa) => !sa.is_paid) && (
+                  <p className="text-xs text-muted-foreground self-center">
+                    Pay each allocated payee separately so every voucher remains linked to the correct payee.
+                  </p>
                 )}
                 {dialogSubAllocations.length === 0 && (
                   <Button
@@ -2357,8 +2368,8 @@ ${sectionsHtml}
             ) : (
               <>
                 <Button variant="outline" onClick={() => setSubAllocDialogMode('plan')}>Back</Button>
-                <Button onClick={confirmPay} disabled={markPaid.isPending || savePaymentLedgers.isPending} className="bg-green-600 hover:bg-green-700">
-                  {markPaid.isPending || savePaymentLedgers.isPending ? 'Processing...' : 'Confirm Payment'}
+                <Button onClick={confirmPay} disabled={markPaid.isPending || savePaymentLedgers.isPending || markPayeePaid.isPending} className="bg-green-600 hover:bg-green-700">
+                  {markPaid.isPending || savePaymentLedgers.isPending || markPayeePaid.isPending ? 'Processing...' : 'Confirm Payment'}
                 </Button>
               </>
             )}

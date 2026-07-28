@@ -507,10 +507,16 @@ export const useSubAllocations = (scheduleId: string | null) => {
   });
 
   const markPayeePaid = useMutation({
-    mutationFn: async ({ id, paidBy }: { id: string; paidBy: string }) => {
+    mutationFn: async ({ id, paidBy, voucherId }: { id: string; paidBy: string; voucherId?: string | null }) => {
       const { error } = await (supabase as any)
         .from('payment_sub_allocations')
-        .update({ is_paid: true, paid_at: new Date().toISOString(), paid_by: paidBy, updated_at: new Date().toISOString() })
+        .update({
+          is_paid: true,
+          paid_at: new Date().toISOString(),
+          paid_by: paidBy,
+          voucher_id: voucherId || null,
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', id);
       if (error) throw error;
     },
