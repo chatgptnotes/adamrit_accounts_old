@@ -9,6 +9,7 @@ import { LedgerPicker } from "./LedgerPicker";
 import { BillPaymentSheet } from "./BillPaymentSheet";
 import { InvoiceCamera } from "./InvoiceCamera";
 import {
+  useExpenseBillCompanyId,
   useExpenseLedgers,
   useOutstandingBills,
   usePartyLedgers,
@@ -112,10 +113,17 @@ export default function ExpenseBillsFlow() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const record = useRecordExpenseBill();
+  const company = useExpenseBillCompanyId();
 
   const amountValue = useMemo(() => Number(amount.replace(/,/g, "")) || 0, [amount]);
   const canSave =
-    !!party && !!head && billNumber.trim().length > 0 && amountValue > 0 && !record.isPending;
+    !!company.data &&
+    !!party &&
+    !!head &&
+    !!file &&
+    billNumber.trim().length > 0 &&
+    amountValue > 0 &&
+    !record.isPending;
 
   const reset = () => {
     setParty(null);
@@ -129,7 +137,7 @@ export default function ExpenseBillsFlow() {
   };
 
   const save = () => {
-    if (!canSave || !party || !head) return;
+    if (!canSave || !company.data || !party || !head || !file) return;
     record.mutate(
       {
         billNumber,
@@ -137,6 +145,7 @@ export default function ExpenseBillsFlow() {
         dueDate: dueDate || null,
         partyLedgerId: party.id,
         expenseLedgerId: head.id,
+        companyId: company.data,
         amount: amountValue,
         narration,
         file,
@@ -181,6 +190,12 @@ export default function ExpenseBillsFlow() {
   return (
     <div className="flex h-full flex-col">
       <div className="tablet-no-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto p-4 sm:p-6">
+        {company.isError && (
+          <TabletCard variant="flat" className="border-destructive/40 text-sm text-destructive">
+            The accounting company could not be loaded. Close this screen and try again.
+          </TabletCard>
+        )}
+
         <LedgerPicker
           label="Who is the bill from"
           placeholder="Search suppliers and creditors"
@@ -252,7 +267,7 @@ export default function ExpenseBillsFlow() {
 
         {/* The approved invoice, kept as evidence against the entry. */}
         <div>
-          <TabletLabel>Approved invoice</TabletLabel>
+          <TabletLabel>Approved invoice (required)</TabletLabel>
           {file ? (
             <TabletCard variant="flat" className="flex items-center gap-3">
               <FileText className="h-6 w-6 shrink-0 text-primary" />
@@ -290,6 +305,11 @@ export default function ExpenseBillsFlow() {
             hidden
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           />
+          {!file && (
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Attach a photo or PDF before recording the invoice.
+            </p>
+          )}
         </div>
       </div>
 
@@ -305,10 +325,10 @@ export default function ExpenseBillsFlow() {
           Cancel
         </TabletButton>
         <TabletButton className="flex-[2]" disabled={!canSave} onClick={save}>
-          {record.isPending ? (
+          {record.isPending || company.isLoading ? (
             <>
               <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              Recording
+              {record.isPending ? "Recording" : "Loading company"}
             </>
           ) : (
             "Record invoice"

@@ -21,7 +21,6 @@ import {
   Pill,
   Receipt,
   ReceiptIndianRupee,
-  CalendarClock,
   ScanLine,
   Stethoscope,
   UserPlus,

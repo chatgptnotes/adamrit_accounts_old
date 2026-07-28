@@ -2,6 +2,8 @@ import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from "re
 import { Navigate, useParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { getModule } from "@/tablet/config/modules";
+import { useAuth } from "@/contexts/AuthContext";
+import { canCreateAccountingVouchers } from "@/lib/accounting-access";
 
 /** Lazy module-flow registry, keyed by the module id from config/modules.ts. */
 const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
@@ -103,10 +105,14 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
  */
 export function TabletModuleHost() {
   const { moduleId } = useParams();
+  const { user } = useAuth();
   const mod = getModule(moduleId);
   const Flow = moduleId ? FLOWS[moduleId] : undefined;
 
   if (!mod || !Flow) {
+    return <Navigate to="/" replace />;
+  }
+  if (mod.accountingOnly && !canCreateAccountingVouchers(user)) {
     return <Navigate to="/" replace />;
   }
 

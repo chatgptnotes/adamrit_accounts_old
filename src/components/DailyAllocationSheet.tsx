@@ -687,8 +687,15 @@ export function DailyAllocationSheet({ hospital = 'hope', onSent }: DailyAllocat
         .eq('hospital_name', hospital)
         .eq('schedule_date', date);
       if (scheduleError) throw scheduleError;
+      type ObligationLookup = {
+        id: string;
+        party_name: string;
+        default_daily_amount: number | null;
+      };
       const scheduleMap = new Map((schedules || []).map((s: any) => [s.obligation_id, Number(s.daily_amount) || 0]));
-      const obligationMap = new Map((obligations || []).map((o: any) => [normalizeVendorName(o.party_name), o]));
+      const obligationMap = new Map<string, ObligationLookup>(
+        ((obligations || []) as ObligationLookup[]).map((o) => [normalizeVendorName(o.party_name), o]),
+      );
       const conflicts = rows
         .map((row) => {
           const obligation = obligationMap.get(normalizeVendorName(row.vendor));
