@@ -154,6 +154,181 @@ export function TabletNotificationBell() {
     navigate(path);
   };
 
+  const pharmacyRows = rows.filter(
+    (row) => row.notification_type === "pharmacy_threshold",
+  );
+  const otSurgicalRows = rows.filter(
+    (row) => row.notification_type === "ot_surgical_threshold",
+  );
+  const otherRows = rows.filter(
+    (row) =>
+      row.notification_type !== "pharmacy_threshold" &&
+      row.notification_type !== "ot_surgical_threshold",
+  );
+
+  const renderNotificationCard = (row: NotificationRow) => {
+    const payload = row.payload || {};
+    const isPharmacyThreshold = row.notification_type === "pharmacy_threshold";
+    const isOtThreshold = row.notification_type === "ot_surgical_threshold";
+    const isThreshold = isPharmacyThreshold || isOtThreshold;
+    const totalAmount = formatInr(payload.total_pharmacy_amount);
+    const latestBillAmount = formatInr(payload.latest_bill_amount);
+
+    return (
+      <article
+        key={row.id}
+        onClick={() => void markRead(row)}
+        className={cn(
+          "rounded-2xl border p-4",
+          row.is_read
+            ? sheetIsLight
+              ? "border-slate-200 bg-white"
+              : "border-slate-800 bg-slate-900/60"
+            : sheetIsLight
+              ? "border-rose-200 bg-rose-50/70 shadow-sm"
+              : "border-rose-900/60 bg-rose-950/20",
+        )}
+      >
+        <div className="flex items-start gap-3">
+          <span
+            className={cn(
+              "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+              row.is_read
+                ? sheetIsLight
+                  ? "bg-slate-100 text-slate-600"
+                  : "bg-slate-800 text-slate-300"
+                : "bg-rose-500 text-white",
+            )}
+          >
+            {isThreshold ? (
+              <IndianRupee className="h-4 w-4" />
+            ) : (
+              <BellRing className="h-4 w-4" />
+            )}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4
+                className={cn(
+                  "min-w-0 text-sm font-semibold",
+                  sheetIsLight ? "text-slate-950" : "text-slate-50",
+                )}
+              >
+                {row.title}
+              </h4>
+              {!row.is_read ? (
+                <span
+                  className={cn(
+                    "rounded-full px-2 py-0.5 text-[0.65rem] font-semibold",
+                    sheetIsLight
+                      ? "bg-rose-100 text-rose-800"
+                      : "bg-rose-400/15 text-rose-200",
+                  )}
+                >
+                  New
+                </span>
+              ) : null}
+            </div>
+            <p
+              className={cn(
+                "mt-1 text-xs",
+                sheetIsLight ? "text-slate-600" : "text-slate-400",
+              )}
+            >
+              {row.message}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {formatTimeAgo(row.created_at)}
+            </p>
+          </div>
+        </div>
+
+        {isThreshold ? (
+          <div
+            className={cn(
+              "mt-3 space-y-1 border-t pt-3 text-xs",
+              sheetIsLight
+                ? "border-slate-100 text-slate-600"
+                : "border-slate-800 text-slate-400",
+            )}
+          >
+            <p
+              className={cn(
+                "text-sm font-semibold",
+                sheetIsLight ? "text-slate-900" : "text-slate-100",
+              )}
+            >
+              {String(payload.patient_name || row.patient_name || "Patient")}
+            </p>
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              {payload.uhid || payload.patient_id ? (
+                <span>UHID: {String(payload.uhid || payload.patient_id)}</span>
+              ) : null}
+              {payload.admission_number ? (
+                <span>Admission: {String(payload.admission_number)}</span>
+              ) : null}
+              {payload.patient_category ? (
+                <span>Category: {String(payload.patient_category)}</span>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              {isPharmacyThreshold && totalAmount ? (
+                <span>Total pharmacy: {totalAmount}</span>
+              ) : null}
+              {payload.latest_bill_number ? (
+                <span>
+                  {isOtThreshold ? "OT bill" : "Latest bill"}:{" "}
+                  {String(payload.latest_bill_number)}
+                  {latestBillAmount ? ` (${latestBillAmount})` : ""}
+                </span>
+              ) : null}
+            </div>
+            {payload.created_by ? (
+              <p>Billed by: {String(payload.created_by)}</p>
+            ) : null}
+
+            {row.visit_id ? (
+              <div className="flex flex-wrap gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openModule(`/patient-profile?visit_id=${row.visit_id}`, row);
+                  }}
+                  className={cn(
+                    "flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-all active:scale-95",
+                    sheetIsLight
+                      ? "border-slate-200 bg-slate-50 text-slate-700"
+                      : "border-slate-700 bg-slate-900 text-slate-200",
+                  )}
+                >
+                  <UserIcon className="h-3.5 w-3.5" />
+                  Patient
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openModule(`/pharmacy-dispense?visit_id=${row.visit_id}`, row);
+                  }}
+                  className={cn(
+                    "flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-all active:scale-95",
+                    sheetIsLight
+                      ? "border-slate-200 bg-slate-50 text-slate-700"
+                      : "border-slate-700 bg-slate-900 text-slate-200",
+                  )}
+                >
+                  <Pill className="h-3.5 w-3.5" />
+                  Pharmacy
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </article>
+    );
+  };
+
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
@@ -185,7 +360,7 @@ export function TabletNotificationBell() {
       <SheetContent
         side="right"
         className={cn(
-          "flex h-full w-full flex-col gap-0 overflow-hidden border-l p-0 sm:max-w-md",
+          "flex h-full w-full flex-col gap-0 overflow-hidden border-l p-0 sm:max-w-4xl",
           sheetIsLight
             ? "border-slate-200 bg-white text-slate-950"
             : "border-slate-700 bg-slate-950 text-slate-50",
@@ -295,146 +470,76 @@ export function TabletNotificationBell() {
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {rows.map((row) => {
-                const payload = row.payload || {};
-                const isThreshold = row.notification_type === "pharmacy_threshold";
-                const totalAmount = formatInr(payload.total_pharmacy_amount);
-                const latestBillAmount = formatInr(payload.latest_bill_amount);
-                return (
-                  <article
-                    key={row.id}
-                    onClick={() => void markRead(row)}
+            <div className="space-y-5">
+              <div className="grid gap-4 md:grid-cols-2">
+                {[
+                  { title: "Pharmacy", items: pharmacyRows },
+                  { title: "OT Surgical", items: otSurgicalRows },
+                ].map((group) => (
+                  <section
+                    key={group.title}
                     className={cn(
-                      "rounded-2xl border p-4",
-                      row.is_read
-                        ? sheetIsLight
-                          ? "border-slate-200 bg-white"
-                          : "border-slate-800 bg-slate-900/60"
-                        : sheetIsLight
-                          ? "border-rose-200 bg-rose-50/70 shadow-sm"
-                          : "border-rose-900/60 bg-rose-950/20",
+                      "flex min-h-64 flex-col rounded-2xl border p-3",
+                      sheetIsLight
+                        ? "border-slate-200 bg-slate-50/70"
+                        : "border-slate-800 bg-slate-900/40",
                     )}
                   >
-                    <div className="flex items-start gap-3">
+                    <div className="mb-3 flex items-center justify-between px-1">
+                      <h3
+                        className={cn(
+                          "text-sm font-semibold",
+                          sheetIsLight ? "text-slate-900" : "text-slate-100",
+                        )}
+                      >
+                        {group.title}
+                      </h3>
                       <span
                         className={cn(
-                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
-                          row.is_read
-                            ? sheetIsLight
-                              ? "bg-slate-100 text-slate-600"
-                              : "bg-slate-800 text-slate-300"
-                            : "bg-rose-500 text-white",
+                          "rounded-full px-2 py-0.5 text-xs font-semibold",
+                          sheetIsLight
+                            ? "bg-white text-slate-600"
+                            : "bg-slate-800 text-slate-300",
                         )}
                       >
-                        {isThreshold ? (
-                          <IndianRupee className="h-4 w-4" />
-                        ) : (
-                          <BellRing className="h-4 w-4" />
-                        )}
+                        {group.items.length}
                       </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h4 className={cn("min-w-0 text-sm font-semibold", sheetIsLight ? "text-slate-950" : "text-slate-50")}>
-                            {row.title}
-                          </h4>
-                          {!row.is_read ? (
-                            <span
-                              className={cn(
-                                "rounded-full px-2 py-0.5 text-[0.65rem] font-semibold",
-                                sheetIsLight
-                                  ? "bg-rose-100 text-rose-800"
-                                  : "bg-rose-400/15 text-rose-200",
-                              )}
-                            >
-                              New
-                            </span>
-                          ) : null}
-                        </div>
-                        <p className={cn("mt-1 text-xs", sheetIsLight ? "text-slate-600" : "text-slate-400")}>
-                          {row.message}
-                        </p>
-                        <p className={cn("mt-1 text-xs", sheetIsLight ? "text-slate-500" : "text-slate-500")}>
-                          {formatTimeAgo(row.created_at)}
-                        </p>
-                      </div>
                     </div>
-
-                    {isThreshold ? (
-                      <div
-                        className={cn(
-                          "mt-3 space-y-1 border-t pt-3 text-xs",
-                          sheetIsLight ? "border-slate-100 text-slate-600" : "border-slate-800 text-slate-400",
-                        )}
-                      >
-                        <p className={cn("text-sm font-semibold", sheetIsLight ? "text-slate-900" : "text-slate-100")}>
-                          {String(payload.patient_name || row.patient_name || "Patient")}
-                        </p>
-                        <div className="flex flex-wrap gap-x-4 gap-y-1">
-                          {payload.uhid || payload.patient_id ? (
-                            <span>UHID: {String(payload.uhid || payload.patient_id)}</span>
-                          ) : null}
-                          {payload.admission_number ? (
-                            <span>Admission: {String(payload.admission_number)}</span>
-                          ) : null}
-                          {payload.patient_category ? (
-                            <span>Category: {String(payload.patient_category)}</span>
-                          ) : null}
+                    <div className="max-h-[58vh] space-y-3 overflow-y-auto pr-1">
+                      {group.items.length > 0 ? (
+                        group.items.map(renderNotificationCard)
+                      ) : (
+                        <div
+                          className={cn(
+                            "flex min-h-44 items-center justify-center rounded-xl border border-dashed p-4 text-center text-xs",
+                            sheetIsLight
+                              ? "border-slate-200 text-slate-500"
+                              : "border-slate-700 text-slate-400",
+                          )}
+                        >
+                          No {group.title} notifications.
                         </div>
-                        <div className="flex flex-wrap gap-x-4 gap-y-1">
-                          {totalAmount ? <span>Total pharmacy: {totalAmount}</span> : null}
-                          {payload.latest_bill_number ? (
-                            <span>
-                              Latest bill: {String(payload.latest_bill_number)}
-                              {latestBillAmount ? ` (${latestBillAmount})` : ""}
-                            </span>
-                          ) : null}
-                        </div>
-                        {payload.created_by ? (
-                          <p>Billed by: {String(payload.created_by)}</p>
-                        ) : null}
+                      )}
+                    </div>
+                  </section>
+                ))}
+              </div>
 
-                        {row.visit_id ? (
-                          <div className="flex flex-wrap gap-2 pt-2">
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                openModule(`/patient-profile?visit_id=${row.visit_id}`, row);
-                              }}
-                              className={cn(
-                                "flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-all active:scale-95",
-                                sheetIsLight
-                                  ? "border-slate-200 bg-slate-50 text-slate-700"
-                                  : "border-slate-700 bg-slate-900 text-slate-200",
-                              )}
-                            >
-                              <UserIcon className="h-3.5 w-3.5" />
-                              Patient
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                openModule(`/pharmacy-dispense?visit_id=${row.visit_id}`, row);
-                              }}
-                              className={cn(
-                                "flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-all active:scale-95",
-                                sheetIsLight
-                                  ? "border-slate-200 bg-slate-50 text-slate-700"
-                                  : "border-slate-700 bg-slate-900 text-slate-200",
-                              )}
-                            >
-                              <Pill className="h-3.5 w-3.5" />
-                              Pharmacy
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </article>
-                );
-              })}
+              {otherRows.length > 0 ? (
+                <section>
+                  <h3
+                    className={cn(
+                      "mb-3 px-1 text-sm font-semibold",
+                      sheetIsLight ? "text-slate-900" : "text-slate-100",
+                    )}
+                  >
+                    Other notifications
+                  </h3>
+                  <div className="space-y-3">
+                    {otherRows.map(renderNotificationCard)}
+                  </div>
+                </section>
+              ) : null}
             </div>
           )}
         </div>

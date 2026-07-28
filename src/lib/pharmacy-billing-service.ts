@@ -43,13 +43,15 @@ export interface SaleData {
   hospital_name?: string; // Add hospital name field
   bill_number?: string; // Unique bill number (e.g., BILL1766125832838)
   sale_date?: string; // ISO date string — allows backdated bills for corporate patients
+  is_ot_surgical?: boolean;
+  save_request_id?: string;
   subtotal: number;
   discount: number;
   discount_percentage?: number;
   tax_gst: number;
   tax_percentage?: number;
   total_amount: number;
-  payment_method: 'CASH' | 'CARD' | 'UPI' | 'INSURANCE';
+  payment_method: 'CASH' | 'CARD' | 'UPI' | 'INSURANCE' | 'CREDIT';
   payment_status?: 'PENDING' | 'COMPLETED' | 'REFUNDED' | 'CANCELLED';
   created_by?: string;
   items: CartItem[];
@@ -76,63 +78,11 @@ export async function savePharmacySale(saleData: SaleData): Promise<SaleResponse
       };
     }
 
-    // Step 1: Insert into pharmacy_sales (header)
-    const { data: saleHeader, error: saleError } = await supabase
-      .from('pharmacy_sales')
-      .insert({
-        sale_type: saleData.sale_type,
-        patient_id: saleData.patient_id,
-        visit_id: saleData.visit_id,
-        patient_name: saleData.patient_name,
-        prescription_number: saleData.prescription_number,
-        doctor_id: saleData.doctor_id,
-        doctor_name: saleData.doctor_name,
-        ward_type: saleData.ward_type,
-        remarks: saleData.remarks,
-        hospital_name: saleData.hospital_name, // Add hospital name
-        bill_number: saleData.bill_number, // Unique bill number
-        subtotal: saleData.subtotal,
-        discount: saleData.discount,
-        discount_percentage: saleData.discount_percentage || 0,
-        tax_gst: saleData.tax_gst,
-        tax_percentage: saleData.tax_percentage || 0,
-        total_amount: saleData.total_amount,
-        payment_method: saleData.payment_method,
-        payment_status: saleData.payment_status || 'COMPLETED',
-        sale_date: saleData.sale_date || new Date().toISOString(),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-      .select('sale_id')
-      .single();
-
-    if (saleError) {
-      console.error('Error saving sale header:', saleError);
-      return {
-        success: false,
-        error: `Failed to save sale: ${saleError.message}`
-      };
-    }
-
-    if (!saleHeader || !saleHeader.sale_id) {
-      return {
-        success: false,
-        error: 'Failed to get sale_id after insert'
-      };
-    }
-
-    const saleId = saleHeader.sale_id;
-
-    // Step 2: Insert into pharmacy_sale_items (line items)
+    // Map the existing frontend item shape to database columns once. The
+    // database RPC inserts the header, all items and the threshold result in a
+    // single transaction.
     const saleItems = saleData.items.map(item => {
-      console.log('📦 Mapping item to database:', {
-        medicine_id: item.medicine_id,
-        medicine_name: item.medicine_name,
-        has_medicine_name: !!item.medicine_name
-      });
-
       return {
-        sale_id: saleId,
         medication_id: item.medicine_id || null, // May be null if FK constraint is removed
         medication_name: item.medicine_name || 'Unknown', // Ensure not null
         generic_name: item.generic_name || null,
@@ -154,76 +104,81 @@ export async function savePharmacySale(saleData: SaleData): Promise<SaleResponse
         manufacturer: item.manufacturer || null,
         dosage_form: item.dosage_form || null,
         strength: item.strength || null,
-        is_implant: item.is_implant || false,
-        created_at: new Date().toISOString()
+        is_implant: item.is_implant || false
       };
     });
 
-    const { error: itemsError } = await supabase
-      .from('pharmacy_sale_items')
-      .insert(saleItems);
+    const requestId = saleData.save_request_id || crypto.randomUUID();
+    const rpcArgs = {
+      p_sale: {
+        sale_type: saleData.sale_type,
+        patient_id: saleData.patient_id,
+        visit_id: saleData.visit_id,
+        patient_name: saleData.patient_name,
+        prescription_number: saleData.prescription_number,
+        doctor_id: saleData.doctor_id,
+        doctor_name: saleData.doctor_name,
+        ward_type: saleData.ward_type,
+        remarks: saleData.remarks,
+        hospital_name: saleData.hospital_name,
+        bill_number: saleData.bill_number,
+        subtotal: saleData.subtotal,
+        discount: saleData.discount,
+        discount_percentage: saleData.discount_percentage || 0,
+        tax_gst: saleData.tax_gst,
+        tax_percentage: saleData.tax_percentage || 0,
+        total_amount: saleData.total_amount,
+        payment_method: saleData.payment_method,
+        payment_status: saleData.payment_status || 'COMPLETED',
+        sale_date: saleData.sale_date || new Date().toISOString(),
+        is_ot_surgical: saleData.is_ot_surgical || false
+      },
+      p_items: saleItems,
+      p_created_by: saleData.created_by || null,
+      p_request_id: requestId
+    };
 
-    if (itemsError) {
-      console.error('Error saving sale items:', itemsError);
+    // One retry with the same request ID is safe even if the first response
+    // was lost after commit: the database returns the original sale.
+    let rpcResponse = await (supabase as any).rpc(
+      'save_pharmacy_sale_atomic',
+      rpcArgs
+    );
+    if (rpcResponse.error) {
+      rpcResponse = await (supabase as any).rpc(
+        'save_pharmacy_sale_atomic',
+        rpcArgs
+      );
+    }
+    const { data, error } = rpcResponse;
 
-      // Rollback: Delete the sale header
-      await supabase
-        .from('pharmacy_sales')
-        .delete()
-        .eq('sale_id', saleId);
-
+    if (error) {
+      console.error('Atomic pharmacy sale failed:', error);
       return {
         success: false,
-        error: `Failed to save sale items: ${itemsError.message}`
+        error: `Failed to save sale: ${error.message}`
       };
     }
 
-    // Step 3: Update medication stock (optional - if you want to track stock)
-    // Uncomment if you want to reduce stock after sale
-    /*
-    for (const item of saleData.items) {
-      const { data: medication, error: stockError } = await supabase
-        .from('medication')
-        .select('stock, loose_stock_quantity')
-        .eq('id', item.medicine_id)
-        .single();
+    const result = data as {
+      success?: boolean;
+      sale_id?: number;
+      duplicate_request?: boolean;
+    } | null;
 
-      if (medication && !stockError) {
-        const currentStock = parseInt(medication.stock || '0');
-        const newStock = currentStock - item.quantity;
-
-        await supabase
-          .from('medication')
-          .update({
-            stock: newStock.toString(),
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', item.medicine_id);
-      }
-    }
-    */
-
-    // Step 4: Admission-wise pharmacy threshold check. The bill is already
-    // saved — a notification failure must never fail or roll back the sale.
-    try {
-      const { error: thresholdError } = await (supabase as any).rpc(
-        'check_pharmacy_threshold_after_sale',
-        {
-          p_sale_id: saleId,
-          p_created_by: saleData.created_by || null
-        }
-      );
-      if (thresholdError) {
-        console.error('Pharmacy threshold check failed (bill saved):', thresholdError);
-      }
-    } catch (thresholdError) {
-      console.error('Pharmacy threshold check failed (bill saved):', thresholdError);
+    if (!result?.success || !result.sale_id) {
+      return {
+        success: false,
+        error: 'Database did not confirm the pharmacy sale'
+      };
     }
 
     return {
       success: true,
-      sale_id: saleId,
-      message: 'Sale saved successfully'
+      sale_id: result.sale_id,
+      message: result.duplicate_request
+        ? 'Sale was already saved successfully'
+        : 'Sale saved successfully'
     };
 
   } catch (error: any) {

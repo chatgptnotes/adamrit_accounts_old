@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { 
   Table, 
   TableBody, 
@@ -102,6 +103,7 @@ interface Sale {
   payment_reference?: string;
   status: 'PENDING' | 'COMPLETED' | 'CANCELLED' | 'REFUNDED';
   payment_status?: string;
+  is_ot_surgical?: boolean;
   cashier_name?: string;
   items: CartItem[];
 }
@@ -121,6 +123,7 @@ const PharmacyBilling: React.FC = () => {
   const [completedSale, setCompletedSale] = useState<Sale | null>(null);
   const [pendingApprovalDbSaleId, setPendingApprovalDbSaleId] = useState<number | null>(null);
   const [saleDate, setSaleDate] = useState(new Date().toISOString().split('T')[0]); // YYYY-MM-DD
+  const [isOtSurgical, setIsOtSurgical] = useState(false);
   
   const [patientSearchResults, setPatientSearchResults] = useState<any[]>([]);
   const [isSearchingPatient, setIsSearchingPatient] = useState(false);
@@ -596,12 +599,13 @@ const PharmacyBilling: React.FC = () => {
 
   const clearCart = () => {
     setCart([]);
-    setPatientInfo({ id: '', name: '', phone: '' });
+    setPatientInfo({ id: '', name: '', phone: '', corporate: '' });
     setPrescriptionId('');
     setDiscountPercentage(0);
     setOrderDiscount(0); // Reset order-level discount
     setPaymentReference('');
     setVisitId('');
+    setIsOtSurgical(false);
   };
 
   const calculateTotals = () => {
@@ -665,6 +669,7 @@ const PharmacyBilling: React.FC = () => {
       payment_reference: paymentReference,
       status: 'COMPLETED',
       payment_status: (totals.totalDiscount > 0 && !isAdmin) ? 'PENDING_DISCOUNT_APPROVAL' : 'COMPLETED',
+      is_ot_surgical: isOtSurgical,
       cashier_name: 'Current User',
       items: [...cart]
     };
@@ -692,6 +697,7 @@ const PharmacyBilling: React.FC = () => {
       total_amount: totals.totalAmount,
       payment_method: paymentMethod,
       payment_status: (totals.totalDiscount > 0 && !isAdmin) ? 'PENDING_DISCOUNT_APPROVAL' : 'COMPLETED',
+      is_ot_surgical: isOtSurgical,
       created_by: user?.email || user?.username || undefined,
       items: cart.map(item => {
         console.log('🔍 Cart item being mapped:', {
@@ -1215,6 +1221,19 @@ const PharmacyBilling: React.FC = () => {
                   {!patientInfo.corporate && (
                     <p className="text-xs text-gray-400 mt-1">Backdating available for corporate/panel/yojana patients only</p>
                   )}
+                </div>
+                <div className="flex items-center">
+                  <label
+                    htmlFor="ot-surgical-sale"
+                    className="flex min-h-10 cursor-pointer items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2"
+                  >
+                    <Checkbox
+                      id="ot-surgical-sale"
+                      checked={isOtSurgical}
+                      onCheckedChange={(checked) => setIsOtSurgical(checked === true)}
+                    />
+                    <span className="text-sm font-medium">OT Surgical</span>
+                  </label>
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-4">
