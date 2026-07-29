@@ -486,6 +486,62 @@ function doubleTickExtensionAlertPlugin(env: Record<string, string>): Plugin {
   };
 }
 
+// Vite does not execute Vercel functions. Run the protected invoice-content
+// handler in-process during local development so localhost tests the current
+// code instead of depending on whichever function version is deployed.
+function invoiceContentDevPlugin(env: Record<string, string>): Plugin {
+  return {
+    name: 'invoice-content-dev',
+    configureServer(server) {
+      server.middlewares.use('/api/invoice-content', async (req: any, res: any) => {
+        try {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+          }
+          const rawBody = Buffer.concat(chunks).toString('utf8');
+          req.body = rawBody ? JSON.parse(rawBody) : {};
+
+          // Vercel supplies these at runtime; expose the already-loaded local
+          // development value to the same handler without sending it to the browser.
+          if (!process.env.SUPABASE_SERVICE_ROLE_KEY && env.SUPABASE_SERVICE_ROLE_KEY) {
+            process.env.SUPABASE_SERVICE_ROLE_KEY = env.SUPABASE_SERVICE_ROLE_KEY;
+          }
+
+          res.status = (statusCode: number) => {
+            res.statusCode = statusCode;
+            return res;
+          };
+          res.json = (body: unknown) => {
+            if (!res.hasHeader('Content-Type')) {
+              res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            }
+            res.end(JSON.stringify(body));
+            return res;
+          };
+
+          const { default: invoiceContentHandler } = await import('./api/invoice-content');
+          await invoiceContentHandler(req, res);
+        } catch (error) {
+          if (res.headersSent) {
+            res.end();
+            return;
+          }
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.end(JSON.stringify({
+            ok: false,
+            error: 'invoice_content_dev_handler_failed',
+            stage: 'local_dev',
+            retryable: false,
+          }));
+          console.error('[invoice-content-dev] Failed:', error);
+        }
+      });
+    },
+  };
+}
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   // Load non-VITE_ env (e.g. SLACK_WEBHOOK_URL) for server-side dev use only.
@@ -508,15 +564,10 @@ export default defineConfig(({ mode }) => {
         changeOrigin: true,
         secure: true,
       },
-      "/api/invoice-content": {
-        target: "https://www.adamrit.com",
-        changeOrigin: true,
-        secure: true,
-      },
     },
   },
   plugins: [
-    ...(mode === 'development' ? [slackProxyPlugin(env), doubleTickExtensionAlertPlugin(env), tallyProxyPlugin(env), gmailProxyPlugin(env)] : []),
+    ...(mode === 'development' ? [slackProxyPlugin(env), doubleTickExtensionAlertPlugin(env), tallyProxyPlugin(env), gmailProxyPlugin(env), invoiceContentDevPlugin(env)] : []),
     ...(mode === 'development' ? [basicSsl()] : []),
     react(),
     // Service worker for installability + instant app-shell launch. We keep the
