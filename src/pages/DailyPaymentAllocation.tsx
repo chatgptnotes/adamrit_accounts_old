@@ -136,6 +136,7 @@ interface SortableScheduleRowProps {
   skipConfirmId: string | null;
   subAllocations: SubAllocation[];
   companyName: string;
+  ledgerName: string;
   onStartEdit: () => void;
   onSaveEdit: () => void;
   onCancelEdit: () => void;
@@ -149,7 +150,7 @@ interface SortableScheduleRowProps {
 
 const SortableScheduleRow = ({
   entry, idx, isEditing, editAmount, editNotes, skipConfirmId,
-  subAllocations, companyName,
+  subAllocations, companyName, ledgerName,
   onStartEdit, onSaveEdit, onCancelEdit, onEditAmountChange, onEditNotesChange,
   onPay, onSkipConfirm, onSkipCancel, onSkip,
 }: SortableScheduleRowProps) => {
@@ -199,6 +200,7 @@ const SortableScheduleRow = ({
         )}
       </TableCell>
       <TableCell className="text-xs text-muted-foreground">{companyName || '-'}</TableCell>
+      <TableCell className="text-xs text-muted-foreground">{ledgerName}</TableCell>
       <TableCell className="text-right">
         {isEditing ? (
           <Input
@@ -1677,6 +1679,7 @@ ${sectionsHtml}
                       <TableHead className="w-10">#</TableHead>
                       <TableHead>Party</TableHead>
                       <TableHead>Company</TableHead>
+                      <TableHead>Ledger</TableHead>
                       <TableHead className="text-right">Daily Amount</TableHead>
                       <TableHead className="text-right">Carry Forward</TableHead>
                       <TableHead className="text-right">Total Due</TableHead>
@@ -1694,7 +1697,7 @@ ${sectionsHtml}
                           <React.Fragment key={group.category}>
                             {/* Section Header */}
                             <TableRow className="bg-blue-50 border-t-2 border-blue-200">
-                              <TableCell colSpan={11} className="py-2">
+                              <TableCell colSpan={12} className="py-2">
                                 <span className="font-semibold text-blue-800 text-sm uppercase tracking-wide">{group.label}</span>
                                 <span className="text-xs text-blue-600 ml-2">({group.entries.length} items)</span>
                               </TableCell>
@@ -1715,6 +1718,7 @@ ${sectionsHtml}
                                   companyName={entry.tally_company_id
                                     ? (tallyCompanyNameMap[entry.tally_company_id] || '')
                                     : (entry.company_id ? (companyNameMap[entry.company_id] || '') : '')}
+                                  ledgerName={entry.tally_ledger_name || ''}
                                   onStartEdit={() => startEditSchedule(entry)}
                                   onSaveEdit={saveEditSchedule}
                                   onCancelEdit={() => setEditingScheduleId(null)}
@@ -1729,7 +1733,7 @@ ${sectionsHtml}
                             })}
                             {/* Section Subtotal */}
                             <TableRow className="bg-blue-50/50 border-b border-blue-100">
-                              <TableCell colSpan={4} className="text-right text-xs font-semibold text-blue-700">
+                              <TableCell colSpan={5} className="text-right text-xs font-semibold text-blue-700">
                                 {group.label} Subtotal
                               </TableCell>
                               <TableCell className="text-right font-mono text-xs font-semibold text-blue-700">{formatINR(group.totalDaily)}</TableCell>
@@ -1743,7 +1747,7 @@ ${sectionsHtml}
                       })()}
                       {/* Grand Total */}
                       <TableRow className="bg-gray-100 font-bold border-t-2 border-gray-300">
-                        <TableCell colSpan={4} className="text-sm">GRAND TOTAL</TableCell>
+                        <TableCell colSpan={5} className="text-sm">GRAND TOTAL</TableCell>
                         <TableCell className="text-right font-mono">{formatINR(sortedSchedule.filter(e => e.status !== 'skipped').reduce((s, e) => s + e.daily_amount, 0))}</TableCell>
                         <TableCell className="text-right font-mono text-red-600">{formatINR(sortedSchedule.filter(e => e.status !== 'skipped').reduce((s, e) => s + e.carryforward_amount, 0))}</TableCell>
                         <TableCell className="text-right font-mono">{formatINR(totalDue)}</TableCell>

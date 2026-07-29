@@ -22,6 +22,7 @@ export interface ScheduleEntry {
   company_id: string | null;
   tally_company_id: string | null;
   tally_ledger_id: string | null;
+  tally_ledger_name: string | null;
   credit_tally_ledger_id: string | null;
   accounting_company_id: string | null;
   debit_account_id: string | null;
@@ -74,7 +75,26 @@ export const useDailyPaymentSchedule = (date: string, hospital: string = 'hope')
         .order('category', { ascending: true });
 
       if (error) throw error;
-      return (data || []) as ScheduleEntry[];
+
+      const rows = (data || []) as ScheduleEntry[];
+      const ledgerIds = [...new Set(
+        rows.map((row) => row.tally_ledger_id).filter((id): id is string => Boolean(id)),
+      )];
+      if (ledgerIds.length === 0) {
+        return rows.map((row) => ({ ...row, tally_ledger_name: null }));
+      }
+
+      const { data: ledgers, error: ledgerError } = await (supabase as any)
+        .from('tally_ledgers')
+        .select('id, name')
+        .in('id', ledgerIds);
+      if (ledgerError) throw ledgerError;
+
+      const ledgerNames = new Map((ledgers || []).map((ledger: { id: string; name: string }) => [ledger.id, ledger.name]));
+      return rows.map((row) => ({
+        ...row,
+        tally_ledger_name: row.tally_ledger_id ? ledgerNames.get(row.tally_ledger_id) || null : null,
+      }));
     },
   });
 
