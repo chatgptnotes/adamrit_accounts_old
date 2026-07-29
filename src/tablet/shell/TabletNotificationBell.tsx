@@ -172,6 +172,7 @@ export function TabletNotificationBell() {
     const isOtThreshold = row.notification_type === "ot_surgical_threshold";
     const isThreshold = isPharmacyThreshold || isOtThreshold;
     const totalAmount = formatInr(payload.total_pharmacy_amount);
+    const totalOtAmount = formatInr(payload.total_ot_surgical_amount);
     const latestBillAmount = formatInr(payload.latest_bill_amount);
 
     return (
@@ -274,6 +275,9 @@ export function TabletNotificationBell() {
             <div className="flex flex-wrap gap-x-4 gap-y-1">
               {isPharmacyThreshold && totalAmount ? (
                 <span>Total pharmacy: {totalAmount}</span>
+              ) : null}
+              {isOtThreshold && totalOtAmount ? (
+                <span>Total OT sales: {totalOtAmount}</span>
               ) : null}
               {payload.latest_bill_number ? (
                 <span>
