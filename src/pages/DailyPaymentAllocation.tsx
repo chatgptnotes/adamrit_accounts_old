@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -50,7 +50,7 @@ import {
   type SubAllocation,
   type SavedAllocation,
 } from '@/hooks/useDailyPaymentAllocation';
-import { usePaymentObligations, usePayeeSearch, useMultiPayeeSearch, useObligationDefaultPayees, useTallyLedgerSearch, useTallyCompanies, useAccountingLedgerSearch, useAccountingCashBankLedgers, useSaveObligationLedgerLinks, useObligationSubCategories, type PaymentObligation, type DefaultPayee, type TallyCompany, type SubCategoryRow } from '@/hooks/usePaymentObligations';
+import { usePaymentObligations, usePayeeSearch, useMultiPayeeSearch, useObligationDefaultPayees, useTallyLedgerSearch, useTallyLedgerDetails, useTallyCompanies, useTallyCashBankLedgers, useSaveObligationLedgerLinks, useObligationSubCategories, type PaymentObligation, type DefaultPayee, type TallyCompany, type SubCategoryRow } from '@/hooks/usePaymentObligations';
 import { useCompanies } from '@/hooks/useCompanies';
 import { useAuth } from '@/contexts/AuthContext';
 import { DailyAllocationSheet } from '@/components/DailyAllocationSheet';
@@ -452,6 +452,15 @@ const DailyPaymentAllocation = () => {
     });
     return map;
   }, [tallyCompanies]);
+  const tallyCompanyOptions = useMemo(
+    () => tallyCompanies.flatMap((company) =>
+      (company.company_ids?.length ? company.company_ids : [company.id]).map((id) => ({
+        id,
+        name: company.company_name,
+      })),
+    ),
+    [tallyCompanies],
+  );
   const saveLedgerLinks = useSaveObligationLedgerLinks();
   const { subCategories, upsert: upsertSubCategory, remove: removeSubCategory } = useObligationSubCategories();
 
@@ -522,7 +531,7 @@ const DailyPaymentAllocation = () => {
   const [saveNotes, setSaveNotes] = useState('');
 
   // Queries
-  const { schedule, isLoading, createPaymentVoucher, updateScheduleEntry, skipEntry, reorderSchedule, refetch } = useDailyPaymentSchedule(selectedDate, selectedHospital);
+  const { schedule, isLoading, createPaymentVoucher, savePaymentLedgers, updateScheduleEntry, skipEntry, reorderSchedule, refetch } = useDailyPaymentSchedule(selectedDate, selectedHospital);
   const { funds, refetch: refetchFunds, saveActualBalance, addManualAccount } = useFundAccounts(selectedDate);
   const { data: cashCollections = 0 } = useTodayCashCollections(selectedDate);
 
@@ -556,8 +565,19 @@ const DailyPaymentAllocation = () => {
   const { data: payeeResults = [] } = usePayeeSearch(payeeTable, payeeSearchTerm);
   // payeeResults for the sub-allocation payee search in plan mode (multi-table search)
   const { data: history = [] } = usePaymentHistory(historyFrom, historyTo, selectedHospital);
-  const { data: payDebitLedgers = [] } = useAccountingLedgerSearch(payDebitLedgerSearch, payTallyCompanyId);
-  const { data: payCreditLedgers = [] } = useAccountingCashBankLedgers(payTallyCompanyId);
+  const { data: payDebitLedgers = [] } = useTallyLedgerSearch(payDebitLedgerSearch, payTallyCompanyId);
+  const { data: payCreditLedgers = [] } = useTallyCashBankLedgers(payTallyCompanyId);
+  const { data: payDebitLedgerDetails } = useTallyLedgerDetails(payingEntry?.tally_ledger_id);
+
+  useEffect(() => {
+    if (
+      payDebitLedgerId &&
+      payDebitLedgerDetails?.id === payDebitLedgerId &&
+      !payDebitLedgerSearch
+    ) {
+      setPayDebitLedgerName(payDebitLedgerDetails.name);
+    }
+  }, [payDebitLedgerDetails, payDebitLedgerId, payDebitLedgerSearch]);
 
   // Use actual cash if manually entered, else system value
   const effectiveCash = actualCashCollection !== '' ? parseFloat(actualCashCollection) || 0 : cashCollections;
@@ -858,6 +878,12 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
     setPayingEntry(entry);
     setPaymentError('');
     setPayAmount(String(remaining));
+    setPayTallyCompanyId(entry.tally_company_id || '');
+    setPayLedgerCompanyId(entry.tally_company_id || '');
+    setPayDebitLedgerId(entry.tally_ledger_id || '');
+    setPayDebitLedgerName('');
+    setPayDebitLedgerSearch('');
+    setPayCreditLedgerId(entry.credit_tally_ledger_id || '');
     setPayeeSearchTerm('');
     setSelectedPayeeName('');
     setSubAllocDialogMode('plan');
@@ -897,6 +923,24 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
       return;
     }
     try {
+      if (
+        payTallyCompanyId !== (payingEntry.tally_company_id || '') ||
+        payDebitLedgerId !== (payingEntry.tally_ledger_id || '') ||
+        payCreditLedgerId !== (payingEntry.credit_tally_ledger_id || '')
+      ) {
+        await savePaymentLedgers.mutateAsync({
+          id: payingEntry.id,
+          tallyCompanyId: payTallyCompanyId || null,
+          debitLedgerId: payDebitLedgerId || null,
+          creditLedgerId: payCreditLedgerId || null,
+        });
+        setPayingEntry({
+          ...payingEntry,
+          tally_company_id: payTallyCompanyId || null,
+          tally_ledger_id: payDebitLedgerId || null,
+          credit_tally_ledger_id: payCreditLedgerId || null,
+        });
+      }
       const posting = await createPaymentVoucher.mutateAsync({
         scheduleId: payingEntry.id,
         amount,
@@ -2089,8 +2133,8 @@ ${sectionsHtml}
                   >
                     <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="Select company first" /></SelectTrigger>
                     <SelectContent>
-                      {companies.map((company) => (
-                        <SelectItem key={company.id} value={company.id}>{company.company_name}</SelectItem>
+                      {tallyCompanyOptions.map((company) => (
+                        <SelectItem key={company.id} value={company.id}>{company.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -2117,13 +2161,14 @@ ${sectionsHtml}
                           className="block w-full px-3 py-2 text-left text-sm hover:bg-blue-50"
                           onClick={() => {
                             setPayDebitLedgerId(ledger.id);
+                            setPayTallyCompanyId(ledger.company_id || payTallyCompanyId);
                             setPayLedgerCompanyId(ledger.company_id || payTallyCompanyId);
-                            setPayDebitLedgerName(ledger.account_name);
+                            setPayDebitLedgerName(ledger.name);
                             setPayDebitLedgerSearch('');
                           }}
                         >
-                          <span className="font-medium">{ledger.account_name}</span>
-                          <span className="ml-2 text-xs text-muted-foreground">{ledger.account_group || ledger.account_type || 'Account'}</span>
+                        <span className="font-medium">{ledger.name}</span>
+                        <span className="ml-2 text-xs text-muted-foreground">{ledger.parent_group || 'Tally ledger'}</span>
                         </button>
                       ))}
                     </div>
@@ -2138,7 +2183,7 @@ ${sectionsHtml}
                     <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="Select Cash or Bank account" /></SelectTrigger>
                     <SelectContent>
                       {payCreditLedgers.map((ledger: any) => (
-                        <SelectItem key={ledger.id} value={ledger.id}>{ledger.account_name} ({ledger.account_group || 'Cash/Bank'})</SelectItem>
+                        <SelectItem key={ledger.id} value={ledger.id}>{ledger.name} ({ledger.parent_group || 'Cash/Bank'})</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -2264,8 +2309,8 @@ ${sectionsHtml}
                 >
                   <SelectTrigger className="mt-1"><SelectValue placeholder="Select company first" /></SelectTrigger>
                   <SelectContent>
-                    {companies.map((company) => (
-                        <SelectItem key={company.id} value={company.id}>{company.company_name}</SelectItem>
+                    {tallyCompanyOptions.map((company) => (
+                      <SelectItem key={company.id} value={company.id}>{company.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -2292,13 +2337,14 @@ ${sectionsHtml}
                         className="block w-full px-3 py-2 text-left text-sm hover:bg-blue-50"
                         onClick={() => {
                           setPayDebitLedgerId(ledger.id);
+                          setPayTallyCompanyId(ledger.company_id || payTallyCompanyId);
                           setPayLedgerCompanyId(ledger.company_id || payTallyCompanyId);
-                          setPayDebitLedgerName(ledger.account_name);
+                          setPayDebitLedgerName(ledger.name);
                           setPayDebitLedgerSearch('');
                         }}
                       >
-                        <span className="font-medium">{ledger.account_name}</span>
-                        <span className="ml-2 text-xs text-muted-foreground">{ledger.account_group || ledger.account_type || 'Account'}</span>
+                          <span className="font-medium">{ledger.name}</span>
+                          <span className="ml-2 text-xs text-muted-foreground">{ledger.parent_group || 'Tally ledger'}</span>
                       </button>
                     ))}
                   </div>
@@ -2313,7 +2359,7 @@ ${sectionsHtml}
                   <SelectTrigger className="mt-1"><SelectValue placeholder="Select payment account" /></SelectTrigger>
                   <SelectContent>
                     {payCreditLedgers.map((ledger: any) => (
-                      <SelectItem key={ledger.id} value={ledger.id}>{ledger.account_name} ({ledger.account_group || 'Cash/Bank'})</SelectItem>
+                      <SelectItem key={ledger.id} value={ledger.id}>{ledger.name} ({ledger.parent_group || 'Cash/Bank'})</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

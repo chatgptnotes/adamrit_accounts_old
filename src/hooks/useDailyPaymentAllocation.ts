@@ -167,9 +167,9 @@ export const useDailyPaymentSchedule = (date: string, hospital: string = 'hope')
       creditLedgerId,
     }: {
       id: string;
-      tallyCompanyId: string;
-      debitLedgerId: string;
-      creditLedgerId: string;
+      tallyCompanyId: string | null;
+      debitLedgerId: string | null;
+      creditLedgerId: string | null;
     }) => {
       const { error } = await (supabase as any)
         .from('daily_payment_schedule')
