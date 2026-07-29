@@ -387,17 +387,20 @@ export const useFundAccounts = (date: string) => {
         .select('id, company_name');
 
       if (configs && configs.length > 0) {
-        for (const config of configs) {
-          const companyLower = (config.company_name || '').toLowerCase();
-          let hospital = 'other';
-          if (companyLower.includes('hope')) hospital = 'hope';
-          else if (companyLower.includes('ayushman') || companyLower.includes('aishman')) hospital = 'ayushman';
-
+        const ledgerResults = await Promise.all(configs.map(async (config: { id: string; company_name: string | null }) => {
           const { data: ledgers } = await (supabase as any)
             .from('tally_ledgers')
             .select('id, name, closing_balance, parent_group, updated_at, is_hidden')
             .eq('company_id', config.id)
             .or('parent_group.ilike.%cash%,parent_group.ilike.%bank%');
+          return { config, ledgers: ledgers || [] };
+        }));
+
+        for (const { config, ledgers } of ledgerResults) {
+          const companyLower = (config.company_name || '').toLowerCase();
+          let hospital = 'other';
+          if (companyLower.includes('hope')) hospital = 'hope';
+          else if (companyLower.includes('ayushman') || companyLower.includes('aishman')) hospital = 'ayushman';
 
           if (ledgers) {
             for (const l of ledgers) {
@@ -566,12 +569,13 @@ export const useTodayCashCollections = (date: string) => {
           debit_amount,
           voucher:vouchers!inner (voucher_date, status)
         `)
-        .eq('account_id', cashAccount.id) as any;
+        .eq('account_id', cashAccount.id)
+        .eq('voucher.voucher_date', date)
+        .neq('voucher.status', 'cancelled') as any;
 
       if (!entries) return 0;
 
       const todayTotal = entries
-        .filter((e: any) => e.voucher?.voucher_date === date && e.voucher?.status !== 'cancelled')
         .reduce((sum: number, e: any) => sum + (e.debit_amount || 0), 0);
 
       return todayTotal;
@@ -721,7 +725,7 @@ export const useSubAllocationsForSchedule = (scheduleIds: string[]) => {
 };
 
 // Payment history query (date range)
-export const usePaymentHistory = (fromDate: string, toDate: string, hospital: string = 'hope') => {
+export const usePaymentHistory = (fromDate: string, toDate: string, hospital: string = 'hope', enabled = true) => {
   return useQuery({
     queryKey: ['payment-history', fromDate, toDate, hospital],
     queryFn: async () => {
@@ -737,7 +741,7 @@ export const usePaymentHistory = (fromDate: string, toDate: string, hospital: st
       if (error) throw error;
       return (data || []) as ScheduleEntry[];
     },
-    enabled: !!fromDate && !!toDate,
+    enabled: enabled && !!fromDate && !!toDate,
   });
 };
 
@@ -831,7 +835,7 @@ export const useSaveAllocation = () => {
 };
 
 // List saved allocations for a date range
-export const useSavedAllocations = (fromDate: string, toDate: string, hospital: string) => {
+export const useSavedAllocations = (fromDate: string, toDate: string, hospital: string, enabled = true) => {
   return useQuery({
     queryKey: ['saved-allocations', fromDate, toDate, hospital],
     queryFn: async (): Promise<SavedAllocation[]> => {
@@ -845,6 +849,6 @@ export const useSavedAllocations = (fromDate: string, toDate: string, hospital: 
       if (error) throw error;
       return (data || []) as SavedAllocation[];
     },
-    enabled: !!fromDate && !!toDate && !!hospital,
+    enabled: enabled && !!fromDate && !!toDate && !!hospital,
   });
 };

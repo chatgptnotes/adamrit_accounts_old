@@ -826,6 +826,8 @@ export function DailyAllocationSheet({ hospital = 'hope', onSent }: DailyAllocat
             sub_category: 'other',
             default_daily_amount: Number(row.payableToday),
             priority: 10,
+            company_id: row.companyId,
+            chart_of_accounts_id: row.ledgerId,
             // This is an execution record for the selected date, not a
             // recurring Master template. It remains linked to the schedule
             // so Pay and accounting can use the same obligation_id, but the
@@ -845,6 +847,18 @@ export function DailyAllocationSheet({ hospital = 'hope', onSent }: DailyAllocat
         for (const row of rows) {
           const obligationId = existingByKey.get(row.id);
           if (!obligationId) continue;
+          // Persist the Accounting mapping at Send time so Today’s Allocation
+          // can display the selected company and ledger immediately. Pay may
+          // still change the mapping later before the voucher is posted.
+          const { error: obligationUpdateError } = await (supabase as any)
+            .from('payment_obligations')
+            .update({
+              company_id: row.companyId,
+              chart_of_accounts_id: row.ledgerId,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', obligationId);
+          if (obligationUpdateError) throw obligationUpdateError;
           const { data: savedSchedule, error: scheduleError } = await (supabase as any)
             .from('daily_payment_schedule')
             .upsert({

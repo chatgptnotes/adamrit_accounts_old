@@ -23,5 +23,6 @@ export const useCompanies = () => {
       if (error) throw error;
       return (data || []) as Company[];
     },
+    staleTime: 10 * 60 * 1000,
   });
 };

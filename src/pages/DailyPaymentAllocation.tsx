@@ -500,7 +500,7 @@ const DailyPaymentAllocation = () => {
   const [openPickerCompanyId, setOpenPickerCompanyId] = useState<string | null>(null);
   const [ledgerSearchTerm, setLedgerSearchTerm] = useState('');
   const { data: ledgerSearchResults = [] } = useTallyLedgerSearch(ledgerSearchTerm, openPickerCompanyId);
-  const { data: tallyCompanies = [] } = useTallyCompanies();
+  const { data: tallyCompanies = [] } = useTallyCompanies(activeTab === 'master');
   const tallyCompanyNameMap = useMemo(() => {
     const map: Record<string, string> = {};
     tallyCompanies.forEach((company) => {
@@ -510,7 +510,7 @@ const DailyPaymentAllocation = () => {
     return map;
   }, [tallyCompanies]);
   const saveLedgerLinks = useSaveObligationLedgerLinks();
-  const { subCategories, upsert: upsertSubCategory, remove: removeSubCategory } = useObligationSubCategories();
+  const { subCategories, upsert: upsertSubCategory, remove: removeSubCategory } = useObligationSubCategories(activeTab === 'master');
 
   // Manage Sub-Categories dialog state
   const [manageSubCatsOpen, setManageSubCatsOpen] = useState(false);
@@ -591,8 +591,8 @@ const DailyPaymentAllocation = () => {
   // Save status & saved allocations
   const { isSaved, save: currentSave } = useAllocationSaveStatus(selectedDate, selectedHospital);
   const saveAllocation = useSaveAllocation();
-  const { data: savedAllocations = [] } = useSavedAllocations(savedFrom, savedTo, selectedHospital);
-  const { obligations, createObligation, updateObligation, deleteObligation, toggleActive } = usePaymentObligations(selectedHospital);
+  const { data: savedAllocations = [] } = useSavedAllocations(savedFrom, savedTo, selectedHospital, activeTab === 'saved');
+  const { obligations, createObligation, updateObligation, deleteObligation, toggleActive } = usePaymentObligations(selectedHospital, activeTab === 'master');
 
   // Batch sub-allocations for all schedule entries (for table display)
   const scheduleIds = schedule.map(s => s.id);
@@ -617,7 +617,7 @@ const DailyPaymentAllocation = () => {
   // payeeResults for the original single-payee flow (the add-obligation dialog search term)
   const { data: payeeResults = [] } = usePayeeSearch(payeeTable, payeeSearchTerm);
   // payeeResults for the sub-allocation payee search in plan mode (multi-table search)
-  const { data: history = [] } = usePaymentHistory(historyFrom, historyTo, selectedHospital);
+  const { data: history = [] } = usePaymentHistory(historyFrom, historyTo, selectedHospital, activeTab === 'history');
   const { data: payDebitLedgers = [] } = useAccountingLedgerSearch(payDebitLedgerSearch, payTallyCompanyId);
   const { data: payCreditLedgers = [] } = useAccountingCashBankLedgers(payTallyCompanyId);
 

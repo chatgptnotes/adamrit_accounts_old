@@ -53,23 +53,30 @@ const SUPPORTED_TALLY_COMPANIES = new Map<string, string>([
 
 export type NewObligation = Omit<PaymentObligation, 'id' | 'created_at' | 'updated_at'>;
 
-export const usePaymentObligations = (hospital: string = 'hope') => {
+export const usePaymentObligations = (hospital: string = 'hope', includeDetails = true) => {
   const queryClient = useQueryClient();
 
   const obligations = useQuery({
-    queryKey: ['payment-obligations', hospital],
+    queryKey: ['payment-obligations', hospital, includeDetails ? 'details' : 'summary'],
     queryFn: async () => {
+      const select = includeDetails
+        ? `
+            *,
+            tally_ledgers(id, name, closing_balance),
+            payment_obligation_ledgers(
+              obligation_id, company_id, ledger_id,
+              tally_ledgers(id, name, closing_balance),
+              tally_config(id, company_name)
+            )
+          `
+        : `
+            id, party_name, category, sub_category, default_daily_amount,
+            priority, chart_of_accounts_id, is_active, notes, hospital_name,
+            payee_name, payee_search_table, company_id, approximate_balance, section
+          `;
       const { data, error } = await (supabase as any)
         .from('payment_obligations')
-        .select(`
-          *,
-          tally_ledgers(id, name, closing_balance),
-          payment_obligation_ledgers(
-            obligation_id, company_id, ledger_id,
-            tally_ledgers(id, name, closing_balance),
-            tally_config(id, company_name)
-          )
-        `)
+        .select(select)
         .eq('hospital_name', hospital)
         .order('priority', { ascending: true });
       if (error) throw error;
@@ -351,7 +358,7 @@ export interface SubCategoryRow {
   is_active: boolean;
 }
 
-export const useObligationSubCategories = () => {
+export const useObligationSubCategories = (enabled = true) => {
   const queryClient = useQueryClient();
 
   const list = useQuery({
@@ -364,6 +371,8 @@ export const useObligationSubCategories = () => {
       if (error) throw error;
       return (data || []) as SubCategoryRow[];
     },
+    enabled,
+    staleTime: 10 * 60 * 1000,
   });
 
   const upsert = useMutation({
@@ -422,7 +431,7 @@ export const useObligationSubCategories = () => {
 // List active Tally companies — used by payment and obligation ledger pickers.
 // Known company names keep their friendly canonical labels, while unknown
 // active Tally companies must remain selectable instead of disappearing.
-export const useTallyCompanies = () => {
+export const useTallyCompanies = (enabled = true) => {
   return useQuery({
     queryKey: ['tally-companies'],
     queryFn: async () => {
@@ -446,6 +455,8 @@ export const useTallyCompanies = () => {
       }
       return Array.from(grouped.values()).sort((a, b) => a.company_name.localeCompare(b.company_name));
     },
+    enabled,
+    staleTime: 10 * 60 * 1000,
   });
 };
 
