@@ -32,7 +32,13 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { supabase } from '@/integrations/supabase/client';
-import { useTallyCompanies, useTallyLedgerSearch, type TallyCompany } from '@/hooks/usePaymentObligations';
+import {
+  DAILY_ALLOCATION_EXECUTION_PREFIX,
+  DAILY_ALLOCATION_SOURCE_PREFIX,
+  isDailyAllocationExecution,
+} from '@/hooks/useDailyPaymentAllocation';
+import { useAccountingLedgerSearch } from '@/hooks/usePaymentObligations';
+import { useCompanies, type Company } from '@/hooks/useCompanies';
 
 // Right-aligned numeric input that hides the native up/down spinner steppers.
 const numberInputClass =
@@ -41,6 +47,7 @@ const numberInputClass =
 interface VendorRow {
   id: string;
   vendor: string;
+  narration: string;
   companyId: string | null;
   ledgerCompanyId: string | null;
   ledgerId: string | null;
@@ -99,6 +106,7 @@ const makeEmptySheet = (): SheetData => ({
   vendors: DEFAULT_VENDORS.map((v) => ({
     id: newId(),
     vendor: v,
+    narration: '',
     companyId: null,
     ledgerCompanyId: null,
     ledgerId: null,
@@ -125,10 +133,11 @@ const normalizeSheet = (raw: unknown): SheetData => {
     vendors: vendors.map((v) => ({
       id: v?.id ?? newId(),
       vendor: v?.vendor ?? '',
+      narration: v?.narration ?? '',
       companyId: v?.companyId ?? null,
-      ledgerCompanyId: v?.ledgerCompanyId ?? null,
-      ledgerId: v?.ledgerId ?? null,
-      ledgerName: v?.ledgerName ?? null,
+      ledgerCompanyId: v?.companyId ? (v?.ledgerCompanyId ?? null) : null,
+      ledgerId: v?.companyId ? (v?.ledgerId ?? null) : null,
+      ledgerName: v?.companyId ? (v?.ledgerName ?? null) : null,
       paidThisMonth: v?.paidThisMonth ?? null,
       balanceThisMonth: v?.balanceThisMonth ?? null,
       ledgerBalance: v?.ledgerBalance ?? null,
@@ -151,6 +160,7 @@ const carryForwardSheet = (prev: SheetData): SheetData => ({
   vendors: prev.vendors.map((v) => ({
     id: newId(),
     vendor: v.vendor,
+    narration: v.narration,
     companyId: v.companyId ?? null,
     ledgerCompanyId: v.ledgerCompanyId ?? null,
     ledgerId: v.ledgerId ?? null,
@@ -199,10 +209,10 @@ const buildPrintHTML = (dateLabel: string, sheet: SheetData, totals: PrintTotals
 
   const sectionHeaderRow = (label: string): string => `
     <tr class="section-row">
-      <td colspan="7" class="section-header">${escapeHTML(label)}</td>
+      <td colspan="8" class="section-header">${escapeHTML(label)}</td>
     </tr>`;
 
-  const spacerRow = `<tr><td colspan="7" class="spacer"></td></tr>`;
+  const spacerRow = `<tr><td colspan="8" class="spacer"></td></tr>`;
 
   const vendorRows = sheet.vendors
     .map(
@@ -210,6 +220,7 @@ const buildPrintHTML = (dateLabel: string, sheet: SheetData, totals: PrintTotals
         <tr>
           <td class="bordered center">${i + 1}</td>
           <td class="bordered">${escapeHTML(v.vendor)}</td>
+          <td class="bordered">${escapeHTML(v.narration)}</td>
           <td class="bordered num">${fmt(v.paidThisMonth)}</td>
           <td class="bordered num">${fmt(v.balanceThisMonth)}</td>
           <td class="bordered num">${fmt(v.ledgerBalance)}</td>
@@ -232,6 +243,7 @@ const buildPrintHTML = (dateLabel: string, sheet: SheetData, totals: PrintTotals
           <td class="ghost"></td>
           <td class="ghost"></td>
           <td class="ghost"></td>
+          <td class="ghost"></td>
           <td colspan="2" class="bordered label">${escapeHTML(it.label)}</td>
           <td class="bordered num">${fmt(it.amount)}</td>
           <td class="ghost"></td>
@@ -240,6 +252,7 @@ const buildPrintHTML = (dateLabel: string, sheet: SheetData, totals: PrintTotals
       .join('');
     const totalRow = `
       <tr>
+        <td class="ghost"></td>
         <td class="ghost"></td>
         <td class="ghost"></td>
         <td class="ghost"></td>
@@ -291,7 +304,8 @@ const buildPrintHTML = (dateLabel: string, sheet: SheetData, totals: PrintTotals
   <table class="main">
     <colgroup>
       <col style="width:6%" />
-      <col style="width:30%" />
+      <col style="width:24%" />
+      <col style="width:12%" />
       <col style="width:13%" />
       <col style="width:13%" />
       <col style="width:13%" />
@@ -302,6 +316,7 @@ const buildPrintHTML = (dateLabel: string, sheet: SheetData, totals: PrintTotals
       <tr>
         <th>SR. NO.</th>
         <th>VENDORS</th>
+        <th>NARRATION</th>
         <th>PAID THIS MONTH</th>
         <th>BALANCE this month</th>
         <th>ledger BALANCE</th>
@@ -313,7 +328,7 @@ const buildPrintHTML = (dateLabel: string, sheet: SheetData, totals: PrintTotals
       ${sectionHeaderRow('Vendor Obligations')}
       ${vendorRows}
       <tr class="total-row">
-        <td class="bordered center" colspan="5">TOTAL PAYABLE TODAY</td>
+        <td class="bordered center" colspan="6">TOTAL PAYABLE TODAY</td>
         <td class="bordered num">${fmt(totals.vendorsTotal)}</td>
         <td class="ghost"></td>
       </tr>
@@ -336,7 +351,7 @@ interface SortableVendorRowProps {
   index: number;
   onUpdate: (id: string, field: keyof Omit<VendorRow, 'id'>, value: string) => void;
   onRemove: (id: string) => void;
-  companies: TallyCompany[];
+  companies: Company[];
 }
 
 function LedgerVendorInput({
@@ -346,12 +361,13 @@ function LedgerVendorInput({
 }: {
   vendor: VendorRow;
   onUpdate: SortableVendorRowProps['onUpdate'];
-  companies: TallyCompany[];
+  companies: Company[];
 }) {
   const [searchTerm, setSearchTerm] = useState(vendor.vendor || '');
   const [open, setOpen] = useState(false);
   const selectedCompany = companies.find((company) => company.id === vendor.companyId);
-  const { data } = useTallyLedgerSearch(searchTerm || '', selectedCompany?.company_ids || vendor.companyId);
+  const selectedCompanyId = selectedCompany?.id || '';
+  const { data } = useAccountingLedgerSearch(searchTerm || '', selectedCompany?.id || vendor.companyId);
   const ledgers = Array.isArray(data) ? data : [];
 
   useEffect(() => {
@@ -361,7 +377,7 @@ function LedgerVendorInput({
   return (
     <div className="relative min-w-[250px] space-y-1">
       <select
-        value={vendor.companyId || ''}
+        value={selectedCompanyId}
         onChange={(e) => {
           onUpdate(vendor.id, 'companyId', e.target.value);
           onUpdate(vendor.id, 'ledgerCompanyId', '');
@@ -370,9 +386,9 @@ function LedgerVendorInput({
           onUpdate(vendor.id, 'ledgerBalance', '');
         }}
         className="h-7 w-full rounded-md border border-input bg-background px-2 text-xs"
-        aria-label="Tally company"
+        aria-label="Accounting company"
       >
-        <option value="">Select company for ledger search</option>
+        <option value="">Select accounting company for ledger search</option>
         {companies.map((company) => (
           <option key={company.id} value={company.id}>{company.company_name}</option>
         ))}
@@ -394,7 +410,7 @@ function LedgerVendorInput({
       />
       {open && !vendor.companyId && searchTerm.length >= 1 && (
         <div className="absolute left-0 right-0 top-16 z-50 rounded-md border bg-white px-3 py-2 text-xs text-gray-500 shadow-lg">
-          Select a Tally company to search ledgers
+        Select an Accounting company to search ledgers
         </div>
       )}
       {open && vendor.companyId && searchTerm.length >= 1 && ledgers.length > 0 && (
@@ -406,23 +422,25 @@ function LedgerVendorInput({
               className="block w-full px-3 py-2 text-left text-sm hover:bg-blue-50"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
-                setSearchTerm(ledger.name);
-                onUpdate(vendor.id, 'vendor', ledger.name);
+                const ledgerCompanyId = ledger.company_id || vendor.companyId || '';
+                setSearchTerm(ledger.account_name);
+                onUpdate(vendor.id, 'companyId', ledgerCompanyId);
+                onUpdate(vendor.id, 'vendor', ledger.account_name);
                 onUpdate(vendor.id, 'ledgerId', ledger.id);
-                onUpdate(vendor.id, 'ledgerCompanyId', ledger.company_id || '');
-                onUpdate(vendor.id, 'ledgerName', ledger.name);
-                onUpdate(vendor.id, 'ledgerBalance', String(Number(ledger.closing_balance) || 0));
+                onUpdate(vendor.id, 'ledgerCompanyId', ledgerCompanyId);
+                onUpdate(vendor.id, 'ledgerName', ledger.account_name);
+                onUpdate(vendor.id, 'ledgerBalance', '');
                 setOpen(false);
               }}
             >
-              <div className="font-medium">{ledger.name}</div>
+              <div className="font-medium">{ledger.account_name}</div>
               <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
                 <span>
-                  {ledger.tally_config?.company_name || 'Company not linked'}
+                  {selectedCompany?.company_name || 'Company not linked'}
                   {' · '}
-                  {ledger.parent_group || 'Tally ledger'}
+                  {ledger.account_group || ledger.account_type || 'Accounting ledger'}
                 </span>
-                <span className="font-mono">Balance: {fmtINR(Number(ledger.closing_balance) || 0)}</span>
+                <span className="font-mono">Accounting ledger</span>
               </div>
             </button>
           ))}
@@ -430,10 +448,10 @@ function LedgerVendorInput({
       )}
       {open && vendor.companyId && searchTerm.length >= 1 && ledgers.length === 0 && (
         <div className="absolute left-0 right-0 top-16 z-50 rounded-md border bg-white px-3 py-2 text-xs text-gray-500 shadow-lg">
-          No matching Tally ledgers
+          No matching Accounting ledgers
         </div>
       )}
-      {vendor.ledgerId && (
+      {vendor.companyId && vendor.ledgerId && (
         <div className="mt-0.5 text-[10px] text-green-700">Ledger selected</div>
       )}
     </div>
@@ -464,6 +482,15 @@ function SortableVendorRow({ vendor, index, onUpdate, onRemove, companies }: Sor
       <TableCell className="text-center">{index + 1}</TableCell>
       <TableCell>
         <LedgerVendorInput vendor={vendor} onUpdate={onUpdate} companies={companies} />
+      </TableCell>
+      <TableCell>
+        <Input
+          type="text"
+          value={vendor.narration}
+          onChange={(e) => onUpdate(vendor.id, 'narration', e.target.value)}
+          placeholder="Narration"
+          className="h-8 min-w-[180px]"
+        />
       </TableCell>
       <TableCell>
         <Input
@@ -530,7 +557,7 @@ interface TransferConflict {
 }
 
 export function DailyAllocationSheet({ hospital = 'hope', onSent }: DailyAllocationSheetProps) {
-  const { data: tallyCompanies = [] } = useTallyCompanies();
+  const { data: companies = [] } = useCompanies();
   const [date, setDate] = useState<string>(todayISO);
   const [sheet, setSheet] = useState<SheetData>(makeEmptySheet);
   const [savedDates, setSavedDates] = useState<ReadonlyArray<string>>([]);
@@ -669,22 +696,52 @@ export function DailyAllocationSheet({ hospital = 'hope', onSent }: DailyAllocat
   const normalizeVendorName = (value: string): string => value.trim().replace(/\s+/g, ' ').toLowerCase();
 
   const sendToTodaysAllocation = async (): Promise<void> => {
-    const rows = sheet.vendors.filter((v) => v.vendor?.trim() && Number(v.payableToday) > 0);
-    if (rows.length === 0) {
+    const candidateRows = sheet.vendors.filter((v) => v.vendor?.trim() && Number(v.payableToday) > 0);
+    if (candidateRows.length === 0) {
       toast.info('Enter a positive Payable Today amount for at least one vendor');
       return;
     }
-    const missingLedgerRows = rows.filter((row) => !row.companyId || !row.ledgerId);
-    if (missingLedgerRows.length > 0) {
-      toast.error(`Select a Tally company and ledger for: ${missingLedgerRows.map((row) => row.vendor.trim()).join(', ')}`);
+
+    const ledgerIds = [...new Set(
+      candidateRows.map((row) => row.ledgerId).filter((id): id is string => Boolean(id)),
+    )];
+    const { data: accountingLedgers, error: accountingLedgerError } = ledgerIds.length > 0
+      ? await (supabase as any)
+        .from('chart_of_accounts')
+        .select('id, company_id')
+        .in('id', ledgerIds)
+      : { data: [], error: null };
+    if (accountingLedgerError) {
+      toast.error(`Could not validate Accounting ledgers: ${accountingLedgerError.message}`);
       return;
+    }
+    const validLedgerKeys = new Set(
+      (accountingLedgers || []).map((ledger: { id: string; company_id: string | null }) =>
+        `${ledger.company_id || '*'}:${ledger.id}`,
+      ),
+    );
+    const rows = candidateRows.filter((row) => {
+      if (!row.companyId || !row.ledgerId) return false;
+      return validLedgerKeys.has(`${row.companyId}:${row.ledgerId}`)
+        || validLedgerKeys.has(`*:${row.ledgerId}`);
+    });
+    const skippedRows = candidateRows.filter((row) => !rows.some((readyRow) => readyRow.id === row.id));
+    if (rows.length === 0) {
+      toast.error('Select an Accounting company and ledger for at least one payable row');
+      return;
+    }
+    if (skippedRows.length > 0) {
+      toast.info(
+        `${rows.length} row${rows.length === 1 ? '' : 's'} ready to send. `
+        + `${skippedRows.length} other payable row${skippedRows.length === 1 ? '' : 's'} skipped until an Accounting company and ledger are selected.`,
+      );
     }
     setTransferBusy(true);
     try {
       await saveSheet(sheet, date);
       const { data: obligations, error: obligationError } = await (supabase as any)
         .from('payment_obligations')
-        .select('id, party_name, default_daily_amount')
+        .select('id, party_name, default_daily_amount, is_active, notes')
         .eq('hospital_name', hospital);
       if (obligationError) throw obligationError;
       const { data: schedules, error: scheduleError } = await (supabase as any)
@@ -697,11 +754,23 @@ export function DailyAllocationSheet({ hospital = 'hope', onSent }: DailyAllocat
         id: string;
         party_name: string;
         default_daily_amount: number | null;
+        is_active: boolean;
+        notes: string | null;
       };
       const scheduleMap = new Map((schedules || []).map((s: any) => [s.obligation_id, Number(s.daily_amount) || 0]));
-      const obligationMap = new Map<string, ObligationLookup>(
-        ((obligations || []) as ObligationLookup[]).map((o) => [normalizeVendorName(o.party_name), o]),
-      );
+      // Prefer an active Master obligation for a matching party. If no Master
+      // record exists, reuse the previous Daily Allocation execution record so
+      // repeated sends update the same payment obligation instead of creating
+      // duplicates.
+      const obligationMap = new Map<string, ObligationLookup>();
+      for (const obligation of (obligations || []) as ObligationLookup[]) {
+        const key = normalizeVendorName(obligation.party_name);
+        const isDailyExecution = isDailyAllocationExecution(obligation.notes);
+        const existing = obligationMap.get(key);
+        if (!existing || (obligation.is_active && !isDailyExecution)) {
+          obligationMap.set(key, obligation);
+        }
+      }
       const conflicts = rows
         .map((row) => {
           const obligation = obligationMap.get(normalizeVendorName(row.vendor));
@@ -757,10 +826,13 @@ export function DailyAllocationSheet({ hospital = 'hope', onSent }: DailyAllocat
             sub_category: 'other',
             default_daily_amount: Number(row.payableToday),
             priority: 10,
-            is_active: true,
+            // This is an execution record for the selected date, not a
+            // recurring Master template. It remains linked to the schedule
+            // so Pay and accounting can use the same obligation_id, but the
+            // schedule generator will not recreate it on future dates.
+            is_active: false,
             hospital_name: hospital,
-            tally_ledger_id: row.ledgerId,
-            notes: `Created from Daily Allocation for ${date}`,
+            notes: `${DAILY_ALLOCATION_EXECUTION_PREFIX}${date}`,
           })
           .select('id')
           .single();
@@ -768,49 +840,27 @@ export function DailyAllocationSheet({ hospital = 'hope', onSent }: DailyAllocat
         existingByKey.set(row.id, data.id);
         created++;
       }
-      for (const row of rows) {
-        const obligationId = existingByKey.get(row.id);
-        if (!obligationId || !row.ledgerId) continue;
-        const tallyCompanyId = row.ledgerCompanyId || row.companyId;
-        if (!tallyCompanyId) throw new Error(`No Tally company was selected for ${row.vendor}`);
-        const { error: ledgerLinkError } = await (supabase as any)
-          .from('payment_obligation_ledgers')
-          .upsert({
-            obligation_id: obligationId,
-            company_id: tallyCompanyId,
-            ledger_id: row.ledgerId,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'obligation_id,company_id' });
-        if (ledgerLinkError) throw ledgerLinkError;
-      }
-      const { error: generateError } = await (supabase as any).rpc('generate_daily_payment_schedule', { p_date: date, p_hospital: hospital });
-      if (generateError) throw generateError;
       const ids = Array.from(existingByKey.values());
       if (ids.length > 0) {
-        const { data: scheduleRows, error } = await (supabase as any)
-          .from('daily_payment_schedule')
-          .select('id, obligation_id')
-          .eq('hospital_name', hospital)
-          .eq('schedule_date', date)
-          .in('obligation_id', ids);
-        if (error) throw error;
-        const scheduleIdMap = new Map((scheduleRows || []).map((s: any) => [s.obligation_id, s.id]));
         for (const row of rows) {
           const obligationId = existingByKey.get(row.id);
           if (!obligationId) continue;
-          const scheduleId = scheduleIdMap.get(obligationId);
-          if (!scheduleId) throw new Error(`No schedule row was created for ${row.vendor}`);
-          const { error: updateError } = await (supabase as any)
+          const { data: savedSchedule, error: scheduleError } = await (supabase as any)
             .from('daily_payment_schedule')
-            .update({
+            .upsert({
+              schedule_date: date,
+              obligation_id: obligationId,
+              party_name: row.vendor.trim(),
+              category: 'variable',
               daily_amount: Number(row.payableToday),
-              tally_company_id: row.ledgerCompanyId || row.companyId,
-              tally_ledger_id: row.ledgerId,
-              notes: `Sent from Daily Allocation on ${date}`,
+              hospital_name: hospital,
+              notes: `${DAILY_ALLOCATION_SOURCE_PREFIX}${row.narration.trim()}`,
               updated_at: new Date().toISOString(),
-            })
-            .eq('id', scheduleId);
-          if (updateError) throw updateError;
+            }, { onConflict: 'schedule_date,obligation_id' })
+            .select('id')
+            .single();
+          if (scheduleError) throw scheduleError;
+          if (!savedSchedule?.id) throw new Error(`Today’s Allocation row could not be saved for ${row.vendor}`);
           if (conflictByKey.has(row.id)) updated++;
         }
       }
@@ -906,7 +956,7 @@ export function DailyAllocationSheet({ hospital = 'hope', onSent }: DailyAllocat
         if (v.id !== id) return v;
         const next = {
           ...v,
-          [field]: field === 'vendor' || field === 'companyId' || field === 'ledgerCompanyId' || field === 'ledgerId' || field === 'ledgerName'
+          [field]: field === 'vendor' || field === 'narration' || field === 'companyId' || field === 'ledgerCompanyId' || field === 'ledgerId' || field === 'ledgerName'
             ? (value || null)
             : parseNumber(value),
         };
@@ -931,6 +981,7 @@ export function DailyAllocationSheet({ hospital = 'hope', onSent }: DailyAllocat
         {
           id: newId(),
           vendor: '',
+          narration: '',
           companyId: null,
           ledgerCompanyId: null,
           ledgerId: null,
@@ -1099,6 +1150,7 @@ export function DailyAllocationSheet({ hospital = 'hope', onSent }: DailyAllocat
                     <TableHead className="w-8"></TableHead>
                     <TableHead className="w-12">SR.</TableHead>
                     <TableHead>VENDORS</TableHead>
+                    <TableHead>NARRATION</TableHead>
                     <TableHead className="text-right">PAID THIS MONTH</TableHead>
                     <TableHead className="text-right">BALANCE THIS MONTH</TableHead>
                     <TableHead className="text-right">LEDGER BALANCE</TableHead>
@@ -1118,12 +1170,12 @@ export function DailyAllocationSheet({ hospital = 'hope', onSent }: DailyAllocat
                         index={idx}
                         onUpdate={updateVendor}
                         onRemove={removeVendor}
-                        companies={tallyCompanies}
+                        companies={companies}
                       />
                     ))}
                   </SortableContext>
                   <TableRow className="bg-gray-100 font-bold">
-                    <TableCell colSpan={6} className="text-right">TOTAL PAYABLE TODAY</TableCell>
+                    <TableCell colSpan={7} className="text-right">TOTAL PAYABLE TODAY</TableCell>
                     <TableCell className="text-right">{fmtINR(totals.vendorsTotal)}</TableCell>
                     <TableCell></TableCell>
                   </TableRow>

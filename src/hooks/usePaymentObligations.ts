@@ -87,6 +87,7 @@ export const usePaymentObligations = (hospital: string = 'hope') => {
           sub_category: obligation.sub_category || 'other',
           default_daily_amount: obligation.default_daily_amount || 0,
           priority: obligation.priority || 10,
+          company_id: obligation.company_id || null,
           chart_of_accounts_id: obligation.chart_of_accounts_id || null,
           is_active: true,
           notes: obligation.notes || null,
@@ -254,13 +255,12 @@ export const useTallyCashBankLedgers = (companyId?: string | string[] | null) =>
       else query = query.in('company_id', companyIds);
       const { data, error } = await query;
       if (error) throw error;
-      return (data || []).filter((ledger: any) => !ledger.is_hidden && ledger.accounting_account_id) as Array<{
+      return (data || []) as Array<{
         id: string;
         name: string;
         parent_group: string | null;
         closing_balance: number;
         company_id: string | null;
-        accounting_account_id: string;
         tally_config?: { company_name: string } | null;
       }>;
     },
@@ -287,6 +287,7 @@ export const useTallyLedgerDetails = (ledgerId?: string | null) => {
 
 export interface AccountingLedgerOption {
   id: string;
+  account_code: string | null;
   account_name: string;
   account_group: string | null;
   account_type: string | null;
@@ -307,7 +308,7 @@ export const useAccountingLedgerSearch = (
       if (!companyId || normalizedSearchTerm.length < 1) return [];
       const { data, error } = await (supabase as any)
         .from('chart_of_accounts')
-        .select('id, account_name, account_group, account_type, company_id')
+        .select('id, account_code, account_name, account_group, account_type, company_id')
         .eq('is_active', true)
         .or(`company_id.eq.${companyId},company_id.is.null`)
         .ilike('account_name', `%${normalizedSearchTerm}%`)
@@ -327,7 +328,7 @@ export const useAccountingCashBankLedgers = (companyId?: string | null) => {
       if (!companyId) return [];
       const { data, error } = await (supabase as any)
         .from('chart_of_accounts')
-        .select('id, account_name, account_group, account_type, company_id')
+        .select('id, account_code, account_name, account_group, account_type, company_id')
         .eq('is_active', true)
         .or(`company_id.eq.${companyId},company_id.is.null`)
         .or('account_group.ilike.%cash%,account_group.ilike.%bank%')
@@ -418,8 +419,9 @@ export const useObligationSubCategories = () => {
   };
 };
 
-// List active Tally companies (Hope, Ayushman, etc.) — used to render one
-// ledger picker per company on the obligation edit dialog.
+// List active Tally companies — used by payment and obligation ledger pickers.
+// Known company names keep their friendly canonical labels, while unknown
+// active Tally companies must remain selectable instead of disappearing.
 export const useTallyCompanies = () => {
   return useQuery({
     queryKey: ['tally-companies'],
@@ -431,9 +433,10 @@ export const useTallyCompanies = () => {
       if (error) throw error;
       const grouped = new Map<string, TallyCompany>();
       for (const row of data || []) {
+        if (row.is_active === false) continue;
         const key = canonicalTallyCompany(row.company_name || '');
-        const canonicalName = SUPPORTED_TALLY_COMPANIES.get(key);
-        if (!canonicalName) continue;
+        if (!key) continue;
+        const canonicalName = SUPPORTED_TALLY_COMPANIES.get(key) || String(row.company_name).trim();
         const existing = grouped.get(key);
         if (existing) {
           existing.company_ids = [...(existing.company_ids || [existing.id]), row.id];

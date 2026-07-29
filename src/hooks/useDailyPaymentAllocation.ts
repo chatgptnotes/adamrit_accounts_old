@@ -2,6 +2,24 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
+export const DAILY_ALLOCATION_SOURCE_PREFIX = 'DAILY_ALLOCATION_SENT:';
+export const DAILY_ALLOCATION_EXECUTION_PREFIX = 'DAILY_ALLOCATION_EXECUTION:';
+const LEGACY_DAILY_ALLOCATION_EXECUTION_PREFIX = 'Created from Daily Allocation';
+
+export const isDailyAllocationExecution = (notes: string | null | undefined): boolean =>
+  Boolean(
+    notes?.startsWith(DAILY_ALLOCATION_EXECUTION_PREFIX)
+    || notes?.startsWith(LEGACY_DAILY_ALLOCATION_EXECUTION_PREFIX),
+  );
+
+export const getDailyAllocationNarration = (notes: string | null | undefined): string => {
+  if (!notes) return '';
+  if (notes.startsWith(DAILY_ALLOCATION_SOURCE_PREFIX)) {
+    return notes.slice(DAILY_ALLOCATION_SOURCE_PREFIX.length).trim();
+  }
+  return notes;
+};
+
 export interface ScheduleEntry {
   id: string;
   schedule_date: string;
@@ -23,6 +41,7 @@ export interface ScheduleEntry {
   tally_company_id: string | null;
   tally_ledger_id: string | null;
   tally_ledger_name: string | null;
+  debit_account_name: string | null;
   credit_tally_ledger_id: string | null;
   accounting_company_id: string | null;
   debit_account_id: string | null;
@@ -77,23 +96,48 @@ export const useDailyPaymentSchedule = (date: string, hospital: string = 'hope')
       if (error) throw error;
 
       const rows = (data || []) as ScheduleEntry[];
-      const ledgerIds = [...new Set(
-        rows.map((row) => row.tally_ledger_id).filter((id): id is string => Boolean(id)),
+      const obligationIds = [...new Set(
+        rows.map((row) => row.obligation_id).filter((id): id is string => Boolean(id)),
       )];
-      if (ledgerIds.length === 0) {
-        return rows.map((row) => ({ ...row, tally_ledger_name: null }));
+      const { data: obligations, error: obligationError } = obligationIds.length > 0
+        ? await (supabase as any)
+          .from('payment_obligations')
+          .select('id, company_id, chart_of_accounts_id')
+          .in('id', obligationIds)
+        : { data: [], error: null };
+      if (obligationError) throw obligationError;
+      const obligationMap = new Map((obligations || []).map((obligation: {
+        id: string;
+        company_id: string | null;
+        chart_of_accounts_id: string | null;
+      }) => [obligation.id, obligation]));
+      const rowsWithObligations = rows.map((row) => {
+        const obligation = obligationMap.get(row.obligation_id);
+        return {
+          ...row,
+          company_id: obligation?.company_id || null,
+          accounting_company_id: obligation?.company_id || null,
+          debit_account_id: obligation?.chart_of_accounts_id || null,
+        };
+      });
+      const accountIds = [...new Set(
+        rowsWithObligations.map((row) => row.debit_account_id).filter((id): id is string => Boolean(id)),
+      )];
+      if (accountIds.length === 0) {
+        return rowsWithObligations.map((row) => ({ ...row, tally_ledger_name: null, debit_account_name: null }));
       }
 
-      const { data: ledgers, error: ledgerError } = await (supabase as any)
-        .from('tally_ledgers')
-        .select('id, name')
-        .in('id', ledgerIds);
-      if (ledgerError) throw ledgerError;
+      const { data: accounts, error: accountError } = await (supabase as any)
+        .from('chart_of_accounts')
+        .select('id, account_name')
+        .in('id', accountIds);
+      if (accountError) throw accountError;
 
-      const ledgerNames = new Map((ledgers || []).map((ledger: { id: string; name: string }) => [ledger.id, ledger.name]));
-      return rows.map((row) => ({
+      const accountNames = new Map((accounts || []).map((account: { id: string; account_name: string }) => [account.id, account.account_name]));
+      return rowsWithObligations.map((row) => ({
         ...row,
-        tally_ledger_name: row.tally_ledger_id ? ledgerNames.get(row.tally_ledger_id) || null : null,
+        tally_ledger_name: null,
+        debit_account_name: row.debit_account_id ? accountNames.get(row.debit_account_id) || null : null,
       }));
     },
   });
@@ -154,6 +198,7 @@ export const useDailyPaymentSchedule = (date: string, hospital: string = 'hope')
   const updateScheduleEntry = useMutation({
     mutationFn: async ({ id, ...updates }: {
       id: string;
+      party_name?: string;
       daily_amount?: number;
       notes?: string;
       status?: string;
@@ -210,6 +255,64 @@ export const useDailyPaymentSchedule = (date: string, hospital: string = 'hope')
     },
   });
 
+  const saveAccountingLedgers = useMutation({
+    mutationFn: async ({
+      obligationId,
+      accountingCompanyId,
+      debitAccountId,
+    }: {
+      obligationId: string;
+      accountingCompanyId: string | null;
+      debitAccountId: string | null;
+    }) => {
+      const { error } = await (supabase as any)
+        .from('payment_obligations')
+        .update({
+          company_id: accountingCompanyId,
+          chart_of_accounts_id: debitAccountId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', obligationId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['daily-payment-schedule'] });
+    },
+    onError: (err: any) => {
+      toast.error('Accounting company/ledger selection could not be saved: ' + err.message);
+    },
+  });
+
+  const saveObligationDetails = useMutation({
+    mutationFn: async ({
+      obligationId,
+      partyName,
+      companyId,
+      ledgerId,
+    }: {
+      obligationId: string;
+      partyName: string;
+      companyId: string | null;
+      ledgerId: string | null;
+    }) => {
+      const { error } = await (supabase as any)
+        .from('payment_obligations')
+        .update({
+          party_name: partyName,
+          company_id: companyId,
+          chart_of_accounts_id: ledgerId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', obligationId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['daily-payment-schedule'] });
+      queryClient.invalidateQueries({ queryKey: ['payment-obligations'] });
+    },
+    onError: (err: any) => toast.error('Obligation details could not be saved: ' + err.message),
+  });
+
   // Skip/remove an entry from today's schedule
   const skipEntry = useMutation({
     mutationFn: async (id: string) => {
@@ -260,6 +363,8 @@ export const useDailyPaymentSchedule = (date: string, hospital: string = 'hope')
     markPaid,
     createPaymentVoucher,
     savePaymentLedgers,
+    saveAccountingLedgers,
+    saveObligationDetails,
     updateScheduleEntry,
     skipEntry,
     reorderSchedule,

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -45,12 +45,15 @@ import {
   useAllocationSaveStatus,
   useSaveAllocation,
   useSavedAllocations,
+  isDailyAllocationExecution,
+  DAILY_ALLOCATION_SOURCE_PREFIX,
+  getDailyAllocationNarration,
   type ScheduleEntry,
   type BankAccount,
   type SubAllocation,
   type SavedAllocation,
 } from '@/hooks/useDailyPaymentAllocation';
-import { usePaymentObligations, usePayeeSearch, useMultiPayeeSearch, useObligationDefaultPayees, useTallyLedgerSearch, useTallyLedgerDetails, useTallyCompanies, useTallyCashBankLedgers, useSaveObligationLedgerLinks, useObligationSubCategories, type PaymentObligation, type DefaultPayee, type TallyCompany, type SubCategoryRow } from '@/hooks/usePaymentObligations';
+import { usePaymentObligations, usePayeeSearch, useMultiPayeeSearch, useObligationDefaultPayees, useTallyLedgerSearch, useTallyCompanies, useAccountingLedgerSearch, useAccountingCashBankLedgers, useSaveObligationLedgerLinks, useObligationSubCategories, type PaymentObligation, type DefaultPayee, type TallyCompany, type SubCategoryRow } from '@/hooks/usePaymentObligations';
 import { useCompanies } from '@/hooks/useCompanies';
 import { useAuth } from '@/contexts/AuthContext';
 import { DailyAllocationSheet } from '@/components/DailyAllocationSheet';
@@ -137,11 +140,22 @@ interface SortableScheduleRowProps {
   subAllocations: SubAllocation[];
   companyName: string;
   ledgerName: string;
+  narration: string;
+  companies: Array<{ id: string; company_name: string }>;
+  editParty: string;
+  editCompanyId: string;
+  editLedgerId: string;
+  editLedgerName: string;
+  editLedgerSearch: string;
   onStartEdit: () => void;
   onSaveEdit: () => void;
   onCancelEdit: () => void;
   onEditAmountChange: (v: string) => void;
   onEditNotesChange: (v: string) => void;
+  onEditPartyChange: (v: string) => void;
+  onEditCompanyChange: (v: string) => void;
+  onEditLedgerChange: (id: string, name: string) => void;
+  onEditLedgerSearchChange: (v: string) => void;
   onPay: () => void;
   onSkipConfirm: () => void;
   onSkipCancel: () => void;
@@ -150,11 +164,14 @@ interface SortableScheduleRowProps {
 
 const SortableScheduleRow = ({
   entry, idx, isEditing, editAmount, editNotes, skipConfirmId,
-  subAllocations, companyName, ledgerName,
+  subAllocations, companyName, ledgerName, narration, companies,
+  editParty, editCompanyId, editLedgerId, editLedgerName, editLedgerSearch,
   onStartEdit, onSaveEdit, onCancelEdit, onEditAmountChange, onEditNotesChange,
+  onEditPartyChange, onEditCompanyChange, onEditLedgerChange, onEditLedgerSearchChange,
   onPay, onSkipConfirm, onSkipCancel, onSkip,
 }: SortableScheduleRowProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: entry.id });
+  const { data: editLedgers = [] } = useAccountingLedgerSearch(editLedgerSearch, editCompanyId || null);
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
   const totalDue = entry.daily_amount + entry.carryforward_amount;
   const isSkipped = entry.status === 'skipped';
@@ -169,18 +186,9 @@ const SortableScheduleRow = ({
       </TableCell>
       <TableCell className="text-center text-xs text-muted-foreground">{idx + 1}</TableCell>
       <TableCell>
-        <div className="font-medium">{entry.party_name}</div>
-        {isEditing && (
-          <Input
-            value={editNotes}
-            onChange={(e) => onEditNotesChange(e.target.value)}
-            placeholder="Add notes..."
-            className="mt-1 h-7 text-xs"
-          />
-        )}
-        {!isEditing && entry.notes && (
-          <div className="text-xs text-muted-foreground">{entry.notes}</div>
-        )}
+        {isEditing ? (
+          <Input value={editParty} onChange={(e) => onEditPartyChange(e.target.value)} className="h-8 min-w-[180px]" />
+        ) : <div className="font-medium">{entry.party_name}</div>}
         {subAllocations.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1">
             {subAllocations.map((sa) => (
@@ -199,8 +207,55 @@ const SortableScheduleRow = ({
           </div>
         )}
       </TableCell>
-      <TableCell className="text-xs text-muted-foreground">{companyName || '-'}</TableCell>
-      <TableCell className="text-xs text-muted-foreground">{ledgerName}</TableCell>
+      <TableCell className="text-xs text-muted-foreground">
+        {isEditing ? (
+          <select
+            value={editCompanyId}
+            onChange={(e) => onEditCompanyChange(e.target.value)}
+            className="h-8 w-full min-w-[150px] rounded-md border border-input bg-background px-2 text-xs"
+          >
+            <option value="">Select company</option>
+            {companies.map((company) => <option key={company.id} value={company.id}>{company.company_name}</option>)}
+          </select>
+        ) : companyName || '-'}
+      </TableCell>
+      <TableCell className="relative text-xs text-muted-foreground">
+        {isEditing ? (
+          <>
+            <Input
+              value={editLedgerSearch || editLedgerName}
+              onChange={(e) => onEditLedgerSearchChange(e.target.value)}
+              placeholder="Search ledger"
+              className="h-8 min-w-[170px]"
+              disabled={!editCompanyId}
+            />
+            {editLedgerSearch && editLedgers.length > 0 && (
+              <div className="absolute left-0 top-9 z-50 max-h-48 w-64 overflow-y-auto rounded-md border bg-white shadow-lg">
+                {editLedgers.map((ledger) => (
+                  <button
+                    key={ledger.id}
+                    type="button"
+                    className="block w-full px-3 py-2 text-left text-xs hover:bg-blue-50"
+                    onClick={() => onEditLedgerChange(ledger.id, ledger.account_name)}
+                  >
+                    {ledger.account_name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        ) : ledgerName || '-'}
+      </TableCell>
+      <TableCell className="max-w-[240px] text-xs text-muted-foreground">
+        {isEditing ? (
+          <Input
+            value={editNotes}
+            onChange={(e) => onEditNotesChange(e.target.value)}
+            placeholder="Narration"
+            className="h-8 min-w-[180px] text-xs"
+          />
+        ) : narration || '-'}
+      </TableCell>
       <TableCell className="text-right">
         {isEditing ? (
           <Input
@@ -454,15 +509,6 @@ const DailyPaymentAllocation = () => {
     });
     return map;
   }, [tallyCompanies]);
-  const tallyCompanyOptions = useMemo(
-    () => tallyCompanies.flatMap((company) =>
-      (company.company_ids?.length ? company.company_ids : [company.id]).map((id) => ({
-        id,
-        name: company.company_name,
-      })),
-    ),
-    [tallyCompanies],
-  );
   const saveLedgerLinks = useSaveObligationLedgerLinks();
   const { subCategories, upsert: upsertSubCategory, remove: removeSubCategory } = useObligationSubCategories();
 
@@ -478,6 +524,11 @@ const DailyPaymentAllocation = () => {
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [editScheduleAmount, setEditScheduleAmount] = useState('');
   const [editScheduleNotes, setEditScheduleNotes] = useState('');
+  const [editScheduleParty, setEditScheduleParty] = useState('');
+  const [editScheduleCompanyId, setEditScheduleCompanyId] = useState('');
+  const [editScheduleLedgerId, setEditScheduleLedgerId] = useState('');
+  const [editScheduleLedgerName, setEditScheduleLedgerName] = useState('');
+  const [editScheduleLedgerSearch, setEditScheduleLedgerSearch] = useState('');
 
   // Skip confirmation for schedule
   const [skipConfirmId, setSkipConfirmId] = useState<string | null>(null);
@@ -533,7 +584,7 @@ const DailyPaymentAllocation = () => {
   const [saveNotes, setSaveNotes] = useState('');
 
   // Queries
-  const { schedule, isLoading, createPaymentVoucher, savePaymentLedgers, updateScheduleEntry, skipEntry, reorderSchedule, refetch } = useDailyPaymentSchedule(selectedDate, selectedHospital);
+  const { schedule, isLoading, createPaymentVoucher, saveAccountingLedgers, saveObligationDetails, updateScheduleEntry, skipEntry, reorderSchedule, refetch } = useDailyPaymentSchedule(selectedDate, selectedHospital);
   const { funds, refetch: refetchFunds, saveActualBalance, addManualAccount } = useFundAccounts(selectedDate);
   const { data: cashCollections = 0 } = useTodayCashCollections(selectedDate);
 
@@ -567,25 +618,27 @@ const DailyPaymentAllocation = () => {
   const { data: payeeResults = [] } = usePayeeSearch(payeeTable, payeeSearchTerm);
   // payeeResults for the sub-allocation payee search in plan mode (multi-table search)
   const { data: history = [] } = usePaymentHistory(historyFrom, historyTo, selectedHospital);
-  const { data: payDebitLedgers = [] } = useTallyLedgerSearch(payDebitLedgerSearch, payTallyCompanyId);
-  const { data: payCreditLedgers = [] } = useTallyCashBankLedgers(payTallyCompanyId);
-  const { data: payDebitLedgerDetails } = useTallyLedgerDetails(payingEntry?.tally_ledger_id);
-
-  useEffect(() => {
-    if (
-      payDebitLedgerId &&
-      payDebitLedgerDetails?.id === payDebitLedgerId &&
-      !payDebitLedgerSearch
-    ) {
-      setPayDebitLedgerName(payDebitLedgerDetails.name);
-    }
-  }, [payDebitLedgerDetails, payDebitLedgerId, payDebitLedgerSearch]);
+  const { data: payDebitLedgers = [] } = useAccountingLedgerSearch(payDebitLedgerSearch, payTallyCompanyId);
+  const { data: payCreditLedgers = [] } = useAccountingCashBankLedgers(payTallyCompanyId);
 
   // Use actual cash if manually entered, else system value
   const effectiveCash = actualCashCollection !== '' ? parseFloat(actualCashCollection) || 0 : cashCollections;
 
-  // Calculations — exclude skipped entries from totals
-  const activeSchedule = schedule.filter(e => e.status !== 'skipped');
+  // Sent obligations remain visible until they are paid. Accounting company
+  // and ledger values are loaded from the obligation and saved only when Pay
+  // is confirmed.
+  const displaySchedule = useMemo(
+    () => schedule.filter((entry) => Boolean(
+      entry.notes?.startsWith(DAILY_ALLOCATION_SOURCE_PREFIX)
+      || entry.notes?.startsWith('Sent from Daily Allocation'),
+    )),
+    [schedule],
+  );
+
+  // Today’s Allocation is intentionally scoped to rows explicitly sent from
+  // Daily Allocation. Master templates may still be materialized by the
+  // schedule RPC, but they must not affect this page's payment totals.
+  const activeSchedule = displaySchedule.filter(e => e.status !== 'skipped');
   const totalDue = activeSchedule.reduce((s, e) => s + (e.daily_amount + e.carryforward_amount), 0);
   const totalPaid = activeSchedule.reduce((s, e) => s + e.paid_amount, 0);
 
@@ -651,7 +704,7 @@ const DailyPaymentAllocation = () => {
       // Main party row
       bodyHtml += `<tr style="background:#fafafa;font-weight:600">
         <td style="border:1px solid #ccc;padding:6px 10px;font-size:12px">${serial}</td>
-        <td style="border:1px solid #ccc;padding:6px 10px;font-size:12px">${entry.party_name}${entry.notes ? `<br/><span style="font-weight:400;color:#666;font-size:11px">${entry.notes}</span>` : ''}</td>
+        <td style="border:1px solid #ccc;padding:6px 10px;font-size:12px">${entry.party_name}${getDailyAllocationNarration(entry.notes) ? `<br/><span style="font-weight:400;color:#666;font-size:11px">${getDailyAllocationNarration(entry.notes)}</span>` : ''}</td>
         <td style="border:1px solid #ccc;padding:6px 10px;font-size:12px;text-align:right">${formatINR(entry.daily_amount)}</td>
         <td style="border:1px solid #ccc;padding:6px 10px;font-size:12px;text-align:right">${entry.carryforward_amount > 0 ? formatINR(entry.carryforward_amount) : '-'}</td>
         <td style="border:1px solid #ccc;padding:6px 10px;font-size:12px;text-align:right;font-weight:700">${formatINR(totalDueEntry)}</td>
@@ -753,10 +806,10 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
 
   // Sorted schedule: use local drag order if available, else original
   const sortedSchedule = useMemo(() => {
-    if (!localScheduleOrder) return schedule;
-    const map = new Map(schedule.map(s => [s.id, s]));
+    if (!localScheduleOrder) return displaySchedule;
+    const map = new Map(displaySchedule.map(s => [s.id, s]));
     return localScheduleOrder.map(id => map.get(id)).filter(Boolean) as ScheduleEntry[];
-  }, [schedule, localScheduleOrder]);
+  }, [displaySchedule, localScheduleOrder]);
 
   // Group schedule entries by sub_category for section totals
   const groupedSchedule = useMemo(() => {
@@ -804,7 +857,7 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
-    const currentOrder = localScheduleOrder || schedule.map(s => s.id);
+    const currentOrder = localScheduleOrder || displaySchedule.map(s => s.id);
     const oldIndex = currentOrder.indexOf(String(active.id));
     const newIndex = currentOrder.indexOf(String(over.id));
     const newOrder = arrayMove(currentOrder, oldIndex, newIndex);
@@ -817,20 +870,39 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
 
   const startEditSchedule = (entry: ScheduleEntry) => {
     setEditingScheduleId(entry.id);
+    setEditScheduleParty(entry.party_name);
     setEditScheduleAmount(String(entry.daily_amount));
-    setEditScheduleNotes(entry.notes || '');
+    setEditScheduleNotes(getDailyAllocationNarration(entry.notes));
+    setEditScheduleCompanyId(entry.accounting_company_id || entry.company_id || '');
+    setEditScheduleLedgerId(entry.debit_account_id || '');
+    setEditScheduleLedgerName(entry.debit_account_name || '');
+    setEditScheduleLedgerSearch('');
   };
 
-  const saveEditSchedule = () => {
+  const saveEditSchedule = async () => {
     if (!editingScheduleId) return;
+    if (!editScheduleParty.trim()) { toast.error('Enter a party name'); return; }
     const amount = parseFloat(editScheduleAmount);
     if (isNaN(amount) || amount < 0) { toast.error('Enter a valid amount'); return; }
-    updateScheduleEntry.mutate({
-      id: editingScheduleId,
-      daily_amount: amount,
-      notes: editScheduleNotes || undefined,
-    });
-    setEditingScheduleId(null);
+    const entry = schedule.find((item) => item.id === editingScheduleId);
+    if (!entry) return;
+    try {
+      await saveObligationDetails.mutateAsync({
+        obligationId: entry.obligation_id,
+        partyName: editScheduleParty.trim(),
+        companyId: editScheduleCompanyId || null,
+        ledgerId: editScheduleLedgerId || null,
+      });
+      await updateScheduleEntry.mutateAsync({
+        id: editingScheduleId,
+        party_name: editScheduleParty.trim(),
+        daily_amount: amount,
+        notes: `${DAILY_ALLOCATION_SOURCE_PREFIX}${editScheduleNotes.trim()}`,
+      });
+      setEditingScheduleId(null);
+    } catch (error: any) {
+      toast.error(`Could not save row: ${error?.message || 'unknown error'}`);
+    }
   };
 
   const handleSkipEntry = (id: string) => {
@@ -880,12 +952,12 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
     setPayingEntry(entry);
     setPaymentError('');
     setPayAmount(String(remaining));
-    setPayTallyCompanyId(entry.tally_company_id || '');
-    setPayLedgerCompanyId(entry.tally_company_id || '');
-    setPayDebitLedgerId(entry.tally_ledger_id || '');
-    setPayDebitLedgerName('');
+    setPayTallyCompanyId(entry.accounting_company_id || entry.company_id || '');
+    setPayLedgerCompanyId(entry.accounting_company_id || entry.company_id || '');
+    setPayDebitLedgerId(entry.debit_account_id || '');
+    setPayDebitLedgerName(entry.debit_account_name || '');
     setPayDebitLedgerSearch('');
-    setPayCreditLedgerId(entry.credit_tally_ledger_id || '');
+    setPayCreditLedgerId(entry.credit_account_id || '');
     setPayeeSearchTerm('');
     setSelectedPayeeName('');
     setSubAllocDialogMode('plan');
@@ -925,22 +997,25 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
       return;
     }
     try {
+      if (!payTallyCompanyId || !payDebitLedgerId) {
+        setPaymentError('Select an Accounting company and debit ledger before confirming payment.');
+        return;
+      }
       if (
-        payTallyCompanyId !== (payingEntry.tally_company_id || '') ||
-        payDebitLedgerId !== (payingEntry.tally_ledger_id || '') ||
-        payCreditLedgerId !== (payingEntry.credit_tally_ledger_id || '')
+        payTallyCompanyId !== (payingEntry.accounting_company_id || payingEntry.company_id || '') ||
+        payDebitLedgerId !== (payingEntry.debit_account_id || '')
       ) {
-        await savePaymentLedgers.mutateAsync({
-          id: payingEntry.id,
-          tallyCompanyId: payTallyCompanyId || null,
-          debitLedgerId: payDebitLedgerId || null,
-          creditLedgerId: payCreditLedgerId || null,
+        await saveAccountingLedgers.mutateAsync({
+          obligationId: payingEntry.obligation_id,
+          accountingCompanyId: payTallyCompanyId || null,
+          debitAccountId: payDebitLedgerId || null,
         });
         setPayingEntry({
           ...payingEntry,
-          tally_company_id: payTallyCompanyId || null,
-          tally_ledger_id: payDebitLedgerId || null,
-          credit_tally_ledger_id: payCreditLedgerId || null,
+          company_id: payTallyCompanyId || null,
+          accounting_company_id: payTallyCompanyId || null,
+          debit_account_id: payDebitLedgerId || null,
+          credit_account_id: payCreditLedgerId || null,
         });
       }
       const posting = await createPaymentVoucher.mutateAsync({
@@ -980,7 +1055,9 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
 
     let sectionsHtml = '';
     sectionsToRender.forEach((section, idx) => {
-      const rows = sortedObligations.filter(o => getSectionForObligation(o) === section.key);
+      const rows = sortedObligations.filter(o =>
+        !isDailyAllocationExecution(o.notes) && getSectionForObligation(o) === section.key,
+      );
       const sectionDailyTotal = rows.reduce((sum, o) => sum + Number(o.default_daily_amount || 0), 0);
       const sectionApproxTotal = rows.reduce((sum, o) => sum + Number(o.approximate_balance || 0), 0);
 
@@ -1607,8 +1684,8 @@ ${sectionsHtml}
         <TabsList className="grid w-full grid-cols-2 md:grid-cols-5">
           <TabsTrigger value="allocation">
             Today's Allocation
-            {schedule.filter(s => s.status === 'pending').length > 0 && (
-              <Badge className="ml-2 bg-red-500">{schedule.filter(s => s.status === 'pending').length}</Badge>
+            {displaySchedule.filter(s => s.status === 'pending').length > 0 && (
+              <Badge className="ml-2 bg-red-500">{displaySchedule.filter(s => s.status === 'pending').length}</Badge>
             )}
           </TabsTrigger>
           <TabsTrigger value="saved">
@@ -1626,9 +1703,9 @@ ${sectionsHtml}
         <TabsContent value="allocation" className="mt-4">
           {isLoading ? (
             <div className="text-center py-8 text-muted-foreground">Loading schedule...</div>
-          ) : schedule.length === 0 ? (
+          ) : displaySchedule.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              No obligations scheduled for {selectedDate}. Add obligations in the Master tab first.
+              No obligations with a selected ledger are scheduled for {selectedDate}.
             </div>
           ) : (
             <Card>
@@ -1680,6 +1757,7 @@ ${sectionsHtml}
                       <TableHead>Party</TableHead>
                       <TableHead>Company</TableHead>
                       <TableHead>Ledger</TableHead>
+                      <TableHead>Narration</TableHead>
                       <TableHead className="text-right">Daily Amount</TableHead>
                       <TableHead className="text-right">Carry Forward</TableHead>
                       <TableHead className="text-right">Total Due</TableHead>
@@ -1697,7 +1775,7 @@ ${sectionsHtml}
                           <React.Fragment key={group.category}>
                             {/* Section Header */}
                             <TableRow className="bg-blue-50 border-t-2 border-blue-200">
-                              <TableCell colSpan={12} className="py-2">
+                              <TableCell colSpan={13} className="py-2">
                                 <span className="font-semibold text-blue-800 text-sm uppercase tracking-wide">{group.label}</span>
                                 <span className="text-xs text-blue-600 ml-2">({group.entries.length} items)</span>
                               </TableCell>
@@ -1715,15 +1793,39 @@ ${sectionsHtml}
                                   editNotes={editScheduleNotes}
                                   skipConfirmId={skipConfirmId}
                                   subAllocations={allSubAllocations.filter(sa => sa.schedule_id === entry.id)}
-                                  companyName={entry.tally_company_id
-                                    ? (tallyCompanyNameMap[entry.tally_company_id] || '')
+                                  companyName={entry.accounting_company_id
+                                    ? (companyNameMap[entry.accounting_company_id] || '')
                                     : (entry.company_id ? (companyNameMap[entry.company_id] || '') : '')}
-                                  ledgerName={entry.tally_ledger_name || ''}
+                                  ledgerName={entry.debit_account_name || ''}
+                                  narration={getDailyAllocationNarration(entry.notes)}
+                                  companies={companies}
+                                  editParty={editScheduleParty}
+                                  editCompanyId={editScheduleCompanyId}
+                                  editLedgerId={editScheduleLedgerId}
+                                  editLedgerName={editScheduleLedgerName}
+                                  editLedgerSearch={editScheduleLedgerSearch}
                                   onStartEdit={() => startEditSchedule(entry)}
                                   onSaveEdit={saveEditSchedule}
                                   onCancelEdit={() => setEditingScheduleId(null)}
                                   onEditAmountChange={setEditScheduleAmount}
                                   onEditNotesChange={setEditScheduleNotes}
+                                  onEditPartyChange={setEditScheduleParty}
+                                  onEditCompanyChange={(companyId) => {
+                                    setEditScheduleCompanyId(companyId);
+                                    setEditScheduleLedgerId('');
+                                    setEditScheduleLedgerName('');
+                                    setEditScheduleLedgerSearch('');
+                                  }}
+                                  onEditLedgerChange={(ledgerId, ledgerName) => {
+                                    setEditScheduleLedgerId(ledgerId);
+                                    setEditScheduleLedgerName(ledgerName);
+                                    setEditScheduleLedgerSearch('');
+                                  }}
+                                  onEditLedgerSearchChange={(value) => {
+                                    setEditScheduleLedgerSearch(value);
+                                    setEditScheduleLedgerId('');
+                                    setEditScheduleLedgerName('');
+                                  }}
                                   onPay={() => handlePay(entry)}
                                   onSkipConfirm={() => setSkipConfirmId(entry.id)}
                                   onSkipCancel={() => setSkipConfirmId(null)}
@@ -1733,7 +1835,7 @@ ${sectionsHtml}
                             })}
                             {/* Section Subtotal */}
                             <TableRow className="bg-blue-50/50 border-b border-blue-100">
-                              <TableCell colSpan={5} className="text-right text-xs font-semibold text-blue-700">
+                              <TableCell colSpan={6} className="text-right text-xs font-semibold text-blue-700">
                                 {group.label} Subtotal
                               </TableCell>
                               <TableCell className="text-right font-mono text-xs font-semibold text-blue-700">{formatINR(group.totalDaily)}</TableCell>
@@ -1747,7 +1849,7 @@ ${sectionsHtml}
                       })()}
                       {/* Grand Total */}
                       <TableRow className="bg-gray-100 font-bold border-t-2 border-gray-300">
-                        <TableCell colSpan={5} className="text-sm">GRAND TOTAL</TableCell>
+                        <TableCell colSpan={6} className="text-sm">GRAND TOTAL</TableCell>
                         <TableCell className="text-right font-mono">{formatINR(sortedSchedule.filter(e => e.status !== 'skipped').reduce((s, e) => s + e.daily_amount, 0))}</TableCell>
                         <TableCell className="text-right font-mono text-red-600">{formatINR(sortedSchedule.filter(e => e.status !== 'skipped').reduce((s, e) => s + e.carryforward_amount, 0))}</TableCell>
                         <TableCell className="text-right font-mono">{formatINR(totalDue)}</TableCell>
@@ -1793,7 +1895,9 @@ ${sectionsHtml}
           </p>
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleObligationDragEnd}>
             {OBLIGATION_SECTIONS.map(section => {
-              const rows = sortedObligations.filter(o => getSectionForObligation(o) === section.key);
+              const rows = sortedObligations.filter(o =>
+                !isDailyAllocationExecution(o.notes) && getSectionForObligation(o) === section.key,
+              );
               return (
                 <Card key={section.key} className="overflow-hidden">
                   <div className="px-4 py-2 border-b bg-blue-50 flex items-center justify-between gap-2">
@@ -2117,11 +2221,10 @@ ${sectionsHtml}
                 )}
               </div>
 
-              {/* Accounting setup stays in the same planning popup. It is
-                  saved to the schedule on payment confirmation, not merely
-                  by opening this dialog. */}
-              <div className="hidden border rounded-md p-3 space-y-3 bg-amber-50/40">
-                  <p className="text-xs font-semibold text-amber-900">Payment Voucher only</p>
+              {/* Accounting setup is saved to the obligation only when the
+                  payment is confirmed. */}
+              <div className="border rounded-md p-3 space-y-3 bg-amber-50/40">
+                <p className="text-xs font-semibold text-amber-900">Accounting details for this payment</p>
                 <div>
                   <Label className="text-xs">Company</Label>
                   <Select
@@ -2137,8 +2240,8 @@ ${sectionsHtml}
                   >
                     <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="Select company first" /></SelectTrigger>
                     <SelectContent>
-                      {tallyCompanyOptions.map((company) => (
-                        <SelectItem key={company.id} value={company.id}>{company.name}</SelectItem>
+                      {companies.map((company) => (
+                        <SelectItem key={company.id} value={company.id}>{company.company_name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -2167,12 +2270,12 @@ ${sectionsHtml}
                             setPayDebitLedgerId(ledger.id);
                             setPayTallyCompanyId(ledger.company_id || payTallyCompanyId);
                             setPayLedgerCompanyId(ledger.company_id || payTallyCompanyId);
-                            setPayDebitLedgerName(ledger.name);
+                            setPayDebitLedgerName(ledger.account_name);
                             setPayDebitLedgerSearch('');
                           }}
                         >
-                        <span className="font-medium">{ledger.name}</span>
-                        <span className="ml-2 text-xs text-muted-foreground">{ledger.parent_group || 'Tally ledger'}</span>
+                        <span className="font-medium">{ledger.account_name}</span>
+                        <span className="ml-2 text-xs text-muted-foreground">{ledger.account_group || ledger.account_type || 'Accounting ledger'}</span>
                         </button>
                       ))}
                     </div>
@@ -2187,7 +2290,7 @@ ${sectionsHtml}
                     <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="Select Cash or Bank account" /></SelectTrigger>
                     <SelectContent>
                       {payCreditLedgers.map((ledger: any) => (
-                        <SelectItem key={ledger.id} value={ledger.id}>{ledger.name} ({ledger.parent_group || 'Cash/Bank'})</SelectItem>
+                        <SelectItem key={ledger.id} value={ledger.id}>{ledger.account_name} ({ledger.account_group || 'Cash/Bank'})</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -2313,8 +2416,8 @@ ${sectionsHtml}
                 >
                   <SelectTrigger className="mt-1"><SelectValue placeholder="Select company first" /></SelectTrigger>
                   <SelectContent>
-                    {tallyCompanyOptions.map((company) => (
-                      <SelectItem key={company.id} value={company.id}>{company.name}</SelectItem>
+                    {companies.map((company) => (
+                      <SelectItem key={company.id} value={company.id}>{company.company_name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -2343,12 +2446,12 @@ ${sectionsHtml}
                           setPayDebitLedgerId(ledger.id);
                           setPayTallyCompanyId(ledger.company_id || payTallyCompanyId);
                           setPayLedgerCompanyId(ledger.company_id || payTallyCompanyId);
-                          setPayDebitLedgerName(ledger.name);
+                          setPayDebitLedgerName(ledger.account_name);
                           setPayDebitLedgerSearch('');
                         }}
                       >
-                          <span className="font-medium">{ledger.name}</span>
-                          <span className="ml-2 text-xs text-muted-foreground">{ledger.parent_group || 'Tally ledger'}</span>
+                          <span className="font-medium">{ledger.account_name}</span>
+                          <span className="ml-2 text-xs text-muted-foreground">{ledger.account_group || ledger.account_type || 'Accounting ledger'}</span>
                       </button>
                     ))}
                   </div>
@@ -2363,7 +2466,7 @@ ${sectionsHtml}
                   <SelectTrigger className="mt-1"><SelectValue placeholder="Select payment account" /></SelectTrigger>
                   <SelectContent>
                     {payCreditLedgers.map((ledger: any) => (
-                      <SelectItem key={ledger.id} value={ledger.id}>{ledger.name} ({ledger.parent_group || 'Cash/Bank'})</SelectItem>
+                      <SelectItem key={ledger.id} value={ledger.id}>{ledger.account_name} ({ledger.account_group || 'Cash/Bank'})</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
