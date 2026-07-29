@@ -1,10 +1,142 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { withTimeout } from '@/utils/withTimeout';
+import { RequestTimeoutError, withTimeout } from '@/utils/withTimeout';
 import { useInvoiceAccess } from '@/hooks/useInvoiceAccess';
 
 const FINAL_BILL_REQUEST_TIMEOUT_MS = 15_000;
+const FINAL_BILL_TRANSIENT_RETRY_DELAY_MS = 800;
+
+type InvoiceContentResponse = {
+  ok?: boolean;
+  error?: string;
+  reason?: string;
+  stage?: string;
+  retryable?: boolean;
+  requestId?: string;
+  sections?: BillSection[];
+  line_items?: BillLineItem[];
+  bill_items_json?: unknown;
+  bill_patient_data?: unknown;
+};
+
+class InvoiceContentRequestError extends Error {
+  readonly status: number;
+  readonly retryable: boolean;
+  readonly requestId: string | null;
+  readonly stage: string | null;
+
+  constructor(
+    message: string,
+    options: { status?: number; retryable?: boolean; requestId?: string | null; stage?: string | null } = {},
+  ) {
+    super(message);
+    this.name = 'InvoiceContentRequestError';
+    this.status = options.status ?? 0;
+    this.retryable = options.retryable ?? false;
+    this.requestId = options.requestId ?? null;
+    this.stage = options.stage ?? null;
+  }
+}
+
+const waitForRetry = (signal: AbortSignal): Promise<void> =>
+  new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, FINAL_BILL_TRANSIENT_RETRY_DELAY_MS);
+    const onAbort = () => {
+      window.clearTimeout(timer);
+      reject(signal.reason);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+
+const fetchInvoiceContent = async (
+  billId: string,
+  grantToken: string | null | undefined,
+  querySignal: AbortSignal,
+): Promise<InvoiceContentResponse> => {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (querySignal.aborted) throw querySignal.reason;
+
+    const controller = new AbortController();
+    const forwardAbort = () => controller.abort(querySignal.reason);
+    querySignal.addEventListener('abort', forwardAbort, { once: true });
+    const timeout = window.setTimeout(
+      () => controller.abort(new RequestTimeoutError('Loading bill content', FINAL_BILL_REQUEST_TIMEOUT_MS)),
+      FINAL_BILL_REQUEST_TIMEOUT_MS,
+    );
+
+    try {
+      const response = await fetch('/api/invoice-content', {
+        method: 'POST',
+        credentials: 'include',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ billId, grantToken }),
+        signal: controller.signal,
+      });
+      const responseRequestId = response.headers.get('x-request-id');
+      const contentType = response.headers.get('content-type') || '';
+      const rawBody = await response.text();
+      let content: InvoiceContentResponse | null = null;
+      try {
+        content = rawBody ? JSON.parse(rawBody) as InvoiceContentResponse : null;
+      } catch {
+        content = null;
+      }
+
+      if (response.ok && content?.ok) return content;
+
+      const isMalformedGatewayResponse = !content && response.status >= 500;
+      const retryable = content?.retryable ??
+        (isMalformedGatewayResponse || [502, 503, 504].includes(response.status));
+      const requestId = content?.requestId || responseRequestId;
+      const message = content?.reason || content?.error || 'Unable to load bill content';
+      const requestError = new InvoiceContentRequestError(message, {
+        status: response.status,
+        retryable,
+        requestId,
+        stage: content?.stage || (!content ? 'gateway' : null),
+      });
+
+      console.error('❌ Invoice content request failed:', {
+        status: response.status,
+        contentType,
+        retryable,
+        requestId,
+        stage: requestError.stage,
+      });
+
+      if (!retryable || attempt === 1) throw requestError;
+    } catch (error) {
+      if (querySignal.aborted) throw querySignal.reason;
+
+      const timeoutReason = controller.signal.aborted && controller.signal.reason instanceof RequestTimeoutError
+        ? controller.signal.reason
+        : null;
+      const requestError = error instanceof InvoiceContentRequestError
+        ? error
+        : new InvoiceContentRequestError(
+          timeoutReason?.message || (error instanceof Error ? error.message : 'Unable to load bill content'),
+          { retryable: true, stage: timeoutReason ? 'timeout' : 'network' },
+        );
+      if (!requestError.retryable || attempt === 1) throw requestError;
+    } finally {
+      window.clearTimeout(timeout);
+      querySignal.removeEventListener('abort', forwardAbort);
+    }
+
+    await waitForRetry(querySignal);
+  }
+
+  throw new InvoiceContentRequestError('Unable to load bill content');
+};
 
 export interface BillSection {
   id: string;
@@ -55,9 +187,9 @@ export const useFinalBillData = (visitId: string) => {
   const queryClient = useQueryClient();
   const access = useInvoiceAccess({ visitId });
 
-  const { data: billData, isLoading, error, refetch } = useQuery({
+  const { data: billData, isLoading, error: queryError, refetch } = useQuery({
     queryKey: ['final-bill', visitId, access.grantToken],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       try {
         console.log('🔍 Fetching bill data for visit ID:', visitId);
 
@@ -113,20 +245,7 @@ export const useFinalBillData = (visitId: string) => {
         }
 
 
-        const contentResponse = await withTimeout(
-          fetch('/api/invoice-content', {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ billId: billsData.id, grantToken: access.grantToken }),
-          }),
-          FINAL_BILL_REQUEST_TIMEOUT_MS,
-          'Loading bill content',
-        );
-        const content = await contentResponse.json().catch(() => ({}));
-        if (!contentResponse.ok || !content?.ok) {
-          throw new Error(content?.reason || content?.error || 'Unable to load bill content');
-        }
+        const content = await fetchInvoiceContent(billsData.id, access.grantToken, signal);
 
         const sectionsData = (content as any)?.sections || [];
         const lineItemsData = (content as any)?.line_items || [];
@@ -330,7 +449,9 @@ export const useFinalBillData = (visitId: string) => {
   return {
     billData,
     isLoading,
-    error,
+    // A transient background refresh must not replace a valid, already-rendered
+    // bill with the full-screen error state in FinalBill.
+    error: billData ? null : queryError,
     refetch,
     saveBill: saveBillMutation.mutate,
     saveBillAsync: saveBillMutation.mutateAsync,
