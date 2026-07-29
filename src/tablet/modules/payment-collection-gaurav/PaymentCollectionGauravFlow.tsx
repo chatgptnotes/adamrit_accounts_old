@@ -358,7 +358,11 @@ export default function PaymentCollectionGauravFlow() {
     queryKey: ["tablet-payment-collection-gaurav", hospitalConfig.name],
     queryFn: () => loadCollectionRows(hospitalConfig.name),
     staleTime: 20_000,
-    refetchInterval: 30_000,
+    // This query rebuilds the full admitted-patient ledger and several related
+    // payment lookups. Mutations invalidate it immediately, so a two-minute
+    // background refresh keeps the list current without repeatedly scanning
+    // the same active visits every 30 seconds.
+    refetchInterval: 120_000,
   });
 
   const rows = collection.data || [];

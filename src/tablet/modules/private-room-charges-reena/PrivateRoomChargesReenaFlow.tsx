@@ -73,12 +73,13 @@ async function loadPrivateRoomCharges(hospitalName: string): Promise<ChargeRow[]
   // room list, which would be wrong for every tenant but the one it was
   // written for.
   // Restricted to the six Second Floor private rooms from the Private Room
-  // Master. select('*') + client-side filter keeps this resilient if the
-  // room_number/is_private columns aren't present yet.
+  // Only the ward identity and private-room display fields are needed here.
+  // Keeping this projection narrow matters because the loader runs on a
+  // background interval while the tile is open.
   const ALLOWED_PRIVATE_ROOMS = ["22", "24", "26", "27", "28", "29"];
   const { data: wards, error: wardError } = await supabase
     .from("room_management")
-    .select("*")
+    .select("ward_id, ward_type, room_number, hospital_name")
     .eq("hospital_name", hospitalName);
   if (wardError) throw wardError;
 
@@ -202,7 +203,9 @@ export default function PrivateRoomChargesReenaFlow() {
     queryKey: ["tablet-private-room-charges-reena", hospitalConfig.name],
     queryFn: () => loadPrivateRoomCharges(hospitalConfig.name),
     staleTime: 20_000,
-    refetchInterval: 30_000,
+    // This is a read-only monitoring tile; use a slower refresh to avoid
+    // repeatedly loading the same ward, visit, and payment ledgers.
+    refetchInterval: 120_000,
   });
 
   const rows = useMemo(() => charges.data || [], [charges.data]);

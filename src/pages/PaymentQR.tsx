@@ -125,7 +125,11 @@ export default function PaymentQR() {
       if (error) throw new Error(error.message);
       return (data ?? []) as PaymentRequest[];
     },
-    refetchInterval: 15000, // poll every 15s for status updates
+    // Recent history does not need polling when there is no open payment.
+    // Keep the existing 15-second status response only while a request is
+    // still pending; mutations invalidate this query immediately.
+    refetchInterval: (query) =>
+      query.state.data?.some((request) => request.status === 'pending') ? 15000 : false,
   });
 
   // Today's total collected — sum of paid amounts for today
