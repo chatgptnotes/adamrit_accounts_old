@@ -198,7 +198,7 @@ const buildPrintHTML = (dateLabel: string, sheet: SheetData, totals: PrintTotals
   const fmt = (n: number | null | undefined): string => fmtINR(n);
 
   const sectionHeaderRow = (label: string): string => `
-    <tr>
+    <tr class="section-row">
       <td colspan="7" class="section-header">${escapeHTML(label)}</td>
     </tr>`;
 
@@ -260,7 +260,11 @@ const buildPrintHTML = (dateLabel: string, sheet: SheetData, totals: PrintTotals
     .sheet-header { display: flex; justify-content: space-between; align-items: center; border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 6px 12px; margin-bottom: 14px; font-weight: 700; font-size: 13px; }
     .sheet-title { flex: 1; text-align: center; letter-spacing: 1px; }
     .sheet-date { white-space: nowrap; }
-    table.main { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
+    table.main { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; page-break-inside: auto; break-inside: auto; }
+    thead { display: table-header-group; }
+    tbody { display: table-row-group; }
+    tr { page-break-inside: avoid; break-inside: avoid; }
+    .section-row { page-break-after: avoid; break-after: avoid; }
     th { border: 1px solid #555; background: #d9e1f2; text-align: center; font-weight: 700; padding: 5px 6px; }
     td.bordered { border: 1px solid #555; padding: 4px 8px; vertical-align: middle; }
     td.ghost { border: none; padding: 4px 8px; background: transparent; }
@@ -274,7 +278,7 @@ const buildPrintHTML = (dateLabel: string, sheet: SheetData, totals: PrintTotals
     @page { size: A4 portrait; margin: 12mm; }
     @media print {
       body { margin: 8mm; }
-      table { page-break-inside: avoid; }
+      table.main { page-break-inside: auto; break-inside: auto; }
     }
   </style>
 </head>
@@ -294,8 +298,7 @@ const buildPrintHTML = (dateLabel: string, sheet: SheetData, totals: PrintTotals
       <col style="width:13%" />
       <col style="width:12%" />
     </colgroup>
-    <tbody>
-      ${sectionHeaderRow('Vendor Obligations')}
+    <thead>
       <tr>
         <th>SR. NO.</th>
         <th>VENDORS</th>
@@ -305,6 +308,9 @@ const buildPrintHTML = (dateLabel: string, sheet: SheetData, totals: PrintTotals
         <th>Payable today</th>
         <th style="border:none;background:transparent"></th>
       </tr>
+    </thead>
+    <tbody>
+      ${sectionHeaderRow('Vendor Obligations')}
       ${vendorRows}
       <tr class="total-row">
         <td class="bordered center" colspan="5">TOTAL PAYABLE TODAY</td>
