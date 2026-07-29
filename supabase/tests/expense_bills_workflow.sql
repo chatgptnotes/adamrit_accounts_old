@@ -2,6 +2,7 @@
 --
 -- Run in Supabase SQL Editor AFTER
 --   20260728180000_harden_expense_bills.sql
+--   20260729110000_expense_bill_payable_parties.sql
 --
 -- Success ends with "Expense Bills rollback test passed". Every bill, voucher,
 -- voucher entry, audit row, and voucher-number increment made here is rolled
@@ -14,10 +15,14 @@ DO $$
 DECLARE
   v_company_id       UUID;
   v_party_id         UUID;
+  v_consultant_id    UUID;
   v_expense_id       UUID;
+  v_income_id        UUID;
   v_bank_id          UUID;
   v_other_bank_id    UUID;
   v_bill_id          UUID;
+  v_consultant_bill  UUID;
+  v_arbitrary_bill   UUID;
   v_accrual_id       UUID;
   v_payment_no       TEXT;
   v_category         TEXT;
@@ -62,8 +67,117 @@ BEGIN
    ORDER BY CASE WHEN company_id = v_company_id THEN 0 ELSE 1 END, account_name
    LIMIT 1;
 
-  IF v_party_id IS NULL OR v_expense_id IS NULL OR v_bank_id IS NULL THEN
-    RAISE EXCEPTION 'Test setup failed: compatible supplier, expense, or Cash/Bank ledger is missing';
+  SELECT id INTO v_income_id
+    FROM public.chart_of_accounts
+   WHERE is_active = true
+     AND account_type IN ('INCOME', 'DIRECT_INCOME', 'INDIRECT_INCOME')
+     AND (company_id = v_company_id OR company_id IS NULL)
+   ORDER BY CASE WHEN company_id = v_company_id THEN 0 ELSE 1 END, account_name
+   LIMIT 1;
+
+  IF v_party_id IS NULL OR v_expense_id IS NULL OR v_bank_id IS NULL OR v_income_id IS NULL THEN
+    RAISE EXCEPTION
+      'Test setup failed: compatible supplier, expense, income, or Cash/Bank ledger is missing';
+  END IF;
+
+  -- Tally imports consultant/salary payees in their own party groups rather
+  -- than Sundry Creditors. This rollback-only row proves that such a payable
+  -- can be credited without opening the bill-from picker to expense heads.
+  INSERT INTO public.chart_of_accounts (
+    account_code, account_name, account_type, account_group,
+    opening_balance, opening_balance_type, is_active, company_id
+  ) VALUES (
+    left('CODEX-CONS-' || replace(gen_random_uuid()::TEXT, '-', ''), 20),
+    'CODEX rollback consultant',
+    'CURRENT_ASSETS',
+    'Consultant',
+    0,
+    'CR',
+    true,
+    v_company_id
+  )
+  RETURNING id INTO v_consultant_id;
+
+  INSERT INTO public.expense_bills (
+    bill_number, bill_date, party_ledger_id, expense_ledger_id, amount,
+    document_path, document_url, company_id, created_by
+  ) VALUES (
+    v_invoice_number || '-CONSULTANT', CURRENT_DATE, v_consultant_id, v_expense_id, 25,
+    'expense-bills/rollback-consultant.pdf',
+    'https://example.invalid/expense-bills/rollback-consultant.pdf',
+    v_company_id, 'rollback-test'
+  )
+  RETURNING id INTO v_consultant_bill;
+
+  IF NOT EXISTS (
+    SELECT 1
+      FROM public.vouchers v
+      JOIN public.voucher_entries e ON e.voucher_id = v.id
+     WHERE v.reference_number = v_consultant_bill::TEXT
+       AND e.account_id = v_consultant_id
+       AND e.credit_amount = 25
+  ) THEN
+    RAISE EXCEPTION 'Payable-party assertion failed: consultant credit entry is missing';
+  END IF;
+
+  v_rejected := false;
+  BEGIN
+    INSERT INTO public.expense_bills (
+      bill_number, bill_date, party_ledger_id, expense_ledger_id, amount,
+      document_path, document_url, company_id, created_by
+    ) VALUES (
+      v_invoice_number || '-EXPENSE-PARTY', CURRENT_DATE, v_expense_id, v_expense_id, 10,
+      'expense-bills/rejected-expense-party.pdf',
+      'https://example.invalid/expense-bills/rejected-expense-party.pdf',
+      v_company_id, 'rollback-test'
+    );
+  EXCEPTION WHEN OTHERS THEN
+    v_rejected := true;
+  END;
+  IF NOT v_rejected THEN
+    RAISE EXCEPTION 'Distinct-ledger assertion failed: the same ledger was accepted on both sides';
+  END IF;
+
+  INSERT INTO public.expense_bills (
+    bill_number, bill_date, party_ledger_id, expense_ledger_id, amount,
+    document_path, document_url, company_id, created_by
+  ) VALUES (
+    v_invoice_number || '-BANK-PARTY', CURRENT_DATE, v_bank_id, v_expense_id, 10,
+    'expense-bills/bank-party.pdf',
+    'https://example.invalid/expense-bills/bank-party.pdf',
+    v_company_id, 'rollback-test'
+  )
+  RETURNING id INTO v_arbitrary_bill;
+  IF NOT EXISTS (
+    SELECT 1
+      FROM public.vouchers v
+      JOIN public.voucher_entries e ON e.voucher_id = v.id
+     WHERE v.reference_number = v_arbitrary_bill::TEXT
+       AND e.account_id = v_bank_id
+       AND e.credit_amount = 10
+  ) THEN
+    RAISE EXCEPTION 'Arbitrary-ledger assertion failed: Cash/Bank credit is missing';
+  END IF;
+
+  INSERT INTO public.expense_bills (
+    bill_number, bill_date, party_ledger_id, expense_ledger_id, amount,
+    document_path, document_url, company_id, created_by
+  ) VALUES (
+    v_invoice_number || '-INCOME-PARTY', CURRENT_DATE, v_income_id, v_expense_id, 10,
+    'expense-bills/income-party.pdf',
+    'https://example.invalid/expense-bills/income-party.pdf',
+    v_company_id, 'rollback-test'
+  )
+  RETURNING id INTO v_arbitrary_bill;
+  IF NOT EXISTS (
+    SELECT 1
+      FROM public.vouchers v
+      JOIN public.voucher_entries e ON e.voucher_id = v.id
+     WHERE v.reference_number = v_arbitrary_bill::TEXT
+       AND e.account_id = v_income_id
+       AND e.credit_amount = 10
+  ) THEN
+    RAISE EXCEPTION 'Arbitrary-ledger assertion failed: income credit is missing';
   END IF;
 
   INSERT INTO public.expense_bills (
@@ -206,6 +320,25 @@ BEGIN
      )
    LIMIT 1;
   IF v_other_bank_id IS NOT NULL THEN
+    v_rejected := false;
+    BEGIN
+      INSERT INTO public.expense_bills (
+        bill_number, bill_date, party_ledger_id, expense_ledger_id, amount,
+        document_path, document_url, company_id, created_by
+      ) VALUES (
+        v_invoice_number || '-OTHER-COMPANY', CURRENT_DATE,
+        v_other_bank_id, v_expense_id, 10,
+        'expense-bills/rejected-other-company.pdf',
+        'https://example.invalid/expense-bills/rejected-other-company.pdf',
+        v_company_id, 'rollback-test'
+      );
+    EXCEPTION WHEN OTHERS THEN
+      v_rejected := true;
+    END;
+    IF NOT v_rejected THEN
+      RAISE EXCEPTION 'Company assertion failed: another company''s ledger was accepted';
+    END IF;
+
     v_rejected := false;
     BEGIN
       PERFORM public.record_expense_bill_payment(

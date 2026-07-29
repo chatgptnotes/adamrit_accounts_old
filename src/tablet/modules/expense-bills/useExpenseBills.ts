@@ -7,6 +7,13 @@ export interface LedgerOption {
   id: string;
   code: string;
   name: string;
+  type?: string;
+  group?: string | null;
+}
+
+export interface LedgerOptionsPage {
+  options: LedgerOption[];
+  hasMore: boolean;
 }
 
 export interface OutstandingBill {
@@ -47,66 +54,92 @@ export function useExpenseBillCompanyId() {
   });
 }
 
-/**
- * Ledgers the bill can be charged against. Creditors for the party, expenses
- * for the head. Searching the chart rather than free text keeps the credit on
- * a real account and stops the chart drifting with spelling variants.
- *
- * The chart holds one row per company for most parties, so a name like Aarav
- * Enterprises appears once for every company that trades with them. Listing all
- * of them is confusing and, worse, lets someone charge a bill to another
- * company's ledger - which is what put voucher legs in two companies and left
- * three of them out of balance on 2026-07-26.
- *
- * Only this company's rows and explicitly shared rows are eligible. Duplicate
- * names are collapsed with the company-owned row preferred over the shared row.
- */
-function useLedgers(kind: "party" | "expense", search: string) {
+const LEDGER_PAGE_SIZE = 50;
+
+/** Every active ledger belonging to this company or explicitly shared. */
+function useLedgers(search: string, page: number) {
   const { data: companyId } = useExpenseBillCompanyId();
 
   return useQuery({
-    queryKey: ["expense-bill-ledgers", kind, search, companyId],
-    queryFn: async (): Promise<LedgerOption[]> => {
-      if (!companyId) return [];
+    queryKey: ["expense-bill-ledgers", search, page, companyId],
+    queryFn: async (): Promise<LedgerOptionsPage> => {
+      if (!companyId) return { options: [], hasMore: false };
+      const from = page * LEDGER_PAGE_SIZE;
       let q = supabase
         .from("chart_of_accounts")
-        .select("id, account_code, account_name, company_id")
+        .select("id, account_code, account_name, account_type, account_group, company_id")
         .eq("is_active", true)
         .or(`company_id.eq.${companyId},company_id.is.null`)
         .order("account_name")
-        // fetched wide because collapsing duplicates thins the list
-        .limit(200);
-
-      q =
-        kind === "party"
-          ? q.ilike("account_group", "sundry creditors")
-          : q.in("account_type", ["INDIRECT_EXPENSES", "DIRECT_EXPENSES"]);
+        .order("id")
+        // Fetch one extra row to determine whether another page exists.
+        .range(from, from + LEDGER_PAGE_SIZE);
 
       if (search.trim()) q = q.ilike("account_name", `%${search.trim()}%`);
 
       const { data, error } = await q;
       if (error) throw error;
 
-      const rank = (r: any) => (r.company_id === companyId ? 0 : 1);
-
-      const best = new Map<string, any>();
-      for (const r of (data ?? []) as any[]) {
-        const key = (r.account_name ?? "").trim().toLowerCase();
-        const held = best.get(key);
-        if (!held || rank(r) < rank(held)) best.set(key, r);
-      }
-
-      return [...best.values()]
-        .sort((a, b) => (a.account_name ?? "").localeCompare(b.account_name ?? ""))
-        .slice(0, 30)
-        .map((r) => ({ id: r.id, code: r.account_code, name: r.account_name }));
+      const rows = data ?? [];
+      return {
+        hasMore: rows.length > LEDGER_PAGE_SIZE,
+        options: rows.slice(0, LEDGER_PAGE_SIZE).map((r) => ({
+          id: r.id,
+          code: r.account_code,
+          name: r.account_name,
+          type: r.account_type,
+          group: r.account_group,
+        })),
+      };
     },
     enabled: Boolean(companyId) && (search.trim().length === 0 || search.trim().length >= 2),
+    staleTime: 5 * 60 * 1000,
   });
 }
 
-export const usePartyLedgers = (search: string) => useLedgers("party", search);
-export const useExpenseLedgers = (search: string) => useLedgers("expense", search);
+export const usePartyLedgers = (search: string, page: number) => useLedgers(search, page);
+export const useExpenseLedgers = (search: string, page: number) => useLedgers(search, page);
+
+/** Resolve one of the fixed invoice categories to its exact company expense ledger. */
+export function useExpenseLedgerByName(name: string | null) {
+  const { data: companyId } = useExpenseBillCompanyId();
+
+  return useQuery({
+    queryKey: ["expense-bill-ledger-by-name", companyId, name],
+    queryFn: async (): Promise<LedgerOption | null> => {
+      if (!companyId || !name) return null;
+
+      const { data, error } = await supabase
+        .from("chart_of_accounts")
+        .select("id, account_code, account_name, account_type, account_group, company_id")
+        .eq("is_active", true)
+        .or(`company_id.eq.${companyId},company_id.is.null`)
+        .in("account_type", ["INDIRECT_EXPENSES", "DIRECT_EXPENSES"])
+        .ilike("account_name", name)
+        .limit(20);
+      if (error) throw error;
+
+      const normalizedName = name.trim().toLowerCase();
+      const matches = (data ?? []).filter(
+        (row) => String(row.account_name || "").trim().toLowerCase() === normalizedName,
+      );
+      const match =
+        matches.find((row) => row.company_id === companyId) ??
+        matches.find((row) => row.company_id == null);
+
+      return match
+        ? {
+            id: match.id,
+            code: match.account_code,
+            name: match.account_name,
+            type: match.account_type,
+            group: match.account_group,
+          }
+        : null;
+    },
+    enabled: Boolean(companyId && name),
+  });
+}
 
 /** Cash and bank accounts a payment can be made from. */
 export function useCashBankLedgers() {

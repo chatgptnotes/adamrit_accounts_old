@@ -1,7 +1,14 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Camera, FileText, Loader2, Paperclip, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletInput, TabletLabel } from "@/tablet/ui/TabletInput";
@@ -10,6 +17,7 @@ import { BillPaymentSheet } from "./BillPaymentSheet";
 import { InvoiceCamera } from "./InvoiceCamera";
 import {
   useExpenseBillCompanyId,
+  useExpenseLedgerByName,
   useExpenseLedgers,
   useOutstandingBills,
   usePartyLedgers,
@@ -22,6 +30,24 @@ const rupees = (n: number) =>
   n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+type ExpenseCategory = "rent" | "implant" | "salary" | "consultant" | "other";
+
+const EXPENSE_CATEGORIES: Array<{
+  value: ExpenseCategory;
+  label: string;
+  ledgerName: string | null;
+}> = [
+  { value: "rent", label: "Rent", ledgerName: "Rent" },
+  { value: "implant", label: "Implant", ledgerName: "Implant Purchase" },
+  { value: "salary", label: "Salary", ledgerName: "Staff Salary" },
+  {
+    value: "consultant",
+    label: "Consultant Payment",
+    ledgerName: "Consultancy Fees",
+  },
+  { value: "other", label: "Other", ledgerName: null },
+];
 
 function OutstandingList({ onPay }: { onPay: (bill: OutstandingBill) => void }) {
   const { data: bills = [], isLoading } = useOutstandingBills();
@@ -101,6 +127,7 @@ function OutstandingList({ onPay }: { onPay: (bill: OutstandingBill) => void }) 
 export default function ExpenseBillsFlow() {
   const [showForm, setShowForm] = useState(false);
   const [paying, setPaying] = useState<OutstandingBill | null>(null);
+  const [category, setCategory] = useState<ExpenseCategory | null>(null);
   const [party, setParty] = useState<LedgerOption | null>(null);
   const [head, setHead] = useState<LedgerOption | null>(null);
   const [billNumber, setBillNumber] = useState("");
@@ -111,21 +138,40 @@ export default function ExpenseBillsFlow() {
   const [file, setFile] = useState<File | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const pendingPrefillRef = useRef<ExpenseCategory | null>(null);
 
   const record = useRecordExpenseBill();
   const company = useExpenseBillCompanyId();
+  const categoryConfig = EXPENSE_CATEGORIES.find((item) => item.value === category);
+  const mappedLedgerName = categoryConfig?.ledgerName ?? null;
+  const mappedHead = useExpenseLedgerByName(mappedLedgerName);
+
+  useEffect(() => {
+    if (
+      category &&
+      category !== "other" &&
+      pendingPrefillRef.current === category &&
+      mappedHead.data
+    ) {
+      setHead(mappedHead.data);
+      pendingPrefillRef.current = null;
+    }
+  }, [category, mappedHead.data]);
 
   const amountValue = useMemo(() => Number(amount.replace(/,/g, "")) || 0, [amount]);
   const canSave =
     !!company.data &&
+    !!category &&
     !!party &&
     !!head &&
+    party.id !== head.id &&
     !!file &&
     billNumber.trim().length > 0 &&
     amountValue > 0 &&
     !record.isPending;
 
   const reset = () => {
+    setCategory(null);
     setParty(null);
     setHead(null);
     setBillNumber("");
@@ -196,9 +242,34 @@ export default function ExpenseBillsFlow() {
           </TabletCard>
         )}
 
+        <div className="flex justify-end">
+          <div className="w-full max-w-xs">
+            <TabletLabel htmlFor="expense-category">Invoice category</TabletLabel>
+            <Select
+              value={category ?? undefined}
+              onValueChange={(value: ExpenseCategory) => {
+                setHead(null);
+                pendingPrefillRef.current = value === "other" ? null : value;
+                setCategory(value);
+              }}
+            >
+              <SelectTrigger id="expense-category" className="min-h-12 w-full text-base">
+                <SelectValue placeholder="Select category" />
+              </SelectTrigger>
+              <SelectContent>
+                {EXPENSE_CATEGORIES.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
         <LedgerPicker
           label="Who is the bill from"
-          placeholder="Search suppliers and creditors"
+          placeholder="Search vendors, consultants and salary payees"
           selected={party}
           onSelect={setParty}
           useOptions={usePartyLedgers}
@@ -208,9 +279,27 @@ export default function ExpenseBillsFlow() {
           label="What is it for"
           placeholder="Search expense heads"
           selected={head}
-          onSelect={setHead}
+          onSelect={(ledger) => {
+            pendingPrefillRef.current = null;
+            setHead(ledger);
+          }}
           useOptions={useExpenseLedgers}
         />
+        {party && head && party.id === head.id ? (
+          <p className="text-sm text-destructive">
+            Bill From and What It Is For must use different ledgers.
+          </p>
+        ) : null}
+        {category && category !== "other" && mappedHead.isLoading && !head ? (
+          <p className="text-sm text-muted-foreground">
+            Finding the suggested {mappedLedgerName} ledger. You can select another
+            expense ledger now.
+          </p>
+        ) : !category ? (
+          <p className="text-sm text-muted-foreground">
+            Select an invoice category to suggest an expense ledger.
+          </p>
+        ) : null}
 
         <div>
           <TabletLabel htmlFor="bill-number">Invoice number</TabletLabel>
