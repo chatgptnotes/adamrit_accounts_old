@@ -23,6 +23,36 @@ interface UsePendingPrescriptionsResult {
   isLoading: boolean;
 }
 
+export const pendingPrescriptionCountQueryKey = (hospitalType: string | null | undefined) =>
+  ['pending-prescriptions', 'count', hospitalType] as const;
+
+const fetchPendingPrescriptionCount = async (hospitalType: string | null | undefined): Promise<number> => {
+  const { count, error } = await (supabaseAnon as any)
+    .from('prescriptions')
+    .select('id', { count: 'exact', head: true })
+    .or(buildPendingFilter(hospitalType));
+  if (error) return 0;
+  return count ?? 0;
+};
+
+/**
+ * Shared sidebar count query. It intentionally does not create a realtime
+ * subscription; the Pharmacy Dashboard owns the single live subscription and
+ * invalidates this same cached query when prescription data changes.
+ */
+export const usePendingPrescriptionCount = (enabled = true): number => {
+  const { hospitalType } = useAuth();
+  const { data = 0 } = useQuery({
+    queryKey: pendingPrescriptionCountQueryKey(hospitalType),
+    queryFn: () => fetchPendingPrescriptionCount(hospitalType),
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+    enabled: enabled && !!hospitalType,
+  });
+
+  return data;
+};
+
 export const usePendingPrescriptions = (): UsePendingPrescriptionsResult => {
   const queryClient = useQueryClient();
   const { hospitalType } = useAuth();
@@ -32,19 +62,12 @@ export const usePendingPrescriptions = (): UsePendingPrescriptionsResult => {
   // from the tablet — scoped to THIS hospital, with NULL-hospital ward orders
   // shown to everyone. See buildPendingFilter for the full rationale.
   const pendingFilter = buildPendingFilter(hospitalType);
-  const COUNT_KEY = ['pending-prescriptions', 'count', hospitalType] as const;
+  const COUNT_KEY = pendingPrescriptionCountQueryKey(hospitalType);
   const RECENT_KEY = ['pending-prescriptions', 'recent', hospitalType] as const;
 
   const countQuery = useQuery({
     queryKey: COUNT_KEY,
-    queryFn: async () => {
-      const { count, error } = await (supabaseAnon as any)
-        .from('prescriptions')
-        .select('id', { count: 'exact', head: true })
-        .or(pendingFilter);
-      if (error) return 0;
-      return count ?? 0;
-    },
+    queryFn: () => fetchPendingPrescriptionCount(hospitalType),
     refetchInterval: 60_000,
     staleTime: 30_000,
   });
@@ -76,15 +99,27 @@ export const usePendingPrescriptions = (): UsePendingPrescriptionsResult => {
   });
 
   useEffect(() => {
+    const isRelevantPendingRow = (row: any): boolean => {
+      if (!row) return false;
+      if (row.status === 'PENDING') return true;
+      return row.status === 'APPROVED' && row.source === 'ward' &&
+        (row.hospital_name === hospitalType || row.hospital_name == null);
+    };
+
     const channel = (supabaseAnon as any)
       .channel('prescription-changes')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'prescriptions' },
         (payload: any) => {
-          if (debounceRef.current) clearTimeout(debounceRef.current);
           const evt = payload?.eventType;
           const row = payload?.new || {};
+          const oldRow = payload?.old || {};
+          const affectsPendingData = evt === 'DELETE'
+            ? isRelevantPendingRow(oldRow)
+            : isRelevantPendingRow(row) || (evt === 'UPDATE' && isRelevantPendingRow(oldRow));
+          if (!affectsPendingData) return;
+          if (debounceRef.current) clearTimeout(debounceRef.current);
           // Announce when new medicine reaches the pharmacy: either a brand-new
           // prescription card (INSERT), or a same-day ward re-send that bumps an
           // existing open card (UPDATE while still APPROVED). Dispense updates flip

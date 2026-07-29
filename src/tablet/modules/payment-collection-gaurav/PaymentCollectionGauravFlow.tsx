@@ -214,6 +214,8 @@ async function loadCollectionRows(hospitalName: string): Promise<CollectionRow[]
     (query) =>
       query
         .eq("patients.hospital_name", hospitalName)
+        .is("discharge_date", null)
+        .or("patient_type.ilike.*ipd*,patient_type.ilike.*inpatient*,patient_type.ilike.*emergency*,patient_type.ilike.*admitted*")
         .order("created_at", { ascending: false }),
   );
 

@@ -59,12 +59,12 @@ export const useMasterCounts = (enabled: boolean = true): Record<string, number>
     queryKey: ['master-counts'],
     queryFn: async () => {
       const titles = Object.keys(MASTER_TABLE_BY_TITLE);
-      const counts = await Promise.all(
-        titles.map(title => countTable(MASTER_TABLE_BY_TITLE[title])),
-      );
+      const tables = [...new Set(titles.map(title => MASTER_TABLE_BY_TITLE[title]))];
+      const counts = await Promise.all(tables.map((table) => countTable(table)));
+      const countByTable = new Map(tables.map((table, index) => [table, counts[index]]));
       const result: Record<string, number> = {};
-      titles.forEach((title, i) => {
-        result[title] = counts[i];
+      titles.forEach((title) => {
+        result[title] = countByTable.get(MASTER_TABLE_BY_TITLE[title]) ?? 0;
       });
       return result;
     },

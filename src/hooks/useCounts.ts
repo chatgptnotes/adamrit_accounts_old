@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useMasterCounts } from '@/hooks/useMasterCounts';
 
 const COUNT_STALE_TIME = 30 * 60 * 1000;
 
@@ -60,65 +61,37 @@ export const useCounts = (enabled: boolean = true) => {
   const role = user?.role?.toLowerCase().trim() || '';
   const isAdmin = ['superadmin', 'super_admin', 'admin'].includes(role);
   const canSeePatients = isAdmin || ['doctor', 'consultant', 'nurse', 'receptionist', 'reception', 'front_office'].includes(role);
-  const canSeePharmacy = isAdmin || ['pharmacy', 'pharmacist'].includes(role);
   const canSeeLab = isAdmin || ['lab', 'lab_technician'].includes(role);
   const canSeeRadiology = isAdmin || ['radiology', 'radiology_tech'].includes(role);
+  const masterCounts = useMasterCounts(enabled && isAdmin);
 
-  const { data: diagnosesCount = 0 } = useQuery({
-    queryKey: ['diagnoses-count'],
-    queryFn: () => fetchExactCount('diagnoses'),
-    retry: 0,
-    refetchOnWindowFocus: false,
-    staleTime: COUNT_STALE_TIME,
-    enabled: enabled && isAdmin,
-  });
+  const diagnosesCount = masterCounts.Diagnoses ?? 0;
 
   const { data: patientsCount = 0 } = usePatientsCount(enabled && canSeePatients);
 
-  const { data: usersCount = 0 } = useQuery({
-    queryKey: ['users-count'],
-    queryFn: () => fetchExactCount('User'),
-    retry: 0,
-    refetchOnWindowFocus: false,
-    staleTime: COUNT_STALE_TIME,
-    enabled: enabled && isAdmin,
-  });
+  const usersCount = masterCounts.Users ?? 0;
+  const complicationsCount = masterCounts.Complications ?? 0;
+  const cghsSurgeryCount = masterCounts.Surgery ?? 0;
 
-  const { data: complicationsCount = 0 } = useQuery({
-    queryKey: ['complications-count'],
-    queryFn: () => fetchExactCount('complications'),
-    retry: 0,
-    refetchOnWindowFocus: false,
-    staleTime: COUNT_STALE_TIME,
-    enabled: enabled && isAdmin,
-  });
-
-  const { data: cghsSurgeryCount = 0 } = useQuery({
-    queryKey: ['cghs-surgery-count'],
-    queryFn: () => fetchExactCount('cghs_surgery'),
-    retry: 0,
-    refetchOnWindowFocus: false,
-    staleTime: COUNT_STALE_TIME,
-    enabled: enabled && isAdmin,
-  });
-
-  const { data: labCount = 0 } = useQuery({
+  const { data: labCountFromQuery = 0 } = useQuery({
     queryKey: ['lab-count'],
     queryFn: () => fetchExactCount('lab'),
     retry: 0,
     refetchOnWindowFocus: false,
     staleTime: COUNT_STALE_TIME,
-    enabled: enabled && canSeeLab,
+    enabled: enabled && canSeeLab && !isAdmin,
   });
+  const labCount = isAdmin ? (masterCounts['Lab Master'] ?? 0) : labCountFromQuery;
 
-  const { data: radiologyCount = 0 } = useQuery({
+  const { data: radiologyCountFromQuery = 0 } = useQuery({
     queryKey: ['radiology-count'],
     queryFn: () => fetchExactCount('radiology'),
     retry: 0,
     refetchOnWindowFocus: false,
     staleTime: COUNT_STALE_TIME,
-    enabled: enabled && canSeeRadiology,
+    enabled: enabled && canSeeRadiology && !isAdmin,
   });
+  const radiologyCount = isAdmin ? (masterCounts['Radiology Master'] ?? 0) : radiologyCountFromQuery;
 
   const { data: medicationsCount = 0 } = useQuery({
     queryKey: ['medications-count'],
@@ -138,90 +111,13 @@ export const useCounts = (enabled: boolean = true) => {
     enabled: enabled && isAdmin,
   });
 
-  const { data: refereesCount = 0 } = useQuery({
-    queryKey: ['referees-count'],
-    queryFn: () => fetchExactCount('referees'),
-    retry: 0,
-    refetchOnWindowFocus: false,
-    staleTime: COUNT_STALE_TIME,
-    enabled: enabled && isAdmin,
-  });
-
-  const { data: hopeSurgeonsCount = 0 } = useQuery({
-    queryKey: ['hope-surgeons-count'],
-    queryFn: () => fetchExactCount('hope_surgeons'),
-    retry: 0,
-    refetchOnWindowFocus: false,
-    staleTime: COUNT_STALE_TIME,
-    enabled: enabled && isAdmin,
-  });
-
-  const { data: hopeConsultantsCount = 0 } = useQuery({
-    queryKey: ['hope-consultants-count'],
-    queryFn: () => fetchExactCount('hope_consultants'),
-    retry: 0,
-    refetchOnWindowFocus: false,
-    staleTime: COUNT_STALE_TIME,
-    enabled: enabled && isAdmin,
-  });
-
-  const { data: hopeAnaesthetistsCount = 0 } = useQuery({
-    queryKey: ['hope-anaesthetists-count'],
-    queryFn: () => fetchExactCount('hope_anaesthetists'),
-    retry: 0,
-    refetchOnWindowFocus: false,
-    staleTime: COUNT_STALE_TIME,
-    enabled: enabled && isAdmin,
-  });
-
-  const { data: ayushmanSurgeonsCount = 0 } = useQuery({
-    queryKey: ['ayushman-surgeons-count'],
-    queryFn: () => fetchExactCount('ayushman_surgeons'),
-    retry: 0,
-    refetchOnWindowFocus: false,
-    staleTime: COUNT_STALE_TIME,
-    enabled: enabled && isAdmin,
-  });
-
-  const { data: ayushmanConsultantsCount = 0 } = useQuery({
-    queryKey: ['ayushman-consultants-count'],
-    queryFn: () => fetchExactCount('ayushman_consultants'),
-    retry: 0,
-    refetchOnWindowFocus: false,
-    staleTime: COUNT_STALE_TIME,
-    enabled: enabled && isAdmin,
-  });
-
-  const { data: ayushmanAnaesthetistsCount = 0 } = useQuery({
-    queryKey: ['ayushman-anaesthetists-count'],
-    queryFn: () => fetchExactCount('ayushman_anaesthetists'),
-    retry: 0,
-    refetchOnWindowFocus: false,
-    staleTime: COUNT_STALE_TIME,
-    enabled: enabled && isAdmin,
-  });
-
-  const { data: pendingPrescriptionsCount = 0 } = useQuery({
-    queryKey: ['pending-prescriptions', 'count', hospitalConfig.name],
-    queryFn: async () => {
-      try {
-        const { count, error } = await supabase
-          .from('prescriptions')
-          .select('id', { count: 'exact', head: true })
-          .or(`status.eq.PENDING,and(status.eq.APPROVED,source.eq.ward,hospital_name.eq.${hospitalConfig.name})`);
-        if (error) return 0;
-        return count ?? 0;
-      } catch {
-        return 0;
-      }
-    },
-    retry: 0,
-    // Pharmacy screens own their live notification polling. Keeping this
-    // global sidebar query on a timer multiplies requests for every open tab.
-    refetchInterval: false,
-    staleTime: 5 * 60_000,
-    enabled: enabled && canSeePharmacy,
-  });
+  const refereesCount = masterCounts.Referees ?? 0;
+  const hopeSurgeonsCount = masterCounts['Hope Surgeons'] ?? 0;
+  const hopeConsultantsCount = masterCounts['Hope Consultants'] ?? 0;
+  const hopeAnaesthetistsCount = masterCounts['Hope Anaesthetists'] ?? 0;
+  const ayushmanSurgeonsCount = masterCounts['Ayushman Surgeons'] ?? 0;
+  const ayushmanConsultantsCount = masterCounts['Ayushman Consultants'] ?? 0;
+  const ayushmanAnaesthetistsCount = masterCounts['Ayushman Anaesthetists'] ?? 0;
 
   return {
     diagnosesCount,
@@ -240,6 +136,5 @@ export const useCounts = (enabled: boolean = true) => {
     ayushmanSurgeonsCount,
     ayushmanConsultantsCount,
     ayushmanAnaesthetistsCount,
-    pendingPrescriptionsCount,
   };
 };

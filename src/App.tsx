@@ -9,6 +9,7 @@ import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sid
 import { AppSidebar } from "@/components/AppSidebar";
 import { AppRoutes } from "@/components/AppRoutes";
 import { useCounts } from "@/hooks/useCounts";
+import { usePendingPrescriptionCount } from "@/hooks/usePendingPrescriptions";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import LoginPage from "@/components/LoginPage";
@@ -303,6 +304,9 @@ const AppContent = () => {
   // Gate the sidebar count queries on auth — otherwise their ~17 exact-count
   // requests fire on the login/landing page and starve the login `User` lookup.
   const counts = useCounts(isAuthenticated);
+  const userRole = user?.role?.toLowerCase().trim() || '';
+  const canSeePharmacy = ['superadmin', 'super_admin', 'admin', 'pharmacy', 'pharmacist'].includes(userRole);
+  const pendingPrescriptionsCount = usePendingPrescriptionCount(isAuthenticated && canSeePharmacy);
   const [selectedHospitalType, setSelectedHospitalType] = React.useState<HospitalType | null>(null);
   // Role-based redirect is handled by RoleRedirect component inside BrowserRouter (no page reloads)
 
@@ -446,7 +450,7 @@ const AppContent = () => {
           <AutoCollapseSidebar />
           {user && <RoleRedirect user={user} />}
           <div className="min-h-screen flex w-full">
-            <AppSidebar {...counts} />
+            <AppSidebar {...counts} pendingPrescriptionsCount={pendingPrescriptionsCount} />
             <main className="flex-1 flex flex-col h-screen overflow-hidden">
               <AppHeaderRow />
               <div className="flex-1 min-h-0 overflow-auto">
