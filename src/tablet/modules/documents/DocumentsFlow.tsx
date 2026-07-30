@@ -10,8 +10,8 @@ import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletVisitList } from "@/tablet/components/TabletVisitList";
 import {
   useAdmittedVisits,
-  useBillingWorklist,
   useDischargedVisits,
+  useRecentlyDischargedVisits,
   type TabletVisit,
 } from "@/tablet/hooks/useVisitLists";
 import { shortDate } from "@/tablet/lib/format";
@@ -23,24 +23,26 @@ export default function DocumentsFlow() {
 }
 
 function DocumentsPicker({ onSelect }: { onSelect: (visit: TabletVisit) => void }) {
+  const [showDischarged, setShowDischarged] = useState(false);
   const admitted = useAdmittedVisits();
   const discharged = useDischargedVisits();
-  const billing = useBillingWorklist();
+  const billing = useRecentlyDischargedVisits();
   const qc = useQueryClient();
   const { toast } = useToast();
 
-  /** Clears a patient off the billing worklist. Nothing else in the app writes
-   *  visits.bill_paid, so without this the "To be billed" list never drains. */
+  /** Clears a patient off the billing worklist. bill_paid is already true on
+   *  every recent discharge, so it cannot carry this — billing_cleared_at is
+   *  written only here. */
   const markBilled = useMutation({
     mutationFn: async (visit: TabletVisit) => {
       const { error } = await supabase
         .from("visits")
-        .update({ bill_paid: true } as any)
+        .update({ billing_cleared_at: new Date().toISOString() } as any)
         .eq("id", visit.id);
       if (error) throw error;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["tablet-billing-worklist-discharged"] });
+      qc.invalidateQueries({ queryKey: ["tablet-recently-discharged"] });
       toast({ title: "Billing done", description: "The patient is off the billing list." });
     },
     onError: (error: any) => {
@@ -64,62 +66,79 @@ function DocumentsPicker({ onSelect }: { onSelect: (visit: TabletVisit) => void 
   }, [admitted.data, discharged.data]);
 
   return (
-    <TabletVisitList
-      visits={visits}
-      loading={admitted.isLoading || discharged.isLoading}
-      error={admitted.isError || discharged.isError}
-      onSelect={onSelect}
-      emptyText="No patient visits found."
-      metaKind="admitted"
-      pinned={
-        billing.count > 0 ? (
-          <section className="space-y-2">
-            <h3 className="text-base font-bold text-destructive">
-              To be billed ({billing.count})
-            </h3>
-            {billing.discharged.map((visit) => (
+    <div className="flex h-full flex-col">
+      <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border p-4">
+        <div>
+          <h2 className="text-lg font-bold sm:text-xl">Documents</h2>
+          <p className="text-sm text-muted-foreground">
+            {showDischarged
+              ? "Discharged in the last 7 days — waiting to be billed"
+              : "All admitted and discharged patients"}
+          </p>
+        </div>
+        <TabletButton
+          variant={showDischarged ? "default" : "outline"}
+          onClick={() => setShowDischarged((value) => !value)}
+          className="shrink-0"
+        >
+          {showDischarged ? "All patients" : `Recently discharged (${billing.count})`}
+        </TabletButton>
+      </div>
+
+      {showDischarged ? (
+        <div className="tablet-no-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+          {billing.isLoading ? (
+            <div className="flex justify-center py-10">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : billing.isError ? (
+            <p className="py-10 text-center text-destructive">
+              Could not load the billing list. Check the connection.
+            </p>
+          ) : billing.visits.length === 0 ? (
+            <p className="py-10 text-center text-muted-foreground">
+              Nobody discharged in the last 7 days is waiting to be billed.
+            </p>
+          ) : (
+            billing.visits.map((visit) => (
               <BillingRow
-                key={`d-${visit.id}`}
+                key={visit.id}
                 visit={visit}
                 onSelect={onSelect}
-                tag={`Discharged ${shortDate(visit.dischargeDate)} · Bill pending`}
-                tagClassName="bg-amber-100 text-amber-800"
                 onBilled={() => markBilled.mutate(visit)}
                 billing={markBilled.isPending}
               />
-            ))}
-            {billing.plannedToday.map((visit) => (
-              <BillingRow
-                key={`p-${visit.id}`}
-                visit={visit}
-                onSelect={onSelect}
-                tag="Discharge planned today"
-                tagClassName="bg-muted text-muted-foreground"
-              />
-            ))}
-          </section>
-        ) : null
-      }
-    />
+            ))
+          )}
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1">
+          <TabletVisitList
+            visits={visits}
+            loading={admitted.isLoading || discharged.isLoading}
+            error={admitted.isError || discharged.isError}
+            onSelect={onSelect}
+            emptyText="No patient visits found."
+            metaKind="admitted"
+          />
+        </div>
+      )}
+    </div>
   );
 }
 
-/** One patient on the billing worklist. Tapping it opens the same documents view
- *  as the main list below. */
+/** One patient waiting to be billed. Tapping the row opens their documents; the
+ *  button clears them off the list. */
 function BillingRow({
   visit,
   onSelect,
-  tag,
-  tagClassName,
   onBilled,
   billing,
 }: {
   visit: TabletVisit;
   onSelect: (visit: TabletVisit) => void;
-  tag: string;
-  tagClassName: string;
-  onBilled?: () => void;
-  billing?: boolean;
+  onBilled: () => void;
+  billing: boolean;
 }) {
   return (
     <TabletCard className="flex items-center gap-3">
@@ -136,23 +155,19 @@ function BillingRow({
           <p className="truncate text-sm text-muted-foreground">
             {visit.patientsId || visit.visitId}
           </p>
-          <span
-            className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${tagClassName}`}
-          >
-            {tag}
+          <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+            Discharged {shortDate(visit.dischargeDate)} · Bill pending
           </span>
         </div>
       </button>
-      {onBilled ? (
-        <TabletButton variant="outline" onClick={onBilled} disabled={billing}>
-          {billing ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <CheckCircle2 className="mr-2 h-4 w-4" />
-          )}
-          Billing done
-        </TabletButton>
-      ) : null}
+      <TabletButton variant="outline" onClick={onBilled} disabled={billing} className="shrink-0">
+        {billing ? (
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        ) : (
+          <CheckCircle2 className="mr-2 h-4 w-4" />
+        )}
+        Billing done
+      </TabletButton>
     </TabletCard>
   );
 }

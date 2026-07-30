@@ -11,6 +11,7 @@ export interface TabletVisit {
   dischargeMode: string | null;
   plannedDischargeDate: string | null;
   billPaid: boolean | null;
+  billingClearedAt: string | null;
   ward: string | null;
   room: string | null;
   patientName: string;
@@ -30,6 +31,7 @@ function mapRow(v: any): TabletVisit {
     dischargeMode: v.discharge_mode ?? null,
     plannedDischargeDate: v.planned_discharge_date ?? null,
     billPaid: v.bill_paid ?? null,
+    billingClearedAt: v.billing_cleared_at ?? null,
     ward: v.ward_allotted ?? null,
     room: v.room_allotted ?? null,
     patientName: v.patients?.name ?? "Unknown",
@@ -41,7 +43,7 @@ function mapRow(v: any): TabletVisit {
 }
 
 const SELECT =
-  "id, visit_id, patient_type, admission_date, discharge_date, discharge_mode, planned_discharge_date, bill_paid, ward_allotted, room_allotted, patients!inner(id, name, patients_id, age, gender, hospital_name)";
+  "id, visit_id, patient_type, admission_date, discharge_date, discharge_mode, planned_discharge_date, bill_paid, billing_cleared_at, ward_allotted, room_allotted, patients!inner(id, name, patients_id, age, gender, hospital_name)";
 
 /** Currently admitted IPD + Emergency visits for the active hospital. */
 export function useAdmittedVisits() {
@@ -64,36 +66,42 @@ export function useAdmittedVisits() {
   });
 }
 
-/** "Today" in the browser's timezone, matched against planned_discharge_date. */
-function todayIso() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+/** A date N days back and today, in the browser's timezone, as YYYY-MM-DD. */
+function dateWindow(days: number) {
+  const iso = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const today = new Date();
+  const from = new Date(today);
+  from.setDate(from.getDate() - days);
+  return { from: iso(from), to: iso(today) };
 }
 
-/** The billing desk's worklist — patients discharged but not yet billed, plus the
- *  ones planned for discharge today. Billing happens straight after discharge, so
- *  these are the patients Azher must be intimated about.
+/** Patients discharged in the last week and not yet cleared by the billing desk.
+ *  Billing happens straight after discharge, so this is Azher's worklist.
  *
- *  The discharged half requires planned_discharge_marked_at, which scopes it to
- *  visits that actually went through the discharge worklist — without it the query
- *  dredges up the whole legacy backlog of visits that never had bill_paid written.
- *  These filters mirror pendingBillingRows in AdvanceFlow.tsx; keep them in step or
- *  the two screens will show different counts. */
-export function useBillingWorklist() {
+ *  Deliberately does NOT filter on bill_paid or planned_discharge_marked_at.
+ *  bill_paid is already true on every recent discharge before billing sees the
+ *  patient, and planned_discharge_marked_at is set on a handful of rows in the
+ *  whole table — filtering on either returns an empty list. billing_cleared_at,
+ *  written only by this tile's "Billing done" button, is the one honest signal.
+ *
+ *  The window is bounded at both ends because discharge_date holds junk future
+ *  values (5202-07-28, 5022-10-03) that an open-ended range would drag in. */
+export function useRecentlyDischargedVisits() {
   const { hospitalConfig } = useAuth();
-  const today = todayIso();
+  const { from, to } = dateWindow(7);
 
-  const discharged = useQuery({
-    queryKey: ["tablet-billing-worklist-discharged", hospitalConfig.name],
+  const query = useQuery({
+    queryKey: ["tablet-recently-discharged", hospitalConfig.name, from, to],
     staleTime: 30_000,
     queryFn: async (): Promise<TabletVisit[]> => {
       const { data, error } = await supabase
         .from("visits")
         .select(SELECT)
-        .eq("patient_type", "IPD")
-        .not("discharge_date", "is", null)
-        .not("planned_discharge_marked_at", "is", null)
-        .not("bill_paid", "is", true)
+        .in("patient_type", ["IPD", "IPD (Inpatient)", "Emergency"])
+        .gte("discharge_date", from)
+        .lte("discharge_date", to)
+        .is("billing_cleared_at", null)
         .eq("patients.hospital_name", hospitalConfig.name)
         .order("discharge_date", { ascending: false });
       if (error) throw error;
@@ -101,29 +109,11 @@ export function useBillingWorklist() {
     },
   });
 
-  const plannedToday = useQuery({
-    queryKey: ["tablet-billing-worklist-planned", hospitalConfig.name, today],
-    staleTime: 30_000,
-    queryFn: async (): Promise<TabletVisit[]> => {
-      const { data, error } = await supabase
-        .from("visits")
-        .select(SELECT)
-        .eq("patient_type", "IPD")
-        .eq("planned_discharge_date", today)
-        .is("discharge_date", null)
-        .eq("patients.hospital_name", hospitalConfig.name)
-        .order("admission_date", { ascending: false });
-      if (error) throw error;
-      return (data || []).map(mapRow);
-    },
-  });
-
   return {
-    discharged: discharged.data || [],
-    plannedToday: plannedToday.data || [],
-    count: (discharged.data?.length || 0) + (plannedToday.data?.length || 0),
-    isLoading: discharged.isLoading || plannedToday.isLoading,
-    isError: discharged.isError || plannedToday.isError,
+    visits: query.data || [],
+    count: query.data?.length || 0,
+    isLoading: query.isLoading,
+    isError: query.isError,
   };
 }
 

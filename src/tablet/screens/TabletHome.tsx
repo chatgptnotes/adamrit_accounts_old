@@ -5,7 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { modulesForUser } from "@/tablet/config/modules";
 import { TabletWatermark } from "@/tablet/components/TabletWatermark";
-import { useBillingWorklist } from "@/tablet/hooks/useVisitLists";
+import { useRecentlyDischargedVisits } from "@/tablet/hooks/useVisitLists";
 
 /** Home dashboard — gradient-iconed module tiles, role-filtered, with quick search. */
 export function TabletHome() {
@@ -13,8 +13,8 @@ export function TabletHome() {
   const { user } = useAuth();
   const [query, setQuery] = useState("");
   const modules = modulesForUser(user ?? undefined);
-  // Discharged-but-unbilled intimation for the billing desk, badged on their tile.
-  const billing = useBillingWorklist();
+  // Recently-discharged intimation for the billing desk, badged on their tile.
+  const billing = useRecentlyDischargedVisits();
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
