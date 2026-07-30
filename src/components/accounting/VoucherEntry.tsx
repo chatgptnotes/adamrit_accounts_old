@@ -635,22 +635,32 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     enabled: !!selectedCompanyId,
     queryFn: async () => {
       const pageSize = 1000;
-      const allRows: any[] = [];
-      for (let from = 0; ; from += pageSize) {
-        const { data, error } = await supabase
-          .from('chart_of_accounts')
-          .select('id, account_code, account_name, account_type, account_group, parent_account_id')
-          .eq('is_active', true)
-          // The DRM import stores every ledger against the selected accounting
-          // company. Query that UUID directly so the Particulars picker cannot
-          // lose rows through a compound PostgREST OR expression.
-          .eq('company_id', selectedCompanyId)
-          .order('account_code')
-          .range(from, from + pageSize - 1);
-        if (error) throw error;
-        allRows.push(...(data || []));
-        if (!data || data.length < pageSize) break;
-      }
+      // A company's own ledgers plus the shared ones. Cash, the banks and the
+      // income heads carry no company on purpose — that is how one voucher
+      // balances in every company's books — so filtering on company alone drops
+      // exactly the ledgers most vouchers are posted to and both legs of a
+      // receipt come up blank. Two plain queries rather than one compound
+      // PostgREST OR, which loses rows on this table.
+      const fetchScope = async (scope: 'company' | 'shared') => {
+        const rows: any[] = [];
+        for (let from = 0; ; from += pageSize) {
+          let query = supabase
+            .from('chart_of_accounts')
+            .select('id, account_code, account_name, account_type, account_group, parent_account_id')
+            .eq('is_active', true);
+          query = scope === 'shared'
+            ? query.is('company_id', null)
+            : query.eq('company_id', selectedCompanyId);
+          const { data, error } = await query
+            .order('account_code')
+            .range(from, from + pageSize - 1);
+          if (error) throw error;
+          rows.push(...(data || []));
+          if (!data || data.length < pageSize) break;
+        }
+        return rows;
+      };
+      const allRows = (await Promise.all([fetchScope('company'), fetchScope('shared')])).flat();
       // Tally never posts to group headers — offer leaf accounts only
       const parents = new Set(allRows.map((a: any) => a.parent_account_id).filter(Boolean));
       return (allRows as (Account & { parent_account_id: string | null })[]).filter((a) => !parents.has(a.id));
@@ -812,6 +822,32 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     },
   });
 
+  // The ledgers this voucher was actually posted to, fetched by id with none of
+  // the filters the picker applies. A saved voucher must show what it posted to
+  // even when that ledger has since been deactivated, has grown children, or
+  // sits under another company — a Hope patient's ledger is on the legacy
+  // partnership while their voucher resolves to DRM Hope Pvt Ltd. Display only:
+  // these never reach selectableAccounts, so they cannot be picked for new lines.
+  const entryAccountIds = useMemo<string[]>(() => {
+    const ids = (loadedVoucher?.voucher_entries ?? [])
+      .map((e: any) => e.account_id)
+      .filter(Boolean) as string[];
+    return Array.from(new Set(ids));
+  }, [loadedVoucher]);
+
+  const { data: entryAccounts = [] } = useQuery({
+    queryKey: ['voucher_entry_accounts', entryAccountIds.join(',')],
+    enabled: entryAccountIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('chart_of_accounts')
+        .select('id, account_code, account_name, account_type, account_group')
+        .in('id', entryAccountIds);
+      if (error) throw error;
+      return (data || []) as Account[];
+    },
+  });
+
   useEffect(() => {
     if (!loadedVoucher || accounts.length === 0 || voucherTypes.length === 0) return;
     const vt = voucherTypes.find((t) => t.id === loadedVoucher.voucher_type_id);
@@ -832,9 +868,11 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
         .filter((a) => !!a.patient_ledger_id)
         .map((a) => [a.patient_ledger_id!, a]),
     );
+    const postedById = new Map(entryAccounts.map((a) => [a.id, a]));
     const resolveAccount = (entry: any): Account | null =>
       (entry.patient_ledger_id ? patientByLedgerId.get(entry.patient_ledger_id) : undefined)
       ?? byId.get(entry.account_id)
+      ?? postedById.get(entry.account_id)
       ?? null;
     const entries = [...(loadedVoucher.voucher_entries ?? [])].sort(
       (a: any, b: any) => (a.entry_order || 0) - (b.entry_order || 0),
@@ -877,7 +915,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
       setJournalLines(rows.length >= 2 ? rows : [newJournalLine('Dr'), newJournalLine('Cr')]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadedVoucher, accounts, patientLedgerAccounts, voucherTypes]);
+  }, [loadedVoucher, accounts, patientLedgerAccounts, entryAccounts, voucherTypes]);
 
   // ------ Derive the auto-generated voucher number ------
   const selectedType = useMemo(
@@ -894,7 +932,15 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
   const category = (selectedType?.voucher_category || '').toUpperCase();
   useEffect(() => {
     setVoucherNumberOverride('');
-  }, [selectedVoucherType, alterMode]);
+    // forceJournal describes the voucher that was loaded, not the one now
+    // selected. Left set, picking Receipt after opening a journal keeps the
+    // By/To grid for the life of the screen. Only on a real change of type
+    // though — the load sets the type itself, and clearing it there would undo
+    // the layout the load just chose.
+    if (selectedVoucherType && selectedVoucherType !== loadedVoucher?.voucher_type_id) {
+      setForceJournal(false);
+    }
+  }, [selectedVoucherType, alterMode, loadedVoucher]);
 
   const voucherNumber = alterMode
     ? loadedNumber
