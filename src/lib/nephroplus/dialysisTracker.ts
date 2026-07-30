@@ -1,5 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
-import type { DialysisCharge } from './dialysisData';
+import { fetchDialysisCharges, type DialysisCharge } from './dialysisData';
 
 /** A dialysis patient must be billed once every this many cycles. */
 export const CYCLES_PER_BILL = 6;
@@ -83,6 +83,26 @@ export async function markCyclesBilled(
     { onConflict: 'hospital_name,patient_key' }
   );
   if (error) throw error;
+}
+
+/** Add the billing and lab-report picture to dialysis charges already in hand. */
+export async function trackerRowsForCharges(
+  charges: readonly DialysisCharge[],
+  hospitalName: string
+): Promise<DialysisTrackerRow[]> {
+  const patientUuids = Array.from(
+    new Set(charges.map((c) => c.patientUuid).filter((id): id is string => !!id))
+  );
+  const [billed, lastLabDates] = await Promise.all([
+    fetchBilledCycles(hospitalName),
+    fetchLastLabDates(patientUuids),
+  ]);
+  return buildTrackerRows(charges, billed, lastLabDates);
+}
+
+/** Everything the dialysis tracker needs, for one hospital, in one call. */
+export async function loadDialysisTracker(hospitalName: string): Promise<DialysisTrackerRow[]> {
+  return trackerRowsForCharges(await fetchDialysisCharges(hospitalName), hospitalName);
 }
 
 /**

@@ -39,7 +39,7 @@ export default function NephroPlus() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setCharges(await fetchDialysisCharges());
+      setCharges(await fetchDialysisCharges(hospitalName));
     } catch (err) {
       toast({
         title: 'Failed to load dialysis billing',

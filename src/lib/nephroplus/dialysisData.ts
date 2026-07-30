@@ -34,14 +34,15 @@ export const INR = new Intl.NumberFormat('en-IN', {
   maximumFractionDigits: 0,
 });
 
-/** Pull every dialysis charge joined to its visit + patient. */
-export async function fetchDialysisCharges(): Promise<DialysisCharge[]> {
+/** Pull every dialysis charge joined to its visit + patient, for one hospital. */
+export async function fetchDialysisCharges(hospitalName: string): Promise<DialysisCharge[]> {
   const { data, error } = await supabase
     .from('visit_clinical_services')
     .select(
-      'amount, quantity, clinical_services!inner(service_name), visits!inner(visit_date, patients(id, name, patients_id))'
+      'amount, quantity, clinical_services!inner(service_name), visits!inner(visit_date, patients!inner(id, name, patients_id, hospital_name))'
     )
     .ilike('clinical_services.service_name', '%dialy%')
+    .eq('visits.patients.hospital_name', hospitalName)
     .limit(5000);
   if (error) throw error;
   return (data ?? [])

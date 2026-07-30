@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { modulesForUser } from "@/tablet/config/modules";
 import { TabletWatermark } from "@/tablet/components/TabletWatermark";
 import { useRecentlyDischargedVisits } from "@/tablet/hooks/useVisitLists";
+import { useDialysisTracker } from "@/tablet/hooks/useDialysisTracker";
 
 /** Home dashboard — gradient-iconed module tiles, role-filtered, with quick search. */
 export function TabletHome() {
@@ -15,6 +16,15 @@ export function TabletHome() {
   const modules = modulesForUser(user ?? undefined);
   // Recently-discharged intimation for the billing desk, badged on their tile.
   const billing = useRecentlyDischargedVisits();
+  // Dialysis patients due a bill or a 30-day lab report, badged on their tile.
+  const dialysis = useDialysisTracker();
+
+  /** Pending-work count to badge on a tile, or 0 for tiles that have none. */
+  const badgeFor = (moduleId: string) => {
+    if (moduleId === "documents") return billing.count;
+    if (moduleId === "dialysis") return dialysis.actionCount;
+    return 0;
+  };
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -80,6 +90,7 @@ export function TabletHome() {
             <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
               {filtered.map((m) => {
                 const Icon = m.icon;
+                const badge = badgeFor(m.id);
                 return (
                   <button
                     key={m.id}
@@ -87,9 +98,9 @@ export function TabletHome() {
                     onClick={() => navigate(`/${m.id}`, { viewTransition: true })}
                     className="tablet-tile tablet-glass relative flex min-h-[148px] flex-col gap-2 rounded-2xl p-4 text-left sm:min-h-[156px] sm:p-5"
                   >
-                    {m.id === "documents" && billing.count > 0 ? (
+                    {badge > 0 ? (
                       <span className="absolute right-3 top-3 inline-flex min-w-[1.75rem] items-center justify-center rounded-full bg-destructive px-2 py-1 text-sm font-bold text-destructive-foreground shadow">
-                        {billing.count}
+                        {badge}
                       </span>
                     ) : null}
                     <span

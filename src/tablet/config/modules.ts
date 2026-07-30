@@ -11,6 +11,7 @@ import {
   ClipboardList,
   CheckSquare,
   DoorOpen,
+  Droplets,
   FileText,
   HeartPulse,
   LayoutDashboard,
@@ -225,6 +226,14 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: Stethoscope,
     accent: "text-teal-600",
     tint: "from-teal-400 to-teal-600",
+  },
+  {
+    id: "dialysis",
+    label: "Dialysis",
+    description: "Cycle billing & 30-day lab reports",
+    icon: Droplets,
+    accent: "text-sky-700",
+    tint: "from-sky-400 to-blue-600",
   },
   {
     id: "ot-schedule-gaurav",

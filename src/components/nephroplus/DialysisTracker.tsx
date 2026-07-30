@@ -10,10 +10,8 @@ import type { DialysisCharge } from '@/lib/nephroplus/dialysisData';
 import {
   CYCLES_PER_BILL,
   LAB_REPORT_INTERVAL_DAYS,
-  buildTrackerRows,
-  fetchBilledCycles,
-  fetchLastLabDates,
   markCyclesBilled,
+  trackerRowsForCharges,
   type DialysisTrackerRow,
 } from '@/lib/nephroplus/dialysisTracker';
 import { printDialysisLabReport } from '@/lib/nephroplus/dialysisLabReport';
@@ -26,26 +24,15 @@ interface Props {
 
 export default function DialysisTracker({ charges, hospitalName, chargesLoading }: Props) {
   const { toast } = useToast();
-  const [billed, setBilled] = useState<Map<string, number>>(new Map());
-  const [lastLabDates, setLastLabDates] = useState<Map<string, string>>(new Map());
+  const [rows, setRows] = useState<DialysisTrackerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
-  const patientUuids = useMemo(
-    () => Array.from(new Set(charges.map((c) => c.patientUuid).filter((id): id is string => !!id))),
-    [charges]
-  );
-
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [billedMap, labMap] = await Promise.all([
-        fetchBilledCycles(hospitalName),
-        fetchLastLabDates(patientUuids),
-      ]);
-      setBilled(billedMap);
-      setLastLabDates(labMap);
+      setRows(await trackerRowsForCharges(charges, hospitalName));
     } catch (err) {
       toast({
         title: 'Failed to load dialysis tracking',
@@ -54,16 +41,11 @@ export default function DialysisTracker({ charges, hospitalName, chargesLoading 
       });
     }
     setLoading(false);
-  }, [hospitalName, patientUuids, toast]);
+  }, [charges, hospitalName, toast]);
 
   useEffect(() => {
     if (!chargesLoading) load();
   }, [chargesLoading, load]);
-
-  const rows = useMemo(
-    () => buildTrackerRows(charges, billed, lastLabDates),
-    [charges, billed, lastLabDates]
-  );
 
   const visibleRows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -81,7 +63,7 @@ export default function DialysisTracker({ charges, hospitalName, chargesLoading 
     setBusyKey(row.key);
     try {
       await markCyclesBilled(hospitalName, row, upTo);
-      setBilled((prev) => new Map(prev).set(row.key, upTo));
+      await load();
       toast({
         title: `Billed ${row.billsDue * CYCLES_PER_BILL} cycles for ${row.patientName}`,
         description:
