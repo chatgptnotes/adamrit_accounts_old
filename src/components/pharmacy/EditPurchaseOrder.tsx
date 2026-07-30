@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PurchaseOrderService, PurchaseOrder } from '@/lib/purchase-order-service';
 import { SupplierService, Supplier } from '@/lib/supplier-service';
-import { GRNService } from '@/lib/grn-service';
+import { GRNService, type GRNPurchaseVoucher } from '@/lib/grn-service';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Search, Package, CheckCircle, AlertCircle } from 'lucide-react';
 
@@ -56,6 +56,8 @@ const EditPurchaseOrder: React.FC<EditPurchaseOrderProps> = ({ purchaseOrderId, 
   const [grnId, setGrnId] = useState<string | null>(null);
   const [grnStatus, setGrnStatus] = useState<'DRAFT' | 'POSTED' | null>(null);
   const [grnNumber, setGrnNumber] = useState<string | null>(null);
+  /** The purchase voucher approval raised for this GRN, once it exists. */
+  const [purchaseVoucher, setPurchaseVoucher] = useState<GRNPurchaseVoucher | null>(null);
 
   // Form state
   const [partyInvoiceNumber, setPartyInvoiceNumber] = useState('');
@@ -134,6 +136,7 @@ const EditPurchaseOrder: React.FC<EditPurchaseOrderProps> = ({ purchaseOrderId, 
         setItems(grnItemsMapped);
 
         if (existingGRN.status === 'POSTED') {
+          setPurchaseVoucher(await GRNService.getGRNPurchaseVoucher(existingGRN.id));
           toast({
             title: 'GRN Already Posted',
             description: `${existingGRN.grn_number} has been posted to inventory. Editing is locked.`,
@@ -460,10 +463,14 @@ const EditPurchaseOrder: React.FC<EditPurchaseOrderProps> = ({ purchaseOrderId, 
       const result = await GRNService.postGRN(grnId, undefined, discount || undefined);
 
       setGrnStatus('POSTED');
+      setPurchaseVoucher(result.purchase_voucher);
 
       toast({
-        title: 'Success!',
-        description: `GRN ${result.grn.grn_number} posted successfully. ${result.batch_inventories.length} batches added to inventory.`,
+        title: 'Approved',
+        description: result.purchase_voucher
+          ? `GRN ${result.grn.grn_number} approved. ${result.batch_inventories.length} batches added to inventory and purchase voucher ${result.purchase_voucher.voucher_number} posted to the day book.`
+          : `GRN ${result.grn.grn_number} approved. ${result.batch_inventories.length} batches added to inventory, but no purchase voucher was raised — check the invoice amount and the supplier's ledger.`,
+        variant: result.purchase_voucher ? 'default' : 'destructive',
       });
 
       // Navigate back after delay
@@ -894,12 +901,14 @@ const EditPurchaseOrder: React.FC<EditPurchaseOrderProps> = ({ purchaseOrderId, 
             </div>
             {grnStatus === 'DRAFT' && (
               <p className="text-sm text-blue-700">
-                ⚠️ Draft saved. Click <strong>Submit</strong> to add inventory.
+                ⚠️ Draft saved. Click <strong>Approve</strong> to add inventory and post the purchase voucher.
               </p>
             )}
             {grnStatus === 'POSTED' && (
               <p className="text-sm text-green-700">
-                ✅ Inventory has been updated successfully.
+                {purchaseVoucher
+                  ? `✅ Inventory updated. Purchase voucher ${purchaseVoucher.voucher_number} of ₹${Number(purchaseVoucher.total_amount).toLocaleString('en-IN')} is in the day book under Hope Pharmacy.`
+                  : '✅ Inventory has been updated successfully.'}
               </p>
             )}
           </div>
@@ -932,12 +941,12 @@ const EditPurchaseOrder: React.FC<EditPurchaseOrderProps> = ({ purchaseOrderId, 
             {isPosting ? (
               <>
                 <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                Posting to Inventory...
+                Approving...
               </>
             ) : (
               <>
                 <CheckCircle className="mr-2 h-5 w-5" />
-                Submit & Add to Inventory
+                Approve & Post Purchase Voucher
               </>
             )}
           </Button>

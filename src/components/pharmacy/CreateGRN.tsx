@@ -356,8 +356,11 @@ const CreateGRN: React.FC = () => {
       const result = await GRNService.postGRN(grnId, undefined, discountValue);
 
       toast({
-        title: 'Success!',
-        description: `GRN ${result.grn.grn_number} posted successfully. ${result.batch_inventories.length} batches added to inventory.`,
+        title: 'Approved',
+        description: result.purchase_voucher
+          ? `GRN ${result.grn.grn_number} approved. ${result.batch_inventories.length} batches added to inventory and purchase voucher ${result.purchase_voucher.voucher_number} posted to the day book.`
+          : `GRN ${result.grn.grn_number} approved. ${result.batch_inventories.length} batches added to inventory, but no purchase voucher was raised — check the invoice amount and the supplier's ledger.`,
+        variant: result.purchase_voucher ? 'default' : 'destructive',
       });
 
       // Reset form
@@ -745,12 +748,12 @@ const CreateGRN: React.FC = () => {
                 {isPosting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Posting...
+                    Approving...
                   </>
                 ) : (
                   <>
                     <CheckCircle className="mr-2 h-4 w-4" />
-                    Submit & Add to Inventory
+                    Approve & Post Purchase Voucher
                   </>
                 )}
               </Button>

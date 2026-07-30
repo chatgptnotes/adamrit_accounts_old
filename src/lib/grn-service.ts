@@ -187,6 +187,37 @@ export async function createGRNFromPO(
   }
 }
 
+export interface GRNPurchaseVoucher {
+  voucher_number: string;
+  voucher_date: string;
+  total_amount: number;
+}
+
+/**
+ * The purchase voucher raised for a GRN, if there is one.
+ *
+ * Approving a GRN posts Dr Medicine Purchase / Cr the supplier through the
+ * trg_grn_supplier_bill trigger, which stamps the GRN's id on the voucher's
+ * reference_number. Nothing here creates the voucher — this only reads back
+ * what the approval produced, so the desk can see it reached the day book.
+ */
+export async function getGRNPurchaseVoucher(
+  grn_id: string
+): Promise<GRNPurchaseVoucher | null> {
+  const { data, error } = await supabaseClient
+    .from('vouchers')
+    .select('voucher_number, voucher_date, total_amount')
+    .eq('reference_number', grn_id)
+    .neq('status', 'CANCELLED')
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error reading GRN purchase voucher:', error);
+    return null;
+  }
+  return (data as GRNPurchaseVoucher) || null;
+}
+
 /**
  * Post GRN - Creates batch inventory and adds stock
  * This is the SUBMIT action that finalizes the GRN
@@ -195,7 +226,11 @@ export async function postGRN(
   grn_id: string,
   verified_by?: string,
   discount?: number
-): Promise<{ grn: GoodsReceivedNote; batch_inventories: MedicineBatchInventory[] }> {
+): Promise<{
+  grn: GoodsReceivedNote;
+  batch_inventories: MedicineBatchInventory[];
+  purchase_voucher: GRNPurchaseVoucher | null;
+}> {
   try {
     // 1. Get GRN details with items
     const { data: grnData, error: grnFetchError } = await supabaseClient
@@ -409,7 +444,11 @@ export async function postGRN(
       .update({ status: 'Completed' })
       .eq('id', grnData.purchase_order_id);
 
-    return { grn: updatedGRN, batch_inventories };
+    // 6. Read back the purchase voucher the approval raised, so the caller can
+    //    tell the user where it landed instead of leaving them to hunt for it.
+    const purchase_voucher = await getGRNPurchaseVoucher(grn_id);
+
+    return { grn: updatedGRN, batch_inventories, purchase_voucher };
   } catch (error) {
     console.error('Error posting GRN:', error);
     throw error;
@@ -772,6 +811,7 @@ export const GRNService = {
   generateGRNNumber,
   createGRNFromPO,
   postGRN,
+  getGRNPurchaseVoucher,
   verifyAndPostGRN,
   getGRNDetails,
   listGRNs,
