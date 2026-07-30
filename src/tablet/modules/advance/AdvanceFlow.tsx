@@ -169,7 +169,11 @@ function extractGeneratedText(data: any): string {
 }
 
 
-async function runArshiaModel(prompt: string, images: VpsClaudeImage[] = []): Promise<string> {
+async function runArshiaModel(
+  prompt: string,
+  images: VpsClaudeImage[] = [],
+  opts: { thinkingBudget?: number } = {},
+): Promise<string> {
   if (LLM_BACKEND === "vps") {
     return callVpsClaude(prompt, "opus", images);
   }
@@ -189,7 +193,7 @@ async function runArshiaModel(prompt: string, images: VpsClaudeImage[] = []): Pr
       generationConfig: {
         temperature: 0.2,
         maxOutputTokens: 8192,
-        thinkingConfig: { thinkingBudget: 0 },
+        thinkingConfig: { thinkingBudget: opts.thinkingBudget ?? 0 },
       },
     }),
   });
@@ -208,7 +212,9 @@ async function docToVisionImage(doc: PatientDoc): Promise<VpsClaudeImage> {
   const response = await fetch(doc.fileUrl);
   if (!response.ok) throw new Error(`Could not fetch ${doc.fileName || "uploaded image"}.`);
   const blob = await response.blob();
-  const image = await downscaleImageForVision(blob);
+  // Pre-auth forms are handwritten. The app-wide 1600px cap loses the pen
+  // strokes on small fields, so this flow pays for the extra pixels.
+  const image = await downscaleImageForVision(blob, { maxEdge: 2600, quality: 0.92 });
   return {
     base64: image.base64,
     mimeType: image.mimeType || doc.fileType || blob.type || "image/jpeg",
@@ -1285,13 +1291,17 @@ export default function AdvanceFlow() {
 
 Rules:
 - Return factual text only.
-- Do not infer hidden, cropped, or unreadable details; if text is unclear, mark it as [unclear].
+- Do not infer hidden or cropped details.
+- Mark a field [blank] when the form has that field but nothing was written in it.
+- Mark a field [unclear] only when something IS written there but you cannot read it confidently. Never use [unclear] for an empty field.
+- Read numeric identifiers (patient ID, package code, package amount, dates, number of days) digit by digit and report your best reading; fall back to [unclear] only if the digits are genuinely illegible.
 - Extract every available detail, including patient details, hospital details, diagnosis, history, examination, treatment, requested procedure, doctor details, dates, identifiers, and remarks.
 - Preserve the visible wording and values exactly wherever possible.
 - Do not add any clinical facts that are not visible in the images.
 
 Return clean, properly formatted plain text with clear headings and field labels. Include all pages/images in the result.`,
         images,
+        { thinkingBudget: 2048 },
       );
       setPreauthTranscript(text);
     } catch (error) {
