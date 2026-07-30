@@ -611,8 +611,14 @@ const LabPanelManager: React.FC = () => {
   
   // Local storage fallback for panels
   const [localPanels, setLocalPanels] = useState<LabPanel[]>(() => {
-    const saved = localStorage.getItem('labPanels');
-    return saved ? JSON.parse(saved) : [];
+    // Parsed defensively: this runs during render, so a corrupt 'labPanels'
+    // value would throw before any boundary below the app root can catch it.
+    try {
+      const saved = localStorage.getItem('labPanels');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
   });
 
   // Transform database panels to our local format, fallback to local storage if DB fails

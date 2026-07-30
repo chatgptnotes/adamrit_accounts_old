@@ -134,8 +134,14 @@ const BankReconciliation: React.FC = () => {
   // Load reconciled IDs from localStorage when account changes
   useEffect(() => {
     if (selectedAccountId) {
-      const saved = localStorage.getItem(storageKey);
-      setReconciledIds(saved ? new Set(JSON.parse(saved)) : new Set());
+      let restored: Set<string>;
+      try {
+        const saved = localStorage.getItem(storageKey);
+        restored = saved ? new Set(JSON.parse(saved)) : new Set();
+      } catch {
+        restored = new Set();
+      }
+      setReconciledIds(restored);
       setSelectedIds(new Set());
     } else {
       setReconciledIds(new Set());

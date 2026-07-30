@@ -92,7 +92,6 @@ export const TILE_ACCESS_RULES: TileAccessRule[] = [
   { id: "d-currently-admitted", label: "Currently Admitted", group: "dashboard" },
   { id: "d-pending-approvals", label: "Pending Approvals", group: "dashboard" },
   { id: "d-total-patients", label: "Total Patients", group: "dashboard" },
-  { id: "d-system-status", label: "System Status", group: "dashboard" },
 
   // ── Clinical KPIs (6) ──────────────────────────────────────────────
   { id: "c-alos", label: "ALOS", group: "clinical" },

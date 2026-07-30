@@ -131,7 +131,7 @@ const PhysiotherapyBill = () => {
           cghs_code: item.cghs_code,
           cghs_rate: item.cghs_rate,
           quantity: item.quantity,
-          amount: item.amount
+          amount: Number(item.amount) || 0
         })));
       } else {
         // Create default first row if no items exist
@@ -290,7 +290,7 @@ const PhysiotherapyBill = () => {
           cghs_code: data.cghs_code,
           cghs_rate: data.cghs_rate,
           quantity: data.quantity,
-          amount: data.amount
+          amount: Number(data.amount) || 0
         }]);
         toast.success('New row added');
       } else {

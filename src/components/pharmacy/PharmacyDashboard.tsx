@@ -85,9 +85,13 @@ const PharmacyDashboard: React.FC = () => {
   });
 
   const getUserIdentifier = () => {
-    const raw = localStorage.getItem('hmis_user');
-    const u = raw ? JSON.parse(raw) : {};
-    return u.email || u.username || 'Admin';
+    try {
+      const raw = localStorage.getItem('hmis_user');
+      const u = raw ? JSON.parse(raw) : {};
+      return u.email || u.username || 'Admin';
+    } catch {
+      return 'Admin';
+    }
   };
 
   const restorePharmacyStock = async (saleId: string) => {

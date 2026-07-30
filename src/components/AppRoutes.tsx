@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { canAccessReferralRegister } from "@/lib/referralRegisterAccess";
 import ProtectedFinalBillRoute from "@/components/invoice/ProtectedFinalBillRoute";
+import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
 
 // Import critical pages synchronously
 import LandingPage from "../pages/LandingPage";
@@ -107,7 +108,6 @@ const StoreRequisition = lazy(() => import("../components/pharmacy/StoreRequisit
 const MarketingDashboard = lazy(() => import("../pages/MarketingDashboard"));
 const NephroPlus = lazy(() => import("../pages/NephroPlus"));
 const EditSaleBill = lazy(() => import("../components/pharmacy/EditSaleBill"));
-const DaywiseBills = lazy(() => import("../pages/DaywiseBills"));
 const OldBills = lazy(() => import("../pages/OldBills"));
 const ViewBill = lazy(() => import("../pages/ViewBill"));
 const FinancialSummary = lazy(() => import("../pages/FinancialSummary"));
@@ -246,6 +246,7 @@ const SuperAdminRoute = ({ children }: SuperAdminRouteProps) => {
 
 export const AppRoutes = () => {
   return (
+    <RouteErrorBoundary>
     <Suspense fallback={<PageLoader />}>
       <Routes>
         <Route path="/" element={<LandingPage />} />
@@ -355,7 +356,6 @@ export const AppRoutes = () => {
         <Route path="/p2form/:visitId" element={<Suspense fallback={<PageLoader />}><P2Form /></Suspense>} />
         <Route path="/lab-print-demo" element={<Suspense fallback={<PageLoader />}><LabPrintDemo /></Suspense>} />
         <Route path="/lab-results-entry-demo" element={<Suspense fallback={<PageLoader />}><LabResultsEntryDemo /></Suspense>} />
-        <Route path="/daywise-bills" element={<Suspense fallback={<PageLoader />}><DaywiseBills /></Suspense>} />
         <Route path="/invoice/:visitId" element={<ProtectedFinalBillRoute><Suspense fallback={<PageLoader />}><Invoice /></Suspense></ProtectedFinalBillRoute>} />
         <Route path="/detailed-invoice/:visitId" element={<ProtectedFinalBillRoute><Suspense fallback={<PageLoader />}><DetailedInvoice /></Suspense></ProtectedFinalBillRoute>} />
         <Route path="/detailed-invoice" element={<Suspense fallback={<PageLoader />}><DetailedInvoice /></Suspense>} />
@@ -420,5 +420,6 @@ export const AppRoutes = () => {
         <Route path="*" element={<NotFound />} />
       </Routes>
     </Suspense>
+    </RouteErrorBoundary>
   );
 };

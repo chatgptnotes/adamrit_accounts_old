@@ -22,19 +22,17 @@ export const NavigationTabs = ({ activeTab }: NavigationTabsProps) => {
       case 'Patients':
         navigate('/patients');
         break;
-      case 'Doctors':
-        break;
       case 'Reports':
         navigate('/reports');
-        break;
-      case 'Settings':
         break;
       default:
         break;
     }
   };
 
-  const tabs = ['Dashboard', 'IPD', 'OPD', 'Patients', 'Doctors', 'Reports', 'Settings'];
+  // 'Doctors' and 'Settings' were listed here but had no destination — they
+  // rendered as clickable tabs that did nothing. Removed until a route exists.
+  const tabs = ['Dashboard', 'IPD', 'OPD', 'Patients', 'Reports'];
 
   return (
     <div className="flex items-center gap-6 border-b">
