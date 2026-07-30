@@ -7,6 +7,7 @@ export interface DialysisCharge {
   visitDate: string;    // YYYY-MM-DD (when the patient came)
   patientName: string;
   patientsId: string | null; // unique patient ID
+  patientUuid: string | null; // patients.id, needed to find their lab reports
 }
 
 // One patient's dialysis for a given month (aggregated).
@@ -38,7 +39,7 @@ export async function fetchDialysisCharges(): Promise<DialysisCharge[]> {
   const { data, error } = await supabase
     .from('visit_clinical_services')
     .select(
-      'amount, quantity, clinical_services!inner(service_name), visits!inner(visit_date, patients(name, patients_id))'
+      'amount, quantity, clinical_services!inner(service_name), visits!inner(visit_date, patients(id, name, patients_id))'
     )
     .ilike('clinical_services.service_name', '%dialy%')
     .limit(5000);
@@ -55,6 +56,7 @@ export async function fetchDialysisCharges(): Promise<DialysisCharge[]> {
         visitDate,
         patientName: (patient.name as string) ?? 'Unknown',
         patientsId: (patient.patients_id as string) ?? null,
+        patientUuid: (patient.id as string) ?? null,
       } as DialysisCharge;
     })
     .filter((c): c is DialysisCharge => c !== null);

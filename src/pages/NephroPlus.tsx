@@ -6,7 +6,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Activity, CalendarClock, ChevronLeft, ChevronRight, Download, Printer } from 'lucide-react';
+import DialysisTracker from '@/components/nephroplus/DialysisTracker';
 import {
   fetchDialysisCharges,
   groupByPatient,
@@ -140,6 +142,17 @@ export default function NephroPlus() {
         </div>
       </div>
 
+      <Tabs defaultValue="dialysis" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="dialysis">Dialysis</TabsTrigger>
+          <TabsTrigger value="settlement">Monthly Settlement</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="dialysis" className="space-y-6">
+          <DialysisTracker charges={charges} hospitalName={hospitalName} chargesLoading={loading} />
+        </TabsContent>
+
+        <TabsContent value="settlement" className="space-y-6">
       {/* Payout % setting */}
       <Card>
         <CardContent className="flex flex-wrap items-center gap-x-3 gap-y-2 p-4 text-sm">
@@ -238,6 +251,8 @@ export default function NephroPlus() {
           )}
         </Table>
       </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
