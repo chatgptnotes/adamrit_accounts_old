@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Loader2, Search, User } from "lucide-react";
 import type { TabletVisit } from "@/tablet/hooks/useVisitLists";
 import { shortDate } from "@/tablet/lib/format";
@@ -14,6 +14,9 @@ interface TabletVisitListProps {
   onSelect: (visit: TabletVisit) => void;
   emptyText: string;
   metaKind: "admitted" | "discharged";
+  /** Optional block rendered above the list. Hidden while searching, since a
+   *  search means the user is after one specific patient. */
+  pinned?: ReactNode;
 }
 
 /** Searchable, touch-friendly list of visits used by clinical module flows. */
@@ -24,6 +27,7 @@ export function TabletVisitList({
   onSelect,
   emptyText,
   metaKind,
+  pinned,
 }: TabletVisitListProps) {
   const [term, setTerm] = useState("");
 
@@ -52,6 +56,7 @@ export function TabletVisitList({
         </div>
       </div>
       <PullToRefresh className="p-4">
+        {pinned && !term.trim() ? <div className="mb-4">{pinned}</div> : null}
         {loading ? (
           <div className="flex justify-center py-10">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />

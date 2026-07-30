@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { FileText } from "lucide-react";
+import { FileText, User } from "lucide-react";
 import { BillDocumentsSection } from "@/pages/corporate-bill/BillDocumentsSection";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletButton } from "@/tablet/ui/TabletButton";
@@ -7,9 +7,11 @@ import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletVisitList } from "@/tablet/components/TabletVisitList";
 import {
   useAdmittedVisits,
+  useBillingWorklist,
   useDischargedVisits,
   type TabletVisit,
 } from "@/tablet/hooks/useVisitLists";
+import { shortDate } from "@/tablet/lib/format";
 
 export default function DocumentsFlow() {
   const [selected, setSelected] = useState<TabletVisit | null>(null);
@@ -20,6 +22,7 @@ export default function DocumentsFlow() {
 function DocumentsPicker({ onSelect }: { onSelect: (visit: TabletVisit) => void }) {
   const admitted = useAdmittedVisits();
   const discharged = useDischargedVisits();
+  const billing = useBillingWorklist();
 
   const visits = useMemo(() => {
     const seen = new Set<string>();
@@ -40,7 +43,67 @@ function DocumentsPicker({ onSelect }: { onSelect: (visit: TabletVisit) => void 
       onSelect={onSelect}
       emptyText="No patient visits found."
       metaKind="admitted"
+      pinned={
+        billing.count > 0 ? (
+          <section className="space-y-2">
+            <h3 className="text-base font-bold text-destructive">
+              To be billed ({billing.count})
+            </h3>
+            {billing.discharged.map((visit) => (
+              <BillingRow
+                key={`d-${visit.id}`}
+                visit={visit}
+                onSelect={onSelect}
+                tag={`Discharged ${shortDate(visit.dischargeDate)} · Bill pending`}
+                tagClassName="bg-amber-100 text-amber-800"
+              />
+            ))}
+            {billing.plannedToday.map((visit) => (
+              <BillingRow
+                key={`p-${visit.id}`}
+                visit={visit}
+                onSelect={onSelect}
+                tag="Discharge planned today"
+                tagClassName="bg-muted text-muted-foreground"
+              />
+            ))}
+          </section>
+        ) : null
+      }
     />
+  );
+}
+
+/** One patient on the billing worklist. Tapping it opens the same documents view
+ *  as the main list below. */
+function BillingRow({
+  visit,
+  onSelect,
+  tag,
+  tagClassName,
+}: {
+  visit: TabletVisit;
+  onSelect: (visit: TabletVisit) => void;
+  tag: string;
+  tagClassName: string;
+}) {
+  return (
+    <TabletCard interactive onClick={() => onSelect(visit)} className="flex items-center gap-3">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100">
+        <User className="h-6 w-6 text-amber-700" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-semibold">{visit.patientName}</p>
+        <p className="truncate text-sm text-muted-foreground">
+          {visit.patientsId || visit.visitId}
+        </p>
+        <span
+          className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${tagClassName}`}
+        >
+          {tag}
+        </span>
+      </div>
+    </TabletCard>
   );
 }
 

@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { modulesForUser } from "@/tablet/config/modules";
 import { TabletWatermark } from "@/tablet/components/TabletWatermark";
+import { useBillingWorklist } from "@/tablet/hooks/useVisitLists";
 
 /** Home dashboard — gradient-iconed module tiles, role-filtered, with quick search. */
 export function TabletHome() {
@@ -12,6 +13,8 @@ export function TabletHome() {
   const { user } = useAuth();
   const [query, setQuery] = useState("");
   const modules = modulesForUser(user ?? undefined);
+  // Discharged-but-unbilled intimation for the billing desk, badged on their tile.
+  const billing = useBillingWorklist();
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -82,8 +85,13 @@ export function TabletHome() {
                     key={m.id}
                     type="button"
                     onClick={() => navigate(`/${m.id}`, { viewTransition: true })}
-                    className="tablet-tile tablet-glass flex min-h-[148px] flex-col gap-2 rounded-2xl p-4 text-left sm:min-h-[156px] sm:p-5"
+                    className="tablet-tile tablet-glass relative flex min-h-[148px] flex-col gap-2 rounded-2xl p-4 text-left sm:min-h-[156px] sm:p-5"
                   >
+                    {m.id === "documents" && billing.count > 0 ? (
+                      <span className="absolute right-3 top-3 inline-flex min-w-[1.75rem] items-center justify-center rounded-full bg-destructive px-2 py-1 text-sm font-bold text-destructive-foreground shadow">
+                        {billing.count}
+                      </span>
+                    ) : null}
                     <span
                       className={cn(
                         "inline-flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br shadow-lg sm:h-12 sm:w-12",
