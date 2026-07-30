@@ -15,6 +15,7 @@ import { TabletInput, TabletLabel } from "@/tablet/ui/TabletInput";
 import { LedgerPicker } from "./LedgerPicker";
 import { BillPaymentSheet } from "./BillPaymentSheet";
 import { InvoiceCamera } from "./InvoiceCamera";
+import { ImplantReferralApproval } from "./ImplantReferralApproval";
 import {
   useExpenseBillCompanyId,
   useExpenseLedgerByName,
@@ -31,7 +32,13 @@ const rupees = (n: number) =>
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-type ExpenseCategory = "rent" | "implant" | "salary" | "consultant" | "other";
+type ExpenseCategory =
+  | "rent"
+  | "implant"
+  | "implant_referral"
+  | "salary"
+  | "consultant"
+  | "other";
 
 const EXPENSE_CATEGORIES: Array<{
   value: ExpenseCategory;
@@ -40,6 +47,9 @@ const EXPENSE_CATEGORIES: Array<{
 }> = [
   { value: "rent", label: "Rent", ledgerName: "Rent" },
   { value: "implant", label: "Implant", ledgerName: "Implant Purchase" },
+  // Not a bill anyone hands in: the commission is already computed per visit,
+  // so this category opens the approval dashboard instead of the form.
+  { value: "implant_referral", label: "Implant (Referral)", ledgerName: null },
   { value: "salary", label: "Salary", ledgerName: "Staff Salary" },
   {
     value: "consultant",
@@ -267,6 +277,10 @@ export default function ExpenseBillsFlow() {
           </div>
         </div>
 
+        {category === "implant_referral" ? (
+          <ImplantReferralApproval />
+        ) : (
+        <>
         <LedgerPicker
           label="Who is the bill from"
           placeholder="Search vendors, consultants and salary payees"
@@ -400,6 +414,8 @@ export default function ExpenseBillsFlow() {
             </p>
           )}
         </div>
+        </>
+        )}
       </div>
 
       <div className="tablet-safe-bottom flex flex-shrink-0 gap-3 border-t bg-background/95 p-4 backdrop-blur">
@@ -411,18 +427,22 @@ export default function ExpenseBillsFlow() {
             setShowForm(false);
           }}
         >
-          Cancel
+          {category === "implant_referral" ? "Close" : "Cancel"}
         </TabletButton>
-        <TabletButton className="flex-[2]" disabled={!canSave} onClick={save}>
-          {record.isPending || company.isLoading ? (
-            <>
-              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              {record.isPending ? "Recording" : "Loading company"}
-            </>
-          ) : (
-            "Record invoice"
-          )}
-        </TabletButton>
+        {/* The referral dashboard approves from its own sticky footer, where
+            the totals it is approving are in view. */}
+        {category !== "implant_referral" && (
+          <TabletButton className="flex-[2]" disabled={!canSave} onClick={save}>
+            {record.isPending || company.isLoading ? (
+              <>
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                {record.isPending ? "Recording" : "Loading company"}
+              </>
+            ) : (
+              "Record invoice"
+            )}
+          </TabletButton>
+        )}
       </div>
     </div>
   );

@@ -67,6 +67,8 @@ const categoryBadge: Record<ApprovalCategory, string> = {
   VENDOR: 'bg-blue-100 text-blue-800',
   DOCTOR: 'bg-purple-100 text-purple-800',
   SALARY: 'bg-emerald-100 text-emerald-800',
+  // Raised by the Implant (Referral) dashboard, not by the add form below.
+  REFERRAL: 'bg-amber-100 text-amber-800',
 }
 
 export default function TallyApprovals({ companyName }: Props) {

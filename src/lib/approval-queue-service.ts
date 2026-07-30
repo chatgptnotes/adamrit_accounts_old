@@ -1,7 +1,7 @@
 import { supabase } from '@/integrations/supabase/client'
 import { createAccountingVoucher } from '@/lib/accounting-voucher-service'
 
-export type ApprovalCategory = 'VENDOR' | 'DOCTOR' | 'SALARY'
+export type ApprovalCategory = 'VENDOR' | 'DOCTOR' | 'SALARY' | 'REFERRAL'
 
 export interface ApprovalQueueRow {
   id: string
