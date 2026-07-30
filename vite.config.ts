@@ -564,6 +564,23 @@ export default defineConfig(({ mode }) => {
         changeOrigin: true,
         secure: true,
       },
+      // Same reason: src/lib/gemini.ts posts every AI call to same-origin
+      // /api/ai-proxy, which only exists as a Vercel function. Without this,
+      // a local POST hits Vite's 405/404 and every AI feature fails on localhost.
+      "/api/ai-proxy": {
+        target: "https://www.adamrit.com",
+        changeOrigin: true,
+        secure: true,
+        // changeOrigin rewrites Host, not Origin. api/ai-proxy.ts allowlists the
+        // request Origin/Referer and the dev server is https://localhost:8080,
+        // which is not on that list. Present as the deployed origin so the Gemini
+        // key stays a server-only Vercel secret and we don't have to widen the
+        // production allowlist to a localhost port.
+        headers: {
+          origin: "https://www.adamrit.com",
+          referer: "https://www.adamrit.com/",
+        },
+      },
     },
   },
   plugins: [

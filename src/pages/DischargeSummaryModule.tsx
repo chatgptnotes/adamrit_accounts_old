@@ -265,7 +265,16 @@ ${JSON.stringify(record, null, 2)}`,
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data?.error?.message || "Unable to generate discharge summary.");
+    // /api/ai-proxy reports its own faults as { error: "<string>" }; only Gemini
+    // upstream errors use { error: { message } }. Read both so proxy failures
+    // (missing key, rate limit, forbidden origin) name themselves.
+    const detail =
+      data?.error?.message || (typeof data?.error === "string" ? data.error : "");
+    throw new Error(
+      detail
+        ? `Discharge summary failed (${response.status}): ${detail}`
+        : `Unable to generate discharge summary. (HTTP ${response.status})`,
+    );
   }
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text || typeof text !== "string") {

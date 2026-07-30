@@ -33,6 +33,10 @@ const ADVANCE_IMAGE_CATEGORY = "advance_image";
  *  portal. Nothing downstream of discharge unlocks without one of these. */
 const THUMB_CONFIRMATION_CATEGORY = "discharge_thumb_confirmation";
 const MAX_FILE_BYTES = 1.5 * 1024 * 1024;
+/** Must not exceed MAX_IMAGES in api/ai-proxy.ts — the proxy rejects the whole
+ *  request with 413 "maximum 4 images per request" past this, so cap here and
+ *  warn instead of failing the transcription outright. */
+const MAX_VISION_IMAGES = 4;
 const ARSHIA_EMERGENCY_LINE = "URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 9373111709.";
 const DEFAULT_ARSHIA_DISCHARGE_PROMPT = `You are a senior medical specialist writing a professional hospital discharge summary for another doctor.
 
@@ -164,6 +168,19 @@ function extractGeneratedText(data: any): string {
   return String(data?.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
 }
 
+// Gemini upstream errors arrive as { error: { message } }, but /api/ai-proxy's own
+// failures (forbidden_origin, rate_limited, missing GEMINI_API_KEY, 413 image
+// limit) arrive as { error: "<string>" }. Reading only .error.message collapsed
+// every proxy-level fault into one opaque sentence, so read both shapes and keep
+// the status — that status is usually the whole diagnosis.
+function describeAiError(data: any, status: number): string {
+  const detail =
+    data?.error?.message || (typeof data?.error === "string" ? data.error : "");
+  return detail
+    ? `Discharge summary failed (${status}): ${detail}`
+    : `Unable to generate discharge summary. (HTTP ${status})`;
+}
+
 async function runArshiaModel(prompt: string, images: VpsClaudeImage[] = []): Promise<string> {
   if (LLM_BACKEND === "vps") {
     return callVpsClaude(prompt, "opus", images);
@@ -191,7 +208,7 @@ async function runArshiaModel(prompt: string, images: VpsClaudeImage[] = []): Pr
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data?.error?.message || "Unable to generate discharge summary.");
+    throw new Error(describeAiError(data, response.status));
   }
 
   const text = extractGeneratedText(data);
@@ -1268,7 +1285,13 @@ export default function AdvanceFlow() {
     setArshiaError(null);
     setArshiaWarning(null);
     try {
-      const images = await Promise.all(docs.map(docToVisionImage));
+      const visionDocs = docs.slice(0, MAX_VISION_IMAGES);
+      if (docs.length > MAX_VISION_IMAGES) {
+        setArshiaWarning(
+          `Transcribed the first ${MAX_VISION_IMAGES} of ${docs.length} uploaded images. Delete or reorder images so the filled pre-authorization pages are first, then transcribe again.`,
+        );
+      }
+      const images = await Promise.all(visionDocs.map(docToVisionImage));
       const text = await runArshiaModel(
         `Extract all visible text from the uploaded filled pre-authorization form images for discharge-summary preparation.
 
