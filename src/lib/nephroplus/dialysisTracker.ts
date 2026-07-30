@@ -42,20 +42,39 @@ export async function fetchBilledCycles(hospitalName: string): Promise<Map<strin
   return new Map((data ?? []).map((r) => [r.patient_key as string, Number(r.billed_cycles) || 0]));
 }
 
-/** The date of each patient's most recent lab report. */
-export async function fetchLastLabDates(patientUuids: readonly string[]): Promise<Map<string, string>> {
+/**
+ * Which visit belongs to which patient.
+ * lab_results.visit_id has no foreign key (the table was recreated without one
+ * in 20250924200000_ensure_lab_results_columns.sql), so PostgREST cannot embed
+ * visits from lab_results — the two have to be stitched together by hand.
+ */
+export async function fetchVisitOwners(
+  patientUuids: readonly string[]
+): Promise<Map<string, string>> {
   if (patientUuids.length === 0) return new Map();
   const { data, error } = await supabase
+    .from('visits')
+    .select('id, patient_id')
+    .in('patient_id', [...patientUuids])
+    .limit(20000);
+  if (error) throw error;
+  return new Map((data ?? []).map((v) => [v.id as string, v.patient_id as string]));
+}
+
+/** The date of each patient's most recent lab report. */
+export async function fetchLastLabDates(patientUuids: readonly string[]): Promise<Map<string, string>> {
+  const visitOwner = await fetchVisitOwners(patientUuids);
+  if (visitOwner.size === 0) return new Map();
+  const { data, error } = await supabase
     .from('lab_results')
-    .select('created_at, visits!inner(patient_id)')
-    .in('visits.patient_id', [...patientUuids])
+    .select('visit_id, created_at')
+    .in('visit_id', Array.from(visitOwner.keys()))
     .order('created_at', { ascending: false })
     .limit(5000);
   if (error) throw error;
   const latest = new Map<string, string>();
   for (const row of (data ?? []) as Record<string, unknown>[]) {
-    const visit = (row.visits ?? {}) as Record<string, unknown>;
-    const uuid = visit.patient_id as string | undefined;
+    const uuid = visitOwner.get(row.visit_id as string);
     const created = row.created_at as string | undefined;
     if (!uuid || !created) continue;
     const day = created.slice(0, 10);

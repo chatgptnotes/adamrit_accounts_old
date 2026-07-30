@@ -1,5 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
-import type { DialysisTrackerRow } from './dialysisTracker';
+import { fetchVisitOwners, type DialysisTrackerRow } from './dialysisTracker';
 
 interface LabResultRow {
   test_name: string;
@@ -16,12 +16,15 @@ interface LabResultRow {
 
 /** Every result from the patient's most recent lab report. */
 async function fetchLatestReport(patientUuid: string): Promise<LabResultRow[]> {
+  // lab_results has no foreign key to visits, so look their visits up first.
+  const visitOwner = await fetchVisitOwners([patientUuid]);
+  if (visitOwner.size === 0) return [];
   const { data, error } = await supabase
     .from('lab_results')
     .select(
-      'test_name, test_category, result_value, result_unit, reference_range, is_abnormal, comments, created_at, patient_age, patient_gender, visits!inner(patient_id)'
+      'test_name, test_category, result_value, result_unit, reference_range, is_abnormal, comments, created_at, patient_age, patient_gender'
     )
-    .eq('visits.patient_id', patientUuid)
+    .in('visit_id', Array.from(visitOwner.keys()))
     .order('created_at', { ascending: false })
     .limit(300);
   if (error) throw error;
