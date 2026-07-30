@@ -45,8 +45,30 @@ function modelFromUrl(url: string): string {
   return m?.[1] ?? GEMINI_MODEL;
 }
 
+// Gemini's own errors arrive as { error: { message } }, but ai-proxy reports its
+// own faults - missing GEMINI_API_KEY, rate_limited, forbidden_origin, the 413
+// image cap - as { error: "<string>" }. Callers that read only .error.message
+// therefore saw nothing and blamed the model for what was a config or quota
+// problem. Read both shapes, and keep the status: it is usually the diagnosis.
+export function describeGeminiError(data: unknown, status: number): string {
+  const error = (data as { error?: unknown } | null)?.error;
+  const detail =
+    typeof error === 'string'
+      ? error
+      : (error as { message?: string } | null)?.message || '';
+  return detail
+    ? `Gemini request failed (${status}): ${detail}`
+    : `Gemini request failed (HTTP ${status}).`;
+}
+
 // Route all Gemini requests through the same-origin serverless API.
 // The Gemini key belongs only in the server-side GEMINI_API_KEY secret.
+//
+// Throws on a non-ok response. Most call sites never checked `res.ok` and read
+// `data.candidates?.[0]...` straight off an error body, turning every proxy
+// failure into an empty string and then a downstream "the AI returned nothing".
+// Throwing here gives all of them the real reason without touching each one;
+// every caller already runs inside a try/catch that surfaces `error.message`.
 export async function geminiFetch(url: string, init: RequestInit): Promise<Response> {
   let payload: unknown = {};
   if (typeof init.body === 'string') {
@@ -56,22 +78,30 @@ export async function geminiFetch(url: string, init: RequestInit): Promise<Respo
   }
 
   const model = modelFromUrl(url);
-  return fetch('/api/ai-proxy', {
+  const response = await fetch('/api/ai-proxy', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider: 'gemini', model, payload }),
   });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(describeGeminiError(data, response.status));
+  }
+  return response;
 }
 
 // Kept as an alias for any caller importing the lower-level name; the proxy now
-// owns the flash -> flash-lite degradation, so this is identical to geminiFetch
-// minus the throw-on-error (callers of this name handled `res.ok` themselves).
+// owns the flash -> flash-lite degradation. This one does NOT throw - callers of
+// this name check `res.ok` themselves - so it converts geminiFetch's throw back
+// into a Response. The body uses the { error: { message } } shape those callers
+// already read, so the real reason reaches them instead of a bare statusText.
 export async function geminiGenerateContent(url: string, init: RequestInit): Promise<Response> {
   try {
     return await geminiFetch(url, init);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return new Response(JSON.stringify({ error: msg }), {
+    const message = e instanceof Error ? e.message : String(e);
+    return new Response(JSON.stringify({ error: { message } }), {
       status: 502,
       headers: { 'Content-Type': 'application/json' },
     });

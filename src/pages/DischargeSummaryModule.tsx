@@ -20,7 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import { GEMINI_MODEL, geminiFetch, geminiGenerateContentUrl } from "@/lib/gemini";
+import { GEMINI_MODEL, describeGeminiError, geminiFetch, geminiGenerateContentUrl } from "@/lib/gemini";
 
 type MedicationRow = {
   id: string;
@@ -265,16 +265,7 @@ ${JSON.stringify(record, null, 2)}`,
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    // /api/ai-proxy reports its own faults as { error: "<string>" }; only Gemini
-    // upstream errors use { error: { message } }. Read both so proxy failures
-    // (missing key, rate limit, forbidden origin) name themselves.
-    const detail =
-      data?.error?.message || (typeof data?.error === "string" ? data.error : "");
-    throw new Error(
-      detail
-        ? `Discharge summary failed (${response.status}): ${detail}`
-        : `Unable to generate discharge summary. (HTTP ${response.status})`,
-    );
+    throw new Error(describeGeminiError(data, response.status));
   }
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text || typeof text !== "string") {

@@ -7,7 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import type { Patient } from "@/components/PatientLookup/types/patientLookup";
 import { cn } from "@/lib/utils";
-import { GEMINI_MODEL, geminiFetch, geminiGenerateContentUrl } from "@/lib/gemini";
+import { GEMINI_MODEL, describeGeminiError, geminiFetch, geminiGenerateContentUrl } from "@/lib/gemini";
 import { LLM_BACKEND, callVpsClaude, type VpsClaudeImage } from "@/lib/vpsClaude";
 import { downscaleImageForVision } from "@/lib/downscaleImage";
 import { inr, shortDate } from "@/tablet/lib/format";
@@ -168,18 +168,6 @@ function extractGeneratedText(data: any): string {
   return String(data?.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
 }
 
-// Gemini upstream errors arrive as { error: { message } }, but /api/ai-proxy's own
-// failures (forbidden_origin, rate_limited, missing GEMINI_API_KEY, 413 image
-// limit) arrive as { error: "<string>" }. Reading only .error.message collapsed
-// every proxy-level fault into one opaque sentence, so read both shapes and keep
-// the status — that status is usually the whole diagnosis.
-function describeAiError(data: any, status: number): string {
-  const detail =
-    data?.error?.message || (typeof data?.error === "string" ? data.error : "");
-  return detail
-    ? `Discharge summary failed (${status}): ${detail}`
-    : `Unable to generate discharge summary. (HTTP ${status})`;
-}
 
 async function runArshiaModel(prompt: string, images: VpsClaudeImage[] = []): Promise<string> {
   if (LLM_BACKEND === "vps") {
@@ -208,7 +196,7 @@ async function runArshiaModel(prompt: string, images: VpsClaudeImage[] = []): Pr
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(describeAiError(data, response.status));
+    throw new Error(describeGeminiError(data, response.status));
   }
 
   const text = extractGeneratedText(data);
