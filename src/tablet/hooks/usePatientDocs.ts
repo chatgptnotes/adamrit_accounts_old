@@ -31,6 +31,7 @@ export type PatientDocCategory =
   | (typeof PATIENT_DOC_CATEGORIES)[number]["id"]
   | typeof REGISTRATION_DOCUMENT_CATEGORY
   | "advance_image"
+  | "discharge_thumb_confirmation"
   | "payment_proof"
   | "referee_feedback"
   | "referee_viji";

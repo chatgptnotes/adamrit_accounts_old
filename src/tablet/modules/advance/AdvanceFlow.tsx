@@ -23,9 +23,15 @@ import { derivePackageCodeFromName, resolvePackageCodeFromSavedData } from "@/li
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { compressImageToLimit } from "@/tablet/lib/image";
 import { deletePatientDoc, uploadPatientDocs, usePatientDocs, type PatientDoc } from "@/tablet/hooks/usePatientDocs";
+import { MultiShotCamera, type CapturedPhotoItem } from "@/tablet/modules/patient-profile/MultiShotCamera";
+import { buildArshiyaSummaryPdfBlob, stripMarkdownForPdf } from "./arshiyaSummaryPdf";
+import { resolveDischargeStaff } from "./dischargeStaff";
 
 const MODES = ["CASH", "CARD", "UPI", "CHEQUE", "NEFT"];
 const ADVANCE_IMAGE_CATEGORY = "advance_image";
+/** Proof that the thumb impression and photo were uploaded to the government
+ *  portal. Nothing downstream of discharge unlocks without one of these. */
+const THUMB_CONFIRMATION_CATEGORY = "discharge_thumb_confirmation";
 const MAX_FILE_BYTES = 1.5 * 1024 * 1024;
 const ARSHIA_EMERGENCY_LINE = "URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 9373111709.";
 const DEFAULT_ARSHIA_DISCHARGE_PROMPT = `You are a senior medical specialist writing a professional hospital discharge summary for another doctor.
@@ -65,6 +71,7 @@ interface VisitRow {
   package_code: string | null;
   package_name: string | null;
   corporate: string | null;
+  arshiya_discharge_summary: string | null;
 }
 
 interface PackageOption {
@@ -100,6 +107,11 @@ interface AdvancePatientRow {
   registrationId: string | null;
   packageCode: string | null;
   packageName: string | null;
+  plannedDischargeDate: string | null;
+  dischargeBillingStaff: string | null;
+  arshiyaSummary: string | null;
+  billPaid: boolean | null;
+  hospitalName: string | null;
 }
 
 interface GeneratedArshiaPdf {
@@ -139,14 +151,6 @@ const normalizeWhatsAppPhone = (phone: string | null | undefined) => {
   if (digits.length === 10) return `91${digits}`;
   return digits;
 };
-
-const stripMarkdownForPdf = (value: string) =>
-  value
-    .replace(/\*\*(.*?)\*\*/g, "$1")
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/^\s*[-*]\s+/gm, "- ")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .trim();
 
 const escapeHtml = (value: string) =>
   value
@@ -393,6 +397,15 @@ export default function AdvanceFlow() {
   const [generatedArshiaPdf, setGeneratedArshiaPdf] = useState<GeneratedArshiaPdf | null>(null);
   const [isGeneratingArshiaPdf, setIsGeneratingArshiaPdf] = useState(false);
   const [isSendingArshiaWhatsApp, setIsSendingArshiaWhatsApp] = useState(false);
+  // Planned-discharge worklist. Busy states are keyed by visit id so one row's
+  // spinner does not freeze the whole list.
+  const [thumbCameraRow, setThumbCameraRow] = useState<AdvancePatientRow | null>(null);
+  const [thumbUploadRow, setThumbUploadRow] = useState<AdvancePatientRow | null>(null);
+  const [thumbUploadingVisitId, setThumbUploadingVisitId] = useState<string | null>(null);
+  const [gatePassVisitId, setGatePassVisitId] = useState<string | null>(null);
+  const [summaryPdfVisitId, setSummaryPdfVisitId] = useState<string | null>(null);
+  const [dischargeConfirmRow, setDischargeConfirmRow] = useState<AdvancePatientRow | null>(null);
+  const thumbFileInputRef = useRef<HTMLInputElement>(null);
 
   const patientRows = useQuery({
     queryKey: ["tablet-advance-patient-list", showAllPatients, hospitalConfig?.name, patientSearch.trim()],
@@ -401,7 +414,7 @@ export default function AdvanceFlow() {
       let query = supabase
         .from("visits")
         .select(
-          "id, visit_id, admission_date, discharge_date, yojana_registration_id, package_code, package_name, patient_id, patients!inner(id, name, patients_id, phone, age, gender, corporate, hospital_name)",
+          "id, visit_id, admission_date, discharge_date, yojana_registration_id, package_code, package_name, patient_id, planned_discharge_date, discharge_billing_staff, arshiya_discharge_summary, bill_paid, patients!inner(id, name, patients_id, phone, age, gender, corporate, hospital_name)",
         )
         .eq("patient_type", "IPD")
         .not("admission_date", "is", null)
@@ -432,6 +445,11 @@ export default function AdvanceFlow() {
           registrationId: row.yojana_registration_id,
           packageCode: row.package_code,
           packageName: row.package_name,
+          plannedDischargeDate: row.planned_discharge_date,
+          dischargeBillingStaff: row.discharge_billing_staff,
+          arshiyaSummary: row.arshiya_discharge_summary,
+          billPaid: row.bill_paid,
+          hospitalName: relatedPatient.hospital_name ?? null,
         });
         return rows;
       }, []);
@@ -448,6 +466,267 @@ export default function AdvanceFlow() {
         .some((value) => String(value).toLowerCase().includes(term)),
     );
   }, [patientRows.data, patientSearch]);
+
+  // "Today" in the browser's timezone, matched against the date stored when the
+  // discharge was ticked. A tick nobody acted on stops counting as planned when
+  // the date rolls over.
+  const todayIso = useMemo(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  }, []);
+
+  const plannedRows = useMemo(
+    () => filteredPatientRows.filter((row) => row.plannedDischargeDate === todayIso),
+    [filteredPatientRows, todayIso],
+  );
+  const unplannedRows = useMemo(
+    () => filteredPatientRows.filter((row) => row.plannedDischargeDate !== todayIso),
+    [filteredPatientRows, todayIso],
+  );
+
+  const plannedPatientIds = useMemo(
+    () => plannedRows.map((row) => row.patient.id).sort(),
+    [plannedRows],
+  );
+
+  /** One query for the whole planned list — a patient is unlocked when they have
+   *  at least one portal thumb confirmation on file. */
+  const thumbConfirmations = useQuery({
+    queryKey: ["tablet-discharge-thumb-confirmations", plannedPatientIds.join(",")],
+    enabled: plannedPatientIds.length > 0,
+    staleTime: 15_000,
+    queryFn: async (): Promise<Map<string, PatientDoc>> => {
+      const { data, error } = await supabase
+        .from("file_uploads")
+        .select("id, file_name, file_url, file_type, storage_path, created_at, latitude, longitude, notes, category, patient_id")
+        .eq("category", THUMB_CONFIRMATION_CATEGORY)
+        .in("patient_id", plannedPatientIds)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      const byPatient = new Map<string, PatientDoc>();
+      (data || []).forEach((row: any) => {
+        if (!byPatient.has(row.patient_id)) {
+          byPatient.set(row.patient_id, {
+            id: row.id,
+            fileName: row.file_name ?? "file",
+            displayName: row.file_name ?? "file",
+            fileUrl: row.file_url ?? "",
+            fileType: row.file_type ?? null,
+            storagePath: row.storage_path ?? null,
+            uploadedAt: row.created_at ?? null,
+            latitude: row.latitude ?? null,
+            longitude: row.longitude ?? null,
+            notes: row.notes ?? null,
+          });
+        }
+      });
+      return byPatient;
+    },
+  });
+
+  const refreshDischargePlanning = () => {
+    qc.invalidateQueries({ queryKey: ["tablet-advance-patient-list"] });
+    qc.invalidateQueries({ queryKey: ["tablet-discharge-thumb-confirmations"] });
+  };
+
+  const togglePlannedDischarge = useMutation({
+    mutationFn: async ({ row, planned }: { row: AdvancePatientRow; planned: boolean }) => {
+      const now = new Date();
+      const { error } = await supabase
+        .from("visits")
+        .update(
+          (planned
+            ? {
+                planned_discharge_date: todayIso,
+                planned_discharge_marked_at: now.toISOString(),
+                planned_discharge_marked_by: user?.id ?? null,
+                discharge_billing_staff: resolveDischargeStaff(now),
+              }
+            : {
+                planned_discharge_date: null,
+                planned_discharge_marked_at: null,
+                planned_discharge_marked_by: null,
+                discharge_billing_staff: null,
+              }) as any,
+        )
+        .eq("id", row.visitId);
+      if (error) throw error;
+    },
+    onSuccess: () => refreshDischargePlanning(),
+    onError: (error: any) => {
+      toast({
+        title: "Could not update the discharge plan",
+        description: error?.message || "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const uploadThumbConfirmation = async (
+    row: AdvancePatientRow,
+    items: File[] | CapturedPhotoItem[],
+  ) => {
+    if (!items.length) return;
+    setThumbUploadingVisitId(row.visitId);
+    try {
+      await uploadPatientDocs(items as any, {
+        patientId: row.patient.id,
+        patientName: row.patient.name,
+        category: THUMB_CONFIRMATION_CATEGORY,
+        uploadedBy: user?.id ?? null,
+        notes: `PORTAL_THUMB_CONFIRMATION|visit:${row.visitNumber}`,
+      });
+      await qc.invalidateQueries({ queryKey: ["tablet-discharge-thumb-confirmations"] });
+      toast({
+        title: "Thumb confirmation saved",
+        description: "Gate pass, discharge summary and discharge are now unlocked.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Upload failed",
+        description: error?.message || "Could not save the confirmation.",
+        variant: "destructive",
+      });
+    } finally {
+      setThumbUploadingVisitId(null);
+    }
+  };
+
+  const generatePlannedGatePass = async (row: AdvancePatientRow) => {
+    setGatePassVisitId(row.visitId);
+    try {
+      // Reuse an existing pass rather than minting a second number for the same
+      // visit — the number is what security checks at the gate.
+      const { data: existing, error: existingError } = await supabase
+        .from("gate_passes")
+        .select("gate_pass_number")
+        .eq("visit_id", row.visitId)
+        .maybeSingle();
+      if (existingError) throw existingError;
+
+      if (!existing) {
+        const { data: gatePassNumber, error: numberError } = await supabase.rpc(
+          "generate_gate_pass_number",
+        );
+        if (numberError) throw numberError;
+
+        const { error: insertError } = await supabase.from("gate_passes").insert({
+          gate_pass_number: gatePassNumber,
+          visit_id: row.visitId,
+          patient_id: row.patient.id,
+          patient_name: row.patient.name,
+          discharge_date: row.dischargeDate || new Date().toISOString(),
+          discharge_mode: "recovery",
+          bill_paid: row.billPaid ?? false,
+          barcode_data: `${gatePassNumber}-${row.visitNumber}`,
+        } as any);
+        if (insertError) throw insertError;
+      }
+
+      // The print route filters on the business visit_id string, not the UUID.
+      window.open(`/gate-pass/${row.visitNumber}`, "_blank");
+    } catch (error: any) {
+      toast({
+        title: "Gate pass failed",
+        description: error?.message || "Could not generate the gate pass.",
+        variant: "destructive",
+      });
+    } finally {
+      setGatePassVisitId(null);
+    }
+  };
+
+  const downloadPlannedSummaryPdf = async (row: AdvancePatientRow, withLogo: boolean) => {
+    const summaryText = (row.arshiyaSummary || "").trim();
+    if (!summaryText) {
+      toast({
+        title: "No discharge summary yet",
+        description: "Open this patient and generate the summary in their billing screen first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSummaryPdfVisitId(row.visitId);
+    try {
+      const blob = await buildArshiyaSummaryPdfBlob({
+        summaryText,
+        withLogo,
+        hospitalName: hospitalConfig?.name || row.hospitalName || "Hospital",
+        patientName: row.patient.name,
+        patientId: row.patient.patients_id,
+        visitNumber: row.visitNumber,
+        registrationId: row.registrationId,
+        portalUrl: `${window.location.origin}/patient-portal`,
+      });
+      const fileName = `Discharge_Summary_${withLogo ? "Letterhead" : "Plain"}_${safeFilePart(
+        row.patient.patients_id || row.visitNumber,
+      )}.pdf`;
+      const downloadUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = downloadUrl;
+      anchor.download = fileName;
+      anchor.click();
+      URL.revokeObjectURL(downloadUrl);
+    } catch (error: any) {
+      toast({
+        title: "PDF failed",
+        description: error?.message || "Could not create the PDF.",
+        variant: "destructive",
+      });
+    } finally {
+      setSummaryPdfVisitId(null);
+    }
+  };
+
+  const dischargePlannedPatient = useMutation({
+    mutationFn: async (row: AdvancePatientRow) => {
+      // Mirrors the field set the Final Bill final-payment step writes, because
+      // different dashboards each read a different one of these three columns.
+      const update: Record<string, unknown> = {
+        discharge_date: new Date().toISOString(),
+        status: "discharged",
+        is_discharged: true,
+        discharge_mode: "recovery",
+      };
+
+      const { data: current, error: currentError } = await supabase
+        .from("visits")
+        .select("discharged_sr_no")
+        .eq("id", row.visitId)
+        .maybeSingle();
+      if (currentError) throw currentError;
+
+      if (!(current as any)?.discharged_sr_no) {
+        const hospital = hospitalConfig?.name || row.hospitalName;
+        let srQuery = supabase
+          .from("visits")
+          .select("discharged_sr_no, patients!inner(hospital_name)")
+          .not("discharged_sr_no", "is", null)
+          .order("discharged_sr_no", { ascending: false })
+          .limit(1);
+        if (hospital) srQuery = srQuery.eq("patients.hospital_name", hospital);
+        const { data: highest, error: srError } = await srQuery;
+        if (srError) throw srError;
+        update.discharged_sr_no = Number((highest?.[0] as any)?.discharged_sr_no || 0) + 1;
+      }
+
+      const { error } = await supabase.from("visits").update(update as any).eq("id", row.visitId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setDischargeConfirmRow(null);
+      refreshDischargePlanning();
+      toast({ title: "Patient discharged", description: "The visit is now closed." });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Discharge failed",
+        description: error?.message || "Could not discharge the patient.",
+        variant: "destructive",
+      });
+    },
+  });
 
   const advances = useQuery({
     queryKey: ["tablet-advances", patient?.id],
@@ -471,7 +750,7 @@ export default function AdvanceFlow() {
     queryFn: async (): Promise<VisitRow | null> => {
       const query = supabase
         .from("visits")
-        .select("id, visit_id, yojana_registration_id, package_code, package_name, corporate")
+        .select("id, visit_id, yojana_registration_id, package_code, package_name, corporate, arshiya_discharge_summary")
         .eq("id", selectedVisitId!);
       const { data, error } = await query.maybeSingle();
       if (error) throw error;
@@ -523,6 +802,13 @@ export default function AdvanceFlow() {
     setPackageCodeInput(resolvedPackageCode || "");
     setPackageNameInput(visit.data?.package_name || "");
   }, [visit.data?.id, visit.data?.yojana_registration_id, visit.data?.package_name, resolvedPackageCode]);
+
+  // Bring back the saved summary when a patient is reopened, so a draft written
+  // in the morning is still there when billing picks the patient up later.
+  useEffect(() => {
+    setGeneratedDischargeSummary(visit.data?.arshiya_discharge_summary || "");
+    setGeneratedArshiaPdf(null);
+  }, [visit.data?.id]);
 
   const addedImplants = useQuery({
     queryKey: ["tablet-visit-implants", visit.data?.id],
@@ -1058,6 +1344,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
       );
       setGeneratedDischargeSummary(text);
       setGeneratedArshiaPdf(null);
+      void persistArshiyaSummary(text);
     } catch (error) {
       setArshiaError(error instanceof Error ? error.message : "Could not generate the discharge summary.");
     } finally {
@@ -1077,6 +1364,25 @@ ${JSON.stringify(sourceContext, null, 2)}`,
     link.click();
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
+  };
+
+  /**
+   * Keep the summary text on the visit, not just inside this screen's state.
+   * The planned-discharge list re-renders both PDF variants from it, and until
+   * now only the rendered PDF was ever persisted.
+   */
+  const persistArshiyaSummary = async (text: string) => {
+    if (!selectedVisitId) return;
+    const { error } = await supabase
+      .from("visits")
+      .update({ arshiya_discharge_summary: text } as any)
+      .eq("id", selectedVisitId);
+    if (error) {
+      // Not worth interrupting the user mid-edit; the draft is still on screen.
+      console.error("Could not save the discharge summary text", error);
+      return;
+    }
+    qc.invalidateQueries({ queryKey: ["tablet-advance-patient-list"] });
   };
 
   const arshiaSummaryFileBase = () =>
@@ -1134,67 +1440,17 @@ ${JSON.stringify(sourceContext, null, 2)}`,
     printWindow.document.close();
   };
 
-  const buildArshiaSummaryPdfBlob = async () => {
-    const summary = generatedDischargeSummary.trim();
-    if (!summary) throw new Error("Generate the discharge summary first.");
-
-    const { default: jsPDF } = await import("jspdf");
-    const pdf = new jsPDF({ unit: "mm", format: "a4" });
-    const hospitalName = hospitalConfig?.name || (patient as any)?.hospital_name || "Hospital";
-    const portalUrl = `${window.location.origin}/patient-portal`;
-    const marginX = 14;
-    const pageWidth = 210;
-    const maxWidth = pageWidth - marginX * 2;
-    let y = 16;
-
-    const addFooter = () => {
-      const pageCount = pdf.getNumberOfPages();
-      for (let page = 1; page <= pageCount; page += 1) {
-        pdf.setPage(page);
-        pdf.setFontSize(8);
-        pdf.setTextColor(100);
-        pdf.text(`Patient Portal: ${portalUrl}`, marginX, 288);
-        pdf.text(`Page ${page} of ${pageCount}`, 196, 288, { align: "right" });
-      }
-    };
-
-    pdf.setFillColor(22, 101, 52);
-    pdf.rect(0, 0, 210, 26, "F");
-    pdf.setTextColor(255);
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(16);
-    pdf.text(hospitalName, marginX, 11);
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(10);
-    pdf.text("Arshiya Generated Discharge Summary", marginX, 19);
-    pdf.text(`Generated: ${new Date().toLocaleString()}`, 196, 11, { align: "right" });
-    pdf.text(`Visit ID: ${visit.data?.visit_id || "-"}`, 196, 19, { align: "right" });
-
-    y = 34;
-    pdf.setTextColor(20);
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(10);
-    pdf.text(`Patient: ${patient?.name || "-"}`, marginX, y);
-    pdf.text(`Patient ID: ${patient?.patients_id || "-"}`, 112, y);
-    y += 7;
-    pdf.text(`Yojana Registration ID: ${registrationIdInput || visit.data?.yojana_registration_id || "-"}`, marginX, y);
-    y += 8;
-
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(10);
-    const lines = pdf.splitTextToSize(stripMarkdownForPdf(summary), maxWidth);
-    lines.forEach((line: string) => {
-      if (y > 278) {
-        pdf.addPage();
-        y = 16;
-      }
-      pdf.text(line, marginX, y);
-      y += 5.5;
+  const buildArshiaSummaryPdfBlob = async () =>
+    buildArshiyaSummaryPdfBlob({
+      summaryText: generatedDischargeSummary,
+      withLogo: false,
+      hospitalName: hospitalConfig?.name || (patient as any)?.hospital_name || "Hospital",
+      patientName: patient?.name,
+      patientId: patient?.patients_id,
+      visitNumber: visit.data?.visit_id,
+      registrationId: registrationIdInput || visit.data?.yojana_registration_id,
+      portalUrl: `${window.location.origin}/patient-portal`,
     });
-
-    addFooter();
-    return pdf.output("blob") as Blob;
-  };
 
   const generateAndUploadArshiaSummaryPdf = async (shouldDownload: boolean) => {
     const currentSummary = generatedDischargeSummary.trim();
@@ -1330,6 +1586,152 @@ ${JSON.stringify(sourceContext, null, 2)}`,
     }
   };
 
+  const renderPatientRow = (row: AdvancePatientRow) => {
+    const isPlanned = row.plannedDischargeDate === todayIso;
+    const confirmation = thumbConfirmations.data?.get(row.patient.id) || null;
+    const unlocked = !!confirmation;
+    const lockedHint = "Attach the portal thumb confirmation first";
+    const busyUpload = thumbUploadingVisitId === row.visitId;
+
+    return (
+      <div
+        key={row.visitId}
+        className={cn(
+          "rounded-2xl border-2 border-border bg-card sm:rounded-xl sm:border",
+          isPlanned && "border-primary/50",
+        )}
+      >
+        <div className="flex items-stretch">
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedVisitId(row.visitId);
+              setPatient(row.patient);
+              setStage("billing");
+            }}
+            className="grid min-w-0 flex-1 gap-3 p-4 text-left transition-colors hover:bg-primary/10 sm:grid-cols-[minmax(0,1.7fr)_minmax(0,0.9fr)_minmax(0,1.2fr)_minmax(0,1.6fr)_auto] sm:items-center sm:px-4 sm:py-3"
+          >
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/15"><User className="h-6 w-6 text-primary" /></div>
+              <div className="min-w-0">
+                <p className="truncate font-semibold">{row.patient.name}</p>
+                <p className="truncate text-xs text-muted-foreground">{row.patient.patients_id || "No patient ID"}</p>
+              </div>
+            </div>
+            <div className="text-sm"><span className="text-xs text-muted-foreground sm:hidden">Admission: </span>{row.admissionDate ? shortDate(row.admissionDate) : "—"}</div>
+            <div className="text-sm"><span className="text-xs text-muted-foreground sm:hidden">Registration: </span>{row.registrationId || "Not added"}</div>
+            <div className="min-w-0 text-sm">
+              <span className="text-xs text-muted-foreground sm:hidden">Package: </span>
+              <span className="block truncate">{row.packageName || "Package not added"}</span>
+              {row.packageCode ? <span className="block truncate text-xs text-muted-foreground">{row.packageCode}</span> : null}
+            </div>
+            <ChevronRight className="hidden h-5 w-5 text-muted-foreground sm:block" />
+          </button>
+          <label
+            className="flex w-16 shrink-0 cursor-pointer flex-col items-center justify-center gap-1 border-l border-border px-2 text-center"
+            title="Plan this patient for discharge today"
+          >
+            <input
+              type="checkbox"
+              className="h-6 w-6 cursor-pointer accent-primary"
+              checked={isPlanned}
+              disabled={togglePlannedDischarge.isPending}
+              onChange={(event) =>
+                togglePlannedDischarge.mutate({ row, planned: event.target.checked })
+              }
+            />
+            <span className="text-[10px] leading-tight text-muted-foreground">Discharge today</span>
+          </label>
+        </div>
+
+        {isPlanned ? (
+          <div className="space-y-3 border-t border-border px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="rounded-full bg-primary/15 px-3 py-1 font-semibold text-primary">
+                Billing: {row.dischargeBillingStaff || resolveDischargeStaff(new Date())}
+              </span>
+              {thumbConfirmations.isLoading ? (
+                <span className="text-muted-foreground">Checking thumb confirmation…</span>
+              ) : unlocked ? (
+                <a
+                  href={confirmation!.fileUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 font-semibold text-emerald-800 hover:underline"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Thumb confirmed
+                  {confirmation!.uploadedAt ? ` · ${shortDate(confirmation!.uploadedAt)}` : ""}
+                </a>
+              ) : (
+                <span className="rounded-full bg-amber-100 px-3 py-1 font-semibold text-amber-800">
+                  {lockedHint}
+                </span>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <TabletButton
+                variant="outline"
+                onClick={() => setThumbCameraRow(row)}
+                disabled={busyUpload}
+              >
+                {busyUpload ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
+                Take photo
+              </TabletButton>
+              <TabletButton
+                variant="outline"
+                onClick={() => {
+                  setThumbUploadRow(row);
+                  thumbFileInputRef.current?.click();
+                }}
+                disabled={busyUpload}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                Upload file
+              </TabletButton>
+              <TabletButton
+                variant="outline"
+                onClick={() => generatePlannedGatePass(row)}
+                disabled={!unlocked || gatePassVisitId === row.visitId}
+                title={unlocked ? undefined : lockedHint}
+              >
+                {gatePassVisitId === row.visitId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+                Generate gate pass
+              </TabletButton>
+              <TabletButton
+                variant="outline"
+                onClick={() => downloadPlannedSummaryPdf(row, true)}
+                disabled={!unlocked || summaryPdfVisitId === row.visitId}
+                title={unlocked ? undefined : lockedHint}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Summary PDF (with logo)
+              </TabletButton>
+              <TabletButton
+                variant="outline"
+                onClick={() => downloadPlannedSummaryPdf(row, false)}
+                disabled={!unlocked || summaryPdfVisitId === row.visitId}
+                title={unlocked ? undefined : lockedHint}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Summary PDF (no logo)
+              </TabletButton>
+              <TabletButton
+                onClick={() => setDischargeConfirmRow(row)}
+                disabled={!unlocked || !!row.dischargeDate}
+                title={row.dischargeDate ? "Already discharged" : unlocked ? undefined : lockedHint}
+              >
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                {row.dischargeDate ? "Discharged" : "Mark discharged"}
+              </TabletButton>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
   if (!patient) {
     return (
       <div className="flex h-full flex-col">
@@ -1375,39 +1777,87 @@ ${JSON.stringify(sourceContext, null, 2)}`,
             ) : filteredPatientRows.length === 0 ? (
               <p className="py-12 text-center text-muted-foreground">No matching patients found.</p>
             ) : (
-              <div className="space-y-3 sm:space-y-1.5">
-                {filteredPatientRows.map((row) => (
-                  <button
-                    key={row.visitId}
-                    type="button"
-                    onClick={() => {
-                      setSelectedVisitId(row.visitId);
-                      setPatient(row.patient);
-                      setStage("billing");
-                    }}
-                    className="grid w-full gap-3 rounded-2xl border-2 border-border bg-card p-4 text-left transition-colors hover:border-primary/60 hover:bg-primary/10 sm:grid-cols-[minmax(0,1.7fr)_minmax(0,0.9fr)_minmax(0,1.2fr)_minmax(0,1.6fr)_auto] sm:items-center sm:rounded-xl sm:border sm:px-4 sm:py-3"
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/15"><User className="h-6 w-6 text-primary" /></div>
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold">{row.patient.name}</p>
-                        <p className="truncate text-xs text-muted-foreground">{row.patient.patients_id || "No patient ID"}</p>
-                      </div>
-                    </div>
-                    <div className="text-sm"><span className="text-xs text-muted-foreground sm:hidden">Admission: </span>{row.admissionDate ? shortDate(row.admissionDate) : "—"}</div>
-                    <div className="text-sm"><span className="text-xs text-muted-foreground sm:hidden">Registration: </span>{row.registrationId || "Not added"}</div>
-                    <div className="min-w-0 text-sm">
-                      <span className="text-xs text-muted-foreground sm:hidden">Package: </span>
-                      <span className="block truncate">{row.packageName || "Package not added"}</span>
-                      {row.packageCode ? <span className="block truncate text-xs text-muted-foreground">{row.packageCode}</span> : null}
-                    </div>
-                    <ChevronRight className="hidden h-5 w-5 text-muted-foreground sm:block" />
-                  </button>
-                ))}
+              <div className="space-y-6">
+                {plannedRows.length > 0 ? (
+                  <section className="space-y-3 sm:space-y-1.5">
+                    <h3 className="text-base font-bold text-primary">
+                      Planned for discharge today ({plannedRows.length})
+                    </h3>
+                    {plannedRows.map(renderPatientRow)}
+                  </section>
+                ) : null}
+                {unplannedRows.length > 0 ? (
+                  <section className="space-y-3 sm:space-y-1.5">
+                    {plannedRows.length > 0 ? (
+                      <h3 className="text-base font-bold text-muted-foreground">
+                        Other admitted patients ({unplannedRows.length})
+                      </h3>
+                    ) : null}
+                    {unplannedRows.map(renderPatientRow)}
+                  </section>
+                ) : null}
               </div>
             )}
           </div>
         </div>
+
+        <input
+          ref={thumbFileInputRef}
+          type="file"
+          accept="image/*,application/pdf"
+          multiple
+          className="hidden"
+          onChange={(event) => {
+            const files = Array.from(event.target.files || []);
+            const row = thumbUploadRow;
+            event.target.value = "";
+            setThumbUploadRow(null);
+            if (row && files.length) void uploadThumbConfirmation(row, files);
+          }}
+        />
+
+        <MultiShotCamera
+          open={!!thumbCameraRow}
+          onClose={() => setThumbCameraRow(null)}
+          onCapture={(photos) => {
+            const row = thumbCameraRow;
+            setThumbCameraRow(null);
+            if (row && photos.length) void uploadThumbConfirmation(row, photos);
+          }}
+        />
+
+        <Dialog
+          open={!!dischargeConfirmRow}
+          onOpenChange={(open) => {
+            if (!open) setDischargeConfirmRow(null);
+          }}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Discharge {dischargeConfirmRow?.patient.name}?</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              This closes the visit and removes the patient from the admitted list. The portal
+              thumb confirmation is on file.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <TabletButton variant="outline" onClick={() => setDischargeConfirmRow(null)}>
+                Cancel
+              </TabletButton>
+              <TabletButton
+                onClick={() =>
+                  dischargeConfirmRow && dischargePlannedPatient.mutate(dischargeConfirmRow)
+                }
+                disabled={dischargePlannedPatient.isPending}
+              >
+                {dischargePlannedPatient.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                Discharge
+              </TabletButton>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
@@ -1694,6 +2144,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
             setGeneratedDischargeSummary(event.target.value);
             setGeneratedArshiaPdf(null);
           }}
+          onBlur={(event) => void persistArshiyaSummary(event.target.value)}
           rows={12}
           placeholder="Generated discharge summary will appear here for review and editing."
           className="mt-1.5 w-full rounded-xl border bg-background p-3 font-mono text-sm leading-6"
@@ -2393,6 +2844,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
               setGeneratedDischargeSummary(event.target.value);
               setGeneratedArshiaPdf(null);
             }}
+            onBlur={(event) => void persistArshiyaSummary(event.target.value)}
             rows={12}
             placeholder="Generated discharge summary will appear here for review and editing."
             className="mt-1.5 w-full rounded-xl border bg-background p-3 font-mono text-sm leading-6"
