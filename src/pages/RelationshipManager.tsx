@@ -39,6 +39,7 @@ const RelationshipManager = () => {
   // The ledger picked in the add/edit dialog. The manager's name is taken from
   // it, so the master and the chart of ledgers can never say different things.
   const [dialogLedger, setDialogLedger] = useState<LedgerAccountOption | null>(null);
+  const [newLedgerName, setNewLedgerName] = useState('');
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { canEditMasters } = usePermissions();
@@ -93,6 +94,73 @@ const RelationshipManager = () => {
       return new Map<string, LedgerAccountOption>(
         ((data || []) as LedgerAccountOption[]).map((row) => [row.id, row]),
       );
+    },
+  });
+
+  // Most relationship managers are referrers who were never set up as ledgers,
+  // so the master has to be able to create one rather than only pick one. A
+  // manager we owe commission to is a creditor, and the RM_ code series keeps
+  // these apart from the Tally import (DRMFRESH_) and the Tally sync (TL).
+  const createLedgerMutation = useMutation({
+    mutationFn: async (ledgerName: string): Promise<LedgerAccountOption> => {
+      const name = ledgerName.trim();
+      if (!name) throw new Error('Enter the ledger name');
+
+      const { data: existing } = await (supabase as any)
+        .from('chart_of_accounts')
+        .select('id, account_code, account_name, account_group, company_id')
+        .ilike('account_name', name)
+        .eq('is_active', true)
+        .limit(1);
+      if (existing?.length) return existing[0] as LedgerAccountOption;
+
+      const { data: company } = await (supabase as any)
+        .from('companies')
+        .select('id')
+        .eq('company_key', 'drm_pvt_ltd')
+        .maybeSingle();
+
+      const { data: lastCode } = await (supabase as any)
+        .from('chart_of_accounts')
+        .select('account_code')
+        .like('account_code', 'RM\\_%')
+        .order('account_code', { ascending: false })
+        .limit(1);
+      const nextNumber = lastCode?.length
+        ? Number(String(lastCode[0].account_code).split('_')[1] || 0) + 1
+        : 1;
+
+      const { data, error } = await (supabase as any)
+        .from('chart_of_accounts')
+        .insert({
+          account_code: `RM_${String(nextNumber).padStart(6, '0')}`,
+          account_name: name,
+          account_type: 'CURRENT_LIABILITIES',
+          account_group: 'Sundry Creditors',
+          company_id: company?.id ?? null,
+          opening_balance: 0,
+          opening_balance_type: 'CR',
+          is_active: true,
+        })
+        .select('id, account_code, account_name, account_group, company_id')
+        .single();
+      if (error) throw error;
+      return data as LedgerAccountOption;
+    },
+    onSuccess: (ledger) => {
+      setDialogLedger(ledger);
+      queryClient.invalidateQueries({ queryKey: ['relationship-manager-ledgers'] });
+      toast({
+        title: "Ledger created",
+        description: `${ledger.account_name} (${ledger.account_code}) is now in Sundry Creditors.`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Could not create the ledger",
+        description: error?.message || 'Please try again.',
+        variant: "destructive",
+      });
     },
   });
 
@@ -452,11 +520,37 @@ const RelationshipManager = () => {
       type: 'custom' as const,
       required: true,
       render: () => (
-        <LedgerAutocomplete
-          value={dialogLedger}
-          onChange={setDialogLedger}
-          placeholder="Search the chart of ledgers by name..."
-        />
+        <div className="space-y-2">
+          <LedgerAutocomplete
+            value={dialogLedger}
+            onChange={setDialogLedger}
+            placeholder="Search the chart of ledgers by name..."
+          />
+          {!dialogLedger && (
+            <div className="rounded-md border border-dashed p-2">
+              <p className="mb-2 text-xs text-muted-foreground">
+                Not in the chart of ledgers yet? Create one under Sundry Creditors.
+              </p>
+              <div className="flex gap-2">
+                <Input
+                  value={newLedgerName}
+                  onChange={(e) => setNewLedgerName(e.target.value)}
+                  placeholder="Manager's name"
+                  className="h-9"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!newLedgerName.trim() || createLedgerMutation.isPending}
+                  onClick={() => createLedgerMutation.mutate(newLedgerName)}
+                >
+                  {createLedgerMutation.isPending ? 'Creating...' : 'Create ledger'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
       ),
     },
     { key: 'contact_no', label: 'Contact No', type: 'text' as const }
@@ -593,6 +687,9 @@ const RelationshipManager = () => {
                           setDialogLedger(
                             (manager.ledger_account_id && ledgerById.get(manager.ledger_account_id)) || null,
                           );
+                          // Creating a ledger for an existing manager almost
+                          // always means creating it under their own name.
+                          setNewLedgerName(manager.name || '');
                           setIsEditDialogOpen(true);
                         }}
                         className="text-blue-600 hover:text-blue-700 ml-2"
@@ -653,6 +750,7 @@ const RelationshipManager = () => {
           onClose={() => {
             setIsAddDialogOpen(false);
             setDialogLedger(null);
+            setNewLedgerName('');
           }}
           onAdd={handleAdd}
           title="Add Relationship Manager"
@@ -665,6 +763,7 @@ const RelationshipManager = () => {
             setIsEditDialogOpen(false);
             setSelectedManager(null);
             setDialogLedger(null);
+            setNewLedgerName('');
           }}
           onAdd={handleEdit}
           title="Edit Relationship Manager"
