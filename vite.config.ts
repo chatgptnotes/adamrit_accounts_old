@@ -542,6 +542,67 @@ function invoiceContentDevPlugin(env: Record<string, string>): Plugin {
   };
 }
 
+// Vite does not execute Vercel functions, so every AI call (src/lib/gemini.ts
+// posts to /api/ai-proxy) died on localhost. Run the real handler in-process
+// against the local GEMINI_API_KEY: dev stops depending on whichever function
+// version is deployed, and stops spending the production Gemini quota.
+function aiProxyDevPlugin(env: Record<string, string>): Plugin {
+  return {
+    name: 'ai-proxy-dev',
+    configureServer(server) {
+      server.middlewares.use('/api/ai-proxy', async (req: any, res: any) => {
+        try {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+          }
+          const rawBody = Buffer.concat(chunks).toString('utf8');
+          req.body = rawBody ? JSON.parse(rawBody) : {};
+
+          // Vercel supplies this at runtime; hand the already-loaded local value
+          // to the same handler without ever sending it to the browser.
+          if (!process.env.GEMINI_API_KEY && env.GEMINI_API_KEY) {
+            process.env.GEMINI_API_KEY = env.GEMINI_API_KEY;
+          }
+          // requestOriginAllowed() allowlists localhost:5173/4173, neither of
+          // which is this project's port, and Vite falls back to 8081 when 8080
+          // is busy. Trust this dev server's own host so the check keeps its
+          // meaning (only requests from this origin pass) on whatever port we got.
+          if (req.headers.host) process.env.APP_ORIGIN = req.headers.host;
+
+          res.status = (statusCode: number) => {
+            res.statusCode = statusCode;
+            return res;
+          };
+          res.json = (body: unknown) => {
+            if (!res.hasHeader('Content-Type')) {
+              res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            }
+            res.end(JSON.stringify(body));
+            return res;
+          };
+          res.send = (body: string) => {
+            res.end(body);
+            return res;
+          };
+
+          const { default: aiProxyHandler } = await import('./api/ai-proxy');
+          await aiProxyHandler(req, res);
+        } catch (error) {
+          if (res.headersSent) {
+            res.end();
+            return;
+          }
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.end(JSON.stringify({ error: 'ai_proxy_dev_handler_failed' }));
+          console.error('[ai-proxy-dev] Failed:', error);
+        }
+      });
+    },
+  };
+}
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   // Load non-VITE_ env (e.g. SLACK_WEBHOOK_URL) for server-side dev use only.
@@ -564,27 +625,10 @@ export default defineConfig(({ mode }) => {
         changeOrigin: true,
         secure: true,
       },
-      // Same reason: src/lib/gemini.ts posts every AI call to same-origin
-      // /api/ai-proxy, which only exists as a Vercel function. Without this,
-      // a local POST hits Vite's 405/404 and every AI feature fails on localhost.
-      "/api/ai-proxy": {
-        target: "https://www.adamrit.com",
-        changeOrigin: true,
-        secure: true,
-        // changeOrigin rewrites Host, not Origin. api/ai-proxy.ts allowlists the
-        // request Origin/Referer and the dev server is https://localhost:8080,
-        // which is not on that list. Present as the deployed origin so the Gemini
-        // key stays a server-only Vercel secret and we don't have to widen the
-        // production allowlist to a localhost port.
-        headers: {
-          origin: "https://www.adamrit.com",
-          referer: "https://www.adamrit.com/",
-        },
-      },
     },
   },
   plugins: [
-    ...(mode === 'development' ? [slackProxyPlugin(env), doubleTickExtensionAlertPlugin(env), tallyProxyPlugin(env), gmailProxyPlugin(env), invoiceContentDevPlugin(env)] : []),
+    ...(mode === 'development' ? [slackProxyPlugin(env), doubleTickExtensionAlertPlugin(env), tallyProxyPlugin(env), gmailProxyPlugin(env), invoiceContentDevPlugin(env), aiProxyDevPlugin(env)] : []),
     ...(mode === 'development' ? [basicSsl()] : []),
     react(),
     // Service worker for installability + instant app-shell launch. We keep the
