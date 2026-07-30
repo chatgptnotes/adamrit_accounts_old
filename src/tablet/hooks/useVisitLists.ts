@@ -76,8 +76,11 @@ function dateWindow(days: number) {
   return { from: iso(from), to: iso(today) };
 }
 
-/** Patients discharged in the last week and not yet cleared by the billing desk.
- *  Billing happens straight after discharge, so this is Azher's worklist.
+/** Azher's billing worklist: patients discharged in the last week, plus the
+ *  ones ticked "Discharge today" in the Arshiya advance statement but not yet
+ *  marked off the government portal. Billing happens the moment a patient is
+ *  discharged, so the desk needs both — the ones already out and the ones about
+ *  to be — and neither may have been cleared by the billing desk yet.
  *
  *  Deliberately does NOT filter on bill_paid or planned_discharge_marked_at.
  *  bill_paid is already true on every recent discharge before billing sees the
@@ -95,17 +98,40 @@ export function useRecentlyDischargedVisits() {
     queryKey: ["tablet-recently-discharged", hospitalConfig.name, from, to],
     staleTime: 30_000,
     queryFn: async (): Promise<TabletVisit[]> => {
-      const { data, error } = await supabase
-        .from("visits")
-        .select(SELECT)
-        .in("patient_type", ["IPD", "IPD (Inpatient)", "Emergency"])
-        .gte("discharge_date", from)
-        .lte("discharge_date", to)
-        .is("billing_cleared_at", null)
-        .eq("patients.hospital_name", hospitalConfig.name)
-        .order("discharge_date", { ascending: false });
-      if (error) throw error;
-      return (data || []).map(mapRow);
+      const base = () =>
+        supabase
+          .from("visits")
+          .select(SELECT)
+          .in("patient_type", ["IPD", "IPD (Inpatient)", "Emergency"])
+          .is("billing_cleared_at", null)
+          .eq("patients.hospital_name", hospitalConfig.name);
+
+      const [dischargedRes, plannedRes] = await Promise.all([
+        base()
+          .gte("discharge_date", from)
+          .lte("discharge_date", to)
+          .order("discharge_date", { ascending: false }),
+        // Still admitted, but planned for discharge today or already overdue —
+        // the bill has to be ready by the time they walk out.
+        base()
+          .is("discharge_date", null)
+          .not("planned_discharge_date", "is", null)
+          .lte("planned_discharge_date", to)
+          .order("planned_discharge_date", { ascending: false }),
+      ]);
+      if (dischargedRes.error) throw dischargedRes.error;
+      if (plannedRes.error) throw plannedRes.error;
+
+      const seen = new Set<string>();
+      return [...(dischargedRes.data || []), ...(plannedRes.data || [])].reduce<TabletVisit[]>(
+        (rows, row: any) => {
+          if (seen.has(row.id)) return rows;
+          seen.add(row.id);
+          rows.push(mapRow(row));
+          return rows;
+        },
+        [],
+      );
     },
   });
 

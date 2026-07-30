@@ -22,3 +22,4 @@ dev-server.log
 e2e-test-results/
 e2e/*.spec.ts
 .firecrawl/
+.env*

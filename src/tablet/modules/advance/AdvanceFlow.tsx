@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Camera, CheckCircle2, ChevronRight, Download, FileText, ImageIcon, Loader2, MessageCircle, Printer, Search, Sparkles, Trash2, Upload, User, Wallet } from "lucide-react";
+import { Camera, CheckCircle2, ChevronRight, Download, ExternalLink, FileText, ImageIcon, Loader2, Maximize2, MessageCircle, Printer, Search, Sparkles, Trash2, Upload, User, Wallet, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -385,6 +385,23 @@ export default function AdvanceFlow() {
   const [implantRate, setImplantRate] = useState("");
   const [imagesOpen, setImagesOpen] = useState(false);
   const [viewingImage, setViewingImage] = useState<PatientDoc | null>(null);
+  /** Pre-auth forms are handwritten, so the dialog-sized preview is often too
+   *  small to read. This holds the doc being shown edge to edge. */
+  const [fullscreenImage, setFullscreenImage] = useState<PatientDoc | null>(null);
+
+  // Escape should drop out of full screen, not close the whole images dialog
+  // underneath it, so intercept the key before the dialog sees it.
+  useEffect(() => {
+    if (!fullscreenImage) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setFullscreenImage(null);
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [fullscreenImage]);
   const [uploadingImages, setUploadingImages] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraStarting, setCameraStarting] = useState(false);
@@ -1092,6 +1109,7 @@ export default function AdvanceFlow() {
     try {
       await deletePatientDoc(doc);
       if (viewingImage?.id === doc.id) setViewingImage(null);
+      if (fullscreenImage?.id === doc.id) setFullscreenImage(null);
       await qc.invalidateQueries({
         queryKey: ["tablet-patient-docs", patient?.id, ADVANCE_IMAGE_CATEGORY],
       });
@@ -1618,6 +1636,9 @@ ${JSON.stringify(sourceContext, null, 2)}`,
     const unlocked = !!confirmation;
     const lockedHint = "Attach the portal thumb confirmation first";
     const busyUpload = thumbUploadingVisitId === row.visitId;
+    // Yojana patients can always take their summary PDF away, whether or not the
+    // thumb confirmation has been photographed or uploaded yet.
+    const summaryUnlocked = unlocked || isMaharashtraYojana(row.patient.corporate);
 
     return (
       <div
@@ -1728,8 +1749,8 @@ ${JSON.stringify(sourceContext, null, 2)}`,
               <TabletButton
                 variant="outline"
                 onClick={() => downloadPlannedSummaryPdf(row, true)}
-                disabled={!unlocked || summaryPdfVisitId === row.visitId}
-                title={unlocked ? undefined : lockedHint}
+                disabled={!summaryUnlocked || summaryPdfVisitId === row.visitId}
+                title={summaryUnlocked ? undefined : lockedHint}
               >
                 <Download className="mr-2 h-4 w-4" />
                 Summary PDF (with logo)
@@ -1737,8 +1758,8 @@ ${JSON.stringify(sourceContext, null, 2)}`,
               <TabletButton
                 variant="outline"
                 onClick={() => downloadPlannedSummaryPdf(row, false)}
-                disabled={!unlocked || summaryPdfVisitId === row.visitId}
-                title={unlocked ? undefined : lockedHint}
+                disabled={!summaryUnlocked || summaryPdfVisitId === row.visitId}
+                title={summaryUnlocked ? undefined : lockedHint}
               >
                 <Download className="mr-2 h-4 w-4" />
                 Summary PDF (no logo)
@@ -2458,6 +2479,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
             setImagesOpen(open);
             if (!open) {
               setViewingImage(null);
+              setFullscreenImage(null);
               setCameraOpen(false);
             }
           }}
@@ -2470,18 +2492,41 @@ ${JSON.stringify(sourceContext, null, 2)}`,
             </DialogHeader>
             {viewingImage ? (
               <div className="space-y-4">
-                <img
-                  src={viewingImage.fileUrl}
-                  alt={viewingImage.fileName}
-                  className="max-h-[70vh] w-full object-contain"
-                />
-                <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="block w-full cursor-zoom-in"
+                  title="Open full screen"
+                  onClick={() => setFullscreenImage(viewingImage)}
+                >
+                  <img
+                    src={viewingImage.fileUrl}
+                    alt={viewingImage.fileName}
+                    className="max-h-[70vh] w-full object-contain"
+                  />
+                </button>
+                <div className="flex flex-wrap gap-2">
                   <TabletButton
                     variant="outline"
                     className="flex-1"
                     onClick={() => setViewingImage(null)}
                   >
                     Back to images
+                  </TabletButton>
+                  <TabletButton
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => setFullscreenImage(viewingImage)}
+                  >
+                    <Maximize2 className="h-5 w-5" />
+                    Full screen
+                  </TabletButton>
+                  <TabletButton
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => window.open(viewingImage.fileUrl, "_blank", "noopener,noreferrer")}
+                  >
+                    <ExternalLink className="h-5 w-5" />
+                    Open in new tab
                   </TabletButton>
                   <TabletButton
                     className="flex-1"
@@ -2622,6 +2667,14 @@ ${JSON.stringify(sourceContext, null, 2)}`,
                           </span>
                           <button
                             type="button"
+                            aria-label="View image full screen"
+                            className="rounded-lg p-2 text-foreground/70 hover:bg-accent"
+                            onClick={() => setFullscreenImage(doc)}
+                          >
+                            <Maximize2 className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
                             aria-label="Download image"
                             disabled={deletingImageId === doc.id}
                             className="rounded-lg p-2 text-foreground/70 hover:bg-accent"
@@ -2649,6 +2702,51 @@ ${JSON.stringify(sourceContext, null, 2)}`,
                 )}
               </div>
             )}
+
+            {fullscreenImage ? (
+              <div className="fixed inset-0 z-[100] flex flex-col bg-black/95">
+                <div className="flex items-center justify-between gap-3 px-4 py-3 text-white">
+                  <span className="min-w-0 truncate text-sm">{fullscreenImage.fileName}</span>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      aria-label="Open in new tab"
+                      className="rounded-lg p-2 hover:bg-white/10"
+                      onClick={() => window.open(fullscreenImage.fileUrl, "_blank", "noopener,noreferrer")}
+                    >
+                      <ExternalLink className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Download image"
+                      className="rounded-lg p-2 hover:bg-white/10"
+                      onClick={() => void downloadImage(fullscreenImage)}
+                    >
+                      <Download className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Close full screen"
+                      className="rounded-lg p-2 hover:bg-white/10"
+                      onClick={() => setFullscreenImage(null)}
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="min-h-0 flex-1 cursor-zoom-out overflow-auto p-2"
+                  onClick={() => setFullscreenImage(null)}
+                >
+                  <img
+                    src={fullscreenImage.fileUrl}
+                    alt={fullscreenImage.fileName}
+                    className="mx-auto max-h-full w-auto max-w-full object-contain"
+                  />
+                </button>
+              </div>
+            ) : null}
           </DialogContent>
         </Dialog>
       </FlowScaffold>

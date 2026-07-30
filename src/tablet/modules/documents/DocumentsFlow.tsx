@@ -72,7 +72,7 @@ function DocumentsPicker({ onSelect }: { onSelect: (visit: TabletVisit) => void 
           <h2 className="text-lg font-bold sm:text-xl">Documents</h2>
           <p className="text-sm text-muted-foreground">
             {showDischarged
-              ? "Discharged in the last 7 days — waiting to be billed"
+              ? "Discharged in the last 7 days or planned for discharge — waiting to be billed"
               : "All admitted and discharged patients"}
           </p>
         </div>
@@ -81,7 +81,7 @@ function DocumentsPicker({ onSelect }: { onSelect: (visit: TabletVisit) => void 
           onClick={() => setShowDischarged((value) => !value)}
           className="shrink-0"
         >
-          {showDischarged ? "All patients" : `Recently discharged (${billing.count})`}
+          {showDischarged ? "All patients" : `To bill (${billing.count})`}
         </TabletButton>
       </div>
 
@@ -97,7 +97,7 @@ function DocumentsPicker({ onSelect }: { onSelect: (visit: TabletVisit) => void 
             </p>
           ) : billing.visits.length === 0 ? (
             <p className="py-10 text-center text-muted-foreground">
-              Nobody discharged in the last 7 days is waiting to be billed.
+              Nobody discharged or planned for discharge is waiting to be billed.
             </p>
           ) : (
             billing.visits.map((visit) => (
@@ -156,7 +156,9 @@ function BillingRow({
             {visit.patientsId || visit.visitId}
           </p>
           <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
-            Discharged {shortDate(visit.dischargeDate)} · Bill pending
+            {visit.dischargeDate
+              ? `Discharged ${shortDate(visit.dischargeDate)} · Bill pending`
+              : `Discharge planned ${shortDate(visit.plannedDischargeDate)} · Bill pending`}
           </span>
         </div>
       </button>
