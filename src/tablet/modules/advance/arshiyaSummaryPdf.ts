@@ -6,6 +6,11 @@
  * the same document: one goes out on hospital letterhead, the other has to be
  * plain. The input is the summary *text* rather than a patient, so the official
  * IPD discharge summary can be fed through the same renderer later.
+ *
+ * The summary arrives as Markdown - headings, bullets, and a medications table
+ * with <br/> inside its dosage cells - so it is rendered as Markdown rather
+ * than flattened. A flattened table prints its pipe characters, which is what
+ * made the old output look unfinished.
  */
 
 export const stripMarkdownForPdf = (value: string) =>
@@ -15,6 +20,35 @@ export const stripMarkdownForPdf = (value: string) =>
     .replace(/^\s*[-*]\s+/gm, "- ")
     .replace(/<br\s*\/?>/gi, "\n")
     .trim();
+
+/**
+ * Devanagari is dropped rather than drawn.
+ *
+ * The summary prompt asks for a Hindi dosage under each English one, and the
+ * PDF fonts are jsPDF's built-in Helvetica variants, which have no Devanagari
+ * glyphs - so the Hindi came out as strings like "K 2 @ & ? ( . G" on every
+ * summary that reached a patient. Embedding a Devanagari font is not enough on
+ * its own either: jsPDF does no complex-script shaping, so conjuncts and matras
+ * can be placed wrongly, and a misplaced matra in a dosage instruction is worse
+ * than no Hindi at all.
+ *
+ * Until the summary is rendered through a pipeline that shapes Devanagari
+ * correctly - the browser's own print path already does - the English dosage
+ * stands alone rather than sitting beside a line of noise.
+ */
+const DEVANAGARI = /[ऀ-ॿ]/;
+
+const dropUnrenderableScripts = (value: string) =>
+  value
+    .split("\n")
+    .filter((line) => !DEVANAGARI.test(line))
+    .join("\n");
+
+/** Inline markers only. Block structure is handled by the renderer. */
+const stripInlineMarkdown = (value: string) =>
+  dropUnrenderableScripts(
+    value.replace(/\*\*(.*?)\*\*/g, "$1").replace(/`([^`]*)`/g, "$1"),
+  ).trim();
 
 /** Logo drawn into the header band, keyed by hospital. Hospitals without an
  *  asset fall back to the text-only header rather than a broken image. */
@@ -39,6 +73,22 @@ async function loadImageDataUrl(src: string): Promise<string> {
   });
 }
 
+/**
+ * Who signs the document, and what they sign it with.
+ *
+ * signatureUrl and stampUrl are scans of the real signature and the real
+ * hospital stamp. When either is missing the document prints a ruled space for
+ * a wet signature instead: a generated mark would be a forgery, and an
+ * unsigned-looking document is the honest outcome.
+ */
+export interface SummarySignatory {
+  name: string;
+  qualification?: string | null;
+  registrationNo?: string | null;
+  signatureUrl?: string | null;
+  stampUrl?: string | null;
+}
+
 export interface ArshiyaSummaryPdfInput {
   summaryText: string;
   withLogo: boolean;
@@ -48,7 +98,110 @@ export interface ArshiyaSummaryPdfInput {
   visitNumber: string | null | undefined;
   registrationId: string | null | undefined;
   portalUrl: string;
+  /** The specialist who treated or operated on the patient. */
+  signatory?: SummarySignatory | null;
 }
+
+// --- Markdown block model ------------------------------------------------
+
+type Block =
+  | { kind: "heading"; level: number; text: string }
+  | { kind: "bullet"; text: string }
+  | { kind: "paragraph"; text: string }
+  | { kind: "table"; head: string[]; rows: string[][] };
+
+const isTableLine = (line: string) => /^\s*\|.*\|\s*$/.test(line);
+const isTableDivider = (line: string) => /^\s*\|[\s:|-]+\|\s*$/.test(line);
+
+const splitTableRow = (line: string) =>
+  line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => stripInlineMarkdown(cell.replace(/<br\s*\/?>/gi, "\n")));
+
+/** Markdown to blocks. Only the constructs the summary prompt asks for. */
+function parseMarkdown(markdown: string): Block[] {
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  const blocks: Block[] = [];
+  let paragraph: string[] = [];
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    blocks.push({ kind: "paragraph", text: stripInlineMarkdown(paragraph.join(" ")) });
+    paragraph = [];
+  };
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+
+    if (!line.trim()) {
+      flushParagraph();
+      continue;
+    }
+
+    if (isTableLine(line)) {
+      flushParagraph();
+      const tableLines: string[] = [];
+      while (i < lines.length && isTableLine(lines[i])) {
+        tableLines.push(lines[i]);
+        i += 1;
+      }
+      i -= 1;
+      const rows = tableLines.filter((l) => !isTableDivider(l)).map(splitTableRow);
+      if (rows.length) {
+        blocks.push({ kind: "table", head: rows[0], rows: rows.slice(1) });
+      }
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,6})\s+(.*)$/);
+    if (heading) {
+      flushParagraph();
+      blocks.push({
+        kind: "heading",
+        level: heading[1].length,
+        text: stripInlineMarkdown(heading[2]),
+      });
+      continue;
+    }
+
+    const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+    if (bullet) {
+      flushParagraph();
+      blocks.push({ kind: "bullet", text: stripInlineMarkdown(bullet[1]) });
+      continue;
+    }
+
+    // A bold line on its own is a heading in all but syntax.
+    const boldOnly = line.match(/^\s*\*\*(.+?)\*\*:?\s*$/);
+    if (boldOnly) {
+      flushParagraph();
+      blocks.push({ kind: "heading", level: 3, text: stripInlineMarkdown(boldOnly[1]) });
+      continue;
+    }
+
+    paragraph.push(line.trim());
+  }
+  flushParagraph();
+  return blocks;
+}
+
+// --- Rendering -----------------------------------------------------------
+
+const PAGE_W = 210;
+const PAGE_H = 297;
+const MARGIN_X = 14;
+const CONTENT_W = PAGE_W - MARGIN_X * 2;
+const BODY_TOP = 16;
+const BODY_BOTTOM = 274;
+
+const INK = [31, 41, 55] as const;
+const MUTED = [107, 114, 128] as const;
+const BRAND = [22, 101, 52] as const;
+const RULE = [209, 213, 219] as const;
+const TINT = [243, 246, 244] as const;
 
 export async function buildArshiyaSummaryPdfBlob(
   input: ArshiyaSummaryPdfInput,
@@ -58,74 +211,302 @@ export async function buildArshiyaSummaryPdfBlob(
 
   const { default: jsPDF } = await import("jspdf");
   const pdf = new jsPDF({ unit: "mm", format: "a4" });
-  const marginX = 14;
-  const pageWidth = 210;
-  const maxWidth = pageWidth - marginX * 2;
-  let y = 16;
+  let y = BODY_TOP;
 
-  const addFooter = () => {
-    const pageCount = pdf.getNumberOfPages();
-    for (let page = 1; page <= pageCount; page += 1) {
-      pdf.setPage(page);
-      pdf.setFontSize(8);
-      pdf.setTextColor(100);
-      pdf.text(`Patient Portal: ${input.portalUrl}`, marginX, 288);
-      pdf.text(`Page ${page} of ${pageCount}`, 196, 288, { align: "right" });
-    }
+  const setInk = (rgb: readonly [number, number, number]) =>
+    pdf.setTextColor(rgb[0], rgb[1], rgb[2]);
+
+  const ensureSpace = (needed: number) => {
+    if (y + needed <= BODY_BOTTOM) return;
+    pdf.addPage();
+    y = BODY_TOP;
   };
 
-  pdf.setFillColor(22, 101, 52);
-  pdf.rect(0, 0, 210, 26, "F");
+  // --- Header -----------------------------------------------------------
+  pdf.setFillColor(BRAND[0], BRAND[1], BRAND[2]);
+  pdf.rect(0, 0, PAGE_W, 3, "F");
 
-  // The logo sits at the left of the band and pushes the hospital name across.
-  // A missing or unreadable asset must not cost the user their PDF, so a
-  // failure here degrades to the plain header.
-  let textX = marginX;
+  let textX = MARGIN_X;
   if (input.withLogo) {
     const logoSrc = hospitalLogoSrc(input.hospitalName);
     if (logoSrc) {
       try {
         const dataUrl = await loadImageDataUrl(logoSrc);
-        pdf.addImage(dataUrl, "PNG", marginX, 4, 18, 18);
-        textX = marginX + 22;
+        pdf.addImage(dataUrl, "PNG", MARGIN_X, 8, 16, 16);
+        textX = MARGIN_X + 20;
       } catch {
-        // Fall through to the text-only header.
+        // A missing asset must not cost the user their PDF.
       }
     }
   }
 
-  pdf.setTextColor(255);
+  setInk(INK);
   pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(16);
-  pdf.text(input.hospitalName, textX, 11);
+  pdf.setFontSize(15);
+  pdf.text(input.hospitalName, textX, 15);
   pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(10);
-  pdf.text("Arshiya Generated Discharge Summary", textX, 19);
-  pdf.text(`Generated: ${new Date().toLocaleString()}`, 196, 11, { align: "right" });
-  pdf.text(`Visit ID: ${input.visitNumber || "-"}`, 196, 19, { align: "right" });
+  pdf.setFontSize(9);
+  setInk(MUTED);
+  pdf.text("Discharge Summary", textX, 21);
 
-  y = 34;
-  pdf.setTextColor(20);
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(10);
-  pdf.text(`Patient: ${input.patientName || "-"}`, marginX, y);
-  pdf.text(`Patient ID: ${input.patientId || "-"}`, 112, y);
-  y += 7;
-  pdf.text(`Yojana Registration ID: ${input.registrationId || "-"}`, marginX, y);
-  y += 8;
+  pdf.text(new Date().toLocaleString(), PAGE_W - MARGIN_X, 15, { align: "right" });
+  pdf.text(`Visit ${input.visitNumber || "-"}`, PAGE_W - MARGIN_X, 21, { align: "right" });
 
-  pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(10);
-  const lines = pdf.splitTextToSize(stripMarkdownForPdf(summary), maxWidth);
-  lines.forEach((line: string) => {
-    if (y > 278) {
-      pdf.addPage();
-      y = 16;
-    }
-    pdf.text(line, marginX, y);
-    y += 5.5;
+  pdf.setDrawColor(RULE[0], RULE[1], RULE[2]);
+  pdf.setLineWidth(0.3);
+  pdf.line(MARGIN_X, 26, PAGE_W - MARGIN_X, 26);
+
+  // --- Patient strip ----------------------------------------------------
+  pdf.setFillColor(TINT[0], TINT[1], TINT[2]);
+  pdf.rect(MARGIN_X, 30, CONTENT_W, 16, "F");
+
+  const cols = [
+    { label: "Patient", value: input.patientName || "-" },
+    { label: "Patient ID", value: input.patientId || "-" },
+    { label: "Yojana Registration", value: input.registrationId || "-" },
+  ];
+  const colW = CONTENT_W / cols.length;
+  cols.forEach((col, index) => {
+    const x = MARGIN_X + 4 + index * colW;
+    pdf.setFontSize(7);
+    setInk(MUTED);
+    pdf.setFont("helvetica", "normal");
+    pdf.text(col.label.toUpperCase(), x, 36);
+    pdf.setFontSize(10);
+    setInk(INK);
+    pdf.setFont("helvetica", "bold");
+    pdf.text(pdf.splitTextToSize(col.value, colW - 6)[0], x, 42);
   });
 
-  addFooter();
+  y = 54;
+
+  // --- Body -------------------------------------------------------------
+  for (const block of parseMarkdown(summary)) {
+    if (block.kind === "heading") {
+      const size = block.level <= 2 ? 12 : 10.5;
+      ensureSpace(14);
+      y += block.level <= 2 ? 4 : 3;
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(size);
+      setInk(block.level <= 2 ? BRAND : INK);
+      pdf.text(block.text, MARGIN_X, y);
+      y += 2;
+      if (block.level <= 2) {
+        pdf.setDrawColor(BRAND[0], BRAND[1], BRAND[2]);
+        pdf.setLineWidth(0.4);
+        pdf.line(MARGIN_X, y, MARGIN_X + CONTENT_W, y);
+      }
+      y += 5;
+      continue;
+    }
+
+    if (block.kind === "bullet") {
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(9.5);
+      setInk(INK);
+      const lines = pdf.splitTextToSize(block.text, CONTENT_W - 6) as string[];
+      lines.forEach((line, index) => {
+        ensureSpace(6);
+        if (index === 0) pdf.text("•", MARGIN_X + 1, y);
+        pdf.text(line, MARGIN_X + 6, y);
+        y += 5;
+      });
+      y += 1;
+      continue;
+    }
+
+    if (block.kind === "paragraph") {
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(9.5);
+      setInk(INK);
+      const lines = pdf.splitTextToSize(block.text, CONTENT_W) as string[];
+      lines.forEach((line) => {
+        ensureSpace(6);
+        pdf.text(line, MARGIN_X, y);
+        y += 5;
+      });
+      y += 2;
+      continue;
+    }
+
+    // --- Table ----------------------------------------------------------
+    const columnCount = Math.max(block.head.length, ...block.rows.map((r) => r.length));
+    const head = [...block.head];
+    while (head.length < columnCount) head.push("");
+
+    // Width by the widest content in each column, clamped so one long cell
+    // cannot squeeze the rest into unreadable slivers.
+    const weights = Array.from({ length: columnCount }, (_, c) => {
+      const longest = Math.max(
+        head[c]?.length || 1,
+        ...block.rows.map((row) =>
+          Math.max(...String(row[c] ?? "").split("\n").map((s) => s.length), 1),
+        ),
+      );
+      return Math.min(Math.max(longest, 6), 28);
+    });
+    const weightTotal = weights.reduce((a, b) => a + b, 0);
+    const widths = weights.map((w) => (w / weightTotal) * CONTENT_W);
+
+    const cellLines = (text: string, width: number) =>
+      String(text ?? "")
+        .split("\n")
+        .flatMap((part) => pdf.splitTextToSize(part, width - 4) as string[]);
+
+    const drawHeader = () => {
+      const lineSets = head.map((cell, c) => cellLines(cell, widths[c]));
+      const height = Math.max(...lineSets.map((l) => l.length)) * 4.4 + 4;
+      pdf.setFillColor(BRAND[0], BRAND[1], BRAND[2]);
+      pdf.rect(MARGIN_X, y, CONTENT_W, height, "F");
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(255, 255, 255);
+      let x = MARGIN_X;
+      lineSets.forEach((lines, c) => {
+        lines.forEach((line, li) => pdf.text(line, x + 2, y + 5.2 + li * 4.4));
+        x += widths[c];
+      });
+      y += height;
+    };
+
+    ensureSpace(26);
+    drawHeader();
+
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(8.5);
+    block.rows.forEach((row, rowIndex) => {
+      const lineSets = widths.map((w, c) => cellLines(row[c] ?? "", w));
+      const height = Math.max(...lineSets.map((l) => l.length)) * 4.4 + 3;
+
+      if (y + height > BODY_BOTTOM) {
+        pdf.addPage();
+        y = BODY_TOP;
+        drawHeader();
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(8.5);
+      }
+
+      if (rowIndex % 2 === 1) {
+        pdf.setFillColor(249, 250, 251);
+        pdf.rect(MARGIN_X, y, CONTENT_W, height, "F");
+      }
+      setInk(INK);
+      let x = MARGIN_X;
+      lineSets.forEach((lines, c) => {
+        lines.forEach((line, li) => pdf.text(line, x + 2, y + 4.6 + li * 4.4));
+        x += widths[c];
+      });
+
+      pdf.setDrawColor(RULE[0], RULE[1], RULE[2]);
+      pdf.setLineWidth(0.1);
+      pdf.line(MARGIN_X, y + height, MARGIN_X + CONTENT_W, y + height);
+      y += height;
+    });
+    y += 5;
+  }
+
+  // --- Signature and stamp ---------------------------------------------
+  await drawSignatureBlock(pdf, input, () => y, (next) => { y = next; }, ensureSpace);
+
+  // --- Footer -----------------------------------------------------------
+  const pageCount = pdf.getNumberOfPages();
+  for (let page = 1; page <= pageCount; page += 1) {
+    pdf.setPage(page);
+    pdf.setDrawColor(RULE[0], RULE[1], RULE[2]);
+    pdf.setLineWidth(0.2);
+    pdf.line(MARGIN_X, 284, PAGE_W - MARGIN_X, 284);
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(7.5);
+    pdf.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+    pdf.text(`Patient Portal: ${input.portalUrl}`, MARGIN_X, 289);
+    pdf.text(`Page ${page} of ${pageCount}`, PAGE_W - MARGIN_X, 289, { align: "right" });
+  }
+
   return pdf.output("blob") as Blob;
+}
+
+/**
+ * The signature and stamp that make the document official.
+ *
+ * A scanned signature or stamp is drawn when the specialist has one on file.
+ * Where there is none, a ruled space is printed to be signed and stamped by
+ * hand. Nothing is ever drawn to imitate a signature that was not given.
+ */
+async function drawSignatureBlock(
+  pdf: any,
+  input: ArshiyaSummaryPdfInput,
+  getY: () => number,
+  setY: (value: number) => void,
+  ensureSpace: (needed: number) => void,
+) {
+  const BLOCK_H = 42;
+  ensureSpace(BLOCK_H + 6);
+  let y = getY() + 8;
+  if (y + BLOCK_H > BODY_BOTTOM) {
+    pdf.addPage();
+    y = BODY_TOP;
+  }
+
+  const signatory = input.signatory;
+  const columnW = (PAGE_W - MARGIN_X * 2) / 2;
+  const stampX = MARGIN_X + columnW + 8;
+
+  // Left: the treating specialist's signature.
+  let signed = false;
+  if (signatory?.signatureUrl) {
+    try {
+      const dataUrl = await loadImageDataUrl(signatory.signatureUrl);
+      pdf.addImage(dataUrl, "PNG", MARGIN_X, y, 42, 16);
+      signed = true;
+    } catch {
+      // Fall through to the ruled space.
+    }
+  }
+  if (!signed) {
+    pdf.setDrawColor(RULE[0], RULE[1], RULE[2]);
+    pdf.setLineWidth(0.3);
+    pdf.line(MARGIN_X, y + 16, MARGIN_X + 60, y + 16);
+  }
+
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(9.5);
+  pdf.setTextColor(INK[0], INK[1], INK[2]);
+  pdf.text(signatory?.name || "Treating Consultant", MARGIN_X, y + 21);
+
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(8);
+  pdf.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+  let detailY = y + 26;
+  if (signatory?.qualification) {
+    pdf.text(signatory.qualification, MARGIN_X, detailY);
+    detailY += 4.5;
+  }
+  if (signatory?.registrationNo) {
+    pdf.text(`Reg. No. ${signatory.registrationNo}`, MARGIN_X, detailY);
+    detailY += 4.5;
+  }
+  pdf.text("Signature of the treating specialist", MARGIN_X, detailY);
+
+  // Right: the hospital stamp.
+  let stamped = false;
+  if (signatory?.stampUrl) {
+    try {
+      const dataUrl = await loadImageDataUrl(signatory.stampUrl);
+      pdf.addImage(dataUrl, "PNG", stampX, y, 32, 32);
+      stamped = true;
+    } catch {
+      // Fall through to the ruled space.
+    }
+  }
+  if (!stamped) {
+    pdf.setDrawColor(RULE[0], RULE[1], RULE[2]);
+    pdf.setLineWidth(0.3);
+    pdf.rect(stampX, y, 34, 30);
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(7.5);
+    pdf.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+    pdf.text("Hospital stamp", stampX + 17, y + 16, { align: "center" });
+  }
+
+  setY(y + BLOCK_H);
 }

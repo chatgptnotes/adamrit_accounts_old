@@ -25,6 +25,7 @@ import { compressImageToLimit } from "@/tablet/lib/image";
 import { deletePatientDoc, uploadPatientDocs, usePatientDocs, type PatientDoc } from "@/tablet/hooks/usePatientDocs";
 import { MultiShotCamera, type CapturedPhotoItem } from "@/tablet/modules/patient-profile/MultiShotCamera";
 import { buildArshiyaSummaryPdfBlob, stripMarkdownForPdf } from "./arshiyaSummaryPdf";
+import { loadSummarySignatory } from "./doctorCredentials";
 import { resolveDischargeStaff } from "./dischargeStaff";
 
 const MODES = ["CASH", "CARD", "UPI", "CHEQUE", "NEFT"];
@@ -40,19 +41,38 @@ const MAX_VISION_IMAGES = 4;
 const ARSHIA_EMERGENCY_LINE = "URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 9373111709.";
 const DEFAULT_ARSHIA_DISCHARGE_PROMPT = `You are a senior medical specialist writing a professional hospital discharge summary for another doctor.
 
-Rules:
+CLINICAL SAFETY - these override every formatting rule below:
 - Use ONLY the provided pre-authorization transcription, medication-on-discharge dictation, and fetched lab/radiology data.
 - Do NOT mention the patient name, sex, or age.
 - Do NOT invent symptoms, diagnoses, examination findings, events during stay, surgery details, complications, medicines, Indian brands, doses, lab values, radiology findings, dates, or comorbidities.
-- If a required fact is not provided, write "Not provided" or "Not recorded".
-- Start with the heading "Diagnosis".
-- Immediately after Diagnosis, include "Medications on Discharge" as a Markdown table with columns: Name | Strength | Route | Dosage | Days.
-- In each Dosage cell, put the English dosage first and the Hindi dosage on the next line using <br/>.
-- Use headings, subheadings, bullet points, and professional doctor-facing language.
-- If surgery was performed and details are provided, write surgery notes using only those details. If surgery details are missing, write "Surgery notes: Not provided."
+- If a required fact is not provided, write "Not provided" or "Not recorded". Never pad a section to make it look complete.
 - Mention that the patient has no comorbidities other than those explicitly provided.
-- Include home precautions and return-to-hospital warning symptoms that are appropriate to the documented diagnosis/treatment, without inventing patient-specific findings.
-- End with this exact sentence: ${ARSHIA_EMERGENCY_LINE}
+
+STRUCTURE - use these exact "## " headings, in this order, and omit none of them:
+## Diagnosis
+## Medications on Discharge
+## Course in Hospital
+## Procedure and Surgery Notes
+## Investigations
+## Condition at Discharge
+## Diet and Activity
+## Home Care Precautions
+## Follow Up
+## Report Back Immediately If
+
+SECTION RULES:
+- Diagnosis: the working diagnosis as one line, then any secondary diagnoses as bullets.
+- Medications on Discharge: a Markdown table with columns Name | Strength | Route | Dosage | Days. In each Dosage cell put the English dosage first and the Hindi dosage on the next line using <br/>. If no medication is dictated, write "Not provided" instead of the table.
+- Course in Hospital: short paragraphs, documented events only.
+- Procedure and Surgery Notes: only the details provided. If none, write "Not provided."
+- Investigations: a Markdown table with columns Investigation | Finding | Date, one row per reported result. If none were fetched, write "Not recorded."
+- Condition at Discharge, Diet and Activity, Home Care Precautions, Follow Up, Report Back Immediately If: bullet points, one instruction per bullet, written for the patient's own doctor to act on. These may follow standard practice for the documented diagnosis and treatment, but must not assert anything patient-specific that was not provided.
+
+STYLE:
+- Professional doctor-facing language, no filler and no restating the heading inside the section.
+- Keep bullets to a single sentence each. Prefer a table wherever the content is repetitive.
+- Use "## " for the section headings above. Do not use bold text as a substitute for a heading, and do not add headings beyond the list.
+- End with this exact sentence, on its own line, after the last section: ${ARSHIA_EMERGENCY_LINE}
 
 Return Markdown only.`;
 
@@ -76,6 +96,7 @@ interface VisitRow {
   package_name: string | null;
   corporate: string | null;
   arshiya_discharge_summary: string | null;
+  appointment_with: string | null;
 }
 
 interface PackageOption {
@@ -114,6 +135,8 @@ interface AdvancePatientRow {
   plannedDischargeDate: string | null;
   dischargeBillingStaff: string | null;
   arshiyaSummary: string | null;
+  /** The specialist who treated the patient, and so who signs their documents. */
+  consultant: string | null;
   billPaid: boolean | null;
   hospitalName: string | null;
 }
@@ -442,7 +465,7 @@ export default function AdvanceFlow() {
       let query = supabase
         .from("visits")
         .select(
-          "id, visit_id, admission_date, discharge_date, yojana_registration_id, package_code, package_name, patient_id, planned_discharge_date, discharge_billing_staff, arshiya_discharge_summary, bill_paid, patients!inner(id, name, patients_id, phone, age, gender, corporate, hospital_name)",
+          "id, visit_id, admission_date, discharge_date, yojana_registration_id, package_code, package_name, patient_id, planned_discharge_date, discharge_billing_staff, arshiya_discharge_summary, bill_paid, appointment_with, patients!inner(id, name, patients_id, phone, age, gender, corporate, hospital_name)",
         )
         .eq("patient_type", "IPD")
         .not("admission_date", "is", null)
@@ -476,6 +499,7 @@ export default function AdvanceFlow() {
           plannedDischargeDate: row.planned_discharge_date,
           dischargeBillingStaff: row.discharge_billing_staff,
           arshiyaSummary: row.arshiya_discharge_summary,
+          consultant: row.appointment_with ?? null,
           billPaid: row.bill_paid,
           hospitalName: relatedPatient.hospital_name ?? null,
         });
@@ -686,6 +710,7 @@ export default function AdvanceFlow() {
         visitNumber: row.visitNumber,
         registrationId: row.registrationId,
         portalUrl: `${window.location.origin}/patient-portal`,
+        signatory: await loadSummarySignatory(row.consultant),
       });
       const fileName = `Discharge_Summary_${withLogo ? "Letterhead" : "Plain"}_${safeFilePart(
         row.patient.patients_id || row.visitNumber,
@@ -778,7 +803,7 @@ export default function AdvanceFlow() {
     queryFn: async (): Promise<VisitRow | null> => {
       const query = supabase
         .from("visits")
-        .select("id, visit_id, yojana_registration_id, package_code, package_name, corporate, arshiya_discharge_summary")
+        .select("id, visit_id, yojana_registration_id, package_code, package_name, corporate, arshiya_discharge_summary, appointment_with")
         .eq("id", selectedVisitId!);
       const { data, error } = await query.maybeSingle();
       if (error) throw error;
@@ -1494,6 +1519,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
       visitNumber: visit.data?.visit_id,
       registrationId: registrationIdInput || visit.data?.yojana_registration_id,
       portalUrl: `${window.location.origin}/patient-portal`,
+      signatory: await loadSummarySignatory(visit.data?.appointment_with),
     });
 
   const generateAndUploadArshiaSummaryPdf = async (shouldDownload: boolean) => {
