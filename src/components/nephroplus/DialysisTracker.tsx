@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { BellRing, FlaskConical, Printer, ReceiptText } from 'lucide-react';
+import { Activity, BellRing, FlaskConical, Printer, ReceiptText } from 'lucide-react';
 import type { DialysisCharge } from '@/lib/nephroplus/dialysisData';
 import {
   CYCLES_PER_BILL,
@@ -150,12 +150,21 @@ export default function DialysisTracker({ charges, hospitalName, chargesLoading 
         </Card>
       </div>
 
-      <Input
-        placeholder="Search patient name or ID…"
-        className="max-w-sm"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Activity className="h-5 w-5 text-rose-600" />
+          <h2 className="text-lg font-semibold">Dialysis</h2>
+          <span className="text-sm text-muted-foreground">
+            {busy ? '' : `${visibleRows.length} patient${visibleRows.length === 1 ? '' : 's'}`}
+          </span>
+        </div>
+        <Input
+          placeholder="Search patient name or ID…"
+          className="max-w-sm"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
 
       <div className="rounded-md border overflow-x-auto">
         <Table>
