@@ -1119,6 +1119,9 @@ export default function AdvanceFlow() {
       await qc.invalidateQueries({
         queryKey: ["tablet-patient-docs", patient.id, ADVANCE_IMAGE_CATEGORY],
       });
+
+      const refreshedImages = await advanceImages.refetch();
+      await transcribePreauthImages(refreshedImages.data || []);
       return true;
     } catch (error) {
       console.error("Advance image upload failed:", error);
@@ -1251,8 +1254,8 @@ export default function AdvanceFlow() {
     if (saved) setCameraOpen(false);
   };
 
-  const transcribePreauthImages = async () => {
-    const docs = advanceImages.data || [];
+  const transcribePreauthImages = async (uploadedDocs: PatientDoc[] = advanceImages.data || []) => {
+    const docs = uploadedDocs;
     if (!patient) return;
     if (docs.length === 0) {
       setArshiaError("Upload or capture the filled pre-authorization form first.");
@@ -1263,18 +1266,18 @@ export default function AdvanceFlow() {
     setArshiaError(null);
     setArshiaWarning(null);
     try {
-      const images = await Promise.all(docs.slice(0, 4).map(docToVisionImage));
+      const images = await Promise.all(docs.map(docToVisionImage));
       const text = await runArshiaModel(
-        `Transcribe the uploaded filled pre-authorization form images for discharge-summary preparation.
+        `Extract all visible text from the uploaded filled pre-authorization form images for discharge-summary preparation.
 
 Rules:
 - Return factual text only.
-- Do not infer hidden, cropped, or unreadable details.
-- If text is unclear, mark it as [unclear].
-- Preserve diagnoses, history, examination, procedure, treatment, dates, and remarks exactly as visible.
+- Do not infer hidden, cropped, or unreadable details; if text is unclear, mark it as [unclear].
+- Extract every available detail, including patient details, hospital details, diagnosis, history, examination, treatment, requested procedure, doctor details, dates, identifiers, and remarks.
+- Preserve the visible wording and values exactly wherever possible.
 - Do not add any clinical facts that are not visible in the images.
 
-Return clean plain text with headings.`,
+Return clean, properly formatted plain text with clear headings and field labels. Include all pages/images in the result.`,
         images,
       );
       setPreauthTranscript(text);
@@ -1985,18 +1988,21 @@ ${JSON.stringify(sourceContext, null, 2)}`,
             <ImageIcon className="h-4 w-4" />
             Images
           </TabletButton>
-          <TabletButton
-            variant="outline"
-            disabled={isTranscribingPreauth || advanceImages.isLoading}
-            onClick={() => void transcribePreauthImages()}
-          >
-            {isTranscribingPreauth ? (
+          {isTranscribingPreauth ? (
+            <span className="flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-primary">
               <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
+              Extracting form text…
+            </span>
+          ) : (
+            <TabletButton
+              variant="outline"
+              disabled={advanceImages.isLoading}
+              onClick={() => void transcribePreauthImages()}
+            >
               <FileText className="h-4 w-4" />
-            )}
-            Transcribe
-          </TabletButton>
+              Transcribe
+            </TabletButton>
+          )}
           <TabletButton
             variant="outline"
             disabled={isLoadingInvestigations || !selectedVisitId}
@@ -2035,7 +2041,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
               value={preauthTranscript}
               onChange={setPreauthTranscript}
               rows={8}
-              placeholder="Use Transcribe after uploading/capturing the filled pre-authorization form, dictate, or type/paste text here."
+              placeholder="Upload or capture a filled pre-authorization form to extract its text automatically. You can edit or dictate corrections here."
               className="mt-1.5"
             />
           </div>
@@ -2695,18 +2701,21 @@ ${JSON.stringify(sourceContext, null, 2)}`,
               <ImageIcon className="h-4 w-4" />
               Images
             </TabletButton>
-            <TabletButton
-              variant="outline"
-              disabled={isTranscribingPreauth || advanceImages.isLoading}
-              onClick={() => void transcribePreauthImages()}
-            >
-              {isTranscribingPreauth ? (
+            {isTranscribingPreauth ? (
+              <span className="flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-primary">
                 <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
+                Extracting form text…
+              </span>
+            ) : (
+              <TabletButton
+                variant="outline"
+                disabled={advanceImages.isLoading}
+                onClick={() => void transcribePreauthImages()}
+              >
                 <FileText className="h-4 w-4" />
-              )}
-              Transcribe
-            </TabletButton>
+                Transcribe
+              </TabletButton>
+            )}
             <TabletButton
               variant="outline"
               disabled={isLoadingInvestigations || !selectedVisitId}
@@ -2748,7 +2757,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
                 value={preauthTranscript}
                 onChange={setPreauthTranscript}
                 rows={8}
-                placeholder="Use Transcribe after uploading/capturing the filled pre-authorization form, dictate, or type/paste text here."
+                placeholder="Upload or capture a filled pre-authorization form to extract its text automatically. You can edit or dictate corrections here."
                 className="mt-1.5"
               />
             </div>
