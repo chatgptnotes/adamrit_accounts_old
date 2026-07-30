@@ -15,6 +15,7 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { useAuth } from '@/contexts/AuthContext';
 import { logActivity, getDeviceInfo } from '@/lib/activity-logger';
 import { canAccessReferralRegister } from '@/lib/referralRegisterAccess';
+import { LedgerAutocomplete, type LedgerAccountOption } from '@/components/accounting/LedgerAutocomplete';
 
 interface RelationshipManagerType {
   id: string;
@@ -22,6 +23,8 @@ interface RelationshipManagerType {
   code?: string;
   contact_no?: string;
   is_hidden?: boolean;
+  ledger_account_id?: string | null;
+  company_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -33,6 +36,9 @@ const RelationshipManager = () => {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedManager, setSelectedManager] = useState<RelationshipManagerType | null>(null);
+  // The ledger picked in the add/edit dialog. The manager's name is taken from
+  // it, so the master and the chart of ledgers can never say different things.
+  const [dialogLedger, setDialogLedger] = useState<LedgerAccountOption | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { canEditMasters } = usePermissions();
@@ -64,6 +70,30 @@ const RelationshipManager = () => {
 
       return data || [];
     }
+  });
+
+  // Ledger names for every manager on screen, so a card can show what it is
+  // mapped to and the edit dialog can open on the existing mapping.
+  const ledgerIds = Array.from(
+    new Set(
+      (managers as RelationshipManagerType[])
+        .map((m) => m.ledger_account_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+  const { data: ledgerById = new Map<string, LedgerAccountOption>() } = useQuery({
+    queryKey: ['relationship-manager-ledgers', ledgerIds.join(',')],
+    enabled: ledgerIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('chart_of_accounts')
+        .select('id, account_code, account_name, account_group, company_id')
+        .in('id', ledgerIds);
+      if (error) throw error;
+      return new Map<string, LedgerAccountOption>(
+        ((data || []) as LedgerAccountOption[]).map((row) => [row.id, row]),
+      );
+    },
   });
 
   const addMutation = useMutation({
@@ -164,6 +194,8 @@ const RelationshipManager = () => {
         .update({
           name: data.name,
           contact_no: data.contact_no || null,
+          ledger_account_id: data.ledger_account_id ?? null,
+          company_id: data.company_id ?? null,
           updated_at: new Date().toISOString()
         })
         .eq('id', id);
@@ -196,10 +228,21 @@ const RelationshipManager = () => {
   );
 
   const handleAdd = (formData: Record<string, string>) => {
+    if (!dialogLedger) {
+      toast({
+        title: "Pick a ledger",
+        description: "Search the chart of ledgers and select the ledger this manager is paid through.",
+        variant: "destructive",
+      });
+      return;
+    }
     addMutation.mutate({
-      name: formData.name,
-      contact_no: formData.contact_no || undefined
+      name: dialogLedger.account_name,
+      contact_no: formData.contact_no || undefined,
+      ledger_account_id: dialogLedger.id,
+      company_id: dialogLedger.company_id,
     });
+    setDialogLedger(null);
   };
 
   const handleHide = (id: string) => {
@@ -216,7 +259,14 @@ const RelationshipManager = () => {
     if (selectedManager) {
       editMutation.mutate({
         id: selectedManager.id,
-        data: { name: formData.name, contact_no: formData.contact_no }
+        // A manager mapped to a ledger takes its name from that ledger. One
+        // that has not been mapped yet keeps the name it already had.
+        data: {
+          name: dialogLedger?.account_name || selectedManager.name,
+          contact_no: formData.contact_no,
+          ledger_account_id: dialogLedger?.id ?? null,
+          company_id: dialogLedger?.company_id ?? null,
+        }
       });
     }
   };
@@ -393,8 +443,22 @@ const RelationshipManager = () => {
     );
   }
 
+  // The name is not typed. It comes from the ledger picked here, which is the
+  // same ledger every referral and implant commission is credited to.
   const fields = [
-    { key: 'name', label: 'Name', type: 'text' as const, required: true },
+    {
+      key: 'ledger_account_id',
+      label: 'Ledger (name comes from here)',
+      type: 'custom' as const,
+      required: true,
+      render: () => (
+        <LedgerAutocomplete
+          value={dialogLedger}
+          onChange={setDialogLedger}
+          placeholder="Search the chart of ledgers by name..."
+        />
+      ),
+    },
     { key: 'contact_no', label: 'Contact No', type: 'text' as const }
   ];
 
@@ -498,6 +562,15 @@ const RelationshipManager = () => {
                       </span>
                     )}
                     <span className="text-xl">{manager.name}</span>
+                    {manager.ledger_account_id ? (
+                      <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                        {ledgerById.get(manager.ledger_account_id)?.account_name || 'Ledger mapped'}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                        No ledger — cannot be approved for payment
+                      </span>
+                    )}
                     {manager.is_hidden && (
                       <span className="inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
                         Hidden
@@ -517,6 +590,9 @@ const RelationshipManager = () => {
                         size="sm"
                         onClick={() => {
                           setSelectedManager(manager);
+                          setDialogLedger(
+                            (manager.ledger_account_id && ledgerById.get(manager.ledger_account_id)) || null,
+                          );
                           setIsEditDialogOpen(true);
                         }}
                         className="text-blue-600 hover:text-blue-700 ml-2"
@@ -574,7 +650,10 @@ const RelationshipManager = () => {
 
         <AddItemDialog
           isOpen={isAddDialogOpen}
-          onClose={() => setIsAddDialogOpen(false)}
+          onClose={() => {
+            setIsAddDialogOpen(false);
+            setDialogLedger(null);
+          }}
           onAdd={handleAdd}
           title="Add Relationship Manager"
           fields={fields}
@@ -585,12 +664,12 @@ const RelationshipManager = () => {
           onClose={() => {
             setIsEditDialogOpen(false);
             setSelectedManager(null);
+            setDialogLedger(null);
           }}
           onAdd={handleEdit}
           title="Edit Relationship Manager"
           fields={fields}
           initialData={selectedManager ? {
-            name: selectedManager.name || '',
             contact_no: selectedManager.contact_no || ''
           } : undefined}
         />

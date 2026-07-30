@@ -45,6 +45,10 @@ export const AddItemDialog: React.FC<AddItemDialogProps> = ({
 
   const renderField = (field: FormField) => {
     switch (field.type) {
+      case 'custom':
+        return field.render?.(formData[field.key] || '', (value) =>
+          handleInputChange(field.key, value),
+        ) ?? null;
       case 'textarea':
         return (
           <Textarea
