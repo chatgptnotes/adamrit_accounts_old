@@ -64,18 +64,30 @@ export function useImplantReferralRows() {
         new Set(payable.map((row) => row.visit_id).filter(Boolean)),
       ) as string[];
 
-      const [visitsRes, billsRes, managersRes] = await Promise.all([
-        visitIds.length
-          ? (supabase as any)
-              .from("visits")
-              .select("id, visit_id, appointment_with, patients(patients_id, name)")
-              .in("id", visitIds)
-          : Promise.resolve({ data: [] }),
-        visitIds.length
+      const visitsRes = visitIds.length
+        ? await (supabase as any)
+            .from("visits")
+            .select("id, visit_id, appointment_with, patients(patients_id, name)")
+            .in("id", visitIds)
+        : { data: [] };
+
+      const visitById = new Map<string, any>(
+        ((visitsRes.data || []) as any[]).map((v) => [v.id, v]),
+      );
+      // bills.visit_id holds the visit's printed code (IH26F27023), not the
+      // visits row id, so the bill has to be looked up by that code.
+      const visitCodes = Array.from(
+        new Set(
+          ((visitsRes.data || []) as any[]).map((v) => v.visit_id).filter(Boolean),
+        ),
+      ) as string[];
+
+      const [billsRes, managersRes] = await Promise.all([
+        visitCodes.length
           ? (supabase as any)
               .from("bills")
               .select("visit_id, bill_no, formatted_bill_no")
-              .in("visit_id", visitIds)
+              .in("visit_id", visitCodes)
           : Promise.resolve({ data: [] }),
         (supabase as any)
           .from("relationship_managers")
@@ -83,10 +95,7 @@ export function useImplantReferralRows() {
           .eq("is_hidden", false),
       ]);
 
-      const visitById = new Map<string, any>(
-        ((visitsRes.data || []) as any[]).map((v) => [v.id, v]),
-      );
-      const billByVisit = new Map<string, any>(
+      const billByVisitCode = new Map<string, any>(
         ((billsRes.data || []) as any[]).map((b) => [b.visit_id, b]),
       );
       const ledgerIds = Array.from(
@@ -113,7 +122,7 @@ export function useImplantReferralRows() {
       return payable.map((row): ImplantReferralRow => {
         const visit = row.visit_id ? visitById.get(row.visit_id) : null;
         const patient = Array.isArray(visit?.patients) ? visit.patients[0] : visit?.patients;
-        const bill = row.visit_id ? billByVisit.get(row.visit_id) : null;
+        const bill = visit?.visit_id ? billByVisitCode.get(visit.visit_id) : null;
         const manager = managerByName.get(normalise(row.rm_name));
         const ledger = manager?.ledger_account_id
           ? ledgerById.get(manager.ledger_account_id)
