@@ -1,5 +1,8 @@
 import { useMemo, useState } from "react";
-import { FileText, User } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { CheckCircle2, FileText, Loader2, User } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 import { BillDocumentsSection } from "@/pages/corporate-bill/BillDocumentsSection";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletButton } from "@/tablet/ui/TabletButton";
@@ -23,6 +26,31 @@ function DocumentsPicker({ onSelect }: { onSelect: (visit: TabletVisit) => void 
   const admitted = useAdmittedVisits();
   const discharged = useDischargedVisits();
   const billing = useBillingWorklist();
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  /** Clears a patient off the billing worklist. Nothing else in the app writes
+   *  visits.bill_paid, so without this the "To be billed" list never drains. */
+  const markBilled = useMutation({
+    mutationFn: async (visit: TabletVisit) => {
+      const { error } = await supabase
+        .from("visits")
+        .update({ bill_paid: true } as any)
+        .eq("id", visit.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tablet-billing-worklist-discharged"] });
+      toast({ title: "Billing done", description: "The patient is off the billing list." });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Could not mark billing done",
+        description: error?.message || "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
 
   const visits = useMemo(() => {
     const seen = new Set<string>();
@@ -56,6 +84,8 @@ function DocumentsPicker({ onSelect }: { onSelect: (visit: TabletVisit) => void 
                 onSelect={onSelect}
                 tag={`Discharged ${shortDate(visit.dischargeDate)} · Bill pending`}
                 tagClassName="bg-amber-100 text-amber-800"
+                onBilled={() => markBilled.mutate(visit)}
+                billing={markBilled.isPending}
               />
             ))}
             {billing.plannedToday.map((visit) => (
@@ -81,28 +111,48 @@ function BillingRow({
   onSelect,
   tag,
   tagClassName,
+  onBilled,
+  billing,
 }: {
   visit: TabletVisit;
   onSelect: (visit: TabletVisit) => void;
   tag: string;
   tagClassName: string;
+  onBilled?: () => void;
+  billing?: boolean;
 }) {
   return (
-    <TabletCard interactive onClick={() => onSelect(visit)} className="flex items-center gap-3">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100">
-        <User className="h-6 w-6 text-amber-700" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-semibold">{visit.patientName}</p>
-        <p className="truncate text-sm text-muted-foreground">
-          {visit.patientsId || visit.visitId}
-        </p>
-        <span
-          className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${tagClassName}`}
-        >
-          {tag}
-        </span>
-      </div>
+    <TabletCard className="flex items-center gap-3">
+      <button
+        type="button"
+        onClick={() => onSelect(visit)}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+      >
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-100">
+          <User className="h-6 w-6 text-amber-700" />
+        </div>
+        <div className="min-w-0">
+          <p className="truncate font-semibold">{visit.patientName}</p>
+          <p className="truncate text-sm text-muted-foreground">
+            {visit.patientsId || visit.visitId}
+          </p>
+          <span
+            className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${tagClassName}`}
+          >
+            {tag}
+          </span>
+        </div>
+      </button>
+      {onBilled ? (
+        <TabletButton variant="outline" onClick={onBilled} disabled={billing}>
+          {billing ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <CheckCircle2 className="mr-2 h-4 w-4" />
+          )}
+          Billing done
+        </TabletButton>
+      ) : null}
     </TabletCard>
   );
 }

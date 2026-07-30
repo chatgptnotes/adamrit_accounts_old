@@ -118,34 +118,6 @@ interface AdvancePatientRow {
   hospitalName: string | null;
 }
 
-const PATIENT_ROW_SELECT =
-  "id, visit_id, admission_date, discharge_date, yojana_registration_id, package_code, package_name, patient_id, planned_discharge_date, discharge_billing_staff, arshiya_discharge_summary, bill_paid, patients!inner(id, name, patients_id, phone, age, gender, corporate, hospital_name)";
-
-/** Shapes one `visits` row from PATIENT_ROW_SELECT into a list row. Returns null
- *  when the joined patient is missing. */
-const toAdvancePatientRow = (row: any): AdvancePatientRow | null => {
-  const relatedPatient = Array.isArray(row.patients) ? row.patients[0] : row.patients;
-  if (!relatedPatient?.id) return null;
-  return {
-    patient: {
-      ...relatedPatient,
-      created_at: relatedPatient.created_at || row.admission_date || new Date().toISOString(),
-    } as Patient,
-    visitId: row.id,
-    visitNumber: row.visit_id,
-    admissionDate: row.admission_date,
-    dischargeDate: row.discharge_date,
-    registrationId: row.yojana_registration_id,
-    packageCode: row.package_code,
-    packageName: row.package_name,
-    plannedDischargeDate: row.planned_discharge_date,
-    dischargeBillingStaff: row.discharge_billing_staff,
-    arshiyaSummary: row.arshiya_discharge_summary,
-    billPaid: row.bill_paid,
-    hospitalName: relatedPatient.hospital_name ?? null,
-  };
-};
-
 interface GeneratedArshiaPdf {
   fileName: string;
   publicUrl: string;
@@ -438,7 +410,6 @@ export default function AdvanceFlow() {
   const [gatePassVisitId, setGatePassVisitId] = useState<string | null>(null);
   const [summaryPdfVisitId, setSummaryPdfVisitId] = useState<string | null>(null);
   const [dischargeConfirmRow, setDischargeConfirmRow] = useState<AdvancePatientRow | null>(null);
-  const [billedConfirmRow, setBilledConfirmRow] = useState<AdvancePatientRow | null>(null);
   const thumbFileInputRef = useRef<HTMLInputElement>(null);
 
   const patientRows = useQuery({
@@ -447,7 +418,9 @@ export default function AdvanceFlow() {
       const searchActive = patientSearch.trim().length > 0;
       let query = supabase
         .from("visits")
-        .select(PATIENT_ROW_SELECT)
+        .select(
+          "id, visit_id, admission_date, discharge_date, yojana_registration_id, package_code, package_name, patient_id, planned_discharge_date, discharge_billing_staff, arshiya_discharge_summary, bill_paid, patients!inner(id, name, patients_id, phone, age, gender, corporate, hospital_name)",
+        )
         .eq("patient_type", "IPD")
         .not("admission_date", "is", null)
         .order("admission_date", { ascending: false });
@@ -462,63 +435,41 @@ export default function AdvanceFlow() {
 
       const seen = new Set<string>();
       return (data || []).reduce<AdvancePatientRow[]>((rows, row: any) => {
-        const mapped = toAdvancePatientRow(row);
-        if (!mapped || seen.has(mapped.patient.id)) return rows;
-        seen.add(mapped.patient.id);
-        rows.push(mapped);
+        const relatedPatient = Array.isArray(row.patients) ? row.patients[0] : row.patients;
+        if (!relatedPatient?.id || seen.has(relatedPatient.id)) return rows;
+        seen.add(relatedPatient.id);
+        rows.push({
+          patient: {
+            ...relatedPatient,
+            created_at: relatedPatient.created_at || row.admission_date || new Date().toISOString(),
+          } as Patient,
+          visitId: row.id,
+          visitNumber: row.visit_id,
+          admissionDate: row.admission_date,
+          dischargeDate: row.discharge_date,
+          registrationId: row.yojana_registration_id,
+          packageCode: row.package_code,
+          packageName: row.package_name,
+          plannedDischargeDate: row.planned_discharge_date,
+          dischargeBillingStaff: row.discharge_billing_staff,
+          arshiyaSummary: row.arshiya_discharge_summary,
+          billPaid: row.bill_paid,
+          hospitalName: relatedPatient.hospital_name ?? null,
+        });
         return rows;
       }, []);
     },
     staleTime: 30_000,
   });
-
-  /** Patients whose discharge is marked on the government portal but whose bill
-   *  is still not done. They must stay on this screen — billing happens straight
-   *  after discharge, and this list is the billing desk's intimation. Scoped to
-   *  visits that went through this worklist so it cannot dredge up the whole
-   *  legacy backlog of visits that never had bill_paid written. */
-  const pendingBillingRows = useQuery({
-    queryKey: ["tablet-advance-pending-billing", hospitalConfig?.name],
-    queryFn: async (): Promise<AdvancePatientRow[]> => {
-      let query = supabase
-        .from("visits")
-        .select(PATIENT_ROW_SELECT)
-        .eq("patient_type", "IPD")
-        .not("discharge_date", "is", null)
-        .not("planned_discharge_marked_at", "is", null)
-        .not("bill_paid", "is", true)
-        .order("discharge_date", { ascending: false });
-
-      if (hospitalConfig?.name) query = query.eq("patients.hospital_name", hospitalConfig.name);
-
-      const { data, error } = await query;
-      if (error) throw error;
-      return (data || []).reduce<AdvancePatientRow[]>((rows, row: any) => {
-        const mapped = toAdvancePatientRow(row);
-        if (mapped) rows.push(mapped);
-        return rows;
-      }, []);
-    },
-    staleTime: 30_000,
-  });
-
-  const matchesPatientSearch = (row: AdvancePatientRow, term: string) =>
-    [
-      row.patient.name,
-      row.patient.patients_id,
-      row.patient.phone,
-      row.registrationId,
-      row.visitNumber,
-      row.packageCode,
-      row.packageName,
-    ]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(term));
 
   const filteredPatientRows = useMemo(() => {
     const term = patientSearch.trim().toLowerCase();
     if (!term) return patientRows.data || [];
-    return (patientRows.data || []).filter((row) => matchesPatientSearch(row, term));
+    return (patientRows.data || []).filter(({ patient: item, registrationId, visitNumber, packageCode, packageName }) =>
+      [item.name, item.patients_id, item.phone, registrationId, visitNumber, packageCode, packageName]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term)),
+    );
   }, [patientRows.data, patientSearch]);
 
   // "Today" in the browser's timezone, matched against the date stored when the
@@ -529,33 +480,13 @@ export default function AdvanceFlow() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   }, []);
 
-  // Once the portal discharge is marked the patient is no longer "planned for
-  // discharge" — they move down to Others, waiting to be billed.
   const plannedRows = useMemo(
-    () => filteredPatientRows.filter((row) => row.plannedDischargeDate === todayIso && !row.dischargeDate),
+    () => filteredPatientRows.filter((row) => row.plannedDischargeDate === todayIso),
     [filteredPatientRows, todayIso],
   );
-  // "Others" = everyone not planned for discharge today, with the discharged-but-
-  // unbilled patients pulled to the top so the billing desk sees them first. They
-  // are de-duplicated against the main list, which already carries them whenever
-  // the All Patients toggle or a search is active.
-  const unplannedRows = useMemo(() => {
-    const term = patientSearch.trim().toLowerCase();
-    const pending = (pendingBillingRows.data || []).filter(
-      (row) => !term || matchesPatientSearch(row, term),
-    );
-    const pendingIds = new Set(pending.map((row) => row.visitId));
-    const rest = filteredPatientRows.filter(
-      (row) =>
-        !pendingIds.has(row.visitId) &&
-        (row.plannedDischargeDate !== todayIso || !!row.dischargeDate),
-    );
-    return [...pending, ...rest];
-  }, [filteredPatientRows, pendingBillingRows.data, patientSearch, todayIso]);
-
-  const pendingBillingCount = useMemo(
-    () => unplannedRows.filter((row) => !!row.dischargeDate && row.billPaid !== true).length,
-    [unplannedRows],
+  const unplannedRows = useMemo(
+    () => filteredPatientRows.filter((row) => row.plannedDischargeDate !== todayIso),
+    [filteredPatientRows, todayIso],
   );
 
   const plannedPatientIds = useMemo(
@@ -600,33 +531,8 @@ export default function AdvanceFlow() {
 
   const refreshDischargePlanning = () => {
     qc.invalidateQueries({ queryKey: ["tablet-advance-patient-list"] });
-    qc.invalidateQueries({ queryKey: ["tablet-advance-pending-billing"] });
     qc.invalidateQueries({ queryKey: ["tablet-discharge-thumb-confirmations"] });
   };
-
-  /** Clears a discharged patient off the billing worklist. Nothing else in the
-   *  app writes visits.bill_paid, so without this the Others list never drains. */
-  const markBilled = useMutation({
-    mutationFn: async (row: AdvancePatientRow) => {
-      const { error } = await supabase
-        .from("visits")
-        .update({ bill_paid: true } as any)
-        .eq("id", row.visitId);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      setBilledConfirmRow(null);
-      refreshDischargePlanning();
-      toast({ title: "Billing done", description: "The patient is off the billing list." });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Could not mark billing done",
-        description: error?.message || "Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
 
   const togglePlannedDischarge = useMutation({
     mutationFn: async ({ row, planned }: { row: AdvancePatientRow; planned: boolean }) => {
@@ -816,15 +722,12 @@ export default function AdvanceFlow() {
     onSuccess: () => {
       setDischargeConfirmRow(null);
       refreshDischargePlanning();
-      toast({
-        title: "Marked discharge from government portal",
-        description: "Patient moved to Others for billing.",
-      });
+      toast({ title: "Patient discharged", description: "The visit is now closed." });
     },
     onError: (error: any) => {
       toast({
-        title: "Could not mark the portal discharge",
-        description: error?.message || "Please try again.",
+        title: "Discharge failed",
+        description: error?.message || "Could not discharge the patient.",
         variant: "destructive",
       });
     },
@@ -1700,8 +1603,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
   };
 
   const renderPatientRow = (row: AdvancePatientRow) => {
-    const awaitingBilling = !!row.dischargeDate && row.billPaid !== true;
-    const isPlanned = row.plannedDischargeDate === todayIso && !row.dischargeDate;
+    const isPlanned = row.plannedDischargeDate === todayIso;
     const confirmation = thumbConfirmations.data?.get(row.patient.id) || null;
     const unlocked = !!confirmation;
     const lockedHint = "Attach the portal thumb confirmation first";
@@ -1713,7 +1615,6 @@ ${JSON.stringify(sourceContext, null, 2)}`,
         className={cn(
           "rounded-2xl border-2 border-border bg-card sm:rounded-xl sm:border",
           isPlanned && "border-primary/50",
-          awaitingBilling && "border-amber-500/60",
         )}
       >
         <div className="flex items-stretch">
@@ -1731,11 +1632,6 @@ ${JSON.stringify(sourceContext, null, 2)}`,
               <div className="min-w-0">
                 <p className="truncate font-semibold">{row.patient.name}</p>
                 <p className="truncate text-xs text-muted-foreground">{row.patient.patients_id || "No patient ID"}</p>
-                {awaitingBilling ? (
-                  <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
-                    Discharged {row.dischargeDate ? shortDate(row.dischargeDate) : ""} · Bill pending
-                  </span>
-                ) : null}
               </div>
             </div>
             <div className="text-sm"><span className="text-xs text-muted-foreground sm:hidden">Admission: </span>{row.admissionDate ? shortDate(row.admissionDate) : "—"}</div>
@@ -1747,34 +1643,21 @@ ${JSON.stringify(sourceContext, null, 2)}`,
             </div>
             <ChevronRight className="hidden h-5 w-5 text-muted-foreground sm:block" />
           </button>
-          {awaitingBilling ? (
-            <button
-              type="button"
-              className="flex w-16 shrink-0 flex-col items-center justify-center gap-1 border-l border-border px-2 text-center hover:bg-emerald-500/10"
-              title="Mark this patient's bill as done"
-              onClick={() => setBilledConfirmRow(row)}
-              disabled={markBilled.isPending}
-            >
-              <CheckCircle2 className="h-6 w-6 text-emerald-600" />
-              <span className="text-[10px] leading-tight text-muted-foreground">Billing done</span>
-            </button>
-          ) : (
-            <label
-              className="flex w-16 shrink-0 cursor-pointer flex-col items-center justify-center gap-1 border-l border-border px-2 text-center"
-              title="Plan this patient for discharge today"
-            >
-              <input
-                type="checkbox"
-                className="h-6 w-6 cursor-pointer accent-primary"
-                checked={isPlanned}
-                disabled={togglePlannedDischarge.isPending}
-                onChange={(event) =>
-                  togglePlannedDischarge.mutate({ row, planned: event.target.checked })
-                }
-              />
-              <span className="text-[10px] leading-tight text-muted-foreground">Discharge today</span>
-            </label>
-          )}
+          <label
+            className="flex w-16 shrink-0 cursor-pointer flex-col items-center justify-center gap-1 border-l border-border px-2 text-center"
+            title="Plan this patient for discharge today"
+          >
+            <input
+              type="checkbox"
+              className="h-6 w-6 cursor-pointer accent-primary"
+              checked={isPlanned}
+              disabled={togglePlannedDischarge.isPending}
+              onChange={(event) =>
+                togglePlannedDischarge.mutate({ row, planned: event.target.checked })
+              }
+            />
+            <span className="text-[10px] leading-tight text-muted-foreground">Discharge today</span>
+          </label>
         </div>
 
         {isPlanned ? (
@@ -1915,7 +1798,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
               <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
             ) : patientRows.isError ? (
               <p className="py-12 text-center text-destructive">Could not load patients. Please try again.</p>
-            ) : plannedRows.length === 0 && unplannedRows.length === 0 ? (
+            ) : filteredPatientRows.length === 0 ? (
               <p className="py-12 text-center text-muted-foreground">No matching patients found.</p>
             ) : (
               <div className="space-y-6">
@@ -1929,14 +1812,11 @@ ${JSON.stringify(sourceContext, null, 2)}`,
                 ) : null}
                 {unplannedRows.length > 0 ? (
                   <section className="space-y-3 sm:space-y-1.5">
-                    <h3 className="text-base font-bold text-muted-foreground">
-                      Others ({unplannedRows.length})
-                      {pendingBillingCount > 0 ? (
-                        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
-                          {pendingBillingCount} discharged · to be billed
-                        </span>
-                      ) : null}
-                    </h3>
+                    {plannedRows.length > 0 ? (
+                      <h3 className="text-base font-bold text-muted-foreground">
+                        Other admitted patients ({unplannedRows.length})
+                      </h3>
+                    ) : null}
                     {unplannedRows.map(renderPatientRow)}
                   </section>
                 ) : null}
@@ -1983,8 +1863,8 @@ ${JSON.stringify(sourceContext, null, 2)}`,
               </DialogTitle>
             </DialogHeader>
             <p className="text-sm text-muted-foreground">
-              This records the portal discharge and moves the patient to Others, where they stay
-              until the bill is done. The portal thumb confirmation is on file.
+              This closes the visit and removes the patient from the admitted list. The portal
+              thumb confirmation is on file.
             </p>
             <div className="flex justify-end gap-2 pt-2">
               <TabletButton variant="outline" onClick={() => setDischargeConfirmRow(null)}>
@@ -1999,36 +1879,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
                 {dischargePlannedPatient.isPending ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : null}
-                Mark on portal
-              </TabletButton>
-            </div>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog
-          open={!!billedConfirmRow}
-          onOpenChange={(open) => {
-            if (!open) setBilledConfirmRow(null);
-          }}
-        >
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Billing done for {billedConfirmRow?.patient.name}?</DialogTitle>
-            </DialogHeader>
-            <p className="text-sm text-muted-foreground">
-              This removes the patient from the Others billing list. Only confirm once the bill has
-              actually been raised.
-            </p>
-            <div className="flex justify-end gap-2 pt-2">
-              <TabletButton variant="outline" onClick={() => setBilledConfirmRow(null)}>
-                Cancel
-              </TabletButton>
-              <TabletButton
-                onClick={() => billedConfirmRow && markBilled.mutate(billedConfirmRow)}
-                disabled={markBilled.isPending}
-              >
-                {markBilled.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                Billing done
+                Mark discharge
               </TabletButton>
             </div>
           </DialogContent>
