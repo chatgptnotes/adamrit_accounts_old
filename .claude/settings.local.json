@@ -95,7 +95,8 @@
       "Bash(mkdir -p ~/.local/bin)",
       "Bash(cp gh_2.96.0_macOS_arm64/bin/gh ~/.local/bin/gh)",
       "Bash(chmod +x ~/.local/bin/gh)",
-      "Bash(~/.local/bin/gh --version)"
+      "Bash(~/.local/bin/gh --version)",
+      "Bash(pbcopy)"
     ],
     "deny": [],
     "ask": []

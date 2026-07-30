@@ -12,6 +12,7 @@ import { useCompanies } from '@/hooks/useCompanies'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAccountingRights } from '@/components/accounting/tally/rights'
 import { uploadBillAttachment } from '@/lib/uploadBillAttachment'
+import { accountTypeForGroupChain, tallyChartAccountCode } from '@/lib/ledgerMasters'
 import { resolveAccountingCompanyId } from '@/components/tally/TallyCreateVoucher'
 import {
   type ApprovalCategory,
@@ -178,22 +179,18 @@ export default function TallyApprovals({ companyName }: Props) {
       .maybeSingle()
     if (existing?.id) return existing.id
 
-    const group = String(master.group_name || '').toLowerCase()
-    const accountType =
-      group.includes('expense') || group.includes('purchase') || group.includes('salary') || group.includes('consultant')
-        ? 'DIRECT_EXPENSES'
-        : group.includes('income') || group.includes('sales')
-          ? 'INCOME'
-          : group.includes('capital')
-            ? 'EQUITY'
-            : group.includes('liabilit') || group.includes('creditor') || group.includes('loan') || group.includes('provision')
-              ? 'LIABILITIES'
-              : 'CURRENT_ASSETS'
+    // The same group -> account_type rules the ledger master screen and the
+    // Tally import use, so a materialised ledger reports where its group says
+    // it should. The old ladder here produced the blunt 'INCOME'/'LIABILITIES'
+    // types, which no report groups under a Tally head.
+    const accountType = accountTypeForGroupChain([master.group_name]).type
 
     const { data: created, error: createError } = await supabase
       .from('chart_of_accounts')
       .insert({
-        account_code: master.code || `ML${masterId.replace(/-/g, '').slice(0, 12)}`,
+        // Not master.code: `ledgers.code` runs to 24 characters and
+        // account_code is VARCHAR(20), so a long ledger name failed with 22001.
+        account_code: tallyChartAccountCode(accountingCompanyId, master.name),
         account_name: master.name,
         account_type: accountType,
         account_group: master.group_name || null,

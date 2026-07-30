@@ -56,11 +56,26 @@ interface GroupSearchProps {
   onSelect: (value: string) => void;
   /** Offer Tally's "Primary" pseudo-parent (group creation only) */
   includePrimary?: boolean;
+  /**
+   * Groups that exist only as chart_of_accounts.account_group text — the real
+   * Tally groups a company's imported ledgers sit under, which have no
+   * ledger_groups row. Ledger Creation offers these so a new ledger can be
+   * filed where its siblings already are.
+   */
+  extraOptions?: { id: string; label: string; detail: string }[];
 }
 
-export const GroupSearch = ({ groups, value, onSelect, includePrimary = true }: GroupSearchProps) => {
+export const GroupSearch = ({
+  groups,
+  value,
+  onSelect,
+  includePrimary = true,
+  extraOptions = [],
+}: GroupSearchProps) => {
   const selectedLabel =
-    value === PRIMARY ? 'Primary' : groups.find((g) => g.id === value)?.name ?? '';
+    value === PRIMARY
+      ? 'Primary'
+      : groups.find((g) => g.id === value)?.name ?? extraOptions.find((o) => o.id === value)?.label ?? '';
   const [text, setText] = useState(selectedLabel);
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
@@ -68,7 +83,7 @@ export const GroupSearch = ({ groups, value, onSelect, includePrimary = true }: 
   useEffect(() => {
     setText(selectedLabel);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, groups.length]);
+  }, [value, groups.length, extraOptions.length]);
 
   const options = useMemo(() => {
     const q = text.trim().toLowerCase();
@@ -81,10 +96,11 @@ export const GroupSearch = ({ groups, value, onSelect, includePrimary = true }: 
           ? groups.find((p) => p.id === g.parent_group_id)?.name ?? ''
           : 'Primary',
       })),
+      ...extraOptions,
     ];
     const filtered = q ? list.filter((o) => o.label.toLowerCase().includes(q)) : list;
     return filtered.slice(0, 20);
-  }, [groups, text, includePrimary]);
+  }, [groups, text, includePrimary, extraOptions]);
 
   const pick = (id: string): void => {
     onSelect(id);
