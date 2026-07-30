@@ -301,9 +301,9 @@ export interface AccountingLedgerOption {
   company_id: string | null;
 }
 
-// Accounting-ledger equivalents used by the Payment Allocation UI. These are
-// deliberately read-only: confirming an operational payment still follows the
-// existing create_daily_payment_voucher flow and does not post ledger entries.
+// Accounting-ledger equivalents used by the Payment Allocation UI. Read-only
+// here — the ledgers picked are handed to create_daily_payment_voucher, which
+// posts Dr party / Cr cash-bank alongside the operational payment voucher.
 export const useAccountingLedgerSearch = (
   searchTerm: string | null | undefined,
   companyId?: string | null,

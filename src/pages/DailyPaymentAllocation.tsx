@@ -997,8 +997,10 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
       return;
     }
     try {
-      if (!payTallyCompanyId || !payDebitLedgerId) {
-        setPaymentError('Select an Accounting company and debit ledger before confirming payment.');
+      // Both sides are required: the payment posts Dr party / Cr cash-bank into
+      // the day book, and a half-mapped payment would leave the books unbalanced.
+      if (!payTallyCompanyId || !payDebitLedgerId || !payCreditLedgerId) {
+        setPaymentError('Select an Accounting company, the ledger being paid, and the cash or bank it is paid from before confirming.');
         return;
       }
       if (
@@ -1024,6 +1026,9 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
         userId: user?.username || 'admin',
         payeeName: confirmingSubAlloc?.payee_name || payingEntry.party_name,
         hospitalType: selectedHospital,
+        companyId: payTallyCompanyId,
+        debitAccountId: payDebitLedgerId,
+        creditAccountId: payCreditLedgerId,
       });
       // Link the exact accounting voucher to the sub-payee row. This keeps
       // the payee-level audit trail aligned with the parent schedule voucher.

@@ -166,12 +166,16 @@ export const useDailyPaymentSchedule = (date: string, hospital: string = 'hope')
   const createPaymentVoucher = useMutation({
     mutationFn: async ({
       scheduleId, amount, userId, payeeName, hospitalType,
+      companyId, debitAccountId, creditAccountId,
     }: {
       scheduleId: string;
       amount: number;
       userId: string;
       payeeName?: string | null;
       hospitalType: string;
+      companyId: string | null;
+      debitAccountId: string | null;
+      creditAccountId: string | null;
     }) => {
       const { data, error } = await (supabase as any).rpc('create_daily_payment_voucher', {
         p_schedule_id: scheduleId,
@@ -179,17 +183,29 @@ export const useDailyPaymentSchedule = (date: string, hospital: string = 'hope')
         p_user_id: userId,
         p_payee_name: payeeName || null,
         p_hospital_type: hospitalType,
+        p_company_id: companyId,
+        p_debit_account_id: debitAccountId,
+        p_credit_account_id: creditAccountId,
       });
       if (error) throw error;
       return data as {
         paymentVoucherId: string;
         paymentVoucherNumber: string;
+        accountingVoucherId: string;
+        accountingVoucherNumber: string;
       };
     },
     onSuccess: (result, variables) => {
       queryClient.invalidateQueries({ queryKey: ['daily-payment-schedule'] });
       queryClient.invalidateQueries({ queryKey: ['payment-history'] });
-      toast.success(`Payment Voucher ${result.paymentVoucherNumber} created for Rs. ${variables.amount.toLocaleString('en-IN')}.`);
+      queryClient.invalidateQueries({ queryKey: ['daybook_vouchers'] });
+      queryClient.invalidateQueries({ queryKey: ['vouchers'] });
+      toast.success(
+        `Payment Voucher ${result.paymentVoucherNumber} created for Rs. ${variables.amount.toLocaleString('en-IN')}.` +
+          (result.accountingVoucherNumber
+            ? ` Posted to the day book as ${result.accountingVoucherNumber}.`
+            : ''),
+      );
     },
     onError: (err: any) => toast.error('Payment failed: ' + err.message),
   });
