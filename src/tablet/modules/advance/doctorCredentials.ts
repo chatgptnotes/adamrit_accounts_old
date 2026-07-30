@@ -19,10 +19,17 @@ export async function loadSummarySignatory(
   const name = (doctorName || "").trim();
   if (!name) return null;
 
+  // Matched on the normalised key, never the raw name. appointment_with is
+  // typed by hand and its spacing varies - "Dr. Afzal Sheikh" and
+  // "Dr. AFZAL  Sheikh" are 1,732 visits belonging to one doctor - so an exact
+  // match would find a signature for some of a doctor's patients and not
+  // others. name_key is the same expression, computed by the database.
+  const nameKey = name.toLowerCase().replace(/\s+/g, " ");
+
   const { data, error } = await (supabase as any)
     .from("doctor_credentials")
     .select("doctor_name, qualification, registration_no, specialty, signature_url, stamp_url")
-    .ilike("doctor_name", name)
+    .eq("name_key", nameKey)
     .eq("is_active", true)
     .maybeSingle();
 
