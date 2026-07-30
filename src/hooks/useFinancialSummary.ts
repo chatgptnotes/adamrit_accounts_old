@@ -1859,6 +1859,12 @@ const fetchAnesthetistTotal = async (): Promise<number> => {
         providedBillId: billId,
         reason: !billId ? 'billId is falsy' : 'billId is empty string'
       });
+      // No bill row yet — nothing to load, but the page must not stay stuck on
+      // "Initializing…", or the auto-populate gate in FinalBill and
+      // autoPopulateFinancialData's own isInitializing guard both block forever
+      // and the Advance Payment column stays at 0. loadFinancialSummary clears
+      // the flag and returns immediately when billId is falsy.
+      loadFinancialSummary();
     }
   }, [billId]);
 

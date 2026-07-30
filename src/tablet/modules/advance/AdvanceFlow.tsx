@@ -1040,8 +1040,10 @@ export default function AdvanceFlow() {
     mutationFn: async () => {
       const value = Number(amount);
       if (!patient || !value || value <= 0) throw new Error("Enter a valid amount");
+      if (!visit.data?.visit_id) throw new Error("No visit found for this patient");
       const { error } = await supabase.from("advance_payment").insert({
         patient_id: patient.id,
+        visit_id: visit.data.visit_id,
         patient_name: patient.name,
         patients_id: patient.patients_id || null,
         advance_amount: value,
