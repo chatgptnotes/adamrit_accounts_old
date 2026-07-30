@@ -506,6 +506,55 @@ export async function fetchLatestGovernmentPortalReport(
   };
 }
 
+/**
+ * Discharged patients no longer need an extension action — their episode is
+ * already closed. Every list that feeds the "extension needed" notification
+ * must drop them, otherwise discharged patients pile up forever in the alert
+ * bell and bury the patients who still need work.
+ *
+ * A patient is considered discharged when ANY IPD visit for them is marked
+ * is_discharged = true. Matching follows the same two keys the rest of the
+ * portal sync uses: Yojana/Thumb registration ID first, then the normalized
+ * patient name. Registration ID is authoritative; the name fallback catches
+ * rows where the ID was never captured on the visit.
+ */
+async function loadDischargedPatientKeys(): Promise<{
+  byRegistrationId: Set<string>;
+  byPatientName: Set<string>;
+}> {
+  const byRegistrationId = new Set<string>();
+  const byPatientName = new Set<string>();
+
+  try {
+    const discharged = await fetchAllRows<{
+      yojana_registration_id: string | null;
+      thumb_registration_no: string | null;
+      patients?: { name: string | null } | null;
+    }>((from, to) =>
+      db
+        .from('visits')
+        .select('yojana_registration_id, thumb_registration_no, patients(name)')
+        .eq('is_discharged', true)
+        .range(from, to),
+    );
+
+    for (const visit of discharged) {
+      const yojana = normalizeRegistrationId(visit.yojana_registration_id);
+      if (yojana) byRegistrationId.add(yojana);
+      const thumb = normalizeRegistrationId(visit.thumb_registration_no);
+      if (thumb) byRegistrationId.add(thumb);
+      const name = normalizeMatchValue(visit.patients?.name);
+      if (name) byPatientName.add(name);
+    }
+  } catch (dischargeError) {
+    // If the discharge lookup fails we must NOT suppress the whole alert list —
+    // showing discharged patients is noisy, showing nothing is dangerous.
+    console.error('Could not load discharged patient keys; filter skipped:', dischargeError);
+  }
+
+  return { byRegistrationId, byPatientName };
+}
+
 export async function fetchLatestGovernmentPortalExtensionAlerts(
   rowLimit = 100,
   reportKind: GovernmentPortalReportKind = 'under_treatment',
@@ -525,6 +574,11 @@ export async function fetchLatestGovernmentPortalExtensionAlerts(
   const header = importHeaders[0] || null;
 
   if (!header) return null;
+
+  // Always exclude discharged patients from the extension-needed list — their
+  // episode is closed and they only bury the patients who still need action.
+  // Kicked off before the row query so it runs concurrently with it.
+  const dischargedKeysPromise = loadDischargedPatientKeys();
 
   const importById = new Map(importHeaders.map((item) => [item.id, item]));
   const importIds = importHeaders.map((item) => item.id);
@@ -552,7 +606,19 @@ export async function fetchLatestGovernmentPortalExtensionAlerts(
     if (!uniqueRows.has(key)) uniqueRows.set(key, row);
   }
 
+  // Drop discharged patients: match by registration ID first (authoritative),
+  // then by normalized beneficiary name (fallback when the visit has no ID).
+  const { byRegistrationId: dischargedByRegId, byPatientName: dischargedByName } =
+    await dischargedKeysPromise;
+  const isDischarged = (row: DbReportRow): boolean => {
+    const regId = normalizeRegistrationId(row.registration_id);
+    if (regId && dischargedByRegId.has(regId)) return true;
+    const name = normalizeMatchValue(row.beneficiary_name);
+    return Boolean(name) && dischargedByName.has(name);
+  };
+
   const alertRows = Array.from(uniqueRows.values())
+    .filter((row) => !isDischarged(row))
     .sort((left, right) => {
       const leftImport = importById.get(left.import_id);
       const rightImport = importById.get(right.import_id);
