@@ -401,13 +401,23 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
 
             <div className="pt-6">
               {companies.map((c) => (
-                <div key={c.id} className="flex items-baseline">
+                // Tally loads the company you pick from this list — same action
+                // as the F3 company pop-up, one click closer.
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => accountingCompany?.setSelectedCompanyId(c.id)}
+                  title={`Load ${c.company_name}`}
+                  className={`flex w-full items-baseline text-left hover:bg-[#fdf6d8] ${
+                    c.id === accountingCompany?.selectedCompanyId ? 'font-semibold' : ''
+                  }`}
+                >
                   <span className="min-w-0 flex-1 truncate">{c.company_name}</span>
                   <span className="w-10 text-center">{companyInfo[c.id]?.exceptions ? '(e)' : ''}</span>
                   <span className="w-20 text-right">
                     {companyInfo[c.id]?.lastEntry ? isoDateLabel(companyInfo[c.id].lastEntry as string) : ''}
                   </span>
-                </div>
+                </button>
               ))}
             </div>
 
