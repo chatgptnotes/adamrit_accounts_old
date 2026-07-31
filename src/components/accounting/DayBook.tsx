@@ -103,7 +103,10 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
   const { selectedCompanyId } = useAccountingCompany();
 
   const { data: voucherTypes = [] } = useQuery({
-    queryKey: ['voucher_types'],
+    // Its own key: this list drops prefix / current_number, and sharing
+    // ['voucher_types'] with Voucher Entry left that screen numbering from a
+    // cached row with no prefix and no counter — it renumbered vouchers "0001".
+    queryKey: ['voucher_types', 'names'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('voucher_types')

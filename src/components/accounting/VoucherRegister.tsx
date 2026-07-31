@@ -49,7 +49,9 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
   const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
 
   const { data: voucherTypes = [] } = useQuery({
-    queryKey: ['voucher_types'],
+    // Its own key — see DayBook: this list has no prefix / current_number, so
+    // it must not fill the cache Voucher Entry numbers from.
+    queryKey: ['voucher_types', 'names'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('voucher_types')
