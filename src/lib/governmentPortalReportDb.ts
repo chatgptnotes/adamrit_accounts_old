@@ -556,6 +556,87 @@ export async function loadDischargedPatientKeys(): Promise<{
   return { byRegistrationId, byPatientName };
 }
 
+export interface DischargeDateLookup {
+  byRegistrationId: Map<string, string>;
+  byPatientName: Map<string, string>;
+}
+
+/**
+ * When each patient in a portal report left the hospital.
+ *
+ * The NHA export carries no discharge date — its columns stop at the preauth —
+ * so the date has to come from our own visits. Matching follows the same two
+ * keys as `loadDischargedPatientKeys`: Yojana/Thumb registration ID first,
+ * then the normalized patient name.
+ *
+ * This asks for visits that HAVE a discharge date rather than visits flagged
+ * `is_discharged`, which is the narrower question the filter above asks. The
+ * two disagree on a visit whose date was recorded before the flag was set, and
+ * for showing a date the date itself is the better authority.
+ *
+ * A patient with more than one discharged visit keeps the most recent date —
+ * that is the episode a report row printed today is about.
+ */
+export async function loadDischargeDates(): Promise<DischargeDateLookup> {
+  const byRegistrationId = new Map<string, string>();
+  const byPatientName = new Map<string, string>();
+
+  /** Keep the later of the two dates when a patient has several visits. */
+  const remember = (map: Map<string, string>, key: string, date: string) => {
+    const existing = map.get(key);
+    if (!existing || date > existing) map.set(key, date);
+  };
+
+  try {
+    const visits = await fetchAllRows<{
+      discharge_date: string | null;
+      yojana_registration_id: string | null;
+      thumb_registration_no: string | null;
+      patients?: { name: string | null } | null;
+    }>((from, to) =>
+      db
+        .from('visits')
+        .select('discharge_date, yojana_registration_id, thumb_registration_no, patients(name)')
+        .not('discharge_date', 'is', null)
+        .order('id', { ascending: true })
+        .range(from, to),
+    );
+
+    for (const visit of visits) {
+      const date = (visit.discharge_date || '').trim();
+      if (!date) continue;
+      const yojana = normalizeRegistrationId(visit.yojana_registration_id);
+      if (yojana) remember(byRegistrationId, yojana, date);
+      const thumb = normalizeRegistrationId(visit.thumb_registration_no);
+      if (thumb) remember(byRegistrationId, thumb, date);
+      const name = normalizeMatchValue(visit.patients?.name);
+      if (name) remember(byPatientName, name, date);
+    }
+  } catch (error) {
+    // A missing date column is a blank cell, not a broken report — the rest of
+    // the import must still be readable.
+    console.error('Could not load discharge dates; the column will read "-":', error);
+  }
+
+  return { byRegistrationId, byPatientName };
+}
+
+/** The discharge date for one report row, or null when we hold no visit for it. */
+export function dischargeDateFor(
+  lookup: DischargeDateLookup,
+  registrationId: string | null | undefined,
+  patientName: string | null | undefined,
+): string | null {
+  const regId = normalizeRegistrationId(registrationId);
+  if (regId) {
+    const byId = lookup.byRegistrationId.get(regId);
+    if (byId) return byId;
+  }
+  const name = normalizeMatchValue(patientName);
+  if (name) return lookup.byPatientName.get(name) ?? null;
+  return null;
+}
+
 /**
  * Shared discharged-patient filter. Apply this to ANY list of patients that
  * should not include discharged cases. Matching uses registration ID first
