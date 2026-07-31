@@ -596,7 +596,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
           .select('opening_balance, opening_balance_type')
           .eq('id', accountId)
           .single(),
-        accountMovements({}),
+        accountMovements({ companyId: selectedCompanyId }),
       ]);
       const opening = (Number(acc?.opening_balance) || 0) * (acc?.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1);
       const m = movements.get(accountId);
@@ -606,7 +606,13 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
       console.error('Balance lookup failed:', err);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [balances]);
+  }, [balances, selectedCompanyId]);
+
+  // Cur Bal is memoised per account id, so switching company would otherwise
+  // keep showing the previous company's figure for an already-seen ledger.
+  useEffect(() => {
+    setBalances({});
+  }, [selectedCompanyId]);
 
   // ------ Data ------
   const { data: costCentres = [] } = useCostCentres();

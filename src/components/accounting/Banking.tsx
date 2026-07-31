@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { amountInWords } from '@/lib/amountInWords';
 import { fetchActiveAccounts } from '@/lib/fetchAccounts';
+import { useAccountingCompany } from './AccountingCompanyContext';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 
@@ -27,6 +28,7 @@ const esc = (t: string): string =>
 const Banking: React.FC = () => {
   const { hospitalConfig } = useAuth();
   const [bankId, setBankId] = useState('');
+  const { selectedCompanyId } = useAccountingCompany();
   const [payee, setPayee] = useState('');
   const [amount, setAmount] = useState('');
   const [chequeNo, setChequeNo] = useState('');
@@ -35,8 +37,11 @@ const Banking: React.FC = () => {
   const [narration, setNarration] = useState('');
 
   const { data: banks = [] } = useQuery({
-    queryKey: ['banking_banks'],
-    queryFn: () => fetchActiveAccounts<Account>({ columns: 'id, account_code, account_name', codePrefixes: ['112'] }),
+    queryKey: ['banking_banks', selectedCompanyId],
+    enabled: !!selectedCompanyId,
+    // Every 112x ledger is shared (company_id IS NULL), so this returns the
+    // same banks for every company today. Passed for uniformity, not as a fix.
+    queryFn: () => fetchActiveAccounts<Account>({ columns: 'id, account_code, account_name', codePrefixes: ['112'], companyId: selectedCompanyId }),
   });
 
   const bank = banks.find((b) => b.id === bankId) || null;

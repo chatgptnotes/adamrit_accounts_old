@@ -5,6 +5,7 @@ import { fetchAllRows } from '@/lib/fetchAllRows';
 import { accountMovements } from '@/lib/accountMovements';
 import { format } from 'date-fns';
 import { fetchActiveAccounts } from '@/lib/fetchAccounts';
+import { useAccountingCompany } from './AccountingCompanyContext';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
@@ -25,6 +26,7 @@ interface Exception {
  * and cash/bank ledgers with negative (credit) balances.
  */
 const ExceptionReports: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVoucher }) => {
+  const { selectedCompanyId } = useAccountingCompany();
   const report = useTallyReport({
     supportsColumns: false,
     filterFields: ['Exception', 'Reference', 'Details'],
@@ -38,7 +40,8 @@ const ExceptionReports: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ 
   const { from: fromDate, to: toDate } = report;
 
   const { data, isLoading } = useQuery({
-    queryKey: ['exception_reports', fromDate, toDate],
+    queryKey: ['exception_reports', selectedCompanyId, fromDate, toDate],
+    enabled: !!selectedCompanyId,
     queryFn: async () => {
       const exceptions: Exception[] = [];
 
@@ -48,6 +51,7 @@ const ExceptionReports: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ 
           .from('vouchers')
           .select('id, voucher_number, voucher_date, status, total_amount, voucher_entries(debit_amount, credit_amount)')
           .eq('status', 'AUTHORISED')
+          .eq('company_id', selectedCompanyId)
           .gte('voucher_date', fromDate)
           .lte('voucher_date', toDate)
           .range(from, to),
@@ -98,8 +102,9 @@ const ExceptionReports: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ 
         }>({
           columns: 'id, account_code, account_name, opening_balance, opening_balance_type',
           codePrefixes: ['111', '112'],
+          companyId: selectedCompanyId,
         }),
-        accountMovements({ upto: toDate }),
+        accountMovements({ upto: toDate, companyId: selectedCompanyId }),
       ]);
       for (const a of accounts) {
         const opening =

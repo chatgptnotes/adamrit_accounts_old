@@ -5,6 +5,7 @@ import { fetchAllRows } from '@/lib/fetchAllRows';
 import { accountMovements } from '@/lib/accountMovements';
 import { format } from 'date-fns';
 import { fetchActiveAccounts } from '@/lib/fetchAccounts';
+import { useAccountingCompany } from './AccountingCompanyContext';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 
@@ -45,6 +46,7 @@ const dayBefore = (iso: string): string => {
  * combined cash+bank Opening and Closing balances.
  */
 const ReceiptsPayments: React.FC = () => {
+  const { selectedCompanyId } = useAccountingCompany();
   const report = useTallyReport({
     filterFields: ['Particulars'],
     views: [
@@ -57,10 +59,12 @@ const ReceiptsPayments: React.FC = () => {
   const { from: fromDate, to: toDate } = report;
 
   const { data: accounts = [] } = useQuery({
-    queryKey: ['rp_accounts'],
+    queryKey: ['rp_accounts', selectedCompanyId],
+    enabled: !!selectedCompanyId,
     queryFn: () =>
       fetchActiveAccounts<Account>({
         columns: 'id, account_code, account_name, opening_balance, opening_balance_type',
+        companyId: selectedCompanyId,
       }),
   });
 
@@ -72,18 +76,21 @@ const ReceiptsPayments: React.FC = () => {
 
   // Opening cash+bank = chart openings + movements before the period
   const { data: before = new Map(), isLoading: l1 } = useQuery({
-    queryKey: ['rp_before', fromDate],
-    queryFn: () => accountMovements({ upto: dayBefore(fromDate) }),
+    queryKey: ['rp_before', selectedCompanyId, fromDate],
+    enabled: !!selectedCompanyId,
+    queryFn: () => accountMovements({ upto: dayBefore(fromDate), companyId: selectedCompanyId }),
   });
 
   const { data: entries = [], isLoading: l2 } = useQuery({
-    queryKey: ['rp_entries', fromDate, toDate],
+    queryKey: ['rp_entries', selectedCompanyId, fromDate, toDate],
+    enabled: !!selectedCompanyId,
     queryFn: async () => {
       const data = await fetchAllRows((from, to) =>
         supabase
           .from('voucher_entries')
           .select('account_id, debit_amount, credit_amount, voucher_id, voucher:vouchers!inner(voucher_date, status)')
           .eq('voucher.status', 'AUTHORISED')
+          .eq('voucher.company_id', selectedCompanyId)
           .gte('voucher.voucher_date', fromDate)
           .lte('voucher.voucher_date', toDate)
           .range(from, to),

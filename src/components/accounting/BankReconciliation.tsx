@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchActiveAccounts } from '@/lib/fetchAccounts';
+import { useAccountingCompany } from './AccountingCompanyContext';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { fetchAllRows } from '@/lib/fetchAllRows';
@@ -99,6 +100,7 @@ const formatCurrency = (val: number): string => {
 const BankReconciliation: React.FC = () => {
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
 
+  const { selectedCompanyId } = useAccountingCompany();
   const report = useTallyReport({
     supportsColumns: false,
     filterFields: ['Particulars', 'Vch No.'],
@@ -128,7 +130,9 @@ const BankReconciliation: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Reconciled IDs are persisted per bank account in localStorage
-  const storageKey = `bank_recon_${selectedAccountId}`;
+  // Bank ledgers are shared (company_id IS NULL), so without the company in
+  // the key one company's tick marks would show up in another's.
+  const storageKey = `bank_recon_${selectedCompanyId}_${selectedAccountId}`;
   const [reconciledIds, setReconciledIds] = useState<Set<string>>(new Set());
 
   // Load reconciled IDs from localStorage when account changes
@@ -228,9 +232,9 @@ const BankReconciliation: React.FC = () => {
     data: bankAccounts = [],
     isLoading: bankLoading,
   } = useQuery({
-    queryKey: ['bank_recon_accounts'],
+    queryKey: ['bank_recon_accounts', selectedCompanyId],
     // Bank ledgers live under account codes 112x in this chart
-    queryFn: () => fetchActiveAccounts<Account>({ columns: '*', codePrefixes: ['112'] }),
+    queryFn: () => fetchActiveAccounts<Account>({ columns: '*', codePrefixes: ['112'], companyId: selectedCompanyId }),
   });
 
   // Fetch voucher entries for the selected bank account within the date range
@@ -241,7 +245,7 @@ const BankReconciliation: React.FC = () => {
     error: txnErr,
     refetch: refetchTxn,
   } = useQuery({
-    queryKey: ['bank_recon_entries', selectedAccountId, fromDate, toDate],
+    queryKey: ['bank_recon_entries', selectedCompanyId, selectedAccountId, fromDate, toDate],
     queryFn: async () => {
       if (!selectedAccountId) return [];
 
@@ -253,6 +257,7 @@ const BankReconciliation: React.FC = () => {
           .select('*, voucher:vouchers!inner(id, voucher_number, voucher_date, status)')
           .eq('account_id', selectedAccountId)
           .eq('voucher.status', 'AUTHORISED')
+          .eq('voucher.company_id', selectedCompanyId)
           .gte('voucher.voucher_date', fromDate)
           .lte('voucher.voucher_date', toDate)
           .order('created_at', { ascending: true })

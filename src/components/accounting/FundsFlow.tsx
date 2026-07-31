@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { accountMovements, type Movement } from '@/lib/accountMovements';
 import { fetchActiveAccounts } from '@/lib/fetchAccounts';
+import { useAccountingCompany } from './AccountingCompanyContext';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
@@ -81,6 +82,7 @@ const computeFlow = (
 const FundsFlow: React.FC = () => {
   const [openMonth, setOpenMonth] = useState<MonthFlow | null>(null);
 
+  const { selectedCompanyId } = useAccountingCompany();
   const report = useTallyReport({
     filterFields: ['Particulars'],
     views: [
@@ -94,16 +96,17 @@ const FundsFlow: React.FC = () => {
   const fmt = report.fmtAmount;
 
   const { data: accounts = [] } = useQuery({
-    queryKey: ['ff_accounts'],
-    queryFn: () => fetchActiveAccounts<Account>({ columns: 'id, account_code, account_name, account_type' }),
+    queryKey: ['ff_accounts', selectedCompanyId],
+    enabled: !!selectedCompanyId,
+    queryFn: () => fetchActiveAccounts<Account>({ columns: 'id, account_code, account_name, account_type', companyId: selectedCompanyId }),
   });
 
   const { data: months = [], isLoading } = useQuery({
-    queryKey: ['funds_flow', report.from, report.to, accounts.length],
+    queryKey: ['funds_flow', selectedCompanyId, report.from, report.to, accounts.length],
     enabled: accounts.length > 0,
     queryFn: async () => {
       const defs = periodMonths;
-      const movs = await Promise.all(defs.map((d) => accountMovements({ from: d.from, upto: d.upto })));
+      const movs = await Promise.all(defs.map((d) => accountMovements({ from: d.from, upto: d.upto, companyId: selectedCompanyId })));
       return defs.map((d, i): MonthFlow => {
         const { sources, applications } = computeFlow(accounts, movs[i]);
         return {

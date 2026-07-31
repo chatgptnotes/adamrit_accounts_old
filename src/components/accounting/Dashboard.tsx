@@ -7,6 +7,7 @@ import { format } from 'date-fns';
 import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
+import { useAccountingCompany } from './AccountingCompanyContext';
 
 interface Account {
   id: string;
@@ -57,37 +58,44 @@ const Dashboard: React.FC<{ onOpenVoucher?: (id: string) => void; canSeeTile?: (
       { label: 'Cash/Bank Summary', target: 'cash-bank-summary' },
     ],
   });
+  const { selectedCompanyId } = useAccountingCompany();
   const today = format(new Date(), 'yyyy-MM-dd');
   const from = fyStart();
 
   const { data: accounts = [] } = useQuery({
-    queryKey: ['tb_accounts'],
-    queryFn: () => fetchActiveAccounts<Account>({ columns: 'id, account_code, account_name, account_type, opening_balance, opening_balance_type' }),
+    queryKey: ['tb_accounts', selectedCompanyId],
+    enabled: !!selectedCompanyId,
+    queryFn: () => fetchActiveAccounts<Account>({ columns: 'id, account_code, account_name, account_type, opening_balance, opening_balance_type', companyId: selectedCompanyId }),
   });
 
   const { data: cumulative = new Map<string, Movement>() } = useQuery({
-    queryKey: ['dash_cumulative', today],
-    queryFn: () => accountMovements({ upto: today }),
+    queryKey: ['dash_cumulative', selectedCompanyId, today],
+    enabled: !!selectedCompanyId,
+    queryFn: () => accountMovements({ upto: today, companyId: selectedCompanyId }),
   });
   const { data: period = new Map<string, Movement>() } = useQuery({
-    queryKey: ['dash_period', from, today],
-    queryFn: () => accountMovements({ from, upto: today }),
+    queryKey: ['dash_period', selectedCompanyId, from, today],
+    enabled: !!selectedCompanyId,
+    queryFn: () => accountMovements({ from, upto: today, companyId: selectedCompanyId }),
   });
 
   // These tiles match the Cash/Bank screens, where each cash and bank ledger
   // shows its own transactions only — so the pharmacy JVs come off them too.
   const { data: optionalNet = new Map<string, number>() } = useQuery({
-    queryKey: ['dash_cash_bank_optional', today],
-    queryFn: () => optionalNetByAccount({ upto: today }),
+    queryKey: ['dash_cash_bank_optional', selectedCompanyId, today],
+    enabled: !!selectedCompanyId,
+    queryFn: () => optionalNetByAccount({ upto: today, companyId: selectedCompanyId }),
   });
 
   const { data: recent = [] } = useQuery({
-    queryKey: ['dash_recent'],
+    queryKey: ['dash_recent', selectedCompanyId],
+    enabled: !!selectedCompanyId,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('vouchers')
         .select('id, voucher_number, voucher_date, narration, total_amount, voucher_type:voucher_types(voucher_type_name)')
         .eq('status', 'AUTHORISED')
+        .eq('company_id', selectedCompanyId)
         .order('created_at', { ascending: false })
         .limit(8);
       if (error) throw error;

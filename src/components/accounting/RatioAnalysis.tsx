@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
+import { useAccountingCompany } from './AccountingCompanyContext';
 
 interface Account {
   id: string;
@@ -47,23 +48,27 @@ const RatioAnalysis: React.FC = () => {
       { label: 'Cash Flow', target: 'cash-flow' },
     ],
   });
+  const { selectedCompanyId } = useAccountingCompany();
   const asOfDate = report.to;
   const from = fyStart();
 
   const { data: accounts = [], isLoading: accountsLoading } = useQuery({
-    queryKey: ['tb_accounts'],
-    queryFn: () => fetchActiveAccounts<Account>({ columns: 'id, account_code, account_name, account_type, opening_balance, opening_balance_type' }),
+    queryKey: ['tb_accounts', selectedCompanyId],
+    enabled: !!selectedCompanyId,
+    queryFn: () => fetchActiveAccounts<Account>({ columns: 'id, account_code, account_name, account_type, opening_balance, opening_balance_type', companyId: selectedCompanyId }),
   });
 
   // Cumulative balances to date (balance-sheet items)
   const { data: cumulative = new Map<string, Movement>(), isLoading: l1 } = useQuery({
-    queryKey: ['ratio_cumulative', asOfDate],
-    queryFn: () => accountMovements({ upto: asOfDate }),
+    queryKey: ['ratio_cumulative', selectedCompanyId, asOfDate],
+    enabled: !!selectedCompanyId,
+    queryFn: () => accountMovements({ upto: asOfDate, companyId: selectedCompanyId }),
   });
   // FY-window movements (P&L items)
   const { data: period = new Map<string, Movement>(), isLoading: l2 } = useQuery({
-    queryKey: ['ratio_period', from, asOfDate],
-    queryFn: () => accountMovements({ from, upto: asOfDate }),
+    queryKey: ['ratio_period', selectedCompanyId, from, asOfDate],
+    enabled: !!selectedCompanyId,
+    queryFn: () => accountMovements({ from, upto: asOfDate, companyId: selectedCompanyId }),
   });
 
   const R = useMemo(() => {

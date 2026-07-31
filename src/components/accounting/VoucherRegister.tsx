@@ -8,6 +8,7 @@ import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
 import { monthsInPeriod } from './tally/PeriodContext';
 import { fetchTallyVouchers } from '@/lib/mergedVouchers';
+import { useAccountingCompany } from './AccountingCompanyContext';
 import { normalizeName } from '@/lib/tallyCompanyMatch';
 import { useSourceFilter, matchesSource } from './useSourceFilter';
 
@@ -70,6 +71,7 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
 
   const type = voucherTypes.find((t) => t.id === typeId) || null;
 
+  const { selectedCompanyId } = useAccountingCompany();
   const report = useTallyReport({
     filterFields: ['Particulars', 'Vch No.'],
     views: [
@@ -89,8 +91,8 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
   const periodMonths = monthsInPeriod({ from: fyFrom, to: fyTo });
 
   const { data: nativeVouchers = [], isLoading } = useQuery({
-    queryKey: ['voucher_register', typeId, fyFrom, fyTo],
-    enabled: !!typeId,
+    queryKey: ['voucher_register', selectedCompanyId, typeId, fyFrom, fyTo],
+    enabled: !!selectedCompanyId && !!typeId,
     queryFn: async () => {
       const data = await fetchAllRows((from, to) =>
         supabase
@@ -98,6 +100,7 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
           .select('id, voucher_number, voucher_date, narration, total_amount')
           .eq('voucher_type_id', typeId)
           .eq('status', 'AUTHORISED')
+          .eq('company_id', selectedCompanyId)
           .gte('voucher_date', fyFrom)
           .lte('voucher_date', fyTo)
           .order('voucher_date', { ascending: true })
@@ -109,9 +112,9 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
 
   // Tally mirror vouchers matched to the selected type by name, deduped by number.
   const { data: tallyRows = [] } = useQuery({
-    queryKey: ['voucher_register_tally', fyFrom, fyTo],
-    enabled: !!typeId,
-    queryFn: () => fetchTallyVouchers({ from: fyFrom, upto: fyTo }),
+    queryKey: ['voucher_register_tally', selectedCompanyId, fyFrom, fyTo],
+    enabled: !!selectedCompanyId && !!typeId,
+    queryFn: () => fetchTallyVouchers({ companyId: selectedCompanyId, from: fyFrom, upto: fyTo }),
   });
 
   const vouchers: VoucherRow[] = useMemo(() => {

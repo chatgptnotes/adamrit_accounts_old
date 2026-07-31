@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
+import { useAccountingCompany } from './AccountingCompanyContext';
 
 export interface CostCentre {
   id: string;
@@ -75,6 +76,7 @@ const CostCentres: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpe
       { label: 'Trial Balance', target: 'trial-balance' },
     ],
   });
+  const { selectedCompanyId } = useAccountingCompany();
   const { from: fromDate, to: toDate } = report;
   const [openCentre, setOpenCentre] = useState<CostCentre | null>(null);
   const [newName, setNewName] = useState('');
@@ -94,11 +96,13 @@ const CostCentres: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpe
     },
   });
 
+  // cost_centres and cost_categories have no company_id — the master list is
+  // global by design, so only the voucher side below can be company-scoped.
   const { data: centres = [], isLoading: centresLoading } = useCostCentres();
 
   const { data: entries = [], isLoading: entriesLoading } = useQuery({
-    queryKey: ['cost_centre_entries', fromDate, toDate],
-    enabled: centres.length > 0,
+    queryKey: ['cost_centre_entries', selectedCompanyId, fromDate, toDate],
+    enabled: !!selectedCompanyId && centres.length > 0,
     queryFn: async () => {
       try {
         const data = await fetchAllRows((from, to) =>
@@ -109,6 +113,7 @@ const CostCentres: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpe
             )
             .not('cost_centre_id', 'is', null)
             .eq('voucher.status', 'AUTHORISED')
+            .eq('voucher.company_id', selectedCompanyId)
             .gte('voucher.voucher_date', fromDate)
             .lte('voucher.voucher_date', toDate)
             .range(from, to),

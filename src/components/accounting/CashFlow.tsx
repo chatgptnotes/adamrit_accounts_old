@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchActiveAccounts } from '@/lib/fetchAccounts';
+import { useAccountingCompany } from './AccountingCompanyContext';
 import { accountMovements, type Movement } from '@/lib/accountMovements';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
@@ -154,6 +155,7 @@ const exportCSV = (
  * and classified into the three activity categories.
  */
 const CashFlow: React.FC = () => {
+  const { selectedCompanyId } = useAccountingCompany();
   const report = useTallyReport({
     supportsColumns: false,
     filterFields: ['Particulars'],
@@ -176,8 +178,9 @@ const CashFlow: React.FC = () => {
     error: accErr,
     refetch: refetchAccounts,
   } = useQuery({
-    queryKey: ['cash_flow_accounts'],
-    queryFn: () => fetchActiveAccounts<Account>({ columns: '*' }),
+    queryKey: ['cash_flow_accounts', selectedCompanyId],
+    enabled: !!selectedCompanyId,
+    queryFn: () => fetchActiveAccounts<Account>({ columns: '*', companyId: selectedCompanyId }),
   });
 
   // Cash and bank movements before the period, so Opening Cash is the balance
@@ -185,8 +188,9 @@ const CashFlow: React.FC = () => {
   // the chart-of-accounts opening alone, which is only right when the period
   // begins on the first day of the books.
   const { data: priorMovements = new Map<string, Movement>() } = useQuery({
-    queryKey: ['cash_flow_prior', fromDate],
-    queryFn: () => accountMovements({ upto: dayBefore(fromDate) }),
+    queryKey: ['cash_flow_prior', selectedCompanyId, fromDate],
+    enabled: !!selectedCompanyId,
+    queryFn: () => accountMovements({ upto: dayBefore(fromDate), companyId: selectedCompanyId }),
   });
 
   // Fetch voucher entries for posted vouchers within the date range
@@ -197,7 +201,8 @@ const CashFlow: React.FC = () => {
     error: entErr,
     refetch: refetchEntries,
   } = useQuery({
-    queryKey: ['cash_flow_entries', fromDate, toDate],
+    queryKey: ['cash_flow_entries', selectedCompanyId, fromDate, toDate],
+    enabled: !!selectedCompanyId,
     queryFn: async () => {
       // Single join-filtered query, paginated — the previous two-step fetch
       // truncated at 1000 vouchers and produced a silently wrong cash flow.
@@ -206,6 +211,7 @@ const CashFlow: React.FC = () => {
           .from('voucher_entries')
           .select('*, voucher:vouchers!inner(id, voucher_date, status)')
           .eq('voucher.status', 'AUTHORISED')
+          .eq('voucher.company_id', selectedCompanyId)
           .gte('voucher.voucher_date', fromDate)
           .lte('voucher.voucher_date', toDate)
           .range(from, to),

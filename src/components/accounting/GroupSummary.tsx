@@ -6,6 +6,7 @@ import { useRowCursor } from './tally/useRowCursor';
 import { HEAD_ORDER } from './tally/heads';
 import { mergedLedgerBalances } from '@/lib/mergedLedgerBalances';
 import { useSourceFilter, matchesSource } from './useSourceFilter';
+import { useAccountingCompany } from './AccountingCompanyContext';
 
 const tallyDateLabel = (iso: string): string => {
   const d = new Date(iso + 'T00:00:00');
@@ -26,6 +27,7 @@ interface GroupSummaryProps {
  * or by drilling from Trial Balance; ledger rows drill to Ledger Vouchers.
  */
 const GroupSummary: React.FC<GroupSummaryProps> = ({ head: headProp, onOpenLedger, onClose }) => {
+  const { selectedCompanyId } = useAccountingCompany();
   const [pickedHead, setPickedHead] = useState<string | null>(null);
   const head = headProp ?? pickedHead;
   const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
@@ -46,8 +48,9 @@ const GroupSummary: React.FC<GroupSummaryProps> = ({ head: headProp, onOpenLedge
   const { to: asOfDate, fmtAmount: fmt } = report;
 
   const { data: ledgerRows = [], isLoading } = useQuery({
-    queryKey: ['group_summary_merged', asOfDate],
-    queryFn: () => mergedLedgerBalances({ upto: asOfDate }),
+    queryKey: ['group_summary_merged', selectedCompanyId, asOfDate],
+    enabled: !!selectedCompanyId,
+    queryFn: () => mergedLedgerBalances({ upto: asOfDate, companyId: selectedCompanyId }),
   });
 
   const rows = useMemo(() => {

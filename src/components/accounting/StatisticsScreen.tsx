@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
+import { useAccountingCompany } from './AccountingCompanyContext';
 
 const count = async (table: string, filter?: (q: any) => any): Promise<number> => {
   let query = (supabase as any).from(table).select('id', { count: 'exact', head: true });
@@ -27,10 +28,12 @@ const StatisticsScreen: React.FC = () => {
       { label: 'Trial Balance', target: 'trial-balance' },
     ],
   });
+  const { selectedCompanyId } = useAccountingCompany();
   const { from: fromDate, to: toDate } = report;
 
   const { data, isLoading } = useQuery({
-    queryKey: ['statistics', fromDate, toDate],
+    queryKey: ['statistics', selectedCompanyId, fromDate, toDate],
+    enabled: !!selectedCompanyId,
     queryFn: async () => {
       const { data: types, error } = await supabase
         .from('voucher_types')
@@ -39,7 +42,11 @@ const StatisticsScreen: React.FC = () => {
         .order('voucher_type_name');
       if (error) throw error;
 
-      const inPeriod = (q: any) => q.gte('voucher_date', fromDate).lte('voucher_date', toDate);
+      // The voucher counts below are company-scoped. The master counts that
+      // follow are not: voucher_types, ledger_groups, ledgers and cost_centres
+      // have no company_id — those masters are shared across all companies.
+      const inPeriod = (q: any) =>
+        q.gte('voucher_date', fromDate).lte('voucher_date', toDate).eq('company_id', selectedCompanyId);
       const [typeCounts, pending, cancelled, ...masters] = await Promise.all([
         Promise.all(
           (types ?? []).map(async (t) => ({

@@ -149,8 +149,8 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
   const dropOptional = isCashBankLedger(selectedAccount?.account_code);
 
   const { data: rawEntries = [], isLoading } = useQuery({
-    queryKey: ['ledger_entries', selectedAccountId, fromDate, toDate, dropOptional],
-    enabled: !!selectedAccountId && accounts.length > 0,
+    queryKey: ['ledger_entries', selectedCompanyId, selectedAccountId, fromDate, toDate, dropOptional],
+    enabled: !!selectedCompanyId && !!selectedAccountId && accounts.length > 0,
     queryFn: async () => {
       const data = await fetchAllRows((from, to) => {
         let query = supabase
@@ -166,6 +166,7 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
           `)
           .eq('account_id', selectedAccountId)
           .eq('voucher.status', 'AUTHORISED')
+          .eq('voucher.company_id', selectedCompanyId)
           .gte('voucher.voucher_date', fromDate)
           .lte('voucher.voucher_date', toDate);
         // A cash or bank ledger shows its own transactions only — see
