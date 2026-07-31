@@ -290,9 +290,9 @@ const ChartOfAccounts: React.FC = () => {
         {/* Grouped list */}
         <div className="mt-1 flex border-y border-black bg-[#f0f4fa] font-semibold">
           <div className="min-w-0 flex-1 px-1">Name of Account</div>
-          <div className="w-24 px-1">Code</div>
-          <div className="w-44 px-1">Type</div>
-          <div className="w-40 px-1 text-right">Opening Balance</div>
+          <div className="w-36 shrink-0 px-1">Code</div>
+          <div className="w-44 shrink-0 px-1">Type</div>
+          <div className="w-40 shrink-0 px-1 text-right">Opening Balance</div>
         </div>
         {isLoading ? (
           <div className="py-10 text-center text-gray-400">Loading…</div>
@@ -301,9 +301,9 @@ const ChartOfAccounts: React.FC = () => {
             <React.Fragment key={head}>
               <div className="mt-1.5 flex bg-[#eef3fa] font-bold">
                 <div className="min-w-0 flex-1 px-1">{head}</div>
-                <div className="w-24 px-1" />
-                <div className="w-44 px-1" />
-                <div className="w-40 px-1 text-right text-[11px] font-normal italic text-gray-600">
+                <div className="w-36 shrink-0 px-1" />
+                <div className="w-44 shrink-0 px-1" />
+                <div className="w-40 shrink-0 px-1 text-right text-[11px] font-normal italic text-gray-600">
                   {byHead.get(head)!.length} account(s)
                 </div>
               </div>
@@ -323,9 +323,9 @@ const ChartOfAccounts: React.FC = () => {
                       {a.account_name}
                       {a.is_active === false ? ' (inactive)' : ''}
                     </div>
-                    <div className="w-24 px-1 font-mono text-[12px]">{a.account_code}</div>
-                    <div className="w-44 truncate px-1 text-[11px] text-gray-500">{a.account_type}</div>
-                    <div className="w-40 px-1 text-right font-mono">
+                    <div className="w-36 shrink-0 truncate px-1 font-mono text-[12px]">{a.account_code}</div>
+                    <div className="w-44 shrink-0 truncate px-1 text-[11px] text-gray-500">{a.account_type}</div>
+                    <div className="w-40 shrink-0 px-1 text-right font-mono">
                       {ob ? `${fmt(ob)} ${a.opening_balance_type?.toUpperCase() === 'CR' ? 'Cr' : 'Dr'}` : ''}
                     </div>
                   </button>
