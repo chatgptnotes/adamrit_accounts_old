@@ -42,6 +42,9 @@ export default function CashInHandView() {
           "id, debit_amount, credit_amount, narration, voucher:vouchers!inner(voucher_date, voucher_number)",
         )
         .eq("account_id", acct.id)
+        // Cash transactions only — the pharmacy sale JVs belong to the
+        // pharmacy's own ledger, as on the accounting Cash/Bank screens.
+        .eq("voucher.is_optional", false)
         .order("id", { ascending: false })
         .limit(300);
       if (error) throw error;

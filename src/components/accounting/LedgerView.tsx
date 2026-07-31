@@ -11,6 +11,7 @@ import { dayBefore, dayLabel, monthsInPeriod } from './tally/PeriodContext';
 import { fetchTallyVouchers } from '@/lib/mergedVouchers';
 import { normalizeName } from '@/lib/tallyCompanyMatch';
 import { accountMovements, type Movement } from '@/lib/accountMovements';
+import { CASH_IN_HAND_CODE, cashInHandOptionalNet } from '@/lib/cashInHandOptional';
 import { headOfType, PL_HEADS } from './tally/heads';
 import { useSourceFilter, matchesSource } from './useSourceFilter';
 
@@ -145,16 +146,18 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
     return { options: list.slice(0, PICKER_LIMIT), matchCount: list.length };
   }, [accounts, search]);
 
+  const isCashInHand = selectedAccount?.account_code === CASH_IN_HAND_CODE;
+
   const { data: rawEntries = [], isLoading } = useQuery({
-    queryKey: ['ledger_entries', selectedAccountId, fromDate, toDate],
-    enabled: !!selectedAccountId,
+    queryKey: ['ledger_entries', selectedAccountId, fromDate, toDate, isCashInHand],
+    enabled: !!selectedAccountId && accounts.length > 0,
     queryFn: async () => {
-      const data = await fetchAllRows((from, to) =>
-        supabase
+      const data = await fetchAllRows((from, to) => {
+        let query = supabase
           .from('voucher_entries')
           .select(`
             id, debit_amount, credit_amount, narration,
-            voucher:vouchers!inner(id, voucher_number, voucher_date, narration, status,
+            voucher:vouchers!inner(id, voucher_number, voucher_date, narration, status, is_optional,
               voucher_type:voucher_types(voucher_type_name),
               entries:voucher_entries(account_id, debit_amount, credit_amount,
                 account:chart_of_accounts(account_name)
@@ -164,9 +167,11 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
           .eq('account_id', selectedAccountId)
           .eq('voucher.status', 'AUTHORISED')
           .gte('voucher.voucher_date', fromDate)
-          .lte('voucher.voucher_date', toDate)
-          .range(from, to),
-      );
+          .lte('voucher.voucher_date', toDate);
+        // Cash in Hand shows cash transactions only — see cashInHandOptional.
+        if (isCashInHand) query = query.eq('voucher.is_optional', false);
+        return query.range(from, to);
+      });
       return data as unknown as VoucherEntryRow[];
     },
   });
@@ -189,6 +194,15 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
     queryFn: () => accountMovements({ upto: dayBefore(fromDate), companyId: selectedCompanyId }),
   });
 
+  // The pharmacy JVs this screen hides must also come off Cash in Hand's
+  // Opening Balance, or the running balance starts from a figure the rows
+  // below can never reach.
+  const { data: priorCashOptionalNet = 0 } = useQuery({
+    queryKey: ['ledger_prior_cash_optional', selectedCompanyId, fromDate],
+    enabled: !!selectedAccountId && isCashInHand,
+    queryFn: () => cashInHandOptionalNet({ upto: dayBefore(fromDate), companyId: selectedCompanyId }),
+  });
+
   const { rows, opening, totalDr, totalCr, closing } = useMemo(() => {
     // Tally's Opening Balance is the ledger as it stood the day before the
     // period, not the figure typed into the master. Reading the master alone
@@ -203,7 +217,8 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
           (selectedAccount.opening_balance_type?.toUpperCase() === 'CR' ? -1 : 1)
         : 0;
     const prior = selectedAccountId ? priorMovements.get(selectedAccountId) : undefined;
-    const opening = master + (prior ? prior.debit - prior.credit : 0);
+    const opening =
+      master + (prior ? prior.debit - prior.credit : 0) - (isCashInHand ? priorCashOptionalNet : 0);
 
     type Row = {
       id: string;
@@ -285,7 +300,7 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
       totalCr += r.cr;
     }
     return { rows, opening, totalDr, totalCr, closing: opening + totalDr - totalCr };
-  }, [rawEntries, tallyVouchers, selectedAccount, selectedAccountId, priorMovements, srcFilter, report.passesFilter]);
+  }, [rawEntries, tallyVouchers, selectedAccount, selectedAccountId, priorMovements, isCashInHand, priorCashOptionalNet, srcFilter, report.passesFilter]);
 
   // F6: Monthly — Tally's Ledger Monthly Summary, one line per month with the
   // balance carried forward.

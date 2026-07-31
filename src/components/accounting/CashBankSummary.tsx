@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { accountMovements } from '@/lib/accountMovements';
+import { CASH_IN_HAND_CODE, cashInHandOptionalNet } from '@/lib/cashInHandOptional';
 import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
@@ -81,11 +82,19 @@ const CashBankSummary: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
   const accountIds = useMemo(() => accounts.map((a) => a.id), [accounts]);
 
   const movementsFor = async (upto: string, ids: string[]) => {
-    const movements = await accountMovements({ upto });
+    const [movements, optionalNet] = await Promise.all([
+      accountMovements({ upto }),
+      cashInHandOptionalNet({ upto }),
+    ]);
     const byAccount: Record<string, number> = {};
     for (const id of ids) {
       const m = movements.get(id);
       if (m) byAccount[id] = m.debit - m.credit;
+      // Cash in Hand shows cash transactions only, so its pharmacy JVs come
+      // off here the same way the Cash/Bank Book drops them.
+      if (accounts.find((a) => a.id === id)?.account_code === CASH_IN_HAND_CODE) {
+        byAccount[id] = (byAccount[id] ?? 0) - optionalNet;
+      }
     }
     return byAccount;
   };

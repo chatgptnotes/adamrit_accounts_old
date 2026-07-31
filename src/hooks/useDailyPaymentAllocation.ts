@@ -583,10 +583,13 @@ export const useTodayCashCollections = (date: string) => {
         .from('voucher_entries')
         .select(`
           debit_amount,
-          voucher:vouchers!inner (voucher_date, status)
+          voucher:vouchers!inner (voucher_date, status, is_optional)
         `)
         .eq('account_id', cashAccount.id)
         .eq('voucher.voucher_date', date)
+        // Cash transactions only, matching the accounting Cash/Bank screens —
+        // the pharmacy sale JVs sit in the pharmacy's own ledger.
+        .eq('voucher.is_optional', false)
         .neq('voucher.status', 'cancelled') as any;
 
       if (!entries) return 0;

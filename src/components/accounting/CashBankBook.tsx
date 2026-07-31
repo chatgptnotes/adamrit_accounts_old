@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { accountMovements } from '@/lib/accountMovements';
+import { CASH_IN_HAND_CODE, cashInHandOptionalNet } from '@/lib/cashInHandOptional';
 import { TallyScreen } from './tally/TallyChrome';
 import { TallyList } from './tally/TallyPopup';
 import { useTallyReport } from './tally/useTallyReport';
@@ -128,6 +129,7 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
   });
 
   const account = accounts.find((a) => a.id === selectedId) || null;
+  const isCashInHand = account?.account_code === CASH_IN_HAND_CODE;
 
   const report = useTallyReport({
     filterFields: ['Particulars', 'Narration', 'Vch Type', 'Vch No.'],
@@ -155,11 +157,19 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
     queryKey: ['cash_bank_book_movements', fyTo],
     enabled: !selectedId && accounts.length > 0,
     queryFn: async () => {
-      const map = await accountMovements({ upto: fyTo });
+      const [map, optionalNet] = await Promise.all([
+        accountMovements({ upto: fyTo }),
+        cashInHandOptionalNet({ upto: fyTo }),
+      ]);
       const byAccount: Record<string, number> = {};
       for (const a of accounts) {
         const m = map.get(a.id);
         if (m) byAccount[a.id] = m.debit - m.credit;
+        // Cash in Hand shows cash transactions only — the pharmacy JVs its
+        // drill-down hides must come off its closing balance too.
+        if (a.account_code === CASH_IN_HAND_CODE) {
+          byAccount[a.id] = (byAccount[a.id] ?? 0) - optionalNet;
+        }
       }
       return byAccount;
     },
@@ -183,25 +193,27 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
   const ledgerRows = useMemo(() => ledgerGroups.flatMap((g) => g.items), [ledgerGroups]);
 
   const { data: entries = [], isLoading } = useQuery({
-    queryKey: ['cash_bank_book', selectedId, fyFrom, fyTo],
-    enabled: !!selectedId,
+    queryKey: ['cash_bank_book', selectedId, fyFrom, fyTo, isCashInHand],
+    enabled: !!selectedId && accounts.length > 0,
     queryFn: async () => {
-      const data = await fetchAllRows((from, to) =>
-        supabase
+      const data = await fetchAllRows((from, to) => {
+        let query = supabase
           .from('voucher_entries')
           .select(`
             id, debit_amount, credit_amount, narration,
-            voucher:vouchers!inner(id, voucher_number, voucher_date, narration, status,
+            voucher:vouchers!inner(id, voucher_number, voucher_date, narration, status, is_optional,
               voucher_type:voucher_types(voucher_type_name)
             )
           `)
           .eq('account_id', selectedId)
           .eq('voucher.status', 'AUTHORISED')
           .gte('voucher.voucher_date', fyFrom)
-          .lte('voucher.voucher_date', fyTo)
-          .order('created_at', { ascending: true })
-          .range(from, to),
-      );
+          .lte('voucher.voucher_date', fyTo);
+        // Cash in Hand is the cash box — the pharmacy sale JVs belong to the
+        // pharmacy's own ledger, not here. Every other ledger keeps them.
+        if (isCashInHand) query = query.eq('voucher.is_optional', false);
+        return query.order('created_at', { ascending: true }).range(from, to);
+      });
       return data as unknown as EntryRow[];
     },
   });
