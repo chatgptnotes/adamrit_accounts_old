@@ -141,6 +141,13 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
     // Tally's Alt+F5 — the Day Book had no Detailed F-key at all, it was only
     // reachable through Change View.
     detailedToggle: { hotkey: 'F5', mod: 'alt', label: 'Detailed' },
+    // Alt+E / Alt+M export exactly the rows on screen, filters and all.
+    exportData: () => ({
+      title: 'Day Book',
+      period: report.periodLabel,
+      columns: ['Date', 'Particulars', 'Vch Type', 'Vch No.', 'Debit', 'Credit', 'Narration'],
+      rows: rows.map((r) => [r.date, r.particulars, r.type, r.number, r.debit, r.credit, r.narration ?? '']),
+    }),
     screenKeys: [
       { hotkey: 'F4', label: 'Voucher Type', onClick: () => setTypePicker(true) },
       {

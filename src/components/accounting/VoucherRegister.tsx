@@ -88,6 +88,26 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
       { hotkey: 'F4', label: 'Voucher Type', onClick: () => setTypePicker(true) },
       sourceRail,
     ],
+    // The register drills month → vouchers; export whichever is on screen.
+    exportData: () =>
+      openMonth
+        ? {
+            title: `${type?.voucher_type_name ?? 'Voucher'} Register — ${openMonth}`,
+            period: report.periodLabel,
+            columns: ['Date', 'Vch No.', 'Particulars', 'Amount'],
+            rows: monthVouchers.map((v) => [
+              v.voucher_date,
+              v.voucher_number,
+              v.narration ?? '',
+              Number(v.total_amount) || 0,
+            ]),
+          }
+        : {
+            title: `${type?.voucher_type_name ?? 'Voucher'} Register`,
+            period: report.periodLabel,
+            columns: ['Month', 'Vouchers', 'Total Amount'],
+            rows: months.map((m) => [m.label, m.count, m.total]),
+          },
   });
   const { from: fyFrom, to: fyTo, fmtAmount: fmt } = report;
   const periodMonths = monthsInPeriod({ from: fyFrom, to: fyTo });
