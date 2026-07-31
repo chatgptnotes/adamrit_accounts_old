@@ -50,6 +50,16 @@ export interface GovernmentPortalExtensionAlertSummary {
   reportDateLabel: string | null;
   createdAt: string;
   count: number;
+  /**
+   * How many separate imports the rows below came from.
+   *
+   * This list is the standing backlog, not one file: a patient uploaded in June
+   * who was never re-uploaded and whose status never moved off pending is still
+   * outstanding, and still counted. `fileName` names only the most recent
+   * import, so anything above 1 here means the headline must not present the
+   * whole list as having come from that file.
+   */
+  sourceImportCount: number;
   rows: GovernmentPortalExtensionAlertRow[];
 }
 
@@ -709,8 +719,17 @@ export async function fetchLatestGovernmentPortalExtensionAlerts(
 
   if (importsError) throw importsError;
 
+  // `report_kind` cannot be trusted on its own for anything imported before it
+  // existed: the column was added with DEFAULT 'under_treatment', so every
+  // older import — claims files included — was back-filled into this lane. The
+  // name is the only other evidence of what a file actually is.
+  //
+  // This used to look for "claims_to_be_submitted" exactly, which let
+  // "Claims_Approved_from_Bank_30_07_2026.csv" through and counted its rows as
+  // extensions that were never chased. A file that announces itself as claims
+  // is not an under-treatment source, whichever lane it was filed under.
   const importHeaders = ((imports || []) as ImportRow[]).filter(
-    (item) => reportKind !== 'under_treatment' || !/claims_to_be_submitted/i.test(item.file_name),
+    (item) => reportKind !== 'under_treatment' || !/claims/i.test(item.file_name),
   );
   const header = importHeaders[0] || null;
 
@@ -776,6 +795,7 @@ export async function fetchLatestGovernmentPortalExtensionAlerts(
     reportDateLabel: header.report_date_label,
     createdAt: header.created_at,
     count: alertRows.length,
+    sourceImportCount: new Set(alertRows.map((row) => row.import_id)).size,
     rows: alertRows.map((row) => ({
       sourceImportId: row.import_id,
       sourceFileName: importById.get(row.import_id)?.file_name || header.file_name,

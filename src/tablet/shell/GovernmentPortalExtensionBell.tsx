@@ -198,7 +198,14 @@ export function GovernmentPortalExtensionBell() {
     if (extensionCount === 0) {
       return `Latest import has no pending extension patients. ${importedAt}.${documentClause}`;
     }
-    return `${extensionCount} patient${extensionCount === 1 ? "" : "s"} need extension action. ${importedAt}.${documentClause}`;
+    // The list is the standing backlog, not the newest file: a patient from an
+    // older import who was never chased is still counted. Saying "16 patients
+    // need extension action. 30 Jul, 05:20 pm." read as though all sixteen came
+    // off that one upload, and sent people looking for them in it.
+    const sourceCount = extensionData?.sourceImportCount ?? 0;
+    const sourceClause =
+      sourceCount > 1 ? ` Across ${sourceCount} imports, latest ${importedAt}.` : ` ${importedAt}.`;
+    return `${extensionCount} patient${extensionCount === 1 ? "" : "s"} need extension action.${sourceClause}${documentClause}`;
   }, [approvalCount, docTotal, extensionCount, extensionData, importedAt]);
 
   const markSeen = () => {
@@ -357,7 +364,11 @@ export function GovernmentPortalExtensionBell() {
         >
           <CalendarClock className="h-4 w-4 shrink-0" />
           <span className="min-w-0 flex-1 truncate">
-            {extensionData?.fileName ? `${extensionData.fileName} - ${importedAt}` : "Waiting for CSV import"}
+            {extensionData?.fileName
+              ? (extensionData.sourceImportCount ?? 0) > 1
+                ? `Latest import: ${extensionData.fileName} - ${importedAt}`
+                : `${extensionData.fileName} - ${importedAt}`
+              : "Waiting for CSV import"}
           </span>
           <button
             type="button"
