@@ -6,7 +6,7 @@ import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
-import { useAccountingCompanyOptional } from './AccountingCompanyContext';
+import { useAccountingCompany } from './AccountingCompanyContext';
 
 interface Account {
   id: string;
@@ -45,7 +45,7 @@ const GROUP_FILTERS = ['All Items', 'Cash-in-Hand', 'Bank Accounts'] as const;
  * a highlighted row cursor, Space to select and R/U to remove/restore lines.
  */
 const CashBankSummary: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
-  const accountingCompany = useAccountingCompanyOptional();
+  const { companies, selectedCompanyId } = useAccountingCompany();
   const [groupFilter, setGroupFilter] = useState(0);
   const [ledgerWise, setLedgerWise] = useState(true);
   const [selected, setSelected] = useState<string[]>([]);
@@ -71,11 +71,13 @@ const CashBankSummary: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
   const { from: fromDate, to: toDate } = report;
 
   const { data: accounts = [] } = useQuery({
-    queryKey: ['cash_bank_accounts'],
+    queryKey: ['cash_bank_accounts', selectedCompanyId],
+    enabled: !!selectedCompanyId,
     queryFn: () =>
       fetchActiveAccounts<Account>({
         columns: 'id, account_code, account_name, opening_balance, opening_balance_type',
         codePrefixes: ['111', '112'],
+        companyId: selectedCompanyId,
       }),
   });
 
@@ -83,8 +85,8 @@ const CashBankSummary: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
 
   const movementsFor = async (upto: string, ids: string[]) => {
     const [movements, optionalNet] = await Promise.all([
-      accountMovements({ upto }),
-      optionalNetByAccount({ upto }),
+      accountMovements({ upto, companyId: selectedCompanyId }),
+      optionalNetByAccount({ upto, companyId: selectedCompanyId }),
     ]);
     const byAccount: Record<string, number> = {};
     for (const id of ids) {
@@ -99,16 +101,16 @@ const CashBankSummary: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
   };
 
   const { data: sums = {}, isLoading } = useQuery({
-    queryKey: ['cash_bank_sums', accountIds.join(','), toDate],
-    enabled: accountIds.length > 0,
+    queryKey: ['cash_bank_sums', selectedCompanyId, accountIds.join(','), toDate],
+    enabled: !!selectedCompanyId && accountIds.length > 0,
     queryFn: () => movementsFor(toDate, accountIds),
   });
 
   // One query per comparison column added with C / A / N
   const columnSums = useQueries({
     queries: report.columns.map((c) => ({
-      queryKey: ['cash_bank_sums', accountIds.join(','), c.to],
-      enabled: accountIds.length > 0,
+      queryKey: ['cash_bank_sums', selectedCompanyId, accountIds.join(','), c.to],
+      enabled: !!selectedCompanyId && accountIds.length > 0,
       queryFn: () => movementsFor(c.to, accountIds),
     })),
   });
@@ -217,7 +219,7 @@ const CashBankSummary: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
         {groupFilter === 0 ? 'Cash & Bank Accounts' : GROUP_FILTERS[groupFilter]}
       </div>
       <div className="truncate text-center font-bold">
-        {accountingCompany?.companies.find((c) => c.id === accountingCompany.selectedCompanyId)?.company_name ?? ''}
+        {companies.find((c) => c.id === selectedCompanyId)?.company_name ?? ''}
       </div>
       <div className="text-center">{subtitle}</div>
       <div className="border-t border-gray-400 text-center font-bold">Closing Balance</div>

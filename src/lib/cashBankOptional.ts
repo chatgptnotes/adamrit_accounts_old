@@ -42,6 +42,7 @@ export async function optionalNetByAccount(opts: {
   const accounts = await fetchActiveAccounts<{ id: string }>({
     columns: 'id, account_code',
     codePrefixes: CASH_BANK_CODE_PREFIXES,
+    companyId: opts.companyId,
   });
   if (accounts.length === 0) return net;
 

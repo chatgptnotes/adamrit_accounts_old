@@ -10,7 +10,7 @@ import { TallyList } from './tally/TallyPopup';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
 import { monthsInPeriod } from './tally/PeriodContext';
-import { useAccountingCompanyOptional } from './AccountingCompanyContext';
+import { useAccountingCompany } from './AccountingCompanyContext';
 import { VoucherAttachmentButton, useVoucherAttachmentMap } from './VoucherAttachmentViewer';
 
 interface Account {
@@ -111,20 +111,21 @@ const MonthlyChart: React.FC<{ months: MonthRow[] }> = ({ months }) => {
  * Apr–Mar), and drill into any month for its daily vouchers.
  */
 const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVoucher }) => {
-  const accountingCompany = useAccountingCompanyOptional();
-  const headerCompanyName =
-    accountingCompany?.companies.find((c) => c.id === accountingCompany.selectedCompanyId)?.company_name ?? '';
+  const { companies, selectedCompanyId } = useAccountingCompany();
+  const headerCompanyName = companies.find((c) => c.id === selectedCompanyId)?.company_name ?? '';
   const [selectedId, setSelectedId] = useState('');
   const [openMonth, setOpenMonth] = useState<string | null>(null); // 'YYYY-MM'
   const [ledgerPicker, setLedgerPicker] = useState(false);
 
   // Cash-in-hand + bank ledgers (codes 111x / 112x)
   const { data: accounts = [] } = useQuery({
-    queryKey: ['cash_bank_accounts'],
+    queryKey: ['cash_bank_accounts', selectedCompanyId],
+    enabled: !!selectedCompanyId,
     queryFn: () =>
       fetchActiveAccounts<Account>({
         columns: 'id, account_code, account_name, opening_balance, opening_balance_type',
         codePrefixes: ['111', '112'],
+        companyId: selectedCompanyId,
       }),
   });
 
@@ -154,12 +155,12 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
   // Closing balance per ledger for the opening list — same source and arithmetic
   // as Cash/Bank Summary, so the two screens can never disagree.
   const { data: movements = {}, isLoading: listLoading } = useQuery({
-    queryKey: ['cash_bank_book_movements', fyTo],
-    enabled: !selectedId && accounts.length > 0,
+    queryKey: ['cash_bank_book_movements', selectedCompanyId, fyTo],
+    enabled: !!selectedCompanyId && !selectedId && accounts.length > 0,
     queryFn: async () => {
       const [map, optionalNet] = await Promise.all([
-        accountMovements({ upto: fyTo }),
-        optionalNetByAccount({ upto: fyTo }),
+        accountMovements({ upto: fyTo, companyId: selectedCompanyId }),
+        optionalNetByAccount({ upto: fyTo, companyId: selectedCompanyId }),
       ]);
       const byAccount: Record<string, number> = {};
       for (const a of accounts) {
@@ -193,8 +194,8 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
   const ledgerRows = useMemo(() => ledgerGroups.flatMap((g) => g.items), [ledgerGroups]);
 
   const { data: entries = [], isLoading } = useQuery({
-    queryKey: ['cash_bank_book', selectedId, fyFrom, fyTo, dropOptional],
-    enabled: !!selectedId && accounts.length > 0,
+    queryKey: ['cash_bank_book', selectedCompanyId, selectedId, fyFrom, fyTo, dropOptional],
+    enabled: !!selectedCompanyId && !!selectedId && accounts.length > 0,
     queryFn: async () => {
       const data = await fetchAllRows((from, to) => {
         let query = supabase
@@ -207,6 +208,7 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
           `)
           .eq('account_id', selectedId)
           .eq('voucher.status', 'AUTHORISED')
+          .eq('voucher.company_id', selectedCompanyId)
           .gte('voucher.voucher_date', fyFrom)
           .lte('voucher.voucher_date', fyTo);
         // A cash or bank ledger shows its own transactions only — see
