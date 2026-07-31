@@ -946,18 +946,13 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
   const category = (selectedType?.voucher_category || '').toUpperCase();
   useEffect(() => {
     setVoucherNumberOverride('');
-    // forceJournal describes the voucher that was loaded, not the one now
-    // selected. Left set, picking Receipt after opening a journal keeps the
-    // By/To grid for the life of the screen. Only on a real change of type
-    // though — the load sets the type itself, and clearing it there would undo
-    // the layout the load just chose.
-    if (selectedVoucherType && selectedVoucherType !== loadedVoucher?.voucher_type_id) {
-      setForceJournal(false);
-    }
-  }, [selectedVoucherType, alterMode, loadedVoucher]);
+  }, [selectedVoucherType]);
 
+  // Tally renumbers a voucher into the new type's series when you change its
+  // type during alteration, so the number on screen follows the selection.
+  const typeChanged = alterMode && !!loadedVoucher && selectedVoucherType !== loadedVoucher.voucher_type_id;
   const voucherNumber = alterMode
-    ? loadedNumber
+    ? (typeChanged ? generatedVoucherNumber : loadedNumber)
     : voucherNumberOverride || generatedVoucherNumber;
   const singleMode = forceJournal ? undefined : SINGLE_ACCOUNT_MODES[category];
   const voucherAccounts = useMemo(() => {
@@ -1008,6 +1003,94 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
 
   const difference = Math.abs(totalDebit - totalCredit);
   const isBalanced = difference < 0.01;
+
+  // ------ Changing the voucher type (Tally's F4–F9 while a voucher is open) ------
+  // The single-account layout (Payment/Receipt/Contra) and the Dr/Cr grid keep
+  // separate state, so switching between them has to carry the rows across by
+  // hand — otherwise the amounts on screen simply disappear. The debit/credit
+  // sides themselves need no work: buildEntries() derives them from the new
+  // category, and alteration replaces every voucher_entries row anyway.
+  const changeVoucherType = useCallback((nextTypeId: string): void => {
+    if (nextTypeId === selectedVoucherType) return;
+    const nextType = voucherTypes.find((vt) => vt.id === nextTypeId);
+    if (!nextType) return;
+    const nextMode = SINGLE_ACCOUNT_MODES[(nextType.voucher_category || '').toUpperCase()];
+
+    if (alterMode) {
+      const fromName = selectedType?.voucher_type_name?.replace(' Voucher', '') || 'its current type';
+      const toName = nextType.voucher_type_name.replace(' Voucher', '');
+      // Picking the type the voucher was loaded as is an undo, not a change —
+      // it keeps its own number, so don't threaten to renumber it.
+      const revert = nextTypeId === loadedVoucher?.voucher_type_id;
+      const nextNumber = generateVoucherNumber(nextType.prefix || '', (nextType.current_number || 0) + 1);
+      const ok = window.confirm(
+        revert
+          ? `Put voucher ${loadedNumber} back to ${toName}?`
+          : `Change voucher ${loadedNumber} from ${fromName} to ${toName}?\n\n` +
+            `It will be renumbered ${nextNumber} and leave a gap in the ${fromName} series.`,
+      );
+      if (!ok) return;
+    }
+
+    if (singleMode && !nextMode) {
+      // Single account -> Dr/Cr grid. Open the grid showing the sides the
+      // voucher posts today, not blank rows.
+      const rows: JournalLine[] = [
+        ...(account && partTotal > 0
+          ? [{
+              key: ++lineKey.current,
+              drcr: (singleMode.accountIsDebit ? 'Dr' : 'Cr') as 'Dr' | 'Cr',
+              account,
+              amount: String(partTotal),
+            }]
+          : []),
+        ...partLines
+          .filter((l) => l.account && Number(l.amount) > 0)
+          .map((l) => ({
+            key: ++lineKey.current,
+            drcr: (singleMode.accountIsDebit ? 'Cr' : 'Dr') as 'Dr' | 'Cr',
+            account: l.account,
+            amount: l.amount,
+            costCentreId: l.costCentreId,
+            billRef: l.billRef,
+          })),
+      ];
+      setJournalLines(rows.length >= 2 ? rows : [newJournalLine('Dr'), newJournalLine('Cr')]);
+      setForceJournal(false);
+    } else if (!singleMode && nextMode) {
+      // Dr/Cr grid -> single account. This only collapses when exactly one
+      // cash or bank row sits on the new Account side; anything else has no
+      // single-account rendering, so keep the grid rather than drop rows.
+      const filled = journalLines.filter((l) => l.account && Number(l.amount) > 0);
+      const accSide = filled.filter((l) => (nextMode.accountIsDebit ? l.drcr === 'Dr' : l.drcr === 'Cr'));
+      const isCashBank = accSide.length === 1 && cashBankAccounts.some((a) => a.id === accSide[0].account!.id);
+      if (filled.length >= 2 && isCashBank) {
+        setAccount(accSide[0].account);
+        setPartLines(
+          filled
+            .filter((l) => l.key !== accSide[0].key)
+            .map((l) => ({
+              key: ++lineKey.current,
+              account: l.account,
+              amount: l.amount,
+              costCentreId: l.costCentreId,
+              billRef: l.billRef,
+            })),
+        );
+        setForceJournal(false);
+      } else {
+        setForceJournal(true);
+      }
+    } else {
+      // Receipt <-> Payment <-> Contra, or one grid type to another: the rows
+      // are already in the right shape.
+      setForceJournal(false);
+    }
+    setSelectedVoucherType(nextTypeId);
+  }, [
+    selectedVoucherType, voucherTypes, selectedType, alterMode, loadedNumber, loadedVoucher,
+    singleMode, account, partLines, partTotal, journalLines, cashBankAccounts,
+  ]);
 
   // ------ Row handlers ------
   const updatePartLine = (key: number, patch: Partial<ParticularsLine>): void => {
@@ -1180,10 +1263,20 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
       const voucherType = voucherTypes.find((vt) => vt.id === selectedVoucherType);
 
       if (alterMode) {
-        // ------ Alteration: update header, replace entries, keep the number ------
+        // ------ Alteration: update header, replace entries ------
+        // The number is kept unless the type was changed, in which case Tally
+        // moves the voucher into the new type's series.
+        const retypedNumber = typeChanged
+          ? generateVoucherNumber(voucherType?.prefix || '', (voucherType?.current_number || 0) + 1)
+          : '';
+        if (typeChanged && !retypedNumber) {
+          toast.error('The new voucher type has no numbering prefix — set one in Voucher Types first.');
+          return;
+        }
         const { error: uErr } = await supabase
           .from('vouchers')
           .update({
+            ...(typeChanged ? { voucher_type_id: selectedVoucherType, voucher_number: retypedNumber } : {}),
             voucher_date: voucherDate,
             reference_number: referenceNumber || null,
             reference_date: referenceDate || null,
@@ -1222,11 +1315,30 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
           throw iErr;
         }
         await linkVoucherAttachments(voucherId!, attachments, username);
-        toast.success(`Voucher ${loadedNumber} altered.`);
+        if (typeChanged) {
+          // Same forward-only guard as creation — current_number came from a
+          // cached read, so never let the counter move backwards.
+          await supabase
+            .from('voucher_types')
+            .update({ current_number: (voucherType?.current_number || 0) + 1 })
+            .eq('id', selectedVoucherType)
+            .lt('current_number', (voucherType?.current_number || 0) + 1);
+          toast.success(
+            `Voucher ${loadedNumber} changed to ${voucherType?.voucher_type_name?.replace(' Voucher', '')} as ${retypedNumber}.`,
+          );
+        } else {
+          toast.success(`Voucher ${loadedNumber} altered.`);
+        }
         queryClient.invalidateQueries({ queryKey: ['vouchers'] });
         queryClient.invalidateQueries({ queryKey: ['daybook_vouchers'] });
         queryClient.invalidateQueries({ queryKey: ['ledger_entries'] });
         queryClient.invalidateQueries({ queryKey: ['voucher-attachments'] });
+        // The counter this screen numbers from moved, so a second conversion in
+        // the same session must not read the stale current_number and reuse it.
+        if (typeChanged) {
+          queryClient.invalidateQueries({ queryKey: ['voucher_types'] });
+          queryClient.invalidateQueries({ queryKey: ['alter_voucher', voucherId] });
+        }
         setBalances({});
         onDone?.();
         return;
@@ -1431,9 +1543,55 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
 
   // ------ Tally right rail: F2 Date + F4–F9 voucher types + other types ------
   const rail = useMemo<RailItem[]>(() => {
+    // Match on the category, falling back to the type's name — companies label
+    // these inconsistently ("CREDIT NOTE" / "CREDIT_NOTE" / a Credit Note type
+    // filed under the Sales category), and a greyed Ctrl+F8 next to a working
+    // "Credit Note" button lower down is just confusing.
+    const squash = (s: string | null | undefined) => (s ?? '').toUpperCase().replace(/[^A-Z]/g, '');
+    const byCategory = (cat: string) => {
+      const want = squash(cat);
+      return (
+        voucherTypes.find((vt) => squash(vt.voucher_category) === want) ??
+        voucherTypes.find((vt) => squash(vt.voucher_type_name).replace('VOUCHER', '') === want)
+      );
+    };
+    // F4–F9 plus every remaining active type beneath, Tally style. Shared by
+    // creation and alteration: Tally keeps these live while a saved voucher is
+    // open, which is how a receipt booked as a payment gets corrected.
+    const typeItems = (): RailItem[] => {
+      const mainIds = new Set<string>();
+      const items: RailItem[] = [];
+      RAIL_KEYS.forEach(({ hotkey, mod, category: cat, label }, i) => {
+        const vt = byCategory(cat);
+        if (vt) mainIds.add(vt.id);
+        items.push({
+          hotkey,
+          mod,
+          label,
+          gapBefore: i === 0,
+          onClick: vt ? () => changeVoucherType(vt.id) : undefined,
+          disabled: !vt,
+          active: vt ? selectedVoucherType === vt.id : false,
+        });
+      });
+      voucherTypes
+        .filter((vt) => !mainIds.has(vt.id))
+        .forEach((vt, i) => {
+          items.push({
+            label: vt.voucher_type_name,
+            gapBefore: i === 0,
+            onClick: () => changeVoucherType(vt.id),
+            active: selectedVoucherType === vt.id,
+          });
+        });
+      return items;
+    };
+
     if (alterMode) {
       return [
         { hotkey: 'F2', label: 'Date', onClick: openDatePicker },
+        // Only someone who may alter vouchers may reclassify one.
+        ...(canAlter ? typeItems() : []),
         { hotkey: 'L', label: 'Optional', gapBefore: true, onClick: () => setIsOptional((v) => !v), active: isOptional },
         { hotkey: 'P', label: 'Print Vch', gapBefore: true, onClick: printVoucher },
         ...(canAlter
@@ -1451,45 +1609,10 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
         { hotkey: 'P', label: 'Print Vch', gapBefore: true, onClick: printVoucher },
       ];
     }
-    // Match on the category, falling back to the type's name — companies label
-    // these inconsistently ("CREDIT NOTE" / "CREDIT_NOTE" / a Credit Note type
-    // filed under the Sales category), and a greyed Ctrl+F8 next to a working
-    // "Credit Note" button lower down is just confusing.
-    const squash = (s: string | null | undefined) => (s ?? '').toUpperCase().replace(/[^A-Z]/g, '');
-    const byCategory = (cat: string) => {
-      const want = squash(cat);
-      return (
-        voucherTypes.find((vt) => squash(vt.voucher_category) === want) ??
-        voucherTypes.find((vt) => squash(vt.voucher_type_name).replace('VOUCHER', '') === want)
-      );
-    };
-    const mainIds = new Set<string>();
     const items: RailItem[] = [
       { hotkey: 'F2', label: 'Date', onClick: openDatePicker },
+      ...typeItems(),
     ];
-    RAIL_KEYS.forEach(({ hotkey, mod, category: cat, label }, i) => {
-      const vt = byCategory(cat);
-      if (vt) mainIds.add(vt.id);
-      items.push({
-        hotkey,
-        mod,
-        label,
-        gapBefore: i === 0,
-        onClick: vt ? () => setSelectedVoucherType(vt.id) : undefined,
-        disabled: !vt,
-        active: vt ? selectedVoucherType === vt.id : false,
-      });
-    });
-    // F10: Other Vouchers — remaining active types listed beneath, Tally style
-    const others = voucherTypes.filter((vt) => !mainIds.has(vt.id));
-    others.forEach((vt, i) => {
-      items.push({
-        label: vt.voucher_type_name,
-        gapBefore: i === 0,
-        onClick: () => setSelectedVoucherType(vt.id),
-        active: selectedVoucherType === vt.id,
-      });
-    });
     items.push({ hotkey: 'L', label: 'Optional', gapBefore: true, onClick: () => setIsOptional((v) => !v), active: isOptional });
     items.push({
       hotkey: 'T',
@@ -1504,7 +1627,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     items.push({ hotkey: 'P', label: 'Print Vch', gapBefore: true, onClick: printVoucher });
     return items;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [voucherTypes, selectedVoucherType, alterMode, isOptional, canAlter, openDatePicker, voucherDate, lockedVoucherCategory]);
+  }, [voucherTypes, selectedVoucherType, changeVoucherType, alterMode, isOptional, canAlter, openDatePicker, voucherDate, lockedVoucherCategory]);
 
   const accountBalance = account ? balances[account.id] : undefined;
 
@@ -1564,6 +1687,9 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
               <span className="min-w-[100px] border border-gray-400 bg-[#fdf6d8] px-2 font-mono">
                 {voucherNumber || '…'}
               </span>
+            )}
+            {typeChanged && (
+              <span className="text-[11px] italic text-gray-600">was {loadedNumber}</span>
             )}
             {isOptional && <span className="bg-orange-600 px-2 py-0.5 text-[11px] font-bold text-white">OPTIONAL</span>}
             {voucherDate > format(new Date(), 'yyyy-MM-dd') && (
