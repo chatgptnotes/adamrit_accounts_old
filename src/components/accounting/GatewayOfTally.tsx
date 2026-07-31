@@ -52,7 +52,7 @@ const MENUS: Record<string, Menu> = {
       {
         heading: 'TRANSACTIONS',
         items: [
-          { label: 'Vouchers', target: 'voucher-type-picker' },
+          { label: 'Vouchers', target: 'voucher-entry' },
           { label: 'Day BooK', target: 'day-book', hotIndex: 7 },
         ],
       },
