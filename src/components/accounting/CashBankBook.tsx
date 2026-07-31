@@ -4,7 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { accountMovements } from '@/lib/accountMovements';
-import { CASH_IN_HAND_CODE, cashInHandOptionalNet } from '@/lib/cashInHandOptional';
+import { isCashBankLedger, optionalNetByAccount } from '@/lib/cashBankOptional';
 import { TallyScreen } from './tally/TallyChrome';
 import { TallyList } from './tally/TallyPopup';
 import { useTallyReport } from './tally/useTallyReport';
@@ -129,7 +129,7 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
   });
 
   const account = accounts.find((a) => a.id === selectedId) || null;
-  const isCashInHand = account?.account_code === CASH_IN_HAND_CODE;
+  const dropOptional = isCashBankLedger(account?.account_code);
 
   const report = useTallyReport({
     filterFields: ['Particulars', 'Narration', 'Vch Type', 'Vch No.'],
@@ -159,17 +159,17 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
     queryFn: async () => {
       const [map, optionalNet] = await Promise.all([
         accountMovements({ upto: fyTo }),
-        cashInHandOptionalNet({ upto: fyTo }),
+        optionalNetByAccount({ upto: fyTo }),
       ]);
       const byAccount: Record<string, number> = {};
       for (const a of accounts) {
         const m = map.get(a.id);
         if (m) byAccount[a.id] = m.debit - m.credit;
-        // Cash in Hand shows cash transactions only — the pharmacy JVs its
-        // drill-down hides must come off its closing balance too.
-        if (a.account_code === CASH_IN_HAND_CODE) {
-          byAccount[a.id] = (byAccount[a.id] ?? 0) - optionalNet;
-        }
+        // Every ledger here is a cash or bank one, and each shows its own
+        // transactions only — so the pharmacy JVs the drill-down hides must
+        // come off the closing balance too.
+        const optional = optionalNet.get(a.id);
+        if (optional) byAccount[a.id] = (byAccount[a.id] ?? 0) - optional;
       }
       return byAccount;
     },
@@ -193,7 +193,7 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
   const ledgerRows = useMemo(() => ledgerGroups.flatMap((g) => g.items), [ledgerGroups]);
 
   const { data: entries = [], isLoading } = useQuery({
-    queryKey: ['cash_bank_book', selectedId, fyFrom, fyTo, isCashInHand],
+    queryKey: ['cash_bank_book', selectedId, fyFrom, fyTo, dropOptional],
     enabled: !!selectedId && accounts.length > 0,
     queryFn: async () => {
       const data = await fetchAllRows((from, to) => {
@@ -209,9 +209,9 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
           .eq('voucher.status', 'AUTHORISED')
           .gte('voucher.voucher_date', fyFrom)
           .lte('voucher.voucher_date', fyTo);
-        // Cash in Hand is the cash box — the pharmacy sale JVs belong to the
-        // pharmacy's own ledger, not here. Every other ledger keeps them.
-        if (isCashInHand) query = query.eq('voucher.is_optional', false);
+        // A cash or bank ledger shows its own transactions only — see
+        // cashBankOptional. Every other ledger keeps the pharmacy JVs.
+        if (dropOptional) query = query.eq('voucher.is_optional', false);
         return query.order('created_at', { ascending: true }).range(from, to);
       });
       return data as unknown as EntryRow[];

@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { accountMovements, type Movement } from '@/lib/accountMovements';
-import { CASH_IN_HAND_CODE, cashInHandOptionalNet } from '@/lib/cashInHandOptional';
+import { optionalNetByAccount } from '@/lib/cashBankOptional';
 import { format } from 'date-fns';
 import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { TallyScreen } from './tally/TallyChrome';
@@ -74,11 +74,11 @@ const Dashboard: React.FC<{ onOpenVoucher?: (id: string) => void; canSeeTile?: (
     queryFn: () => accountMovements({ from, upto: today }),
   });
 
-  // The Cash-in-Hand tile matches the Cash/Bank screens, which show cash
-  // transactions only — so the pharmacy JVs come off this tile too.
-  const { data: cashOptionalNet = 0 } = useQuery({
-    queryKey: ['dash_cash_optional', today],
-    queryFn: () => cashInHandOptionalNet({ upto: today }),
+  // These tiles match the Cash/Bank screens, where each cash and bank ledger
+  // shows its own transactions only — so the pharmacy JVs come off them too.
+  const { data: optionalNet = new Map<string, number>() } = useQuery({
+    queryKey: ['dash_cash_bank_optional', today],
+    queryFn: () => optionalNetByAccount({ upto: today }),
   });
 
   const { data: recent = [] } = useQuery({
@@ -109,10 +109,9 @@ const Dashboard: React.FC<{ onOpenVoucher?: (id: string) => void; canSeeTile?: (
     const expenseHeads: { name: string; amount: number }[] = [];
     for (const a of accounts) {
       const t = (a.account_type || '').toUpperCase();
-      if (a.account_code.startsWith('111')) {
-        cash += bal(a) - (a.account_code === CASH_IN_HAND_CODE ? cashOptionalNet : 0);
-      }
-      else if (a.account_code.startsWith('112')) bank += bal(a);
+      const optional = optionalNet.get(a.id) ?? 0;
+      if (a.account_code.startsWith('111')) cash += bal(a) - optional;
+      else if (a.account_code.startsWith('112')) bank += bal(a) - optional;
       if (a.account_code === '2110') advance = -bal(a);
       const m = period.get(a.id);
       if (!m) continue;
@@ -125,7 +124,7 @@ const Dashboard: React.FC<{ onOpenVoucher?: (id: string) => void; canSeeTile?: (
     }
     expenseHeads.sort((a, b) => b.amount - a.amount);
     return { cash, bank, income, expense, nett: income - expense, advance, expenseHeads: expenseHeads.slice(0, 8) };
-  }, [accounts, cumulative, period, cashOptionalNet]);
+  }, [accounts, cumulative, period, optionalNet]);
 
   const maxExp = S.expenseHeads[0]?.amount || 1;
 
