@@ -6,7 +6,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fetchLatestGovernmentPortalReport } from "@/lib/governmentPortalReportDb";
+import {
+  fetchLatestGovernmentPortalReport,
+  loadDischargedPatientKeys,
+  rowNeedsExtension,
+} from "@/lib/governmentPortalReportDb";
 import type { GovernmentPortalRow } from "@/lib/governmentPortalReport";
 import { cn } from "@/lib/utils";
 import { TabletCard } from "@/tablet/ui/TabletCard";
@@ -116,10 +120,23 @@ export function GovernmentPortalGeneralMedicalSection({
     refetchInterval: 5 * 60_000,
   });
 
+  // The amber badge must not survive the patient going home, so this card asks
+  // the same question the import screen does — see `rowNeedsExtension`.
+  const { data: dischargedKeys } = useQuery({
+    queryKey: ["discharged-patient-keys"],
+    queryFn: () => loadDischargedPatientKeys(),
+    staleTime: 5 * 60_000,
+  });
+
   const rows = useMemo(
     () => (data?.report.rows || []).filter((row) => row.section === "generalMedical"),
     [data],
   );
+
+  const needsExtension = (row: GovernmentPortalRow) =>
+    // Until the discharge list has loaded, say no: a badge that appears and
+    // then vanishes is worse than one that arrives a moment late.
+    !!dischargedKeys && rowNeedsExtension(row, dischargedKeys);
 
   const visibleRows = rows.slice(0, maxRows);
 
@@ -202,7 +219,7 @@ export function GovernmentPortalGeneralMedicalSection({
                           <div className="text-sm font-semibold text-gray-900">
                             {row.values["Beneficiary Name"] || "-"}
                           </div>
-                          {row.extensionNeeded && (
+                          {needsExtension(row) && (
                             <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">
                               Extension Needed
                             </Badge>
@@ -256,7 +273,7 @@ export function GovernmentPortalGeneralMedicalSection({
                         <div className="text-sm font-semibold text-foreground">
                           {row.values["Beneficiary Name"] || "-"}
                         </div>
-                          {row.extensionNeeded && (
+                          {needsExtension(row) && (
                             <Badge className="bg-amber-500/15 text-amber-200 hover:bg-amber-500/15">
                               Extension Needed
                             </Badge>

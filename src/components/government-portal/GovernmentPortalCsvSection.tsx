@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import {
   Activity,
   AlertCircle,
@@ -37,9 +37,9 @@ import {
   fetchGovernmentPortalImportHistory,
   fetchGovernmentPortalReportById,
   fetchLatestGovernmentPortalReport,
-  filterOutDischargedPatients,
   loadDischargeDates,
   loadDischargedPatientKeys,
+  rowNeedsExtension,
   saveGovernmentPortalReport,
   updateGovernmentPortalRowStatus,
   type DischargeDateLookup,
@@ -151,6 +151,7 @@ const ResultTable = ({
   onStatusChange,
   savingRowId,
   dischargeDates,
+  needsExtension,
 }: {
   rows: GovernmentPortalRow[];
   onStatusChange: (row: GovernmentPortalRow, status: GovernmentPortalPatientStatus) => void;
@@ -161,6 +162,8 @@ const ResultTable = ({
    * visits — see `loadDischargeDates`.
    */
   dischargeDates?: DischargeDateLookup;
+  /** The one test for "still needs an extension" — see `needsExtension` below. */
+  needsExtension: (row: GovernmentPortalRow) => boolean;
 }) => {
   if (rows.length === 0) {
     return (
@@ -194,7 +197,7 @@ const ResultTable = ({
               <TableCell className="font-medium text-gray-600">{row.rowNumber}</TableCell>
               <TableCell className="min-w-[180px] font-medium">
                 {row.values['Beneficiary Name'] || '-'}
-                {row.extensionNeeded && (
+                {needsExtension(row) && (
                   <Badge className="ml-2 bg-amber-100 text-amber-800 hover:bg-amber-100">
                     Extension Needed
                   </Badge>
@@ -395,15 +398,16 @@ export function GovernmentPortalCsvSection({
     }
   };
 
+  // The badge in the table, the Extension Needed section, the summary card and
+  // the WhatsApp list all ask this one question — see `rowNeedsExtension`.
+  const needsExtension = useCallback(
+    (row: GovernmentPortalRow) => rowNeedsExtension(row, dischargedKeys),
+    [dischargedKeys],
+  );
+
   const extensionNeededRows = useMemo(
-    () =>
-      filterOutDischargedPatients(
-        (report?.rows || []).filter((row) => row.extensionNeeded && row.status === 'pending'),
-        dischargedKeys,
-        (row) => row.values['Registration ID'],
-        (row) => row.values['Beneficiary Name'],
-      ),
-    [report, dischargedKeys],
+    () => (report?.rows || []).filter(needsExtension),
+    [report, needsExtension],
   );
 
   const sections = useMemo(() => {
@@ -431,8 +435,8 @@ export function GovernmentPortalCsvSection({
     if (showWhatsApp) {
       base.push({
         title: 'Extension Needed',
-        count: rows.filter((row) => row.extensionNeeded && row.status === 'pending').length,
-        rows: rows.filter((row) => row.extensionNeeded && row.status === 'pending'),
+        count: extensionNeededRows.length,
+        rows: extensionNeededRows,
       });
     }
     base.push({
@@ -441,7 +445,7 @@ export function GovernmentPortalCsvSection({
       rows: rows.filter((row) => row.section === 'unclassified'),
     });
     return base;
-  }, [report, showWhatsApp]);
+  }, [report, showWhatsApp, extensionNeededRows]);
 
   const urgentExtensionsText = useMemo(() => {
     if (!report) return '';
@@ -795,6 +799,7 @@ export function GovernmentPortalCsvSection({
                   onStatusChange={handleStatusChange}
                   savingRowId={savingRowId}
                   dischargeDates={section.showDischargeDate ? dischargeDates : undefined}
+                  needsExtension={needsExtension}
                 />
               </section>
             ))}

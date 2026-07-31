@@ -637,11 +637,51 @@ export function dischargeDateFor(
   return null;
 }
 
+export interface DischargedPatientKeys {
+  byRegistrationId: Set<string>;
+  byPatientName: Set<string>;
+}
+
+/**
+ * Has this patient already gone home?
+ *
+ * The single definition of the question, so a row cannot be counted as
+ * discharged by one part of a screen and not by another. Matching uses
+ * registration ID first (authoritative), then normalized patient name as a
+ * fallback — the same priority the portal sync uses.
+ */
+export function isDischargedPatient(
+  keys: DischargedPatientKeys,
+  registrationId: string | null | undefined,
+  patientName: string | null | undefined,
+): boolean {
+  const regId = normalizeRegistrationId(registrationId);
+  if (regId && keys.byRegistrationId.has(regId)) return true;
+  const name = normalizeMatchValue(patientName);
+  return !!name && keys.byPatientName.has(name);
+}
+
+/**
+ * Does this row still need an extension applied?
+ *
+ * The one test, shared by every surface that shows the amber "Extension
+ * Needed" badge or counts it. The badge used to be drawn straight from
+ * `row.extensionNeeded`, which only asks whether the stay is past the day
+ * threshold — so a patient who had already gone home, or whose extension had
+ * already been requested, kept the badge while the summary beside it counted
+ * zero. One screen, two answers.
+ */
+export function rowNeedsExtension(row: GovernmentPortalRow, keys: DischargedPatientKeys): boolean {
+  return (
+    row.extensionNeeded &&
+    row.status === 'pending' &&
+    !isDischargedPatient(keys, row.values['Registration ID'], row.values['Beneficiary Name'])
+  );
+}
+
 /**
  * Shared discharged-patient filter. Apply this to ANY list of patients that
- * should not include discharged cases. Matching uses registration ID first
- * (authoritative), then normalized patient name as a fallback — the same
- * priority the portal sync uses.
+ * should not include discharged cases.
  *
  * Usage:
  *   const keys = await loadDischargedPatientKeys();
@@ -649,17 +689,11 @@ export function dischargeDateFor(
  */
 export function filterOutDischargedPatients<T>(
   rows: T[],
-  keys: { byRegistrationId: Set<string>; byPatientName: Set<string> },
+  keys: DischargedPatientKeys,
   getRegistrationId: (row: T) => string | null | undefined,
   getPatientName: (row: T) => string | null | undefined,
 ): T[] {
-  return rows.filter((row) => {
-    const regId = normalizeRegistrationId(getRegistrationId(row));
-    if (regId && keys.byRegistrationId.has(regId)) return false;
-    const name = normalizeMatchValue(getPatientName(row));
-    if (name && keys.byPatientName.has(name)) return false;
-    return true;
-  });
+  return rows.filter((row) => !isDischargedPatient(keys, getRegistrationId(row), getPatientName(row)));
 }
 
 export async function fetchLatestGovernmentPortalExtensionAlerts(
