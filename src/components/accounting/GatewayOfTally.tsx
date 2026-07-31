@@ -44,15 +44,15 @@ const MENUS: Record<string, Menu> = {
       {
         heading: 'MASTERS',
         items: [
-          { label: 'Create', target: 'masters' },
-          { label: 'Alter', target: 'masters' },
+          { label: 'Create', target: 'masters-create' },
+          { label: 'Alter', target: 'masters-alter' },
           { label: 'CHart of Accounts', target: 'chart-of-accounts', hotIndex: 1 },
         ],
       },
       {
         heading: 'TRANSACTIONS',
         items: [
-          { label: 'Vouchers', target: 'voucher-entry' },
+          { label: 'Vouchers', target: 'voucher-type-picker' },
           { label: 'Day BooK', target: 'day-book', hotIndex: 7 },
         ],
       },

@@ -30,8 +30,6 @@ import { VoucherAttachmentFields } from './VoucherAttachmentFields';
 import {
   discardVoucherAttachments,
   linkVoucherAttachments,
-  missingVoucherTags,
-  VOUCHER_INVOICE_CATEGORY,
   VOUCHER_ATTACHMENT_CATEGORIES,
   type VoucherAttachment,
   type VoucherAttachmentCategory,
@@ -497,6 +495,8 @@ interface VoucherEntryProps {
   onDone?: () => void;
   /** Select an active voucher type when opening a new voucher from a shortcut. */
   initialVoucherCategory?: string;
+  /** Select this exact active voucher type when opening from the voucher picker. */
+  initialVoucherTypeId?: string;
   /** Tally's "2: Duplicate Vch" — copy this voucher into a new, unsaved one */
   duplicateFromId?: string;
   /** Tally's "I: Insert Vch" — open a new voucher already dated to this day */
@@ -511,6 +511,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
   voucherId,
   onDone,
   initialVoucherCategory,
+  initialVoucherTypeId,
   duplicateFromId,
   initialDate,
   lockedVoucherCategory,
@@ -793,19 +794,26 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
   // once the active voucher types have loaded. Alteration mode always wins.
   useEffect(() => {
     const requestedCategory = lockedVoucherCategory || initialVoucherCategory;
-    if (alterMode || selectedVoucherType || !requestedCategory || voucherTypes.length === 0) return;
+    if (alterMode || selectedVoucherType || initialVoucherTypeId || !requestedCategory || voucherTypes.length === 0) return;
     const requested = requestedCategory.toUpperCase();
     const matchingType = voucherTypes.find((type) => type.voucher_category?.toUpperCase() === requested);
     if (matchingType) setSelectedVoucherType(matchingType.id);
-  }, [alterMode, initialVoucherCategory, lockedVoucherCategory, selectedVoucherType, voucherTypes]);
+  }, [alterMode, initialVoucherCategory, initialVoucherTypeId, lockedVoucherCategory, selectedVoucherType, voucherTypes]);
+
+  useEffect(() => {
+    if (alterMode || selectedVoucherType || !initialVoucherTypeId || voucherTypes.length === 0) return;
+    if (voucherTypes.some((type) => type.id === initialVoucherTypeId)) {
+      setSelectedVoucherType(initialVoucherTypeId);
+    }
+  }, [alterMode, initialVoucherTypeId, selectedVoucherType, voucherTypes]);
 
   // New voucher entry opens on Payment by default. Explicit shortcuts and
   // alteration mode take priority over this default.
   useEffect(() => {
-    if (alterMode || selectedVoucherType || initialVoucherCategory || lockedVoucherCategory || voucherTypes.length === 0) return;
+    if (alterMode || selectedVoucherType || initialVoucherCategory || initialVoucherTypeId || lockedVoucherCategory || voucherTypes.length === 0) return;
     const paymentType = voucherTypes.find((type) => type.voucher_category?.toUpperCase() === 'PAYMENT');
     if (paymentType) setSelectedVoucherType(paymentType.id);
-  }, [alterMode, initialVoucherCategory, lockedVoucherCategory, selectedVoucherType, voucherTypes]);
+  }, [alterMode, initialVoucherCategory, initialVoucherTypeId, lockedVoucherCategory, selectedVoucherType, voucherTypes]);
 
   // ------ Alteration mode: load the voucher and populate the form ------
   const { data: loadedVoucher } = useQuery({
@@ -971,7 +979,6 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     const ids = [...new Set(voucherAccounts.map((ledger) => ledger.patient_id).filter(Boolean))];
     return ids.length === 1 ? ids[0]! : '';
   }, [voucherAccounts]);
-  const requiresAttachments = !alterMode && ['PAYMENT', 'RECEIPT', 'CONTRA', 'JOURNAL'].includes(category);
 
   // ------ Computed totals ------
   const partTotal = useMemo(
@@ -1147,22 +1154,6 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
       toast.error('Select a voucher type.');
       return;
     }
-    if (requiresAttachments && !attachments.some((item) => item.category === VOUCHER_INVOICE_CATEGORY)) {
-      toast.error('Upload at least one invoice, bill, or approval before saving.');
-      return;
-    }
-    if (requiresAttachments && !narration.trim()) {
-      toast.error('Generate or enter a narration before saving.');
-      return;
-    }
-    if (requiresAttachments) {
-      const missingTags = missingVoucherTags(narration, requiredTags);
-      if (missingTags.length) {
-        toast.error(`Narration must include: ${missingTags.join(', ')}`);
-        return;
-      }
-    }
-
     const validEntries = buildEntries();
     if (!validEntries) return;
 

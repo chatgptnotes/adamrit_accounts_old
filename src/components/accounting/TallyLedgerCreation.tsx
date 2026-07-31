@@ -22,7 +22,6 @@ import {
 } from '@/components/ui/table';
 import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import {
-  ACCOUNT_TYPES,
   accountCodeAttempt,
   accountTypeForGroupChain,
   accountTypeFromSiblings,
@@ -101,8 +100,6 @@ const TallyLedgerCreation: React.FC = () => {
   const [name, setName] = useState('');
   const [alias, setAlias] = useState('');
   const [under, setUnder] = useState('');
-  // Empty means "use the derived type"; a value is the user's explicit override
-  const [typeOverride, setTypeOverride] = useState<AccountType | ''>('');
   const [openingBalance, setOpeningBalance] = useState('');
   const [openingType, setOpeningType] = useState<'Dr' | 'Cr'>('Dr');
   // Mailing / Banking / Tax details (Tally Ledger Creation right panel)
@@ -198,7 +195,8 @@ const TallyLedgerCreation: React.FC = () => {
    * account_type for the picked group. The siblings already under that group
    * win: the point of filing a ledger under a group is that it reports where
    * they do, including where a past import typed them in a way the name rules
-   * would not reproduce. Always shown on the form, and overridable.
+   * would not reproduce. The type is stored automatically and is not shown
+   * on the Tally-style creation form.
    */
   const derived = useMemo(() => {
     if (!selectedGroupName) return null;
@@ -222,7 +220,9 @@ const TallyLedgerCreation: React.FC = () => {
     };
   }, [selectedGroupName, accounts, under, groupById, groupChain]);
 
-  const effectiveType: AccountType | null = typeOverride || derived?.type || null;
+  const effectiveType: AccountType | null = editing && isAccountType(editing.account_type)
+    ? editing.account_type
+    : derived?.type || null;
 
   // Tally's Total Opening Balance panel (top-right): the company's Dr and Cr
   // opening totals, over the same rows every report totals. The two sides do
@@ -271,7 +271,6 @@ const TallyLedgerCreation: React.FC = () => {
       account.ledger_group_id ??
         (byName ? byName.id : account.account_group ? `${COA_GROUP_PREFIX}${account.account_group}` : ''),
     );
-    setTypeOverride(isAccountType(account.account_type) ? account.account_type : '');
     const opening = Math.abs(Number(account.opening_balance) || 0);
     setOpeningBalance(opening ? String(opening) : '');
     setOpeningType((account.opening_balance_type ?? '').toUpperCase() === 'CR' ? 'Cr' : 'Dr');
@@ -296,7 +295,6 @@ const TallyLedgerCreation: React.FC = () => {
     setName('');
     setAlias('');
     setUnder('');
-    setTypeOverride('');
     setOpeningBalance('');
     setOpeningType('Dr');
     setMailingName('');
@@ -480,7 +478,7 @@ const TallyLedgerCreation: React.FC = () => {
           {editing ? `Ledger Alteration — ${editing.account_name}` : 'Ledger Creation'}
         </div>
 
-        <div className="bg-[#fffefb] px-4 pb-3 pt-3">
+  <div className="min-h-[600px] bg-[#fffefb] px-4 pb-3 pt-3">
           {/* Total Opening Balance panel, Tally top-right */}
           <div className="float-right w-64 border border-gray-400 bg-white px-3 py-2 text-right text-sm">
             <div className="border-b border-gray-300 pb-1 font-bold">Total Opening Balance</div>
@@ -523,9 +521,9 @@ const TallyLedgerCreation: React.FC = () => {
             />
           </div>
 
-          <div className="mt-4 clear-none flex gap-8">
-            {/* Left column: Under + type + Opening */}
-            <div className="w-[46%] shrink-0">
+    <div className="mt-16 clear-none flex gap-8">
+      {/* Left column: Under + Opening */}
+      <div className="flex min-h-[430px] w-[46%] shrink-0 flex-col">
               <div className="flex items-center gap-2">
                 <span className="w-40 shrink-0 text-sm">Under</span>
                 <span className="text-sm">:</span>
@@ -534,42 +532,14 @@ const TallyLedgerCreation: React.FC = () => {
                   value={under}
                   onSelect={(value) => {
                     setUnder(value);
-                    setTypeOverride('');
                   }}
                   includePrimary={false}
                   extraOptions={coaGroupOptions}
                 />
               </div>
 
-              <div className="mt-3 flex items-center gap-2">
-                <span className="w-40 shrink-0 text-sm">Type of ledger</span>
-                <span className="text-sm">:</span>
-                <Select
-                  value={effectiveType ?? ''}
-                  onValueChange={(v) => setTypeOverride(v as AccountType)}
-                  disabled={!selectedGroupName}
-                >
-                  <SelectTrigger className="h-8 w-56 rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-sm font-semibold shadow-none focus:ring-0">
-                    <SelectValue placeholder="pick a group first" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ACCOUNT_TYPES.map((t) => (
-                      <SelectItem key={t} value={t}>
-                        {titleOfType(t)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {derived && (
-                <div className="ml-[11.5rem] text-xs text-muted-foreground">
-                  {typeOverride && typeOverride !== derived.type
-                    ? `overridden — ${titleOfType(derived.type)} ${derived.reason}`
-                    : derived.reason}
-                </div>
-              )}
-
-              <div className="mt-6 flex items-center gap-2 border-t border-gray-300 pt-3">
+        <div className="mt-auto">
+          <div className="flex items-center gap-2 border-t border-gray-300 pt-3">
                 <span className="w-40 shrink-0 text-sm">Opening Balance</span>
                 <span className="text-sm">:</span>
                 <Input
@@ -589,8 +559,8 @@ const TallyLedgerCreation: React.FC = () => {
                     <SelectItem value="Cr">Cr</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
-              <div className="ml-[11.5rem] text-xs text-muted-foreground">
+          </div>
+          <div className="ml-[11.5rem] text-xs text-muted-foreground">
                 Balance as on the year's first day — for money owed now, pass a voucher instead.
               </div>
 
@@ -611,7 +581,9 @@ const TallyLedgerCreation: React.FC = () => {
             </div>
 
             {/* Right column: Mailing / Banking / Tax, like Tally's image */}
-            <div className="min-w-0 flex-1 text-sm">
+        </div>
+
+      <div className="min-w-0 flex-1 text-sm">
               <div className="border-b border-gray-400 font-semibold">Mailing Details</div>
               {[
                 ['Name', mailingName, setMailingName, name || ''],
@@ -687,7 +659,7 @@ const TallyLedgerCreation: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>
+          </div>
 
         <div className="flex items-center gap-1 border-t bg-[#dce6f2] px-2 py-1.5">
           <Button variant="outline" size="sm" className="h-7 bg-white text-xs" onClick={handleClear} disabled={saving}>

@@ -39,6 +39,7 @@ import BillsReceivable from './BillsReceivable';
 import BillsPayable from './BillsPayable';
 import GroupSummary from './GroupSummary';
 import VoucherRegister from './VoucherRegister';
+import VoucherTypePicker from './VoucherTypePicker';
 import RatioAnalysis from './RatioAnalysis';
 import ReceiptsPayments from './ReceiptsPayments';
 import CostCentres from './CostCentres';
@@ -111,6 +112,7 @@ const renderContent = (
   openVoucher: (id: string) => void,
   openGroup: (head: string) => void,
   openLedger: (accountId: string) => void,
+  openNewVoucher: (voucherTypeId: string) => void,
   canSeeTile: (tileId: string, role?: string | null) => boolean,
 ): React.ReactNode => {
   // Account Books' register menu passes the voucher type as "voucher-register:Contra"
@@ -126,12 +128,17 @@ const renderContent = (
   switch (activeTab) {
     case 'gateway':
       return <GatewayOfTally onNavigate={goTo} />;
+    case 'masters-create':
+      return <AccountMasters mode="create" />;
+    case 'voucher-type-picker':
+      return <VoucherTypePicker onSelect={openNewVoucher} onClose={() => goTo('gateway')} />;
     case 'dashboard':
       return <Dashboard onOpenVoucher={openVoucher} canSeeTile={canSeeTile} />;
     case 'chart-of-accounts':
       return <ChartOfAccounts />;
     case 'masters':
-      return <AccountMasters />;
+    case 'masters-alter':
+      return <AccountMasters mode="alter" />;
     case 'opening-balances':
       return <OpeningBalances />;
     case 'voucher-entry':
@@ -211,6 +218,7 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
     () => initialTab ?? localStorage.getItem('accounting-default-tab') ?? 'gateway',
   );
   const [initialVoucherCategory, setInitialVoucherCategory] = useState<string | undefined>();
+  const [initialVoucherTypeId, setInitialVoucherTypeId] = useState<string | undefined>();
   const activeTabRef = React.useRef(activeTab);
   activeTabRef.current = activeTab;
 
@@ -218,9 +226,11 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
   React.useEffect(() => {
     const onGoto = (e: Event) => {
       setInitialVoucherCategory(undefined);
+      setInitialVoucherTypeId(undefined);
       setActiveTab((e as CustomEvent).detail as string);
     };
     const onOpenVoucher = (e: Event) => {
+      setInitialVoucherTypeId(undefined);
       setInitialVoucherCategory((e as CustomEvent).detail as string);
       setActiveTab('voucher-entry');
     };
@@ -234,6 +244,7 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
       setDuplicateVoucherId(null);
       setInsertDate((e as CustomEvent).detail as string);
       setInitialVoucherCategory(undefined);
+      setInitialVoucherTypeId(undefined);
       setActiveTab('voucher-entry');
     };
     const onSave = () => {
@@ -257,6 +268,13 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
       window.removeEventListener('tally-insert-voucher', onInsert);
     };
   }, []);
+
+  const openNewVoucher = (voucherTypeId: string): void => {
+    setInitialVoucherCategory(undefined);
+    setInitialVoucherTypeId(voucherTypeId);
+    setInsertDate(null);
+    setActiveTab('voucher-entry');
+  };
   // Tally's Esc from a screen with nothing to close returns to the Gateway
   React.useEffect(() => {
     const back = () => setActiveTab((t) => (t === 'gateway' ? t : 'gateway'));
@@ -384,9 +402,10 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
               ? <VoucherEntry
                   key={`new-${insertDate ?? ''}`}
                   initialVoucherCategory={initialVoucherCategory}
+                  initialVoucherTypeId={initialVoucherTypeId}
                   initialDate={insertDate ?? undefined}
                 />
-              : renderContent(activeTab, setActiveTab, setAlterVoucherId, setDrillGroup, setDrillLedgerId, canSeeTile)
+              : renderContent(activeTab, setActiveTab, setAlterVoucherId, setDrillGroup, setDrillLedgerId, openNewVoucher, canSeeTile)
           )}
         </div>
       </main>
