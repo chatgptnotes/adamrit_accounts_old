@@ -109,6 +109,7 @@ const NAV_ITEMS: NavItem[] = [
 const renderContent = (
   activeTab: string,
   goTo: (id: string) => void,
+  back: () => void,
   openVoucher: (id: string) => void,
   openGroup: (head: string) => void,
   openLedger: (accountId: string) => void,
@@ -131,7 +132,7 @@ const renderContent = (
     case 'masters-create':
       return <AccountMasters mode="create" />;
     case 'voucher-type-picker':
-      return <VoucherTypePicker onSelect={openNewVoucher} onClose={() => goTo('gateway')} />;
+      return <VoucherTypePicker onSelect={openNewVoucher} onClose={back} />;
     case 'dashboard':
       return <Dashboard onOpenVoucher={openVoucher} canSeeTile={canSeeTile} />;
     case 'chart-of-accounts':
@@ -148,7 +149,7 @@ const renderContent = (
     case 'cash-bank-book':
       return <CashBankBook onOpenVoucher={openVoucher} />;
     case 'cash-bank-summary':
-      return <CashBankSummary onClose={() => goTo('dashboard')} />;
+      return <CashBankSummary onClose={back} />;
     case 'ledger-view':
       return <LedgerView onOpenVoucher={openVoucher} />;
     case 'group-summary':
@@ -221,18 +222,35 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
   const [initialVoucherTypeId, setInitialVoucherTypeId] = useState<string | undefined>();
   const activeTabRef = React.useRef(activeTab);
   activeTabRef.current = activeTab;
+  // Tally unwinds one screen at a time, so remember how we got here. A ref, not
+  // state: the trail is never rendered, and a ref cannot be double-pushed by
+  // StrictMode running an updater twice.
+  const tabHistoryRef = React.useRef<string[]>([]);
+
+  /** Open a screen, remembering the one being left so Esc can step back to it. */
+  const goTo = React.useCallback((tab: string): void => {
+    const current = activeTabRef.current;
+    if (current === tab) return;
+    tabHistoryRef.current = [...tabHistoryRef.current, current].slice(-20);
+    setActiveTab(tab);
+  }, []);
+
+  /** Esc: back one screen, or to the Gateway once the trail runs out. */
+  const back = React.useCallback((): void => {
+    setActiveTab(tabHistoryRef.current.pop() ?? 'gateway');
+  }, []);
 
   // Rail buttons broadcast navigation / save-view requests
   React.useEffect(() => {
     const onGoto = (e: Event) => {
       setInitialVoucherCategory(undefined);
       setInitialVoucherTypeId(undefined);
-      setActiveTab((e as CustomEvent).detail as string);
+      goTo((e as CustomEvent).detail as string);
     };
     const onOpenVoucher = (e: Event) => {
       setInitialVoucherTypeId(undefined);
       setInitialVoucherCategory((e as CustomEvent).detail as string);
-      setActiveTab('voucher-entry');
+      goTo('voucher-entry');
     };
     // Drill from a report line straight into that ledger's vouchers
     const onOpenLedger = (e: Event) => setDrillLedgerId((e as CustomEvent).detail as string);
@@ -245,7 +263,7 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
       setInsertDate((e as CustomEvent).detail as string);
       setInitialVoucherCategory(undefined);
       setInitialVoucherTypeId(undefined);
-      setActiveTab('voucher-entry');
+      goTo('voucher-entry');
     };
     const onSave = () => {
       localStorage.setItem('accounting-default-tab', activeTabRef.current);
@@ -267,17 +285,16 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
       window.removeEventListener('tally-duplicate-voucher', onDuplicate);
       window.removeEventListener('tally-insert-voucher', onInsert);
     };
-  }, []);
+  }, [goTo]);
 
   const openNewVoucher = (voucherTypeId: string): void => {
     setInitialVoucherCategory(undefined);
     setInitialVoucherTypeId(voucherTypeId);
     setInsertDate(null);
-    setActiveTab('voucher-entry');
+    goTo('voucher-entry');
   };
-  // Tally's Esc from a screen with nothing to close returns to the Gateway
+  // Tally's Esc steps back one screen; the Gateway is where the trail ends
   React.useEffect(() => {
-    const back = () => setActiveTab((t) => (t === 'gateway' ? t : 'gateway'));
     // Fallback for content not wrapped in TallyScreen (e.g. the Tally Live
     // suite): TallyScreen preventDefaults its own Esc handling, so only
     // unhandled Esc presses land here.
@@ -300,7 +317,7 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
       window.removeEventListener('tally-escape', back);
       window.removeEventListener('keydown', onKey);
     };
-  }, []);
+  }, [back]);
 
   // Drill-down stack: group -> ledger -> voucher, each layer closable back
   const [alterVoucherId, setAlterVoucherId] = useState<string | null>(null);
@@ -348,7 +365,7 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
               return (
                 <button
                   key={item.id}
-                  onClick={() => (item.route ? navigate(item.route) : setActiveTab(item.id))}
+                  onClick={() => (item.route ? navigate(item.route) : goTo(item.id))}
                   title={item.label}
                   className={`
                     w-full flex items-center gap-3 py-2.5 text-sm transition-colors
@@ -405,7 +422,7 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
                   initialVoucherTypeId={initialVoucherTypeId}
                   initialDate={insertDate ?? undefined}
                 />
-              : renderContent(activeTab, setActiveTab, setAlterVoucherId, setDrillGroup, setDrillLedgerId, openNewVoucher, canSeeTile)
+              : renderContent(activeTab, goTo, back, setAlterVoucherId, setDrillGroup, setDrillLedgerId, openNewVoucher, canSeeTile)
           )}
         </div>
       </main>
