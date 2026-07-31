@@ -188,6 +188,9 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
 
   const [stack, setStack] = useState<string[]>(['gateway']);
   const [cursor, setCursor] = useState(0);
+  // The yellow bar is the keyboard's position, so it stays hidden until a key
+  // actually moves it — the mouse gets a soft hover shade instead.
+  const [cursorShown, setCursorShown] = useState(false);
   const [popup, setPopup] = useState<null | 'date' | 'period' | 'company' | 'quit'>(null);
 
   const menu = MENUS[stack[stack.length - 1]];
@@ -269,6 +272,12 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
 
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
+        // First key press only brings the bar back into view, so it never
+        // jumps a row past where it was left.
+        if (!cursorShown) {
+          setCursorShown(true);
+          return;
+        }
         const step = e.key === 'ArrowDown' ? 1 : -1;
         setCursor((c) => {
           // Skip greyed items, and stop on the Quit row (index === flat.length)
@@ -283,6 +292,11 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
       }
       if (e.key === 'Enter') {
         e.preventDefault();
+        // Never open a row the bar is not pointing at on screen.
+        if (!cursorShown) {
+          setCursorShown(true);
+          return;
+        }
         if (cursor === flat.length) back();
         else open(flat[cursor]);
         return;
@@ -306,7 +320,7 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flat, cursor, stack, popup]);
+  }, [flat, cursor, cursorShown, stack, popup]);
 
   const hotLabel = (item: MenuItem) => {
     const i = item.hotIndex ?? 0;
@@ -324,14 +338,14 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
       key={`${item.label}-${index}`}
       type="button"
       onClick={() => open(item)}
-      onMouseEnter={() => !item.disabled && setCursor(index)}
+      onMouseEnter={() => setCursorShown(false)}
       disabled={item.disabled}
       className={`block w-full py-[1px] pl-[92px] text-left leading-[18px] ${item.gapBefore ? 'mt-3' : ''} ${
         item.disabled
           ? 'cursor-default text-[#9bb4d0]'
-          : cursor === index
+          : cursorShown && cursor === index
             ? 'bg-[#ffc423] text-black'
-            : 'text-[#1a4d8f]'
+            : 'text-[#1a4d8f] hover:bg-[#fdf6d8]'
       }`}
     >
       {hotLabel(item)}
@@ -453,9 +467,11 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
                   <button
                     type="button"
                     onClick={back}
-                    onMouseEnter={() => setCursor(flat.length)}
+                    onMouseEnter={() => setCursorShown(false)}
                     className={`mt-6 block w-full py-[1px] pl-[92px] text-left leading-[18px] ${
-                      cursor === flat.length ? 'bg-[#ffc423] text-black' : 'text-[#1a4d8f]'
+                      cursorShown && cursor === flat.length
+                        ? 'bg-[#ffc423] text-black'
+                        : 'text-[#1a4d8f] hover:bg-[#fdf6d8]'
                     }`}
                   >
                     <span className="font-semibold">Q</span>uit
