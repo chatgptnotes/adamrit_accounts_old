@@ -310,7 +310,7 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
   const [drillLedgerId, setDrillLedgerId] = useState<string | null>(null);
   const [drillGroup, setDrillGroup] = useState<string | null>(null);
   // Collapsed icon rail by default — Tally-style full-width canvas.
-  const [navExpanded, setNavExpanded] = useState(true);
+  const [navExpanded, setNavExpanded] = useState(false);
 
   return (
     <AccountingCompanyProvider>
