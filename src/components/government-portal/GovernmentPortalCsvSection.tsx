@@ -7,12 +7,14 @@ import {
   Loader2,
   MessageCircle,
   RefreshCw,
+  CheckCircle2,
   ShieldCheck,
-  Upload,
   UserRound,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { ImportSectionShell } from './ImportSectionShell';
+import type { ImportAccent } from './importAccents';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -267,6 +269,10 @@ interface GovernmentPortalCsvSectionProps {
   description: string;
   /** WhatsApp copy boxes + urgent-extension alerting are Under Treatment-only concepts. */
   showWhatsApp: boolean;
+  /** The lane's colour and icon, shared with its card at the top of the page */
+  accent: ImportAccent;
+  /** "1 of 2" — which of the two CSV lanes this is */
+  position: string;
 }
 
 // One caret-delimited CSV/TXT import lane for the NHA provider portal export.
@@ -278,6 +284,8 @@ export function GovernmentPortalCsvSection({
   title,
   description,
   showWhatsApp,
+  accent,
+  position,
 }: GovernmentPortalCsvSectionProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [fileName, setFileName] = useState('');
@@ -637,30 +645,27 @@ export function GovernmentPortalCsvSection({
   const fieldId = `government-portal-report-${reportKind}`;
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h2 className="flex items-center gap-3 text-xl font-bold text-gray-900">
-            <span className="rounded-lg bg-emerald-50 p-2 text-emerald-700">
-              <Upload className="h-5 w-5" />
-            </span>
-            {title}
-          </h2>
-          <p className="mt-1 text-sm text-gray-500">{description}</p>
-          {savedAt && report && (
-            <p className="mt-1 text-xs text-emerald-700">
-              Saved import{savedImportId ? ` · ${savedImportId.slice(0, 8)}` : ''} ·{' '}
-              {new Date(savedAt).toLocaleString('en-IN')}
-            </p>
-          )}
-        </div>
-        {report && (
+    <ImportSectionShell
+      accent={accent}
+      title={title}
+      description={description}
+      position={position}
+      action={
+        report ? (
           <Button variant="outline" onClick={handleReset}>
             <RefreshCw className="mr-2 h-4 w-4" />
             Clear
           </Button>
-        )}
-      </div>
+        ) : undefined
+      }
+    >
+      {savedAt && report && (
+        <p className="mb-4 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200">
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          Saved import{savedImportId ? ` · ${savedImportId.slice(0, 8)}` : ''} ·{' '}
+          {new Date(savedAt).toLocaleString('en-IN')}
+        </p>
+      )}
 
       <Card>
         <CardHeader>
@@ -806,6 +811,6 @@ export function GovernmentPortalCsvSection({
           </div>
         </>
       )}
-    </div>
+    </ImportSectionShell>
   );
 }

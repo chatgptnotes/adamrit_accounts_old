@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
-import { Camera, CheckCircle2, Loader2, Sparkles } from 'lucide-react';
+import { CheckCircle2, Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ImportSectionShell } from './ImportSectionShell';
+import type { ImportAccent } from './importAccents';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -21,12 +22,22 @@ interface PreauthScreenshotSectionProps {
   listType: PreauthListType;
   title: string;
   description: string;
+  /** The lane's colour and icon, shared with its card at the top of the page */
+  accent: ImportAccent;
+  /** "1 of 2" — which of the two screenshot lanes this is */
+  position: string;
 }
 
 // One screenshot-upload lane for the NHA provider portal's preauthorization
 // card lists. Rendered twice on the import page — "to be submitted" and
 // "pending" — each tracking its own uploads independently via `listType`.
-export function PreauthScreenshotSection({ listType, title, description }: PreauthScreenshotSectionProps) {
+export function PreauthScreenshotSection({
+  listType,
+  title,
+  description,
+  accent,
+  position,
+}: PreauthScreenshotSectionProps) {
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploads, setUploads] = useState<PreauthSubmissionUpload[]>([]);
@@ -106,20 +117,13 @@ export function PreauthScreenshotSection({ listType, title, description }: Preau
   };
 
   return (
-    <Card className="border-amber-200">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Camera className="h-5 w-5 text-amber-600" />
-          {title}
-        </CardTitle>
-        <p className="text-sm text-gray-500">{description}</p>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <ImportSectionShell accent={accent} title={title} description={description} position={position}>
+      <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-3">
           <Button
             onClick={() => fileInputRef.current?.click()}
             disabled={isExtracting}
-            className="bg-amber-600 text-white hover:bg-amber-700"
+            className={accent.button}
           >
             {isExtracting ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -157,7 +161,7 @@ export function PreauthScreenshotSection({ listType, title, description }: Preau
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
+                  <Badge variant="outline" className={accent.chip}>
                     {pendingCount} pending
                   </Badge>
                   <a
@@ -225,7 +229,7 @@ export function PreauthScreenshotSection({ listType, title, description }: Preau
             </div>
           );
         })}
-      </CardContent>
-    </Card>
+      </div>
+    </ImportSectionShell>
   );
 }

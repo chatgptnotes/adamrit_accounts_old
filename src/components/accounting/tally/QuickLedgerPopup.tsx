@@ -73,7 +73,7 @@ export const QuickLedgerPopup: React.FC<{
       return;
     }
     const derived = accountTypeForGroupChain(chain());
-    if (!derived?.accountType) {
+    if (!derived?.type) {
       toast.error(`Cannot tell what kind of account "${chosen.name}" is — create this one under Masters`);
       return;
     }
@@ -98,7 +98,7 @@ export const QuickLedgerPopup: React.FC<{
       const created = await insertLedgerAccount(supabase as any, {
         companyId: selectedCompanyId,
         name: trimmed,
-        accountType: derived.accountType,
+        accountType: derived.type,
         groupName: chosen.name,
         ledgerGroupId: chosen.id,
       });
