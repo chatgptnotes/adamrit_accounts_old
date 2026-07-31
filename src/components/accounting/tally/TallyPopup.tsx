@@ -1,5 +1,7 @@
 import React, { useEffect, useRef } from 'react';
-import { TALLY_FONT, useTallyModal } from './TallyChrome';
+import { TALLY_FONT } from './TallyChrome';
+import { useShortcuts } from './keyboard';
+import { useFieldRing } from './useFieldRing';
 
 /**
  * The shell every Tally pop-up shares — grey scrim over the report, a small
@@ -17,7 +19,6 @@ interface TallyPopupProps {
 }
 
 export const TallyPopup: React.FC<TallyPopupProps> = ({ title, width = 260, onAccept, onClose, children }) => {
-  useTallyModal();
   const boxRef = useRef<HTMLDivElement>(null);
 
   // Focus the first field so typing and arrows work straight away
@@ -27,53 +28,22 @@ export const TallyPopup: React.FC<TallyPopupProps> = ({ title, width = 260, onAc
     if (first instanceof HTMLInputElement) first.select();
   }, []);
 
-  // Esc / A run before any screen-level handling
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        onClose();
-        return;
-      }
-      const el = e.target as HTMLElement | null;
-      const typing = el?.tagName === 'INPUT' || el?.tagName === 'TEXTAREA';
-      if (onAccept && !typing && !e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'a' || e.key === 'A')) {
-        e.preventDefault();
-        e.stopPropagation();
-        onAccept();
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [onAccept, onClose]);
+  // Registering on the `popup` layer is what takes the keyboard from the report
+  // behind: it no longer sees Esc, or the arrow keys as row movement.
+  useShortcuts([
+    { combo: 'Esc', layer: 'popup', allowInInput: true, label: 'Quit the pop-up', run: onClose },
+    ...(onAccept ? [{ combo: 'A', layer: 'popup' as const, label: 'Accept the pop-up', run: onAccept }] : []),
+  ]);
 
   // Up / Down step between fields and Enter walks forward, like Tally's field
   // cursor; Enter on the last field accepts the pop-up.
-  const onBoxKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter') return;
-    const fields = Array.from(boxRef.current?.querySelectorAll<HTMLElement>('[data-tally-field]') ?? []);
-    if (fields.length === 0) return;
-    const at = fields.indexOf(document.activeElement as HTMLElement);
-    e.preventDefault();
-    // The report behind the pop-up must not see these keys as row movement
-    e.stopPropagation();
-    e.nativeEvent.stopImmediatePropagation();
-    if (e.key === 'Enter' && at === fields.length - 1) {
-      onAccept?.();
-      return;
-    }
-    const next = fields[Math.max(0, Math.min(fields.length - 1, at + (e.key === 'ArrowUp' ? -1 : 1)))];
-    next?.focus();
-    if (next instanceof HTMLInputElement) next.select();
-  };
+  useFieldRing({ containerRef: boxRef, onAccept, arrows: true });
 
   return (
     <div className="fixed inset-0 z-[95] bg-[#9aa2ab]/55" onMouseDown={onClose}>
       <div
         ref={boxRef}
         style={{ ...TALLY_FONT, width }}
-        onKeyDown={onBoxKeyDown}
         className="absolute left-1/2 top-[45%] -translate-x-1/2 -translate-y-1/2 border border-[#7f7f7f] bg-[#eef2f7] p-2 text-[13px] shadow-[2px_2px_6px_rgba(0,0,0,0.35)]"
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -183,28 +153,20 @@ export const TallyList: React.FC<{
   onClose: () => void;
   width?: number;
 }> = ({ title, items, onClose, width = 300 }) => {
-  useTallyModal();
   const [cursor, setCursor] = React.useState(() => Math.max(0, items.findIndex((i) => i.active)));
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || e.key === 'q' || e.key === 'Q') {
-        e.preventDefault();
-        e.stopPropagation();
-        onClose();
-      } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        e.stopPropagation();
-        setCursor((c) => Math.max(0, Math.min(items.length - 1, c + (e.key === 'ArrowDown' ? 1 : -1))));
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        e.stopPropagation();
-        items[cursor]?.onSelect();
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [items, cursor, onClose]);
+  useShortcuts([
+    { combo: 'Esc', layer: 'popup', allowInInput: true, run: onClose },
+    { combo: 'Q', layer: 'popup', label: 'Quit the list', run: onClose },
+    {
+      combo: 'ArrowDown',
+      layer: 'popup',
+      allowInInput: true,
+      run: () => setCursor((c) => Math.min(items.length - 1, c + 1)),
+    },
+    { combo: 'ArrowUp', layer: 'popup', allowInInput: true, run: () => setCursor((c) => Math.max(0, c - 1)) },
+    { combo: 'Enter', layer: 'popup', allowInInput: true, run: () => items[cursor]?.onSelect() },
+  ]);
 
   return (
     <div className="fixed inset-0 z-[95] bg-[#9aa2ab]/55" onMouseDown={onClose}>

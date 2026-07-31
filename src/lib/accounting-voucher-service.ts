@@ -29,10 +29,6 @@ function voucherSaveError(error: any): Error {
   return new Error(`${message}${code}`)
 }
 
-function voucherNumber(prefix: string, currentNumber: number) {
-  return `${prefix}${String(currentNumber + 1).padStart(4, '0')}`
-}
-
 /** Creates an Adamrit accounting voucher and its double-entry rows. */
 export async function createAccountingVoucher(input: CreateAccountingVoucherInput) {
   const entries = input.entries.filter((entry) => entry.debitAmount > 0 || entry.creditAmount > 0)
@@ -58,7 +54,7 @@ export async function createAccountingVoucher(input: CreateAccountingVoucherInpu
 
   const { data: voucherType, error: typeError } = await supabase
     .from('voucher_types')
-    .select('id, prefix, current_number')
+    .select('id, voucher_type_code')
     .eq('voucher_category', input.category)
     .eq('is_active', true)
     .limit(1)
@@ -66,8 +62,17 @@ export async function createAccountingVoucher(input: CreateAccountingVoucherInpu
   if (typeError) throw voucherSaveError(typeError)
   if (!voucherType) throw new Error(`No active ${input.category} voucher type is configured`)
 
-  const nextNumber = (voucherType.current_number || 0) + 1
-  const number = input.voucherNumber?.trim() || voucherNumber(voucherType.prefix || '', voucherType.current_number || 0)
+  // The database issues the number and owns the counter — see
+  // supabase/migrations/20260731120000_one_voucher_number_series.sql.
+  let number = input.voucherNumber?.trim()
+  if (!number) {
+    const { data: issued, error: numberError } = await supabase.rpc('generate_voucher_number', {
+      p_voucher_type_code: voucherType.voucher_type_code,
+    })
+    if (numberError) throw voucherSaveError(numberError)
+    if (!issued) throw new Error(`Could not get a voucher number for ${input.category}`)
+    number = issued as string
+  }
   const { data: voucher, error: voucherError } = await supabase
     .from('vouchers')
     .insert({
@@ -101,14 +106,6 @@ export async function createAccountingVoucher(input: CreateAccountingVoucherInpu
     await supabase.from('vouchers').delete().eq('id', voucher.id)
     throw voucherSaveError(entryError)
   }
-
-  const { error: counterError } = await supabase
-    .from('voucher_types')
-    .update({ current_number: nextNumber })
-    .eq('id', voucherType.id)
-    // nextNumber comes from a cached read, so only ever move the counter forward.
-    .lt('current_number', nextNumber)
-  if (counterError) throw voucherSaveError(counterError)
 
   return voucher
 }

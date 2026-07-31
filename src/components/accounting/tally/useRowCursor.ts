@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { isTypingTarget, tallyModalIsOpen } from './TallyChrome';
+import { useEffect, useMemo, useState } from 'react';
+import { useShortcuts, type Binding } from './keyboard';
 
 /**
  * Tally's row cursor — the amber highlight that walks a report with the arrow
@@ -22,38 +22,29 @@ export function useRowCursor({
     setCursor((c) => Math.max(0, Math.min(c, count - 1)));
   }, [count]);
 
-  useEffect(() => {
-    if (!enabled) return;
-    const onKey = (e: KeyboardEvent) => {
-      // Someone upstream already owns this key — PgUp/PgDn in particular are
-      // the report's period step, not a cursor jump.
-      if (e.defaultPrevented) return;
-      if (tallyModalIsOpen() || isTypingTarget(e.target)) return;
-      if (e.altKey || e.ctrlKey || e.metaKey) return;
-      const step =
-        e.key === 'ArrowDown' ? 1
-        : e.key === 'ArrowUp' ? -1
-        : e.key === 'PageDown' ? 10
-        : e.key === 'PageUp' ? -10
-        : e.key === 'Home' ? -count
-        : e.key === 'End' ? count
-        : 0;
-      if (step !== 0) {
-        e.preventDefault();
-        setCursor((c) => Math.max(0, Math.min(count - 1, c + step)));
-        return;
-      }
-      if (e.key === 'Enter' && onEnter && count > 0) {
-        // A focused button handles its own Enter — don't drill down twice
-        const active = document.activeElement as HTMLElement | null;
-        if (active && (active.tagName === 'BUTTON' || active.tagName === 'A')) return;
-        e.preventDefault();
-        onEnter(cursor);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [count, cursor, onEnter, enabled]);
+  const bindings = useMemo<Binding[]>(() => {
+    const step = (by: number) => () => setCursor((c) => Math.max(0, Math.min(count - 1, c + by)));
+    return [
+      { combo: 'ArrowDown', layer: 'screen', label: 'Move the row cursor', run: step(1) },
+      { combo: 'ArrowUp', layer: 'screen', run: step(-1) },
+      { combo: 'Home', layer: 'screen', label: 'First / last row', run: step(-count) },
+      { combo: 'End', layer: 'screen', run: step(count) },
+      {
+        combo: 'Enter',
+        layer: 'screen',
+        label: 'Drill into the highlighted row',
+        when: () => {
+          if (!onEnter || count === 0) return false;
+          // A focused button handles its own Enter — don't drill down twice
+          const active = document.activeElement;
+          return !(active instanceof HTMLElement) || (active.tagName !== 'BUTTON' && active.tagName !== 'A');
+        },
+        run: () => onEnter?.(cursor),
+      },
+    ];
+  }, [count, cursor, onEnter]);
+
+  useShortcuts(bindings, enabled);
 
   return { cursor, setCursor };
 }

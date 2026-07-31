@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TallyScreen } from './tally/TallyChrome';
+import { useShortcuts, type Binding } from './tally/keyboard';
 import { TallyList, TallyPopup } from './tally/TallyPopup';
 import ChangePeriod from './tally/ChangePeriod';
 import { dayLabel, periodLabel, useAccountingPeriod } from './tally/PeriodContext';
@@ -256,71 +257,60 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
 
   // Tally's hot letters and arrow-key navigation are live on the menu.
   //
-  // Bound in the capture phase so the menu's hot letters beat the top bar's
-  // own K/Y/Z/O/E/M/P handler: they overlap (Day BooK / Display More Reports /
-  // DashbOard / Profit & Loss), and whoever ran first used to win by accident.
-  // preventDefault here is what tells the top bar to stand down.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented) return;
-      const target = e.target as HTMLElement | null;
-      const typing =
-        target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
-      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
-      // A pop-up (Change Date, company list, Quit?) owns the keyboard
-      if (popup) return;
-
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        // First key press only brings the bar back into view, so it never
-        // jumps a row past where it was left.
-        if (!cursorShown) {
-          setCursorShown(true);
-          return;
-        }
-        const step = e.key === 'ArrowDown' ? 1 : -1;
-        setCursor((c) => {
-          // Skip greyed items, and stop on the Quit row (index === flat.length)
-          for (let i = 1; i <= flat.length + 1; i++) {
-            const next = c + step * i;
-            if (next < 0 || next > flat.length) break;
-            if (next === flat.length || !flat[next].disabled) return next;
-          }
-          return c;
-        });
+  // These sit on the `screen` layer, which is consulted before the top bar's
+  // `global` letters — they overlap (Day BooK / Display More Reports /
+  // DashbOard / Profit & Loss) and used to be settled by whichever listener
+  // happened to run first.
+  const bindings = useMemo<Binding[]>(() => {
+    const step = (by: 1 | -1) => () => {
+      // First key press only brings the bar back into view, so it never jumps
+      // a row past where it was left.
+      if (!cursorShown) {
+        setCursorShown(true);
         return;
       }
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        // Never open a row the bar is not pointing at on screen.
-        if (!cursorShown) {
-          setCursorShown(true);
-          return;
+      setCursor((c) => {
+        // Skip greyed items, and stop on the Quit row (index === flat.length)
+        for (let i = 1; i <= flat.length + 1; i++) {
+          const next = c + by * i;
+          if (next < 0 || next > flat.length) break;
+          if (next === flat.length || !flat[next].disabled) return next;
         }
-        if (cursor === flat.length) back();
-        else open(flat[cursor]);
-        return;
-      }
-      if (e.key.length !== 1) return;
-
-      const key = e.key.toUpperCase();
-      if (key === 'Q') {
-        e.preventDefault();
-        back();
-        return;
-      }
-      for (const item of flat) {
-        if (item.label[item.hotIndex ?? 0]?.toUpperCase() === key) {
-          e.preventDefault();
-          open(item);
-          return;
-        }
-      }
+        return c;
+      });
     };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
+    return [
+      { combo: 'ArrowDown', layer: 'screen', label: 'Move the menu cursor', run: step(1) },
+      { combo: 'ArrowUp', layer: 'screen', run: step(-1) },
+      {
+        combo: 'Enter',
+        layer: 'screen',
+        label: 'Open the highlighted item',
+        run: () => {
+          // Never open a row the bar is not pointing at on screen.
+          if (!cursorShown) {
+            setCursorShown(true);
+            return;
+          }
+          if (cursor === flat.length) back();
+          else open(flat[cursor]);
+        },
+      },
+      { combo: 'Q', layer: 'screen', label: 'Quit this menu', run: back },
+      // Tally's hot capitals — the highlighted letter in each menu row.
+      ...flat
+        .map((item): Binding | null => {
+          const hot = item.label[item.hotIndex ?? 0];
+          return hot ? { combo: hot.toUpperCase(), layer: 'screen', label: item.label, run: () => open(item) } : null;
+        })
+        .filter((b): b is Binding => b !== null),
+    ];
+    // `open` and `back` are stable enough for a menu that rebuilds with `flat`
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flat, cursor, cursorShown, stack, popup]);
+  }, [flat, cursor, cursorShown, stack]);
+
+  // A pop-up (Change Date, company list, Quit?) owns the keyboard.
+  useShortcuts(bindings, !popup);
 
   const hotLabel = (item: MenuItem) => {
     const i = item.hotIndex ?? 0;

@@ -1022,12 +1022,13 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
       // Picking the type the voucher was loaded as is an undo, not a change —
       // it keeps its own number, so don't threaten to renumber it.
       const revert = nextTypeId === loadedVoucher?.voucher_type_id;
-      const nextNumber = generateVoucherNumber(nextType.prefix || '', (nextType.current_number || 0) + 1);
+      // The number itself is only issued when the voucher is saved, so don't name
+      // one here — the database may well hand out a different one by then.
       const ok = window.confirm(
         revert
           ? `Put voucher ${loadedNumber} back to ${toName}?`
           : `Change voucher ${loadedNumber} from ${fromName} to ${toName}?\n\n` +
-            `It will be renumbered ${nextNumber} and leave a gap in the ${fromName} series.`,
+            `It will be renumbered into the ${toName} series and leave a gap in the ${fromName} series.`,
       );
       if (!ok) return;
     }
@@ -1233,6 +1234,28 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     }));
   };
 
+  // The database hands out every voucher number, for the triggers and for this
+  // screen alike. It holds a row lock while it does, and steps past anything
+  // already issued, so two typists and a posting routine can save at the same
+  // moment without landing on vouchers_voucher_number_key. Numbering here from a
+  // cached current_number is what used to break that. Returns '' once the reason
+  // has been shown.
+  const allocateVoucherNumber = async (voucherType: VoucherType | undefined): Promise<string> => {
+    const code = voucherType?.voucher_type_code;
+    if (!code) {
+      toast.error('This voucher type has no code — set one in Voucher Types first.');
+      return '';
+    }
+    const { data, error } = await supabase.rpc('generate_voucher_number', {
+      p_voucher_type_code: code,
+    });
+    if (error || !data) {
+      toast.error('Could not get a voucher number: ' + (error?.message || 'none returned'));
+      return '';
+    }
+    return data as string;
+  };
+
   // ------ Save voucher (draft or posted) ------
   const saveVoucher = async (status: 'draft' | 'posted') => {
     if (!selectedCompanyId) {
@@ -1266,13 +1289,8 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
         // ------ Alteration: update header, replace entries ------
         // The number is kept unless the type was changed, in which case Tally
         // moves the voucher into the new type's series.
-        const retypedNumber = typeChanged
-          ? generateVoucherNumber(voucherType?.prefix || '', (voucherType?.current_number || 0) + 1)
-          : '';
-        if (typeChanged && !retypedNumber) {
-          toast.error('The new voucher type has no numbering prefix — set one in Voucher Types first.');
-          return;
-        }
+        const retypedNumber = typeChanged ? await allocateVoucherNumber(voucherType) : '';
+        if (typeChanged && !retypedNumber) return;
         const { error: uErr } = await supabase
           .from('vouchers')
           .update({
@@ -1316,13 +1334,6 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
         }
         await linkVoucherAttachments(voucherId!, attachments, username);
         if (typeChanged) {
-          // Same forward-only guard as creation — current_number came from a
-          // cached read, so never let the counter move backwards.
-          await supabase
-            .from('voucher_types')
-            .update({ current_number: (voucherType?.current_number || 0) + 1 })
-            .eq('id', selectedVoucherType)
-            .lt('current_number', (voucherType?.current_number || 0) + 1);
           toast.success(
             `Voucher ${loadedNumber} changed to ${voucherType?.voucher_type_name?.replace(' Voucher', '')} as ${retypedNumber}.`,
           );
@@ -1344,13 +1355,9 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
         return;
       }
 
-      const nextNum = (voucherType?.current_number || 0) + 1;
-      const generatedNumber = generateVoucherNumber(voucherType?.prefix || '', nextNum);
-      const numberToSave = voucherNumber.trim() || generatedNumber;
-      if (!numberToSave) {
-        toast.error('Enter a voucher number.');
-        return;
-      }
+      // A number the typist put in stands as typed; otherwise the database issues one.
+      const numberToSave = voucherNumberOverride.trim() || (await allocateVoucherNumber(voucherType));
+      if (!numberToSave) return;
 
       const { data: voucher, error: vErr } = await supabase
         .from('vouchers')
@@ -1367,6 +1374,8 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
           // vouchers.status CHECK constraint allows PENDING / AUTHORISED / CANCELLED
           status: isOptional ? 'PENDING' : status === 'posted' ? 'AUTHORISED' : 'PENDING',
           is_optional: isOptional,
+          // The one screen where a person types a voucher; everything else posts itself.
+          is_auto: false,
           created_by: 'system',
           last_modified_by: username,
         })
@@ -1404,13 +1413,6 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
         await discardVoucherAttachments(attachments);
         throw attachmentError;
       }
-
-      await supabase
-        .from('voucher_types')
-        .update({ current_number: nextNum })
-        .eq('id', selectedVoucherType)
-        // nextNum comes from a cached read, so only ever move the counter forward.
-        .lt('current_number', nextNum);
 
       toast.success(`Voucher ${numberToSave} saved${status === 'posted' ? '' : ' as pending'}.`);
 
@@ -1685,7 +1687,8 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
               />
             ) : (
               <span className="min-w-[100px] border border-gray-400 bg-[#fdf6d8] px-2 font-mono">
-                {voucherNumber || '…'}
+                {/* Renumbering happens when the database issues the number, on save. */}
+                {typeChanged ? 'on save' : voucherNumber || '…'}
               </span>
             )}
             {typeChanged && (

@@ -17181,6 +17181,7 @@ export type Database = {
           credit_tally_ledger_id: string | null
           debit_tally_ledger_id: string | null
           id: string
+          is_auto: boolean
           narration: string | null
           patient_id: string | null
           reference_date: string | null
@@ -17201,6 +17202,7 @@ export type Database = {
           credit_tally_ledger_id?: string | null
           debit_tally_ledger_id?: string | null
           id?: string
+          is_auto?: boolean
           narration?: string | null
           patient_id?: string | null
           reference_date?: string | null
@@ -17221,6 +17223,7 @@ export type Database = {
           credit_tally_ledger_id?: string | null
           debit_tally_ledger_id?: string | null
           id?: string
+          is_auto?: boolean
           narration?: string | null
           patient_id?: string | null
           reference_date?: string | null

@@ -1,6 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows } from '@/lib/fetchAllRows';
-import { normalizeName, resolveTallyCompanyIds } from '@/lib/tallyCompanyMatch';
+import { resolveTallyCompanyIds } from '@/lib/tallyCompanyMatch';
 
 export interface MergedVoucherEntry {
   ledger: string;
@@ -80,6 +80,18 @@ export async function fetchTallyVouchers(opts: {
 }
 
 /**
+ * One voucher number, however it happens to be written. The series has been issued
+ * as REC-012932 and as REC12933, and Tally holds its own spelling of both, so the
+ * separator and the zero padding cannot be part of the identity.
+ */
+export const normalizeVoucherNumber = (n: string | null | undefined): string =>
+  (n ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]/g, '')
+    .replace(/^([a-z]*)0+(\d)/, '$1$2');
+
+/**
  * Tally-preferred dedup across an already-normalized voucher list: when a Tally
  * row and an Adamrit row share a (non-empty) voucher number, the Tally row wins.
  * Rows with no voucher number are always kept.
@@ -88,7 +100,7 @@ export function dedupeVouchersTallyPreferred(rows: MergedVoucher[]): MergedVouch
   const byNumber = new Map<string, MergedVoucher>();
   const passthrough: MergedVoucher[] = [];
   for (const row of rows) {
-    const key = normalizeName(row.voucher_number);
+    const key = normalizeVoucherNumber(row.voucher_number);
     if (!key) {
       passthrough.push(row);
       continue;

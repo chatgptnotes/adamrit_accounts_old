@@ -56,11 +56,14 @@ const VoucherGapDetection: React.FC = () => {
     queryKey: ['voucher-gaps', voucherPrefix],
     queryFn: async (): Promise<GapAnalysis> => {
       // Fetch all vouchers whose number starts with the selected prefix.
+      // Ordered by age, not by number: numbers come in two shapes (REC-012932 from
+      // the old series, REC12933 from the current one) and '-' sorts before '0', so
+      // ordering by the string put every new voucher past the row cap.
       const { data: vouchers, error } = await supabase
-        .from('voucher_entries')
-        .select('id, voucher_number, voucher_type, created_at, amount')
+        .from('vouchers')
+        .select('id, voucher_number, created_at')
         .ilike('voucher_number', `${voucherPrefix}%`)
-        .order('voucher_number');
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
       if (!vouchers || vouchers.length === 0) {

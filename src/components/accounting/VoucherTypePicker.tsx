@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TallyScreen } from './tally/TallyChrome';
+import { useShortcuts } from './tally/keyboard';
 
 interface VoucherType {
   id: string;
@@ -34,26 +35,24 @@ const VoucherTypePicker: React.FC<VoucherTypePickerProps> = ({ onSelect, onClose
     if (cursor >= voucherTypes.length) setCursor(Math.max(0, voucherTypes.length - 1));
   }, [cursor, voucherTypes.length]);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'ArrowDown') {
-        event.preventDefault();
-        setCursor((value) => Math.min(value + 1, Math.max(0, voucherTypes.length - 1)));
-      } else if (event.key === 'ArrowUp') {
-        event.preventDefault();
-        setCursor((value) => Math.max(value - 1, 0));
-      } else if (event.key === 'Enter') {
-        event.preventDefault();
+  useShortcuts([
+    {
+      combo: 'ArrowDown',
+      layer: 'screen',
+      label: 'Move the cursor',
+      run: () => setCursor((v) => Math.min(v + 1, Math.max(0, voucherTypes.length - 1))),
+    },
+    { combo: 'ArrowUp', layer: 'screen', run: () => setCursor((v) => Math.max(v - 1, 0)) },
+    {
+      combo: 'Enter',
+      layer: 'screen',
+      label: 'Open the highlighted voucher type',
+      run: () => {
         const selected = voucherTypes[cursor];
         if (selected) onSelect(selected.id);
-      } else if (event.key === 'Escape') {
-        event.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [cursor, onClose, onSelect, voucherTypes]);
+      },
+    },
+  ]);
 
   return (
     <TallyScreen title="List of Voucher Types" onClose={onClose}>

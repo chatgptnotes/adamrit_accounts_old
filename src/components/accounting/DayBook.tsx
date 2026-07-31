@@ -28,6 +28,7 @@ interface DayRow {
   narration: string | null;
   entries: { label: string; debit: number; credit: number }[];
   cancelled: boolean;
+  isAuto: boolean;
   source: LedgerSource;
 }
 
@@ -53,6 +54,7 @@ interface Voucher {
   narration: string | null;
   total_amount: number;
   status: string;
+  is_auto?: boolean;
   voucher_type: VoucherType | null;
   voucher_entries: EntryRow[];
 }
@@ -167,7 +169,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
       let query = supabase
         .from('vouchers')
         .select(`
-          id, voucher_number, voucher_date, narration, total_amount, status,
+          id, voucher_number, voucher_date, narration, total_amount, status, is_auto,
           voucher_type:voucher_types(id, voucher_type_name, voucher_category),
           voucher_entries(
             id, debit_amount, credit_amount, narration, entry_order,
@@ -260,6 +262,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
           credit: Number(e.credit_amount) || 0,
         })),
         cancelled: v.status === 'CANCELLED',
+        isAuto: !!v.is_auto,
         source: 'adamrit',
       };
     });
@@ -288,6 +291,8 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
           credit: e.credit,
         })),
         cancelled: false,
+        // Tally's own vouchers carry no such distinction.
+        isAuto: false,
         source: 'tally',
       };
     });
@@ -471,7 +476,13 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
                       {r.cancelled && <span className="pl-2 text-[11px] not-italic">(Cancelled)</span>}
                     </div>
                     <div className="w-32 px-1">{r.type}</div>
-                    <div className="w-28 px-1 font-mono text-[12px]">{r.number}</div>
+                    <div className="w-28 px-1 font-mono text-[12px]">
+                      {r.number}
+                      {/* Posted by a trigger rather than typed by anyone. */}
+                      {r.isAuto && (
+                        <span className="ml-1 bg-gray-200 px-1 text-[9px] font-bold text-gray-600">AUTO</span>
+                      )}
+                    </div>
                     <div className="w-10 px-1 text-center">
                       {r.nativeId && (
                         <VoucherAttachmentButton

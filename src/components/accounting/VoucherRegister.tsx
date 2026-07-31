@@ -7,9 +7,8 @@ import { TallyList } from './tally/TallyPopup';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
 import { monthsInPeriod } from './tally/PeriodContext';
-import { fetchTallyVouchers } from '@/lib/mergedVouchers';
+import { fetchTallyVouchers, normalizeVoucherNumber } from '@/lib/mergedVouchers';
 import { useAccountingCompany } from './AccountingCompanyContext';
-import { normalizeName } from '@/lib/tallyCompanyMatch';
 import { useSourceFilter, matchesSource } from './useSourceFilter';
 
 interface VoucherType {
@@ -24,6 +23,7 @@ interface VoucherRow {
   voucher_date: string;
   narration: string | null;
   total_amount: number;
+  is_auto?: boolean;
   source: 'adamrit' | 'tally';
 }
 
@@ -99,7 +99,7 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
       const data = await fetchAllRows((from, to) =>
         supabase
           .from('vouchers')
-          .select('id, voucher_number, voucher_date, narration, total_amount')
+          .select('id, voucher_number, voucher_date, narration, total_amount, is_auto')
           .eq('voucher_type_id', typeId)
           .eq('status', 'AUTHORISED')
           .eq('company_id', selectedCompanyId)
@@ -134,7 +134,7 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
     const byNumber = new Map<string, VoucherRow>();
     const passthrough: VoucherRow[] = [];
     for (const v of [...nativeVouchers, ...mappedTally]) {
-      const key = normalizeName(v.voucher_number);
+      const key = normalizeVoucherNumber(v.voucher_number);
       if (!key) { passthrough.push(v); continue; }
       const existing = byNumber.get(key);
       if (!existing || v.source === 'tally') byNumber.set(key, v);
@@ -240,7 +240,13 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
                 <div className="min-w-0 flex-1 truncate px-1">
                   {v.narration || ''}
                 </div>
-                <div className="w-32 px-1 font-mono text-[12px]">{v.voucher_number}</div>
+                <div className="w-32 px-1 font-mono text-[12px]">
+                  {v.voucher_number}
+                  {/* Posted by a trigger rather than typed by anyone. */}
+                  {v.is_auto && (
+                    <span className="ml-1 bg-gray-200 px-1 text-[9px] font-bold text-gray-600">AUTO</span>
+                  )}
+                </div>
                 <div className="w-36 px-1 text-right font-mono">{fmt(Number(v.total_amount) || 0)}</div>
               </button>
             ))}

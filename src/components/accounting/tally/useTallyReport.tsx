@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { RailItem } from './TallyChrome';
-import { getTallyConfig, isTypingTarget, tallyModalIsOpen } from './TallyChrome';
+import { getTallyConfig } from './TallyChrome';
+import { useShortcuts } from './keyboard';
 import { useAccountingCompanyOptional } from '../AccountingCompanyContext';
 import {
   currentFinancialYear,
@@ -155,20 +156,22 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
   );
 
   // Tally's PgDn / PgUp: walk the period forward or back by its own length.
-  useEffect(() => {
-    if (!supportsPeriod) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || tallyModalIsOpen() || isTypingTarget(e.target)) return;
-      if (e.altKey || e.ctrlKey || e.metaKey) return;
-      const direction = e.key === 'PageDown' ? 1 : e.key === 'PageUp' ? -1 : 0;
-      if (!direction) return;
-      e.preventDefault();
-      const next = stepPeriod(period, direction as 1 | -1);
+  // The row cursor used to bind these too, as a ±10-row jump; whichever hook
+  // registered first won. Tally steps the period here, so that is what stays.
+  const stepBy = useCallback(
+    (direction: 1 | -1) => {
+      const next = stepPeriod(period, direction);
       setPeriod(next.from, next.to);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [supportsPeriod, period, setPeriod]);
+    },
+    [period, setPeriod],
+  );
+  useShortcuts(
+    [
+      { combo: 'PageDown', layer: 'screen', label: 'Next / previous period', run: () => stepBy(1) },
+      { combo: 'PageUp', layer: 'screen', run: () => stepBy(-1) },
+    ],
+    supportsPeriod,
+  );
 
   const fmtAmount = useCallback(
     (amount: number) => {

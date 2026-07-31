@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import GroupCreation from './GroupCreation';
 import TallyLedgerCreation from './TallyLedgerCreation';
 import VoucherTypeCreation from './VoucherTypeCreation';
-import { isTypingTarget, TallyScreen } from './tally/TallyChrome';
+import { TallyScreen } from './tally/TallyChrome';
+import { useShortcuts } from './tally/keyboard';
 import { useTallyReport } from './tally/useTallyReport';
 
 export interface MasterItem {
@@ -59,33 +60,23 @@ const AccountMasters: React.FC<AccountMastersProps> = ({ mode = 'alter' }) => {
     screenKeys: [{ hotkey: 'F10', label: 'Other Masters', onClick: () => setActive(null) }],
   });
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (
-        event.defaultPrevented ||
-        isTypingTarget(event.target) ||
-        event.altKey ||
-        event.ctrlKey ||
-        event.metaKey
-      ) return;
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-        event.preventDefault();
-        setHighlight((current) => {
-          const step = event.key === 'ArrowDown' ? 1 : -1;
-          return Math.max(0, Math.min(MASTERS.length - 1, current + step));
-        });
-      } else if (event.key === 'Enter') {
-        event.preventDefault();
-        setActive(MASTERS[highlight].id);
-      } else if (event.key === 'Escape' || event.key.toUpperCase() === 'Q') {
-        event.preventDefault();
-        if (active) setActive(null);
-        else window.dispatchEvent(new CustomEvent('tally-escape'));
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [active, highlight]);
+  const quit = (): void => {
+    if (active) setActive(null);
+    else window.dispatchEvent(new CustomEvent('tally-escape'));
+  };
+
+  useShortcuts([
+    {
+      combo: 'ArrowDown',
+      layer: 'screen',
+      label: 'Move the master cursor',
+      run: () => setHighlight((c) => Math.min(MASTERS.length - 1, c + 1)),
+    },
+    { combo: 'ArrowUp', layer: 'screen', run: () => setHighlight((c) => Math.max(0, c - 1)) },
+    { combo: 'Enter', layer: 'screen', label: 'Open the highlighted master', run: () => setActive(MASTERS[highlight].id) },
+    { combo: 'Esc', layer: 'screen', run: quit },
+    { combo: 'Q', layer: 'screen', label: 'Quit', run: quit },
+  ]);
 
   if (active) {
     const activeTitle = MASTERS.find((m) => m.id === active)?.label ?? '';

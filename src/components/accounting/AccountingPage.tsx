@@ -56,7 +56,8 @@ import { AccountingPeriodProvider } from './tally/PeriodContext';
 
 // Live Tally-gateway suite is heavy (12 sub-screens) — load on demand
 const TallyLivePage = lazy(() => import('@/components/tally/TallyPage'));
-import { TallyTopBar, tallyModalIsOpen, tallyTopMenuIsOpen } from './tally/TallyChrome';
+import { TallyTopBar } from './tally/TallyChrome';
+import { useShortcuts } from './tally/keyboard';
 
 /** Navigation item definition for the accounting sidebar. */
 interface NavItem {
@@ -293,30 +294,13 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
     setInsertDate(null);
     goTo('voucher-entry');
   };
-  // Tally's Esc steps back one screen; the Gateway is where the trail ends
+  // Tally's Esc steps back one screen; the Gateway is where the trail ends.
+  // TallyScreen claims Esc on the `screen` layer, so this global binding is the
+  // fallback for content not wrapped in one (the Tally Live suite).
+  useShortcuts([{ combo: 'Esc', layer: 'global', label: 'Back one screen', run: back }]);
   React.useEffect(() => {
-    // Fallback for content not wrapped in TallyScreen (e.g. the Tally Live
-    // suite): TallyScreen preventDefaults its own Esc handling, so only
-    // unhandled Esc presses land here.
-    const onKey = (e: KeyboardEvent) => {
-      // A pop-up or an open top-bar drop-down owns Esc — it closes itself
-      // first. Without this the whole screen would unwind instead.
-      if (tallyModalIsOpen() || tallyTopMenuIsOpen()) return;
-      const target = e.target as HTMLElement | null;
-      const typing =
-        target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.tagName === 'SELECT' ||
-          target.isContentEditable);
-      if (e.key === 'Escape' && !typing && !e.defaultPrevented) back();
-    };
     window.addEventListener('tally-escape', back);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('tally-escape', back);
-      window.removeEventListener('keydown', onKey);
-    };
+    return () => window.removeEventListener('tally-escape', back);
   }, [back]);
 
   // Drill-down stack: group -> ledger -> voucher, each layer closable back

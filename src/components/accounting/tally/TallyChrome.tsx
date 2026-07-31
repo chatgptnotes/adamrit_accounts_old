@@ -8,6 +8,14 @@ import { useCompanies } from '@/hooks/useCompanies';
 import { useAccountingCompanyOptional } from '../AccountingCompanyContext';
 import { companyKey } from '@/lib/tallyCompanyMatch';
 import { dayLabel, periodLabel as labelOfPeriod, useAccountingPeriodOptional } from './PeriodContext';
+import {
+  hotkeyLabel,
+  isTypingTarget,
+  useShortcuts,
+  type Binding,
+  type HotkeyMod,
+  type Layer,
+} from './keyboard';
 
 /**
  * Shared Tally Prime chrome for the accounting module:
@@ -32,8 +40,12 @@ export const getTallyConfig = (): { defaultDetailed: boolean; dayBookMonth: bool
 // Tally's classic UI is small, tight sans-serif.
 export const TALLY_FONT = { fontFamily: 'Verdana, "Segoe UI", Tahoma, Arial, sans-serif' } as const;
 
-/** Modifier a hotkey needs, so two buttons can share a letter (F / Ctrl+F). */
-export type HotkeyMod = 'alt' | 'ctrl';
+/**
+ * The keyboard helpers live in `keyboard.ts` now, next to the dispatcher that
+ * uses them. They are re-exported here because the screens have always
+ * imported them from the chrome.
+ */
+export { hotkeyLabel, hotkeyMatches, isTypingTarget, type HotkeyMod } from './keyboard';
 
 /**
  * Extra key combinations that fire the same action but are not drawn on the
@@ -104,74 +116,23 @@ export const voucherBottomBar = (handlers: {
   { hotkey: 'U', mod: 'alt', label: 'Restore Line', aliases: [{ hotkey: 'U' }], onClick: handlers.onRestoreLine },
 ];
 
-/** "F" + ctrl -> "Ctrl+F"; the text shown in the blue key prefix. */
-export const hotkeyLabel = (hotkey: string, mod?: HotkeyMod): string =>
-  mod === 'ctrl' ? `Ctrl+${hotkey}` : mod === 'alt' ? `Alt+${hotkey}` : hotkey;
-
 /**
- * Pop-ups (Change Period, Basis of Values, …) register while they are open so
- * the screen behind them stops answering its own hotkeys — Tally's modal
- * pop-ups own the keyboard until they are accepted or quit.
+ * Turn a rail / key-bar item into the dispatcher's bindings — one for its own
+ * hotkey and one for each unlabelled alias, all running the same action.
  */
-let openModalCount = 0;
-export const tallyModalIsOpen = (): boolean => openModalCount > 0;
-export const useTallyModal = (): void => {
-  useEffect(() => {
-    openModalCount += 1;
-    return () => {
-      openModalCount -= 1;
-    };
-  }, []);
-};
-
-/**
- * An open top-bar drop-down owns the keyboard too, but it must not silence its
- * own handler — so it is counted separately from the modal pop-ups. Only the
- * screen behind it steps aside.
- */
-let openTopMenuCount = 0;
-export const tallyTopMenuIsOpen = (): boolean => openTopMenuCount > 0;
-const useTopMenuOwnsKeyboard = (open: boolean): void => {
-  useEffect(() => {
-    if (!open) return;
-    openTopMenuCount += 1;
-    return () => {
-      openTopMenuCount -= 1;
-    };
-  }, [open]);
-};
-
-/** True when the event landed in a field the user is typing into. */
-export const isTypingTarget = (target: EventTarget | null): boolean => {
-  const el = target as HTMLElement | null;
-  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
-};
-
-/**
- * Does this keydown match the item's hotkey (and only its modifier)?
- *
- * Tally is a Windows product, so its modifier is Ctrl. macOS Cmd (metaKey) is
- * deliberately NOT accepted as Ctrl — treating them as the same key made
- * Cmd+F hijack the browser's own Find, and the same for Cmd+A / Cmd+P.
- */
-export const hotkeyMatches = (e: KeyboardEvent, hotkey: string, mod: HotkeyMod | undefined): boolean => {
-  // "Esc" and "Space" are how Tally labels them; the browser calls the same
-  // keys "Escape" and " ".
-  const hk = hotkey.toUpperCase() === 'ESC' ? 'ESCAPE' : hotkey.toUpperCase();
-  const pressed = e.key === ' ' ? 'SPACE' : e.key.toUpperCase();
-  if (pressed !== hk) return false;
-  if (mod === 'ctrl') return e.ctrlKey && !e.altKey && !e.metaKey;
-  if (mod === 'alt') return e.altKey && !e.ctrlKey && !e.metaKey;
-  return !e.altKey && !e.ctrlKey && !e.metaKey;
-};
-
-/** The item's own hotkey, plus any unlabelled aliases. */
-export const itemMatches = (
-  e: KeyboardEvent,
-  item: { hotkey?: string; mod?: HotkeyMod; aliases?: HotkeyAlias[] },
-): boolean => {
-  if (item.hotkey && hotkeyMatches(e, item.hotkey, item.mod)) return true;
-  return (item.aliases ?? []).some((a) => hotkeyMatches(e, a.hotkey, a.mod));
+const itemBindings = (item: RailItem | BottomBarItem, layer: Layer): Binding[] => {
+  if (!item.hotkey) return [];
+  const combos = [
+    hotkeyLabel(item.hotkey, item.mod),
+    ...(item.aliases ?? []).map((a) => hotkeyLabel(a.hotkey, a.mod)),
+  ];
+  return combos.map((combo) => ({
+    combo,
+    layer,
+    label: item.label,
+    disabled: item.disabled || !item.onClick,
+    run: () => item.onClick?.(),
+  }));
 };
 
 interface TallyTopBarProps {
@@ -376,11 +337,6 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
     setMenuHighlight(0);
   };
 
-  // While a drop-down is open the screen behind it stops answering its hotkeys
-  useTopMenuOwnsKeyboard(openMenu !== null);
-
-  // Alt+F focuses the finder; the top-bar letters open their menus; an open
-  // menu is walked with the arrow keys — Tally never needs the mouse here.
   useEffect(() => {
     const onHelp = () => setHelpOpen(true);
     const onConfigure = () => setConfigOpen(true);
@@ -388,71 +344,68 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
     window.addEventListener('tally-help', onHelp);
     window.addEventListener('tally-configure', onConfigure);
     window.addEventListener('tally-features', onFeatures);
-    const onKey = (e: KeyboardEvent) => {
-      if (tallyModalIsOpen()) return;
-      if (e.altKey && (e.key === 'f' || e.key === 'F')) {
-        e.preventDefault();
-        inputRef.current?.focus();
-        return;
-      }
-      // F12 with or without Alt — Chrome keeps F12 for DevTools, Alt+F12 is ours
-      if (e.key === 'F12') {
-        e.preventDefault();
-        setConfigOpen(true);
-        return;
-      }
-      // F11: Features — Tally's company feature switches
-      if (e.key === 'F11') {
-        e.preventDefault();
-        setFeaturesOpen(true);
-        return;
-      }
-      if (openMenu) {
-        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-          e.preventDefault();
-          setMenuHighlight((h) =>
-            Math.max(0, Math.min(activeItems.length - 1, h + (e.key === 'ArrowDown' ? 1 : -1))),
-          );
-          return;
-        }
-        if (e.key === 'Enter' && activeItems[menuHighlight]) {
-          e.preventDefault();
-          setOpenMenu(null);
-          activeItems[menuHighlight].onClick?.();
-          return;
-        }
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          e.stopPropagation();
-          setOpenMenu(null);
-          return;
-        }
-      }
-      if (isTypingTarget(e.target) || e.altKey || e.ctrlKey || e.metaKey) return;
-      // The screen in front owns its letters. TallyScreen binds in the capture
-      // phase and preventDefaults whatever it claims, so without this guard a
-      // screen key that happens to collide with a top-bar letter fired both:
-      // on the Gateway, "P" opened Profit & Loss *and* the print dialog, and
-      // "M"/"K"/"E"/"O" misfired the same way.
-      if (e.defaultPrevented) return;
-      // Every top-bar button answers its key — the drop-downs (K/Y/Z) open,
-      // and the direct actions (O/E/M/P/F1) just run. Previously only the
-      // drop-downs were bound, which left P: Print and F1: Help unreachable.
-      const hit = menus.find((m) => m.key.toUpperCase() === e.key.toUpperCase());
-      if (hit) {
-        e.preventDefault();
-        if (hit.items) openTopMenu(hit.key);
-        else hit.action?.();
-      }
-    };
-    window.addEventListener('keydown', onKey);
     return () => {
-      window.removeEventListener('keydown', onKey);
       window.removeEventListener('tally-help', onHelp);
       window.removeEventListener('tally-configure', onConfigure);
       window.removeEventListener('tally-features', onFeatures);
     };
-  }, [menus, openMenu, menuHighlight, activeItems]);
+  }, []);
+
+  // Alt+F / Alt+G focus the finder; the top-bar letters open their menus; an
+  // open menu is walked with the arrow keys — Tally never needs the mouse here.
+  //
+  // While a drop-down is open the whole bar moves to the `popup` layer, so the
+  // screen behind it stops answering its own hotkeys but the bar's letters
+  // still switch between menus.
+  const menuOpen = openMenu !== null;
+  const layer: Layer = menuOpen ? 'popup' : 'global';
+  useShortcuts([
+    // Tally Prime's Go To. Alt+G is the key Prime actually ships; Alt+F is the
+    // one this module started with, and both reach the same finder.
+    { combo: 'Alt+F', layer, label: 'Go To — find and open any screen', run: () => inputRef.current?.focus() },
+    { combo: 'Alt+G', layer, label: 'Go To — find and open any screen', run: () => inputRef.current?.focus() },
+    // F12 with or without Alt — Chrome keeps F12 for DevTools, Alt+F12 is ours
+    { combo: 'F12', layer, run: () => setConfigOpen(true) },
+    { combo: 'Alt+F12', layer, label: 'Configure', run: () => setConfigOpen(true) },
+    { combo: 'F11', layer, label: 'Features — company-level switches', run: () => setFeaturesOpen(true) },
+    ...(menuOpen
+      ? ([
+          {
+            combo: 'ArrowDown',
+            layer,
+            allowInInput: true,
+            run: () => setMenuHighlight((h) => Math.min(activeItems.length - 1, h + 1)),
+          },
+          {
+            combo: 'ArrowUp',
+            layer,
+            allowInInput: true,
+            run: () => setMenuHighlight((h) => Math.max(0, h - 1)),
+          },
+          {
+            combo: 'Enter',
+            layer,
+            allowInInput: true,
+            when: () => !!activeItems[menuHighlight],
+            run: () => {
+              setOpenMenu(null);
+              activeItems[menuHighlight].onClick?.();
+            },
+          },
+          { combo: 'Esc', layer, allowInInput: true, run: () => setOpenMenu(null) },
+        ] satisfies Binding[])
+      : []),
+    // Every top-bar button answers its key — the drop-downs (K/Y/Z) open, and
+    // the direct actions (O/E/M/P/F1) just run.
+    ...menus.map(
+      (m): Binding => ({
+        combo: m.key,
+        layer,
+        label: m.label,
+        run: () => (m.items ? openTopMenu(m.key) : m.action?.()),
+      }),
+    ),
+  ]);
 
   const menu = ({ key, label, action, items }: TopMenu) => (
     <div key={key} className="relative">
@@ -612,19 +565,9 @@ const SHORTCUTS: [string, string][] = [
 ];
 
 const TallyHelp: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  useTallyModal();
-  // Esc closes the overlay before any screen-level Esc handling runs
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [onClose]);
+  // Registering on the `popup` layer both closes the overlay on Esc and takes
+  // the keyboard from the screen behind it.
+  useShortcuts([{ combo: 'Esc', layer: 'popup', allowInInput: true, run: onClose }]);
 
   return (
   <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40" onClick={onClose}>
@@ -662,19 +605,8 @@ const TallyHelp: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 };
 
 const TallyConfigure: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  useTallyModal();
   const [cfg, setCfg] = useState(getTallyConfig());
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [onClose]);
+  useShortcuts([{ combo: 'Esc', layer: 'popup', allowInInput: true, run: onClose }]);
 
   const set = (patch: Partial<typeof cfg>) => {
     const next = { ...cfg, ...patch };
@@ -744,19 +676,8 @@ export const getTallyFeatures = (): TallyFeatureFlags => {
 };
 
 const TallyFeatures: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  useTallyModal();
   const [flags, setFlags] = useState(getTallyFeatures);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [onClose]);
+  useShortcuts([{ combo: 'Esc', layer: 'popup', allowInInput: true, run: onClose }]);
 
   const set = (patch: Partial<TallyFeatureFlags>) => {
     const next = { ...flags, ...patch };
@@ -886,83 +807,51 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
     contentRef.current?.focus({ preventScroll: true });
   }, [title]);
 
-  // Bind F-key / letter hotkeys declared by the rail + bottom bar.
+  // One key, one action. A screen legitimately shows the same button in two
+  // places — F1: Help sits on both the key bar and the rail — so keep the first
+  // and drop the rest rather than registering the same combo twice.
   //
-  // Precedence, highest first: a pop-up or an open top-bar menu owns the
-  // keyboard → Esc closes the screen → the bottom bar → the rail. The bottom
-  // bar is searched first because its keys are the screen's own actions, while
-  // the rail carries the generic report keys (C/A/D/N) that Tally does not even
-  // show on a voucher listing.
-  useEffect(() => {
-    // One key, one action. A screen legitimately shows the same button in two
-    // places — F1: Help sits on both the key bar and the rail — so bind the
-    // first and drop the rest rather than letting the loop below match twice.
-    const seen = new Map<string, string>();
-    const items: (RailItem | BottomBarItem)[] = [];
-    for (const item of [...bar, ...rail]) {
-      if (!item.hotkey) {
-        items.push(item);
-        continue;
-      }
-      const key = `${item.mod ?? ''}+${item.hotkey.toUpperCase()}`;
-      const first = seen.get(key);
-      if (first === undefined) {
-        seen.set(key, item.label);
-        items.push(item);
-        continue;
-      }
-      // Same key, same button — a deliberate duplicate, nothing to report.
-      if (import.meta.env.DEV && first !== item.label) {
-        console.warn(
-          `[Tally] "${title}" binds ${hotkeyLabel(item.hotkey, item.mod)} to two different actions — ` +
-            `"${first}" wins, "${item.label}" is unreachable by keyboard.`,
-        );
-      }
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented) return;
-      // A pop-up or an open top-bar drop-down owns the keyboard
-      if (tallyModalIsOpen() || tallyTopMenuIsOpen()) return;
-      const typing = isTypingTarget(e.target);
-      // The browser's own F-key actions (F3 find, F5 reload, F7 caret
-      // browsing, F10 menu, F11 fullscreen) must never fire over a report.
-      // F12 is the one Chrome refuses to release — Alt+F12 covers Configure.
-      if (/^F([1-9]|1[01])$/.test(e.key)) e.preventDefault();
+  // The bottom bar comes first because its keys are the screen's own actions,
+  // while the rail carries the generic report keys (C/A/D/N) that Tally does
+  // not even show on a voucher listing.
+  const bindings = useMemo<Binding[]>(() => {
+    // Esc is bound before the bar so the default key bar's own "Esc: Back"
+    // button does not register it a second time.
+    const seen = new Map<string, string>([['ESC', 'Back']]);
+    const out: Binding[] = [
       // Tally's Esc: step back one level — close this screen if it can close,
       // otherwise let the page fall back to the Gateway.
-      if (e.key === 'Escape' && !typing) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (onClose) onClose();
-        else window.dispatchEvent(new CustomEvent('tally-escape'));
-        return;
+      { combo: 'Esc', layer: 'screen', label: 'Back one screen', run: handleClose },
+    ];
+    for (const item of [...bar, ...rail]) {
+      for (const binding of itemBindings(item, 'screen')) {
+        const first = seen.get(binding.combo.toUpperCase());
+        if (first === undefined) {
+          seen.set(binding.combo.toUpperCase(), item.label);
+          // Enter belongs to whatever is focused — a rail or bar button handles
+          // its own Enter, and the row cursor drills into the highlighted line.
+          if (binding.combo.toUpperCase() === 'ENTER') {
+            binding.when = () => {
+              const active = document.activeElement;
+              return !(active instanceof HTMLElement) || (active.tagName !== 'BUTTON' && active.tagName !== 'A');
+            };
+          }
+          out.push(binding);
+          continue;
+        }
+        // Same key, same button — a deliberate duplicate, nothing to report.
+        if (import.meta.env.DEV && first !== item.label) {
+          console.warn(
+            `[Tally] "${title}" binds ${binding.combo} to two different actions — ` +
+              `"${first}" wins, "${item.label}" is unreachable by keyboard.`,
+          );
+        }
       }
-      // Enter belongs to whatever is focused — a rail or bar button handles its
-      // own Enter, and the row cursor drills into the highlighted line.
-      const active = document.activeElement as HTMLElement | null;
-      const focusedControl = !!active && (active.tagName === 'BUTTON' || active.tagName === 'A');
+    }
+    return out;
+  }, [rail, bar, handleClose, title]);
 
-      for (const item of items) {
-        if (!item.hotkey) continue;
-        // Letter hotkeys only fire outside inputs; F-keys fire anywhere.
-        const isFKey = /^F\d+$/.test(item.hotkey.toUpperCase());
-        if (!isFKey && typing) continue;
-        if (!itemMatches(e, item)) continue;
-        if (item.hotkey.toUpperCase() === 'ENTER' && focusedControl) return;
-        // A key the screen declares but cannot act on is still swallowed, so
-        // Space never scrolls the report out from under the cursor.
-        e.preventDefault();
-        if (item.disabled || !item.onClick) return;
-        e.stopPropagation();
-        item.onClick();
-        return;
-      }
-    };
-    document.addEventListener('keydown', onKey, true);
-    return () => {
-      document.removeEventListener('keydown', onKey, true);
-    };
-  }, [rail, bar, onClose, title]);
+  useShortcuts(bindings);
 
   return (
     <div style={TALLY_FONT} className="flex min-h-[calc(100vh-64px)] flex-col border border-[#9db8d8] bg-[#fffefb]">
