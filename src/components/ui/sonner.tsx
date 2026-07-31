@@ -9,6 +9,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
   return (
     <Sonner
       theme={theme as ToasterProps["theme"]}
+      // Sonner defaults to the bottom right, which on a window taller than the
+      // screen puts every message below the visible area — a voucher that
+      // refused to save looked like a button that did nothing at all.
+      position="top-center"
       className="toaster group"
       toastOptions={{
         classNames: {

@@ -82,6 +82,12 @@ export function useFieldRing({ containerRef, onAccept, arrows = false, enabled =
         when: () => !fieldOwns('Enter'),
         run: () => {
           const all = fields();
+          // A box with nothing to fill in — a Yes/No question — has no ring to
+          // walk, so Enter answers it rather than doing nothing at all.
+          if (all.length === 0) {
+            onAccept?.();
+            return;
+          }
           const at = all.indexOf(document.activeElement as HTMLElement);
           if (at >= 0 && at === all.length - 1 && onAccept) onAccept();
           else move(1);

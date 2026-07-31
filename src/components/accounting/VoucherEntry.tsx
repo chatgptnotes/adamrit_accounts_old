@@ -25,6 +25,7 @@ import { useFieldRing } from './tally/useFieldRing';
 import { useShortcuts } from './tally/keyboard';
 import QuickLedgerPopup from './tally/QuickLedgerPopup';
 import { TallyChoiceField, TallyPopup, TallyTextField } from './tally/TallyPopup';
+import { TallyConfirm } from './tally/TallyConfirm';
 import { useCostCentres } from './CostCentres';
 import { useAccountingRights } from './tally/rights';
 import { useAccountingCompany } from './AccountingCompanyContext';
@@ -606,6 +607,8 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
   // when an old voucher's entries don't fit the single-account shape.
   const [loadedNumber, setLoadedNumber] = useState('');
   const [forceJournal, setForceJournal] = useState(false);
+  // The type the typist has asked to switch to, waiting on the confirm box
+  const [pendingTypeId, setPendingTypeId] = useState<string | null>(null);
   // Tally's L: Optional — saved outside the books until made regular
   const [isOptional, setIsOptional] = useState(false);
 
@@ -1074,28 +1077,10 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
   // hand — otherwise the amounts on screen simply disappear. The debit/credit
   // sides themselves need no work: buildEntries() derives them from the new
   // category, and alteration replaces every voucher_entries row anyway.
-  const changeVoucherType = useCallback((nextTypeId: string): void => {
-    if (nextTypeId === selectedVoucherType) return;
+  const applyVoucherType = useCallback((nextTypeId: string): void => {
     const nextType = voucherTypes.find((vt) => vt.id === nextTypeId);
     if (!nextType) return;
     const nextMode = SINGLE_ACCOUNT_MODES[(nextType.voucher_category || '').toUpperCase()];
-
-    if (alterMode) {
-      const fromName = selectedType?.voucher_type_name?.replace(' Voucher', '') || 'its current type';
-      const toName = nextType.voucher_type_name.replace(' Voucher', '');
-      // Picking the type the voucher was loaded as is an undo, not a change —
-      // it keeps its own number, so don't threaten to renumber it.
-      const revert = nextTypeId === loadedVoucher?.voucher_type_id;
-      // The number itself is only issued when the voucher is saved, so don't name
-      // one here — the database may well hand out a different one by then.
-      const ok = window.confirm(
-        revert
-          ? `Put voucher ${loadedNumber} back to ${toName}?`
-          : `Change voucher ${loadedNumber} from ${fromName} to ${toName}?\n\n` +
-            `It will be renumbered into the ${toName} series and leave a gap in the ${fromName} series.`,
-      );
-      if (!ok) return;
-    }
 
     if (singleMode && !nextMode) {
       // Single account -> Dr/Cr grid. Open the grid showing the sides the
@@ -1153,9 +1138,38 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     }
     setSelectedVoucherType(nextTypeId);
   }, [
-    selectedVoucherType, voucherTypes, selectedType, alterMode, loadedNumber, loadedVoucher,
-    singleMode, account, partLines, partTotal, journalLines, cashBankAccounts,
+    voucherTypes, singleMode, account, partLines, partTotal, journalLines, cashBankAccounts,
   ]);
+
+  // Altering a saved voucher asks first, in the module's own centred box.
+  // This used to be window.confirm, which Chrome lets a user silence after a
+  // couple of dialogs — from then on it returned false without showing
+  // anything, so the type quietly refused to change and the voucher saved
+  // unaltered, with nothing on screen to say why.
+  const changeVoucherType = useCallback((nextTypeId: string): void => {
+    if (nextTypeId === selectedVoucherType) return;
+    if (!voucherTypes.some((vt) => vt.id === nextTypeId)) return;
+    if (!alterMode) {
+      applyVoucherType(nextTypeId);
+      return;
+    }
+    setPendingTypeId(nextTypeId);
+  }, [selectedVoucherType, voucherTypes, alterMode, applyVoucherType]);
+
+  const pendingType = voucherTypes.find((vt) => vt.id === pendingTypeId);
+  const typeChangeMessage = ((): string => {
+    if (!pendingType) return '';
+    const fromName = selectedType?.voucher_type_name?.replace(' Voucher', '') || 'its current type';
+    const toName = pendingType.voucher_type_name.replace(' Voucher', '');
+    // Picking the type the voucher was loaded as is an undo, not a change — it
+    // keeps its own number, so don't threaten to renumber it.
+    if (pendingTypeId === loadedVoucher?.voucher_type_id) {
+      return `Put voucher ${loadedNumber} back to ${toName}?`;
+    }
+    // The number is only issued when the voucher is saved, so don't name one
+    // here — the database may well hand out a different one by then.
+    return `Change voucher ${loadedNumber} from ${fromName} to ${toName}? It will be renumbered into the ${toName} series and leave a gap in the ${fromName} series.`;
+  })();
 
   // ------ Row handlers ------
   const updatePartLine = (key: number, patch: Partial<ParticularsLine>): void => {
@@ -2343,6 +2357,19 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
           setQuickLedger(null);
         }}
         onClose={() => setQuickLedger(null)}
+      />
+    )}
+
+    {/* F4–F9 on a saved voucher: reclassify it, once the typist agrees */}
+    {pendingType && (
+      <TallyConfirm
+        title="Change Voucher Type"
+        message={typeChangeMessage}
+        onAccept={() => {
+          applyVoucherType(pendingType.id);
+          setPendingTypeId(null);
+        }}
+        onClose={() => setPendingTypeId(null)}
       />
     )}
 
