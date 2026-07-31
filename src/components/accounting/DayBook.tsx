@@ -100,7 +100,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
   const [removedStack, setRemovedStack] = useState<string[][]>([]);
-  const { cancelVoucher, deleteVoucher } = useVoucherActions();
+  const { cancelVoucher, deleteVoucher, confirmUI } = useVoucherActions();
   const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
   const { selectedCompanyId } = useAccountingCompany();
 
@@ -553,6 +553,8 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
     </TallyScreen>
 
     {report.popups}
+    {/* Tally asks before Alt+D deletes or Alt+X cancels */}
+    {confirmUI}
 
     {typePicker && (
       <TallyList

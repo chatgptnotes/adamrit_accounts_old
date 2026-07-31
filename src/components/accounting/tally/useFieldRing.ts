@@ -46,6 +46,22 @@ export function useFieldRing({ containerRef, onAccept, arrows = false, enabled =
   );
 
   /**
+   * A field can answer a key itself instead of letting the ring move on: the
+   * ledger picker takes Enter and the arrows while its list is open, and an
+   * amount field takes Enter because Tally adds a line there rather than just
+   * stepping forward. The field says so by listing the keys it claims in
+   * `data-tally-own-keys`; an empty attribute claims all of them.
+   */
+  const fieldOwns = useCallback((combo: string): boolean => {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement)) return false;
+    const claimed = active.getAttribute('data-tally-own-keys');
+    if (claimed === null) return false;
+    if (claimed.trim() === '') return true;
+    return claimed.split(',').some((key) => key.trim().toLowerCase() === combo.toLowerCase());
+  }, []);
+
+  /**
    * Backspace only leaves the field when there is nothing to delete — caret at
    * the very start and no selection. Anywhere else it still deletes a
    * character, which is what anyone typing expects.
@@ -63,6 +79,7 @@ export function useFieldRing({ containerRef, onAccept, arrows = false, enabled =
         layer: 'field',
         allowInInput: true,
         label: 'Next field (accepts on the last one)',
+        when: () => !fieldOwns('Enter'),
         run: () => {
           const all = fields();
           const at = all.indexOf(document.activeElement as HTMLElement);
@@ -75,18 +92,30 @@ export function useFieldRing({ containerRef, onAccept, arrows = false, enabled =
         layer: 'field',
         allowInInput: true,
         label: 'Previous field',
-        when: atStartOfField,
+        when: () => atStartOfField() && !fieldOwns('Backspace'),
         run: () => move(-1),
       },
     ];
     if (arrows) {
       ring.push(
-        { combo: 'ArrowDown', layer: 'field', allowInInput: true, run: () => move(1) },
-        { combo: 'ArrowUp', layer: 'field', allowInInput: true, run: () => move(-1) },
+        {
+          combo: 'ArrowDown',
+          layer: 'field',
+          allowInInput: true,
+          when: () => !fieldOwns('ArrowDown'),
+          run: () => move(1),
+        },
+        {
+          combo: 'ArrowUp',
+          layer: 'field',
+          allowInInput: true,
+          when: () => !fieldOwns('ArrowUp'),
+          run: () => move(-1),
+        },
       );
     }
     return ring;
-  }, [arrows, atStartOfField, fields, move, onAccept]);
+  }, [arrows, atStartOfField, fieldOwns, fields, move, onAccept]);
 
   useShortcuts(bindings, enabled);
 }

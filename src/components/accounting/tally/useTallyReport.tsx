@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import type { RailItem } from './TallyChrome';
-import { getTallyConfig } from './TallyChrome';
+import { getTallyConfig, openCompanyList } from './TallyChrome';
 import { useShortcuts } from './keyboard';
 import { useAccountingCompanyOptional } from '../AccountingCompanyContext';
 import {
@@ -16,6 +16,7 @@ import ChangeView, { DEFAULT_VIEWS, type AlternateView } from './ChangeView';
 import ApplyFilter, { type ReportFilter } from './ApplyFilter';
 import { AutoColumnBox, ColumnBox, columnTitle, shiftYear, type PeriodColumn } from './ColumnBox';
 import ReportConfigure, { defaultsOf, type ReportConfig, type ReportConfigField } from './ReportConfigure';
+import { emailReport, exportReport, type ReportExport } from './reportExport';
 
 /**
  * The state behind Tally's right-hand button rail, shared by every accounting
@@ -84,6 +85,12 @@ export interface UseTallyReportOptions {
    * Book. Answers come back on `report.config`.
    */
   configFields?: ReportConfigField[];
+  /**
+   * The report's rows for Alt+E: Export and Alt+M: E-mail. Screens that do not
+   * supply this draw both keys greyed, the way Tally greys an action a screen
+   * cannot perform.
+   */
+  exportData?: () => ReportExport;
 }
 
 export interface TallyReport {
@@ -126,6 +133,7 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
     views = DEFAULT_VIEWS,
     supportsColumns = true,
     configFields = [],
+    exportData,
   } = options;
   const accountingCompany = useAccountingCompanyOptional();
   const periodContext = useAccountingPeriodOptional();
@@ -146,6 +154,14 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
   const [columns, setColumns] = useState<PeriodColumn[]>([]);
   const [popup, setPopup] = useState<Popup>(null);
   const [config, setConfig] = useState<ReportConfig>(() => defaultsOf(configFields));
+
+  // Held in a ref, not a dependency: a screen builds its export rows from state
+  // declared further down its own body, so the callback is a fresh closure on
+  // every render and would otherwise rebuild the rail each time. Whether the
+  // screen exports at all does not change while it is mounted.
+  const exportRef = useRef(exportData);
+  exportRef.current = exportData;
+  const canExport = !!exportData;
 
   const setPeriod = useCallback(
     (nextFrom: string, nextTo: string) => {
@@ -209,18 +225,22 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
   // The screen's own buttons, laid out in F4 → F10 order. Tally leaves every
   // F-slot the report has no action for blank and greyed, so we do too.
   const screenRail = useMemo(() => {
-    const own: RailItem[] = detailedToggle
-      ? [
-          ...screenKeys,
-          {
-            hotkey: detailedToggle.hotkey,
-            mod: detailedToggle.mod,
-            label: detailedToggle.label ?? 'Ledger-wise',
-            active: detailed,
-            onClick: () => setDetailed((v) => !v),
-          },
-        ]
-      : screenKeys;
+    // Tally's Detailed / Condensed toggle. A screen that names its own key
+    // (the Day Book's "Alt+F5: Detailed", a report's "F5: Ledger-wise") keeps
+    // it and picks up Alt+F1 / Alt+F5 as unlabelled aliases; a screen that
+    // names none gets the Alt+F5 button Tally shows by default.
+    const toggle: RailItem = {
+      hotkey: detailedToggle?.hotkey ?? 'F5',
+      mod: detailedToggle?.mod ?? 'alt',
+      aliases: [
+        { hotkey: 'F1', mod: 'alt' as const },
+        { hotkey: 'F5', mod: 'alt' as const },
+      ],
+      label: detailedToggle?.label ?? 'Detailed',
+      active: detailed,
+      onClick: () => setDetailed((v) => !v),
+    };
+    const own: RailItem[] = [...screenKeys, toggle];
 
     // Sort by F-slot, keeping any hotkey-less buttons (ledger lists, voucher
     // types) attached to the button they were declared under.
@@ -263,7 +283,7 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
   const rail = useMemo<RailItem[]>(
     () => [
       ...periodKeys,
-      { hotkey: 'F3', label: 'Company', onClick: accountingCompany?.cycleCompany },
+      { hotkey: 'F3', label: 'Company', onClick: accountingCompany ? openCompanyList : undefined },
       ...screenRail,
       // Tally labels these report keys with Ctrl / Alt. The bare letters this
       // module shipped with stay bound as unlabelled aliases so nothing anyone
@@ -342,6 +362,30 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
             },
           ]
         : []),
+      // Tally Prime's Print / Export / E-mail block. A screen that has not
+      // handed over its rows draws Export and E-mail greyed rather than
+      // exporting something that does not match what is on the page.
+      {
+        hotkey: 'P',
+        mod: 'alt' as const,
+        label: 'Print',
+        gapBefore: true,
+        onClick: () => window.print(),
+      },
+      {
+        hotkey: 'E',
+        mod: 'alt' as const,
+        label: 'Export',
+        disabled: !canExport,
+        onClick: canExport ? () => void exportReport(exportRef.current!()) : undefined,
+      },
+      {
+        hotkey: 'M',
+        mod: 'alt' as const,
+        label: 'E-mail',
+        disabled: !canExport,
+        onClick: canExport ? () => void emailReport(exportRef.current!()) : undefined,
+      },
       // Tally's rail ends with Help / Features / Configure.
       {
         hotkey: 'F1',
@@ -376,6 +420,7 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
       supportsColumns,
       configFields,
       config,
+      canExport,
     ],
   );
 

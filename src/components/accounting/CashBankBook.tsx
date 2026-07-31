@@ -146,6 +146,28 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
       { hotkey: 'F4', label: 'Ledger', onClick: () => setLedgerPicker(true) },
       { hotkey: 'F6', label: 'Monthly', active: !openMonth, onClick: () => setOpenMonth(null) },
     ],
+    // The book drills ledger → month → vouchers; export whichever is on screen.
+    exportData: () =>
+      openMonth
+        ? {
+            title: `${account?.account_name ?? 'Cash/Bank'} Book — ${openMonth}`,
+            period: report.periodLabel,
+            columns: ['Date', 'Particulars', 'Vch Type', 'Vch No.', 'Debit', 'Credit'],
+            rows: monthEntries.map((e) => [
+              e.voucher?.voucher_date ?? '',
+              e.narration || e.voucher?.narration || '',
+              e.voucher?.voucher_type?.voucher_type_name ?? '',
+              e.voucher?.voucher_number ?? '',
+              Number(e.debit_amount) || 0,
+              Number(e.credit_amount) || 0,
+            ]),
+          }
+        : {
+            title: `${account?.account_name ?? 'Cash/Bank'} Book`,
+            period: report.periodLabel,
+            columns: ['Month', 'Debit', 'Credit', 'Closing'],
+            rows: months.map((m) => [m.label, m.dr, m.cr, m.closing]),
+          },
   });
 
   // The monthly grid always spans the financial year the period starts in

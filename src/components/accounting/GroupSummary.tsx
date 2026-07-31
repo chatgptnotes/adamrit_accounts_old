@@ -44,6 +44,12 @@ const GroupSummary: React.FC<GroupSummaryProps> = ({ head: headProp, onOpenLedge
       { hotkey: 'F4', label: 'Group', onClick: () => setPickedHead(null), disabled: !!headProp },
       sourceRail,
     ],
+    exportData: () => ({
+      title: `Group Summary${head ? ` — ${head}` : ''}`,
+      period: report.periodLabel,
+      columns: ['Particulars', 'Debit', 'Credit'],
+      rows: rows.map((r) => [r.name, Math.max(0, r.bal), Math.max(0, -r.bal)]),
+    }),
   });
   const { to: asOfDate, fmtAmount: fmt } = report;
 

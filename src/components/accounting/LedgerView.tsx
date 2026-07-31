@@ -100,6 +100,29 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
       { key: 'narrations', label: 'Show Narrations also', value: true },
     ],
     detailedToggle: { hotkey: 'F5', label: 'Ledger-wise' },
+    // Whichever view is on screen: the monthly summary or the vouchers.
+    exportData: () =>
+      monthly
+        ? {
+            title: `Ledger Monthly Summary — ${selectedAccount?.account_name ?? ''}`,
+            period: report.periodLabel,
+            columns: ['Month', 'Debit', 'Credit', 'Closing'],
+            rows: monthRows.map((m) => [m.label, m.dr, m.cr, m.closing]),
+          }
+        : {
+            title: `Ledger Vouchers — ${selectedAccount?.account_name ?? ''}`,
+            period: report.periodLabel,
+            columns: ['Date', 'Particulars', 'Vch Type', 'Vch No.', 'Debit', 'Credit', 'Narration'],
+            rows: rows.map((r) => [
+              r.date,
+              particularsOf(r.contra),
+              r.type,
+              r.number,
+              r.dr,
+              r.cr,
+              r.narration,
+            ]),
+          },
     screenKeys: [
       {
         hotkey: 'F4',

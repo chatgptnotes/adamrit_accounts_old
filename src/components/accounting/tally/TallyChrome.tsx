@@ -11,6 +11,7 @@ import { dayLabel, periodLabel as labelOfPeriod, useAccountingPeriodOptional } f
 import {
   hotkeyLabel,
   isTypingTarget,
+  shortcutRegistry,
   useShortcuts,
   type Binding,
   type HotkeyMod,
@@ -115,6 +116,11 @@ export const voucherBottomBar = (handlers: {
   { hotkey: 'R', mod: 'alt', label: 'Remove Line', aliases: [{ hotkey: 'R' }], onClick: handlers.onRemoveLine },
   { hotkey: 'U', mod: 'alt', label: 'Restore Line', aliases: [{ hotkey: 'U' }], onClick: handlers.onRestoreLine },
 ];
+
+/** F3's rail button and its module-wide binding open the same company list. */
+export const openCompanyList = (): void => {
+  window.dispatchEvent(new CustomEvent('tally-company-list'));
+};
 
 /**
  * Turn a rail / key-bar item into the dispatcher's bindings — one for its own
@@ -325,7 +331,6 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
       { key: 'F1', label: 'Help', action: () => setHelpOpen(true) },
       { key: 'F12', label: 'Configure', action: () => setConfigOpen(true) },
     ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [otherHospital, hospitalConfig.name, companies, onGoTo, switchHospital, syncLatest, syncing, syncEnabled],
   );
 
@@ -531,43 +536,27 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
   );
 };
 
-/** F1 — the Tally shortcut reference. */
-const SHORTCUTS: [string, string][] = [
-  ['Alt+F', 'Go To — find and open any screen'],
-  ['↑ ↓', 'Move the row cursor · PgUp/PgDn, Home/End jump'],
-  ['Enter', 'Drill into the highlighted row'],
-  ['Esc', 'Back one screen (or to the Gateway of Tally)'],
-  ['F2', 'Date / Period'],
-  ['F3', 'Switch company'],
-  ['F4', 'The screen\'s main filter (group, ledger, party, voucher type)'],
-  ['F5', 'The screen\'s second filter / Ledger-wise toggle'],
-  ['F6 – F10', 'Screen actions, then quick jumps to the other reports'],
-  ['F11', 'Features — company-level switches'],
-  ['Ctrl+B', 'Basis of Values — scale, paise, hide zero / small balances'],
-  ['Ctrl+H', 'Change View — Detailed / Condensed and related reports'],
-  ['Ctrl+J', 'Exception Reports'],
-  ['Ctrl+L', 'Save View — open the module here next time'],
-  ['F', 'Apply Filter'],
-  ['Ctrl+F', 'Filter Details — see and clear active filters'],
-  ['Alt+C', 'New Column — compare with another period'],
-  ['Alt+A', 'Alter Column — change the last column\'s period'],
-  ['Alt+D', 'Delete Column'],
-  ['Alt+N', 'Auto Column — monthly / quarterly / yearly breakup'],
-  ['Space', 'Select the highlighted line'],
-  ['Alt+R / Alt+U', 'Remove / restore a line'],
-  ['Ctrl+Enter', 'Alter the highlighted voucher'],
-  ['Alt+A / Alt+2 / Alt+I', 'Add / duplicate / insert a voucher'],
-  ['Q', 'Quit / clear the form'],
-  ['Alt+X', 'Cancel voucher (in alteration)'],
-  ['E', 'Export (Excel, where available)'],
-  ['P', 'Print — clean report / formal A4 voucher'],
-  ['Alt+F12', 'Configure — report options for the screen you are on'],
+/** How each layer is introduced in the F1 sheet. */
+const LAYER_HEADINGS: { layer: Layer; heading: string }[] = [
+  { layer: 'screen', heading: 'THIS SCREEN' },
+  { layer: 'field', heading: 'IN A FORM' },
+  { layer: 'global', heading: 'ANYWHERE IN ACCOUNTS' },
 ];
 
 const TallyHelp: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   // Registering on the `popup` layer both closes the overlay on Esc and takes
   // the keyboard from the screen behind it.
   useShortcuts([{ combo: 'Esc', layer: 'popup', allowInInput: true, run: onClose }]);
+
+  // Read the live registry once, on the way in. This used to be a
+  // hand-maintained list that drifted out of date the moment a key moved; now
+  // the sheet is whatever is actually bound on the screen behind it, so it
+  // cannot describe a key that does not work.
+  const [live] = useState(() => shortcutRegistry());
+  const sections = LAYER_HEADINGS.map(({ layer, heading }) => ({
+    heading,
+    rows: live.filter((b) => b.layer === layer),
+  })).filter((section) => section.rows.length > 0);
 
   return (
   <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40" onClick={onClose}>
@@ -583,20 +572,30 @@ const TallyHelp: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         </button>
       </div>
       <div className="p-3 text-[13px]">
-        {SHORTCUTS.map(([key, what]) => (
-          <div key={key} className="flex border-b border-dashed border-gray-200 py-0.5">
-            <div className="w-20 shrink-0 font-mono font-bold text-[#16437e]">{key}</div>
-            <div>{what}</div>
-          </div>
+        {sections.map((section) => (
+          <React.Fragment key={section.heading}>
+            <div className="pb-0.5 pt-3 text-[10px] font-semibold tracking-wider text-[#5d92c8] first:pt-0">
+              {section.heading}
+            </div>
+            {section.rows.map((binding) => (
+              <div key={binding.combo} className="flex border-b border-dashed border-gray-200 py-0.5">
+                <div className="w-24 shrink-0 font-mono font-bold text-[#16437e]">{binding.combo}</div>
+                <div className="min-w-0">{binding.label}</div>
+              </div>
+            ))}
+          </React.Fragment>
         ))}
-        <div className="pt-2 text-[11px] italic text-gray-500">
-          Buttons on the right rail show their shortcut before the label — press the key or click.
+        <div className="pt-3 text-[11px] italic text-gray-500">
+          This list is the keys actually bound on the screen behind — it is read from the keyboard
+          manager, not written out by hand, so it cannot describe a key that does not work.
           <br />
-          The bare letters (B, H, J, L, C, A, D, N, A, 2, I, X, R, U) still work as before, so
-          nothing you already know has changed.
+          Buttons on the right rail show their shortcut before the label — press the key or click.
+          Where Tally labels a key Ctrl+ or Alt+, the bare letter this module shipped with still
+          works as an unlabelled alias.
           <br />
           Chrome keeps F12 for its developer tools and will not release it: use Alt+F12 (or the
-          F12: Configure button) for Configure.
+          F12: Configure button) for Configure. A browser cannot attach a file to an e-mail, so
+          Alt+M puts the report in the body and downloads the spreadsheet for you to attach.
         </div>
       </div>
     </div>
@@ -774,23 +773,41 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
   // Tally keeps every button live — give the common placeholders real actions.
   // Callers own rail actions. Disabled items stay disabled and never activate
   // a fallback screen or action from this shared component.
+  //
+  // The button carries no handler of its own: F3 belongs to the module-wide
+  // bindings, which open the company list. It used to rotate silently to the
+  // next company, which is not something Tally has ever done.
   const hasCompanySwitch = railProp.some((item) => item.hotkey === 'F3');
-  const rail = accountingCompany && !hasCompanySwitch
-    ? [{ hotkey: 'F3', label: 'Company', onClick: accountingCompany.cycleCompany }, ...railProp]
-    : railProp;
+  const hasCompany = !!accountingCompany;
+  // Memoised: this array feeds the hotkey bindings below, and a fresh one on
+  // every render would rebuild them on every render too.
+  const rail = useMemo(
+    () =>
+      hasCompany && !hasCompanySwitch
+        ? [{ hotkey: 'F3', label: 'Company', onClick: openCompanyList }, ...railProp]
+        : railProp,
+    [hasCompany, hasCompanySwitch, railProp],
+  );
 
   // Tally's key bar. A screen that supplies none still gets Quit / Back / Help
   // / Print — and these must be real hotkeys, not just buttons: they used to be
   // rendered inline and never reached the binder, so pressing Q or P did
   // nothing on every screen that relied on the default bar.
+  //
+  // The key bar is bound ahead of the rail, so a screen that claims one of
+  // these keys for itself — the Gateway's F1: Select Company — keeps it, and
+  // the default entry stands down rather than shadowing it.
+  const claimedByRail = new Set(rail.filter((item) => item.hotkey && !item.mod).map((item) => item.hotkey!.toUpperCase()));
   const defaultBottomBar = useMemo<BottomBarItem[]>(
-    () => [
-      { hotkey: 'Q', label: 'Quit', onClick: handleClose },
-      { hotkey: 'Esc', label: 'Back', onClick: handleClose },
-      { hotkey: 'F1', label: 'Help', onClick: () => window.dispatchEvent(new CustomEvent('tally-help')) },
-      { hotkey: 'P', label: 'Print', onClick: () => window.print() },
-    ],
-    [handleClose],
+    () =>
+      [
+        { hotkey: 'Q', label: 'Quit', onClick: handleClose },
+        { hotkey: 'Esc', label: 'Back', onClick: handleClose },
+        { hotkey: 'F1', label: 'Help', onClick: () => window.dispatchEvent(new CustomEvent('tally-help')) },
+        { hotkey: 'P', label: 'Print', onClick: () => window.print() },
+      ].filter((item) => !claimedByRail.has(item.hotkey.toUpperCase())),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [handleClose, [...claimedByRail].sort().join(',')],
   );
   const bar = bottomBar && bottomBar.length > 0 ? bottomBar : defaultBottomBar;
   const isDefaultBar = bar === defaultBottomBar;

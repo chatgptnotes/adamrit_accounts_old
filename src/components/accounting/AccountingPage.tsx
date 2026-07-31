@@ -53,6 +53,7 @@ import BillwiseOutstanding from './BillwiseOutstanding';
 import Banking from './Banking';
 import { AccountingCompanyProvider } from './AccountingCompanyContext';
 import { AccountingPeriodProvider } from './tally/PeriodContext';
+import TallyGlobalKeys from './tally/TallyGlobalKeys';
 
 // Live Tally-gateway suite is heavy (12 sub-screens) — load on demand
 const TallyLivePage = lazy(() => import('@/components/tally/TallyPage'));
@@ -266,6 +267,15 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
       setInitialVoucherTypeId(undefined);
       goTo('voucher-entry');
     };
+    // PgUp / PgDn inside a voucher step to its neighbour
+    const onOpenVoucherId = (e: Event) => setAlterVoucherId((e as CustomEvent).detail as string);
+    // Alt+V: the same voucher, but read-only
+    const onDisplayVoucher = (e: Event) => {
+      setDisplayOnly(true);
+      setAlterVoucherId((e as CustomEvent).detail as string);
+    };
+    // Ctrl+Enter on a ledger field opens that ledger's master
+    const onAlterMaster = () => goTo('masters-alter');
     const onSave = () => {
       localStorage.setItem('accounting-default-tab', activeTabRef.current);
       import('sonner').then(({ toast }) =>
@@ -278,6 +288,9 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
     window.addEventListener('tally-save-view', onSave);
     window.addEventListener('tally-duplicate-voucher', onDuplicate);
     window.addEventListener('tally-insert-voucher', onInsert);
+    window.addEventListener('tally-open-voucher-id', onOpenVoucherId);
+    window.addEventListener('tally-display-voucher', onDisplayVoucher);
+    window.addEventListener('tally-alter-master', onAlterMaster);
     return () => {
       window.removeEventListener('tally-goto', onGoto);
       window.removeEventListener('tally-open-voucher', onOpenVoucher);
@@ -285,6 +298,9 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
       window.removeEventListener('tally-save-view', onSave);
       window.removeEventListener('tally-duplicate-voucher', onDuplicate);
       window.removeEventListener('tally-insert-voucher', onInsert);
+      window.removeEventListener('tally-open-voucher-id', onOpenVoucherId);
+      window.removeEventListener('tally-display-voucher', onDisplayVoucher);
+      window.removeEventListener('tally-alter-master', onAlterMaster);
     };
   }, [goTo]);
 
@@ -305,6 +321,8 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
 
   // Drill-down stack: group -> ledger -> voucher, each layer closable back
   const [alterVoucherId, setAlterVoucherId] = useState<string | null>(null);
+  // Alt+V opens a voucher to look at, not to change — Tally's Display mode
+  const [displayOnly, setDisplayOnly] = useState(false);
   // Tally's "2: Duplicate Vch" and "I: Insert Vch" from a report key bar
   const [duplicateVoucherId, setDuplicateVoucherId] = useState<string | null>(null);
   const [insertDate, setInsertDate] = useState<string | null>(null);
@@ -316,6 +334,8 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
   return (
     <AccountingCompanyProvider>
       <AccountingPeriodProvider>
+      {/* Tally's module-wide keys: date, period, company, F4-F10 vouchers */}
+      <TallyGlobalKeys />
       <div className="tally-skin min-h-screen flex overflow-x-hidden bg-[#d5e3f0]">
       {/* ---- Left Sidebar (icon rail when collapsed) ---- */}
       <aside
@@ -382,7 +402,15 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
         />
         <div className="flex-1">
           {alterVoucherId ? (
-            <VoucherEntry voucherId={alterVoucherId} onDone={() => setAlterVoucherId(null)} />
+            <VoucherEntry
+              key={alterVoucherId}
+              voucherId={alterVoucherId}
+              displayOnly={displayOnly}
+              onDone={() => {
+                setAlterVoucherId(null);
+                setDisplayOnly(false);
+              }}
+            />
           ) : duplicateVoucherId ? (
             <VoucherEntry
               key={`dup-${duplicateVoucherId}`}

@@ -75,6 +75,26 @@ const BalanceSheet: React.FC<{
     // Collapsed by default — click a head to open just that one. F5 still
     // expands every head at once.
     initialDetailed: false,
+    // Tally exports the Balance Sheet as the two sides side by side; here they
+    // are stacked with their side named, which survives a spreadsheet sort.
+    exportData: () => ({
+      title: 'Balance Sheet',
+      period: report.periodLabel,
+      columns: ['Side', 'Particulars', 'Amount'],
+      rows: [
+        ...liabilityLines.flatMap((line) => [
+          ['Liabilities', line.name, line.amount] as (string | number)[],
+          ...line.ledgers.map((led) => ['Liabilities', `  ${led.name}`, led.amount] as (string | number)[]),
+        ]),
+        ['Liabilities', 'Profit & Loss A/c', pnl],
+        ['Liabilities', 'Total', totalLiab],
+        ...assetLines.flatMap((line) => [
+          ['Assets', line.name, line.amount] as (string | number)[],
+          ...line.ledgers.map((led) => ['Assets', `  ${led.name}`, led.amount] as (string | number)[]),
+        ]),
+        ['Assets', 'Total', totalAssets],
+      ],
+    }),
     screenKeys: [
       // Tally's F7 opens the income / expenditure breakup behind the P&L line,
       // so this screen's Source filter moves off F7 to keep the key free.

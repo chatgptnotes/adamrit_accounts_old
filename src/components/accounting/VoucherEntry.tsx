@@ -21,6 +21,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { TallyScreen, getTallyFeatures, type RailItem, type TallyFeatureFlags } from './tally/TallyChrome';
+import { useFieldRing } from './tally/useFieldRing';
+import { useShortcuts } from './tally/keyboard';
+import QuickLedgerPopup from './tally/QuickLedgerPopup';
 import { TallyChoiceField, TallyPopup, TallyTextField } from './tally/TallyPopup';
 import { useCostCentres } from './CostCentres';
 import { useAccountingRights } from './tally/rights';
@@ -204,12 +207,52 @@ interface AccountSearchProps {
   inputRef?: (el: HTMLInputElement | null) => void;
   /** Enter pressed on an empty field (Tally: end of particulars entry) */
   onEmptyEnter?: () => void;
+  /** Alt+C — create the ledger being typed without leaving the voucher */
+  onCreateLedger?: (name: string) => void;
+  /** Ctrl+Enter — alter the ledger under the cursor */
+  onAlterLedger?: (account: Account) => void;
 }
 
-const AccountSearch = ({ accounts, selected, onSelect, placeholder, className, inputRef, onEmptyEnter }: AccountSearchProps) => {
+const AccountSearch = ({
+  accounts,
+  selected,
+  onSelect,
+  placeholder,
+  className,
+  inputRef,
+  onEmptyEnter,
+  onCreateLedger,
+  onAlterLedger,
+}: AccountSearchProps) => {
   const [text, setText] = useState(selected?.account_name ?? '');
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
+  const [focused, setFocused] = useState(false);
+
+  // Tally's two master keys, live only while the cursor is in this field:
+  // Alt+C creates what you typed, Ctrl+Enter alters what you picked. They sit
+  // on the `field` layer so they beat the screen's own rail.
+  useShortcuts(
+    [
+      {
+        combo: 'Alt+C',
+        layer: 'field',
+        allowInInput: true,
+        label: 'Create the ledger being typed',
+        disabled: !onCreateLedger,
+        run: () => onCreateLedger?.(text.trim()),
+      },
+      {
+        combo: 'Ctrl+Enter',
+        layer: 'field',
+        allowInInput: true,
+        label: 'Alter the ledger under the cursor',
+        disabled: !onAlterLedger || !selected,
+        run: () => selected && onAlterLedger?.(selected),
+      },
+    ],
+    focused,
+  );
 
   useEffect(() => {
     setText(selected?.account_name ?? '');
@@ -261,14 +304,22 @@ const AccountSearch = ({ accounts, selected, onSelect, placeholder, className, i
         value={text}
         placeholder={placeholder}
         autoComplete="off"
+        data-tally-field
+        // While the "List of Ledger Accounts" is open this field answers Enter
+        // and the arrows itself, so the form's field cursor stands aside.
+        data-tally-own-keys={open ? 'Enter,ArrowDown,ArrowUp' : undefined}
         onChange={(e) => {
           setText(e.target.value);
           setOpen(true);
           setHighlight(0);
           if (selected) onSelect(null);
         }}
-        onFocus={() => setOpen(true)}
+        onFocus={() => {
+          setOpen(true);
+          setFocused(true);
+        }}
         onBlur={() => {
+          setFocused(false);
           setTimeout(() => {
             setOpen(false);
             setText((cur) => (selected && cur !== selected.account_name ? selected.account_name : selected ? cur : ''));
@@ -413,6 +464,9 @@ const NarrationTagTextarea = ({
         id="voucher_narration"
         ref={textareaRef}
         value={value}
+        data-tally-field
+        // An open @ledger / #patient list answers Enter and the arrows itself.
+        data-tally-own-keys={activeTag ? 'Enter,ArrowDown,ArrowUp,Tab' : undefined}
         onChange={(event) => {
           const nextValue = event.target.value;
           onChange(nextValue);
@@ -505,6 +559,8 @@ interface VoucherEntryProps {
   lockedVoucherCategory?: string;
   /** Applies touch-sized controls while retaining the canonical form and save path. */
   tabletMode?: boolean;
+  /** Alt+V — open the voucher to read, with every altering action greyed */
+  displayOnly?: boolean;
 }
 
 const VoucherEntry: React.FC<VoucherEntryProps> = ({
@@ -516,12 +572,20 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
   initialDate,
   lockedVoucherCategory,
   tabletMode = false,
+  displayOnly = false,
 }) => {
   const queryClient = useQueryClient();
   const { user, hospitalConfig } = useAuth();
-  const { canAlter } = useAccountingRights();
+  // Alt+V opens a voucher to look at. Tally's Display mode is Alteration with
+  // every action that changes something switched off, so it rides on canAlter.
+  const { canAlter: mayAlter } = useAccountingRights();
+  const canAlter = mayAlter && !displayOnly;
   const { companies, selectedCompanyId, setSelectedCompanyId } = useAccountingCompany();
-  const { cancelVoucher: cancelVoucherById, deleteVoucher: deleteVoucherById } = useVoucherActions();
+  const {
+    cancelVoucher: cancelVoucherById,
+    deleteVoucher: deleteVoucherById,
+    confirmUI,
+  } = useVoucherActions();
   const alterMode = !!voucherId;
   // Duplicating loads a voucher exactly like alteration does, but saves as new
   const sourceVoucherId = voucherId ?? duplicateFromId;
@@ -1415,6 +1479,8 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
       }
 
       toast.success(`Voucher ${numberToSave} saved${status === 'posted' ? '' : ' as pending'}.`);
+      // Ctrl+R repeats this on the next voucher of the same type
+      if (narration.trim()) localStorage.setItem(narrationMemoryKey, narration);
 
       const voucherTypeName = (voucherType?.voucher_type_name || '').toLowerCase();
       if ((voucherTypeName.includes('receipt') || voucherTypeName.includes('receive')) && debitSum >= 10000) {
@@ -1455,6 +1521,48 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
   const deleteVoucher = async (): Promise<void> => {
     if (!alterMode) return;
     if (await deleteVoucherById(voucherId!, loadedNumber)) onDone?.();
+  };
+
+  // ------ Tally's PgUp / PgDn: the voucher before or after this one ------
+  // Ordered by date then number, so it walks the books the way the Day Book
+  // lists them rather than by insertion order.
+  const stepVoucher = async (direction: 1 | -1): Promise<void> => {
+    if (!alterMode || !selectedCompanyId) return;
+    const forward = direction === 1;
+    const { data, error } = await (supabase as any)
+      .from('vouchers')
+      .select('id, voucher_date, voucher_number')
+      .eq('company_id', selectedCompanyId)
+      .or(
+        forward
+          ? `voucher_date.gt.${voucherDate},and(voucher_date.eq.${voucherDate},voucher_number.gt.${loadedNumber})`
+          : `voucher_date.lt.${voucherDate},and(voucher_date.eq.${voucherDate},voucher_number.lt.${loadedNumber})`,
+      )
+      .order('voucher_date', { ascending: forward })
+      .order('voucher_number', { ascending: forward })
+      .limit(1);
+    if (error) {
+      toast.error('Could not find the next voucher');
+      return;
+    }
+    const next = data?.[0];
+    if (!next) {
+      toast.info(forward ? 'Last voucher' : 'First voucher');
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('tally-open-voucher-id', { detail: next.id }));
+  };
+
+  // ------ Ctrl+R: repeat the last narration used on this voucher type ------
+  const narrationMemoryKey = `tally-last-narration:${selectedVoucherType || 'none'}`;
+  const repeatNarration = (): void => {
+    const last = localStorage.getItem(narrationMemoryKey);
+    if (!last) {
+      toast.info('No narration to repeat yet on this voucher type');
+      return;
+    }
+    setNarration(last);
+    narrationRef.current?.focus();
   };
 
   // ------ Formal A4 voucher print (Tally-style) ------
@@ -1595,11 +1703,18 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
         // Only someone who may alter vouchers may reclassify one.
         ...(canAlter ? typeItems() : []),
         { hotkey: 'L', label: 'Optional', gapBefore: true, onClick: () => setIsOptional((v) => !v), active: isOptional },
-        { hotkey: 'P', label: 'Print Vch', gapBefore: true, onClick: printVoucher },
+        { hotkey: 'P', mod: 'alt' as const, aliases: [{ hotkey: 'P' }], label: 'Print Vch', gapBefore: true, onClick: printVoucher },
         ...(canAlter
           ? [
-              { hotkey: 'X', label: 'Cancel Vch', gapBefore: true, onClick: cancelVoucher },
-              { hotkey: 'D', label: 'Delete', onClick: deleteVoucher },
+              {
+                hotkey: 'X',
+                mod: 'alt' as const,
+                aliases: [{ hotkey: 'X' }],
+                label: 'Cancel Vch',
+                gapBefore: true,
+                onClick: cancelVoucher,
+              },
+              { hotkey: 'D', mod: 'alt' as const, aliases: [{ hotkey: 'D' }], label: 'Delete', onClick: deleteVoucher },
             ]
           : []),
       ];
@@ -1608,7 +1723,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
       return [
         { hotkey: 'F2', label: 'Date', onClick: openDatePicker },
         { hotkey: 'L', label: 'Optional', gapBefore: true, onClick: () => setIsOptional((v) => !v), active: isOptional },
-        { hotkey: 'P', label: 'Print Vch', gapBefore: true, onClick: printVoucher },
+        { hotkey: 'P', mod: 'alt' as const, aliases: [{ hotkey: 'P' }], label: 'Print Vch', gapBefore: true, onClick: printVoucher },
       ];
     }
     const items: RailItem[] = [
@@ -1626,10 +1741,86 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
         openDatePicker();
       },
     });
-    items.push({ hotkey: 'P', label: 'Print Vch', gapBefore: true, onClick: printVoucher });
+    items.push({ hotkey: 'P', mod: 'alt' as const, aliases: [{ hotkey: 'P' }], label: 'Print Vch', gapBefore: true, onClick: printVoucher });
     return items;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [voucherTypes, selectedVoucherType, changeVoucherType, alterMode, isOptional, canAlter, openDatePicker, voucherDate, lockedVoucherCategory]);
+
+  // Alt+C — which ledger field asked for a new ledger, and what was typed in it
+  const [quickLedger, setQuickLedger] = useState<{ name: string; assign: (a: Account) => void } | null>(null);
+
+  /**
+   * Turn a freshly created chart_of_accounts row into a pickable Account. The
+   * type is only used for display here — the ledger list refetches behind the
+   * pop-up and the real row replaces this one.
+   */
+  const asAccount = (created: { id: string; account_name: string; account_code: string }): Account => ({
+    id: created.id,
+    account_name: created.account_name,
+    account_code: created.account_code,
+    account_type: '',
+  });
+
+  /** Ctrl+Enter — Tally opens the ledger master over the voucher. */
+  const alterLedger = (account: Account): void => {
+    window.dispatchEvent(new CustomEvent('tally-alter-master', { detail: account.id }));
+  };
+
+  // Tally's voucher keys that are not buttons on the rail.
+  //
+  // Ctrl+V is bound outside text fields only — inside one it is still paste,
+  // which nobody would forgive us for taking away.
+  useShortcuts([
+    {
+      combo: 'Alt+I',
+      layer: 'screen',
+      label: 'Insert Voucher',
+      run: () => window.dispatchEvent(new CustomEvent('tally-insert-voucher', { detail: voucherDate })),
+    },
+    {
+      combo: 'Ctrl+V',
+      layer: 'screen',
+      label: 'Change voucher mode (single entry / double entry)',
+      // Only Payment / Receipt / Contra have two modes to change between; on a
+      // Journal there is only ever the grid.
+      disabled: !SINGLE_ACCOUNT_MODES[category],
+      run: () => setForceJournal((v) => !v),
+    },
+    {
+      combo: 'Alt+V',
+      layer: 'screen',
+      label: 'Display the current voucher',
+      disabled: !alterMode,
+      run: () => window.dispatchEvent(new CustomEvent('tally-display-voucher', { detail: voucherId })),
+    },
+    { combo: 'Ctrl+R', layer: 'screen', allowInInput: true, label: 'Repeat the last narration', run: repeatNarration },
+    {
+      combo: 'PageDown',
+      layer: 'screen',
+      label: 'Next voucher',
+      disabled: !alterMode,
+      run: () => void stepVoucher(1),
+    },
+    {
+      combo: 'PageUp',
+      layer: 'screen',
+      label: 'Previous voucher',
+      disabled: !alterMode,
+      run: () => void stepVoucher(-1),
+    },
+  ]);
+
+  // Tally's field cursor: Enter walks the form forward, Backspace walks back.
+  // The fields that do more than step — a ledger picker choosing from its list,
+  // an amount adding the next line — claim Enter for themselves and the ring
+  // stands aside. Enter on the last field accepts, exactly as Ctrl+A does.
+  const formRef = React.useRef<HTMLDivElement>(null);
+  useFieldRing({
+    containerRef: formRef,
+    onAccept: () => {
+      if (canAlter && !saving && selectedType) void saveVoucher('posted');
+    },
+  });
 
   const accountBalance = account ? balances[account.id] : undefined;
 
@@ -1644,9 +1835,15 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
         : undefined;
 
   return (
-    <div className={tabletMode ? 'tablet-voucher-flow h-full overflow-auto' : undefined}>
+    <div ref={formRef} className={tabletMode ? 'tablet-voucher-flow h-full overflow-auto' : undefined}>
     <TallyScreen
-      title={alterMode ? "Accounting Voucher Alteration" : "Accounting Voucher Creation"}
+      title={
+        displayOnly
+          ? 'Accounting Voucher Display'
+          : alterMode
+            ? 'Accounting Voucher Alteration'
+            : 'Accounting Voucher Creation'
+      }
       rail={rail}
       onClose={onDone}
       // A: Accept and Q: Quit were drawn with underlined hotkeys but bound to
@@ -1667,7 +1864,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
           onClick: () => void handleQuit(),
         },
         { hotkey: 'F1', label: 'Help', onClick: () => window.dispatchEvent(new CustomEvent('tally-help')) },
-        { hotkey: 'P', label: 'Print Vch', onClick: selectedType ? printVoucher : undefined },
+        { hotkey: 'P', mod: 'alt', aliases: [{ hotkey: 'P' }], label: 'Print Vch', onClick: selectedType ? printVoucher : undefined },
       ]}
     >
       {/* Voucher type / No. / Ref / Date strip */}
@@ -1680,6 +1877,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
             <span className="font-medium">No.</span>
             {!alterMode ? (
               <Input
+                data-tally-field
                 value={voucherNumberOverride || generatedVoucherNumber}
                 onChange={(e) => setVoucherNumberOverride(e.target.value)}
                 className="h-7 min-w-[100px] rounded-none border border-gray-400 bg-[#fdf6d8] px-2 font-mono text-sm"
@@ -1704,6 +1902,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
           <div className="mt-1 flex items-center gap-2 text-[12px]">
             <span className="font-medium">Ref. No.</span>
             <Input
+              data-tally-field
               value={referenceNumber}
               onChange={(e) => setReferenceNumber(e.target.value)}
               placeholder="—"
@@ -1712,6 +1911,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
             />
             <span className="pl-2 font-medium">Ref. Date</span>
             <Input
+              data-tally-field
               type="date"
               value={referenceDate}
               onChange={(e) => setReferenceDate(e.target.value)}
@@ -1755,6 +1955,16 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
                 }}
                 placeholder="Cash / Bank ledger — type to search"
                 className="w-full max-w-md"
+                onCreateLedger={(typed) =>
+                  setQuickLedger({
+                    name: typed,
+                    assign: (a) => {
+                      setAccount(a);
+                      loadBalance(a.id);
+                    },
+                  })
+                }
+                onAlterLedger={alterLedger}
               />
             </div>
             <div className="flex items-center gap-2 text-xs italic text-gray-500">
@@ -1791,6 +2001,13 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
                         }
                       }}
                       onEmptyEnter={() => narrationRef.current?.focus()}
+                      onCreateLedger={(typed) =>
+                        setQuickLedger({
+                          name: typed,
+                          assign: (a) => updatePartLine(line.key, { account: a }),
+                        })
+                      }
+                      onAlterLedger={alterLedger}
                       placeholder={idx === 0 ? 'Type to search ledger…' : ''}
                       inputRef={(el) => {
                         partLedgerRefs.current[line.key] = el;
@@ -1809,6 +2026,8 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
                     }}
                     type="number"
                     inputMode="decimal"
+                    data-tally-field
+                    data-tally-own-keys="Enter"
                     value={line.amount}
                     onChange={(e) => updatePartLine(line.key, { amount: e.target.value })}
                     onKeyDown={(e) => {
@@ -1893,6 +2112,13 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
                         }
                       }}
                       onEmptyEnter={() => narrationRef.current?.focus()}
+                      onCreateLedger={(typed) =>
+                        setQuickLedger({
+                          name: typed,
+                          assign: (a) => updateJournalLine(line.key, { account: a }),
+                        })
+                      }
+                      onAlterLedger={alterLedger}
                       placeholder={idx === 0 ? 'Type to search ledger…' : ''}
                       inputRef={(el) => {
                         journalLedgerRefs.current[line.key] = el;
@@ -1911,6 +2137,8 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
                     }}
                     type="number"
                     inputMode="decimal"
+                    data-tally-field
+                    data-tally-own-keys="Enter"
                     value={line.drcr === 'Dr' ? line.amount : ''}
                     disabled={line.drcr !== 'Dr'}
                     onChange={(e) => updateJournalDebitAmount(line.key, e.target.value)}
@@ -1928,6 +2156,8 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
                     }}
                     type="number"
                     inputMode="decimal"
+                    data-tally-field
+                    data-tally-own-keys="Enter"
                     value={line.drcr === 'Cr' ? line.amount : ''}
                     disabled={line.drcr !== 'Cr'}
                     onChange={(e) => updateJournalLine(line.key, { amount: e.target.value })}
@@ -2103,6 +2333,21 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
         onClose={() => setAllocFor(null)}
       />
     )}
+
+    {/* Alt+C — create the ledger being typed without leaving the voucher */}
+    {quickLedger && (
+      <QuickLedgerPopup
+        initialName={quickLedger.name}
+        onCreated={(created) => {
+          quickLedger.assign(asAccount(created));
+          setQuickLedger(null);
+        }}
+        onClose={() => setQuickLedger(null)}
+      />
+    )}
+
+    {/* Tally asks before Alt+D deletes or Alt+X cancels */}
+    {confirmUI}
     </div>
   );
 };

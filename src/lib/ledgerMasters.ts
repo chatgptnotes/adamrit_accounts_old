@@ -187,3 +187,53 @@ export function accountTypeFromSiblings(
   }
   return best;
 }
+
+/**
+ * Insert a ledger master, retrying past an account_code hash collision.
+ *
+ * Shared by the Ledger Creation master screen and Voucher Entry's Alt+C, so a
+ * ledger created without leaving a voucher is identical to one created the long
+ * way — same code, same NULL parent, same retry.
+ *
+ * `parent_account_id` stays NULL on purpose: Voucher Entry offers leaf accounts
+ * only and hides any row that is another row's parent, so a ledger given a
+ * parent would be unpostable.
+ */
+export async function insertLedgerAccount(
+  supabase: { from: (table: string) => any },
+  fields: {
+    companyId: string;
+    name: string;
+    accountType: string;
+    groupName: string;
+    ledgerGroupId: string | null;
+    /** Opening balance, mailing and banking details from the full master form */
+    extras?: Record<string, unknown>;
+  },
+): Promise<{ id: string; account_code: string; account_name: string }> {
+  const base = tallyChartAccountCode(fields.companyId, fields.name);
+  let lastError: { code?: string; message?: string } | null = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const { data, error } = await supabase
+      .from('chart_of_accounts')
+      .insert({
+        company_id: fields.companyId,
+        account_code: accountCodeAttempt(base, attempt),
+        account_name: fields.name,
+        account_type: fields.accountType,
+        account_group: fields.groupName,
+        ledger_group_id: fields.ledgerGroupId,
+        parent_account_id: null,
+        is_active: true,
+        ...(fields.extras ?? {}),
+      })
+      .select('id, account_code, account_name')
+      .single();
+    lastError = error;
+    if (!error) return data;
+    // 23505 here is an account_code collision in the name hash — retry with the
+    // next code. Anything else is a real failure.
+    if (error.code !== '23505') break;
+  }
+  throw lastError ?? new Error('Failed to create the ledger');
+}

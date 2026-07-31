@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TallyScreen } from './tally/TallyChrome';
 import { useShortcuts, type Binding } from './tally/keyboard';
-import { TallyList, TallyPopup } from './tally/TallyPopup';
+import { TallyPopup } from './tally/TallyPopup';
+import { CompanyInfoPopup, CompanySelectPopup } from './tally/CompanyPopups';
 import ChangePeriod from './tally/ChangePeriod';
 import { dayLabel, periodLabel, useAccountingPeriod } from './tally/PeriodContext';
 import { useAccountingCompanyOptional } from './AccountingCompanyContext';
@@ -192,7 +193,7 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
   // The yellow bar is the keyboard's position, so it stays hidden until a key
   // actually moves it — the mouse gets a soft hover shade instead.
   const [cursorShown, setCursorShown] = useState(false);
-  const [popup, setPopup] = useState<null | 'date' | 'period' | 'company' | 'quit'>(null);
+  const [popup, setPopup] = useState<null | 'date' | 'period' | 'company' | 'company-info' | 'quit'>(null);
 
   const menu = MENUS[stack[stack.length - 1]];
   // Flat list drives arrow-key movement and the Quit row at the end
@@ -351,16 +352,25 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
         closeLabel="✕"
         onClose={back}
         rail={[
+          // Tally ERP's Gateway put Select Company on F1; Prime moved Help
+          // there. The Gateway is the one screen that keeps the older meaning,
+          // so Help lives on the key bar here and F1 loads a company.
+          {
+            hotkey: 'F1',
+            label: 'Select Company',
+            onClick: companies.length > 0 ? () => setPopup('company') : undefined,
+          },
           { hotkey: 'F2', label: 'Date', onClick: () => setPopup('date') },
           { hotkey: 'F2', mod: 'alt', label: 'Period', onClick: () => setPopup('period') },
           // Tally opens the company list here; it does not silently rotate to
           // the next company the way this button used to.
           { hotkey: 'F3', label: 'Company', onClick: companies.length > 0 ? () => setPopup('company') : undefined },
           {
-            hotkey: 'F1',
-            label: 'Help',
+            hotkey: 'F3',
+            mod: 'alt',
+            label: 'Company Info',
             gapBefore: true,
-            onClick: () => window.dispatchEvent(new CustomEvent('tally-help')),
+            onClick: () => setPopup('company-info'),
           },
           { hotkey: 'F11', label: 'Features', onClick: () => window.dispatchEvent(new CustomEvent('tally-features')) },
           {
@@ -391,6 +401,11 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
               <span>NAME OF COMPANY</span>
               <span>DATE OF LAST ENTRY</span>
             </div>
+
+            {!selectedCompany && (
+              // Tally leaves this line empty after Shut Company and waits.
+              <div className="pt-4 italic text-[#5b7aa0]">No company loaded — press F1 or F3 to select one.</div>
+            )}
 
             {selectedCompany && (
               <div className="flex items-baseline justify-between pt-4 font-bold text-black">
@@ -498,19 +513,10 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
         />
       )}
 
-      {popup === 'company' && (
-        <TallyList
-          title="List of Companies"
-          items={companies.map((c) => ({
-            label: c.company_name,
-            active: c.id === accountingCompany?.selectedCompanyId,
-            onSelect: () => {
-              accountingCompany?.setSelectedCompanyId(c.id);
-              setPopup(null);
-            },
-          }))}
-          onClose={() => setPopup(null)}
-        />
+      {popup === 'company' && <CompanySelectPopup onClose={() => setPopup(null)} />}
+
+      {popup === 'company-info' && (
+        <CompanyInfoPopup onClose={() => setPopup(null)} onSelectCompany={() => setPopup('company')} />
       )}
 
       {popup === 'quit' && (

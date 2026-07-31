@@ -6,6 +6,8 @@ interface AccountingCompanyContextValue {
   selectedCompanyId: string;
   setSelectedCompanyId: (companyId: string) => void;
   cycleCompany: () => void;
+  /** Tally's Shut Company — no company loaded until one is picked again. */
+  shutCompany: () => void;
 }
 
 const AccountingCompanyContext = createContext<AccountingCompanyContextValue | null>(null);
@@ -55,27 +57,42 @@ export const AccountingCompanyProvider: React.FC<{
   preferredCompanyKey?: string;
 }> = ({ children, preferredCompanyKey }) => {
   const { data: companies = [] } = useCompanies();
-  const [selectedCompanyId, setSelectedCompanyId] = useState('');
+  const [selectedCompanyId, setSelectedCompanyIdState] = useState('');
+  // Shutting the company has to be remembered: the auto-select below runs
+  // again whenever the company list is refetched, and would otherwise load a
+  // company straight back in.
+  const [shut, setShut] = useState(false);
 
   useEffect(() => {
-    if (companies.length === 0) return;
-    setSelectedCompanyId((current) => {
+    if (companies.length === 0 || shut) return;
+    setSelectedCompanyIdState((current) => {
       if (current && companies.some((company) => company.id === current)) return current;
       return preferredCompany(companies, preferredCompanyKey)?.id ?? companies[0].id;
     });
-  }, [companies, preferredCompanyKey]);
+  }, [companies, preferredCompanyKey, shut]);
+
+  const setSelectedCompanyId = useCallback((companyId: string) => {
+    setShut(false);
+    setSelectedCompanyIdState(companyId);
+  }, []);
+
+  const shutCompany = useCallback(() => {
+    setShut(true);
+    setSelectedCompanyIdState('');
+  }, []);
 
   const cycleCompany = useCallback(() => {
     if (companies.length === 0) return;
-    setSelectedCompanyId((current) => {
+    setShut(false);
+    setSelectedCompanyIdState((current) => {
       const currentIndex = companies.findIndex((company) => company.id === current);
       return companies[(currentIndex + 1 + companies.length) % companies.length].id;
     });
   }, [companies]);
 
   const value = useMemo(
-    () => ({ companies, selectedCompanyId, setSelectedCompanyId, cycleCompany }),
-    [companies, selectedCompanyId, cycleCompany],
+    () => ({ companies, selectedCompanyId, setSelectedCompanyId, cycleCompany, shutCompany }),
+    [companies, selectedCompanyId, setSelectedCompanyId, cycleCompany, shutCompany],
   );
 
   return <AccountingCompanyContext.Provider value={value}>{children}</AccountingCompanyContext.Provider>;

@@ -92,6 +92,20 @@ const TrialBalance: React.FC<{
       },
       sourceRail,
     ],
+    exportData: () => ({
+      title: 'Trial Balance',
+      period: report.periodLabel,
+      columns: ['Particulars', 'Opening Debit', 'Opening Credit', 'Debit', 'Credit', 'Closing Debit', 'Closing Credit'],
+      rows: bodyRows.map((row) => [
+        `${'  '.repeat(row.depth)}${row.label}`,
+        row.openDr,
+        row.openCr,
+        row.txDr,
+        row.txCr,
+        row.dr,
+        row.cr,
+      ]),
+    }),
   });
   const asOfDate = report.to;
   const openingDate = dayBefore(report.from);

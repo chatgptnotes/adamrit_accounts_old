@@ -51,6 +51,26 @@ const ProfitLoss: React.FC<{
       { hotkey: 'F6', label: 'Monthly', active: monthly, onClick: () => setMonthly((v) => !v) },
       sourceRail,
     ],
+    // Expenditure and income stacked with their side named, so a spreadsheet
+    // sort cannot separate a ledger from the group it belongs to.
+    exportData: () => {
+      const side = (name: string, lines: typeof purchase[]) =>
+        lines.flatMap((line) => [
+          [name, line.name, line.amount] as (string | number)[],
+          ...line.ledgers.map((led) => [name, `  ${led.name}`, led.amount] as (string | number)[]),
+        ]);
+      return {
+        title: 'Profit & Loss A/c',
+        period: report.periodLabel,
+        columns: ['Side', 'Particulars', 'Amount'],
+        rows: [
+          ...side('Expenditure', [purchase, directExpense, indirectExpense]),
+          ...side('Income', [sales, directIncome, indirectIncome]),
+          ['', 'Gross Profit', grossProfit],
+          ['', 'Nett Profit', nett],
+        ],
+      };
+    },
   });
   const { from: fromDate, to: toDate } = report;
   const percentages = !!report.config.percentages;

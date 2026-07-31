@@ -22,13 +22,12 @@ import {
 } from '@/components/ui/table';
 import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import {
-  accountCodeAttempt,
   accountTypeForGroupChain,
   accountTypeFromSiblings,
+  insertLedgerAccount,
   isAccountType,
   normalizeAccountName,
   normalizeGroupName,
-  tallyChartAccountCode,
   type AccountType,
 } from '@/lib/ledgerMasters';
 import { useAccountingCompany } from './AccountingCompanyContext';
@@ -383,30 +382,14 @@ const TallyLedgerCreation: React.FC = () => {
         return;
       }
 
-      // parent_account_id stays NULL on purpose: Voucher Entry offers leaf
-      // accounts only and hides any row that is another row's parent, so a
-      // ledger given a parent would be unpostable — the very bug this fixes.
-      const base = tallyChartAccountCode(selectedCompanyId, trimmed);
-      let lastError: any = null;
-      for (let attempt = 0; attempt < 5; attempt += 1) {
-        const { error } = await (supabase as any).from('chart_of_accounts').insert({
-          company_id: selectedCompanyId,
-          account_code: accountCodeAttempt(base, attempt),
-          account_name: trimmed,
-          account_type: effectiveType,
-          account_group: selectedGroupName,
-          ledger_group_id: under.startsWith(COA_GROUP_PREFIX) ? null : under,
-          parent_account_id: null,
-          is_active: true,
-          ...openingFields,
-          ...detailFields(),
-        });
-        lastError = error;
-        // 23505 here is an account_code collision in the name hash — retry with
-        // the next code. Anything else is a real failure.
-        if (!error || error.code !== '23505') break;
-      }
-      if (lastError) throw lastError;
+      await insertLedgerAccount(supabase as any, {
+        companyId: selectedCompanyId,
+        name: trimmed,
+        accountType: effectiveType,
+        groupName: selectedGroupName,
+        ledgerGroupId: under.startsWith(COA_GROUP_PREFIX) ? null : under,
+        extras: { ...openingFields, ...detailFields() },
+      });
       toast.success(`Ledger "${trimmed}" created in ${companyName}`);
       queryClient.invalidateQueries();
       handleClear();

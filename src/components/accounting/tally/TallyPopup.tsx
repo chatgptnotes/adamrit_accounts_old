@@ -146,26 +146,50 @@ export function TallyChoiceField<T extends string>({
   );
 }
 
+export interface TallyListItem {
+  label: string;
+  onSelect: () => void;
+  active?: boolean;
+  /** Greyed and unreachable, the way Tally greys an inapplicable menu entry. */
+  disabled?: boolean;
+}
+
 /** Tally's keyboard-walked "List of …" pop-up: arrows move, Enter picks. */
 export const TallyList: React.FC<{
   title: string;
-  items: { label: string; onSelect: () => void; active?: boolean }[];
+  items: TallyListItem[];
   onClose: () => void;
   width?: number;
 }> = ({ title, items, onClose, width = 300 }) => {
-  const [cursor, setCursor] = React.useState(() => Math.max(0, items.findIndex((i) => i.active)));
+  const firstLive = items.findIndex((i) => !i.disabled);
+  const [cursor, setCursor] = React.useState(() => {
+    const current = items.findIndex((i) => i.active && !i.disabled);
+    return Math.max(0, current >= 0 ? current : firstLive);
+  });
+
+  /** Walk to the next entry that can actually be chosen. */
+  const step = (by: 1 | -1) => () =>
+    setCursor((c) => {
+      for (let next = c + by; next >= 0 && next < items.length; next += by) {
+        if (!items[next].disabled) return next;
+      }
+      return c;
+    });
 
   useShortcuts([
     { combo: 'Esc', layer: 'popup', allowInInput: true, run: onClose },
     { combo: 'Q', layer: 'popup', label: 'Quit the list', run: onClose },
+    { combo: 'ArrowDown', layer: 'popup', allowInInput: true, run: step(1) },
+    { combo: 'ArrowUp', layer: 'popup', allowInInput: true, run: step(-1) },
     {
-      combo: 'ArrowDown',
+      combo: 'Enter',
       layer: 'popup',
       allowInInput: true,
-      run: () => setCursor((c) => Math.min(items.length - 1, c + 1)),
+      run: () => {
+        const item = items[cursor];
+        if (item && !item.disabled) item.onSelect();
+      },
     },
-    { combo: 'ArrowUp', layer: 'popup', allowInInput: true, run: () => setCursor((c) => Math.max(0, c - 1)) },
-    { combo: 'Enter', layer: 'popup', allowInInput: true, run: () => items[cursor]?.onSelect() },
   ]);
 
   return (
@@ -181,10 +205,15 @@ export const TallyList: React.FC<{
             <button
               key={`${item.label}-${i}`}
               type="button"
-              onMouseEnter={() => setCursor(i)}
+              disabled={item.disabled}
+              onMouseEnter={() => !item.disabled && setCursor(i)}
               onClick={item.onSelect}
               className={`block w-full px-4 py-[2px] text-left text-[13px] leading-[18px] ${
-                i === cursor ? 'bg-[#ffc423] text-black' : 'text-[#1a4d8f]'
+                item.disabled
+                  ? 'cursor-default text-[#9bb4d0]'
+                  : i === cursor
+                    ? 'bg-[#ffc423] text-black'
+                    : 'text-[#1a4d8f]'
               }`}
             >
               {item.label}
