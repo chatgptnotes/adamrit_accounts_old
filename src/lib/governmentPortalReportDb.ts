@@ -518,7 +518,7 @@ export async function fetchLatestGovernmentPortalReport(
  * patient name. Registration ID is authoritative; the name fallback catches
  * rows where the ID was never captured on the visit.
  */
-async function loadDischargedPatientKeys(): Promise<{
+export async function loadDischargedPatientKeys(): Promise<{
   byRegistrationId: Set<string>;
   byPatientName: Set<string>;
 }> {
@@ -535,6 +535,7 @@ async function loadDischargedPatientKeys(): Promise<{
         .from('visits')
         .select('yojana_registration_id, thumb_registration_no, patients(name)')
         .eq('is_discharged', true)
+        .order('id', { ascending: true })
         .range(from, to),
     );
 
@@ -553,6 +554,31 @@ async function loadDischargedPatientKeys(): Promise<{
   }
 
   return { byRegistrationId, byPatientName };
+}
+
+/**
+ * Shared discharged-patient filter. Apply this to ANY list of patients that
+ * should not include discharged cases. Matching uses registration ID first
+ * (authoritative), then normalized patient name as a fallback — the same
+ * priority the portal sync uses.
+ *
+ * Usage:
+ *   const keys = await loadDischargedPatientKeys();
+ *   const active = filterOutDischargedPatients(allRows, keys, r => r.registration_id, r => r.beneficiary_name);
+ */
+export function filterOutDischargedPatients<T>(
+  rows: T[],
+  keys: { byRegistrationId: Set<string>; byPatientName: Set<string> },
+  getRegistrationId: (row: T) => string | null | undefined,
+  getPatientName: (row: T) => string | null | undefined,
+): T[] {
+  return rows.filter((row) => {
+    const regId = normalizeRegistrationId(getRegistrationId(row));
+    if (regId && keys.byRegistrationId.has(regId)) return false;
+    const name = normalizeMatchValue(getPatientName(row));
+    if (name && keys.byPatientName.has(name)) return false;
+    return true;
+  });
 }
 
 export async function fetchLatestGovernmentPortalExtensionAlerts(

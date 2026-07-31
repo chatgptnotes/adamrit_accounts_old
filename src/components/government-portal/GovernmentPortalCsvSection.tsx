@@ -36,6 +36,8 @@ import {
   fetchGovernmentPortalImportHistory,
   fetchGovernmentPortalReportById,
   fetchLatestGovernmentPortalReport,
+  filterOutDischargedPatients,
+  loadDischargedPatientKeys,
   saveGovernmentPortalReport,
   updateGovernmentPortalRowStatus,
   type GovernmentPortalReportKind,
@@ -254,6 +256,10 @@ export function GovernmentPortalCsvSection({
   const [isReading, setIsReading] = useState(false);
   const [isSendingWhatsApp, setIsSendingWhatsApp] = useState(false);
   const [savingRowId, setSavingRowId] = useState<string | null>(null);
+  const [dischargedKeys, setDischargedKeys] = useState<{
+    byRegistrationId: Set<string>;
+    byPatientName: Set<string>;
+  }>({ byRegistrationId: new Set(), byPatientName: new Set() });
 
   const applySavedReport = (
     saved: {
@@ -310,12 +316,15 @@ export function GovernmentPortalCsvSection({
     const loadSaved = async () => {
       setIsLoadingSaved(true);
       try {
-        const [latest, history] = await Promise.all([
+        const [latest, history, discharged] = await Promise.all([
           fetchLatestGovernmentPortalReport(reportKind),
           fetchGovernmentPortalImportHistory(reportKind),
+          // Discharged patients must never appear in the extension-needed list.
+          loadDischargedPatientKeys(),
         ]);
         if (cancelled) return;
         setImportHistory(history);
+        setDischargedKeys(discharged);
         if (latest) applySavedReport(latest);
       } catch (error) {
         if (!cancelled) {
@@ -346,8 +355,14 @@ export function GovernmentPortalCsvSection({
   };
 
   const extensionNeededRows = useMemo(
-    () => (report?.rows || []).filter((row) => row.extensionNeeded && row.status === 'pending'),
-    [report],
+    () =>
+      filterOutDischargedPatients(
+        (report?.rows || []).filter((row) => row.extensionNeeded && row.status === 'pending'),
+        dischargedKeys,
+        (row) => row.values['Registration ID'],
+        (row) => row.values['Beneficiary Name'],
+      ),
+    [report, dischargedKeys],
   );
 
   const sections = useMemo(() => {
