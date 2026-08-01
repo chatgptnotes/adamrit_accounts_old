@@ -18,7 +18,14 @@ import { useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import { createDoctorApprovalsFromOt, listOtDoctorApprovals, setOtDoctorAmount } from "@/lib/approval-queue-service";
+import {
+  addRmoDutyApproval,
+  createDoctorApprovalsFromOt,
+  deleteRmoDutyApproval,
+  listOtDoctorApprovals,
+  listRmoDutyApprovals,
+  setOtDoctorAmount,
+} from "@/lib/approval-queue-service";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
@@ -426,6 +433,210 @@ async function markScheduleCompleted(row: OTScheduleItem) {
     visit_id: row.visitNumber,
     patient_name: row.patientName,
   }).catch((err) => console.warn("[ot-schedule] doctor approval auto-feed failed:", err));
+}
+
+interface RmoOption {
+  id: string;
+  name: string;
+  specialty: string | null;
+  daily_remuneration: number | null;
+}
+
+/**
+ * RMO duty roster on Gaurav's OT tile: record who did duty on a date and the
+ * amount to pay is decided on the spot from the RMO master's daily
+ * remuneration. Each entry is a SALARY bill in the accounting Approvals
+ * queue, so approval and payment run on the same rails as every other bill.
+ */
+function RmoDutySection() {
+  const { user, hospitalConfig } = useAuth();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [dutyDate, setDutyDate] = useState(todayDate());
+  const [rmoSearch, setRmoSearch] = useState("");
+  const [selectedRmo, setSelectedRmo] = useState<RmoOption | null>(null);
+  const [dutyAmount, setDutyAmount] = useState("");
+  const [savingDuty, setSavingDuty] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+
+  const rmoTable = hospitalConfig.name === "ayushman" ? "ayushman_rmos" : "hope_rmos";
+  const rmos = useQuery({
+    queryKey: ["ot-rmo-master", rmoTable],
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<RmoOption[]> => {
+      const { data, error } = await (supabase as any)
+        .from(rmoTable)
+        .select("id, name, specialty, daily_remuneration")
+        .order("name");
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const entries = useQuery({
+    queryKey: ["rmo-duty-entries", dutyDate],
+    queryFn: () => listRmoDutyApprovals(dutyDate),
+  });
+
+  const search = rmoSearch.trim().toLowerCase();
+  const suggestions = search
+    ? (rmos.data || []).filter((r) => r.name.toLowerCase().includes(search)).slice(0, 8)
+    : [];
+
+  const pickRmo = (rmo: RmoOption) => {
+    setSelectedRmo(rmo);
+    setRmoSearch("");
+    // The deciding step: the amount comes from the master, not from memory.
+    setDutyAmount(rmo.daily_remuneration ? String(rmo.daily_remuneration) : "");
+  };
+
+  const addDuty = async () => {
+    if (!selectedRmo) {
+      toast({ title: "Pick the RMO", description: "Search and select who did the duty.", variant: "destructive" });
+      return;
+    }
+    setSavingDuty(true);
+    try {
+      const { created } = await addRmoDutyApproval({
+        rmoName: selectedRmo.name,
+        dutyDate,
+        amount: Number(dutyAmount),
+        hospital: hospitalConfig.name,
+        createdBy: user?.id ?? null,
+      });
+      toast(
+        created
+          ? { title: "Duty recorded", description: `${selectedRmo.name} — ₹${Number(dutyAmount).toLocaleString("en-IN")} queued in accounting Approvals.` }
+          : { title: "Already recorded", description: `${selectedRmo.name} is already on the ${shortDate(dutyDate)} duty list.` },
+      );
+      setSelectedRmo(null);
+      setDutyAmount("");
+      await qc.invalidateQueries({ queryKey: ["rmo-duty-entries", dutyDate] });
+    } catch (error) {
+      toast({
+        title: "Could not record the duty",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingDuty(false);
+    }
+  };
+
+  const removeDuty = async (id: string, name: string) => {
+    setRemovingId(id);
+    try {
+      await deleteRmoDutyApproval(id);
+      toast({ title: "Duty entry removed", description: name });
+      await qc.invalidateQueries({ queryKey: ["rmo-duty-entries", dutyDate] });
+    } catch (error) {
+      toast({
+        title: "Could not remove",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
+  return (
+    <TabletCard className="mt-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-bold">RMO duty</h3>
+          <p className="text-sm text-muted-foreground">
+            Add who did duty on the day — the payable amount fills in from the RMO master and lands in accounting Approvals.
+          </p>
+        </div>
+        <label className="flex items-center gap-3">
+          <span className="text-sm font-semibold">Duty date</span>
+          <TabletInput type="date" value={dutyDate} onChange={(event) => setDutyDate(event.target.value)} className="w-44" />
+        </label>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_170px_auto]">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+          <TabletInput
+            value={selectedRmo ? selectedRmo.name : rmoSearch}
+            onChange={(event) => {
+              setSelectedRmo(null);
+              setRmoSearch(event.target.value);
+            }}
+            placeholder="Search the RMO master"
+            className="pl-11"
+          />
+          {suggestions.length > 0 ? (
+            <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-y-auto rounded-xl border bg-background shadow-lg">
+              {suggestions.map((rmo) => (
+                <button
+                  key={rmo.id}
+                  type="button"
+                  className="block w-full border-b px-3 py-2.5 text-left text-sm last:border-b-0 hover:bg-muted/60"
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    pickRmo(rmo);
+                  }}
+                >
+                  <span className="font-medium">{rmo.name}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    {[rmo.specialty, rmo.daily_remuneration ? `₹${Number(rmo.daily_remuneration).toLocaleString("en-IN")}/day` : null]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <TabletInput
+          type="number"
+          inputMode="decimal"
+          value={dutyAmount}
+          onChange={(event) => setDutyAmount(event.target.value)}
+          placeholder="Amount (₹)"
+        />
+        <TabletButton disabled={savingDuty || !selectedRmo} onClick={() => void addDuty()}>
+          {savingDuty ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
+          Add duty
+        </TabletButton>
+      </div>
+
+      <div className="mt-4">
+        {entries.isLoading ? (
+          <p className="py-4 text-center text-sm text-muted-foreground">Loading duty list...</p>
+        ) : (entries.data || []).length === 0 ? (
+          <p className="py-4 text-center text-sm text-muted-foreground">No duty recorded for {shortDate(dutyDate)} yet.</p>
+        ) : (
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {(entries.data || []).map((entry) => (
+              <div key={entry.id} className="flex items-center justify-between gap-3 rounded-xl border bg-background px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate font-semibold">{entry.party_name}</p>
+                  <p className="text-sm text-muted-foreground">₹{Number(entry.amount).toLocaleString("en-IN")}</p>
+                </div>
+                {entry.status === "PENDING" ? (
+                  <button
+                    type="button"
+                    onClick={() => void removeDuty(entry.id, entry.party_name)}
+                    disabled={removingId === entry.id}
+                    className="shrink-0 rounded-lg border px-2.5 py-1 text-xs font-semibold text-destructive hover:bg-destructive/10"
+                  >
+                    {removingId === entry.id ? "Removing..." : "Remove"}
+                  </button>
+                ) : (
+                  <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                    {entry.status === "APPROVED" ? "Approved" : entry.status}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </TabletCard>
+  );
 }
 
 function ScheduleStatusBadge({ status }: { status: string }) {
@@ -854,6 +1065,8 @@ function GauravScheduler() {
           </div>
         )}
       </TabletCard>
+
+      <RmoDutySection />
     </FlowScaffold>
   );
 }

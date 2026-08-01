@@ -392,6 +392,73 @@ export async function setOtDoctorAmount(
   return { updated: (data || []).length }
 }
 
+// ------------------------------------------------------------------
+// RMO duty roster (OT Schedule - Gaurav). One approval-queue row per RMO
+// per duty day, category SALARY: the duty entry IS the payable, so it flows
+// through the same approve → JV → pay machinery as every other bill. The
+// amount comes from the RMO master's daily_remuneration, decided the moment
+// the duty is recorded.
+// ------------------------------------------------------------------
+
+const RMO_DUTY_PREFIX = 'RMO-DUTY-'
+
+export async function addRmoDutyApproval(input: {
+  rmoName: string
+  /** yyyy-mm-dd */
+  dutyDate: string
+  amount: number
+  hospital?: string | null
+  createdBy?: string | null
+}): Promise<{ created: boolean }> {
+  const name = input.rmoName.trim()
+  if (!name) throw new Error('Pick the RMO who did the duty')
+  if (!input.amount || input.amount <= 0) throw new Error('Duty amount must be more than zero')
+  const reference = `${RMO_DUTY_PREFIX}${input.dutyDate}`
+
+  // One duty payment per RMO per day — a re-tap must not queue a second bill.
+  const { data: existing, error: checkError } = await approvalQueue()
+    .select('id')
+    .eq('reference_no', reference)
+    .ilike('party_name', name)
+    .limit(1)
+  if (checkError) throw new Error(checkError.message || 'Could not check existing duty entries')
+  if ((existing || []).length) return { created: false }
+
+  const { error } = await approvalQueue().insert({
+    category: 'SALARY',
+    party_name: name,
+    reference_no: reference,
+    amount: input.amount,
+    narration: `RMO duty ${input.dutyDate}${input.hospital ? ` (${input.hospital})` : ''}`,
+    created_by: input.createdBy || 'ot-rmo-duty',
+  })
+  if (error) {
+    if (error.code === '23505') return { created: false }
+    throw new Error(error.message || 'Could not record the duty')
+  }
+  return { created: true }
+}
+
+export async function listRmoDutyApprovals(dutyDate: string): Promise<Array<{
+  id: string
+  party_name: string
+  amount: number
+  status: string
+}>> {
+  const { data, error } = await approvalQueue()
+    .select('id, party_name, amount, status')
+    .eq('reference_no', `${RMO_DUTY_PREFIX}${dutyDate}`)
+    .order('party_name')
+  if (error) throw new Error(error.message || 'Failed to load the duty list')
+  return data || []
+}
+
+/** Removes a duty entry that has not been approved yet. Approved bills are frozen. */
+export async function deleteRmoDutyApproval(id: string): Promise<void> {
+  const { error } = await approvalQueue().delete().eq('id', id).eq('status', 'PENDING')
+  if (error) throw new Error(error.message || 'Could not remove the duty entry')
+}
+
 /** Fills in amount/company/ledgers on a PENDING bill (OT-generated ones start empty). */
 export async function updateApprovalDetails(
   id: string,
