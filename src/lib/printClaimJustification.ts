@@ -2,9 +2,9 @@
 // back with the claim.
 //
 // One signature only: the doctor chosen from the credentials master, and only
-// where a real scan of it exists. Stamps are not drawn at all — the hospital
-// stamps the paper by hand once it is printed, which is how the document is
-// actually made official.
+// where a real scan of it exists. The doctor's stamp is never drawn — that goes
+// on the paper by hand after printing. The hospital's seal does print, from the
+// hospital_stamps master, because it is the hospital that files the claim.
 
 export interface JustificationPrintClaim {
   claim_id: string;
@@ -37,6 +37,11 @@ export interface JustificationPrintOptions {
    * typed at the top instead.
    */
   letterheadUrl?: string | null;
+  /**
+   * The hospital's seal, from the hospital_stamps master. Null when none has
+   * been uploaded, in which case a box is printed to stamp by hand.
+   */
+  hospitalSealUrl?: string | null;
 }
 
 const escapeHtml = (value: unknown) =>
@@ -104,6 +109,10 @@ export function printClaimJustification(
   .sig-space { height: 28px; display: block; margin-left: auto; }
   .sig { display: block; margin-left: auto; max-width: 165px; max-height: 44px; object-fit: contain; }
   .signname { font-weight: bold; margin-top: 2px; }
+  .sealrow { display: flex; justify-content: flex-end; margin-top: 4px; page-break-inside: avoid; }
+  .sealimg { width: 96px; height: 78px; object-fit: contain; display: block; }
+  .seal-space { width: 96px; height: 78px; border: 1px dashed #999; }
+  .seal-caption { font-size: 9px; color: #666; width: 96px; text-align: center; margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -149,6 +158,11 @@ Colaba, Mumbai – 400005</div>
       : '<div class="sig-space"></div>'}
     <div>${escapeHtml(options.hospitalName)}, Nagpur</div>
 
+    <div class="sealrow">
+      ${options.hospitalSealUrl
+        ? `<img class="sealimg" src="${escapeHtml(options.hospitalSealUrl)}" alt="" />`
+        : `<div><div class="seal-space"></div><div class="seal-caption">Hospital stamp</div></div>`}
+    </div>
   </div>
   </div>
 </div>

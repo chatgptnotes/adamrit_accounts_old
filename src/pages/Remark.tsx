@@ -205,6 +205,22 @@ const Remark = () => {
     }
   };
 
+  // The seal comes from the hospital_stamps master, where the credentials page
+  // uploads it — not from a filename guess, so renaming the file cannot quietly
+  // strip the seal off every letter.
+  const resolveHospitalSeal = async (): Promise<string | null> => {
+    const { data, error } = await supabase
+      .from('hospital_stamps' as any)
+      .select('stamp_url')
+      .eq('hospital_type', hospitalConfig.name)
+      .maybeSingle();
+    if (error) {
+      console.warn('Could not load the hospital seal:', error.message);
+      return null;
+    }
+    return (data as { stamp_url: string | null } | null)?.stamp_url || null;
+  };
+
   // The printed letterhead sheet that already exists in public/. Checked the
   // same way as the seal so a hospital without artwork falls back to a typed
   // header rather than printing a broken image across the page.
@@ -221,12 +237,16 @@ const Remark = () => {
   const handlePrint = async () => {
     if (!printing) return;
     const picked = doctors.find(d => d.doctor_name === doctorName);
-    const letterheadUrl = await resolveLetterhead();
+    const [letterheadUrl, hospitalSealUrl] = await Promise.all([
+      resolveLetterhead(),
+      resolveHospitalSeal(),
+    ]);
     try {
       printClaimJustification(printing, {
         hospitalName: hospitalConfig.fullName,
         hospitalAddress: hospitalConfig.contactInfo.address,
         letterheadUrl,
+        hospitalSealUrl,
         doctor: picked
           ? {
               name: picked.doctor_name,
@@ -461,8 +481,8 @@ const Remark = () => {
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              Only a scanned signature is printed. Stamps are not — the paper is stamped by
-              hand after printing. Leave this unpicked to print with no signature block.
+              The doctor's signature prints only where a scan exists; their stamp goes on by
+              hand. The hospital seal prints from the credentials master.
             </p>
           </div>
 
