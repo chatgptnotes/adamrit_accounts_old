@@ -1,14 +1,10 @@
 // Prints the justification as a document the hospital can sign, stamp and send
 // back with the claim.
 //
-// One signature only: the doctor chosen from the credentials master. The
-// hospital gets a stamp box but no signature line of its own — a second ruled
-// space with nobody's name against it is just a blank nobody fills.
-//
-// WHY THE STAMP IS A RULED BOX AND NOT AN IMAGE
-// Nothing is stamped that nobody stamped. There is no scan of the hospital's
-// round stamp on file, so what prints is a space to be stamped by hand — the
-// same way the pre-authorisation summary already behaves.
+// One signature only: the doctor chosen from the credentials master, and only
+// where a real scan of it exists. Stamps are not drawn at all — the hospital
+// stamps the paper by hand once it is printed, which is how the document is
+// actually made official.
 
 export interface JustificationPrintClaim {
   claim_id: string;
@@ -36,11 +32,6 @@ export interface JustificationPrintOptions {
   /** Omitted when nobody was picked — the page then carries the hospital block alone. */
   doctor?: JustificationSignatory | null;
   /**
-   * The hospital's seal. Null when no seal has been uploaded for this hospital,
-   * in which case a box is printed to stamp by hand.
-   */
-  hospitalSealUrl?: string | null;
-  /**
    * The printed letterhead sheet, drawn behind the letter. Null when the
    * hospital has no letterhead artwork, in which case the name and address are
    * typed at the top instead.
@@ -64,13 +55,9 @@ export function printClaimJustification(
 ): void {
   const doctor = options.doctor;
   const letterhead = options.letterheadUrl;
-  // What actually goes above the doctor's name. A hospital stamp in this
-  // country carries the doctor's name and MCI registration, so where no
-  // signature scan exists it is the mark that identifies them — better than a
-  // blank line, and it is what the person printing chose in the dialog. The
-  // stamp is then not repeated below.
-  const signatureImage = doctor?.signatureUrl || doctor?.stampUrl || null;
-  const separateStamp = doctor?.signatureUrl ? doctor.stampUrl : null;
+  // Only a real signature is printed. Stamps are applied to the paper by hand
+  // after it comes off the printer, so nothing here draws one.
+  const signatureImage = doctor?.signatureUrl || null;
   const printedOn = new Date().toLocaleDateString('en-IN', {
     day: '2-digit',
     month: 'short',
@@ -117,13 +104,6 @@ export function printClaimJustification(
   .sig-space { height: 28px; display: block; margin-left: auto; }
   .sig { display: block; margin-left: auto; max-width: 165px; max-height: 44px; object-fit: contain; }
   .signname { font-weight: bold; margin-top: 2px; }
-  .stamprow { display: flex; justify-content: flex-end; gap: 22px; margin-top: 4px; page-break-inside: avoid; }
-  /* A wider box than tall: doctors' stamps are landscape rectangles and were
-     shrinking to nothing inside a square. object-fit keeps the round hospital
-     seal from stretching to fill it. */
-  .stampimg { width: 118px; height: 74px; object-fit: contain; display: block; }
-  .stamp-space { width: 118px; height: 74px; border: 1px dashed #999; }
-  .stamp-caption { font-size: 9px; color: #666; width: 118px; text-align: center; margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -169,17 +149,6 @@ Colaba, Mumbai – 400005</div>
       : '<div class="sig-space"></div>'}
     <div>${escapeHtml(options.hospitalName)}, Nagpur</div>
 
-    <div class="stamprow">
-      ${separateStamp
-        ? `<div><img class="stampimg" src="${escapeHtml(separateStamp)}" alt="" /></div>`
-        : ''}
-      <div>
-        ${options.hospitalSealUrl
-          ? `<img class="stampimg" src="${escapeHtml(options.hospitalSealUrl)}" alt="" />`
-          : `<div class="stamp-space"></div>
-        <div class="stamp-caption">Hospital stamp</div>`}
-      </div>
-    </div>
   </div>
   </div>
 </div>

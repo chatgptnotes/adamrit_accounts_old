@@ -205,22 +205,6 @@ const Remark = () => {
     }
   };
 
-  // The hospital's seal lives beside the doctors' stamps, named after the
-  // hospital, so Hope and Ayushman each get their own without a table to hold
-  // one field. Its absence is checked before printing rather than assumed: a
-  // hospital with no seal uploaded must get the ruled box, not a broken image.
-  const resolveHospitalSeal = async (): Promise<string | null> => {
-    const url = supabase.storage
-      .from('uploads')
-      .getPublicUrl(`doctor-stamps/${hospitalConfig.name}-hospital-seal.png`).data.publicUrl;
-    try {
-      const response = await fetch(url, { method: 'HEAD' });
-      return response.ok ? url : null;
-    } catch {
-      return null;
-    }
-  };
-
   // The printed letterhead sheet that already exists in public/. Checked the
   // same way as the seal so a hospital without artwork falls back to a typed
   // header rather than printing a broken image across the page.
@@ -237,15 +221,11 @@ const Remark = () => {
   const handlePrint = async () => {
     if (!printing) return;
     const picked = doctors.find(d => d.doctor_name === doctorName);
-    const [hospitalSealUrl, letterheadUrl] = await Promise.all([
-      resolveHospitalSeal(),
-      resolveLetterhead(),
-    ]);
+    const letterheadUrl = await resolveLetterhead();
     try {
       printClaimJustification(printing, {
         hospitalName: hospitalConfig.fullName,
         hospitalAddress: hospitalConfig.contactInfo.address,
-        hospitalSealUrl,
         letterheadUrl,
         doctor: picked
           ? {
@@ -459,9 +439,9 @@ const Remark = () => {
                   >
                     {/* The mark itself, not a description of it — you pick the
                         signature by looking at what will print. */}
-                    {(d.signature_url || d.stamp_url) ? (
+                    {d.signature_url ? (
                       <img
-                        src={(d.signature_url || d.stamp_url) as string}
+                        src={d.signature_url}
                         alt=""
                         className="h-10 w-20 shrink-0 object-contain"
                       />
@@ -473,11 +453,7 @@ const Remark = () => {
                     <div className="min-w-0">
                       <div className="truncate">{d.doctor_name}</div>
                       <div className="text-xs text-muted-foreground">
-                        {d.signature_url
-                          ? 'Signature'
-                          : d.stamp_url
-                            ? 'Stamp — prints as the signature'
-                            : 'Nothing on file — prints a ruled space'}
+                        {d.signature_url ? 'Signature on file' : 'No signature — prints a ruled space to sign'}
                       </div>
                     </div>
                   </button>
@@ -485,8 +461,8 @@ const Remark = () => {
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              The doctor picked here is the only signature on the page; the hospital stamp
-              prints beside it. Leave it unpicked to print with no signature block at all.
+              Only a scanned signature is printed. Stamps are not — the paper is stamped by
+              hand after printing. Leave this unpicked to print with no signature block.
             </p>
           </div>
 
