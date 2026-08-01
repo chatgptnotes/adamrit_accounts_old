@@ -20,6 +20,12 @@ interface ClaimRemark {
   justification: string | null;
 }
 
+// The two columns a person types into. The remark is editable because the
+// portal's wording is often mangled on export and gets tidied or pasted in by
+// hand — but note a re-import overwrites it, since the sheet is the authority
+// on what ESIC asked. The justification is ours and the import never touches it.
+type EditableField = 'l2_remark' | 'justification';
+
 // Excel headers drift between exports — "Card Id" one week, "Card ID" the next,
 // with stray spaces. Matching on a stripped-down key means a header only has to
 // be recognisable, not identical.
@@ -44,7 +50,9 @@ const Remark = () => {
   const queryClient = useQueryClient();
   const importInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  // Which single cell is open for editing. Both text columns share one editor,
+  // so only one cell can ever be mid-edit — there is no second draft to lose.
+  const [editing, setEditing] = useState<{ id: string; field: EditableField } | null>(null);
   const [draft, setDraft] = useState('');
 
   const { data: rows = [], isLoading, error } = useQuery({
@@ -121,22 +129,62 @@ const Remark = () => {
     }
   };
 
-  const saveJustification = async (row: ClaimRemark) => {
+  const saveCell = async (row: ClaimRemark, field: EditableField) => {
     const value = draft.trim();
-    setEditingId(null);
-    if (value === (row.justification || '').trim()) return;
+    setEditing(null);
+    if (value === (row[field] || '').trim()) return;
 
     const { error } = await supabase
       .from('esic_claim_remarks' as any)
-      .update({ justification: value || null, updated_at: new Date().toISOString() } as any)
+      .update({ [field]: value || null, updated_at: new Date().toISOString() } as any)
       .eq('id', row.id);
     if (error) {
-      console.error('Failed to save justification:', error);
+      console.error(`Failed to save ${field}:`, error);
       toast.error(`Could not save: ${error.message}`);
       return;
     }
-    toast.success('Justification saved');
+    if (field === 'l2_remark' && !value) {
+      // Clearing the remark drops the row out of the worklist on the next
+      // refetch. Say so, or the claim looks like it was deleted.
+      toast.success('Remark cleared — this claim is no longer listed');
+    } else {
+      toast.success(field === 'l2_remark' ? 'Remark saved' : 'Justification saved');
+    }
     queryClient.invalidateQueries({ queryKey: ['esic-claim-remarks', hospitalConfig.name] });
+  };
+
+  // One cell renderer for both text columns: click the text to edit it, click
+  // away or press Escape to leave. Escape unmounts the textarea before its blur
+  // handler can fire, which is what makes it a cancel rather than a save.
+  const renderCell = (row: ClaimRemark, field: EditableField, placeholder: string) => {
+    if (editing?.id === row.id && editing.field === field) {
+      return (
+        <Textarea
+          autoFocus
+          rows={3}
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onBlur={() => saveCell(row, field)}
+          onKeyDown={e => {
+            if (e.key === 'Escape') setEditing(null);
+          }}
+          className="text-sm"
+        />
+      );
+    }
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setEditing({ id: row.id, field });
+          setDraft(row[field] || '');
+        }}
+        className="w-full text-left text-sm whitespace-pre-wrap rounded px-2 py-1 hover:bg-muted min-h-[2rem]"
+        title="Click to edit"
+      >
+        {row[field] || <span className="text-muted-foreground">{placeholder}</span>}
+      </button>
+    );
   };
 
   return (
@@ -201,34 +249,8 @@ const Remark = () => {
               openRemarks.map(row => (
                 <TableRow key={row.id} className="align-top">
                   <TableCell className="font-medium">{row.patient_name || '—'}</TableCell>
-                  <TableCell className="text-sm whitespace-pre-wrap">{row.l2_remark}</TableCell>
-                  <TableCell>
-                    {editingId === row.id ? (
-                      <Textarea
-                        autoFocus
-                        rows={3}
-                        value={draft}
-                        onChange={e => setDraft(e.target.value)}
-                        onBlur={() => saveJustification(row)}
-                        onKeyDown={e => {
-                          if (e.key === 'Escape') setEditingId(null);
-                        }}
-                        className="text-sm"
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingId(row.id);
-                          setDraft(row.justification || '');
-                        }}
-                        className="w-full text-left text-sm whitespace-pre-wrap rounded px-2 py-1 hover:bg-muted min-h-[2rem]"
-                        title="Click to write a justification"
-                      >
-                        {row.justification || <span className="text-muted-foreground">Click to reply…</span>}
-                      </button>
-                    )}
-                  </TableCell>
+                  <TableCell>{renderCell(row, 'l2_remark', 'Click to add a remark…')}</TableCell>
+                  <TableCell>{renderCell(row, 'justification', 'Click to reply…')}</TableCell>
                 </TableRow>
               ))
             )}
