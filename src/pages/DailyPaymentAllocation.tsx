@@ -57,6 +57,7 @@ import { usePaymentObligations, usePayeeSearch, useMultiPayeeSearch, useObligati
 import { useCompanies } from '@/hooks/useCompanies';
 import { useAuth } from '@/contexts/AuthContext';
 import { DailyAllocationSheet } from '@/components/DailyAllocationSheet';
+import { BeneficiaryBankHint } from '@/components/BeneficiaryBankHint';
 import { useAccountingRights } from '@/components/accounting/tally/rights';
 
 const formatINR = (n: number) =>
@@ -243,8 +244,16 @@ const SortableScheduleRow = ({
                 ))}
               </div>
             )}
+            {editLedgerId && <BeneficiaryBankHint accountId={editLedgerId} />}
           </>
-        ) : ledgerName || '-'}
+        ) : ledgerName ? (
+          <>
+            {ledgerName}
+            <BeneficiaryBankHint ledgerName={ledgerName} />
+          </>
+        ) : (
+          '-'
+        )}
       </TableCell>
       <TableCell className="max-w-[240px] text-xs text-muted-foreground">
         {isEditing ? (
@@ -2286,7 +2295,10 @@ ${sectionsHtml}
                     </div>
                   )}
                   {payDebitLedgerId && (
-                    <p className="mt-1 text-xs text-green-700">Selected: {payDebitLedgerName || payDebitLedgerId}</p>
+                    <>
+                      <p className="mt-1 text-xs text-green-700">Selected: {payDebitLedgerName || payDebitLedgerId}</p>
+                      <BeneficiaryBankHint accountId={payDebitLedgerId} onUseBank={setPayCreditLedgerId} />
+                    </>
                   )}
                 </div>
                 <div>
@@ -2462,7 +2474,10 @@ ${sectionsHtml}
                   </div>
                 )}
                 {payDebitLedgerId && (
-                  <p className="mt-1 text-xs text-green-700">Selected: {payDebitLedgerName || payDebitLedgerId}</p>
+                  <>
+                    <p className="mt-1 text-xs text-green-700">Selected: {payDebitLedgerName || payDebitLedgerId}</p>
+                    <BeneficiaryBankHint accountId={payDebitLedgerId} onUseBank={setPayCreditLedgerId} />
+                  </>
                 )}
               </div>
               <div>

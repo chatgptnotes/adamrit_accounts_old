@@ -65,12 +65,14 @@ interface LedgerAccount {
   ifsc_code: string | null;
   pan: string | null;
   gstin: string | null;
+  beneficiary_of_bank_account_id: string | null;
 }
 
 const LEDGER_COLUMNS =
   'id, account_code, account_name, account_type, account_group, ledger_group_id, company_id, ' +
   'is_active, opening_balance, opening_balance_type, created_at, alias, mailing_name, address, ' +
-  'state, country, pincode, bank_name, bank_branch, bank_account_number, ifsc_code, pan, gstin';
+  'state, country, pincode, bank_name, bank_branch, bank_account_number, ifsc_code, pan, gstin, ' +
+  'beneficiary_of_bank_account_id';
 
 // A group picked from the chart_of_accounts text rather than from ledger_groups
 const COA_GROUP_PREFIX = 'coa:';
@@ -112,6 +114,9 @@ const TallyLedgerCreation: React.FC = () => {
   const [bankBranch, setBankBranch] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
   const [ifsc, setIfsc] = useState('');
+  // Our bank account whose portal has this party saved as a beneficiary —
+  // payment screens read it to say which bank the payment goes out from.
+  const [beneficiaryBankId, setBeneficiaryBankId] = useState('');
   const [pan, setPan] = useState('');
   const [gstin, setGstin] = useState('');
   const [isActive, setIsActive] = useState(true);
@@ -258,6 +263,16 @@ const TallyLedgerCreation: React.FC = () => {
     );
   }, [accounts, search]);
 
+  // The company's own bank-account ledgers — the options a party can be a
+  // beneficiary of. Matched on the group so imported ledgers count too.
+  const bankLedgers = useMemo(
+    () =>
+      accounts
+        .filter((a) => (a.account_group ?? '').toLowerCase().includes('bank'))
+        .sort((a, b) => a.account_name.localeCompare(b.account_name)),
+    [accounts],
+  );
+
   const startEdit = (account: LedgerAccount): void => {
     setEditing(account);
     setName(account.account_name ?? '');
@@ -283,6 +298,7 @@ const TallyLedgerCreation: React.FC = () => {
     setBankBranch(account.bank_branch ?? '');
     setAccountNumber(account.bank_account_number ?? '');
     setIfsc(account.ifsc_code ?? '');
+    setBeneficiaryBankId(account.beneficiary_of_bank_account_id ?? '');
     setPan(account.pan ?? '');
     setGstin(account.gstin ?? '');
     setIsActive(account.is_active !== false);
@@ -306,6 +322,7 @@ const TallyLedgerCreation: React.FC = () => {
     setBankBranch('');
     setAccountNumber('');
     setIfsc('');
+    setBeneficiaryBankId('');
     setPan('');
     setGstin('');
     setIsActive(true);
@@ -322,6 +339,7 @@ const TallyLedgerCreation: React.FC = () => {
     bank_branch: provideBank ? bankBranch.trim() || null : null,
     bank_account_number: provideBank ? accountNumber.trim() || null : null,
     ifsc_code: provideBank ? ifsc.trim() || null : null,
+    beneficiary_of_bank_account_id: beneficiaryBankId || null,
     pan: pan.trim() || null,
     gstin: gstin.trim() || null,
   });
@@ -618,6 +636,24 @@ const TallyLedgerCreation: React.FC = () => {
                     />
                   </div>
                 ))}
+
+              <div className="mt-0.5 flex items-center gap-2">
+                <span className="w-40 shrink-0">Beneficiary of bank</span>
+                <span>:</span>
+                <select
+                  value={beneficiaryBankId}
+                  onChange={(e) => setBeneficiaryBankId(e.target.value)}
+                  className="h-7 w-full rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-sm focus:border-solid focus:border-blue-600 focus:outline-none"
+                  title="Our bank account whose portal has this party saved as a beneficiary"
+                >
+                  <option value="">Not added in any bank portal</option>
+                  {bankLedgers.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.account_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
               <div className="mt-3 border-b border-gray-400 font-semibold">Tax Registration Details</div>
               <div className="mt-0.5 flex items-center gap-2">
