@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchAllRows } from '@/lib/fetchAllRows';
 
 // Answers one question about a claim off the ESIC portal: is this our patient?
 //
@@ -103,7 +104,52 @@ export function useEsicVisitIndex() {
   });
 }
 
+export interface NamedPatient {
+  patientsId: string | null;
+  name: string;
+}
+
+/**
+ * Every patient keyed by their name normalised, so a claim with no ESIC UHID on
+ * any visit can still be placed. Names that more than one patient carries keep
+ * all of them: that a name is shared is the answer, not a problem to resolve by
+ * picking the first.
+ *
+ * The whole table is ~5,500 rows of two columns. Paged through once and cached,
+ * because the alternative is a query per row of the worklist.
+ */
+export function usePatientNameIndex() {
+  return useQuery<Map<string, NamedPatient[]>>({
+    queryKey: ['patient-name-index'],
+    staleTime: 10 * 60_000,
+    queryFn: async () => {
+      const rows = await fetchAllRows<{ name: string | null; patients_id: string | null }>(
+        (from, to) =>
+          supabase.from('patients').select('name, patients_id').range(from, to),
+      );
+      const index = new Map<string, NamedPatient[]>();
+      rows.forEach(r => {
+        const key = normalizeName(r.name);
+        if (!key) return;
+        const list = index.get(key) || [];
+        list.push({ patientsId: r.patients_id, name: r.name || '' });
+        index.set(key, list);
+      });
+      return index;
+    },
+  });
+}
+
 /** Look one claim up in an already-loaded index. No query of its own. */
+export const lookupPatientsByName = (
+  index: Map<string, NamedPatient[]> | undefined,
+  patientName: string | null | undefined,
+): NamedPatient[] => {
+  const key = normalizeName(patientName);
+  if (!key || !index) return [];
+  return index.get(key) || [];
+};
+
 export const lookupEsicVisit = (
   index: Map<string, EsicVisit> | undefined,
   uhid: string | null | undefined,
@@ -120,10 +166,11 @@ export function useClaimPatientMatch(
   // Shares the index with the worklist, so opening a claim costs no extra
   // round trip for the UHID half of the answer.
   const { data: index, isLoading: indexLoading } = useEsicVisitIndex();
+  const { data: nameIndex, isLoading: namesLoading } = usePatientNameIndex();
 
   const query = useQuery<ClaimPatientMatch>({
-    queryKey: ['claim-patient-match', uhid, patientName, Boolean(index)],
-    enabled: Boolean(index) && Boolean(uhid || patientName),
+    queryKey: ['claim-patient-match', uhid, patientName, Boolean(index), Boolean(nameIndex)],
+    enabled: Boolean(index) && Boolean(nameIndex) && Boolean(uhid || patientName),
     staleTime: 5 * 60_000,
     queryFn: async () => {
       // 1. The ESIC UHID on a visit. Exact, so a hit here is stated plainly.
@@ -142,41 +189,22 @@ export function useClaimPatientMatch(
       }
 
       // 2. The name. Only useful when exactly one patient carries it.
-      const wantedName = normalizeName(patientName);
-      if (!wantedName) return NOT_FOUND;
-
-      // Match on the first and last word so middle names and spelling of the
-      // patronymic do not have to agree exactly; the count below is what keeps
-      // a loose match from being asserted.
-      const words = (patientName || '').trim().split(/\s+/).filter(Boolean);
-      const anchor = words[words.length - 1]?.replace(/[^A-Za-z]/g, '') || '';
-      if (anchor.length < 3) return NOT_FOUND;
-
-      const { data: patients, error } = await supabase
-        .from('patients')
-        .select('name, patients_id')
-        .ilike('name', `%${anchor}%`)
-        .limit(200);
-      if (error) throw error;
-
-      const exact = (patients || []).filter(
-        (p: any) => normalizeName(p.name) === wantedName,
-      );
-      if (exact.length === 1) {
+      const named = lookupPatientsByName(nameIndex, patientName);
+      if (named.length === 1) {
         return {
           ...NOT_FOUND,
           status: 'possible',
           matchedOn: 'name',
-          patientName: exact[0].name,
-          patientsId: exact[0].patients_id,
+          patientName: named[0].name,
+          patientsId: named[0].patientsId,
         };
       }
-      if (exact.length > 1) {
-        return { ...NOT_FOUND, status: 'ambiguous', matchedOn: 'name', sharedBy: exact.length };
+      if (named.length > 1) {
+        return { ...NOT_FOUND, status: 'ambiguous', matchedOn: 'name', sharedBy: named.length };
       }
       return NOT_FOUND;
     },
   });
 
-  return { ...query, isLoading: indexLoading || query.isLoading };
+  return { ...query, isLoading: indexLoading || namesLoading || query.isLoading };
 }

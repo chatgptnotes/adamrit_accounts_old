@@ -10,7 +10,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ClaimDetail } from '@/components/remark/ClaimDetail';
 import { CLAIM_COLUMNS, type ClaimRemark } from '@/components/remark/types';
-import { lookupEsicVisit, useEsicVisitIndex } from '@/hooks/useClaimPatientMatch';
+import {
+  lookupEsicVisit,
+  lookupPatientsByName,
+  useEsicVisitIndex,
+  usePatientNameIndex,
+} from '@/hooks/useClaimPatientMatch';
 
 // Excel headers drift between exports — "Card Id" one week, "Card ID" the next,
 // with stray spaces. Matching on a stripped-down key means a header only has to
@@ -76,9 +81,11 @@ const Remark = () => {
 
   const selected = selectedId ? rows.find(row => row.id === selectedId) || null : null;
 
-  // One shared lookup of every visit carrying an ESIC UHID, so each result can
-  // say whether the patient is ours without a query of its own.
+  // Two shared lookups — visits carrying an ESIC UHID, and every patient by
+  // name — so each result can say whether the patient is ours without a query
+  // of its own.
   const { data: visitIndex } = useEsicVisitIndex();
+  const { data: nameIndex } = usePatientNameIndex();
 
   const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -222,10 +229,13 @@ const Remark = () => {
         ) : (
           visible.map(row => {
             const answered = (row.justification || '').trim() !== '';
-            // Only the exact UHID match is shown in the list. A name match is a
-            // guess that needs a human eye, and a list is the wrong place to
-            // ask for one — the detail view handles that case.
+            // The ESIC UHID is recorded on only a minority of visits, so most
+            // claims would read "not matched" on that alone even though we
+            // plainly hold the patient. The name is the fallback, and it is
+            // labelled as the weaker evidence it is rather than dressed up as
+            // the same thing.
             const ours = lookupEsicVisit(visitIndex, row.uhid);
+            const byName = ours ? [] : lookupPatientsByName(nameIndex, row.patient_name);
             return (
               <button
                 key={row.id}
@@ -244,6 +254,14 @@ const Remark = () => {
                       <span className="text-emerald-700 dark:text-emerald-400">
                         In our records · {ours.patientsId || '—'}
                         {ours.visitId ? ` · visit ${ours.visitId}` : ''}
+                      </span>
+                    ) : byName.length === 1 ? (
+                      <span className="text-amber-700 dark:text-amber-400">
+                        Possible match by name · {byName[0].patientsId || '—'}
+                      </span>
+                    ) : byName.length > 1 ? (
+                      <span className="text-amber-700 dark:text-amber-400">
+                        {byName.length} patients share this name
                       </span>
                     ) : (
                       <span className="text-muted-foreground">Not matched to our records</span>
