@@ -21,9 +21,20 @@ export interface JustificationPrintClaim {
   justification: string | null;
 }
 
+/** A doctor from the credentials master, as chosen in the print dialog. */
+export interface JustificationSignatory {
+  name: string;
+  qualification?: string | null;
+  registrationNo?: string | null;
+  signatureUrl?: string | null;
+  stampUrl?: string | null;
+}
+
 export interface JustificationPrintOptions {
   hospitalName: string;
   hospitalAddress: string;
+  /** Omitted when nobody was picked — the page then carries the hospital block alone. */
+  doctor?: JustificationSignatory | null;
 }
 
 const escapeHtml = (value: unknown) =>
@@ -40,6 +51,7 @@ export function printClaimJustification(
   claim: JustificationPrintClaim,
   options: JustificationPrintOptions,
 ): void {
+  const doctor = options.doctor;
   const printedOn = new Date().toLocaleDateString('en-IN', {
     day: '2-digit',
     month: 'short',
@@ -72,8 +84,7 @@ export function printClaimJustification(
   .signline { border-top: 1px solid #111; width: 78%; margin-bottom: 4px; }
   .signname { font-weight: 700; }
   .signmeta { font-size: 10.5px; color: #444; }
-  .stamp { margin-top: 10px; }
-  .stamp img { width: 78px; height: 78px; object-fit: contain; display: block; }
+  .stampimg { width: 78px; height: 78px; object-fit: contain; display: block; margin-top: 10px; }
   .stamp-space { width: 78px; height: 78px; border: 1px dashed #999; border-radius: 4px; }
   .stamp-caption { font-size: 9.5px; color: #666; width: 78px; text-align: center; margin-top: 2px; }
   .printed { margin-top: 26px; font-size: 10px; color: #666; }
@@ -100,6 +111,16 @@ export function printClaimJustification(
   <div class="body-text">${escapeHtml(claim.justification || '')}</div>
 
   <div class="signrow">
+    ${doctor ? `
+    <div class="signblock">
+      ${doctor.signatureUrl ? `<img class="sig" src="${escapeHtml(doctor.signatureUrl)}" alt="" />` : '<div class="sig-space"></div>'}
+      <div class="signline"></div>
+      <div class="signname">${escapeHtml(doctor.name)}</div>
+      ${doctor.qualification ? `<div class="signmeta">${escapeHtml(doctor.qualification)}</div>` : ''}
+      ${doctor.registrationNo ? `<div class="signmeta">Reg. No. ${escapeHtml(doctor.registrationNo)}</div>` : ''}
+      <div class="signmeta">Signature of the treating doctor</div>
+      ${doctor.stampUrl ? `<img class="stampimg" src="${escapeHtml(doctor.stampUrl)}" alt="" /><div class="stamp-caption">Doctor's stamp</div>` : ''}
+    </div>` : ''}
     <div class="signblock">
       <div class="sig-space"></div>
       <div class="signline"></div>

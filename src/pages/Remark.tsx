@@ -8,7 +8,10 @@ import { draftRemarkJustification } from '@/lib/draftRemarkJustification';
 import { printClaimJustification } from '@/lib/printClaimJustification';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 // The ESIC portal's scrutiny export, reduced to the three things a person
@@ -61,6 +64,38 @@ const Remark = () => {
   const [editing, setEditing] = useState<{ id: string; field: EditableField } | null>(null);
   const [draft, setDraft] = useState('');
   const [generatingId, setGeneratingId] = useState<string | null>(null);
+  // The claim whose print dialog is open, plus who has been picked to sign it.
+  const [printing, setPrinting] = useState<ClaimRemark | null>(null);
+  const [doctorName, setDoctorName] = useState('');
+  const [doctorSearch, setDoctorSearch] = useState('');
+
+  // The signature master. Only loaded once a print dialog opens, and cached
+  // after that — it is the same list for every claim.
+  const { data: doctors = [], isLoading: doctorsLoading } = useQuery({
+    queryKey: ['justification-signatories'],
+    enabled: printing !== null,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('doctor_credentials' as any)
+        .select('doctor_name, qualification, registration_no, signature_url, stamp_url')
+        .eq('is_active', true)
+        .order('doctor_name');
+      if (error) throw error;
+      return (data || []) as unknown as {
+        doctor_name: string;
+        qualification: string | null;
+        registration_no: string | null;
+        signature_url: string | null;
+        stamp_url: string | null;
+      }[];
+    },
+  });
+
+  // 85 doctors is too many to scroll, so the list filters as you type.
+  const visibleDoctors = doctors.filter(d =>
+    d.doctor_name.toLowerCase().includes(doctorSearch.trim().toLowerCase()),
+  );
   const { data: rows = [], isLoading, error } = useQuery({
     queryKey: ['esic-claim-remarks', hospitalConfig.name],
     queryFn: async () => {
@@ -156,12 +191,24 @@ const Remark = () => {
     }
   };
 
-  const handlePrint = (row: ClaimRemark) => {
+  const handlePrint = () => {
+    if (!printing) return;
+    const picked = doctors.find(d => d.doctor_name === doctorName);
     try {
-      printClaimJustification(row, {
+      printClaimJustification(printing, {
         hospitalName: hospitalConfig.fullName,
         hospitalAddress: hospitalConfig.contactInfo.address,
+        doctor: picked
+          ? {
+              name: picked.doctor_name,
+              qualification: picked.qualification,
+              registrationNo: picked.registration_no,
+              signatureUrl: picked.signature_url,
+              stampUrl: picked.stamp_url,
+            }
+          : null,
       });
+      setPrinting(null);
     } catch (error: any) {
       toast.error(error?.message || 'Could not open the print window');
     }
@@ -311,7 +358,11 @@ const Remark = () => {
                       className="mt-1 ml-1 h-7 px-2 text-xs text-muted-foreground"
                       // Nothing to print until there is a justification to print.
                       disabled={!(row.justification || '').trim()}
-                      onClick={() => handlePrint(row)}
+                      onClick={() => {
+                        setPrinting(row);
+                        setDoctorName('');
+                        setDoctorSearch('');
+                      }}
                     >
                       <Printer className="h-3.5 w-3.5 mr-1" />
                       Print
@@ -324,6 +375,64 @@ const Remark = () => {
         </Table>
       </div>
 
+      <Dialog open={printing !== null} onOpenChange={open => !open && setPrinting(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Print justification</DialogTitle>
+            <DialogDescription>
+              {printing?.patient_name || 'This claim'} — claim {printing?.claim_id}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <Label>Doctor's signature</Label>
+            <Input
+              placeholder="Search the doctor master…"
+              value={doctorSearch}
+              onChange={e => setDoctorSearch(e.target.value)}
+            />
+            <div className="max-h-60 overflow-y-auto rounded-md border divide-y">
+              {doctorsLoading ? (
+                <div className="px-3 py-6 text-center text-sm text-muted-foreground">Loading…</div>
+              ) : visibleDoctors.length === 0 ? (
+                <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                  No doctor matches that name.
+                </div>
+              ) : (
+                visibleDoctors.map(d => (
+                  <button
+                    key={d.doctor_name}
+                    type="button"
+                    onClick={() => setDoctorName(d.doctor_name)}
+                    className={`w-full px-3 py-2 text-left text-sm hover:bg-muted ${
+                      doctorName === d.doctor_name ? 'bg-muted font-medium' : ''
+                    }`}
+                  >
+                    <div>{d.doctor_name}</div>
+                    {/* Whether a scan exists decides what actually prints, so it
+                        is shown before printing rather than found out after. */}
+                    <div className="text-xs text-muted-foreground">
+                      {d.signature_url ? 'Signature on file' : 'No signature on file — prints a ruled space'}
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              The page always carries the hospital's signatory and stamp. Picking a doctor
+              adds their signature block beside it; leave it unpicked to print without one.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPrinting(null)}>Cancel</Button>
+            <Button onClick={handlePrint}>
+              <Printer className="h-4 w-4 mr-2" />
+              Print
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
