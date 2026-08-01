@@ -104,6 +104,9 @@ export function printClaimJustification(
      addresses printed across the foot of the letterhead. Everything here is
      sized to fit above that band on a one-page letter. */
   .closing { margin-top: 14px; text-align: right; page-break-inside: avoid; }
+  /* The sign-off stays on the left where the letter's own text ends; only who
+     signs it, and their stamps, move to the right margin. */
+  .regards { text-align: left; margin-bottom: 6px; }
   .sig, .sig-space { height: 28px; display: block; margin-left: auto; }
   .sig { max-width: 150px; object-fit: contain; }
   .signname { font-weight: bold; margin-top: 2px; }
@@ -150,7 +153,7 @@ Colaba, Mumbai – 400005</div>
   <p>${escapeHtml(claim.justification || '')}</p>
 
   <div class="closing">
-    <div>Regards,</div>
+    <div class="regards">Regards,</div>
     ${doctor
       ? `${doctor.signatureUrl ? `<img class="sig" src="${escapeHtml(doctor.signatureUrl)}" alt="" />` : '<div class="sig-space"></div>'}
     <div class="signname">${escapeHtml(doctor.name)}</div>
