@@ -35,6 +35,11 @@ export interface JustificationPrintOptions {
   hospitalAddress: string;
   /** Omitted when nobody was picked — the page then carries the hospital block alone. */
   doctor?: JustificationSignatory | null;
+  /**
+   * The hospital's seal. Null when no seal has been uploaded for this hospital,
+   * in which case a box is printed to stamp by hand.
+   */
+  hospitalSealUrl?: string | null;
 }
 
 const escapeHtml = (value: unknown) =>
@@ -122,7 +127,9 @@ export function printClaimJustification(
       ${doctor.stampUrl ? `<img class="stampimg" src="${escapeHtml(doctor.stampUrl)}" alt="" /><div class="stamp-caption">Doctor's stamp</div>` : ''}
     </div>` : ''}
     <div class="signblock">
-      <div class="stamp-space"></div>
+      ${options.hospitalSealUrl
+        ? `<img class="stampimg" src="${escapeHtml(options.hospitalSealUrl)}" alt="" />`
+        : '<div class="stamp-space"></div>'}
       <div class="stamp-caption">Hospital stamp</div>
     </div>
   </div>

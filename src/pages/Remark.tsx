@@ -191,13 +191,31 @@ const Remark = () => {
     }
   };
 
-  const handlePrint = () => {
+  // The hospital's seal lives beside the doctors' stamps, named after the
+  // hospital, so Hope and Ayushman each get their own without a table to hold
+  // one field. Its absence is checked before printing rather than assumed: a
+  // hospital with no seal uploaded must get the ruled box, not a broken image.
+  const resolveHospitalSeal = async (): Promise<string | null> => {
+    const url = supabase.storage
+      .from('uploads')
+      .getPublicUrl(`doctor-stamps/${hospitalConfig.name}-hospital-seal.png`).data.publicUrl;
+    try {
+      const response = await fetch(url, { method: 'HEAD' });
+      return response.ok ? url : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const handlePrint = async () => {
     if (!printing) return;
     const picked = doctors.find(d => d.doctor_name === doctorName);
+    const hospitalSealUrl = await resolveHospitalSeal();
     try {
       printClaimJustification(printing, {
         hospitalName: hospitalConfig.fullName,
         hospitalAddress: hospitalConfig.contactInfo.address,
+        hospitalSealUrl,
         doctor: picked
           ? {
               name: picked.doctor_name,
