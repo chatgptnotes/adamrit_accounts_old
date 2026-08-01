@@ -99,6 +99,25 @@ export const DischargeWorkflowPanel: React.FC<DischargeWorkflowPanelProps> = ({ 
     },
   });
 
+  // The government portal requires the patient's photo and thumb impression to
+  // be uploaded before they leave. The tablet's Arshiya tile enforces this;
+  // this panel must too, or it becomes a bypass route.
+  const { data: thumbConfirmation, isLoading: thumbConfirmationLoading } = useQuery({
+    queryKey: ['discharge-thumb-confirmation', visit.patients.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('file_uploads')
+        .select('id, file_name, file_url, created_at')
+        .eq('category', 'discharge_thumb_confirmation')
+        .eq('patient_id', visit.patients.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+
   // Initialize or update checklist
   const createOrUpdateChecklistMutation = useMutation({
     mutationFn: async (updates: Partial<DischargeChecklist>) => {
@@ -196,7 +215,20 @@ export const DischargeWorkflowPanel: React.FC<DischargeWorkflowPanelProps> = ({ 
   const generateGatePassMutation = useMutation({
     mutationFn: async () => {
       if (!dischargeDate) throw new Error('Discharge date required');
-      
+
+      // Re-check at generation time so a stale screen cannot slip past the gate.
+      const { data: confirmation, error: confirmationError } = await supabase
+        .from('file_uploads')
+        .select('id')
+        .eq('category', 'discharge_thumb_confirmation')
+        .eq('patient_id', visit.patients.id)
+        .limit(1)
+        .maybeSingle();
+      if (confirmationError) throw confirmationError;
+      if (!confirmation) {
+        throw new Error('Portal thumb confirmation photo has not been uploaded for this patient');
+      }
+
       // Generate gate pass number
       const { data: gatePassNumber, error: numberError } = await supabase
         .rpc('generate_gate_pass_number');
@@ -246,10 +278,10 @@ export const DischargeWorkflowPanel: React.FC<DischargeWorkflowPanelProps> = ({ 
         }
       }, 2000);
     },
-    onError: () => {
+    onError: (error: any) => {
       toast({
         title: "Error",
-        description: "Failed to generate gate pass.",
+        description: error?.message || "Failed to generate gate pass.",
         variant: "destructive",
       });
     },
@@ -436,7 +468,9 @@ export const DischargeWorkflowPanel: React.FC<DischargeWorkflowPanelProps> = ({ 
     dischargeDate &&
     checklist.discharge_mode &&
     checklist.authorized_by &&
-    checklist.authorized_by.trim() !== '';
+    checklist.authorized_by.trim() !== '' &&
+    !thumbConfirmationLoading &&
+    !!thumbConfirmation;
 
   const isPrintButtonsEnabled = !!dischargeDate; // Enable when discharge date is set
   const isChecklistEnabled = !!dischargeDate;
@@ -813,12 +847,17 @@ export const DischargeWorkflowPanel: React.FC<DischargeWorkflowPanelProps> = ({ 
               <div className="flex items-center gap-2">
                 <AlertCircle className="h-4 w-4 text-amber-600" />
                 <span className="text-sm font-medium text-amber-800">
-                  To generate Gate Pass: Complete ALL checklist items above (9/9 required) + Fill required fields (Authorized By)
+                  To generate Gate Pass: Complete ALL checklist items above (9/9 required) + Fill required fields (Authorized By) + Upload the portal thumb confirmation photo
                 </span>
               </div>
               {(!checklist?.authorized_by || checklist.authorized_by.trim() === '') && (
                 <div className="mt-2 text-sm text-amber-700">
                   • Missing: Authorized By field
+                </div>
+              )}
+              {!thumbConfirmationLoading && !thumbConfirmation && (
+                <div className="mt-2 text-sm text-amber-700">
+                  • Missing: Portal thumb confirmation photo (upload it from the tablet's Advance Statement Arshiya tile)
                 </div>
               )}
             </div>
