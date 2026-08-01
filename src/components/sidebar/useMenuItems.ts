@@ -103,6 +103,13 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
           }
         }
 
+        // Who sees which tablet tile first is an administrator's call.
+        if (item.url === "/tile-configuration") {
+          if (!['superadmin', 'super_admin', 'admin'].includes(user?.role || '')) {
+            return false;
+          }
+        }
+
         if (item.title === "Payment Allocation" && !canAccessAccounting) {
           return false;
         }

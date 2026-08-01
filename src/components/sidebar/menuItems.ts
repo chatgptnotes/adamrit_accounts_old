@@ -305,6 +305,12 @@ export const menuItems: MenuItemDef[] = [
     section: 'masters',
   },
   {
+    title: "Tile Configuration",
+    url: "/tile-configuration",
+    icon: MonitorSmartphone,
+    section: 'masters',
+  },
+  {
     title: "Diagnoses",
     url: "/diagnoses",
     icon: Activity,

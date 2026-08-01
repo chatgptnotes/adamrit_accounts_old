@@ -7,6 +7,7 @@ import { modulesForUser } from "@/tablet/config/modules";
 import { TabletWatermark } from "@/tablet/components/TabletWatermark";
 import { useRecentlyDischargedVisits } from "@/tablet/hooks/useVisitLists";
 import { useDialysisTracker } from "@/tablet/hooks/useDialysisTracker";
+import { useAssignedTiles } from "@/tablet/hooks/useAssignedTiles";
 
 /** Home dashboard — gradient-iconed module tiles, role-filtered, with quick search. */
 export function TabletHome() {
@@ -18,6 +19,9 @@ export function TabletHome() {
   const billing = useRecentlyDischargedVisits();
   // Dialysis patients due a bill or a 30-day lab report, badged on their tile.
   const dialysis = useDialysisTracker();
+  // Tiles this person was mapped to in the Tile Configuration master. They are
+  // lifted to the top of the grid; nothing is hidden if the set is empty.
+  const { assigned } = useAssignedTiles();
 
   /** Pending-work count to badge on a tile, or 0 for tiles that have none. */
   const badgeFor = (moduleId: string) => {
@@ -36,6 +40,58 @@ export function TabletHome() {
         m.id.toLowerCase().includes(q),
     );
   }, [modules, query]);
+
+  // The tiles this person was mapped to, lifted out of the grid into their own
+  // band. Both halves keep the module order, so a tile's neighbours only change
+  // when someone maps it.
+  const mine = useMemo(
+    () => filtered.filter((m) => assigned.has(m.id)),
+    [filtered, assigned],
+  );
+  const rest = useMemo(
+    () => filtered.filter((m) => !assigned.has(m.id)),
+    [filtered, assigned],
+  );
+
+  /** One module tile. Identical in both bands — being assigned changes where a
+      tile sits, never how it looks. */
+  const renderTile = (m: (typeof modules)[number]) => {
+    const Icon = m.icon;
+    const badge = badgeFor(m.id);
+    return (
+      <button
+        key={m.id}
+        type="button"
+        onClick={() => navigate(`/${m.id}`, { viewTransition: true })}
+        className="tablet-tile tablet-glass relative flex min-h-[148px] flex-col gap-2 rounded-2xl p-4 text-left sm:min-h-[156px] sm:p-5"
+      >
+        {badge > 0 ? (
+          <span className="absolute right-3 top-3 inline-flex min-w-[1.75rem] items-center justify-center rounded-full bg-destructive px-2 py-1 text-sm font-bold text-destructive-foreground shadow">
+            {badge}
+          </span>
+        ) : null}
+        <span
+          className={cn(
+            "inline-flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br shadow-lg sm:h-12 sm:w-12",
+            m.tint,
+          )}
+        >
+          <Icon className="h-5 w-5 text-white sm:h-6 sm:w-6" />
+        </span>
+        <span className="min-w-0">
+          <span className="block text-[1.05rem] font-semibold leading-tight text-foreground">
+            {m.label}
+          </span>
+          <span className="mt-1 line-clamp-2 min-h-[2.25rem] text-[0.92rem] leading-snug text-muted-foreground">
+            {m.description}
+          </span>
+        </span>
+      </button>
+    );
+  };
+
+  const gridClass =
+    "grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5";
 
   return (
     <div className="relative isolate h-full">
@@ -86,43 +142,25 @@ export function TabletHome() {
                 Clear search
               </button>
             </div>
+          ) : mine.length === 0 ? (
+            /* Nobody has mapped this person to anything yet, so the grid stays
+               exactly as it always was - one block, no headings. */
+            <div className={gridClass}>{filtered.map(renderTile)}</div>
           ) : (
-            <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
-              {filtered.map((m) => {
-                const Icon = m.icon;
-                const badge = badgeFor(m.id);
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => navigate(`/${m.id}`, { viewTransition: true })}
-                    className="tablet-tile tablet-glass relative flex min-h-[148px] flex-col gap-2 rounded-2xl p-4 text-left sm:min-h-[156px] sm:p-5"
-                  >
-                    {badge > 0 ? (
-                      <span className="absolute right-3 top-3 inline-flex min-w-[1.75rem] items-center justify-center rounded-full bg-destructive px-2 py-1 text-sm font-bold text-destructive-foreground shadow">
-                        {badge}
-                      </span>
-                    ) : null}
-                    <span
-                      className={cn(
-                        "inline-flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br shadow-lg sm:h-12 sm:w-12",
-                        m.tint,
-                      )}
-                    >
-                      <Icon className="h-5 w-5 text-white sm:h-6 sm:w-6" />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-[1.05rem] font-semibold leading-tight text-foreground">
-                        {m.label}
-                      </span>
-                      <span className="mt-1 line-clamp-2 min-h-[2.25rem] text-[0.92rem] leading-snug text-muted-foreground">
-                        {m.description}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            <>
+              <h2 className="mb-2 px-1 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                Your Work
+              </h2>
+              <div className={gridClass}>{mine.map(renderTile)}</div>
+              {rest.length > 0 && (
+                <>
+                  <h2 className="mb-2 mt-6 px-1 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                    All Modules
+                  </h2>
+                  <div className={gridClass}>{rest.map(renderTile)}</div>
+                </>
+              )}
+            </>
           )}
         </div>
       </div>

@@ -137,6 +137,7 @@ const ActivityLog = lazy(() => import("../pages/ActivityLog"));
 const PatientJourneyLogs = lazy(() => import("../pages/PatientJourneyLogs"));
 const CorporateMaster = lazy(() => import("../pages/CorporateMaster"));
 const DoctorCredentials = lazy(() => import("../pages/DoctorCredentials"));
+const TileConfiguration = lazy(() => import("../pages/TileConfiguration"));
 const MasterData = lazy(() => import('@/pages/MasterData'));
 const LocationMaster = lazy(() => import("../pages/LocationMaster"));
 const CorporateAreas = lazy(() => import("../pages/CorporateAreas"));
@@ -389,6 +390,7 @@ export const AppRoutes = () => {
         <Route path="/marketing-dashboard" element={<Suspense fallback={<PageLoader />}><MarketingDashboard /></Suspense>} />
         <Route path="/corporate-master" element={<Suspense fallback={<PageLoader />}><CorporateMaster /></Suspense>} />
         <Route path="/doctor-credentials" element={<Suspense fallback={<PageLoader />}><DoctorCredentials /></Suspense>} />
+        <Route path="/tile-configuration" element={<Suspense fallback={<PageLoader />}><TileConfiguration /></Suspense>} />
         <Route path="/corporate-master/:corporateId" element={<Suspense fallback={<PageLoader />}><CorporateAreas /></Suspense>} />
         <Route path="/corporate-master/:corporateId/area/:areaId" element={<Suspense fallback={<PageLoader />}><CorporateAreaDetail /></Suspense>} />
         <Route path="/location-master" element={<Suspense fallback={<PageLoader />}><LocationMaster /></Suspense>} />
