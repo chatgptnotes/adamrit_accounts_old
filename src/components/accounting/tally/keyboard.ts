@@ -101,7 +101,10 @@ export const hotkeyMatches = (e: KeyboardEvent, hotkey: string, mod: HotkeyMod |
   // keys "Escape" and " ".
   const wanted = hotkey.toUpperCase() === 'ESC' ? 'ESCAPE' : hotkey.toUpperCase();
   const pressed = e.key === ' ' ? 'SPACE' : e.key.toUpperCase();
-  if (pressed !== wanted) return false;
+  // Option+letter on macOS produces a different character altogether — Option+P
+  // is "π", not "p" — so an Alt combo has to match the physical key instead.
+  const altLetter = mod === 'alt' && /^[A-Z]$/.test(wanted) && e.code === `Key${wanted}`;
+  if (pressed !== wanted && !altLetter) return false;
   if (mod === 'ctrl') return e.ctrlKey && !e.altKey && !e.metaKey;
   if (mod === 'alt') return e.altKey && !e.ctrlKey && !e.metaKey;
   return !e.altKey && !e.ctrlKey && !e.metaKey;

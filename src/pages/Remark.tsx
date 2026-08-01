@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDebounce } from 'use-debounce';
-import { ChevronRight, MessageSquare, Search, Upload } from 'lucide-react';
+import { ChevronLeft, ChevronRight, MessageSquare, Search, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -36,6 +36,9 @@ const readRow = (row: Record<string, unknown>) => {
   };
 };
 
+// Enough rows to scan without scrolling the page.
+const PAGE_SIZE = 15;
+
 const Remark = () => {
   const { hospitalConfig } = useAuth();
   const queryClient = useQueryClient();
@@ -43,6 +46,7 @@ const Remark = () => {
   const [importing, setImporting] = useState(false);
   const [search, setSearch] = useState('');
   const [debouncedSearch] = useDebounce(search, 250);
+  const [page, setPage] = useState(1);
   // The claim being worked on. Held by id, not by object, so the detail view
   // re-reads from the list after a save instead of showing a stale copy.
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -65,18 +69,24 @@ const Remark = () => {
   // claim appears on its own.
   const openRemarks = rows.filter(row => (row.l2_remark || '').trim() !== '');
 
-  // Nothing is listed until somebody searches. The worklist is a way in to one
-  // patient, not a page to browse, and two characters is enough to stop a stray
-  // keystroke listing everything.
+  // The list opens on the most recently imported claims — the query already
+  // orders by created_at desc — and searching narrows the same list rather than
+  // switching to a different mode.
   const term = debouncedSearch.trim().toLowerCase();
-  const searching = term.length >= 2;
-  const visible = searching
+  const matching = term
     ? openRemarks.filter(row =>
         `${row.patient_name || ''} ${row.claim_id} ${row.uhid || ''} ${row.card_id || ''}`
           .toLowerCase()
           .includes(term),
       )
-    : [];
+    : openRemarks;
+
+  const totalPages = Math.max(1, Math.ceil(matching.length / PAGE_SIZE));
+  // Clamped rather than reset in an effect: a search that shortens the list
+  // while you are on page 4 should show the last page, not an empty one.
+  const currentPage = Math.min(page, totalPages);
+  const visible = matching.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
   const awaiting = openRemarks.filter(row => !(row.justification || '').trim()).length;
 
   const selected = selectedId ? rows.find(row => row.id === selectedId) || null : null;
@@ -193,7 +203,10 @@ const Remark = () => {
           className="pl-9"
           placeholder="Search by patient name, claim ID, UHID or card ID…"
           value={search}
-          onChange={e => setSearch(e.target.value)}
+          onChange={e => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
         />
       </div>
 
@@ -210,17 +223,6 @@ const Remark = () => {
         ) : openRemarks.length === 0 ? (
           <div className="py-10 text-center text-sm text-muted-foreground">
             No remarks yet. Import the ESIC scrutiny sheet to get started.
-          </div>
-        ) : !searching ? (
-          <div className="px-4 py-10 text-center">
-            <Search className="mx-auto mb-3 h-6 w-6 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">
-              Search for a patient to answer their remark.
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {openRemarks.length} claim{openRemarks.length === 1 ? '' : 's'} carry a scrutiny
-              remark{awaiting > 0 ? `, ${awaiting} still awaiting a reply` : ''}.
-            </p>
           </div>
         ) : visible.length === 0 ? (
           <div className="py-10 text-center text-sm text-muted-foreground">
@@ -284,11 +286,38 @@ const Remark = () => {
         )}
       </div>
 
-      {!isLoading && !error && searching && visible.length > 0 && (
-        <p className="text-xs text-muted-foreground">
-          {visible.length} of {openRemarks.length} claims carrying a scrutiny remark.
-          Claims with no remark are stored but not listed.
-        </p>
+      {!isLoading && !error && matching.length > 0 && (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground">
+            Showing {(currentPage - 1) * PAGE_SIZE + 1}–
+            {Math.min(currentPage * PAGE_SIZE, matching.length)} of {matching.length}
+            {term ? ' matching' : ''} claim{matching.length === 1 ? '' : 's'}
+            {awaiting > 0 ? ` · ${awaiting} awaiting a reply` : ''}
+          </p>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentPage <= 1}
+                onClick={() => setPage(currentPage - 1)}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentPage >= totalPages}
+                onClick={() => setPage(currentPage + 1)}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

@@ -64,8 +64,10 @@ const TallyGlobalKeys: React.FC = () => {
         };
       }),
       { combo: 'F10', layer: 'global', label: 'Other Vouchers', run: () => goTo('voucher-type-picker') },
-      // Tally Prime's top-bar actions. Alt+P prints whatever is on screen;
-      // reports and the voucher form override Alt+E / Alt+M with a real export.
+      // Tally Prime's top-bar actions. Alt+P prints whatever is on screen —
+      // the report and voucher screens override it on the screen layer with a
+      // real Tally-format print, so this only fires where there is nothing to
+      // lay out. Alt+E / Alt+M are likewise overridden with a real export.
       { combo: 'Alt+P', layer: 'global', label: 'Print', run: () => window.print() },
       { combo: 'Alt+E', layer: 'global', label: 'Export', run: () => goTo('tally-import-export') },
       { combo: 'Alt+M', layer: 'global', label: 'E-mail', run: () => goTo('tally-import-export') },

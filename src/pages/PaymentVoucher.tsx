@@ -18,6 +18,7 @@ import {
 import { toast } from 'sonner';
 import { Plus, Trash2, Printer, RotateCcw, X } from 'lucide-react';
 import { pushLedgerToTally, pushPaymentVoucherToTally } from '@/lib/tally-auto-push';
+import { printTallyVoucher } from '@/lib/tallyPrint';
 
 interface PaymentVoucher {
   id: string;
@@ -669,62 +670,18 @@ const PaymentVoucher = () => {
     if (voucherLines.length === 0) {
       voucherLines = [{ ledger_name: v.person_name, amount: Number(v.amount) }];
     }
-    const win = window.open('', '_blank', 'width=900,height=1100');
-    if (!win) {
-      toast.error('Popup blocked — please allow popups for this site to print');
-      return;
-    }
-    const lineRows = voucherLines
-      .map(
-        (l) => `
-      <tr>
-        <td class="b">${escapeHTML(l.ledger_name)}</td>
-        <td class="b num">${fmtINR(Number(l.amount))}</td>
-      </tr>`,
-      )
-      .join('');
-    const html = `<!doctype html><html><head><meta charset="utf-8" />
-<title>Payment Voucher — ${escapeHTML(v.voucher_no)}</title>
-<style>
-  body { font-family: Arial, Helvetica, sans-serif; margin: 14mm; color: #000; }
-  .org { font-size: 15px; font-weight: 700; text-align: center; }
-  .doc { text-align: center; font-size: 13px; margin: 2px 0 14px; text-transform: uppercase; letter-spacing: 1px; }
-  .head { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 10px; }
-  .head .right { text-align: right; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { border: 1px solid #555; background: #f1f5f9; padding: 6px 10px; text-align: left; }
-  td.b { border: 1px solid #555; padding: 7px 10px; }
-  .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; width: 22%; }
-  tr.total td { border: 1px solid #555; font-weight: 700; background: #f1f5f9; }
-  .narr { margin-top: 12px; font-size: 12px; }
-  .narr .lbl { font-weight: 600; }
-  .sign { margin-top: 56px; display: flex; justify-content: space-between; font-size: 12px; }
-  .sign div { border-top: 1px solid #555; padding-top: 4px; width: 38%; text-align: center; }
-  @page { size: A4 portrait; margin: 14mm; }
-</style></head><body>
-  <div class="org">${escapeHTML(hospitalType)}</div>
-  <div class="doc">Payment Voucher</div>
-  <div class="head">
-    <div>No.: <b>${escapeHTML(v.voucher_no)}</b><br/>Account: <b>${escapeHTML(v.account_ledger_name || v.paid_by || 'Cash')}</b></div>
-    <div class="right"><b>${escapeHTML(tallyDateLabel(v.voucher_date))}</b><br/>${escapeHTML(dayName(v.voucher_date))}</div>
-  </div>
-  <table>
-    <thead><tr><th>Particulars</th><th class="num">Amount (₹)</th></tr></thead>
-    <tbody>
-      ${lineRows}
-      <tr class="total"><td class="b num" style="text-align:right">Total</td><td class="b num">${fmtINR(Number(v.amount))}</td></tr>
-    </tbody>
-  </table>
-  <div class="narr"><span class="lbl">Narration:</span> ${escapeHTML(v.narration || v.purpose || '-')}</div>
-  <div class="sign">
-    <div>Received By</div>
-    <div>Authorised Signatory</div>
-  </div>
-  <script>window.onload=function(){setTimeout(function(){window.print()},150)}</script>
-</body></html>`;
-    win.document.open();
-    win.document.write(html);
-    win.document.close();
+    const printed = printTallyVoucher({
+      orgName: hospitalType,
+      addressLines: [],
+      voucherTypeName: 'Payment Voucher',
+      voucherNumber: v.voucher_no,
+      voucherDate: v.voucher_date,
+      category: 'PAYMENT',
+      through: v.account_ledger_name || v.paid_by || 'Cash',
+      rows: voucherLines.map((l) => ({ name: l.ledger_name, dr: Number(l.amount), cr: 0 })),
+      narration: v.narration || v.purpose || '',
+    });
+    if (!printed) toast.error('Popup blocked — please allow popups for this site to print');
   };
 
   const handlePrint = (): void => {

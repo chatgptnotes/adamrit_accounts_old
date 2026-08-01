@@ -31,6 +31,7 @@ import { useAccountingRights } from './tally/rights';
 import { useAccountingCompany } from './AccountingCompanyContext';
 import { useVoucherActions } from '@/hooks/useVoucherActions';
 import { VoucherAttachmentFields } from './VoucherAttachmentFields';
+import { fmtINR, tallyDateLabel, printTallyVoucher } from '@/lib/tallyPrint';
 import {
   discardVoucherAttachments,
   linkVoucherAttachments,
@@ -94,17 +95,6 @@ interface JournalLine {
  */
 const generateVoucherNumber = (prefix: string, nextNum: number): string => {
   return `${prefix}${String(nextNum).padStart(4, '0')}`;
-};
-
-const fmtINR = (n: number): string =>
-  new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
-
-// Tally-style short date, e.g. "4-Jul-26"
-const tallyDateLabel = (iso: string): string => {
-  const d = new Date(iso + 'T00:00:00');
-  if (Number.isNaN(d.getTime())) return iso;
-  const month = d.toLocaleDateString('en-GB', { month: 'short' });
-  return `${d.getDate()}-${month}-${String(d.getFullYear()).slice(2)}`;
 };
 
 const dayName = (iso: string): string => {
@@ -1581,7 +1571,6 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
 
   // ------ Formal A4 voucher print (Tally-style) ------
   const printVoucher = (): void => {
-    const esc = (t: string) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const rows: { name: string; dr: number; cr: number }[] = [];
     // Tally puts the cash/bank side in the header as "Through :" rather than in
     // the Particulars table, so in single-account mode it never becomes a row.
@@ -1610,92 +1599,19 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
       toast.error('Nothing to print — fill the voucher first');
       return;
     }
-    // Single-account rows all sit on one side, so summing the debits alone
-    // would total zero on a Receipt.
-    const total = through
-      ? rows.reduce((s, r) => s + r.dr + r.cr, 0)
-      : rows.reduce((s, r) => s + r.dr, 0);
-    const win = window.open('', '_blank', 'width=900,height=1100');
-    if (!win) {
-      toast.error('Popup blocked — allow popups to print');
-      return;
-    }
     const company = companies.find((c) => c.id === selectedCompanyId);
-    const orgName = company?.company_name || hospitalConfig.fullName;
-    const addressLines = [company?.address_line1, company?.address_line2].filter(Boolean) as string[];
-    // Tally writes "INR Seven Hundred Sixty Only"; the shared helper says
-    // "Rupees ..." for six other callers, so swap the prefix here only.
-    const words = amountInWords(total).replace(/^Rupees /, 'INR ');
-    // One Amount column when the cash/bank side is already in the header,
-    // Debit/Credit when it is a journal and both sides are in the table.
-    const cols = through ? 1 : 2;
-    const blanks = '<td class="num"></td>'.repeat(cols);
-    const body = rows
-      .map((r) =>
-        through
-          ? `<tr class="led"><td class="ind">${esc(r.name)}</td><td class="num">${fmtINR(r.dr + r.cr)}</td></tr>`
-          : `<tr class="led"><td class="ind">${r.dr > 0 ? 'Dr' : 'Cr'} ${esc(r.name)}</td><td class="num">${
-              r.dr > 0 ? fmtINR(r.dr) : ''
-            }</td><td class="num">${r.cr > 0 ? fmtINR(r.cr) : ''}</td></tr>`,
-      )
-      .join('');
-    win.document.write(`<!doctype html><html><head><meta charset="utf-8" />
-<title>${esc(selectedType?.voucher_type_name || 'Voucher')} — ${esc(voucherNumber)}</title>
-<style>
-  /* Tally leaves a wide right margin — the whole voucher is a left-set block
-     about three quarters of the sheet, not a full-width page. */
-  body { font-family: Arial, Helvetica, sans-serif; margin: 14mm 44mm 14mm 18mm; color: #000; font-size: 8.5pt; font-weight: 700; }
-  .org { text-align: center; font-size: 10pt; }
-  .addr { text-align: center; }
-  .doc { text-align: center; margin: 12px 0 16px; }
-  .head { display: flex; justify-content: space-between; margin-bottom: 6px; }
-  .through { margin-bottom: 3px; }
-  table { width: 100%; border-collapse: collapse; }
-  th { border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 2px 0; font-weight: 700; text-align: left; }
-  td { padding: 2px 4px 2px 0; vertical-align: top; }
-  th.part { padding-left: 5mm; }
-  td.ind { padding-left: 5mm; }
-  td.plain { font-weight: 400; padding-left: 5mm; }
-  /* Chrome drops backgrounds unless "Background graphics" is ticked, and the
-     shaded ledger band is part of the Tally look — force it. */
-  tr.led td { background: #e2e2e2; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  /* One unbroken column rule from the Particulars band down to the total. */
-  .num { text-align: right; font-variant-numeric: tabular-nums; width: 15%; border-left: 1px solid #000; padding-left: 3px; }
-  tr.gap td { height: 38px; }
-  tr.tot td.num { border-top: 1px solid #000; border-bottom: 1px solid #000; }
-  .sign { margin-top: 16mm; display: flex; justify-content: space-between; }
-  @page { size: A4 portrait; margin: 0; }
-</style></head><body>
-  <div class="org">${esc(orgName)}</div>
-  ${addressLines.map((l) => `<div class="addr">${esc(l)}</div>`).join('')}
-  <div class="doc">${esc(selectedType?.voucher_type_name || 'Voucher')}</div>
-  <div class="head">
-    <div>No.&nbsp;&nbsp; :&nbsp;&nbsp;${esc(voucherNumber || '')}</div>
-    <div>Dated&nbsp;&nbsp; :&nbsp;&nbsp;${esc(tallyDateLabel(voucherDate))}</div>
-  </div>
-  ${through ? `<div class="through">Through :&nbsp;&nbsp;${esc(through)}</div>` : ''}
-  <table>
-    <thead><tr><th class="part">Particulars</th>${
-      through ? '<th class="num">Amount</th>' : '<th class="num">Debit</th><th class="num">Credit</th>'
-    }</tr></thead>
-    <tbody>
-      ${through ? `<tr><td>Account :</td>${blanks}</tr>` : ''}
-      ${body}
-      <tr class="gap"><td></td>${blanks}</tr>
-      <tr><td>On Account of :</td>${blanks}</tr>
-      <tr><td class="plain">${esc(narration || '-')}</td>${blanks}</tr>
-      <tr><td>Amount (in words) :</td>${blanks}</tr>
-      <tr><td class="plain">${esc(words)}</td>${blanks}</tr>
-      <tr class="tot"><td></td>${
-        // A journal balances two columns, so both carry the total.
-        through ? '' : `<td class="num">₹ ${fmtINR(total)}</td>`
-      }<td class="num">₹ ${fmtINR(total)}</td></tr>
-    </tbody>
-  </table>
-  <div class="sign"><div>${category === 'PAYMENT' ? "Receiver's Signature:" : ''}</div><div>Authorised Signatory</div></div>
-  <script>window.onload=function(){setTimeout(function(){window.print()},150)}</script>
-</body></html>`);
-    win.document.close();
+    const printed = printTallyVoucher({
+      orgName: company?.company_name || hospitalConfig.fullName,
+      addressLines: [company?.address_line1, company?.address_line2].filter(Boolean) as string[],
+      voucherTypeName: selectedType?.voucher_type_name || 'Voucher',
+      voucherNumber: voucherNumber || '',
+      voucherDate,
+      category,
+      through,
+      rows,
+      narration,
+    });
+    if (!printed) toast.error('Popup blocked — allow popups to print');
   };
 
   // ------ Tally right rail: F2 Date + F4–F9 voucher types + other types ------
@@ -1911,7 +1827,10 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
           onClick: () => void handleQuit(),
         },
         { hotkey: 'F1', label: 'Help', onClick: () => window.dispatchEvent(new CustomEvent('tally-help')) },
-        { hotkey: 'P', mod: 'alt', aliases: [{ hotkey: 'P' }], label: 'Print Vch', onClick: selectedType ? printVoucher : undefined },
+        // Unconditional: a disabled binding still swallows the key, and this
+        // one shadows the rail's Print, so gating it on selectedType made the
+        // shortcut silently do nothing. printVoucher's own guard toasts instead.
+        { hotkey: 'P', mod: 'alt', aliases: [{ hotkey: 'P' }], label: 'Print Vch', onClick: printVoucher },
       ]}
     >
       {/* Voucher type / No. / Ref / Date strip */}

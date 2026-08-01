@@ -17,6 +17,8 @@ import ApplyFilter, { type ReportFilter } from './ApplyFilter';
 import { AutoColumnBox, ColumnBox, columnTitle, shiftYear, type PeriodColumn } from './ColumnBox';
 import ReportConfigure, { defaultsOf, type ReportConfig, type ReportConfigField } from './ReportConfigure';
 import { emailReport, exportReport, type ReportExport } from './reportExport';
+import { printTallyReport } from '@/lib/tallyPrint';
+import { useTallyLetterhead } from './useLetterhead';
 
 /**
  * The state behind Tally's right-hand button rail, shared by every accounting
@@ -162,6 +164,7 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
   const exportRef = useRef(exportData);
   exportRef.current = exportData;
   const canExport = !!exportData;
+  const letterhead = useTallyLetterhead();
 
   const setPeriod = useCallback(
     (nextFrom: string, nextTo: string) => {
@@ -368,9 +371,17 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
       {
         hotkey: 'P',
         mod: 'alt' as const,
+        // Same alias the voucher screen carries, so the key behaves the same
+        // everywhere rather than only where a modifier happens to register.
+        aliases: [{ hotkey: 'P' }],
         label: 'Print',
         gapBefore: true,
-        onClick: () => window.print(),
+        // A screen that has not handed over its rows cannot be laid out as a
+        // Tally report, so it falls back to printing the page as it stands.
+        onClick: () =>
+          canExport
+            ? void printTallyReport(exportRef.current!(), letterhead.orgName, letterhead.addressLines)
+            : window.print(),
       },
       {
         hotkey: 'E',
@@ -421,6 +432,7 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
       configFields,
       config,
       canExport,
+      letterhead,
     ],
   );
 

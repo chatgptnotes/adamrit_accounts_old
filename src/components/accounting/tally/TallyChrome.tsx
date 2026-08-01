@@ -329,6 +329,8 @@ export const TallyTopBar: React.FC<TallyTopBarProps> = ({ sections, onGoTo }) =>
             .catch(() => toast.error('Could not copy the link'));
         },
       },
+      // Global layer, so a report or voucher screen's own Print always wins
+      // this; it only fires on menus and the like, where there is no report.
       { key: 'P', label: 'Print', action: () => window.print() },
       { key: 'F1', label: 'Help', action: () => setHelpOpen(true) },
       { key: 'F12', label: 'Configure', action: () => setConfigOpen(true) },
@@ -799,13 +801,23 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
   // The key bar is bound ahead of the rail, so a screen that claims one of
   // these keys for itself — the Gateway's F1: Select Company — keeps it, and
   // the default entry stands down rather than shadowing it.
-  const claimedByRail = new Set(rail.filter((item) => item.hotkey && !item.mod).map((item) => item.hotkey!.toUpperCase()));
+  // Aliases count as a claim too: a rail item labelled Alt+P that also answers
+  // to a bare P owns the key, and the default bar's own P must stand down or it
+  // wins the de-dupe below and prints the raw page instead of the report.
+  const claimedByRail = new Set(
+    rail.flatMap((item) => [
+      ...(item.hotkey && !item.mod ? [item.hotkey.toUpperCase()] : []),
+      ...(item.aliases ?? []).filter((a) => !a.mod).map((a) => a.hotkey.toUpperCase()),
+    ]),
+  );
   const defaultBottomBar = useMemo<BottomBarItem[]>(
     () =>
       [
         { hotkey: 'Q', label: 'Quit', onClick: handleClose },
         { hotkey: 'Esc', label: 'Back', onClick: handleClose },
         { hotkey: 'F1', label: 'Help', onClick: () => window.dispatchEvent(new CustomEvent('tally-help')) },
+        // Only reached on a screen with no report rows to lay out — a report
+        // screen claims P for the Tally-format print (useTallyReport).
         { hotkey: 'P', label: 'Print', onClick: () => window.print() },
       ].filter((item) => !claimedByRail.has(item.hotkey.toUpperCase())),
     // eslint-disable-next-line react-hooks/exhaustive-deps
