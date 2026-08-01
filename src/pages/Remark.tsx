@@ -1,39 +1,15 @@
 import React, { useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { MessageSquare, Printer, Sparkles, Upload } from 'lucide-react';
+import { useDebounce } from 'use-debounce';
+import { ChevronRight, MessageSquare, Search, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { draftRemarkJustification } from '@/lib/draftRemarkJustification';
-import { printClaimJustification } from '@/lib/printClaimJustification';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-
-// The ESIC portal's scrutiny export, reduced to the three things a person
-// actually works with: who the patient is, what ESIC asked for, and what we
-// answered. Everything else the sheet carries is stored but not shown.
-interface ClaimRemark {
-  id: string;
-  claim_id: string;
-  patient_name: string | null;
-  uhid: string | null;
-  card_id: string | null;
-  approved_amount: number | null;
-  process_stage: string | null;
-  l2_remark: string | null;
-  justification: string | null;
-}
-
-// The two columns a person types into. The remark is editable because the
-// portal's wording is often mangled on export and gets tidied or pasted in by
-// hand — but note a re-import overwrites it, since the sheet is the authority
-// on what ESIC asked. The justification is ours and the import never touches it.
-type EditableField = 'l2_remark' | 'justification';
+import { ClaimDetail } from '@/components/remark/ClaimDetail';
+import { CLAIM_COLUMNS, type ClaimRemark } from '@/components/remark/types';
 
 // Excel headers drift between exports — "Card Id" one week, "Card ID" the next,
 // with stray spaces. Matching on a stripped-down key means a header only has to
@@ -59,49 +35,18 @@ const Remark = () => {
   const queryClient = useQueryClient();
   const importInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
-  // Which single cell is open for editing. Both text columns share one editor,
-  // so only one cell can ever be mid-edit — there is no second draft to lose.
-  const [editing, setEditing] = useState<{ id: string; field: EditableField } | null>(null);
-  const [draft, setDraft] = useState('');
-  const [generatingId, setGeneratingId] = useState<string | null>(null);
-  // The claim whose print dialog is open, plus who has been picked to sign it.
-  const [printing, setPrinting] = useState<ClaimRemark | null>(null);
-  const [doctorName, setDoctorName] = useState('');
-  const [doctorSearch, setDoctorSearch] = useState('');
+  const [search, setSearch] = useState('');
+  const [debouncedSearch] = useDebounce(search, 250);
+  // The claim being worked on. Held by id, not by object, so the detail view
+  // re-reads from the list after a save instead of showing a stale copy.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // The signature master. Only loaded once a print dialog opens, and cached
-  // after that — it is the same list for every claim.
-  const { data: doctors = [], isLoading: doctorsLoading } = useQuery({
-    queryKey: ['justification-signatories'],
-    enabled: printing !== null,
-    staleTime: 5 * 60_000,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('doctor_credentials' as any)
-        .select('doctor_name, qualification, registration_no, signature_url, stamp_url')
-        .eq('is_active', true)
-        .order('doctor_name');
-      if (error) throw error;
-      return (data || []) as unknown as {
-        doctor_name: string;
-        qualification: string | null;
-        registration_no: string | null;
-        signature_url: string | null;
-        stamp_url: string | null;
-      }[];
-    },
-  });
-
-  // 85 doctors is too many to scroll, so the list filters as you type.
-  const visibleDoctors = doctors.filter(d =>
-    d.doctor_name.toLowerCase().includes(doctorSearch.trim().toLowerCase()),
-  );
   const { data: rows = [], isLoading, error } = useQuery({
     queryKey: ['esic-claim-remarks', hospitalConfig.name],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('esic_claim_remarks' as any)
-        .select('id, claim_id, patient_name, uhid, card_id, approved_amount, process_stage, l2_remark, justification')
+        .select(CLAIM_COLUMNS)
         .eq('hospital_name', hospitalConfig.name)
         .order('created_at', { ascending: false });
       if (error) throw error;
@@ -111,8 +56,19 @@ const Remark = () => {
 
   // A claim with no remark has nothing to answer, so it stays out of the
   // worklist. It is still stored — if a later export fills the remark in, the
-  // row appears on its own.
+  // claim appears on its own.
   const openRemarks = rows.filter(row => (row.l2_remark || '').trim() !== '');
+
+  const term = debouncedSearch.trim().toLowerCase();
+  const visible = term
+    ? openRemarks.filter(row =>
+        `${row.patient_name || ''} ${row.claim_id} ${row.uhid || ''} ${row.card_id || ''}`
+          .toLowerCase()
+          .includes(term),
+      )
+    : openRemarks;
+
+  const selected = selectedId ? rows.find(row => row.id === selectedId) || null : null;
 
   const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -145,7 +101,7 @@ const Remark = () => {
             approved_amount: amount && !Number.isNaN(Number(amount)) ? Number(amount) : null,
             l2_remark: get('l2remark', 'remark'),
             // justification is deliberately absent: an upsert only touches the
-            // columns it is given, so replies typed here survive a re-import.
+            // columns it is given, so replies written here survive a re-import.
           };
         })
         .filter(Boolean);
@@ -184,145 +140,16 @@ const Remark = () => {
     }
   };
 
-  // Drafting is per row and only on request. Nothing writes a reply on its own:
-  // a claim answered by a machine without anyone asking is a claim nobody read.
-  const handleGenerate = async (row: ClaimRemark) => {
-    setGeneratingId(row.id);
-    try {
-      const reply = await draftRemarkJustification(row.l2_remark || '');
-      const { error } = await supabase
-        .from('esic_claim_remarks' as any)
-        .update({ justification: reply, updated_at: new Date().toISOString() } as any)
-        .eq('id', row.id);
-      if (error) throw error;
-      toast.success('Reply drafted — check it before sending');
-      queryClient.invalidateQueries({ queryKey: ['esic-claim-remarks', hospitalConfig.name] });
-    } catch (error: any) {
-      console.error('Draft failed:', error);
-      toast.error(`Could not draft a reply: ${error?.message || 'unknown error'}`);
-    } finally {
-      setGeneratingId(null);
-    }
-  };
-
-  // The seal comes from the hospital_stamps master, where the credentials page
-  // uploads it — not from a filename guess, so renaming the file cannot quietly
-  // strip the seal off every letter.
-  const resolveHospitalSeal = async (): Promise<string | null> => {
-    const { data, error } = await supabase
-      .from('hospital_stamps' as any)
-      .select('stamp_url')
-      .eq('hospital_type', hospitalConfig.name)
-      .maybeSingle();
-    if (error) {
-      console.warn('Could not load the hospital seal:', error.message);
-      return null;
-    }
-    return (data as { stamp_url: string | null } | null)?.stamp_url || null;
-  };
-
-  // The printed letterhead sheet that already exists in public/. Checked the
-  // same way as the seal so a hospital without artwork falls back to a typed
-  // header rather than printing a broken image across the page.
-  const resolveLetterhead = async (): Promise<string | null> => {
-    const url = `${window.location.origin}/${hospitalConfig.name}-letterhead.png`;
-    try {
-      const response = await fetch(url, { method: 'HEAD' });
-      return response.ok ? url : null;
-    } catch {
-      return null;
-    }
-  };
-
-  const handlePrint = async () => {
-    if (!printing) return;
-    const picked = doctors.find(d => d.doctor_name === doctorName);
-    const [letterheadUrl, hospitalSealUrl] = await Promise.all([
-      resolveLetterhead(),
-      resolveHospitalSeal(),
-    ]);
-    try {
-      printClaimJustification(printing, {
-        hospitalName: hospitalConfig.fullName,
-        hospitalAddress: hospitalConfig.contactInfo.address,
-        letterheadUrl,
-        hospitalSealUrl,
-        doctor: picked
-          ? {
-              name: picked.doctor_name,
-              qualification: picked.qualification,
-              registrationNo: picked.registration_no,
-              signatureUrl: picked.signature_url,
-              stampUrl: picked.stamp_url,
-            }
-          : null,
-      });
-      setPrinting(null);
-    } catch (error: any) {
-      toast.error(error?.message || 'Could not open the print window');
-    }
-  };
-
-  const saveCell = async (row: ClaimRemark, field: EditableField) => {
-    const value = draft.trim();
-    setEditing(null);
-    if (value === (row[field] || '').trim()) return;
-
-    const { error } = await supabase
-      .from('esic_claim_remarks' as any)
-      .update({ [field]: value || null, updated_at: new Date().toISOString() } as any)
-      .eq('id', row.id);
-    if (error) {
-      console.error(`Failed to save ${field}:`, error);
-      toast.error(`Could not save: ${error.message}`);
-      return;
-    }
-    if (field === 'l2_remark' && !value) {
-      // Clearing the remark drops the row out of the worklist on the next
-      // refetch. Say so, or the claim looks like it was deleted.
-      toast.success('Remark cleared — this claim is no longer listed');
-    } else {
-      toast.success(field === 'l2_remark' ? 'Remark saved' : 'Justification saved');
-    }
-    queryClient.invalidateQueries({ queryKey: ['esic-claim-remarks', hospitalConfig.name] });
-  };
-
-  // One cell renderer for both text columns: click the text to edit it, click
-  // away or press Escape to leave. Escape unmounts the textarea before its blur
-  // handler can fire, which is what makes it a cancel rather than a save.
-  const renderCell = (row: ClaimRemark, field: EditableField, placeholder: string) => {
-    if (editing?.id === row.id && editing.field === field) {
-      return (
-        <Textarea
-          autoFocus
-          rows={3}
-          value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onBlur={() => saveCell(row, field)}
-          onKeyDown={e => {
-            if (e.key === 'Escape') setEditing(null);
-          }}
-          className="text-sm"
-        />
-      );
-    }
+  if (selected) {
     return (
-      <button
-        type="button"
-        onClick={() => {
-          setEditing({ id: row.id, field });
-          setDraft(row[field] || '');
-        }}
-        className="w-full text-left text-sm whitespace-pre-wrap rounded px-2 py-1 hover:bg-muted min-h-[2rem]"
-        title="Click to edit"
-      >
-        {row[field] || <span className="text-muted-foreground">{placeholder}</span>}
-      </button>
+      <div className="p-4 md:p-6">
+        <ClaimDetail claim={selected} onBack={() => setSelectedId(null)} />
+      </div>
     );
-  };
+  }
 
   return (
-    <div className="p-4 md:p-6 space-y-4">
+    <div className="space-y-4 p-4 md:p-6">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <MessageSquare className="h-6 w-6 text-primary" />
@@ -337,164 +164,77 @@ const Remark = () => {
             className="hidden"
           />
           <Button variant="outline" disabled={importing} onClick={() => importInputRef.current?.click()}>
-            <Upload className="h-4 w-4 mr-2" />
+            <Upload className="mr-2 h-4 w-4" />
             {importing ? 'Importing…' : 'Import Excel'}
           </Button>
         </div>
       </div>
 
-      <p className="text-sm text-muted-foreground">
-        Claims carrying an ESIC scrutiny remark. Write the justification yourself, or press
-        Draft reply on a row to have one written for you — then read and edit it before it
-        goes back to ESIC. Re-importing the sheet never overwrites a reply.
-      </p>
-
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[220px]">Patient Name</TableHead>
-              <TableHead>Remark</TableHead>
-              <TableHead className="w-[32%]">Justification</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              <TableRow>
-                <TableCell colSpan={3} className="text-center text-muted-foreground py-8">
-                  Loading…
-                </TableCell>
-              </TableRow>
-            ) : error ? (
-              // A failed read and a genuinely empty worklist are not the same
-              // thing, and saying "no remarks yet" to both sends someone
-              // hunting for missing data when the query is what broke.
-              <TableRow>
-                <TableCell colSpan={3} className="text-center text-destructive py-8">
-                  Could not load remarks: {(error as Error).message}
-                </TableCell>
-              </TableRow>
-            ) : openRemarks.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={3} className="text-center text-muted-foreground py-8">
-                  No remarks yet. Import the ESIC scrutiny sheet to get started.
-                </TableCell>
-              </TableRow>
-            ) : (
-              openRemarks.map(row => (
-                <TableRow key={row.id} className="align-top">
-                  <TableCell className="font-medium">{row.patient_name || '—'}</TableCell>
-                  <TableCell>{renderCell(row, 'l2_remark', 'Click to add a remark…')}</TableCell>
-                  <TableCell>
-                    {renderCell(row, 'justification', 'Click to reply, or draft it below…')}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="mt-1 h-7 px-2 text-xs text-muted-foreground"
-                      disabled={generatingId === row.id}
-                      onClick={() => handleGenerate(row)}
-                    >
-                      <Sparkles className="h-3.5 w-3.5 mr-1" />
-                      {generatingId === row.id
-                        ? 'Drafting…'
-                        : row.justification
-                          ? 'Redraft'
-                          : 'Draft reply'}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="mt-1 ml-1 h-7 px-2 text-xs text-muted-foreground"
-                      // Nothing to print until there is a justification to print.
-                      disabled={!(row.justification || '').trim()}
-                      onClick={() => {
-                        setPrinting(row);
-                        setDoctorName('');
-                        setDoctorSearch('');
-                      }}
-                    >
-                      <Printer className="h-3.5 w-3.5 mr-1" />
-                      Print
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          className="pl-9"
+          placeholder="Search by patient name, claim ID, UHID or card ID…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
       </div>
 
-      <Dialog open={printing !== null} onOpenChange={open => !open && setPrinting(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Print justification</DialogTitle>
-            <DialogDescription>
-              {printing?.patient_name || 'This claim'} — claim {printing?.claim_id}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-2">
-            <Label>Doctor's signature</Label>
-            <Input
-              placeholder="Search the doctor master…"
-              value={doctorSearch}
-              onChange={e => setDoctorSearch(e.target.value)}
-            />
-            <div className="max-h-60 overflow-y-auto rounded-md border divide-y">
-              {doctorsLoading ? (
-                <div className="px-3 py-6 text-center text-sm text-muted-foreground">Loading…</div>
-              ) : visibleDoctors.length === 0 ? (
-                <div className="px-3 py-6 text-center text-sm text-muted-foreground">
-                  No doctor matches that name.
-                </div>
-              ) : (
-                visibleDoctors.map(d => (
-                  <button
-                    key={d.doctor_name}
-                    type="button"
-                    onClick={() => setDoctorName(d.doctor_name)}
-                    className={`flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-muted ${
-                      doctorName === d.doctor_name ? 'bg-muted font-medium' : ''
-                    }`}
-                  >
-                    {/* The mark itself, not a description of it — you pick the
-                        signature by looking at what will print. */}
-                    {d.signature_url ? (
-                      <img
-                        src={d.signature_url}
-                        alt=""
-                        className="h-10 w-20 shrink-0 object-contain"
-                      />
-                    ) : (
-                      <div className="flex h-10 w-20 shrink-0 items-center justify-center rounded border border-dashed text-[10px] text-muted-foreground">
-                        none
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      <div className="truncate">{d.doctor_name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {d.signature_url ? 'Signature on file' : 'No signature — prints a ruled space to sign'}
-                      </div>
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              The doctor's signature prints only where a scan exists; their stamp goes on by
-              hand. The hospital seal prints from the credentials master.
-            </p>
+      <div className="rounded-md border divide-y">
+        {isLoading ? (
+          <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
+        ) : error ? (
+          // A failed read and an empty worklist are not the same thing, and
+          // saying "no remarks" to both sends someone hunting for missing data
+          // when the query is what broke.
+          <div className="py-10 text-center text-sm text-destructive">
+            Could not load remarks: {(error as Error).message}
           </div>
+        ) : visible.length === 0 ? (
+          <div className="py-10 text-center text-sm text-muted-foreground">
+            {openRemarks.length === 0
+              ? 'No remarks yet. Import the ESIC scrutiny sheet to get started.'
+              : `No claim matches "${search.trim()}".`}
+          </div>
+        ) : (
+          visible.map(row => {
+            const answered = (row.justification || '').trim() !== '';
+            return (
+              <button
+                key={row.id}
+                type="button"
+                onClick={() => setSelectedId(row.id)}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium">{row.patient_name || 'Unnamed patient'}</div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    Claim {row.claim_id}
+                    {row.uhid ? ` · ${row.uhid}` : ''}
+                  </div>
+                </div>
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${
+                    answered
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                      : 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300'
+                  }`}
+                >
+                  {answered ? 'Answered' : 'Needs a reply'}
+                </span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </button>
+            );
+          })
+        )}
+      </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPrinting(null)}>Cancel</Button>
-            <Button onClick={handlePrint}>
-              <Printer className="h-4 w-4 mr-2" />
-              Print
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {!isLoading && !error && openRemarks.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {visible.length} of {openRemarks.length} claims carrying a scrutiny remark.
+          Claims with no remark are stored but not listed.
+        </p>
+      )}
     </div>
   );
 };

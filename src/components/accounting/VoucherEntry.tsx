@@ -1628,11 +1628,13 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     const words = amountInWords(total).replace(/^Rupees /, 'INR ');
     // One Amount column when the cash/bank side is already in the header,
     // Debit/Credit when it is a journal and both sides are in the table.
+    const cols = through ? 1 : 2;
+    const blanks = '<td class="num"></td>'.repeat(cols);
     const body = rows
       .map((r) =>
         through
-          ? `<tr class="led"><td class="led">${esc(r.name)}</td><td class="num">${fmtINR(r.dr + r.cr)}</td></tr>`
-          : `<tr class="led"><td class="led">${r.dr > 0 ? 'Dr' : 'Cr'} ${esc(r.name)}</td><td class="num">${
+          ? `<tr class="led"><td class="ind">${esc(r.name)}</td><td class="num">${fmtINR(r.dr + r.cr)}</td></tr>`
+          : `<tr class="led"><td class="ind">${r.dr > 0 ? 'Dr' : 'Cr'} ${esc(r.name)}</td><td class="num">${
               r.dr > 0 ? fmtINR(r.dr) : ''
             }</td><td class="num">${r.cr > 0 ? fmtINR(r.cr) : ''}</td></tr>`,
       )
@@ -1640,49 +1642,56 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     win.document.write(`<!doctype html><html><head><meta charset="utf-8" />
 <title>${esc(selectedType?.voucher_type_name || 'Voucher')} — ${esc(voucherNumber)}</title>
 <style>
-  body { font-family: Arial, Helvetica, sans-serif; margin: 14mm; color: #000; font-size: 12px; }
-  .org { text-align: center; font-size: 14px; font-weight: 700; }
-  .addr { text-align: center; font-size: 11px; }
-  .doc { text-align: center; font-weight: 700; margin: 14px 0 18px; }
-  .head { display: flex; justify-content: space-between; margin-bottom: 10px; }
-  .through { margin-bottom: 10px; }
+  /* Tally leaves a wide right margin — the whole voucher is a left-set block
+     about three quarters of the sheet, not a full-width page. */
+  body { font-family: Arial, Helvetica, sans-serif; margin: 14mm 44mm 14mm 18mm; color: #000; font-size: 8.5pt; font-weight: 700; }
+  .org { text-align: center; font-size: 10pt; }
+  .addr { text-align: center; }
+  .doc { text-align: center; margin: 12px 0 16px; }
+  .head { display: flex; justify-content: space-between; margin-bottom: 6px; }
+  .through { margin-bottom: 3px; }
   table { width: 100%; border-collapse: collapse; }
-  th { border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 3px 0; font-weight: 400; text-align: left; }
-  td { padding: 3px 0; vertical-align: top; }
-  td.led { padding-left: 6mm; }
+  th { border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 2px 0; font-weight: 700; text-align: left; }
+  td { padding: 2px 4px 2px 0; vertical-align: top; }
+  th.part { padding-left: 5mm; }
+  td.ind { padding-left: 5mm; }
+  td.plain { font-weight: 400; padding-left: 5mm; }
   /* Chrome drops backgrounds unless "Background graphics" is ticked, and the
      shaded ledger band is part of the Tally look — force it. */
-  tr.led td { background: #e6e6e6; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .num, th.num { text-align: right; font-variant-numeric: tabular-nums; width: 20%; border-left: 1px solid #000; padding-left: 4px; }
-  .label { margin-top: 14px; font-weight: 700; }
-  .label + div { padding-left: 6mm; }
-  .total { margin-top: 18px; display: flex; justify-content: flex-end; }
-  .total span { border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 3px 0; width: 20%; text-align: right; font-variant-numeric: tabular-nums; }
-  .sign { margin-top: 20mm; display: flex; justify-content: space-between; }
-  @page { size: A4 portrait; margin: 14mm; }
+  tr.led td { background: #e2e2e2; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  /* One unbroken column rule from the Particulars band down to the total. */
+  .num { text-align: right; font-variant-numeric: tabular-nums; width: 15%; border-left: 1px solid #000; padding-left: 3px; }
+  tr.gap td { height: 38px; }
+  tr.tot td.num { border-top: 1px solid #000; border-bottom: 1px solid #000; }
+  .sign { margin-top: 16mm; display: flex; justify-content: space-between; }
+  @page { size: A4 portrait; margin: 0; }
 </style></head><body>
   <div class="org">${esc(orgName)}</div>
   ${addressLines.map((l) => `<div class="addr">${esc(l)}</div>`).join('')}
   <div class="doc">${esc(selectedType?.voucher_type_name || 'Voucher')}</div>
   <div class="head">
-    <div>No.&nbsp; : &nbsp;${esc(voucherNumber || '(unsaved)')}</div>
-    <div>Dated&nbsp; : &nbsp;${esc(tallyDateLabel(voucherDate))}</div>
+    <div>No.&nbsp;&nbsp; :&nbsp;&nbsp;${esc(voucherNumber || '')}</div>
+    <div>Dated&nbsp;&nbsp; :&nbsp;&nbsp;${esc(tallyDateLabel(voucherDate))}</div>
   </div>
-  ${through ? `<div class="through">Through : ${esc(through)}</div>` : ''}
+  ${through ? `<div class="through">Through :&nbsp;&nbsp;${esc(through)}</div>` : ''}
   <table>
-    <thead><tr><th>Particulars</th>${
+    <thead><tr><th class="part">Particulars</th>${
       through ? '<th class="num">Amount</th>' : '<th class="num">Debit</th><th class="num">Credit</th>'
     }</tr></thead>
     <tbody>
-      ${through ? '<tr><td>Account :</td><td class="num"></td></tr>' : ''}
+      ${through ? `<tr><td>Account :</td>${blanks}</tr>` : ''}
       ${body}
+      <tr class="gap"><td></td>${blanks}</tr>
+      <tr><td>On Account of :</td>${blanks}</tr>
+      <tr><td class="plain">${esc(narration || '-')}</td>${blanks}</tr>
+      <tr><td>Amount (in words) :</td>${blanks}</tr>
+      <tr><td class="plain">${esc(words)}</td>${blanks}</tr>
+      <tr class="tot"><td></td>${
+        // A journal balances two columns, so both carry the total.
+        through ? '' : `<td class="num">₹ ${fmtINR(total)}</td>`
+      }<td class="num">₹ ${fmtINR(total)}</td></tr>
     </tbody>
   </table>
-  <div class="label">On Account of :</div>
-  <div>${esc(narration || '-')}</div>
-  <div class="label">Amount (in words) :</div>
-  <div>${esc(words)}</div>
-  <div class="total"><span>₹ ${fmtINR(total)}</span></div>
   <div class="sign"><div>${category === 'PAYMENT' ? "Receiver's Signature:" : ''}</div><div>Authorised Signatory</div></div>
   <script>window.onload=function(){setTimeout(function(){window.print()},150)}</script>
 </body></html>`);
