@@ -165,6 +165,7 @@ const QueueStatus = lazy(() => import("../pages/QueueStatus"));
 const CasualtyRegister = lazy(() => import("../pages/CasualtyRegister"));
 const ReferralRegister = lazy(() => import("../pages/ReferralRegister"));
 const AccountLogsPage = lazy(() => import("../pages/AccountLogs"));
+const RemarkPage = lazy(() => import("../pages/Remark"));
 const DeadlineDashboard = lazy(() => import("../components/task-optimizer/flow/DeadlineDashboard"));
 
 // Loading component
@@ -372,6 +373,7 @@ export const AppRoutes = () => {
         <Route path="/it-transaction-register" element={<Suspense fallback={<PageLoader />}><ITTransactionRegister /></Suspense>} />
         <Route path="/tally" element={<Suspense fallback={<PageLoader />}><TallyIntegration /></Suspense>} />
         <Route path="/account-logs" element={<Suspense fallback={<PageLoader />}><AccountLogsPage /></Suspense>} />
+        <Route path="/remark" element={<Suspense fallback={<PageLoader />}><RemarkPage /></Suspense>} />
         <Route path="/ot" element={<Suspense fallback={<PageLoader />}><OperationTheatre /></Suspense>} />
         <Route path="/cath-lab" element={<Suspense fallback={<PageLoader />}><CathLab /></Suspense>} />
         <Route path="/nursing" element={<Suspense fallback={<PageLoader />}><NursingStation /></Suspense>} />
