@@ -174,11 +174,41 @@
 }
 
 
+/*
+  Selawik — Microsoft's open-source, metric-compatible substitute for Segoe UI
+  (SIL OFL 1.1, see public/fonts/LICENSE-Selawik.txt). Tally's UI font is much
+  narrower than Verdana, which is what made these screens read as "Tally-ish"
+  even where the layout was right. On Windows the stack below finds the real
+  Segoe UI first and none of this loads; everywhere else Selawik stands in at
+  identical metrics.
+*/
+@font-face {
+  font-family: 'Selawik';
+  src: url('/fonts/selawk.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Selawik';
+  src: url('/fonts/selawksb.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Selawik';
+  src: url('/fonts/selawkb.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* ==== Tally Prime skin — scoped to the accounting module ==== */
 .tally-skin,
 .tally-skin * {
   border-radius: 0 !important;
-  font-family: Verdana, 'Segoe UI', Tahoma, Arial, sans-serif !important;
+  font-family: Selawik, 'Segoe UI', Tahoma, Arial, sans-serif !important;
 }
 .tally-skin {
   font-size: 13px;

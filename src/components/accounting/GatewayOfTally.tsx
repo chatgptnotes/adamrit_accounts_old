@@ -189,10 +189,9 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
   const { period, setPeriod, currentDate, setCurrentDate } = useAccountingPeriod();
 
   const [stack, setStack] = useState<string[]>(['gateway']);
+  // Tally always has the amber bar resting on a row — the Gateway opens with it
+  // on the first item. There is no "no selection" state to fall into.
   const [cursor, setCursor] = useState(0);
-  // The yellow bar is the keyboard's position, so it stays hidden until a key
-  // actually moves it — the mouse gets a soft hover shade instead.
-  const [cursorShown, setCursorShown] = useState(false);
   const [popup, setPopup] = useState<null | 'date' | 'period' | 'company' | 'company-info' | 'quit'>(null);
 
   const menu = MENUS[stack[stack.length - 1]];
@@ -264,12 +263,6 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
   // happened to run first.
   const bindings = useMemo<Binding[]>(() => {
     const step = (by: 1 | -1) => () => {
-      // First key press only brings the bar back into view, so it never jumps
-      // a row past where it was left.
-      if (!cursorShown) {
-        setCursorShown(true);
-        return;
-      }
       setCursor((c) => {
         // Skip greyed items, and stop on the Quit row (index === flat.length)
         for (let i = 1; i <= flat.length + 1; i++) {
@@ -288,11 +281,6 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
         layer: 'screen',
         label: 'Open the highlighted item',
         run: () => {
-          // Never open a row the bar is not pointing at on screen.
-          if (!cursorShown) {
-            setCursorShown(true);
-            return;
-          }
           if (cursor === flat.length) back();
           else open(flat[cursor]);
         },
@@ -308,17 +296,18 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
     ];
     // `open` and `back` are stable enough for a menu that rebuilds with `flat`
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flat, cursor, cursorShown, stack]);
+  }, [flat, cursor, stack]);
 
   // A pop-up (Change Date, company list, Quit?) owns the keyboard.
   useShortcuts(bindings, !popup);
 
+  // Tally marks the key that opens each row by underlining that one letter.
   const hotLabel = (item: MenuItem) => {
     const i = item.hotIndex ?? 0;
     return (
       <>
         {item.label.slice(0, i)}
-        <span className="font-semibold">{item.label[i]}</span>
+        <span className="font-semibold underline">{item.label[i]}</span>
         {item.label.slice(i + 1)}
       </>
     );
@@ -329,14 +318,16 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
       key={`${item.label}-${index}`}
       type="button"
       onClick={() => open(item)}
-      onMouseEnter={() => setCursorShown(false)}
+      // Tally's bar follows the mouse as well as the arrow keys — pointing at a
+      // row is the same act of selecting it.
+      onMouseEnter={() => !item.disabled && setCursor(index)}
       disabled={item.disabled}
       className={`block w-full py-[1px] pl-[92px] text-left leading-[18px] ${item.gapBefore ? 'mt-3' : ''} ${
         item.disabled
           ? 'cursor-default text-[#9bb4d0]'
-          : cursorShown && cursor === index
+          : cursor === index
             ? 'bg-[#ffc423] text-black'
-            : 'text-[#1a4d8f] hover:bg-[#fdf6d8]'
+            : 'text-[#1a4d8f]'
       }`}
     >
       {hotLabel(item)}
@@ -385,20 +376,29 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
         <div className="flex min-h-[70vh] text-[13px]">
           {/* Left: period / date / company panel */}
           <div className="flex w-[45%] shrink-0 flex-col border-r border-[#9db8d8] px-6 pt-4">
-            <div className="flex items-baseline justify-between text-[10px] font-semibold tracking-wider text-[#3f77bb]">
+            {/*
+              Tally lays this panel out as fixed columns, not edge-to-edge: the
+              value column sits at the same offset whatever the window is doing,
+              so the headings stay over the figures they label. `grid-cols-…` is
+              shared by every row below for exactly that reason.
+            */}
+            <div className="grid grid-cols-[1fr_2.5rem_9rem] items-baseline text-[10px] font-semibold tracking-wider text-[#3f77bb]">
               <span>CURRENT PERIOD</span>
+              <span />
               <span>CURRENT DATE</span>
             </div>
-            <div className="flex items-baseline justify-between pb-1">
+            <div className="grid grid-cols-[1fr_2.5rem_9rem] items-baseline pb-1">
               <span>{periodLabel(period)}</span>
+              <span />
               <span className="font-semibold">
                 {new Date(`${currentDate}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'long' })},{' '}
                 {dayLabel(currentDate)}
               </span>
             </div>
 
-            <div className="mt-6 flex items-baseline justify-between border-b border-[#9db8d8] pb-0.5 text-[10px] font-semibold tracking-wider text-[#3f77bb]">
+            <div className="mt-6 grid grid-cols-[1fr_2.5rem_9rem] items-baseline border-b border-[#9db8d8] pb-0.5 text-[10px] font-semibold tracking-wider text-[#3f77bb]">
               <span>NAME OF COMPANY</span>
+              <span />
               <span>DATE OF LAST ENTRY</span>
             </div>
 
@@ -407,18 +407,12 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
               <div className="pt-4 italic text-[#5b7aa0]">No company loaded — press F1 or F3 to select one.</div>
             )}
 
-            {selectedCompany && (
-              <div className="flex items-baseline justify-between pt-4 font-bold text-black">
-                <span>{selectedCompany.company_name}</span>
-                <span>
-                  {companyInfo[selectedCompany.id]?.lastEntry
-                    ? isoDateLabel(companyInfo[selectedCompany.id].lastEntry as string)
-                    : ''}
-                </span>
-              </div>
-            )}
-
-            <div className="pt-6">
+            {/*
+              This list IS the "NAME OF COMPANY" column — the loaded company is
+              simply the bold row in it. It used to be printed once above the
+              list as well, so the open company appeared twice.
+            */}
+            <div className="pt-4">
               {companies.map((c) => (
                 // Tally loads the company you pick from this list — same action
                 // as the F3 company pop-up, one click closer.
@@ -427,15 +421,13 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
                   type="button"
                   onClick={() => accountingCompany?.setSelectedCompanyId(c.id)}
                   title={`Load ${c.company_name}`}
-                  className={`flex w-full items-baseline text-left hover:bg-[#fdf6d8] ${
-                    c.id === accountingCompany?.selectedCompanyId ? 'font-semibold' : ''
+                  className={`grid w-full grid-cols-[1fr_2.5rem_9rem] items-baseline text-left hover:bg-[#fdf6d8] ${
+                    c.id === accountingCompany?.selectedCompanyId ? 'font-bold text-black' : ''
                   }`}
                 >
-                  <span className="min-w-0 flex-1 truncate">{c.company_name}</span>
-                  <span className="w-10 text-center">{companyInfo[c.id]?.exceptions ? '(e)' : ''}</span>
-                  <span className="w-20 text-right">
-                    {companyInfo[c.id]?.lastEntry ? isoDateLabel(companyInfo[c.id].lastEntry as string) : ''}
-                  </span>
+                  <span className="min-w-0 truncate">{c.company_name}</span>
+                  <span className="text-center">{companyInfo[c.id]?.exceptions ? '(e)' : ''}</span>
+                  <span>{companyInfo[c.id]?.lastEntry ? isoDateLabel(companyInfo[c.id].lastEntry as string) : ''}</span>
                 </button>
               ))}
             </div>
@@ -444,7 +436,7 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
           </div>
 
           {/* Right: the menu itself */}
-          <div className="flex flex-1 justify-center pt-[110px]">
+          <div className="flex flex-1 justify-center pt-8">
             <div className="w-[345px]">
               {/* Breadcrumb of the menus above this one */}
               {stack.slice(0, -1).map((id) => (
@@ -453,13 +445,15 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
                 </div>
               ))}
 
-              <div className="border border-[#8fb0d4] bg-[#dfeaf7]">
+              {/* Tally's menu box floats above the canvas rather than sitting flat on it */}
+              <div className="border border-[#8fb0d4] bg-[#f4f8fd] shadow-md">
                 <div className="bg-[#2a68a8] py-[3px] text-center font-semibold text-white">{menu.title}</div>
                 <div className="pb-2 pt-3">
                   {menu.sections.map((section, si) => (
                     <React.Fragment key={section.heading ?? `s${si}`}>
                       {section.heading && (
-                        <div className="pb-0.5 pl-[88px] pt-3 text-[10px] font-semibold tracking-wider text-[#5d92c8]">
+                        // Aligned with the item text below it, not 4px short of it
+                        <div className="pb-0.5 pl-[92px] pt-3 text-[10px] font-semibold tracking-wider text-[#5d92c8]">
                           {section.heading}
                         </div>
                       )}
@@ -472,14 +466,12 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
                   <button
                     type="button"
                     onClick={back}
-                    onMouseEnter={() => setCursorShown(false)}
+                    onMouseEnter={() => setCursor(flat.length)}
                     className={`mt-6 block w-full py-[1px] pl-[92px] text-left leading-[18px] ${
-                      cursorShown && cursor === flat.length
-                        ? 'bg-[#ffc423] text-black'
-                        : 'text-[#1a4d8f] hover:bg-[#fdf6d8]'
+                      cursor === flat.length ? 'bg-[#ffc423] text-black' : 'text-[#1a4d8f]'
                     }`}
                   >
-                    <span className="font-semibold">Q</span>uit
+                    <span className="font-semibold underline">Q</span>uit
                   </button>
                 </div>
               </div>

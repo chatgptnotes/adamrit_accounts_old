@@ -38,8 +38,10 @@ export const getTallyConfig = (): { defaultDetailed: boolean; dayBookMonth: bool
   }
 };
 
-// Tally's classic UI is small, tight sans-serif.
-export const TALLY_FONT = { fontFamily: 'Verdana, "Segoe UI", Tahoma, Arial, sans-serif' } as const;
+// Tally's classic UI is small, tight sans-serif. Must stay in step with the
+// `.tally-skin` rule in index.css, which declares the same stack and loads
+// Selawik — the open metric-compatible stand-in for Segoe UI.
+export const TALLY_FONT = { fontFamily: 'Selawik, "Segoe UI", Tahoma, Arial, sans-serif' } as const;
 
 /**
  * The keyboard helpers live in `keyboard.ts` now, next to the dispatcher that
