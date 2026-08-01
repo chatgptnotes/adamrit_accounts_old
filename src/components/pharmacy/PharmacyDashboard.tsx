@@ -38,6 +38,7 @@ import EditPurchaseOrder from './EditPurchaseOrder';
 import CreditPayments from './CreditPayments';
 import LowStockMedicines from './LowStockMedicines';
 import PrescriptionQueue from './PrescriptionQueue';
+import PartnerOrders from './PartnerOrders';
 import PrescriptionNotificationBell from './PrescriptionNotificationBell';
 import { usePendingPrescriptions } from '@/hooks/usePendingPrescriptions';
 import { useAuth } from '@/contexts/AuthContext';
@@ -292,6 +293,7 @@ const PharmacyDashboard: React.FC = () => {
           <TabsTrigger value="purchase-order">Purchase Order</TabsTrigger>
           <TabsTrigger value="low-stock">Low Stock</TabsTrigger>
           <TabsTrigger value="prescriptions">Prescriptions</TabsTrigger>
+          <TabsTrigger value="partner-orders">Partner Orders</TabsTrigger>
           {isAdmin && (
             <TabsTrigger value="discount-approvals" className="relative">
               Discount Approvals
@@ -620,6 +622,10 @@ const PharmacyDashboard: React.FC = () => {
 
         <TabsContent value="low-stock">
           <LowStockMedicines />
+        </TabsContent>
+
+        <TabsContent value="partner-orders">
+          <PartnerOrders />
         </TabsContent>
 
         <TabsContent value="purchase-order">
