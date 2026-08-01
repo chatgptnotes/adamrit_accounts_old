@@ -14,6 +14,7 @@ export interface TabletVisit {
   billingClearedAt: string | null;
   ward: string | null;
   room: string | null;
+  doctorName: string | null;
   patientName: string;
   patientUuid: string | null; // patients.id (UUID) — FK for ipd_discharge_summary.patient_id
   patientsId: string | null;
@@ -34,6 +35,7 @@ function mapRow(v: any): TabletVisit {
     billingClearedAt: v.billing_cleared_at ?? null,
     ward: v.ward_allotted ?? null,
     room: v.room_allotted ?? null,
+    doctorName: v.appointment_with ?? null,
     patientName: v.patients?.name ?? "Unknown",
     patientUuid: v.patients?.id ?? null,
     patientsId: v.patients?.patients_id ?? null,
@@ -43,7 +45,7 @@ function mapRow(v: any): TabletVisit {
 }
 
 const SELECT =
-  "id, visit_id, patient_type, admission_date, discharge_date, discharge_mode, planned_discharge_date, bill_paid, billing_cleared_at, ward_allotted, room_allotted, patients!inner(id, name, patients_id, age, gender, hospital_name)";
+  "id, visit_id, patient_type, admission_date, discharge_date, discharge_mode, planned_discharge_date, bill_paid, billing_cleared_at, ward_allotted, room_allotted, appointment_with, patients!inner(id, name, patients_id, age, gender, hospital_name)";
 
 /** Currently admitted IPD + Emergency visits for the active hospital. */
 export function useAdmittedVisits() {
@@ -141,6 +143,63 @@ export function useRecentlyDischargedVisits() {
     isLoading: query.isLoading,
     isError: query.isError,
   };
+}
+
+/**
+ * Azher's "Today's Expected Discharge" view: exactly the patients Arshiya has
+ * ticked "Discharge today" on the advance-statement tile, live from
+ * visits.planned_discharge_date. There is no copy step to go stale — ticking
+ * puts a patient here, unticking removes them, and completing the discharge
+ * (discharge_date set) drops them off on the next refresh. Polls every 30s so
+ * the two desks see the same list without talking.
+ */
+export function useTodaysExpectedDischarges() {
+  const { hospitalConfig } = useAuth();
+  const { to: today } = dateWindow(0);
+  const query = useQuery({
+    queryKey: ["tablet-todays-expected-discharges", hospitalConfig.name, today],
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+    queryFn: async (): Promise<TabletVisit[]> => {
+      const { data, error } = await supabase
+        .from("visits")
+        .select(SELECT)
+        .in("patient_type", ["IPD", "IPD (Inpatient)", "Emergency"])
+        .is("discharge_date", null)
+        .eq("planned_discharge_date", today)
+        .eq("patients.hospital_name", hospitalConfig.name)
+        .order("admission_date", { ascending: true });
+      if (error) throw error;
+      return (data || []).map(mapRow);
+    },
+  });
+  return {
+    visits: query.data || [],
+    count: query.data?.length || 0,
+    isLoading: query.isLoading,
+    isError: query.isError,
+  };
+}
+
+/** ward_allotted holds room_management ids; resolve them to ward names once. */
+export function useWardNames() {
+  return useQuery({
+    queryKey: ["tablet-ward-names"],
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<Map<string, string>> => {
+      const { data, error } = await supabase
+        .from("room_management")
+        .select("ward_id, ward_type");
+      if (error) throw error;
+      const map = new Map<string, string>();
+      for (const r of (data || []) as { ward_id: string; ward_type: string | null }[]) {
+        if (r.ward_id && r.ward_type?.trim() && !map.has(r.ward_id)) {
+          map.set(r.ward_id, r.ward_type.trim());
+        }
+      }
+      return map;
+    },
+  });
 }
 
 /** Recently discharged visits for the active hospital. */

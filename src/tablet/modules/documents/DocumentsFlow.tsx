@@ -12,6 +12,8 @@ import {
   useAdmittedVisits,
   useDischargedVisits,
   useRecentlyDischargedVisits,
+  useTodaysExpectedDischarges,
+  useWardNames,
   type TabletVisit,
 } from "@/tablet/hooks/useVisitLists";
 import { shortDate } from "@/tablet/lib/format";
@@ -22,11 +24,16 @@ export default function DocumentsFlow() {
   return <DocumentsViewer visit={selected} onBack={() => setSelected(null)} />;
 }
 
+type PickerMode = "all" | "billing" | "today";
+
 function DocumentsPicker({ onSelect }: { onSelect: (visit: TabletVisit) => void }) {
-  const [showDischarged, setShowDischarged] = useState(false);
+  const [mode, setMode] = useState<PickerMode>("all");
+  const showDischarged = mode === "billing";
   const admitted = useAdmittedVisits();
   const discharged = useDischargedVisits();
   const billing = useRecentlyDischargedVisits();
+  const expected = useTodaysExpectedDischarges();
+  const wardNames = useWardNames();
   const qc = useQueryClient();
   const { toast } = useToast();
 
@@ -71,21 +78,55 @@ function DocumentsPicker({ onSelect }: { onSelect: (visit: TabletVisit) => void 
         <div>
           <h2 className="text-lg font-bold sm:text-xl">Documents</h2>
           <p className="text-sm text-muted-foreground">
-            {showDischarged
+            {mode === "billing"
               ? "Discharged in the last 7 days or planned for discharge — waiting to be billed"
-              : "All admitted and discharged patients"}
+              : mode === "today"
+                ? "Marked “Discharge today” on Arshiya's tile — live, no manual entry"
+                : "All admitted and discharged patients"}
           </p>
         </div>
-        <TabletButton
-          variant={showDischarged ? "default" : "outline"}
-          onClick={() => setShowDischarged((value) => !value)}
-          className="shrink-0"
-        >
-          {showDischarged ? "All patients" : `To bill (${billing.count})`}
-        </TabletButton>
+        <div className="flex shrink-0 gap-2">
+          <TabletButton
+            variant={mode === "today" ? "default" : "outline"}
+            onClick={() => setMode(mode === "today" ? "all" : "today")}
+          >
+            {`Today's Expected Discharge (${expected.count})`}
+          </TabletButton>
+          <TabletButton
+            variant={mode === "billing" ? "default" : "outline"}
+            onClick={() => setMode(mode === "billing" ? "all" : "billing")}
+          >
+            {mode === "billing" ? "All patients" : `To bill (${billing.count})`}
+          </TabletButton>
+        </div>
       </div>
 
-      {showDischarged ? (
+      {mode === "today" ? (
+        <div className="tablet-no-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+          {expected.isLoading ? (
+            <div className="flex justify-center py-10">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : expected.isError ? (
+            <p className="py-10 text-center text-destructive">
+              Could not load today's expected discharges. Check the connection.
+            </p>
+          ) : expected.visits.length === 0 ? (
+            <p className="py-10 text-center text-muted-foreground">
+              Nobody is marked for discharge today on Arshiya's tile yet.
+            </p>
+          ) : (
+            expected.visits.map((visit) => (
+              <ExpectedDischargeRow
+                key={visit.id}
+                visit={visit}
+                wardName={visit.ward ? wardNames.data?.get(visit.ward) || visit.ward : null}
+                onSelect={onSelect}
+              />
+            ))
+          )}
+        </div>
+      ) : showDischarged ? (
         <div className="tablet-no-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
           {billing.isLoading ? (
             <div className="flex justify-center py-10">
@@ -124,6 +165,61 @@ function DocumentsPicker({ onSelect }: { onSelect: (visit: TabletVisit) => void 
         </div>
       )}
     </div>
+  );
+}
+
+/** One patient Arshiya marked "Discharge today". Everything here reads straight
+ *  off the visit, so unticking on her tile — or completing the discharge —
+ *  removes the row on the next refresh without anyone copying anything. */
+function ExpectedDischargeRow({
+  visit,
+  wardName,
+  onSelect,
+}: {
+  visit: TabletVisit;
+  wardName: string | null;
+  onSelect: (visit: TabletVisit) => void;
+}) {
+  const fields: { label: string; value: string }[] = [
+    { label: "UHID", value: visit.patientsId || "—" },
+    { label: "Registration / IPD ID", value: visit.visitId || "—" },
+    { label: "Doctor", value: visit.doctorName || "—" },
+    { label: "Ward", value: wardName || "—" },
+    { label: "Room / Bed", value: visit.room || "—" },
+    { label: "Admitted", value: visit.admissionDate ? shortDate(visit.admissionDate) : "—" },
+    {
+      label: "Expected discharge",
+      value: visit.plannedDischargeDate ? shortDate(visit.plannedDischargeDate) : "—",
+    },
+  ];
+  return (
+    <TabletCard className="p-0">
+      <button
+        type="button"
+        onClick={() => onSelect(visit)}
+        className="w-full p-4 text-left"
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-sky-100">
+            <User className="h-6 w-6 text-sky-700" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-semibold">{visit.patientName}</p>
+            <span className="mt-0.5 inline-block rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-800">
+              Admitted · discharge expected today
+            </span>
+          </div>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
+          {fields.map((f) => (
+            <div key={f.label} className="min-w-0">
+              <p className="text-[11px] font-medium uppercase text-muted-foreground">{f.label}</p>
+              <p className="truncate text-sm font-semibold">{f.value}</p>
+            </div>
+          ))}
+        </div>
+      </button>
+    </TabletCard>
   );
 }
 
