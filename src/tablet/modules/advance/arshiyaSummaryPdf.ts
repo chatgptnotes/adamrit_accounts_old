@@ -56,6 +56,23 @@ const HOSPITAL_LOGOS: Record<string, string> = {
   hope: "/hope-hospital-logo-mark.png",
 };
 
+/**
+ * Full-page letterhead template, keyed by hospital. When present, the
+ * with-logo variant paints this image edge to edge on EVERY page — official
+ * header, footer, and watermark exactly as printed stationery — and the
+ * summary text lives only in the white area between them. A hospital without
+ * a template falls back to the drawn header band with the logo mark.
+ */
+const HOSPITAL_LETTERHEADS: Record<string, string> = {
+  hope: "/hope-letterhead.png",
+};
+
+/** Where the letterhead's white area is, in mm on A4. Measured from the
+ *  hope-letterhead.png artwork: header block ends ~50mm, footer address
+ *  strip begins ~260mm. */
+const LETTERHEAD_TOP = 52;
+const LETTERHEAD_BOTTOM = 254;
+
 export function hospitalLogoSrc(hospitalName: string | null | undefined): string | null {
   return HOSPITAL_LOGOS[String(hospitalName || "").toLowerCase()] ?? null;
 }
@@ -211,54 +228,105 @@ export async function buildArshiyaSummaryPdfBlob(
 
   const { default: jsPDF } = await import("jspdf");
   const pdf = new jsPDF({ unit: "mm", format: "a4" });
-  let y = BODY_TOP;
 
-  const setInk = (rgb: readonly [number, number, number]) =>
-    pdf.setTextColor(rgb[0], rgb[1], rgb[2]);
-
-  const ensureSpace = (needed: number) => {
-    if (y + needed <= BODY_BOTTOM) return;
-    pdf.addPage();
-    y = BODY_TOP;
-  };
-
-  // --- Header -----------------------------------------------------------
-  pdf.setFillColor(BRAND[0], BRAND[1], BRAND[2]);
-  pdf.rect(0, 0, PAGE_W, 3, "F");
-
-  let textX = MARGIN_X;
+  // The letterhead template, when this copy carries the logo and the hospital
+  // has one. Loaded once; a failed load falls back to the drawn header so the
+  // user still gets their PDF.
+  let letterhead: string | null = null;
   if (input.withLogo) {
-    const logoSrc = hospitalLogoSrc(input.hospitalName);
-    if (logoSrc) {
+    const src = HOSPITAL_LETTERHEADS[String(input.hospitalName || "").toLowerCase()];
+    if (src) {
       try {
-        const dataUrl = await loadImageDataUrl(logoSrc);
-        pdf.addImage(dataUrl, "PNG", MARGIN_X, 8, 16, 16);
-        textX = MARGIN_X + 20;
+        letterhead = await loadImageDataUrl(src);
       } catch {
-        // A missing asset must not cost the user their PDF.
+        letterhead = null;
       }
     }
   }
 
-  setInk(INK);
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(15);
-  pdf.text(input.hospitalName, textX, 15);
-  pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(9);
-  setInk(MUTED);
-  pdf.text("Discharge Summary", textX, 21);
+  const bodyTop = letterhead ? LETTERHEAD_TOP : BODY_TOP;
+  const bodyBottom = letterhead ? LETTERHEAD_BOTTOM : BODY_BOTTOM;
+  let y = bodyTop;
 
-  pdf.text(new Date().toLocaleString(), PAGE_W - MARGIN_X, 15, { align: "right" });
-  pdf.text(`Visit ${input.visitNumber || "-"}`, PAGE_W - MARGIN_X, 21, { align: "right" });
+  const setInk = (rgb: readonly [number, number, number]) =>
+    pdf.setTextColor(rgb[0], rgb[1], rgb[2]);
 
-  pdf.setDrawColor(RULE[0], RULE[1], RULE[2]);
-  pdf.setLineWidth(0.3);
-  pdf.line(MARGIN_X, 26, PAGE_W - MARGIN_X, 26);
+  /** Paint the stationery onto the current page, edge to edge. */
+  const paintLetterhead = () => {
+    if (letterhead) pdf.addImage(letterhead, "PNG", 0, 0, PAGE_W, PAGE_H);
+  };
+
+  /** Every continuation page carries the same template as the first. */
+  const newPage = () => {
+    pdf.addPage();
+    paintLetterhead();
+    y = bodyTop;
+  };
+
+  const ensureSpace = (needed: number) => {
+    if (y + needed <= bodyBottom) return;
+    newPage();
+  };
+
+  // --- Header -----------------------------------------------------------
+  if (letterhead) {
+    // The stationery IS the header — nothing is drawn over it. The document
+    // title and reference line open the white area instead.
+    paintLetterhead();
+    setInk(INK);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(13);
+    pdf.text("DISCHARGE SUMMARY", PAGE_W / 2, bodyTop + 5, { align: "center" });
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(8.5);
+    setInk(MUTED);
+    pdf.text(
+      `Visit ${input.visitNumber || "-"} · ${new Date().toLocaleString()}`,
+      PAGE_W / 2,
+      bodyTop + 10.5,
+      { align: "center" },
+    );
+    y = bodyTop + 15;
+  } else {
+    pdf.setFillColor(BRAND[0], BRAND[1], BRAND[2]);
+    pdf.rect(0, 0, PAGE_W, 3, "F");
+
+    let textX = MARGIN_X;
+    if (input.withLogo) {
+      const logoSrc = hospitalLogoSrc(input.hospitalName);
+      if (logoSrc) {
+        try {
+          const dataUrl = await loadImageDataUrl(logoSrc);
+          pdf.addImage(dataUrl, "PNG", MARGIN_X, 8, 16, 16);
+          textX = MARGIN_X + 20;
+        } catch {
+          // A missing asset must not cost the user their PDF.
+        }
+      }
+    }
+
+    setInk(INK);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(15);
+    pdf.text(input.hospitalName, textX, 15);
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(9);
+    setInk(MUTED);
+    pdf.text("Discharge Summary", textX, 21);
+
+    pdf.text(new Date().toLocaleString(), PAGE_W - MARGIN_X, 15, { align: "right" });
+    pdf.text(`Visit ${input.visitNumber || "-"}`, PAGE_W - MARGIN_X, 21, { align: "right" });
+
+    pdf.setDrawColor(RULE[0], RULE[1], RULE[2]);
+    pdf.setLineWidth(0.3);
+    pdf.line(MARGIN_X, 26, PAGE_W - MARGIN_X, 26);
+    y = 30;
+  }
 
   // --- Patient strip ----------------------------------------------------
+  const stripY = y;
   pdf.setFillColor(TINT[0], TINT[1], TINT[2]);
-  pdf.rect(MARGIN_X, 30, CONTENT_W, 16, "F");
+  pdf.rect(MARGIN_X, stripY, CONTENT_W, 16, "F");
 
   const cols = [
     { label: "Patient", value: input.patientName || "-" },
@@ -271,14 +339,14 @@ export async function buildArshiyaSummaryPdfBlob(
     pdf.setFontSize(7);
     setInk(MUTED);
     pdf.setFont("helvetica", "normal");
-    pdf.text(col.label.toUpperCase(), x, 36);
+    pdf.text(col.label.toUpperCase(), x, stripY + 6);
     pdf.setFontSize(10);
     setInk(INK);
     pdf.setFont("helvetica", "bold");
-    pdf.text(pdf.splitTextToSize(col.value, colW - 6)[0], x, 42);
+    pdf.text(pdf.splitTextToSize(col.value, colW - 6)[0], x, stripY + 12);
   });
 
-  y = 54;
+  y = stripY + 24;
 
   // --- Body -------------------------------------------------------------
   for (const block of parseMarkdown(summary)) {
@@ -378,9 +446,8 @@ export async function buildArshiyaSummaryPdfBlob(
       const lineSets = widths.map((w, c) => cellLines(row[c] ?? "", w));
       const height = Math.max(...lineSets.map((l) => l.length)) * 4.4 + 3;
 
-      if (y + height > BODY_BOTTOM) {
-        pdf.addPage();
-        y = BODY_TOP;
+      if (y + height > bodyBottom) {
+        newPage();
         drawHeader();
         pdf.setFont("helvetica", "normal");
         pdf.setFontSize(8.5);
@@ -406,20 +473,32 @@ export async function buildArshiyaSummaryPdfBlob(
   }
 
   // --- Signature and stamp ---------------------------------------------
-  await drawSignatureBlock(pdf, input, () => y, (next) => { y = next; }, ensureSpace);
+  await drawSignatureBlock(pdf, input, () => y, (next) => { y = next; }, ensureSpace, {
+    bodyTop,
+    bodyBottom,
+    newPage,
+  });
 
   // --- Footer -----------------------------------------------------------
+  // On letterhead the stationery's own footer stands; only a slim reference
+  // line goes inside the white area, above it. Plain copies keep the drawn
+  // rule-and-portal footer they always had.
   const pageCount = pdf.getNumberOfPages();
   for (let page = 1; page <= pageCount; page += 1) {
     pdf.setPage(page);
-    pdf.setDrawColor(RULE[0], RULE[1], RULE[2]);
-    pdf.setLineWidth(0.2);
-    pdf.line(MARGIN_X, 284, PAGE_W - MARGIN_X, 284);
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(7.5);
     pdf.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
-    pdf.text(`Patient Portal: ${input.portalUrl}`, MARGIN_X, 289);
-    pdf.text(`Page ${page} of ${pageCount}`, PAGE_W - MARGIN_X, 289, { align: "right" });
+    if (letterhead) {
+      pdf.text(`Patient Portal: ${input.portalUrl}`, MARGIN_X, bodyBottom + 4);
+      pdf.text(`Page ${page} of ${pageCount}`, PAGE_W - MARGIN_X, bodyBottom + 4, { align: "right" });
+    } else {
+      pdf.setDrawColor(RULE[0], RULE[1], RULE[2]);
+      pdf.setLineWidth(0.2);
+      pdf.line(MARGIN_X, 284, PAGE_W - MARGIN_X, 284);
+      pdf.text(`Patient Portal: ${input.portalUrl}`, MARGIN_X, 289);
+      pdf.text(`Page ${page} of ${pageCount}`, PAGE_W - MARGIN_X, 289, { align: "right" });
+    }
   }
 
   return pdf.output("blob") as Blob;
@@ -438,13 +517,14 @@ async function drawSignatureBlock(
   getY: () => number,
   setY: (value: number) => void,
   ensureSpace: (needed: number) => void,
+  bounds: { bodyTop: number; bodyBottom: number; newPage: () => void },
 ) {
   const BLOCK_H = 42;
   ensureSpace(BLOCK_H + 6);
   let y = getY() + 8;
-  if (y + BLOCK_H > BODY_BOTTOM) {
-    pdf.addPage();
-    y = BODY_TOP;
+  if (y + BLOCK_H > bounds.bodyBottom) {
+    bounds.newPage();
+    y = bounds.bodyTop;
   }
 
   const signatory = input.signatory;
