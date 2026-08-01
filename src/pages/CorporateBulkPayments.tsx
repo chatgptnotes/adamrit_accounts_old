@@ -254,7 +254,28 @@ const CorporateBulkPayments: React.FC = () => {
                           Rs. {Number(payment.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                         </TableCell>
                         <TableCell className="text-right">
-                          {payment.allocations?.length || 0}
+                          {(() => {
+                            // Bulk amount is entered first; patient-wise entry
+                            // comes later. Say plainly how much is still
+                            // waiting to be allocated to patients.
+                            const allocated = (payment.allocations || []).reduce(
+                              (sum, alloc) => sum + (Number(alloc.amount) || 0),
+                              0
+                            );
+                            const remaining = Number(payment.total_amount) - allocated;
+                            return remaining > 0.5 ? (
+                              <span
+                                className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800"
+                                title={`Rs. ${remaining.toLocaleString('en-IN')} not yet allocated to patients`}
+                              >
+                                {payment.allocations?.length || 0} · Rs. {Math.round(remaining).toLocaleString('en-IN')} pending
+                              </span>
+                            ) : (
+                              <span className="inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                                {payment.allocations?.length || 0} · allocated
+                              </span>
+                            );
+                          })()}
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-1">
@@ -262,6 +283,7 @@ const CorporateBulkPayments: React.FC = () => {
                               variant="ghost"
                               size="sm"
                               className="h-7 w-7 p-0 text-blue-500 hover:text-blue-700"
+                              title="Edit / add patient-wise allocations"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setEditingPayment(payment);
@@ -349,7 +371,7 @@ const CorporateBulkPayments: React.FC = () => {
                                 </Table>
                               ) : (
                                 <p className="text-sm text-gray-500">
-                                  No allocations recorded.
+                                  Patient-wise entry pending — open the pencil to allocate this receipt to patients.
                                 </p>
                               )}
                             </div>

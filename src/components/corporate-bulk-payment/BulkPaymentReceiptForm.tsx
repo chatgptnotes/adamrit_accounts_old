@@ -285,7 +285,14 @@ const BulkPaymentReceiptForm: React.FC<BulkPaymentReceiptFormProps> = ({
         </div>
       </div>
 
-      {/* Patient Allocation */}
+      {/* Patient Allocation — optional at receipt time. The bulk amount is
+          entered the day the money arrives; patient-wise allocation can be
+          done later by editing this receipt. */}
+      <p className="text-xs text-muted-foreground">
+        Patient-wise allocation is optional now — save the bulk receipt first and come back to
+        allocate patients when the statement is worked out. Unallocated receipts stay flagged on
+        the list.
+      </p>
       <PatientAllocationTable
         allocations={allocations}
         onAllocationsChange={setAllocations}
