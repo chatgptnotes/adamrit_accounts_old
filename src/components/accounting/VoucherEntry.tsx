@@ -1631,8 +1631,8 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     const body = rows
       .map((r) =>
         through
-          ? `<tr><td class="led">${esc(r.name)}</td><td class="num">${fmtINR(r.dr + r.cr)}</td></tr>`
-          : `<tr><td class="led">${r.dr > 0 ? 'Dr' : 'Cr'} ${esc(r.name)}</td><td class="num">${
+          ? `<tr class="led"><td class="led">${esc(r.name)}</td><td class="num">${fmtINR(r.dr + r.cr)}</td></tr>`
+          : `<tr class="led"><td class="led">${r.dr > 0 ? 'Dr' : 'Cr'} ${esc(r.name)}</td><td class="num">${
               r.dr > 0 ? fmtINR(r.dr) : ''
             }</td><td class="num">${r.cr > 0 ? fmtINR(r.cr) : ''}</td></tr>`,
       )
@@ -1650,7 +1650,10 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
   th { border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 3px 0; font-weight: 400; text-align: left; }
   td { padding: 3px 0; vertical-align: top; }
   td.led { padding-left: 6mm; }
-  .num, th.num { text-align: right; font-variant-numeric: tabular-nums; width: 20%; }
+  /* Chrome drops backgrounds unless "Background graphics" is ticked, and the
+     shaded ledger band is part of the Tally look — force it. */
+  tr.led td { background: #e6e6e6; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .num, th.num { text-align: right; font-variant-numeric: tabular-nums; width: 20%; border-left: 1px solid #000; padding-left: 4px; }
   .label { margin-top: 14px; font-weight: 700; }
   .label + div { padding-left: 6mm; }
   .total { margin-top: 18px; display: flex; justify-content: flex-end; }
@@ -1671,7 +1674,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
       through ? '<th class="num">Amount</th>' : '<th class="num">Debit</th><th class="num">Credit</th>'
     }</tr></thead>
     <tbody>
-      ${through ? '<tr><td>Account :</td><td></td></tr>' : ''}
+      ${through ? '<tr><td>Account :</td><td class="num"></td></tr>' : ''}
       ${body}
     </tbody>
   </table>
