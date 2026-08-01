@@ -99,14 +99,21 @@ export function printClaimJustification(
   .salutation { margin-bottom: 12px; }
   p { margin: 0 0 12px; text-align: justify; }
   .observation { margin: 0 0 12px 24px; white-space: pre-wrap; }
-  .closing { margin-top: 22px; page-break-inside: avoid; }
-  .sig, .sig-space { height: 40px; display: block; }
-  .sig { max-width: 160px; object-fit: contain; }
-  .signname { font-weight: bold; margin-top: 4px; }
-  .stamprow { display: flex; gap: 40px; margin-top: 12px; page-break-inside: avoid; }
-  .stampimg { width: 92px; height: 92px; object-fit: contain; display: block; }
-  .stamp-space { width: 92px; height: 92px; border: 1px dashed #999; }
-  .stamp-caption { font-size: 9.5px; color: #666; width: 92px; text-align: center; margin-top: 2px; }
+  /* The closing sits against the right margin, which is where a signature goes
+     on a letter and — more to the point — keeps the stamps clear of the two
+     addresses printed across the foot of the letterhead. Everything here is
+     sized to fit above that band on a one-page letter. */
+  .closing { margin-top: 14px; text-align: right; page-break-inside: avoid; }
+  .sig, .sig-space { height: 28px; display: block; margin-left: auto; }
+  .sig { max-width: 150px; object-fit: contain; }
+  .signname { font-weight: bold; margin-top: 2px; }
+  .stamprow { display: flex; justify-content: flex-end; gap: 22px; margin-top: 8px; page-break-inside: avoid; }
+  /* A wider box than tall: doctors' stamps are landscape rectangles and were
+     shrinking to nothing inside a square. object-fit keeps the round hospital
+     seal from stretching to fill it. */
+  .stampimg { width: 118px; height: 74px; object-fit: contain; display: block; }
+  .stamp-space { width: 118px; height: 74px; border: 1px dashed #999; }
+  .stamp-caption { font-size: 9px; color: #666; width: 118px; text-align: center; margin-top: 2px; }
 </style>
 </head>
 <body>
