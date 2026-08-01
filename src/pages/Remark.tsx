@@ -1,9 +1,10 @@
 import React, { useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { MessageSquare, Upload } from 'lucide-react';
+import { MessageSquare, Sparkles, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { draftRemarkJustification } from '@/lib/draftRemarkJustification';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -54,6 +55,8 @@ const Remark = () => {
   // so only one cell can ever be mid-edit — there is no second draft to lose.
   const [editing, setEditing] = useState<{ id: string; field: EditableField } | null>(null);
   const [draft, setDraft] = useState('');
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
+  const [drafting, setDrafting] = useState(false);
 
   const { data: rows = [], isLoading, error } = useQuery({
     queryKey: ['esic-claim-remarks', hospitalConfig.name],
@@ -121,11 +124,84 @@ const Remark = () => {
 
       toast.success(`Imported ${records.length} claim${records.length === 1 ? '' : 's'}`);
       queryClient.invalidateQueries({ queryKey: ['esic-claim-remarks', hospitalConfig.name] });
+      await draftMissingReplies();
     } catch (error: any) {
       console.error('Remark import failed:', error);
       toast.error(`Import failed: ${error?.message || 'unknown error'}`);
     } finally {
       setImporting(false);
+    }
+  };
+
+  // Draft one reply and store it. Shared by the per-row button and the sweep
+  // that runs after an import.
+  const generateFor = async (row: ClaimRemark) => {
+    const reply = await draftRemarkJustification(row.l2_remark || '');
+    const { error } = await supabase
+      .from('esic_claim_remarks' as any)
+      .update({ justification: reply, updated_at: new Date().toISOString() } as any)
+      .eq('id', row.id);
+    if (error) throw error;
+  };
+
+  const handleGenerate = async (row: ClaimRemark) => {
+    setGeneratingId(row.id);
+    try {
+      await generateFor(row);
+      toast.success('Reply drafted — check it before sending');
+      queryClient.invalidateQueries({ queryKey: ['esic-claim-remarks', hospitalConfig.name] });
+    } catch (error: any) {
+      console.error('Draft failed:', error);
+      toast.error(`Could not draft a reply: ${error?.message || 'unknown error'}`);
+    } finally {
+      setGeneratingId(null);
+    }
+  };
+
+  // After an import, write a draft reply into every claim that has a remark and
+  // no reply yet. Claims already answered are left alone — an import must never
+  // overwrite someone's words, whether they typed them or edited a draft.
+  const draftMissingReplies = async () => {
+    const { data, error } = await supabase
+      .from('esic_claim_remarks' as any)
+      .select('id, claim_id, patient_name, l2_remark, justification')
+      .eq('hospital_name', hospitalConfig.name)
+      .is('justification', null)
+      .not('l2_remark', 'is', null)
+      .order('created_at', { ascending: false });
+    if (error || !data) return;
+
+    const pending = (data as unknown as ClaimRemark[]).filter(r => (r.l2_remark || '').trim() !== '');
+    if (pending.length === 0) return;
+
+    // The AI proxy allows 30 requests a minute. Rather than trip that and fail
+    // half the batch, cap the sweep and say plainly which ones were skipped —
+    // they can still be drafted one at a time from the row button.
+    const CAP = 20;
+    const batch = pending.slice(0, CAP);
+    setDrafting(true);
+    let done = 0;
+    try {
+      for (const row of batch) {
+        try {
+          await generateFor(row);
+          done += 1;
+        } catch (error) {
+          console.error(`Draft failed for claim ${row.claim_id}:`, error);
+        }
+      }
+    } finally {
+      setDrafting(false);
+      queryClient.invalidateQueries({ queryKey: ['esic-claim-remarks', hospitalConfig.name] });
+    }
+
+    if (done === 0) {
+      toast.error('Imported, but no replies could be drafted');
+    } else {
+      const skipped = pending.length - done;
+      toast.success(
+        `Drafted ${done} repl${done === 1 ? 'y' : 'ies'}${skipped > 0 ? ` — ${skipped} left to draft from the row button` : ''}. Check each one before sending.`,
+      );
     }
   };
 
@@ -202,16 +278,17 @@ const Remark = () => {
             onChange={handleImport}
             className="hidden"
           />
-          <Button variant="outline" disabled={importing} onClick={() => importInputRef.current?.click()}>
+          <Button variant="outline" disabled={importing || drafting} onClick={() => importInputRef.current?.click()}>
             <Upload className="h-4 w-4 mr-2" />
-            {importing ? 'Importing…' : 'Import Excel'}
+            {drafting ? 'Drafting replies…' : importing ? 'Importing…' : 'Import Excel'}
           </Button>
         </div>
       </div>
 
       <p className="text-sm text-muted-foreground">
-        Claims carrying an ESIC scrutiny remark. Re-importing the sheet refreshes the
-        remarks and keeps every justification already written here.
+        Claims carrying an ESIC scrutiny remark. Importing the sheet drafts a reply for
+        every unanswered remark — read each one and edit it before it goes back to ESIC.
+        Re-importing never overwrites a reply.
       </p>
 
       <div className="rounded-md border">
@@ -250,7 +327,23 @@ const Remark = () => {
                 <TableRow key={row.id} className="align-top">
                   <TableCell className="font-medium">{row.patient_name || '—'}</TableCell>
                   <TableCell>{renderCell(row, 'l2_remark', 'Click to add a remark…')}</TableCell>
-                  <TableCell>{renderCell(row, 'justification', 'Click to reply…')}</TableCell>
+                  <TableCell>
+                    {renderCell(row, 'justification', 'Click to reply, or draft it below…')}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="mt-1 h-7 px-2 text-xs text-muted-foreground"
+                      disabled={generatingId === row.id || drafting}
+                      onClick={() => handleGenerate(row)}
+                    >
+                      <Sparkles className="h-3.5 w-3.5 mr-1" />
+                      {generatingId === row.id
+                        ? 'Drafting…'
+                        : row.justification
+                          ? 'Redraft'
+                          : 'Draft reply'}
+                    </Button>
+                  </TableCell>
                 </TableRow>
               ))
             )}
