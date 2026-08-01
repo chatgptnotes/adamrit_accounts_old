@@ -157,6 +157,11 @@ export const menuItems: MenuItemDef[] = [
     icon: Building2,
   },
   {
+    title: "Panel Portal Uploads",
+    url: "/panel-portal",
+    icon: Building2,
+  },
+  {
     title: "Corporate Receipts",
     url: "/corporate-bulk-payments",
     icon: Receipt,
