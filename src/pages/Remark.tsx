@@ -1,10 +1,11 @@
 import React, { useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { MessageSquare, Sparkles, Upload } from 'lucide-react';
+import { MessageSquare, Printer, Sparkles, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { draftRemarkJustification } from '@/lib/draftRemarkJustification';
+import { printClaimJustification } from '@/lib/printClaimJustification';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -17,6 +18,10 @@ interface ClaimRemark {
   id: string;
   claim_id: string;
   patient_name: string | null;
+  uhid: string | null;
+  card_id: string | null;
+  approved_amount: number | null;
+  process_stage: string | null;
   l2_remark: string | null;
   justification: string | null;
 }
@@ -56,13 +61,12 @@ const Remark = () => {
   const [editing, setEditing] = useState<{ id: string; field: EditableField } | null>(null);
   const [draft, setDraft] = useState('');
   const [generatingId, setGeneratingId] = useState<string | null>(null);
-
   const { data: rows = [], isLoading, error } = useQuery({
     queryKey: ['esic-claim-remarks', hospitalConfig.name],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('esic_claim_remarks' as any)
-        .select('id, claim_id, patient_name, l2_remark, justification')
+        .select('id, claim_id, patient_name, uhid, card_id, approved_amount, process_stage, l2_remark, justification')
         .eq('hospital_name', hospitalConfig.name)
         .order('created_at', { ascending: false });
       if (error) throw error;
@@ -149,6 +153,17 @@ const Remark = () => {
       toast.error(`Could not draft a reply: ${error?.message || 'unknown error'}`);
     } finally {
       setGeneratingId(null);
+    }
+  };
+
+  const handlePrint = (row: ClaimRemark) => {
+    try {
+      printClaimJustification(row, {
+        hospitalName: hospitalConfig.fullName,
+        hospitalAddress: hospitalConfig.contactInfo.address,
+      });
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not open the print window');
     }
   };
 
@@ -290,6 +305,17 @@ const Remark = () => {
                           ? 'Redraft'
                           : 'Draft reply'}
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="mt-1 ml-1 h-7 px-2 text-xs text-muted-foreground"
+                      // Nothing to print until there is a justification to print.
+                      disabled={!(row.justification || '').trim()}
+                      onClick={() => handlePrint(row)}
+                    >
+                      <Printer className="h-3.5 w-3.5 mr-1" />
+                      Print
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))
@@ -297,6 +323,7 @@ const Remark = () => {
           </TableBody>
         </Table>
       </div>
+
     </div>
   );
 };
