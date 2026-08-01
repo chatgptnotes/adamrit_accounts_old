@@ -510,7 +510,7 @@ makes your stock silently wrong; test 8 is the one that silently double-orders.
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/medicines` | Catalogue. `search`, `page`, `limit` (max 500) |
-| `GET` | `/stock` | Catalogue without `since`; change feed with it. Also `medicine`, `search`, `page`, `limit` (max 500) |
+| `GET` | `/stock` | Catalogue without `since`; change feed with it. Also `medicine`, `page`, `limit` (max 500), and `search` — see the caveat below |
 | `GET` | `/stock-snapshot` | Full snapshot. `page`, `limit` (max 1000), `snapshot_id`, `snapshot_at` |
 | `POST` | `/orders` | Place an order |
 | `GET` | `/orders` | List your orders. Optional `status` |
@@ -530,6 +530,14 @@ makes your stock silently wrong; test 8 is the one that silently double-orders.
 
 `/stock` responses also carry `page`, `limit`, `has_more`, `watermark`,
 `hospital` and `unit`.
+
+**Caveat on `search`:** medicine names live in a different table at Adamrit's
+end, so `?search=` filters the page *after* it has been fetched, not in the
+database. A page of 200 rows may come back with only three matches, or none,
+while `has_more` and `watermark` still reflect the unfiltered set. It is fine for
+a human looking something up; **do not build the sync on it.** Use `?medicine=`
+for an exact, correctly-paginated filter, or filter locally against
+`adamrit_stock` — which, after Task 2, you have in full anyway.
 
 ### Errors
 
