@@ -59,14 +59,19 @@ const Remark = () => {
   // claim appears on its own.
   const openRemarks = rows.filter(row => (row.l2_remark || '').trim() !== '');
 
+  // Nothing is listed until somebody searches. The worklist is a way in to one
+  // patient, not a page to browse, and two characters is enough to stop a stray
+  // keystroke listing everything.
   const term = debouncedSearch.trim().toLowerCase();
-  const visible = term
+  const searching = term.length >= 2;
+  const visible = searching
     ? openRemarks.filter(row =>
         `${row.patient_name || ''} ${row.claim_id} ${row.uhid || ''} ${row.card_id || ''}`
           .toLowerCase()
           .includes(term),
       )
-    : openRemarks;
+    : [];
+  const awaiting = openRemarks.filter(row => !(row.justification || '').trim()).length;
 
   const selected = selectedId ? rows.find(row => row.id === selectedId) || null : null;
 
@@ -190,11 +195,24 @@ const Remark = () => {
           <div className="py-10 text-center text-sm text-destructive">
             Could not load remarks: {(error as Error).message}
           </div>
+        ) : openRemarks.length === 0 ? (
+          <div className="py-10 text-center text-sm text-muted-foreground">
+            No remarks yet. Import the ESIC scrutiny sheet to get started.
+          </div>
+        ) : !searching ? (
+          <div className="px-4 py-10 text-center">
+            <Search className="mx-auto mb-3 h-6 w-6 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">
+              Search for a patient to answer their remark.
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {openRemarks.length} claim{openRemarks.length === 1 ? '' : 's'} carry a scrutiny
+              remark{awaiting > 0 ? `, ${awaiting} still awaiting a reply` : ''}.
+            </p>
+          </div>
         ) : visible.length === 0 ? (
           <div className="py-10 text-center text-sm text-muted-foreground">
-            {openRemarks.length === 0
-              ? 'No remarks yet. Import the ESIC scrutiny sheet to get started.'
-              : `No claim matches "${search.trim()}".`}
+            No claim matches "{search.trim()}".
           </div>
         ) : (
           visible.map(row => {
@@ -229,7 +247,7 @@ const Remark = () => {
         )}
       </div>
 
-      {!isLoading && !error && openRemarks.length > 0 && (
+      {!isLoading && !error && searching && visible.length > 0 && (
         <p className="text-xs text-muted-foreground">
           {visible.length} of {openRemarks.length} claims carrying a scrutiny remark.
           Claims with no remark are stored but not listed.
