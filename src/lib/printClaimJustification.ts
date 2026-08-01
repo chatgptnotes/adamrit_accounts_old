@@ -71,70 +71,72 @@ export function printClaimJustification(
 <title>Justification – Claim ${escapeHtml(claim.claim_id)}</title>
 <style>
   @page { margin: 18mm; }
-  body { font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial; color: #111; line-height: 1.55; font-size: 12px; }
-  .letterhead { text-align: center; border-bottom: 2px solid #111; padding-bottom: 8px; margin-bottom: 16px; }
-  .letterhead h1 { font-size: 17px; margin: 0 0 2px; letter-spacing: .3px; }
-  .letterhead .addr { font-size: 10.5px; color: #444; }
-  .doctitle { text-align: center; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; margin: 14px 0 12px; }
-  .meta { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
-  .meta td { border: 1px solid #bbb; padding: 5px 8px; vertical-align: top; }
-  .meta td.k { background: #f4f4f4; font-weight: 600; width: 20%; white-space: nowrap; }
-  .section-label { font-weight: 700; margin: 14px 0 4px; }
-  .quote { border-left: 3px solid #999; padding: 6px 10px; background: #fafafa; white-space: pre-wrap; }
-  .body-text { white-space: pre-wrap; text-align: justify; }
-  .signrow { display: flex; gap: 28px; margin-top: 34px; page-break-inside: avoid; }
-  .signblock { flex: 1; }
-  .sig, .sig-space { height: 34px; display: block; }
-  .sig { max-width: 150px; object-fit: contain; }
-  .signline { border-top: 1px solid #111; width: 78%; margin-bottom: 4px; }
-  .signname { font-weight: 700; }
-  .signmeta { font-size: 10.5px; color: #444; }
-  .stampimg { width: 78px; height: 78px; object-fit: contain; display: block; margin-top: 10px; }
-  .stamp-space { width: 78px; height: 78px; border: 1px dashed #999; border-radius: 4px; }
-  .stamp-caption { font-size: 9.5px; color: #666; width: 78px; text-align: center; margin-top: 2px; }
-  .printed { margin-top: 26px; font-size: 10px; color: #666; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #000; line-height: 1.6; font-size: 12.5px; }
+  .date { text-align: right; margin-bottom: 14px; }
+  .addressee { white-space: pre-line; margin-bottom: 14px; }
+  .through { margin-bottom: 14px; }
+  .subject { margin-bottom: 6px; }
+  .ref { margin-bottom: 14px; }
+  .salutation { margin-bottom: 12px; }
+  p { margin: 0 0 12px; text-align: justify; }
+  .observation { margin: 0 0 12px 24px; white-space: pre-wrap; }
+  .closing { margin-top: 22px; page-break-inside: avoid; }
+  .sig, .sig-space { height: 40px; display: block; }
+  .sig { max-width: 160px; object-fit: contain; }
+  .signname { font-weight: bold; margin-top: 4px; }
+  .stamprow { display: flex; gap: 40px; margin-top: 12px; page-break-inside: avoid; }
+  .stampimg { width: 92px; height: 92px; object-fit: contain; display: block; }
+  .stamp-space { width: 92px; height: 92px; border: 1px dashed #999; }
+  .stamp-caption { font-size: 9.5px; color: #666; width: 92px; text-align: center; margin-top: 2px; }
 </style>
 </head>
 <body>
-  <div class="letterhead">
-    <h1>${escapeHtml(options.hospitalName)}</h1>
-    <div class="addr">${escapeHtml(options.hospitalAddress)}</div>
-  </div>
+  <div class="date">Date: ${escapeHtml(printedOn)}</div>
 
-  <div class="doctitle">Justification against scrutiny remark</div>
+  <div class="addressee">To,
+State Medical Officer,
+Regional Office Maharashtra,
+Employees State Insurance Corporation,
+Ground Floor, Panchdeep Bhavan,
+Near Strand Cinema Bus Stop, S.B.S Marg,
+Colaba, Mumbai – 400005</div>
 
-  <table class="meta">
-    <tr><td class="k">Claim ID</td><td>${escapeHtml(claim.claim_id)}</td><td class="k">UHID</td><td>${escapeHtml(claim.uhid || '—')}</td></tr>
-    <tr><td class="k">Patient</td><td>${escapeHtml(claim.patient_name || '—')}</td><td class="k">Card ID</td><td>${escapeHtml(claim.card_id || '—')}</td></tr>
-    <tr><td class="k">Process stage</td><td>${escapeHtml(claim.process_stage || '—')}</td><td class="k">Approved amount</td><td>${escapeHtml(formatAmount(claim.approved_amount))}</td></tr>
-  </table>
+  <div class="through">Through :- The Superintendent, ESIS Hospital, Somwarpeth, Nagpur</div>
 
-  <div class="section-label">Remark raised by the scrutinizer</div>
-  <div class="quote">${escapeHtml(claim.l2_remark || '—')}</div>
+  <div class="subject"><b>Subject:</b> Justification against scrutiny remark raised on claim of ${escapeHtml(claim.patient_name || 'the beneficiary')}</div>
 
-  <div class="section-label">Justification submitted by the hospital</div>
-  <div class="body-text">${escapeHtml(claim.justification || '')}</div>
+  <div class="ref"><b>Ref:</b> Claim ID ${escapeHtml(claim.claim_id)}${claim.uhid ? `, UHID ${escapeHtml(claim.uhid)}` : ''}${claim.card_id ? `, Card ID ${escapeHtml(claim.card_id)}` : ''}${claim.approved_amount != null ? `, approved amount ${escapeHtml(formatAmount(claim.approved_amount))}` : ''}</div>
 
-  <div class="signrow">
-    ${doctor ? `
-    <div class="signblock">
-      ${doctor.signatureUrl ? `<img class="sig" src="${escapeHtml(doctor.signatureUrl)}" alt="" />` : '<div class="sig-space"></div>'}
-      <div class="signline"></div>
-      <div class="signname">${escapeHtml(doctor.name)}</div>
-      ${doctor.qualification ? `<div class="signmeta">${escapeHtml(doctor.qualification)}</div>` : ''}
-      ${doctor.registrationNo ? `<div class="signmeta">Reg. No. ${escapeHtml(doctor.registrationNo)}</div>` : ''}
-      <div class="signmeta">Signature of the treating doctor</div>
-      ${doctor.stampUrl ? `<img class="stampimg" src="${escapeHtml(doctor.stampUrl)}" alt="" /><div class="stamp-caption">Doctor's stamp</div>` : ''}
-    </div>` : ''}
-    <div class="signblock">
-      ${options.hospitalSealUrl
-        ? `<img class="stampimg" src="${escapeHtml(options.hospitalSealUrl)}" alt="" />`
-        : '<div class="stamp-space"></div>'}
-      <div class="stamp-caption">Hospital stamp</div>
+  <div class="salutation">Dear Sir,</div>
+
+  <p>The following observation has been raised at scrutiny on the above claim:</p>
+
+  <div class="observation">"${escapeHtml(claim.l2_remark || '')}"</div>
+
+  <p>${escapeHtml(claim.justification || '')}</p>
+
+  <div class="closing">
+    <div>Regards,</div>
+    ${doctor
+      ? `${doctor.signatureUrl ? `<img class="sig" src="${escapeHtml(doctor.signatureUrl)}" alt="" />` : '<div class="sig-space"></div>'}
+    <div class="signname">${escapeHtml(doctor.name)}</div>
+    ${doctor.qualification ? `<div>${escapeHtml(doctor.qualification)}</div>` : ''}
+    ${doctor.registrationNo ? `<div>Reg. No. ${escapeHtml(doctor.registrationNo)}</div>` : ''}`
+      : '<div class="sig-space"></div>'}
+    <div>${escapeHtml(options.hospitalName)}, Nagpur</div>
+
+    <div class="stamprow">
+      ${doctor?.stampUrl
+        ? `<div><img class="stampimg" src="${escapeHtml(doctor.stampUrl)}" alt="" /><div class="stamp-caption">Doctor's stamp</div></div>`
+        : ''}
+      <div>
+        ${options.hospitalSealUrl
+          ? `<img class="stampimg" src="${escapeHtml(options.hospitalSealUrl)}" alt="" />`
+          : '<div class="stamp-space"></div>'}
+        <div class="stamp-caption">Hospital stamp</div>
+      </div>
     </div>
   </div>
-
-  <div class="printed">Printed on ${escapeHtml(printedOn)}</div>
 </body>
 </html>`;
 
