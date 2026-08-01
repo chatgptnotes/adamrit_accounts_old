@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ClaimDetail } from '@/components/remark/ClaimDetail';
 import { CLAIM_COLUMNS, type ClaimRemark } from '@/components/remark/types';
+import { lookupEsicVisit, useEsicVisitIndex } from '@/hooks/useClaimPatientMatch';
 
 // Excel headers drift between exports — "Card Id" one week, "Card ID" the next,
 // with stray spaces. Matching on a stripped-down key means a header only has to
@@ -74,6 +75,10 @@ const Remark = () => {
   const awaiting = openRemarks.filter(row => !(row.justification || '').trim()).length;
 
   const selected = selectedId ? rows.find(row => row.id === selectedId) || null : null;
+
+  // One shared lookup of every visit carrying an ESIC UHID, so each result can
+  // say whether the patient is ours without a query of its own.
+  const { data: visitIndex } = useEsicVisitIndex();
 
   const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -217,6 +222,10 @@ const Remark = () => {
         ) : (
           visible.map(row => {
             const answered = (row.justification || '').trim() !== '';
+            // Only the exact UHID match is shown in the list. A name match is a
+            // guess that needs a human eye, and a list is the wrong place to
+            // ask for one — the detail view handles that case.
+            const ours = lookupEsicVisit(visitIndex, row.uhid);
             return (
               <button
                 key={row.id}
@@ -229,6 +238,16 @@ const Remark = () => {
                   <div className="truncate text-xs text-muted-foreground">
                     Claim {row.claim_id}
                     {row.uhid ? ` · ${row.uhid}` : ''}
+                  </div>
+                  <div className="truncate text-xs">
+                    {ours ? (
+                      <span className="text-emerald-700 dark:text-emerald-400">
+                        In our records · {ours.patientsId || '—'}
+                        {ours.visitId ? ` · visit ${ours.visitId}` : ''}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Not matched to our records</span>
+                    )}
                   </div>
                 </div>
                 <span

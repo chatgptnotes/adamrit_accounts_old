@@ -56,43 +56,89 @@ const normalizeName = (value: string | null | undefined) =>
     .replace(/^\s*(mr|mrs|ms|master|dr|smt|shri)\.?\s+/, '')
     .replace(/[^a-z]/g, '');
 
+export interface EsicVisit {
+  visitId: string | null;
+  patientName: string | null;
+  patientsId: string | null;
+  admissionDate: string | null;
+  dischargeDate: string | null;
+}
+
+/**
+ * Every visit carrying an ESIC UHID, keyed by that UHID normalised.
+ *
+ * Loaded once and shared: the worklist asks this question for every row it
+ * shows, and a query per row would be dozens of identical round trips for a
+ * table that is only ~42 rows long in total.
+ */
+export function useEsicVisitIndex() {
+  return useQuery<Map<string, EsicVisit>>({
+    queryKey: ['esic-visit-index'],
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('visits')
+        .select('visit_id, esic_uh_id, admission_date, discharge_date, patients(name, patients_id)')
+        .neq('esic_uh_id', '')
+        .not('esic_uh_id', 'is', null)
+        .limit(2000);
+      if (error) throw error;
+
+      const index = new Map<string, EsicVisit>();
+      (data || []).forEach((v: any) => {
+        const key = normalizeUhid(v.esic_uh_id);
+        // Keyed on the normalised UHID because the stored values vary in
+        // punctuation; there is no normalised column to match on.
+        if (!key || index.has(key)) return;
+        index.set(key, {
+          visitId: v.visit_id ?? null,
+          patientName: v.patients?.name ?? null,
+          patientsId: v.patients?.patients_id ?? null,
+          admissionDate: v.admission_date ?? null,
+          dischargeDate: v.discharge_date ?? null,
+        });
+      });
+      return index;
+    },
+  });
+}
+
+/** Look one claim up in an already-loaded index. No query of its own. */
+export const lookupEsicVisit = (
+  index: Map<string, EsicVisit> | undefined,
+  uhid: string | null | undefined,
+): EsicVisit | null => {
+  const key = normalizeUhid(uhid);
+  if (!key || !index) return null;
+  return index.get(key) || null;
+};
+
 export function useClaimPatientMatch(
   uhid: string | null | undefined,
   patientName: string | null | undefined,
 ) {
-  return useQuery<ClaimPatientMatch>({
-    queryKey: ['claim-patient-match', uhid, patientName],
-    enabled: Boolean(uhid || patientName),
+  // Shares the index with the worklist, so opening a claim costs no extra
+  // round trip for the UHID half of the answer.
+  const { data: index, isLoading: indexLoading } = useEsicVisitIndex();
+
+  const query = useQuery<ClaimPatientMatch>({
+    queryKey: ['claim-patient-match', uhid, patientName, Boolean(index)],
+    enabled: Boolean(index) && Boolean(uhid || patientName),
     staleTime: 5 * 60_000,
     queryFn: async () => {
       // 1. The ESIC UHID on a visit. Exact, so a hit here is stated plainly.
-      const wanted = normalizeUhid(uhid);
-      if (wanted) {
-        const { data: visits, error } = await supabase
-          .from('visits')
-          .select('visit_id, esic_uh_id, admission_date, discharge_date, patients(name, patients_id)')
-          .neq('esic_uh_id', '')
-          .not('esic_uh_id', 'is', null)
-          .limit(2000);
-        if (error) throw error;
-
-        // Filtered here rather than in the query because the stored values vary
-        // in punctuation; there is no normalised column to match on.
-        const hit = (visits || []).find(
-          (v: any) => normalizeUhid(v.esic_uh_id) === wanted,
-        ) as any;
-        if (hit) {
-          return {
-            status: 'found',
-            matchedOn: 'uhid',
-            patientName: hit.patients?.name ?? null,
-            patientsId: hit.patients?.patients_id ?? null,
-            visitId: hit.visit_id ?? null,
-            admissionDate: hit.admission_date ?? null,
-            dischargeDate: hit.discharge_date ?? null,
-            sharedBy: 0,
-          };
-        }
+      const hit = lookupEsicVisit(index, uhid);
+      if (hit) {
+        return {
+          status: 'found',
+          matchedOn: 'uhid',
+          patientName: hit.patientName,
+          patientsId: hit.patientsId,
+          visitId: hit.visitId,
+          admissionDate: hit.admissionDate,
+          dischargeDate: hit.dischargeDate,
+          sharedBy: 0,
+        };
       }
 
       // 2. The name. Only useful when exactly one patient carries it.
@@ -131,4 +177,6 @@ export function useClaimPatientMatch(
       return NOT_FOUND;
     },
   });
+
+  return { ...query, isLoading: indexLoading || query.isLoading };
 }
