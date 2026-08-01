@@ -838,14 +838,19 @@ export function DailyRevenueReportSection() {
     return (data as unknown as { id: string }).id;
   };
 
-  /** True when a row is a real, unpaid commission that a bank can be sent at. */
-  const isPayable = (row: DisplayRow): boolean =>
+  /** A real, unpaid commission — whether or not it can be paid yet. */
+  const isOwed = (row: DisplayRow): boolean =>
     !row.approvalId && !row.isHidden && !isDirect(row.rm_name) && row.cut > 0;
+
+  /** Owed, and with a ledger to pay it to. Only these can be posted. */
+  const isPayable = (row: DisplayRow): boolean => isOwed(row) && Boolean(row.rmLedgerId);
 
   const bankForRow = (row: DisplayRow): string => rowBankOverride[row.key] || payBankId;
 
-  /** Commissions on this report that still owe someone money. */
+  /** Commissions on this report that can be posted right now. */
   const unpaidPayableCount = rows.filter(isPayable).length;
+  /** Owed, but with nowhere to send it. These never block the day's approval. */
+  const unpayableCount = rows.filter((r) => isOwed(r) && !r.rmLedgerId).length;
 
   const payRows = async (rowsToPay: DisplayRow[], bankAccountId: string) => {
     if (!payCompanyId) throw new Error('Select the company the payment is made from');
@@ -898,11 +903,17 @@ export function DailyRevenueReportSection() {
       // report is posted first, grouped so a manager on six rows is paid once,
       // and the day is only locked once that has gone through — a failure here
       // must leave the report open and editable rather than sealed and unpaid.
+      // Commissions with no ledger are left unpaid rather than blocking the
+      // day — the takings are still a fact — but they are named in the result
+      // so locking the sheet never quietly buries money somebody is owed.
       const payable = rows.filter(isPayable);
       let paidSummary = '';
       if (payable.length) {
         const result = await payRows(payable, payBankId);
         paidSummary = ` Paid ${result.paid.length} manager(s), ₹${formatINR(result.total)}.`;
+      }
+      if (unpayableCount > 0) {
+        paidSummary += ` ${unpayableCount} commission(s) left unpaid — their manager has no ledger.`;
       }
 
       // Do not use upsert here. Some existing deployments have the approval
@@ -1585,6 +1596,14 @@ export function DailyRevenueReportSection() {
                                       : 'raised, posting incomplete'}
                                   </span>
                                 </span>
+                              ) : isOwed(r) && !r.rmLedgerId ? (
+                                // Recorded, owed, but with nowhere to send it.
+                                <span
+                                  className="text-xs font-medium text-amber-700"
+                                  title={`${r.rm_name} has no ledger. Map one on the Relationship Manager master to pay this.`}
+                                >
+                                  No ledger
+                                </span>
                               ) : !isPayable(r) ? (
                                 <span className="text-xs text-gray-400">—</span>
                               ) : (
@@ -1710,9 +1729,11 @@ export function DailyRevenueReportSection() {
                   <TableCell className="text-right">Rs {formatINR(totals.cost)}</TableCell>
                   <TableCell className="text-right">Rs {formatINR(totals.cut)}</TableCell>
                   <TableCell className="print:hidden text-right text-xs text-gray-600">
-                    {unpaidPayableCount > 0
-                      ? `${unpaidPayableCount} to pay`
-                      : rows.some((r) => r.approvalId) ? 'all paid' : ''}
+                    {unpaidPayableCount > 0 && `${unpaidPayableCount} to pay`}
+                    {unpaidPayableCount === 0 && rows.some((r) => r.approvalId) && 'all paid'}
+                    {unpayableCount > 0 && (
+                      <span className="block text-amber-700">{unpayableCount} no ledger</span>
+                    )}
                   </TableCell>
                   <TableCell className="print:hidden text-right">
                     <Button
@@ -1854,10 +1875,30 @@ export function DailyRevenueReportSection() {
                     })
                   }
                 />
-                {manualForm.rm_ledger?.account_code && (
+                {manualForm.rm_ledger?.account_code ? (
                   <p className="mt-1 text-xs text-gray-500">
                     Ledger {manualForm.rm_ledger.account_code}
                   </p>
+                ) : (
+                  // A manager who has no ledger yet must still be recordable —
+                  // the day's takings are a fact whether or not accounting has
+                  // caught up. The row is kept and simply cannot be paid until
+                  // someone gives that manager a ledger.
+                  <div className="mt-2">
+                    <Input
+                      id="m_rm"
+                      placeholder="…or type a name for a manager with no ledger"
+                      value={manualForm.rm_name}
+                      maxLength={100}
+                      onChange={(e) => setManualForm({ ...manualForm, rm_name: e.target.value })}
+                    />
+                    {manualForm.rm_name.trim() && !isDirect(manualForm.rm_name) && (
+                      <p className="mt-1 text-xs text-amber-700">
+                        No ledger picked — this row will be recorded but cannot be paid
+                        until “{manualForm.rm_name.trim()}” has one.
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
