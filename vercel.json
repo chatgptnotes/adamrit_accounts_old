@@ -12,10 +12,14 @@
     },
     "api/ai-proxy.ts": {
       "maxDuration": 120
+    },
+    "api/partner/nightly-sync.ts": {
+      "maxDuration": 300
     }
   },
   "crons": [
-    { "path": "/api/deadline-reminders", "schedule": "30 3 * * *" }
+    { "path": "/api/deadline-reminders", "schedule": "30 3 * * *" },
+    { "path": "/api/partner/nightly-sync", "schedule": "30 20 * * *" }
   ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },

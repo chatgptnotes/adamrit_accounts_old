@@ -172,6 +172,109 @@ async function logRequest(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Stock row shaping, shared by /stock, /stock-snapshot and the nightly push
+// ---------------------------------------------------------------------------
+
+export const TODAY = () => new Date().toISOString().slice(0, 10);
+
+/** What a batch row means to the partner right now. */
+export type BatchStatus = 'available' | 'out_of_stock' | 'expired' | 'withdrawn';
+
+export function batchStatus(row: any): BatchStatus {
+  if (row.is_active === false) return 'withdrawn';
+  if (row.expiry_date && row.expiry_date <= TODAY()) return 'expired';
+  if (!(row.current_stock > 0)) return 'out_of_stock';
+  return 'available';
+}
+
+/**
+ * medicine_batch_inventory.medicine_id has no declared foreign key, so PostgREST
+ * cannot embed the medicine name — fetch it in one extra round trip.
+ */
+export async function medicineNames(
+  sb: SupabaseClient,
+  rows: any[],
+): Promise<Map<string, { name: string; generic: string | null }>> {
+  const names = new Map<string, { name: string; generic: string | null }>();
+  const ids = [...new Set(rows.map((row) => row.medicine_id).filter(Boolean))];
+  if (ids.length === 0) return names;
+
+  const { data } = await sb.from('medicine_master').select('id, medicine_name, generic_name').in('id', ids);
+  for (const medicine of data || []) {
+    names.set(medicine.id, { name: medicine.medicine_name, generic: medicine.generic_name });
+  }
+  return names;
+}
+
+/**
+ * One row shape for every stock response.
+ *
+ * `status` and `available_quantity` together are the partner's whole rule:
+ * upsert on batch_id, and anything with available_quantity 0 is gone. A batch
+ * that has sold out, expired or been withdrawn reports 0 rather than vanishing
+ * from the feed — see the tombstone note in stock.ts.
+ */
+export const shapeBatch = (
+  row: any,
+  names: Map<string, { name: string; generic: string | null }>,
+) => {
+  const status = batchStatus(row);
+  return {
+    batch_id: row.id,
+    medicine_id: row.medicine_id,
+    medicine_name: names.get(row.medicine_id)?.name ?? null,
+    generic_name: names.get(row.medicine_id)?.generic ?? null,
+    batch_number: row.batch_number,
+    expiry_date: row.expiry_date,
+    status,
+    available_quantity: status === 'available' ? row.current_stock : 0,
+    reserved_quantity: row.reserved_stock,
+    pieces_per_pack: row.pieces_per_pack ?? null,
+    selling_price: row.selling_price,
+    mrp: row.mrp,
+    gst: row.gst,
+    updated_at: row.updated_at,
+  };
+};
+
+/**
+ * One page of a full-stock snapshot: currently orderable stock only.
+ *
+ * No tombstones here, unlike the change feed — the partner is replacing their
+ * whole table with this, so a batch that is absent is a batch they drop.
+ *
+ * Shared by GET /stock-snapshot (they pull) and the nightly push (we send), so
+ * the two can never drift apart in shape or filtering.
+ */
+export async function snapshotPage(
+  sb: SupabaseClient,
+  hospitalName: string,
+  page: number,
+  limit: number,
+): Promise<{ items: ReturnType<typeof shapeBatch>[]; total: number }> {
+  const from = (page - 1) * limit;
+
+  const { data, error, count } = await sb
+    .from('medicine_batch_inventory')
+    .select('*', { count: 'exact' })
+    .eq('hospital_name', hospitalName)
+    .eq('is_active', true)
+    .gt('current_stock', 0)
+    .gt('expiry_date', TODAY())
+    // Ordered by id, not updated_at: a snapshot spans several requests and rows
+    // keep changing underneath it. An ordering that a concurrent sale can move a
+    // row within would let that row be skipped or repeated across page bounds.
+    .order('id', { ascending: true })
+    .range(from, from + limit - 1);
+
+  if (error) throw new Error(`snapshot page ${page} failed: ${error.message}`);
+
+  const rows = data || [];
+  const names = await medicineNames(sb, rows);
+  return { items: rows.map((row) => shapeBatch(row, names)), total: count ?? rows.length };
+}
+
 /** Refresh last_used_at at most once an hour, so it costs ~nothing to keep. */
 export async function touchLastUsed(ctx: PartnerContext): Promise<void> {
   try {

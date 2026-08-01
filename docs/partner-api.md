@@ -35,12 +35,38 @@ Issued by the Adamrit pharmacy administrator from the Supabase SQL editor:
 SELECT public.partner_create_api_key(
   'Partner name',
   'Hope Multi-Specialty Hospital',   -- or 'Ayushman Hospital'
-  'their-contact@example.com'
+  'their-contact@example.com',
+  ARRAY['stock:read','orders:write'],
+  60,                                 -- requests per minute
+  'https://partner.example.com/adamrit/stock-sync'   -- where we POST the nightly snapshot
 );
 ```
 
-The plaintext key is returned **once** and stored only as a hash. It cannot be
-recovered — if it is lost, revoke and reissue:
+This returns two secrets, both of which the partner needs:
+
+- **`api_key`** — for their calls to us. Stored only as a hash and shown **once**.
+- **`sync_secret`** — how they verify our nightly POST really came from us
+  (see *The nightly hard refresh*).
+
+Leave the last argument `NULL` if the partner cannot host an inbound endpoint;
+they can still pull `GET /stock-snapshot` on their own schedule. To change it
+later:
+
+```sql
+UPDATE public.partner_api_clients
+   SET sync_url = 'https://…', sync_enabled = TRUE
+ WHERE key_prefix = 'adk_1234567';
+```
+
+Last night's result per partner:
+
+```sql
+SELECT status, pages_sent, items_sent, http_status, error, started_at
+  FROM public.partner_sync_runs
+ ORDER BY started_at DESC LIMIT 20;
+```
+
+The API key cannot be recovered — if it is lost, revoke and reissue:
 
 ```sql
 UPDATE public.partner_api_clients
@@ -63,7 +89,51 @@ convert. It may be `null` on older batches — treat pieces as authoritative.
 
 ---
 
-## 3. Stock
+## 3. Two ways stock reaches you
+
+Stock arrives on two tracks, and you need both.
+
+**During the day — only what changed, and you pull it.**
+`GET /stock?since=<watermark>` returns only batches that moved since your last
+call: one medicine sold, one delivery received. Nothing is pushed to you during
+the day. Poll once a minute.
+
+**Once a night — the whole lot, as a hard refresh.**
+At about 2 AM IST we POST you the complete stock list in pages. When the last
+page arrives, **replace your entire stock table with it**. Anything not in the
+snapshot no longer exists. You can also pull the same thing yourself at any time
+from `GET /stock-snapshot`.
+
+Why both: the change feed is accurate and cheap and is what keeps you right
+during trading hours, but it is only as good as its worst missed message. If your
+process is down for an hour, or a poll fails and you move your watermark anyway,
+you drift and nothing tells you. The nightly refresh bounds that drift to one
+day, whatever went wrong. Do not rely on it as your main path — a full day of
+stale figures means orders you cannot fill.
+
+### The one rule that matters: zero means delete
+
+Every stock row carries a `status` and an `available_quantity`:
+
+| `status` | Meaning |
+|---|---|
+| `available` | Orderable. `available_quantity` is the real figure. |
+| `out_of_stock` | Sold down to zero. `available_quantity` is `0`. |
+| `expired` | Past its expiry date. `available_quantity` is `0`. |
+| `withdrawn` | Deactivated at our end (recall, damage, write-off). `available_quantity` is `0`. |
+
+So your handling of any row from any endpoint is the same: **upsert on
+`batch_id`, and if `available_quantity` is `0`, remove the row from your table.**
+
+The change feed deliberately reports batches that have gone to zero rather than
+dropping them, because a batch that simply stopped appearing would leave you
+holding the last non-zero figure you saw — forever. The catalogue call
+(`GET /stock` with no `since`) never contains zero rows, since it only lists what
+can be ordered.
+
+---
+
+## 4. Stock
 
 ### `GET /stock`
 
@@ -91,6 +161,7 @@ curl -H "Authorization: Bearer $ADAMRIT_KEY" \
       "generic_name": "Amoxicillin",
       "batch_number": "AMX2402",
       "expiry_date": "2027-03-31",
+      "status": "available",
       "available_quantity": 480,
       "reserved_quantity": 30,
       "pieces_per_pack": 10,
@@ -109,14 +180,14 @@ curl -H "Authorization: Bearer $ADAMRIT_KEY" \
 }
 ```
 
-Expired batches, inactive batches, and batches at zero stock are never returned.
-`available_quantity` is what you can actually order; `reserved_quantity` is
-already spoken for.
+Without `since` this is the **catalogue**: only what can be ordered right now.
+Expired, inactive and zero-stock batches are not in it, and every row has
+`status: "available"`. `available_quantity` is what you can order;
+`reserved_quantity` is already spoken for by someone else.
 
-### Staying in sync
+### The change feed — `GET /stock?since=`
 
-**Poll with the watermark.** Keep the `watermark` from your last response and
-send it back as `since`:
+Keep the `watermark` from your last response and send it back:
 
 ```
 GET /stock?since=2026-08-01T09:14:22.104Z
@@ -125,12 +196,105 @@ GET /stock?since=2026-08-01T09:14:22.104Z
 You get only batches that changed after that point. When nothing has changed you
 get an empty `items` array and your watermark back — a cheap call for both sides.
 
-**Recommended interval: 60 seconds.** That is 1,440 calls a day and comfortably
-inside the rate limit. Do a full sweep without `since` once a day to
-self-correct.
+**With `since`, the response also includes batches that are no longer
+orderable**, so you learn when something empties:
 
-If `has_more` is `true`, keep paging with `page=2`, `page=3`… before advancing
-your stored watermark.
+```json
+{
+  "batch_id": "6f1c…",
+  "medicine_id": "b2a9…",
+  "medicine_name": "Amoxicillin 500mg",
+  "batch_number": "AMX2402",
+  "status": "out_of_stock",
+  "available_quantity": 0,
+  "updated_at": "2026-08-01T11:02:47.900Z"
+}
+```
+
+Delete that batch from your table. See *zero means delete* above.
+
+**Recommended interval: 60 seconds.** That is 1,440 calls a day and comfortably
+inside the rate limit.
+
+If `has_more` is `true`, keep paging with `page=2`, `page=3`… **before** advancing
+your stored watermark. Advancing it early skips everything you did not read.
+
+---
+
+## 5. The nightly hard refresh
+
+### What we send you
+
+Set up an HTTPS endpoint and give us the URL. At about **02:00 IST** we POST the
+complete stock list to it, in pages of up to 1,000 items:
+
+```json
+{
+  "snapshot_id": "3f0a…",
+  "snapshot_at": "2026-08-02T20:30:00.000Z",
+  "hospital": "Hope Multi-Specialty Hospital",
+  "page": 1,
+  "total_pages": 4,
+  "total_items": 3480,
+  "is_last": false,
+  "unit": "pieces",
+  "items": [ … ]
+}
+```
+
+Headers on every page:
+
+| Header | Meaning |
+|---|---|
+| `X-Adamrit-Signature` | `sha256=<hex>` — HMAC-SHA256 of the **raw request body** using your `sync_secret`. |
+| `X-Adamrit-Snapshot-Id` | Same as `snapshot_id` in the body. |
+
+**Verify the signature before trusting the payload.** Compute the HMAC over the
+raw body bytes (before any JSON parsing) and compare with a constant-time
+comparison. Node example:
+
+```js
+const expected = crypto.createHmac('sha256', SYNC_SECRET).update(rawBody).digest('hex');
+const ok = crypto.timingSafeEqual(
+  Buffer.from(req.headers['x-adamrit-signature']),
+  Buffer.from(`sha256=${expected}`),
+);
+```
+
+**Buffer the pages, keyed by `snapshot_id`. Only when you receive `is_last: true`
+should you replace your stock table.** If a page fails we stop sending and mark
+the run failed, so an incomplete snapshot never arrives with `is_last` — you keep
+yesterday's data rather than a truncated table.
+
+Respond `2xx` as soon as you have stored the page. We retry a page up to three
+times on `5xx`, `408`, `429` and network errors, with backoff. A `4xx` other than
+those we treat as a rejection and stop.
+
+Afterwards, resume polling from `snapshot_at`:
+`GET /stock?since=<snapshot_at>` — no gap between the refresh and the next delta.
+
+### Pulling it yourself — `GET /stock-snapshot`
+
+The same content, on your schedule. Useful after a failed night, or instead of
+receiving our push if you cannot host an inbound endpoint.
+
+```bash
+curl -H "Authorization: Bearer $ADAMRIT_KEY" \
+  "https://www.adamrit.com/api/partner/stock-snapshot?page=1&limit=500"
+```
+
+The response has the same envelope (`snapshot_id`, `snapshot_at`, `page`,
+`total_pages`, `is_last`, `items`). Page until `is_last` is `true`, passing
+`snapshot_id` and `snapshot_at` back on each subsequent page so all pages of one
+snapshot agree:
+
+```
+GET /stock-snapshot?page=2&limit=500&snapshot_id=3f0a…&snapshot_at=2026-08-02T20:30:00.000Z
+```
+
+`limit` defaults to 500, maximum 1,000. Like the push, it contains only
+currently-orderable stock — there are no zero rows, because you are replacing
+your table wholesale.
 
 ### `GET /medicines`
 
@@ -150,7 +314,7 @@ The catalogue, for mapping your item codes to our `medicine_id` once. Parameters
 
 ---
 
-## 4. Ordering
+## 6. Ordering
 
 ### `POST /orders`
 
@@ -250,7 +414,7 @@ left the building, and you get `409 not_pending`.
 
 ---
 
-## 5. Errors
+## 7. Errors
 
 Every failure has the same shape:
 
@@ -280,12 +444,18 @@ or `409` unchanged; they will fail identically.
 
 ---
 
-## 6. Getting started
+## 8. Getting started
 
-1. Ask for a key. Store it as a server-side environment variable.
+1. Ask for a key. Store `api_key` and `sync_secret` as server-side environment
+   variables. Tell us the URL for the nightly push, or say you would rather pull.
 2. `GET /medicines` once, and map your item codes to our `medicine_id`.
-3. `GET /stock` in full, store the rows and the `watermark`.
-4. Poll `GET /stock?since=<watermark>` every 60 seconds; update the watermark
-   from each response.
-5. Order with `POST /orders`, always sending your own `partner_ref`.
-6. Poll `GET /orders?order_id=…` until the status leaves `PENDING`.
+3. `GET /stock-snapshot`, page until `is_last`, and load the rows. Keep
+   `snapshot_at`.
+4. Poll `GET /stock?since=<watermark>` every 60 seconds, starting from
+   `snapshot_at`. Upsert on `batch_id`; **delete any row whose
+   `available_quantity` is `0`**. Update the watermark from each response.
+5. Handle our nightly POST: verify `X-Adamrit-Signature`, buffer pages by
+   `snapshot_id`, and on `is_last: true` replace your stock table and reset your
+   watermark to `snapshot_at`.
+6. Order with `POST /orders`, always sending your own `partner_ref`.
+7. Poll `GET /orders?order_id=…` until the status leaves `PENDING`.
