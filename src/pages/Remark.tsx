@@ -56,7 +56,6 @@ const Remark = () => {
   const [editing, setEditing] = useState<{ id: string; field: EditableField } | null>(null);
   const [draft, setDraft] = useState('');
   const [generatingId, setGeneratingId] = useState<string | null>(null);
-  const [drafting, setDrafting] = useState(false);
 
   const { data: rows = [], isLoading, error } = useQuery({
     queryKey: ['esic-claim-remarks', hospitalConfig.name],
@@ -124,7 +123,6 @@ const Remark = () => {
 
       toast.success(`Imported ${records.length} claim${records.length === 1 ? '' : 's'}`);
       queryClient.invalidateQueries({ queryKey: ['esic-claim-remarks', hospitalConfig.name] });
-      await draftMissingReplies();
     } catch (error: any) {
       console.error('Remark import failed:', error);
       toast.error(`Import failed: ${error?.message || 'unknown error'}`);
@@ -133,21 +131,17 @@ const Remark = () => {
     }
   };
 
-  // Draft one reply and store it. Shared by the per-row button and the sweep
-  // that runs after an import.
-  const generateFor = async (row: ClaimRemark) => {
-    const reply = await draftRemarkJustification(row.l2_remark || '');
-    const { error } = await supabase
-      .from('esic_claim_remarks' as any)
-      .update({ justification: reply, updated_at: new Date().toISOString() } as any)
-      .eq('id', row.id);
-    if (error) throw error;
-  };
-
+  // Drafting is per row and only on request. Nothing writes a reply on its own:
+  // a claim answered by a machine without anyone asking is a claim nobody read.
   const handleGenerate = async (row: ClaimRemark) => {
     setGeneratingId(row.id);
     try {
-      await generateFor(row);
+      const reply = await draftRemarkJustification(row.l2_remark || '');
+      const { error } = await supabase
+        .from('esic_claim_remarks' as any)
+        .update({ justification: reply, updated_at: new Date().toISOString() } as any)
+        .eq('id', row.id);
+      if (error) throw error;
       toast.success('Reply drafted — check it before sending');
       queryClient.invalidateQueries({ queryKey: ['esic-claim-remarks', hospitalConfig.name] });
     } catch (error: any) {
@@ -155,53 +149,6 @@ const Remark = () => {
       toast.error(`Could not draft a reply: ${error?.message || 'unknown error'}`);
     } finally {
       setGeneratingId(null);
-    }
-  };
-
-  // After an import, write a draft reply into every claim that has a remark and
-  // no reply yet. Claims already answered are left alone — an import must never
-  // overwrite someone's words, whether they typed them or edited a draft.
-  const draftMissingReplies = async () => {
-    const { data, error } = await supabase
-      .from('esic_claim_remarks' as any)
-      .select('id, claim_id, patient_name, l2_remark, justification')
-      .eq('hospital_name', hospitalConfig.name)
-      .is('justification', null)
-      .not('l2_remark', 'is', null)
-      .order('created_at', { ascending: false });
-    if (error || !data) return;
-
-    const pending = (data as unknown as ClaimRemark[]).filter(r => (r.l2_remark || '').trim() !== '');
-    if (pending.length === 0) return;
-
-    // The AI proxy allows 30 requests a minute. Rather than trip that and fail
-    // half the batch, cap the sweep and say plainly which ones were skipped —
-    // they can still be drafted one at a time from the row button.
-    const CAP = 20;
-    const batch = pending.slice(0, CAP);
-    setDrafting(true);
-    let done = 0;
-    try {
-      for (const row of batch) {
-        try {
-          await generateFor(row);
-          done += 1;
-        } catch (error) {
-          console.error(`Draft failed for claim ${row.claim_id}:`, error);
-        }
-      }
-    } finally {
-      setDrafting(false);
-      queryClient.invalidateQueries({ queryKey: ['esic-claim-remarks', hospitalConfig.name] });
-    }
-
-    if (done === 0) {
-      toast.error('Imported, but no replies could be drafted');
-    } else {
-      const skipped = pending.length - done;
-      toast.success(
-        `Drafted ${done} repl${done === 1 ? 'y' : 'ies'}${skipped > 0 ? ` — ${skipped} left to draft from the row button` : ''}. Check each one before sending.`,
-      );
     }
   };
 
@@ -278,17 +225,17 @@ const Remark = () => {
             onChange={handleImport}
             className="hidden"
           />
-          <Button variant="outline" disabled={importing || drafting} onClick={() => importInputRef.current?.click()}>
+          <Button variant="outline" disabled={importing} onClick={() => importInputRef.current?.click()}>
             <Upload className="h-4 w-4 mr-2" />
-            {drafting ? 'Drafting replies…' : importing ? 'Importing…' : 'Import Excel'}
+            {importing ? 'Importing…' : 'Import Excel'}
           </Button>
         </div>
       </div>
 
       <p className="text-sm text-muted-foreground">
-        Claims carrying an ESIC scrutiny remark. Importing the sheet drafts a reply for
-        every unanswered remark — read each one and edit it before it goes back to ESIC.
-        Re-importing never overwrites a reply.
+        Claims carrying an ESIC scrutiny remark. Write the justification yourself, or press
+        Draft reply on a row to have one written for you — then read and edit it before it
+        goes back to ESIC. Re-importing the sheet never overwrites a reply.
       </p>
 
       <div className="rounded-md border">
@@ -333,7 +280,7 @@ const Remark = () => {
                       variant="ghost"
                       size="sm"
                       className="mt-1 h-7 px-2 text-xs text-muted-foreground"
-                      disabled={generatingId === row.id || drafting}
+                      disabled={generatingId === row.id}
                       onClick={() => handleGenerate(row)}
                     >
                       <Sparkles className="h-3.5 w-3.5 mr-1" />
