@@ -73,7 +73,9 @@ const MENUS: Record<string, Menu> = {
           { label: 'Stock Summary', disabled: true },
           { label: 'Ratio Analysis', target: 'ratio-analysis' },
           { label: 'Display More Reports', menu: 'more', hotIndex: 8, gapBefore: true },
-          { label: 'DashbOard', target: 'dashboard', hotIndex: 6 },
+          // 6 pointed at the 'a', which both mis-marked the row and handed its
+          // key to Alter's 'A' — leaving Dashboard openable only by mouse.
+          { label: 'DashbOard', target: 'dashboard', hotIndex: 5 },
         ],
       },
     ],
@@ -100,12 +102,12 @@ const MENUS: Record<string, Menu> = {
         heading: 'INVENTORY',
         items: [
           { label: 'Inventory Books', disabled: true },
-          { label: 'StatEments of Inventory', disabled: true, hotIndex: 5 },
+          { label: 'StatEments of Inventory', disabled: true, hotIndex: 4 },
         ],
       },
       {
         heading: 'STATUTORY',
-        items: [{ label: 'MSME RepOrts', disabled: true, hotIndex: 9 }],
+        items: [{ label: 'MSME RepOrts', disabled: true, hotIndex: 8 }],
       },
       {
         heading: 'EXCEPTION',
@@ -164,7 +166,10 @@ const MENUS: Record<string, Menu> = {
         heading: 'STATISTICS',
         items: [
           { label: 'Receipts & Payments', target: 'receipts-payments', gapBefore: true },
-          { label: 'Bank Reconciliation', target: 'bank-reconciliation', hotIndex: 5 },
+          // 'R' already belongs to Receipts & Payments above, which left this
+          // row mouse-only. 'K' is free, and capitalising the marked letter is
+          // how Day BooK and BaNking already read.
+          { label: 'BanK Reconciliation', target: 'bank-reconciliation', hotIndex: 3 },
           { label: 'StatIstics', target: 'statistics', hotIndex: 4 },
         ],
       },
@@ -262,6 +267,8 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
   // DashbOard / Profit & Loss) and used to be settled by whichever listener
   // happened to run first.
   const bindings = useMemo<Binding[]>(() => {
+    // Hot letters claimed so far in this menu, for the DEV collision check below
+    const hotSeen = new Map<string, string>();
     const step = (by: 1 | -1) => () => {
       setCursor((c) => {
         // Skip greyed items, and stop on the Quit row (index === flat.length)
@@ -287,10 +294,26 @@ const GatewayOfTally: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNav
       },
       { combo: 'Q', layer: 'screen', label: 'Quit this menu', run: back },
       // Tally's hot capitals — the highlighted letter in each menu row.
+      //
+      // The dispatcher keeps the first registration of a combo, so two rows
+      // claiming one letter leaves the later one openable by mouse only. That
+      // is invisible until someone reaches for the key, so say so in DEV —
+      // the same guard TallyChrome puts on its rail and key-bar combos.
       ...flat
         .map((item): Binding | null => {
           const hot = item.label[item.hotIndex ?? 0];
-          return hot ? { combo: hot.toUpperCase(), layer: 'screen', label: item.label, run: () => open(item) } : null;
+          if (!hot) return null;
+          const combo = hot.toUpperCase();
+          if (import.meta.env.DEV) {
+            const first = hotSeen.get(combo);
+            if (first === undefined) hotSeen.set(combo, item.label);
+            else
+              console.warn(
+                `[Tally] "${menu.title}" gives ${combo} to both "${first}" and "${item.label}" — ` +
+                  `"${first}" wins, "${item.label}" can only be opened with the mouse.`,
+              );
+          }
+          return { combo, layer: 'screen', label: item.label, run: () => open(item) };
         })
         .filter((b): b is Binding => b !== null),
     ];
