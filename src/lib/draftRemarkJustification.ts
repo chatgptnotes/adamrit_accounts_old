@@ -14,14 +14,15 @@ import { geminiGenerateContentUrl, geminiFetch, GEMINI_MODEL_LITE } from '@/lib/
 // for about a third of the list. The person answering picks the family, because
 // they know the claim; the wording is then written for that family.
 //
-// Every draft is still a starting point. No model can know what is in the
-// patient's file, so it may not invent clinical facts, dates or approvals, and
-// anything only the treating team can supply comes back as a [square-bracket
-// placeholder]. A reply that reads as finished when it is not would be worse
-// than an empty box.
+// Every draft is still a starting point. The model may use only two sources of
+// fact: the remark itself, and the context block fetched from our own records
+// (diagnosis, approved package, surgery performed, treating doctors) when the
+// claim is matched to a visit. Anything beyond those comes back as a
+// [square-bracket placeholder]. A reply that reads as finished when it is not
+// would be worse than an empty box.
 //
-// Only the remark text is sent. The patient's name, UHID and card number are
-// not needed to draft a reply and stay out of the request.
+// The patient's name, UHID and card number are not needed to draft a reply and
+// stay out of the request.
 
 export type JustificationApproach = 'documents' | 'extension' | 'care';
 
@@ -99,7 +100,7 @@ Structure it in this order:
 You must NOT assert that super-speciality care was given, that the correct specialist attended, or that the treatment qualifies under the MoU. That is the contested fact and only the treating team can state it. Every such claim must be a [placeholder].`,
 };
 
-const buildPrompt = (approach: JustificationApproach) =>
+const buildPrompt = (approach: JustificationApproach, context: string) =>
   `You are a billing executive at an ESIC-empanelled hospital in Nagpur, India. An ESIC scrutinizer has raised a query (an "L2 remark") on a claim the hospital has already submitted. Write the hospital's written JUSTIFICATION against that query.
 
 This is a formal justification filed on the claim, not a short message.
@@ -107,18 +108,29 @@ This is a formal justification filed on the claim, not a short message.
 ${APPROACH_INSTRUCTIONS[approach]}
 
 ${SHARED_RULES}
+${
+  context
+    ? `
+The hospital's own records for this admission are given below. Facts stated there — the diagnosis, the approved package, the surgery performed, the treating doctors — may be stated as facts in the justification where the remark makes them relevant. Facts in neither the remark nor these records still require a [placeholder].
 
+Hospital records:
+${context}
+`
+    : ''
+}
 Scrutinizer's remark:
 `;
 
 /**
  * Draft a justification for one ESIC scrutiny remark, in the style of the
- * chosen approach. Throws on any failure (proxy error, empty response) —
- * callers surface a toast.
+ * chosen approach. `context` is the merged text of what our records say about
+ * the admission; empty when the claim is not matched to a visit. Throws on any
+ * failure (proxy error, empty response) — callers surface a toast.
  */
 export async function draftRemarkJustification(
   remark: string,
   approach: JustificationApproach = 'documents',
+  context = '',
 ): Promise<string> {
   const trimmed = remark.trim();
   if (!trimmed) throw new Error('There is no remark to reply to');
@@ -127,7 +139,7 @@ export async function draftRemarkJustification(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: `${buildPrompt(approach)}${trimmed}` }] }],
+      contents: [{ parts: [{ text: `${buildPrompt(approach, context.trim())}${trimmed}` }] }],
       generationConfig: { temperature: 0.2, maxOutputTokens: 500 },
     }),
   });

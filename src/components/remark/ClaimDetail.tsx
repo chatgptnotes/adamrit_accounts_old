@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Printer, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useClaimPatientMatch } from '@/hooks/useClaimPatientMatch';
 import {
   APPROACH_OPTIONS,
   draftRemarkJustification,
@@ -40,6 +41,30 @@ const Field: React.FC<{ label: string; value: React.ReactNode }> = ({ label, val
   </div>
 );
 
+// What our own records say about the admission the claim is for. Fetched only
+// when the claim is matched to a visit by ESIC UHID — a name-only "possible"
+// match is not certain enough to attach clinical facts to.
+interface VisitContext {
+  diagnoses: string[];
+  packages: string[];
+  surgeries: string[];
+  doctors: string[];
+}
+
+const dedupe = (values: (string | null | undefined)[]) =>
+  Array.from(new Set(values.filter((v): v is string => !!v && v.trim() !== '')));
+
+/** The context block sent to the AI, one labelled line per section that has data. */
+const composeContext = (ctx: VisitContext | null | undefined): string => {
+  if (!ctx) return '';
+  const lines: string[] = [];
+  if (ctx.diagnoses.length) lines.push(`Diagnosis: ${ctx.diagnoses.join('; ')}`);
+  if (ctx.packages.length) lines.push(`Package approved: ${ctx.packages.join('; ')}`);
+  if (ctx.surgeries.length) lines.push(`Surgery performed: ${ctx.surgeries.join('; ')}`);
+  if (ctx.doctors.length) lines.push(`Treating doctors: ${ctx.doctors.join('; ')}`);
+  return lines.join('\n');
+};
+
 export const ClaimDetail: React.FC<{ claim: ClaimRemark; onBack: () => void }> = ({
   claim,
   onBack,
@@ -56,6 +81,71 @@ export const ClaimDetail: React.FC<{ claim: ClaimRemark; onBack: () => void }> =
 
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ['esic-claim-remarks', hospitalConfig.name] });
+
+  // The visit this claim is about, when the ESIC UHID pins one down.
+  const { data: match } = useClaimPatientMatch(claim.uhid, claim.patient_name);
+  const matchedVisitId = match?.status === 'found' ? match.visitId : null;
+
+  const { data: visitContext, isLoading: contextLoading } = useQuery({
+    queryKey: ['claim-visit-context', matchedVisitId],
+    enabled: !!matchedVisitId,
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<VisitContext> => {
+      const { data, error } = await supabase
+        .from('visits')
+        .select(
+          `
+          visit_id,
+          visit_diagnoses(is_primary, diagnoses(name)),
+          visit_surgeries(sanction_status, status, cghs_surgery(name, code)),
+          visit_esic_surgeons(esic_surgeons!surgeon_id(name, specialty)),
+          visit_hope_surgeons(hope_surgeons!surgeon_id(name, specialty)),
+          referees(name, specialty)
+        `,
+        )
+        .eq('visit_id', matchedVisitId!)
+        .single();
+      if (error) throw error;
+      const v = data as any;
+
+      const surgeryName = (s: any) =>
+        s?.cghs_surgery
+          ? `${s.cghs_surgery.name}${s.cghs_surgery.code ? ` (${s.cghs_surgery.code})` : ''}`
+          : null;
+      const doctorName = (d: any) =>
+        d?.name ? `${d.name}${d.specialty ? ` (${d.specialty})` : ''}` : null;
+
+      return {
+        // Primary diagnosis first, so the letter leads with the right one.
+        diagnoses: dedupe(
+          [...(v.visit_diagnoses || [])]
+            .sort((a: any, b: any) => Number(b.is_primary === true) - Number(a.is_primary === true))
+            .map((d: any) => d.diagnoses?.name),
+        ),
+        packages: dedupe(
+          (v.visit_surgeries || []).map((s: any) => {
+            const name = surgeryName(s);
+            return name && s.sanction_status ? `${name} — ${s.sanction_status}` : name;
+          }),
+        ),
+        surgeries: dedupe((v.visit_surgeries || []).map(surgeryName)),
+        doctors: dedupe([
+          ...(v.visit_esic_surgeons || []).map((s: any) => doctorName(s.esic_surgeons)),
+          ...(v.visit_hope_surgeons || []).map((s: any) => doctorName(s.hope_surgeons)),
+          doctorName(v.referees),
+        ]),
+      };
+    },
+  });
+
+  // The merged text that goes to the AI with the remark. Auto-filled from the
+  // records, but a person can correct it — an edit is never overwritten by a
+  // refetch.
+  const [contextText, setContextText] = useState('');
+  const contextEdited = useRef(false);
+  useEffect(() => {
+    if (!contextEdited.current) setContextText(composeContext(visitContext));
+  }, [visitContext]);
 
   // The signature master, only once a print dialog opens.
   const { data: doctors = [], isLoading: doctorsLoading } = useQuery({
@@ -117,7 +207,7 @@ export const ClaimDetail: React.FC<{ claim: ClaimRemark; onBack: () => void }> =
     }
     setGenerating(true);
     try {
-      const reply = await draftRemarkJustification(claim.l2_remark || '', approach);
+      const reply = await draftRemarkJustification(claim.l2_remark || '', approach, contextText);
       const { error } = await supabase
         .from('esic_claim_remarks' as any)
         .update({ justification: reply, updated_at: new Date().toISOString() } as any)
@@ -246,6 +336,40 @@ export const ClaimDetail: React.FC<{ claim: ClaimRemark; onBack: () => void }> =
       </div>
 
       <ClaimPatientMatchCard uhid={claim.uhid} patientName={claim.patient_name} />
+
+      <div className="space-y-3 rounded-md border p-4">
+        <h2 className="text-sm font-semibold">Context from our records</h2>
+        {!matchedVisitId ? (
+          <p className="text-sm text-muted-foreground">
+            No visit is matched to this claim by ESIC UHID, so nothing can be pulled from our
+            records. The context box below can still be typed by hand.
+          </p>
+        ) : contextLoading ? (
+          <p className="text-sm text-muted-foreground">Reading the visit record…</p>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Diagnosis" value={visitContext?.diagnoses.join('; ')} />
+            <Field label="Package approved" value={visitContext?.packages.join('; ')} />
+            <Field label="Surgery performed" value={visitContext?.surgeries.join('; ')} />
+            <Field label="Treating doctors" value={visitContext?.doctors.join('; ')} />
+          </div>
+        )}
+        <div>
+          <div className="mb-1 text-xs text-muted-foreground">
+            Sent to the AI along with the remark — edit it if the records are wrong or incomplete.
+          </div>
+          <Textarea
+            rows={4}
+            value={contextText}
+            onChange={e => {
+              contextEdited.current = true;
+              setContextText(e.target.value);
+            }}
+            placeholder="Diagnosis, approved package, surgery performed, treating doctors…"
+            className="text-sm"
+          />
+        </div>
+      </div>
 
       <div>
         <h2 className="mb-1 text-sm font-semibold">Remark raised by the scrutinizer</h2>
