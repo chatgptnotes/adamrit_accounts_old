@@ -6,6 +6,8 @@ import { useAccountingCompany } from './AccountingCompanyContext';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { fetchAllRows } from '@/lib/fetchAllRows';
+import { geminiFetch, geminiGenerateContentUrl, GEMINI_MODEL_LITE } from '@/lib/gemini';
+import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import {
   Printer,
@@ -156,6 +158,7 @@ const BankReconciliation: React.FC = () => {
   // ---- Bank statement import (CSV) with auto-match ----
   const fileRef = React.useRef<HTMLInputElement | null>(null);
   const [unmatchedStmt, setUnmatchedStmt] = React.useState<{ date: string; desc: string; amount: number }[]>([]);
+  const [aiMatching, setAiMatching] = React.useState(false);
 
   const parseCsv = (text: string): { date: string; desc: string; debit: number; credit: number }[] => {
     const lines = text.split(/\r?\n/).filter((l) => l.trim());
@@ -185,11 +188,78 @@ const BankReconciliation: React.FC = () => {
     return out;
   };
 
+  /** Excel statements (what the bank portals export) read via the same CSV path. */
+  const fileToRows = async (file: File) => {
+    if (/\.(xlsx|xls)$/i.test(file.name)) {
+      const workbook = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
+      return parseCsv(XLSX.utils.sheet_to_csv(workbook.Sheets[workbook.SheetNames[0]]));
+    }
+    return parseCsv(await file.text());
+  };
+
+  /**
+   * Second pass, after exact-amount matching: the statement lines and book
+   * entries that remain are given to the AI to pair on amount + date
+   * proximity + narration similarity. Only pairs whose amounts actually agree
+   * (checked here, not trusted from the model) are ticked.
+   */
+  const aiReconcile = async (
+    unmatched: { date: string; desc: string; amount: number }[],
+    candidates: TransactionRow[],
+  ): Promise<{ pairs: Map<number, string>; failed: boolean }> => {
+    const pairs = new Map<number, string>();
+    if (!unmatched.length || !candidates.length) return { pairs, failed: false };
+    try {
+      const prompt = `You are reconciling a bank statement against a hospital's accounting book.
+Statement lines (index | date | description | amount, positive = money IN to the bank, negative = money OUT):
+${unmatched.map((u, i) => `${i} | ${u.date} | ${u.desc || '-'} | ${u.amount.toFixed(2)}`).join('\n')}
+
+Unreconciled book entries (id | voucher date | narration | debit = money in, credit = money out):
+${candidates
+  .map((t) => `${t.entryId} | ${t.voucherDate} | ${t.narration || '-'} | Dr ${t.debit.toFixed(2)} / Cr ${t.credit.toFixed(2)}`)
+  .join('\n')}
+
+Pair each statement line with at most one book entry, and each book entry with at most one line. A pair must have the same amount on the correct side (statement IN pairs a book debit, statement OUT pairs a book credit); prefer close dates and similar party names in the text. Only output pairs you are confident about — leaving a line unpaired is correct when nothing fits.
+Output JSON only, no prose: [{"s": <statement index>, "e": "<book entry id>"}]`;
+
+      const response = await geminiFetch(geminiGenerateContentUrl('', GEMINI_MODEL_LITE), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0, maxOutputTokens: 2000 },
+        }),
+      });
+      const data = await response.json();
+      const text: string = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const parsed = JSON.parse(text.replace(/^```(?:json)?|```$/gm, '').trim());
+      if (!Array.isArray(parsed)) return { pairs, failed: false };
+
+      const byId = new Map(candidates.map((t) => [t.entryId, t]));
+      const usedEntries = new Set<string>();
+      for (const p of parsed) {
+        const stmt = unmatched[Number(p?.s)];
+        const entry = byId.get(String(p?.e));
+        if (!stmt || !entry || pairs.has(Number(p.s)) || usedEntries.has(entry.entryId)) continue;
+        // The model proposes; the amounts decide.
+        const bookAmount = stmt.amount >= 0 ? entry.debit : entry.credit;
+        if (Math.abs(bookAmount - Math.abs(stmt.amount)) < 0.01) {
+          pairs.set(Number(p.s), entry.entryId);
+          usedEntries.add(entry.entryId);
+        }
+      }
+      return { pairs, failed: false };
+    } catch (err) {
+      console.warn('AI reconciliation pass failed:', err);
+      return { pairs, failed: true };
+    }
+  };
+
   const importStatement = async (file: File): Promise<void> => {
     try {
-      const rows = parseCsv(await file.text());
+      const rows = await fileToRows(file);
       if (rows.length === 0) {
-        toast.error('No rows found — expected CSV columns like Date, Description, Debit, Credit');
+        toast.error('No rows found — expected columns like Date, Description, Debit, Credit');
         return;
       }
       // Statement debit (money out) matches a book credit entry; statement
@@ -211,9 +281,40 @@ const BankReconciliation: React.FC = () => {
           unmatched.push({ date: r.date, desc: r.desc, amount: wantDebitSide ? amt : -amt });
         }
       }
+
+      // AI pass on whatever the exact pass could not place.
+      let aiMatched = 0;
+      let aiFailed = false;
+      if (unmatched.length > 0) {
+        setAiMatching(true);
+        try {
+          const candidates = transactions.filter((t) => !used.has(t.entryId));
+          const { pairs, failed } = await aiReconcile(unmatched, candidates);
+          aiFailed = failed;
+          const stillUnmatched: typeof unmatched = [];
+          unmatched.forEach((u, i) => {
+            const entryId = pairs.get(i);
+            if (entryId) {
+              matchedNow.add(entryId);
+              aiMatched += 1;
+            } else {
+              stillUnmatched.push(u);
+            }
+          });
+          unmatched.length = 0;
+          unmatched.push(...stillUnmatched);
+        } finally {
+          setAiMatching(false);
+        }
+      }
+
       if (matchedNow.size > 0) setReconciledIds((prev) => new Set([...prev, ...matchedNow]));
       setUnmatchedStmt(unmatched);
-      toast.success(`${matchedNow.size} of ${rows.length} statement line(s) matched and ticked`);
+      toast.success(
+        `${matchedNow.size} of ${rows.length} statement line(s) ticked` +
+          (aiMatched > 0 ? ` (${aiMatched} matched by AI)` : '') +
+          (aiFailed ? ' — AI pass unavailable, exact matches only' : ''),
+      );
     } catch (err) {
       console.error('Statement import failed:', err);
       toast.error('Could not read this file');
@@ -433,7 +534,7 @@ const BankReconciliation: React.FC = () => {
       <input
         ref={fileRef}
         type="file"
-        accept=".csv,text/csv"
+        accept=".csv,text/csv,.xlsx,.xls"
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
@@ -441,6 +542,11 @@ const BankReconciliation: React.FC = () => {
           e.target.value = '';
         }}
       />
+      {aiMatching && (
+        <div className="mx-3 mt-1 border border-blue-300 bg-blue-50 p-2 text-[12px] font-semibold text-blue-800">
+          Exact matches ticked — AI is reconciling the remaining statement lines…
+        </div>
+      )}
       {unmatchedStmt.length > 0 && (
         <div className="mx-3 mt-1 border border-orange-300 bg-orange-50 p-2 text-[12px]">
           <div className="font-semibold text-orange-800">
