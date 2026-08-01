@@ -47,7 +47,7 @@ const Remark = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
 
-  const { data: rows = [], isLoading } = useQuery({
+  const { data: rows = [], isLoading, error } = useQuery({
     queryKey: ['esic-claim-remarks', hospitalConfig.name],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -180,6 +180,15 @@ const Remark = () => {
               <TableRow>
                 <TableCell colSpan={3} className="text-center text-muted-foreground py-8">
                   Loading…
+                </TableCell>
+              </TableRow>
+            ) : error ? (
+              // A failed read and a genuinely empty worklist are not the same
+              // thing, and saying "no remarks yet" to both sends someone
+              // hunting for missing data when the query is what broke.
+              <TableRow>
+                <TableCell colSpan={3} className="text-center text-destructive py-8">
+                  Could not load remarks: {(error as Error).message}
                 </TableCell>
               </TableRow>
             ) : openRemarks.length === 0 ? (
