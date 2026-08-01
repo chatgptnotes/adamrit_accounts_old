@@ -8,6 +8,10 @@ const db = supabase as any;
 // Where the stamps cut from the hospital's signature sheet live. Anything in
 // this folder that no doctor claims yet is offered below as unassigned.
 const STAMP_FOLDER = 'doctor-stamps';
+// Signatures cut from the signed copy of the same sheet. They are kept apart
+// from the stamps so an unassigned one can only ever be offered as a signature:
+// a stamp and a signature are not interchangeable on a document.
+const SIGNATURE_FOLDER = 'doctor-signatures';
 
 interface Doctor {
   id: string;
@@ -17,6 +21,14 @@ interface Doctor {
   specialty: string | null;
   signature_url: string | null;
   stamp_url: string | null;
+}
+
+// A file sitting in storage that no doctor has claimed yet. The kind decides
+// which field it can be attached to, and it is never guessed - it comes from
+// the folder the file was uploaded into.
+interface Unassigned {
+  url: string;
+  kind: 'stamp' | 'signature';
 }
 
 // The app serves two hospitals, and a document should carry the seal of the one
@@ -31,7 +43,7 @@ const publicUrl = (path: string) =>
 
 const DoctorCredentials: React.FC = () => {
   const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const [unassigned, setUnassigned] = useState<string[]>([]);
+  const [unassigned, setUnassigned] = useState<Unassigned[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -66,14 +78,23 @@ const DoctorCredentials: React.FC = () => {
     (sealRows || []).forEach((s: any) => { sealMap[s.hospital_type] = s.stamp_url; });
     setSeals(sealMap);
 
-    const { data: files } = await supabase.storage
-      .from('uploads')
-      .list(STAMP_FOLDER, { limit: 500, sortBy: { column: 'name', order: 'asc' } });
     const taken = new Set([
       ...rows.map(r => r.stamp_url),
+      ...rows.map(r => r.signature_url),
       ...Object.values(sealMap),
     ].filter(Boolean) as string[]);
-    setUnassigned((files || []).map(f => publicUrl(`${STAMP_FOLDER}/${f.name}`)).filter(u => !taken.has(u)));
+
+    const pending: Unassigned[] = [];
+    for (const [folder, kind] of [[STAMP_FOLDER, 'stamp'], [SIGNATURE_FOLDER, 'signature']] as const) {
+      const { data: files } = await supabase.storage
+        .from('uploads')
+        .list(folder, { limit: 500, sortBy: { column: 'name', order: 'asc' } });
+      (files || []).forEach(f => {
+        const url = publicUrl(`${folder}/${f.name}`);
+        if (!taken.has(url)) pending.push({ url, kind });
+      });
+    }
+    setUnassigned(pending);
     setLoading(false);
   };
 
@@ -312,33 +333,44 @@ const DoctorCredentials: React.FC = () => {
         {unassigned.length > 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
             <h2 className="text-sm font-semibold text-amber-900 mb-1">
-              {unassigned.length} unassigned stamp{unassigned.length !== 1 ? 's' : ''}
+              {unassigned.length} unassigned {unassigned.length === 1 ? 'image' : 'images'}
+              <span className="font-normal text-amber-800">
+                {' '}({unassigned.filter(u => u.kind === 'stamp').length} stamps,{' '}
+                {unassigned.filter(u => u.kind === 'signature').length} signatures)
+              </span>
             </h2>
             <p className="text-xs text-amber-800 mb-3">
               Uploaded but not yet attached to a doctor. Pick the doctor each one belongs to.
               If the doctor is not listed, add them first.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {unassigned.map(url => (
+              {unassigned.map(({ url, kind }) => (
                 <div key={url} className="bg-white border border-amber-200 rounded-lg p-2">
-                  <div className="h-16 rounded mb-2 border border-gray-100" style={CHECKS}>
-                    <img src={url} alt="Unassigned stamp" className="h-full w-full object-contain p-1" />
+                  <div className="flex items-center gap-1 mb-1 text-[10px] font-medium uppercase tracking-wide text-gray-400">
+                    {kind === 'stamp' ? <Stamp className="w-3 h-3" /> : <PenLine className="w-3 h-3" />} {kind}
                   </div>
-                  {/* The round seal on the sheet is the hospital's, not a
-                      doctor's, so a hospital is a valid target here too. */}
+                  <div className="h-16 rounded mb-2 border border-gray-100" style={CHECKS}>
+                    <img src={url} alt={`Unassigned ${kind}`} className="h-full w-full object-contain p-1" />
+                  </div>
+                  {/* A signature can only ever go in the signature field, and a
+                      stamp in the stamp field - they are not interchangeable on
+                      a document. The round seal is the hospital's rather than
+                      any doctor's, so a hospital is a target for stamps only. */}
                   <select
                     defaultValue=""
                     onChange={e => {
                       const v = e.target.value;
                       if (!v) return;
                       if (v.startsWith('seal:')) setSeal(v.slice(5), url);
-                      else setField(v, 'stamp_url', url);
+                      else setField(v, kind === 'stamp' ? 'stamp_url' : 'signature_url', url);
                     }}
                     className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded text-gray-900 text-xs">
                     <option value="">Assign to...</option>
-                    <optgroup label="Hospital seal">
-                      {HOSPITALS.map(h => <option key={h.type} value={`seal:${h.type}`}>{h.label} hospital seal</option>)}
-                    </optgroup>
+                    {kind === 'stamp' && (
+                      <optgroup label="Hospital seal">
+                        {HOSPITALS.map(h => <option key={h.type} value={`seal:${h.type}`}>{h.label} hospital seal</option>)}
+                      </optgroup>
+                    )}
                     <optgroup label="Doctors">
                       {doctors.map(d => <option key={d.id} value={d.id}>{d.doctor_name}</option>)}
                     </optgroup>
