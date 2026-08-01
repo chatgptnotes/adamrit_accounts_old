@@ -142,6 +142,11 @@ export const menuItems: MenuItemDef[] = [
     icon: Wallet,
   },
   {
+    title: "Salary Sheet",
+    url: "/salary-sheet",
+    icon: Wallet,
+  },
+  {
     title: "Payment Voucher",
     url: "/payment-voucher",
     icon: Receipt,
