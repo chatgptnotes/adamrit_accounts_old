@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Banknote, IndianRupee, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCompanies } from '@/hooks/useCompanies';
 import { useAccountingCashBankLedgers } from '@/hooks/usePaymentObligations';
@@ -72,6 +73,13 @@ const SalarySheet = () => {
   const { data: companies = [] } = useCompanies();
   const { data: bankLedgers = [] } = useAccountingCashBankLedgers(companyId || null);
 
+  // Upper bound is the 1st of the NEXT month — "yyyy-mm-31" is an invalid
+  // date literal in February and the query would error out.
+  const nextMonthFirst = (() => {
+    const [y, m] = month.split('-').map(Number);
+    return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+  })();
+
   const { data: slips = [], isLoading } = useQuery({
     queryKey: ['salary-sheet-slips', month],
     queryFn: async (): Promise<PayrollRow[]> => {
@@ -79,7 +87,7 @@ const SalarySheet = () => {
         .from('hr_payroll_slips')
         .select('id, employee_name, payroll_month, gross_salary, deductions, net_salary')
         .gte('payroll_month', `${month}-01`)
-        .lte('payroll_month', `${month}-31`)
+        .lt('payroll_month', nextMonthFirst)
         .order('employee_name');
       if (error) throw error;
       return data || [];
@@ -87,46 +95,60 @@ const SalarySheet = () => {
   });
 
   // Every active ledger once — employee rows match on the name, exactly the
-  // way the Trial Balance merges ledgers.
+  // way the Trial Balance merges ledgers. fetchActiveAccounts pages in a
+  // stable order; a hand-rolled unordered .range() loop can skip or repeat
+  // rows between pages.
   const { data: ledgers = [] } = useQuery({
     queryKey: ['salary-sheet-ledgers'],
     staleTime: 5 * 60_000,
-    queryFn: async (): Promise<LedgerLite[]> => {
-      const all: LedgerLite[] = [];
-      for (let from = 0; ; from += 1000) {
-        const { data, error } = await (supabase as any)
-          .from('chart_of_accounts')
-          .select('id, account_name, account_group, beneficiary_of_bank_account_id')
-          .eq('is_active', true)
-          .range(from, from + 999);
-        if (error) throw error;
-        all.push(...(data || []));
-        if (!data || data.length < 1000) break;
-      }
-      return all;
-    },
+    queryFn: () =>
+      fetchActiveAccounts<LedgerLite>({
+        columns: 'id, account_name, account_group, beneficiary_of_bank_account_id',
+      }),
   });
 
+  // Scoped to the selected company: the SALARY-<month> reference repeats
+  // across companies, and reading it globally showed Company A's paid sheet
+  // as Company B's. REJECTED rows are excluded so a rejected approval reads
+  // as "not raised" and a fresh one can be created.
   const { data: approvals = [] } = useQuery({
-    queryKey: ['salary-sheet-approvals', reference],
+    queryKey: ['salary-sheet-approvals', reference, companyId],
+    enabled: !!companyId,
     queryFn: async (): Promise<ApprovalLite[]> => {
       const { data, error } = await (supabase as any)
         .from('approval_queue')
         .select('id, party_name, status, is_paid')
-        .eq('reference_no', reference);
+        .eq('reference_no', reference)
+        .eq('company_id', companyId)
+        .eq('category', 'SALARY')
+        .neq('status', 'REJECTED');
       if (error) throw error;
       return data || [];
     },
   });
 
-  const ledgerByName = useMemo(() => {
-    const map = new Map<string, LedgerLite>();
+  // Names are not identifiers: several employees (or a vendor ledger) can
+  // normalize to the same string. A name that maps to more than one ledger,
+  // or a slip name shared by more than one slip, is AMBIGUOUS and is never
+  // auto-matched — paying the wrong ledger is worse than not paying.
+  const ledgersByName = useMemo(() => {
+    const map = new Map<string, LedgerLite[]>();
     for (const l of ledgers) {
       const key = normalize(l.account_name);
-      if (key && !map.has(key)) map.set(key, l);
+      if (!key) continue;
+      map.set(key, [...(map.get(key) || []), l]);
     }
     return map;
   }, [ledgers]);
+
+  const slipNameCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const s of slips) {
+      const key = normalize(s.employee_name);
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    return map;
+  }, [slips]);
 
   const ledgerById = useMemo(() => new Map(ledgers.map((l) => [l.id, l])), [ledgers]);
   const approvalByName = useMemo(
@@ -149,14 +171,18 @@ const SalarySheet = () => {
   const rows = useMemo(
     () =>
       slips.map((slip) => {
-        const ledger = ledgerByName.get(normalize(slip.employee_name)) || null;
+        const key = normalize(slip.employee_name);
+        const candidates = ledgersByName.get(key) || [];
+        const duplicateName = (slipNameCounts.get(key) || 0) > 1;
+        const ambiguous = duplicateName || candidates.length > 1;
+        const ledger = !ambiguous && candidates.length === 1 ? candidates[0] : null;
         const beneficiaryBank = ledger?.beneficiary_of_bank_account_id
           ? ledgerById.get(ledger.beneficiary_of_bank_account_id) || null
           : null;
-        const approval = approvalByName.get(normalize(slip.employee_name)) || null;
-        return { slip, ledger, beneficiaryBank, approval };
+        const approval = ambiguous ? null : approvalByName.get(key) || null;
+        return { slip, ledger, beneficiaryBank, approval, ambiguous, duplicateName };
       }),
-    [slips, ledgerByName, ledgerById, approvalByName],
+    [slips, ledgersByName, slipNameCounts, ledgerById, approvalByName],
   );
 
   const refresh = () =>
@@ -179,29 +205,65 @@ const SalarySheet = () => {
     return true;
   };
 
-  /** Raise + post the JV for one slip. Returns the approval id, reusing an existing one. */
+  /**
+   * Raise + post the JV for one slip, reusing an existing approval.
+   *
+   * The screen's cached approval list is never trusted for the "does one
+   * already exist" decision — a stale cache here posts a second salary JV.
+   * The database is re-read immediately before creating, and the partial
+   * unique index on (reference_no, party_name) backstops the remaining
+   * race window: a 23505 means someone else just created it, so re-read
+   * and use theirs.
+   */
   const ensureApproved = async (row: (typeof rows)[number]): Promise<string> => {
-    if (row.approval) {
-      if (row.approval.status === 'PENDING') {
-        await approveAndPostJV(row.approval.id, user?.email || undefined);
-      }
-      return row.approval.id;
+    if (row.ambiguous) {
+      throw new Error(
+        `${row.slip.employee_name}: more than one ledger or employee shares this name — settle it from the Approvals queue instead`,
+      );
     }
-    if (!row.ledger) throw new Error(`${row.slip.employee_name} has no ledger in the chart of accounts`);
-    const amount = Number(row.slip.net_salary) || 0;
-    if (amount <= 0) throw new Error(`${row.slip.employee_name} has no net salary for ${month}`);
-    const approval = await createApproval({
-      companyId,
-      category: 'SALARY',
-      partyName: row.slip.employee_name,
-      amount,
-      expenseAccountId: expenseLedgerId,
-      partyAccountId: row.ledger.id,
-      referenceNo: reference,
-      narration: `Salary for ${month}`,
-      createdBy: user?.email || undefined,
-    });
-    await approveAndPostJV(approval.id, user?.email || undefined);
+    const findExisting = async (): Promise<ApprovalLite | null> => {
+      const { data, error } = await (supabase as any)
+        .from('approval_queue')
+        .select('id, party_name, status, is_paid')
+        .eq('reference_no', reference)
+        .eq('company_id', companyId)
+        .eq('category', 'SALARY')
+        .ilike('party_name', row.slip.employee_name.trim())
+        .neq('status', 'REJECTED')
+        .limit(1)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      return data || null;
+    };
+
+    let approval = await findExisting();
+    if (!approval) {
+      if (!row.ledger) throw new Error(`${row.slip.employee_name} has no ledger in the chart of accounts`);
+      const amount = Number(row.slip.net_salary) || 0;
+      if (amount <= 0) throw new Error(`${row.slip.employee_name} has no net salary for ${month}`);
+      try {
+        approval = await createApproval({
+          companyId,
+          category: 'SALARY',
+          partyName: row.slip.employee_name,
+          amount,
+          expenseAccountId: expenseLedgerId,
+          partyAccountId: row.ledger.id,
+          referenceNo: reference,
+          narration: `Salary for ${month}`,
+          createdBy: user?.email || undefined,
+        });
+      } catch (err: any) {
+        // Unique-index refusal: created concurrently by another user/tab.
+        if (String(err?.message || '').includes('duplicate') || err?.code === '23505') {
+          approval = await findExisting();
+        }
+        if (!approval) throw err;
+      }
+    }
+    if (approval.status === 'PENDING') {
+      await approveAndPostJV(approval.id, user?.email || undefined);
+    }
     return approval.id;
   };
 
@@ -213,7 +275,7 @@ const SalarySheet = () => {
       const skipped: string[] = [];
       for (const row of rows) {
         if (row.approval && row.approval.status !== 'PENDING') continue;
-        if (!row.ledger || !(Number(row.slip.net_salary) > 0)) {
+        if (row.ambiguous || !row.ledger || !(Number(row.slip.net_salary) > 0)) {
           skipped.push(row.slip.employee_name);
           continue;
         }
@@ -235,9 +297,18 @@ const SalarySheet = () => {
 
   const payRow = async (row: (typeof rows)[number]) => {
     if (!requireSetup()) return;
-    // Pay from the bank where the employee is a beneficiary; the page-level
-    // bank is only the fallback for staff not registered anywhere.
-    const bankId = row.beneficiaryBank?.id || defaultBankId;
+    // Pay from the bank where the employee is a beneficiary — but only when
+    // that bank ledger belongs to the selected company's cash/bank list, or
+    // the voucher would credit another company's bank. Otherwise fall back
+    // to the page-level default.
+    const beneficiaryOk =
+      row.beneficiaryBank && bankLedgers.some((l: any) => l.id === row.beneficiaryBank!.id);
+    if (row.beneficiaryBank && !beneficiaryOk) {
+      toast.warning(
+        `${row.beneficiaryBank.account_name} is not a bank of the selected company — using the default bank`,
+      );
+    }
+    const bankId = beneficiaryOk ? row.beneficiaryBank!.id : defaultBankId;
     if (!bankId) {
       toast.error('No beneficiary bank on the ledger and no default bank selected');
       return;
@@ -368,7 +439,13 @@ const SalarySheet = () => {
                         <TableCell className="text-right">{money(row.slip.deductions)}</TableCell>
                         <TableCell className="text-right font-semibold">{money(row.slip.net_salary)}</TableCell>
                         <TableCell>
-                          {row.ledger ? (
+                          {row.ambiguous ? (
+                            <span className="text-xs font-semibold text-amber-700">
+                              {row.duplicateName
+                                ? 'Name shared by more than one employee — settle from Approvals'
+                                : 'More than one ledger matches this name — settle from Approvals'}
+                            </span>
+                          ) : row.ledger ? (
                             row.ledger.account_name
                           ) : (
                             <span className="text-xs font-semibold text-amber-700">
@@ -397,7 +474,7 @@ const SalarySheet = () => {
                         <TableCell className="text-right">
                           <Button
                             size="sm"
-                            disabled={paid || busyRow === row.slip.id || !row.ledger || !(Number(row.slip.net_salary) > 0)}
+                            disabled={paid || busyRow === row.slip.id || row.ambiguous || !row.ledger || !(Number(row.slip.net_salary) > 0)}
                             onClick={() => void payRow(row)}
                           >
                             {busyRow === row.slip.id ? <Loader2 className="h-4 w-4 animate-spin" /> : paid ? 'Paid' : 'Pay'}

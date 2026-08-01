@@ -416,10 +416,15 @@ export async function addRmoDutyApproval(input: {
   const reference = `${RMO_DUTY_PREFIX}${input.dutyDate}`
 
   // One duty payment per RMO per day — a re-tap must not queue a second bill.
+  // REJECTED rows do not count: a rejected duty entry must not block the
+  // corrected one from being entered. The partial unique index
+  // approval_queue_duty_salary_reference_uniq backstops the race two
+  // concurrent taps leave open.
   const { data: existing, error: checkError } = await approvalQueue()
     .select('id')
     .eq('reference_no', reference)
     .ilike('party_name', name)
+    .neq('status', 'REJECTED')
     .limit(1)
   if (checkError) throw new Error(checkError.message || 'Could not check existing duty entries')
   if ((existing || []).length) return { created: false }
@@ -448,6 +453,7 @@ export async function listRmoDutyApprovals(dutyDate: string): Promise<Array<{
   const { data, error } = await approvalQueue()
     .select('id, party_name, amount, status')
     .eq('reference_no', `${RMO_DUTY_PREFIX}${dutyDate}`)
+    .neq('status', 'REJECTED')
     .order('party_name')
   if (error) throw new Error(error.message || 'Failed to load the duty list')
   return data || []
@@ -455,8 +461,17 @@ export async function listRmoDutyApprovals(dutyDate: string): Promise<Array<{
 
 /** Removes a duty entry that has not been approved yet. Approved bills are frozen. */
 export async function deleteRmoDutyApproval(id: string): Promise<void> {
-  const { error } = await approvalQueue().delete().eq('id', id).eq('status', 'PENDING')
+  const { data, error } = await approvalQueue()
+    .delete()
+    .eq('id', id)
+    .eq('status', 'PENDING')
+    .select('id')
   if (error) throw new Error(error.message || 'Could not remove the duty entry')
+  // Deleting zero rows is a failure the user must see, not a silent success —
+  // the entry was approved (frozen) or already gone.
+  if (!(data || []).length) {
+    throw new Error('This entry is already approved in accounting and can no longer be removed here')
+  }
 }
 
 /** Fills in amount/company/ledgers on a PENDING bill (OT-generated ones start empty). */

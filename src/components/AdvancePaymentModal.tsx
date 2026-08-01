@@ -505,11 +505,13 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
 
       // Fetch bill information separately
       let billNo = 'N/A';
+      // bills.visit_id stores the printed visit code, not the visits UUID.
       const { data: billData, error: billError } = await supabase
         .from('bills')
         .select('bill_no')
-        .eq('visit_id', visitData.id)
-        .single();
+        .eq('visit_id', visitData.visit_id)
+        .limit(1)
+        .maybeSingle();
 
       console.log('💰 Bill data query result:', { billData, billError });
       

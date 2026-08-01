@@ -630,6 +630,17 @@ const DailyPaymentAllocation = () => {
   const { data: payDebitLedgers = [] } = useAccountingLedgerSearch(payDebitLedgerSearch, payTallyCompanyId);
   const { data: payCreditLedgers = [] } = useAccountingCashBankLedgers(payTallyCompanyId);
 
+  // "Pay from this bank" may only pick a bank the selected company can credit.
+  // Setting an out-of-company ledger id renders the Select blank while the
+  // voucher would silently credit another company's bank.
+  const useBeneficiaryBankAsCredit = (bankAccountId: string) => {
+    if (payCreditLedgers.some((ledger: any) => ledger.id === bankAccountId)) {
+      setPayCreditLedgerId(bankAccountId);
+    } else {
+      toast.error("That beneficiary bank belongs to another company's books — pick the credit bank manually.");
+    }
+  };
+
   // Use actual cash if manually entered, else system value
   const effectiveCash = actualCashCollection !== '' ? parseFloat(actualCashCollection) || 0 : cashCollections;
 
@@ -2297,7 +2308,7 @@ ${sectionsHtml}
                   {payDebitLedgerId && (
                     <>
                       <p className="mt-1 text-xs text-green-700">Selected: {payDebitLedgerName || payDebitLedgerId}</p>
-                      <BeneficiaryBankHint accountId={payDebitLedgerId} onUseBank={setPayCreditLedgerId} />
+                      <BeneficiaryBankHint accountId={payDebitLedgerId} onUseBank={useBeneficiaryBankAsCredit} />
                     </>
                   )}
                 </div>
@@ -2476,7 +2487,7 @@ ${sectionsHtml}
                 {payDebitLedgerId && (
                   <>
                     <p className="mt-1 text-xs text-green-700">Selected: {payDebitLedgerName || payDebitLedgerId}</p>
-                    <BeneficiaryBankHint accountId={payDebitLedgerId} onUseBank={setPayCreditLedgerId} />
+                    <BeneficiaryBankHint accountId={payDebitLedgerId} onUseBank={useBeneficiaryBankAsCredit} />
                   </>
                 )}
               </div>

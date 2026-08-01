@@ -163,7 +163,24 @@ const BankReconciliation: React.FC = () => {
   const parseCsv = (text: string): { date: string; desc: string; debit: number; credit: number }[] => {
     const lines = text.split(/\r?\n/).filter((l) => l.trim());
     if (lines.length < 2) return [];
-    const split = (l: string) => l.match(/("[^"]*"|[^,]+)/g)?.map((c) => c.replace(/^"|"$/g, '').trim()) ?? [];
+    // Empty cells MUST survive as empty strings. A regex match() that skips
+    // them shifts every later column left — and on a bank statement exactly
+    // one of Debit/Credit is blank per row, so skipping flips deposits into
+    // withdrawals and reconciles the wrong side of the book.
+    const split = (l: string): string[] => {
+      const cells: string[] = [];
+      let current = '';
+      let inQuotes = false;
+      for (const ch of l) {
+        if (ch === '"') inQuotes = !inQuotes;
+        else if (ch === ',' && !inQuotes) {
+          cells.push(current.trim());
+          current = '';
+        } else current += ch;
+      }
+      cells.push(current.trim());
+      return cells;
+    };
     const header = split(lines[0]).map((h) => h.toLowerCase());
     const idx = (names: string[]) => header.findIndex((h) => names.some((n) => h.includes(n)));
     const di = idx(['date']);
@@ -362,6 +379,7 @@ Output JSON only, no prose: [{"s": <statement index>, "e": "<book entry id>"}]`;
           .gte('voucher.voucher_date', fromDate)
           .lte('voucher.voucher_date', toDate)
           .order('created_at', { ascending: true })
+          .order('id')
           .range(from, to),
       );
 
@@ -383,14 +401,40 @@ Output JSON only, no prose: [{"s": <statement index>, "e": "<book entry id>"}]`;
   // Get the selected account object for balance computation
   const selectedAccount = bankAccounts.find((a) => a.id === selectedAccountId);
 
+  // Movement before the From date. The stored opening balance is the cutover
+  // figure, not a balance as of any chosen date — without this, narrowing the
+  // period silently drops all earlier movement from the Book Balance.
+  const { data: preWindowNet = 0 } = useQuery({
+    queryKey: ['bank_recon_prewindow', selectedCompanyId, selectedAccountId, fromDate],
+    enabled: !!selectedAccountId,
+    queryFn: async () => {
+      const rows = await fetchAllRows<any>((from, to) =>
+        supabase
+          .from('voucher_entries')
+          .select('id, debit_amount, credit_amount, voucher:vouchers!inner(voucher_date, status)')
+          .eq('account_id', selectedAccountId)
+          .eq('voucher.status', 'AUTHORISED')
+          .eq('voucher.company_id', selectedCompanyId)
+          .lt('voucher.voucher_date', fromDate)
+          .order('id')
+          .range(from, to),
+      );
+      return rows.reduce(
+        (sum, e: any) => sum + (Number(e.debit_amount) || 0) - (Number(e.credit_amount) || 0),
+        0,
+      );
+    },
+  });
+
   // Compute summary values
   const { bookBalance, totalDebits, totalCredits, reconciledAmount, unreconciledAmount, reconciledCount } =
     useMemo(() => {
-      // Opening balance (debit = positive for Asset accounts)
-      let openingBal = 0;
+      // Opening balance (debit = positive for Asset accounts), rolled forward
+      // to the From date by the pre-window movement.
+      let openingBal = preWindowNet;
       if (selectedAccount) {
         const bal = Number(selectedAccount.opening_balance || 0);
-        openingBal = selectedAccount.opening_balance_type?.toUpperCase() === 'DR' ? bal : -bal;
+        openingBal += selectedAccount.opening_balance_type?.toUpperCase() === 'DR' ? bal : -bal;
       }
 
       let totalDebits = 0;
@@ -411,7 +455,7 @@ Output JSON only, no prose: [{"s": <statement index>, "e": "<book entry id>"}]`;
       const unreconciledAmount = bookBalance - reconciledAmount;
 
       return { bookBalance, totalDebits, totalCredits, reconciledAmount, unreconciledAmount, reconciledCount };
-    }, [transactions, reconciledIds, selectedAccount]);
+    }, [transactions, reconciledIds, selectedAccount, preWindowNet]);
 
   // Toggle selection for a single row
   const toggleSelected = (entryId: string) => {

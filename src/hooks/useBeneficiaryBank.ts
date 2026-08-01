@@ -29,9 +29,11 @@ export function useBeneficiaryBank(opts: {
         .from('chart_of_accounts')
         .select('id, beneficiary_of_bank_account_id')
         .limit(1);
+      // % and _ are wildcards to ilike — a ledger literally named with them
+      // would match other parties. Escape so the name matches itself only.
       query = accountId
         ? query.eq('id', accountId)
-        : query.ilike('account_name', (ledgerName ?? '').trim());
+        : query.ilike('account_name', (ledgerName ?? '').trim().replace(/[%_\\]/g, '\\$&'));
       const { data, error } = await query.maybeSingle();
       if (error) {
         // The column ships ahead of the migration on some environments; a

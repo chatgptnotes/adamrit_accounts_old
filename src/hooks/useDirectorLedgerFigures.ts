@@ -100,8 +100,15 @@ export function useDirectorLedgerFigures(year: number) {
           columns:
             'id, account_name, account_type, account_group, opening_balance, opening_balance_type',
         }),
+        // Every paged query is ordered by a unique column: unordered .range()
+        // windows have no stable row order in Postgres, so pages can repeat
+        // or skip rows and the totals silently drift.
         fetchAllRows<{ name: string | null; parent_group: string | null }>((from, to) =>
-          (supabase as any).from('tally_groups').select('name, parent_group').range(from, to),
+          (supabase as any)
+            .from('tally_groups')
+            .select('name, parent_group')
+            .order('name')
+            .range(from, to),
         ),
         // Every authorised movement up to the year end. The live book starts
         // at the 2026-07-25 cutover, so this stays small.
@@ -113,19 +120,21 @@ export function useDirectorLedgerFigures(year: number) {
         }>((from, to) =>
           (supabase as any)
             .from('voucher_entries')
-            .select('account_id, debit_amount, credit_amount, voucher:vouchers!inner(voucher_date, status)')
+            .select('id, account_id, debit_amount, credit_amount, voucher:vouchers!inner(voucher_date, status)')
             .eq('voucher.status', 'AUTHORISED')
             .lte('voucher.voucher_date', `${year}-12-31`)
+            .order('id')
             .range(from, to),
         ),
         fetchAllRows<{ rm_name: string | null; cost: number | null; entry_date: string }>(
           (from, to) =>
             (supabase as any)
               .from('daily_revenue_entries')
-              .select('rm_name, cost, entry_date')
+              .select('id, rm_name, cost, entry_date')
               .eq('is_hidden', false)
               .gte('entry_date', `${year}-01-01`)
               .lte('entry_date', `${year}-12-31`)
+              .order('id')
               .range(from, to),
         ),
       ]);
@@ -137,14 +146,20 @@ export function useDirectorLedgerFigures(year: number) {
       }
 
       // Per-account movement buckets: pre-year total plus one per month.
+      // Month and year are read straight off the yyyy-mm-dd string — parsing
+      // through Date() buckets by the viewer's timezone and shifts a day in
+      // UTC-negative zones.
       const movement = new Map<string, { pre: number; months: number[] }>();
       for (const e of entries) {
         const signed = (Number(e.debit_amount) || 0) - (Number(e.credit_amount) || 0);
         if (!signed) continue;
-        const date = new Date(e.voucher.voucher_date);
+        const dateStr = String(e.voucher.voucher_date || '');
+        const entryYear = Number(dateStr.slice(0, 4));
+        const entryMonth = Number(dateStr.slice(5, 7)) - 1;
+        if (!entryYear || entryMonth < 0 || entryMonth > 11) continue;
         const bucket = movement.get(e.account_id) ?? { pre: 0, months: Array(12).fill(0) };
-        if (date.getFullYear() < year) bucket.pre += signed;
-        else bucket.months[date.getMonth()] += signed;
+        if (entryYear < year) bucket.pre += signed;
+        else bucket.months[entryMonth] += signed;
         movement.set(e.account_id, bucket);
       }
 
@@ -153,6 +168,16 @@ export function useDirectorLedgerFigures(year: number) {
         year < now.getFullYear() ? 11 : year > now.getFullYear() ? -1 : now.getMonth();
       // A position "as on the 1st" exists once that 1st has arrived.
       const lastPositionMonth = lastFlowMonth;
+
+      // Ledger positions exist only from the Tally cutover: opening balances
+      // are the 24 Jul 2026 close, so "receivables as on 1 Feb 2026" computed
+      // from them would just repeat the July figure. Months whose reference
+      // date predates the cutover stay blank.
+      const CUTOVER = '2026-07-25';
+      const monthStartsAfterCutover = (month: number) =>
+        `${year}-${String(month + 1).padStart(2, '0')}-01` >= CUTOVER;
+      const monthEndsAfterCutover = (month: number) =>
+        `${year}-${String(month + 1).padStart(2, '0')}-28` >= CUTOVER;
 
       const income: RowValues = {};
       const expense: RowValues = {};
@@ -200,17 +225,17 @@ export function useDirectorLedgerFigures(year: number) {
 
         for (let month = 0; month <= Math.max(lastPositionMonth, lastFlowMonth); month += 1) {
           // `running` here is the balance as on the 1st of `month`.
-          if (isDebtor && month <= lastPositionMonth) {
+          if (isDebtor && month <= lastPositionMonth && monthStartsAfterCutover(month)) {
             add(receivables, groupLabel, month, running);
             receivableTotals.set(groupLabel, (receivableTotals.get(groupLabel) ?? 0) + Math.abs(running));
           }
-          if (isCreditor && month <= lastPositionMonth) {
+          if (isCreditor && month <= lastPositionMonth && monthStartsAfterCutover(month)) {
             add(payables, groupLabel, month, -running);
             payableTotals.set(groupLabel, (payableTotals.get(groupLabel) ?? 0) + Math.abs(running));
           }
           running += m?.months[month] ?? 0;
           // And now it is the balance at the end of `month`.
-          if ((isCash || isBank) && month <= lastFlowMonth) {
+          if ((isCash || isBank) && month <= lastFlowMonth && monthEndsAfterCutover(month)) {
             add(cash, isCash ? 'Cash in Hand (Tilak)' : 'Cash in Bank (Tilak)', month, running);
           }
         }
@@ -222,7 +247,9 @@ export function useDirectorLedgerFigures(year: number) {
       for (const r of revenueRows) {
         const name = (r.rm_name || '').trim();
         if (!name) continue;
-        add(marketing, name.toLowerCase(), new Date(r.entry_date).getMonth(), Number(r.cost) || 0);
+        const entryMonth = Number(String(r.entry_date || '').slice(5, 7)) - 1;
+        if (entryMonth < 0 || entryMonth > 11) continue;
+        add(marketing, name.toLowerCase(), entryMonth, Number(r.cost) || 0);
       }
 
       const rowsByTotal = (totals: Map<string, number>) =>
