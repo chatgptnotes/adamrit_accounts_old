@@ -419,8 +419,8 @@ const Remark = () => {
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              The page always carries the hospital's signatory and stamp. Picking a doctor
-              adds their signature block beside it; leave it unpicked to print without one.
+              The doctor picked here is the only signature on the page; the hospital stamp
+              prints beside it. Leave it unpicked to print with no signature block at all.
             </p>
           </div>
 

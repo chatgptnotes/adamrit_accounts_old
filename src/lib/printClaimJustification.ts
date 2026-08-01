@@ -1,14 +1,14 @@
 // Prints the justification as a document the hospital can sign, stamp and send
 // back with the claim.
 //
-// The page carries the hospital's own signature and stamp — this is the
-// hospital's submission on the claim, not a clinical note, so it goes out over
-// the hospital's authorised signatory rather than a doctor's.
+// One signature only: the doctor chosen from the credentials master. The
+// hospital gets a stamp box but no signature line of its own — a second ruled
+// space with nobody's name against it is just a blank nobody fills.
 //
 // WHY THE STAMP IS A RULED BOX AND NOT AN IMAGE
 // Nothing is stamped that nobody stamped. There is no scan of the hospital's
-// round stamp on file, so what prints is a ruled space to be signed and stamped
-// by hand — the same way the pre-authorisation summary already behaves.
+// round stamp on file, so what prints is a space to be stamped by hand — the
+// same way the pre-authorisation summary already behaves.
 
 export interface JustificationPrintClaim {
   claim_id: string;
@@ -121,12 +121,6 @@ export function printClaimJustification(
       <div class="signmeta">Signature of the treating doctor</div>
       ${doctor.stampUrl ? `<img class="stampimg" src="${escapeHtml(doctor.stampUrl)}" alt="" /><div class="stamp-caption">Doctor's stamp</div>` : ''}
     </div>` : ''}
-    <div class="signblock">
-      <div class="sig-space"></div>
-      <div class="signline"></div>
-      <div class="signname">For ${escapeHtml(options.hospitalName)}</div>
-      <div class="signmeta">Authorised signatory</div>
-    </div>
     <div class="signblock">
       <div class="stamp-space"></div>
       <div class="stamp-caption">Hospital stamp</div>
