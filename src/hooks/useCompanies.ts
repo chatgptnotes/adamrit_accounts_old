@@ -7,6 +7,8 @@ export interface Company {
   company_name: string;
   company_type: string;
   owner_partners: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
   is_active: boolean;
 }
 

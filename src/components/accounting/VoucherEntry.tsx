@@ -1583,8 +1583,11 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
   const printVoucher = (): void => {
     const esc = (t: string) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const rows: { name: string; dr: number; cr: number }[] = [];
+    // Tally puts the cash/bank side in the header as "Through :" rather than in
+    // the Particulars table, so in single-account mode it never becomes a row.
+    let through: string | null = null;
     if (singleMode && account) {
-      const total = partLines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+      through = account.account_name;
       for (const l of partLines) {
         if (!l.account || !(Number(l.amount) > 0)) continue;
         rows.push({
@@ -1593,11 +1596,6 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
           cr: singleMode.accountIsDebit ? Number(l.amount) : 0,
         });
       }
-      rows.push({
-        name: account.account_name,
-        dr: singleMode.accountIsDebit ? total : 0,
-        cr: singleMode.accountIsDebit ? 0 : total,
-      });
     } else {
       for (const l of journalLines) {
         if (!l.account || !(Number(l.amount) > 0)) continue;
@@ -1612,54 +1610,77 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
       toast.error('Nothing to print — fill the voucher first');
       return;
     }
-    const total = rows.reduce((s, r) => s + r.dr, 0);
+    // Single-account rows all sit on one side, so summing the debits alone
+    // would total zero on a Receipt.
+    const total = through
+      ? rows.reduce((s, r) => s + r.dr + r.cr, 0)
+      : rows.reduce((s, r) => s + r.dr, 0);
     const win = window.open('', '_blank', 'width=900,height=1100');
     if (!win) {
       toast.error('Popup blocked — allow popups to print');
       return;
     }
+    const company = companies.find((c) => c.id === selectedCompanyId);
+    const orgName = company?.company_name || hospitalConfig.fullName;
+    const addressLines = [company?.address_line1, company?.address_line2].filter(Boolean) as string[];
+    // Tally writes "INR Seven Hundred Sixty Only"; the shared helper says
+    // "Rupees ..." for six other callers, so swap the prefix here only.
+    const words = amountInWords(total).replace(/^Rupees /, 'INR ');
+    // One Amount column when the cash/bank side is already in the header,
+    // Debit/Credit when it is a journal and both sides are in the table.
     const body = rows
-      .map(
-        (r) => `<tr>
-          <td class="b">${r.dr > 0 ? 'Dr' : 'Cr'} ${esc(r.name)}</td>
-          <td class="b num">${r.dr > 0 ? fmtINR(r.dr) : ''}</td>
-          <td class="b num">${r.cr > 0 ? fmtINR(r.cr) : ''}</td>
-        </tr>`,
+      .map((r) =>
+        through
+          ? `<tr><td class="led">${esc(r.name)}</td><td class="num">${fmtINR(r.dr + r.cr)}</td></tr>`
+          : `<tr><td class="led">${r.dr > 0 ? 'Dr' : 'Cr'} ${esc(r.name)}</td><td class="num">${
+              r.dr > 0 ? fmtINR(r.dr) : ''
+            }</td><td class="num">${r.cr > 0 ? fmtINR(r.cr) : ''}</td></tr>`,
       )
       .join('');
     win.document.write(`<!doctype html><html><head><meta charset="utf-8" />
 <title>${esc(selectedType?.voucher_type_name || 'Voucher')} — ${esc(voucherNumber)}</title>
 <style>
-  body { font-family: Arial, Helvetica, sans-serif; margin: 14mm; color: #000; font-size: 13px; }
-  .org { text-align: center; font-size: 16px; font-weight: 700; }
-  .doc { text-align: center; text-transform: uppercase; letter-spacing: 2px; margin: 2px 0 12px; }
-  .head { display: flex; justify-content: space-between; margin-bottom: 8px; }
+  body { font-family: Arial, Helvetica, sans-serif; margin: 14mm; color: #000; font-size: 12px; }
+  .org { text-align: center; font-size: 14px; font-weight: 700; }
+  .addr { text-align: center; font-size: 11px; }
+  .doc { text-align: center; font-weight: 700; margin: 14px 0 18px; }
+  .head { display: flex; justify-content: space-between; margin-bottom: 10px; }
+  .through { margin-bottom: 10px; }
   table { width: 100%; border-collapse: collapse; }
-  th { border: 1px solid #444; background: #eef; padding: 6px 8px; text-align: left; }
-  td.b { border: 1px solid #444; padding: 6px 8px; }
-  .num { text-align: right; font-variant-numeric: tabular-nums; width: 20%; }
-  tr.total td { font-weight: 700; background: #eef; }
-  .words { margin-top: 8px; font-style: italic; }
-  .narr { margin-top: 6px; }
-  .sign { margin-top: 64px; display: flex; justify-content: space-between; font-size: 12px; }
-  .sign div { border-top: 1px solid #444; padding-top: 4px; width: 30%; text-align: center; }
+  th { border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 3px 0; font-weight: 400; text-align: left; }
+  td { padding: 3px 0; vertical-align: top; }
+  td.led { padding-left: 6mm; }
+  .num, th.num { text-align: right; font-variant-numeric: tabular-nums; width: 20%; }
+  .label { margin-top: 14px; font-weight: 700; }
+  .label + div { padding-left: 6mm; }
+  .total { margin-top: 18px; display: flex; justify-content: flex-end; }
+  .total span { border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 3px 0; width: 20%; text-align: right; font-variant-numeric: tabular-nums; }
+  .sign { margin-top: 20mm; display: flex; justify-content: space-between; }
   @page { size: A4 portrait; margin: 14mm; }
 </style></head><body>
-  <div class="org">${esc(hospitalConfig.name)} Hospital</div>
+  <div class="org">${esc(orgName)}</div>
+  ${addressLines.map((l) => `<div class="addr">${esc(l)}</div>`).join('')}
   <div class="doc">${esc(selectedType?.voucher_type_name || 'Voucher')}</div>
   <div class="head">
-    <div>No.: <b>${esc(voucherNumber || '(unsaved)')}</b></div>
-    <div>Date: <b>${esc(tallyDateLabel(voucherDate))}</b></div>
+    <div>No.&nbsp; : &nbsp;${esc(voucherNumber || '(unsaved)')}</div>
+    <div>Dated&nbsp; : &nbsp;${esc(tallyDateLabel(voucherDate))}</div>
   </div>
+  ${through ? `<div class="through">Through : ${esc(through)}</div>` : ''}
   <table>
-    <thead><tr><th>Particulars</th><th class="num">Debit (₹)</th><th class="num">Credit (₹)</th></tr></thead>
-    <tbody>${body}
-      <tr class="total"><td class="b num" style="text-align:right">Total</td><td class="b num">${fmtINR(total)}</td><td class="b num">${fmtINR(total)}</td></tr>
+    <thead><tr><th>Particulars</th>${
+      through ? '<th class="num">Amount</th>' : '<th class="num">Debit</th><th class="num">Credit</th>'
+    }</tr></thead>
+    <tbody>
+      ${through ? '<tr><td>Account :</td><td></td></tr>' : ''}
+      ${body}
     </tbody>
   </table>
-  <div class="words">Amount (in words): <b>${esc(amountInWords(total))}</b></div>
-  <div class="narr">Narration: ${esc(narration || '-')}</div>
-  <div class="sign"><div>Prepared By</div><div>Checked By</div><div>Authorised Signatory</div></div>
+  <div class="label">On Account of :</div>
+  <div>${esc(narration || '-')}</div>
+  <div class="label">Amount (in words) :</div>
+  <div>${esc(words)}</div>
+  <div class="total"><span>₹ ${fmtINR(total)}</span></div>
+  <div class="sign"><div>${category === 'PAYMENT' ? "Receiver's Signature:" : ''}</div><div>Authorised Signatory</div></div>
   <script>window.onload=function(){setTimeout(function(){window.print()},150)}</script>
 </body></html>`);
     win.document.close();
