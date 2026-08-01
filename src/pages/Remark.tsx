@@ -207,15 +207,32 @@ const Remark = () => {
     }
   };
 
+  // The printed letterhead sheet that already exists in public/. Checked the
+  // same way as the seal so a hospital without artwork falls back to a typed
+  // header rather than printing a broken image across the page.
+  const resolveLetterhead = async (): Promise<string | null> => {
+    const url = `${window.location.origin}/${hospitalConfig.name}-letterhead.png`;
+    try {
+      const response = await fetch(url, { method: 'HEAD' });
+      return response.ok ? url : null;
+    } catch {
+      return null;
+    }
+  };
+
   const handlePrint = async () => {
     if (!printing) return;
     const picked = doctors.find(d => d.doctor_name === doctorName);
-    const hospitalSealUrl = await resolveHospitalSeal();
+    const [hospitalSealUrl, letterheadUrl] = await Promise.all([
+      resolveHospitalSeal(),
+      resolveLetterhead(),
+    ]);
     try {
       printClaimJustification(printing, {
         hospitalName: hospitalConfig.fullName,
         hospitalAddress: hospitalConfig.contactInfo.address,
         hospitalSealUrl,
+        letterheadUrl,
         doctor: picked
           ? {
               name: picked.doctor_name,

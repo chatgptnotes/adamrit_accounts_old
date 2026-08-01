@@ -40,6 +40,12 @@ export interface JustificationPrintOptions {
    * in which case a box is printed to stamp by hand.
    */
   hospitalSealUrl?: string | null;
+  /**
+   * The printed letterhead sheet, drawn behind the letter. Null when the
+   * hospital has no letterhead artwork, in which case the name and address are
+   * typed at the top instead.
+   */
+  letterheadUrl?: string | null;
 }
 
 const escapeHtml = (value: unknown) =>
@@ -57,6 +63,7 @@ export function printClaimJustification(
   options: JustificationPrintOptions,
 ): void {
   const doctor = options.doctor;
+  const letterhead = options.letterheadUrl;
   const printedOn = new Date().toLocaleDateString('en-IN', {
     day: '2-digit',
     month: 'short',
@@ -70,8 +77,20 @@ export function printClaimJustification(
 <meta charset="utf-8" />
 <title>Justification – Claim ${escapeHtml(claim.claim_id)}</title>
 <style>
-  @page { margin: 18mm; }
-  body { font-family: Arial, Helvetica, sans-serif; color: #000; line-height: 1.6; font-size: 12.5px; }
+  /* The letterhead is a printed sheet, so the page carries no margin of its
+     own and the text is inset far enough to clear the printed header and the
+     two addresses along the foot. Without artwork the same inset would leave a
+     large hole, so those paddings drop back to an ordinary letter margin. */
+  @page { size: A4; margin: ${letterhead ? '0' : '18mm'}; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #000; line-height: 1.6; font-size: 12.5px; margin: 0; }
+  .sheet { position: relative; ${letterhead ? 'width: 210mm; min-height: 297mm;' : ''} }
+  /* An <img>, not a CSS background: Chrome prints background images only when
+     the user has ticked "Background graphics", and nobody remembers to. */
+  .letterhead-sheet { position: absolute; top: 0; left: 0; width: 210mm; height: 262mm; z-index: 0; }
+  .content { position: relative; z-index: 1; ${letterhead ? 'padding: 52mm 20mm 46mm;' : ''} }
+  .typed-head { text-align: center; border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 16px; }
+  .typed-head .nm { font-size: 16px; font-weight: bold; }
+  .typed-head .ad { font-size: 10.5px; }
   .date { text-align: right; margin-bottom: 14px; }
   .addressee { white-space: pre-line; margin-bottom: 14px; }
   .through { margin-bottom: 14px; }
@@ -91,6 +110,14 @@ export function printClaimJustification(
 </style>
 </head>
 <body>
+<div class="sheet">
+  ${letterhead ? `<img class="letterhead-sheet" src="${escapeHtml(letterhead)}" alt="" />` : ''}
+  <div class="content">
+  ${letterhead ? '' : `<div class="typed-head">
+    <div class="nm">${escapeHtml(options.hospitalName)}</div>
+    <div class="ad">${escapeHtml(options.hospitalAddress)}</div>
+  </div>`}
+
   <div class="date">Date: ${escapeHtml(printedOn)}</div>
 
   <div class="addressee">To,
@@ -137,6 +164,8 @@ Colaba, Mumbai – 400005</div>
       </div>
     </div>
   </div>
+  </div>
+</div>
 </body>
 </html>`;
 
