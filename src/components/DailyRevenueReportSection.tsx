@@ -9,8 +9,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { CheckCircle2, Edit2, Eye, EyeOff, Plus, Printer, RotateCcw, Trash2, Users, Save } from 'lucide-react';
+import { Banknote, CheckCircle2, Edit2, Eye, EyeOff, Loader2, Plus, Printer, RotateCcw, Trash2, Users, Save } from 'lucide-react';
+import { LedgerAutocomplete, type LedgerAccountOption } from '@/components/accounting/LedgerAutocomplete';
+import { useCompanies } from '@/hooks/useCompanies';
+import { useCashBankLedgers } from '@/hooks/useCashBankLedgers';
+import { payRmCuts, type RmCut } from '@/lib/rm-cut-payment-service';
 
 interface VisitRow {
   id: string;
@@ -38,6 +43,21 @@ interface OverrideRow {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  // The manager's creditor ledger, chosen on this report. Older rows have none
+  // and fall back to matching rm_name against the master.
+  rm_ledger_account_id: string | null;
+  // Set once this cut has been raised for payment. A stamped row is paid and
+  // locked; it is what stops the same cut being paid twice.
+  approval_id: string | null;
+}
+
+/** What became of a cut that has been raised for payment. */
+interface ApprovalState {
+  id: string;
+  status: string;
+  isPaid: boolean;
+  jvVoucherNumber: string | null;
+  paymentVoucherNumber: string | null;
 }
 
 type CostSource = 'override' | 'advance' | 'final_pay' | 'package' | 'none';
@@ -62,6 +82,10 @@ interface DisplayRow {
   isManual: boolean;
   isHidden: boolean;
   category: RowCategory;
+  /** Ledger this row's cut is payable to, or null when there is none to pay. */
+  rmLedgerId: string | null;
+  /** Non-null once the cut has been raised and paid. */
+  approvalId: string | null;
 }
 
 type PatientTypeFilter = 'all' | 'OPD' | 'IPD';
@@ -82,6 +106,8 @@ interface ManualFormData {
   patient_name: string;
   department: string;
   rm_name: string;
+  /** The manager is picked as a real ledger, so the row can be paid. */
+  rm_ledger: LedgerAccountOption | null;
   cost: string;
   cut: string;
   notes: string;
@@ -97,6 +123,7 @@ const initialManual: ManualFormData = {
   patient_name: '',
   department: '',
   rm_name: '',
+  rm_ledger: null,
   cost: '',
   cut: '',
   notes: '',
@@ -149,6 +176,13 @@ export function DailyRevenueReportSection() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const [detailsRow, setDetailsRow] = useState<DisplayRow | null>(null);
+  // Where payments are made from. Chosen once at the top of the report and
+  // inherited by every row, because a day is normally paid out of one bank; a
+  // row that is not can still be overridden before its Pay button is pressed.
+  const [payCompanyId, setPayCompanyId] = useState<string>('');
+  const [payBankId, setPayBankId] = useState<string>('');
+  const [rowBankOverride, setRowBankOverride] = useState<Record<string, string>>({});
+  const [payingKey, setPayingKey] = useState<string | null>(null);
   const [onlyWithRm, setOnlyWithRm] = useState<boolean>(true);
   const [showHidden, setShowHidden] = useState<boolean>(false);
   const [patientTypeFilter, setPatientTypeFilter] = useState<PatientTypeFilter>('OPD');
@@ -229,13 +263,13 @@ export function DailyRevenueReportSection() {
   // RM master list — used by the inline RM picker on each row.
   const rmMasterQuery = useQuery({
     queryKey: ['dailyRevenueRmMaster'],
-    queryFn: async (): Promise<Array<{ id: string; name: string; code: string | null; commission_percent: number | null }>> => {
+    queryFn: async (): Promise<Array<{ id: string; name: string; code: string | null; commission_percent: number | null; ledger_account_id: string | null }>> => {
       const { data, error } = await supabase
         .from('relationship_managers' as never)
-        .select('id, name, code, commission_percent')
+        .select('id, name, code, commission_percent, ledger_account_id')
         .order('name', { ascending: true });
       if (error) throw error;
-      return (data ?? []) as unknown as Array<{ id: string; name: string; code: string | null; commission_percent: number | null }>;
+      return (data ?? []) as unknown as Array<{ id: string; name: string; code: string | null; commission_percent: number | null; ledger_account_id: string | null }>;
     },
     staleTime: 5 * 60 * 1000, // 5 min — master list rarely changes
   });
@@ -299,6 +333,59 @@ export function DailyRevenueReportSection() {
       return (data ?? []) as unknown as OverrideRow[];
     },
   });
+
+  const companiesQuery = useCompanies();
+  const bankLedgersQuery = useCashBankLedgers(payCompanyId || null);
+
+  // What was posted for the cuts already raised, so a paid row can name its
+  // vouchers rather than just claiming to be paid.
+  const approvalIds: string[] = useMemo(
+    () => Array.from(new Set(
+      (overridesQuery.data ?? []).map((o) => o.approval_id).filter(Boolean) as string[],
+    )),
+    [overridesQuery.data],
+  );
+
+  const paymentStateQuery = useQuery({
+    queryKey: ['dailyRevenuePayments', approvalIds.join(',')],
+    enabled: approvalIds.length > 0,
+    queryFn: async (): Promise<Record<string, ApprovalState>> => {
+      const { data, error } = await (supabase as any)
+        .from('approval_queue')
+        .select('id, status, is_paid, jv_voucher_id, payment_voucher_id')
+        .in('id', approvalIds);
+      if (error) throw error;
+      const approvals = (data ?? []) as Array<{
+        id: string; status: string; is_paid: boolean;
+        jv_voucher_id: string | null; payment_voucher_id: string | null;
+      }>;
+
+      const voucherIds = approvals
+        .flatMap((a) => [a.jv_voucher_id, a.payment_voucher_id])
+        .filter(Boolean) as string[];
+      const { data: vouchers } = voucherIds.length
+        ? await (supabase as any).from('vouchers').select('id, voucher_number').in('id', voucherIds)
+        : { data: [] };
+      const numberById = new Map<string, string>(
+        ((vouchers ?? []) as Array<{ id: string; voucher_number: string }>)
+          .map((v) => [v.id, v.voucher_number]),
+      );
+
+      const map: Record<string, ApprovalState> = {};
+      for (const a of approvals) {
+        map[a.id] = {
+          id: a.id,
+          status: a.status,
+          isPaid: Boolean(a.is_paid),
+          jvVoucherNumber: a.jv_voucher_id ? numberById.get(a.jv_voucher_id) ?? null : null,
+          paymentVoucherNumber: a.payment_voucher_id ? numberById.get(a.payment_voucher_id) ?? null : null,
+        };
+      }
+      return map;
+    },
+  });
+
+  const paymentState = paymentStateQuery.data ?? {};
 
   // Approval is date-specific: after approval, that day's report becomes a
   // read-only record. A separate table is used because a report can contain
@@ -391,6 +478,10 @@ export function DailyRevenueReportSection() {
         isManual: false,
         isHidden: Boolean(o?.is_hidden),
         category: rowIsDirect ? 'direct' : 'main',
+        // What the row was saved against wins; the master's mapping is the
+        // fallback for rows saved before the ledger was recorded here.
+        rmLedgerId: o?.rm_ledger_account_id ?? rm?.ledger_account_id ?? null,
+        approvalId: o?.approval_id ?? null,
       };
     });
 
@@ -418,6 +509,8 @@ export function DailyRevenueReportSection() {
           isManual: true,
           isHidden: Boolean(o.is_hidden),
           category: rowIsDirect ? 'direct' : 'manual',
+          rmLedgerId: o.rm_ledger_account_id ?? rm?.ledger_account_id ?? null,
+          approvalId: o.approval_id ?? null,
         };
       });
 
@@ -564,6 +657,7 @@ export function DailyRevenueReportSection() {
           patient_name: data.patient_name.trim(),
           department: data.department.trim() || null,
           rm_name: data.rm_name.trim() || null,
+          rm_ledger_account_id: data.rm_ledger?.id ?? null,
           cost,
           cut,
           hospital_type: hospitalType || 'hope',
@@ -594,6 +688,7 @@ export function DailyRevenueReportSection() {
           patient_name: data.patient_name.trim(),
           department: data.department.trim() || null,
           rm_name: data.rm_name.trim() || null,
+          rm_ledger_account_id: data.rm_ledger?.id ?? null,
           cost,
           cut,
           notes: data.notes.trim() || null,
@@ -717,9 +812,98 @@ export function DailyRevenueReportSection() {
     onError: (err) => toast.error(getErrorMessage(err)),
   });
 
+  // ── Paying the managers ────────────────────────────────────────────────
+  //
+  // A cut can only be paid once its row exists in daily_revenue_entries — that
+  // row is what carries the approval stamp. Rows generated from a visit have no
+  // saved row until someone edits them, so one is written on the way to paying.
+  const ensureEntryRow = async (row: DisplayRow): Promise<string> => {
+    if (row.overrideId) return row.overrideId;
+    const { data, error } = await supabase
+      .from('daily_revenue_entries' as never)
+      .insert([{
+        entry_date: reportDate,
+        visit_id: row.visitId,
+        patient_name: row.patient_name,
+        department: row.department || null,
+        rm_name: row.rm_name || null,
+        rm_ledger_account_id: row.rmLedgerId,
+        cost: row.cost,
+        cut: row.cut,
+        hospital_type: row.hospital || hospitalType || 'hope',
+      } as never])
+      .select('id')
+      .single();
+    if (error) throw error;
+    return (data as unknown as { id: string }).id;
+  };
+
+  /** True when a row is a real, unpaid commission that a bank can be sent at. */
+  const isPayable = (row: DisplayRow): boolean =>
+    !row.approvalId && !row.isHidden && !isDirect(row.rm_name) && row.cut > 0;
+
+  const bankForRow = (row: DisplayRow): string => rowBankOverride[row.key] || payBankId;
+
+  /** Commissions on this report that still owe someone money. */
+  const unpaidPayableCount = rows.filter(isPayable).length;
+
+  const payRows = async (rowsToPay: DisplayRow[], bankAccountId: string) => {
+    if (!payCompanyId) throw new Error('Select the company the payment is made from');
+    if (!bankAccountId) throw new Error('Select the bank account the payment is made from');
+    const missingLedger = rowsToPay.filter((r) => !r.rmLedgerId);
+    if (missingLedger.length) {
+      throw new Error(
+        `${missingLedger.length} row(s) have no ledger for their manager. Set it on the row, or map it on the Relationship Manager master.`,
+      );
+    }
+
+    const cuts: RmCut[] = [];
+    for (const row of rowsToPay) {
+      cuts.push({
+        entryId: await ensureEntryRow(row),
+        entryDate: reportDate,
+        patientName: row.patient_name,
+        rmName: row.rm_name,
+        ledgerId: row.rmLedgerId!,
+        amount: row.cut,
+      });
+    }
+    return payRmCuts({
+      cuts,
+      companyId: payCompanyId,
+      bankAccountId,
+      date: reportDate,
+      createdBy: user?.email ?? user?.username,
+    });
+  };
+
+  const payRowMutation = useMutation({
+    mutationFn: async (row: DisplayRow) => payRows([row], bankForRow(row)),
+    onSuccess: (result) => {
+      const paid = result.paid[0];
+      invalidate();
+      toast.success(
+        `Paid ${paid.rmName} ₹${formatINR(paid.amount)} — payment ${paid.paymentVoucherNumber}, journal ${paid.jvVoucherNumber}`,
+      );
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+    onSettled: () => setPayingKey(null),
+  });
+
   const approveMutation = useMutation({
     mutationFn: async () => {
       if (isApproved) return;
+
+      // Approving the sheet is what pays it. Every unpaid commission on the
+      // report is posted first, grouped so a manager on six rows is paid once,
+      // and the day is only locked once that has gone through — a failure here
+      // must leave the report open and editable rather than sealed and unpaid.
+      const payable = rows.filter(isPayable);
+      let paidSummary = '';
+      if (payable.length) {
+        const result = await payRows(payable, payBankId);
+        paidSummary = ` Paid ${result.paid.length} manager(s), ₹${formatINR(result.total)}.`;
+      }
 
       // Do not use upsert here. Some existing deployments have the approval
       // table without its entry_date unique constraint reflected in PostgREST's
@@ -730,7 +914,7 @@ export function DailyRevenueReportSection() {
         .eq('entry_date', reportDate)
         .maybeSingle();
       if (existingError) throw existingError;
-      if (existing) return;
+      if (existing) return paidSummary;
 
       const { error } = await supabase
         .from('daily_revenue_report_approvals' as never)
@@ -740,12 +924,13 @@ export function DailyRevenueReportSection() {
           approved_by_email: user?.email ?? null,
         } as never);
       if (error) throw error;
+      return paidSummary;
     },
-    onSuccess: () => {
+    onSuccess: (paidSummary) => {
       setEditingCutId(null);
       setEditingRateId(null);
       invalidate();
-      toast.success('Report approved. Editing is now disabled.');
+      toast.success(`Report approved. Editing is now disabled.${paidSummary ?? ''}`);
     },
     onError: (err) => toast.error(getErrorMessage(err)),
   });
@@ -779,14 +964,26 @@ export function DailyRevenueReportSection() {
     setIsManualDialogOpen(true);
   };
 
-  const openManualEdit = (row: DisplayRow) => {
+  const openManualEdit = async (row: DisplayRow) => {
     if (isApproved) return;
     if (!row.overrideId) return;
     setManualEditId(row.overrideId);
+    // Read the row's ledger back in full so the dialog shows its code, not just
+    // the name the report happens to print.
+    let ledger: LedgerAccountOption | null = null;
+    if (row.rmLedgerId) {
+      const { data } = await (supabase as any)
+        .from('chart_of_accounts')
+        .select('id, account_code, account_name, account_group, company_id')
+        .eq('id', row.rmLedgerId)
+        .maybeSingle();
+      ledger = (data as LedgerAccountOption) ?? null;
+    }
     setManualForm({
       patient_name: row.patient_name,
       department: row.department,
       rm_name: row.rm_name,
+      rm_ledger: ledger,
       cost: String(row.cost),
       cut: String(row.cut),
       notes: '',
@@ -1135,6 +1332,41 @@ export function DailyRevenueReportSection() {
             </span>
           )}
         </div>
+        {/* Where the day's commissions are paid from. Set once here; a row that
+            is paid from somewhere else overrides it on the row itself. */}
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border bg-gray-50 p-2 print:hidden">
+          <Banknote className="h-4 w-4 text-gray-500" />
+          <span className="text-sm font-medium text-gray-700">Pay from</span>
+          <Select
+            value={payCompanyId}
+            onValueChange={(value) => { setPayCompanyId(value); setPayBankId(''); setRowBankOverride({}); }}
+          >
+            <SelectTrigger className="h-8 w-56 bg-white"><SelectValue placeholder="Company" /></SelectTrigger>
+            <SelectContent>
+              {(companiesQuery.data ?? []).map((company) => (
+                <SelectItem key={company.id} value={company.id}>{company.company_name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={payBankId} onValueChange={setPayBankId} disabled={!payCompanyId}>
+            <SelectTrigger className="h-8 w-64 bg-white">
+              <SelectValue placeholder={payCompanyId ? 'Bank account' : 'Pick a company first'} />
+            </SelectTrigger>
+            <SelectContent>
+              {(bankLedgersQuery.data ?? []).map((ledger) => (
+                <SelectItem key={ledger.id} value={ledger.id}>
+                  {ledger.account_name}{ledger.account_code ? ` · ${ledger.account_code}` : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {payCompanyId && (bankLedgersQuery.data ?? []).length === 0 && !bankLedgersQuery.isLoading && (
+            <span className="text-xs text-amber-700">This company has no cash or bank ledger.</span>
+          )}
+          <span className="text-xs text-gray-500">
+            Pay posts a payment voucher per manager; Approve pays the whole sheet and locks it.
+          </span>
+        </div>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -1165,6 +1397,7 @@ export function DailyRevenueReportSection() {
                   <TableHead className="text-right">RM %</TableHead>
                   <TableHead className="text-right">Cost (Rs)</TableHead>
                   <TableHead className="text-right">Cut (Rs)</TableHead>
+                  <TableHead className="print:hidden">Payment</TableHead>
                   <TableHead className="text-right print:hidden">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1175,7 +1408,7 @@ export function DailyRevenueReportSection() {
                     <React.Fragment key={`group-${group.category}`}>
                       <TableRow key={`header-${group.category}`}>
                         <TableCell
-                          colSpan={9}
+                          colSpan={10}
                           className="bg-emerald-50 text-emerald-700 text-xs font-semibold uppercase tracking-wide"
                         >
                           {group.label}
@@ -1337,6 +1570,72 @@ export function DailyRevenueReportSection() {
                                 </span>
                               )}
                             </TableCell>
+                            <TableCell className="print:hidden">
+                              {r.approvalId ? (
+                                // Already paid. Name the vouchers, because the
+                                // point of the button was to get them into the
+                                // Day Book where they can be looked up.
+                                <span className="inline-flex flex-col">
+                                  <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
+                                    <CheckCircle2 className="h-3.5 w-3.5" /> Paid
+                                  </span>
+                                  <span className="text-[10px] text-gray-500">
+                                    {paymentState[r.approvalId]?.paymentVoucherNumber
+                                      ? `${paymentState[r.approvalId]?.paymentVoucherNumber} · JV ${paymentState[r.approvalId]?.jvVoucherNumber ?? '—'}`
+                                      : 'raised, posting incomplete'}
+                                  </span>
+                                </span>
+                              ) : !isPayable(r) ? (
+                                <span className="text-xs text-gray-400">—</span>
+                              ) : (
+                                <div className="flex items-center gap-1">
+                                  {/* Defaults to the bank chosen at the top; changing
+                                      it here pays just this row from somewhere else. */}
+                                  <Select
+                                    value={bankForRow(r)}
+                                    onValueChange={(value) =>
+                                      setRowBankOverride((prev) => ({ ...prev, [r.key]: value }))
+                                    }
+                                    disabled={isApproved || !payCompanyId}
+                                  >
+                                    <SelectTrigger className="h-7 w-32 text-xs">
+                                      <SelectValue placeholder="Bank" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {(bankLedgersQuery.data ?? []).map((ledger) => (
+                                        <SelectItem key={ledger.id} value={ledger.id}>
+                                          {ledger.account_name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 gap-1 px-2 text-xs"
+                                    disabled={
+                                      isApproved
+                                      || !r.rmLedgerId
+                                      || !bankForRow(r)
+                                      || payingKey !== null
+                                    }
+                                    title={
+                                      !r.rmLedgerId
+                                        ? 'This manager has no ledger. Map one on the Relationship Manager master.'
+                                        : !bankForRow(r)
+                                          ? 'Choose the company and bank to pay from'
+                                          : `Post a payment voucher for ${r.rm_name}`
+                                    }
+                                    onClick={() => { setPayingKey(r.key); payRowMutation.mutate(r); }}
+                                  >
+                                    {payingKey === r.key
+                                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      : <Banknote className="h-3.5 w-3.5" />}
+                                    Pay
+                                  </Button>
+                                </div>
+                              )}
+                            </TableCell>
                             <TableCell className="text-right space-x-1 print:hidden">
                               {editing ? (
                                 <>
@@ -1401,6 +1700,7 @@ export function DailyRevenueReportSection() {
                         <TableCell className="text-right">Rs {formatINR(group.subtotal.cost)}</TableCell>
                         <TableCell className="text-right">Rs {formatINR(group.subtotal.cut)}</TableCell>
                         <TableCell className="print:hidden" />
+                        <TableCell className="print:hidden" />
                       </TableRow>
                     </React.Fragment>
                   ));
@@ -1409,15 +1709,39 @@ export function DailyRevenueReportSection() {
                   <TableCell colSpan={6} className="text-right">Grand Total</TableCell>
                   <TableCell className="text-right">Rs {formatINR(totals.cost)}</TableCell>
                   <TableCell className="text-right">Rs {formatINR(totals.cut)}</TableCell>
+                  <TableCell className="print:hidden text-right text-xs text-gray-600">
+                    {unpaidPayableCount > 0
+                      ? `${unpaidPayableCount} to pay`
+                      : rows.some((r) => r.approvalId) ? 'all paid' : ''}
+                  </TableCell>
                   <TableCell className="print:hidden text-right">
                     <Button
                       size="sm"
                       onClick={() => approveMutation.mutate()}
-                      disabled={isApproved || approveMutation.isPending}
+                      disabled={
+                        isApproved
+                        || approveMutation.isPending
+                        // Approving pays, so it needs somewhere to pay from —
+                        // unless there is nothing left to pay.
+                        || (unpaidPayableCount > 0 && (!payCompanyId || !payBankId))
+                      }
                       className="gap-1 bg-emerald-600 hover:bg-emerald-700"
+                      title={
+                        unpaidPayableCount > 0 && (!payCompanyId || !payBankId)
+                          ? 'Choose the company and bank to pay from first'
+                          : unpaidPayableCount > 0
+                            ? `Pays ${unpaidPayableCount} commission(s), then locks the day`
+                            : 'Locks the day'
+                      }
                     >
-                      <CheckCircle2 className="h-4 w-4" />
-                      {isApproved ? 'Approved' : approveMutation.isPending ? 'Approving...' : 'Approve'}
+                      {approveMutation.isPending
+                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        : <CheckCircle2 className="h-4 w-4" />}
+                      {isApproved
+                        ? 'Approved'
+                        : approveMutation.isPending
+                          ? 'Posting...'
+                          : unpaidPayableCount > 0 ? 'Approve & Pay' : 'Approve'}
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -1513,9 +1837,28 @@ export function DailyRevenueReportSection() {
                   onChange={(e) => setManualForm({ ...manualForm, department: e.target.value })} />
               </div>
               <div>
-                <Label htmlFor="m_rm">RM Manager</Label>
-                <Input id="m_rm" placeholder="Lakesh, AB, VBR..." value={manualForm.rm_name} maxLength={100}
-                  onChange={(e) => setManualForm({ ...manualForm, rm_name: e.target.value })} />
+                <Label htmlFor="m_rm">RM Manager (ledger)</Label>
+                {/* The manager is picked as a ledger, by code or by name, so the
+                    row can be paid without anyone guessing which account the
+                    typed name meant. */}
+                <LedgerAutocomplete
+                  value={manualForm.rm_ledger}
+                  companyId={payCompanyId || null}
+                  placeholder="Search by ledger code or name..."
+                  onChange={(ledger) =>
+                    setManualForm({
+                      ...manualForm,
+                      rm_ledger: ledger,
+                      // The report prints the name, so it follows the ledger.
+                      rm_name: ledger?.account_name ?? '',
+                    })
+                  }
+                />
+                {manualForm.rm_ledger?.account_code && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    Ledger {manualForm.rm_ledger.account_code}
+                  </p>
+                )}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">

@@ -67,11 +67,15 @@ export function LedgerAutocomplete({
     queryKey: ['ledger-autocomplete', debounced, companyId || 'all'],
     enabled: debounced.trim().length >= 1,
     queryFn: async (): Promise<LedgerAccountOption[]> => {
+      // Searchable by code as well as name: a ledger is usually known by its
+      // code to the people who post to it, and the code is the faster way in
+      // when several ledgers share most of a name.
+      const term = debounced.trim().replace(/[,()]/g, ' ');
       let query = (supabase as any)
         .from('chart_of_accounts')
         .select('id, account_code, account_name, account_group, company_id')
         .eq('is_active', true)
-        .ilike('account_name', `%${debounced.trim()}%`)
+        .or(`account_name.ilike.%${term}%,account_code.ilike.%${term}%`)
         .order('account_name')
         .limit(20);
       if (companyId) query = query.or(`company_id.eq.${companyId},company_id.is.null`);
