@@ -74,8 +74,8 @@ const EditLog: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
       let query = (supabase as any)
         .from('voucher_edit_log')
         .select('*')
-        .gte('created_at', `${fromDate}T00:00:00`)
-        .lte('created_at', `${toDate}T23:59:59`)
+        .gte('created_at', new Date(`${fromDate}T00:00:00`).toISOString())
+        .lte('created_at', new Date(`${toDate}T23:59:59.999`).toISOString())
         .order('created_at', { ascending: false })
         .limit(500);
       if (actionFilter) query = query.eq('action', actionFilter);

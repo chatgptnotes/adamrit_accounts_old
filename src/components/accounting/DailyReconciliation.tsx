@@ -67,8 +67,8 @@ const DailyReconciliation: React.FC = () => {
   } = useQuery<ReconciliationResult>({
     queryKey: ['daily-reconciliation', selectedDate],
     queryFn: async (): Promise<ReconciliationResult> => {
-      const startOfDay = `${selectedDate}T00:00:00`;
-      const endOfDay = `${selectedDate}T23:59:59`;
+      const startOfDay = new Date(`${selectedDate}T00:00:00`).toISOString();
+      const endOfDay = new Date(`${selectedDate}T23:59:59.999`).toISOString();
 
       // Fetch all data sources in parallel
       const [vouchersRes, advanceRes, finalPayRes, pharmacyRes] =

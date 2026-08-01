@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import { TallyChoiceField, TallyPopup, TallyTextField } from './TallyPopup';
 import { useAccountingCompany } from '../AccountingCompanyContext';
 import { accountTypeForGroupChain, insertLedgerAccount, normalizeAccountName } from '@/lib/ledgerMasters';
@@ -79,12 +80,13 @@ export const QuickLedgerPopup: React.FC<{
     }
     // account_name is not unique in the database and a duplicate does not
     // error: it collapses into one line on the Trial Balance and shows twice in
-    // the voucher picker. Refuse it here, as the master screen does.
-    const { data: existing } = await (supabase as any)
-      .from('chart_of_accounts')
-      .select('account_name')
-      .eq('company_id', selectedCompanyId)
-      .eq('is_active', true);
+    // the voucher picker. Refuse it here, as the master screen does. Paged —
+    // an unpaged select stops at 1000 rows and the clash check would pass
+    // for exactly the ledgers it was written to catch.
+    const existing = await fetchActiveAccounts<{ account_name: string }>({
+      columns: 'account_name',
+      companyId: selectedCompanyId,
+    });
     const clash = (existing ?? []).find(
       (a: { account_name: string }) => normalizeAccountName(a.account_name) === normalizeAccountName(trimmed),
     );

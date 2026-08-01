@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/integrations/supabase/client'
+import { fetchAllRows } from '@/lib/fetchAllRows'
 import { toast } from 'sonner'
 import {
   PlusCircle, Loader2, CheckCircle2, XCircle, Trash2, Eye, Banknote, FileText, Image as ImageIcon,
@@ -125,14 +126,18 @@ export default function TallyApprovals({ companyName }: Props) {
     if (!accountingCompanyId) { setAllLedgers([]); return }
     setLoadingLedgers(true)
     try {
-      const { data, error } = await supabase
-        .from('chart_of_accounts')
-        .select('id, account_name, account_group')
-        .eq('company_id', accountingCompanyId)
-        .eq('is_active', true)
-        .order('account_name')
-        .limit(2000)
-      if (error) throw error
+      // Paged — .limit(2000) is capped at 1000 server-side, and a ledger past
+      // that could not be picked while approving a bill.
+      const data = await fetchAllRows<any>((from, to) =>
+        supabase
+          .from('chart_of_accounts')
+          .select('id, account_name, account_group')
+          .eq('company_id', accountingCompanyId)
+          .eq('is_active', true)
+          .order('account_name')
+          .order('id')
+          .range(from, to),
+      )
       const coa = (data || []).map((l: any) => ({ id: l.id, name: l.account_name, parent_group: l.account_group }))
 
       const { data: masterData, error: masterError } = await (supabase as any)

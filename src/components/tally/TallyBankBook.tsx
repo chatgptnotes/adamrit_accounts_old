@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '@/integrations/supabase/client'
+import { fetchActiveAccounts } from '@/lib/fetchAccounts'
 import { toast } from 'sonner'
 import { Landmark, Loader2, Printer, ChevronDown, Clock, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
@@ -37,8 +38,12 @@ export default function TallyBankBook({ companyName, companyId }: { serverUrl?: 
         if (companyError) throw companyError
         const accountingCompany = (companyRows || []).find((company: any) => companyKey(company.company_name) === companyKey(companyName))
         if (accountingCompany) {
-          const { data, error } = await (supabase as any).from('chart_of_accounts').select('id, account_name, account_group, account_type, opening_balance, opening_balance_type').eq('company_id', accountingCompany.id).eq('is_active', true).order('account_name')
-          if (error) throw error
+          // Paged — a plain select stops at 1000 rows and banks sorting past
+          // that never appeared in the picker.
+          const data = await fetchActiveAccounts<any>({
+            columns: 'id, account_name, account_group, account_type, opening_balance, opening_balance_type',
+            companyId: accountingCompany.id,
+          })
           rows = (data || []).filter(isBankAccount).map((account: any) => ({ name: account.account_name, opening_balance: signedOpening(account), closing_balance: signedOpening(account) }))
         }
       }

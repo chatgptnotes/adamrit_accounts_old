@@ -59,7 +59,11 @@ export const GatePassModal: React.FC<GatePassModalProps> = ({ visitId, isOpen, o
           )
         `)
         .eq('visit.visit_id', visitId)
-        .single();
+        // Latest pass wins: a re-discharged visit can carry two gate passes,
+        // and .single() throws on both zero and multiple rows.
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       if (error) {
         console.error('Gate pass query error:', error);

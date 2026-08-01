@@ -43,8 +43,8 @@ export default function RadiologyWorklist() {
             patients (id, name, age, gender, mobile)
           )
         `)
-        .gte('created_at', `${date}T00:00:00`)
-        .lte('created_at', `${date}T23:59:59`)
+        .gte('created_at', new Date(`${date}T00:00:00`).toISOString())
+        .lte('created_at', new Date(`${date}T23:59:59.999`).toISOString())
         .order('created_at', { ascending: true });
 
       if (deptFilter !== 'All') {

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchAllRows } from '@/lib/fetchAllRows';
 import { useAuth } from '@/contexts/AuthContext';
 import { Search, Eye, CreditCard, X, Wallet, DollarSign, Calendar, User, Receipt, History, ChevronLeft, ChevronRight, Printer } from 'lucide-react';
 import { toast } from 'sonner';
@@ -89,10 +90,12 @@ export const CreditPayments: React.FC = () => {
     }
 
     // Get all patients to map patient_id (string) to UUID
-    const { data: allPatients } = await supabase
+    const allPatients = await fetchAllRows((from, to) => supabase
       .from('patients')
       .select('id, patients_id')
-      .eq('hospital_name', hospitalConfig.name);
+      .eq('hospital_name', hospitalConfig.name)
+      .order('id')
+      .range(from, to));
 
     const patientIdToUuid: { [key: string]: string } = {};
     (allPatients || []).forEach((p: any) => {

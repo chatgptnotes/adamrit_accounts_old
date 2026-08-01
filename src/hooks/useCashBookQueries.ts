@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchAllRows } from '@/lib/fetchAllRows';
 
 export interface CashBookEntry {
   voucher_date: string;
@@ -66,45 +67,48 @@ export const useCashBookEntries = (filters?: CashBookFilters) => {
         throw new Error('Cash account "Cash in Hand" is inactive. Please activate it in the chart of accounts.');
       }
 
-      // Build the main query
-      let query = supabase
-        .from('voucher_entries')
-        .select(`
-          id,
-          voucher_id,
-          narration,
-          debit_amount,
-          credit_amount,
-          voucher:vouchers (
+      // Status and dates filter on the SERVER. They used to be applied
+      // client-side after an unpaged fetch that the server caps at 1000
+      // rows in voucher_date-ascending order — so any period past the first
+      // 1000 oldest entries rendered an empty Cash Book.
+      const data = await fetchAllRows<any>((from, to) => {
+        let query = supabase
+          .from('voucher_entries')
+          .select(`
             id,
-            voucher_date,
-            voucher_number,
+            voucher_id,
             narration,
-            status,
-            created_at,
-            created_by,
-            patient_id,
-            voucher_type:voucher_types (
+            debit_amount,
+            credit_amount,
+            voucher:vouchers!inner (
               id,
-              voucher_type_name,
-              voucher_category,
-              voucher_type_code
-            ),
-            patient:patients (
-              id,
-              name
+              voucher_date,
+              voucher_number,
+              narration,
+              status,
+              created_at,
+              created_by,
+              patient_id,
+              voucher_type:voucher_types (
+                id,
+                voucher_type_name,
+                voucher_category,
+                voucher_type_code
+              ),
+              patient:patients (
+                id,
+                name
+              )
             )
-          )
-        `)
-        .eq('account_id', cashAccount.id)
-        .order('voucher(voucher_date)', { ascending: true });
-
-      const { data, error } = await query;
-
-      if (error) {
-        console.error('Error fetching cash book entries:', error);
-        throw error;
-      }
+          `)
+          .eq('account_id', cashAccount.id)
+          .eq('voucher.status', 'AUTHORISED')
+          .order('voucher(voucher_date)', { ascending: true })
+          .order('id');
+        if (filters?.from_date) query = query.gte('voucher.voucher_date', filters.from_date);
+        if (filters?.to_date) query = query.lte('voucher.voucher_date', filters.to_date);
+        return query.range(from, to);
+      });
 
       // Fetch payment source details for all vouchers
       const voucherIds = (data || []).map((entry: any) => entry.voucher?.id).filter(Boolean);
@@ -360,30 +364,28 @@ export const useCashBalance = (upToDate?: string) => {
         throw new Error('Cash account "Cash in Hand" is inactive. Please activate it in the chart of accounts.');
       }
 
-      // Get all transactions up to date
-      let query = supabase
-        .from('voucher_entries')
-        .select(`
-          debit_amount,
-          credit_amount,
-          voucher:vouchers!inner (
-            voucher_date,
-            status
-          )
-        `)
-        .eq('account_id', cashAccount.id)
-        .eq('voucher.status', 'AUTHORISED');
-
-      if (upToDate) {
-        query = query.lte('voucher.voucher_date', upToDate);
-      }
-
-      const { data, error } = await query;
-
-      if (error) {
-        console.error('Error calculating cash balance:', error);
-        throw error;
-      }
+      // Get all transactions up to date. Paged — the unpaged select stopped
+      // at 1000 rows and capped the closing balance there.
+      const data = await fetchAllRows<any>((from, to) => {
+        let query = supabase
+          .from('voucher_entries')
+          .select(`
+            id,
+            debit_amount,
+            credit_amount,
+            voucher:vouchers!inner (
+              voucher_date,
+              status
+            )
+          `)
+          .eq('account_id', cashAccount.id)
+          .eq('voucher.status', 'AUTHORISED')
+          .order('id');
+        if (upToDate) {
+          query = query.lte('voucher.voucher_date', upToDate);
+        }
+        return query.range(from, to);
+      });
 
       // Calculate totals
       const totalDebit = (data || []).reduce((sum, entry: any) => sum + (entry.debit_amount || 0), 0);

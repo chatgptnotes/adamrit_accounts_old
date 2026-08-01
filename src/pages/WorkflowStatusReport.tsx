@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchAllRows } from '@/lib/fetchAllRows';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -64,9 +65,10 @@ const WorkflowStatusReport = () => {
     queryKey: ['workflow-status-report', reportKey, hospitalConfig?.name],
     enabled: Boolean(report),
     queryFn: async () => {
-      let query = supabase
-        .from('visits')
-        .select(`
+      const data = await fetchAllRows((from, to) => {
+        let query = supabase
+          .from('visits')
+          .select(`
           id,
           visit_id,
           workflow_status,
@@ -85,17 +87,14 @@ const WorkflowStatusReport = () => {
             name
           )
         `)
-        .in('workflow_status', report!.statuses);
+          .in('workflow_status', report!.statuses);
 
-      if (hospitalConfig?.name) {
-        query = query.eq('patients.hospital_name', hospitalConfig.name);
-      }
+        if (hospitalConfig?.name) {
+          query = query.eq('patients.hospital_name', hospitalConfig.name);
+        }
 
-      const { data, error } = await query;
-      if (error) {
-        console.error('Error fetching workflow status report:', error);
-        throw error;
-      }
+        return query.order('id').range(from, to);
+      });
       return (data || []) as unknown as ReportRow[];
     },
   });

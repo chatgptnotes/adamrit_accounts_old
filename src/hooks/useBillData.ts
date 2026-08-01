@@ -32,7 +32,7 @@ export const useBillData = (patientId: string | null, visitId: string | null) =>
         .select('*')
         .eq('id', patientId)
         .eq('hospital_name', hospitalConfig.name)
-        .single();
+        .maybeSingle();
 
       if (patientError) {
         console.error('Error fetching patient data:', patientError);

@@ -7,10 +7,11 @@ import PatientTransactionModal from '@/components/PatientTransactionModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useCompanies } from '@/hooks/useCompanies';
+import { formatDateOnly } from '@/utils/dateOnly';
 
 const DayBook: React.FC = () => {
   // Get today's date in YYYY-MM-DD format
-  const today = new Date().toISOString().split('T')[0];
+  const today = formatDateOnly(new Date());
   const { data: companies = [] } = useCompanies();
   const [selectedCompanyId, setSelectedCompanyId] = useState('');
   const navigate = useNavigate();
@@ -98,8 +99,8 @@ const DayBook: React.FC = () => {
         .select('*')
         .neq('payment_method', 'CREDIT')
         .ilike('hospital_name', `%${effectiveCompanyKey}%`)
-        .gte('payment_date', `${fromDate}T00:00:00`)
-        .lte('payment_date', `${toDate}T23:59:59`)
+        .gte('payment_date', new Date(`${fromDate}T00:00:00`).toISOString())
+        .lte('payment_date', new Date(`${toDate}T23:59:59.999`).toISOString())
         .order('payment_date', { ascending: true });
 
       if (!error && data) {

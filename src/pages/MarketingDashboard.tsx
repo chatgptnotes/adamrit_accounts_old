@@ -17,6 +17,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { geminiGenerateContentUrl, geminiGenerateContent } from '@/lib/gemini';
 import { LLM_BACKEND, callVpsClaude } from '@/lib/vpsClaude';
 import { ClinicalKPIs } from '@/components/ClinicalKPIs';
+import { fetchAllRows } from '@/lib/fetchAllRows';
 
 const db = supabase as any;
 
@@ -279,7 +280,7 @@ export default function MarketingDashboard() {
         // Bill preparation records for delay/pending tracking
         (() => { let q = db.from('bill_preparation').select('visit_id, bill_amount, date_of_submission, received_amount, received_date, deduction_amount, tds_amount, visits!inner!visit_id(patients!inner(name, corporate, hospital_name))'); if (hospitalFilter) q = q.eq('visits.patients.hospital_name', hospitalFilter); return q; })(),
         // Visits for corporate/area charts (fetch yearly range, filter client-side per chartFilter)
-        (() => { let q = db.from('visits').select('visit_id, admission_date, patients!inner(corporate, city_town, hospital_name)').gte('admission_date', yearStart).lte('admission_date', todayStr); if (hospitalFilter) q = q.eq('patients.hospital_name', hospitalFilter); return q; })(),
+        fetchAllRows((from, to) => { let q = db.from('visits').select('visit_id, admission_date, patients!inner(corporate, city_town, hospital_name)').gte('admission_date', yearStart).lte('admission_date', todayStr); if (hospitalFilter) q = q.eq('patients.hospital_name', hospitalFilter); return q.order('id').range(from, to); }).then((data) => ({ data })),
       ]);
 
       // Sum ALL revenue from DayBook RPC (Advance Payments + Final Payments, all payment modes)
@@ -455,19 +456,21 @@ export default function MarketingDashboard() {
       let startDate = monthStart;
       if (chartFilter === 'daily') startDate = todayStr;
       else if (chartFilter === 'yearly') startDate = yearStart;
-      let q = supabase
-        .from('visits')
-        .select('visit_id, admission_date, discharge_date, patient_type, appointment_with, status, patients!inner(name, corporate, hospital_name, age, gender)')
-        .gte('admission_date', startDate)
-        .lte('admission_date', todayStr)
-        .order('admission_date', { ascending: false });
-      if (fullName === 'Private') {
-        q = q.or('patients.corporate.is.null,patients.corporate.eq.Private');
-      } else {
-        q = q.eq('patients.corporate', fullName);
-      }
-      if (hospitalConfig?.name) q = q.eq('patients.hospital_name', hospitalConfig.name);
-      const { data: visits } = await q;
+      const visits = await fetchAllRows((from, to) => {
+        let q = supabase
+          .from('visits')
+          .select('visit_id, admission_date, discharge_date, patient_type, appointment_with, status, patients!inner(name, corporate, hospital_name, age, gender)')
+          .gte('admission_date', startDate)
+          .lte('admission_date', todayStr)
+          .order('admission_date', { ascending: false });
+        if (fullName === 'Private') {
+          q = q.or('patients.corporate.is.null,patients.corporate.eq.Private');
+        } else {
+          q = q.eq('patients.corporate', fullName);
+        }
+        if (hospitalConfig?.name) q = q.eq('patients.hospital_name', hospitalConfig.name);
+        return q.order('id').range(from, to);
+      });
       setPanelPatients(visits || []);
     } catch (e) {
       setPanelPatients([]);

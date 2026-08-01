@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchAllRows } from '@/lib/fetchAllRows';
 import { Clock, BedDouble, RotateCcw, TrendingUp, Wallet, LogIn, RefreshCw } from 'lucide-react';
 
 // Bed capacity is read from room_management; this is only the fallback for when
@@ -14,22 +15,22 @@ const WINDOW_DAYS = 30;
 
 const fetchKPIsData = async () => {
   const since = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
-  const [visitsRes, accommRes, billsRes, roomsRes] = await Promise.all([
-    supabase.from('visits').select('visit_type, is_discharged, discharge_date').gte('created_at', since),
-    supabase.from('visit_accommodations').select('days').gte('start_date', since),
-    supabase.from('bills').select('total_amount').gte('date', since),
+  const [visits, accommodations, bills, roomsRes] = await Promise.all([
+    fetchAllRows((from, to) =>
+      supabase.from('visits').select('visit_type, is_discharged, discharge_date').gte('created_at', since).order('id').range(from, to)),
+    fetchAllRows((from, to) =>
+      supabase.from('visit_accommodations').select('days').gte('start_date', since).order('id').range(from, to)),
+    fetchAllRows((from, to) =>
+      supabase.from('bills').select('total_amount').gte('date', since).order('id').range(from, to)),
     supabase.from('room_management').select('maximum_rooms'),
   ]);
-  if (visitsRes.error) throw visitsRes.error;
-  if (accommRes.error) throw accommRes.error;
-  if (billsRes.error) throw billsRes.error;
   if (roomsRes.error) throw roomsRes.error;
   const totalBeds =
     (roomsRes.data || []).reduce((s, r) => s + (Number(r.maximum_rooms) || 0), 0) || FALLBACK_TOTAL_BEDS;
   return {
-    visits: visitsRes.data || [],
-    accommodations: accommRes.data || [],
-    bills: billsRes.data || [],
+    visits,
+    accommodations,
+    bills,
     totalBeds,
   };
 };

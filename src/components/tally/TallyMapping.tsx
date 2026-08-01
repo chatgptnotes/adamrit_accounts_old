@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { supabase } from '@/integrations/supabase/client'
+import { fetchAllRows } from '@/lib/fetchAllRows'
 import { toast } from 'sonner'
 import {
   Link2, Unlink, Search, Filter, Zap, Info, Database,
@@ -125,7 +126,7 @@ export default function TallyMapping({ serverUrl, companyName, companyId }) {
       const unmapped = ledgers.filter(l => !l.is_mapped && (l.parent_group || '').toLowerCase().includes('sundry debtor'))
       if (unmapped.length === 0) { toast.info('No unmapped Sundry Debtor ledgers found'); setAutoMapping(false); return }
 
-      const { data: patients } = await supabase.from('patients').select('id, patient_name, name')
+      const patients = await fetchAllRows((from, to) => supabase.from('patients').select('id, patient_name, name').order('id').range(from, to))
       if (!patients || patients.length === 0) { toast.info('No patients found for auto-mapping'); setAutoMapping(false); return }
 
       let mapped = 0

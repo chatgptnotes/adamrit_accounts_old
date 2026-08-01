@@ -107,7 +107,8 @@ const PatientDashboardInner = () => {
             let query = supabase
               .from('patients')
               .select('*, patients_id, corporate')
-              .order('created_at', { ascending: false });
+              .order('created_at', { ascending: false })
+              .order('id');
             if (hospitalConfig?.name) {
               query = query.eq('hospital_name', hospitalConfig.name);
             }
@@ -125,7 +126,8 @@ const PatientDashboardInner = () => {
           fetchAllRows<any>(() => supabase
             .from('visits')
             .select('patient_id, relationship_manager_id, visit_date, created_at')
-            .not('relationship_manager_id', 'is', null)),
+            .not('relationship_manager_id', 'is', null)
+            .order('id')),
           supabase.from('relationship_managers').select('id, code, name'),
         ]);
 

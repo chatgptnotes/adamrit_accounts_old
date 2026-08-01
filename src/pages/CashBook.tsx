@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import * as XLSX from 'xlsx';
 import { useCompanies } from '@/hooks/useCompanies';
+import { formatDateOnly } from '@/utils/dateOnly';
 
 // Sum a single hospital's cash-book Debit/Credit from its raw sources, mirroring the
 // displayEntries logic. Debits = CASH advance/final (+ pharmacy for Hope) + Hope pharmacy
@@ -42,7 +43,7 @@ const computeHospitalTotals = (
 
 const CashBook: React.FC = () => {
   // Get today's date in YYYY-MM-DD format
-  const today = new Date().toISOString().split('T')[0];
+  const today = formatDateOnly(new Date());
   const navigate = useNavigate();
   const { hospitalConfig } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -160,8 +161,8 @@ const CashBook: React.FC = () => {
         .select('*')
         .eq('payment_method', 'CASH')
         .ilike('hospital_name', '%hope%')
-        .gte('payment_date', `${fromDate}T00:00:00`)
-        .lte('payment_date', `${toDate}T23:59:59`)
+        .gte('payment_date', new Date(`${fromDate}T00:00:00`).toISOString())
+        .lte('payment_date', new Date(`${toDate}T23:59:59.999`).toISOString())
         .order('payment_date', { ascending: true });
 
       if (!error && data) {
@@ -192,8 +193,8 @@ const CashBook: React.FC = () => {
         .eq('status', 'PROCESSED')
         .neq('is_hidden', true)
         .ilike('hospital_name', '%hope%')
-        .gte('return_date', `${fromDate}T00:00:00`)
-        .lte('return_date', `${toDate}T23:59:59`)
+        .gte('return_date', new Date(`${fromDate}T00:00:00`).toISOString())
+        .lte('return_date', new Date(`${toDate}T23:59:59.999`).toISOString())
         .order('return_date', { ascending: true });
 
       if (error || !data || data.length === 0) {
@@ -230,8 +231,8 @@ const CashBook: React.FC = () => {
         .select('amount')
         .eq('payment_method', 'CASH')
         .ilike('hospital_name', '%hope%')
-        .gte('payment_date', `${fromDate}T00:00:00`)
-        .lte('payment_date', `${toDate}T23:59:59`);
+        .gte('payment_date', new Date(`${fromDate}T00:00:00`).toISOString())
+        .lte('payment_date', new Date(`${toDate}T23:59:59.999`).toISOString());
       setHopePharmacyCredits(credits || []);
 
       const { data: refunds } = await supabase
@@ -241,8 +242,8 @@ const CashBook: React.FC = () => {
         .eq('status', 'PROCESSED')
         .neq('is_hidden', true)
         .ilike('hospital_name', '%hope%')
-        .gte('return_date', `${fromDate}T00:00:00`)
-        .lte('return_date', `${toDate}T23:59:59`);
+        .gte('return_date', new Date(`${fromDate}T00:00:00`).toISOString())
+        .lte('return_date', new Date(`${toDate}T23:59:59.999`).toISOString());
       setHopePharmacyRefunds(refunds || []);
     };
     fetchHopePharmacyForTotals();

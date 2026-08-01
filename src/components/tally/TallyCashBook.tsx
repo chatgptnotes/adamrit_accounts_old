@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '@/integrations/supabase/client'
+import { fetchActiveAccounts } from '@/lib/fetchAccounts'
+import { fetchAllRows } from '@/lib/fetchAllRows'
 import { toast } from 'sonner'
 import { Banknote, Loader2, Printer, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
@@ -60,15 +62,19 @@ export default function TallyCashBook({ companyName, companyId }: { serverUrl?: 
         return
       }
 
-      const { data: accounts, error: accountsError } = await (supabase as any).from('chart_of_accounts').select('id, account_name, account_group, account_type, opening_balance, opening_balance_type').eq('company_id', accountingCompany.id).eq('is_active', true)
-      if (accountsError) throw accountsError
+      // Paged — a plain select stops at 1000 rows and understates the opening.
+      const accounts = await fetchActiveAccounts<any>({
+        columns: 'id, account_name, account_group, account_type, opening_balance, opening_balance_type',
+        companyId: accountingCompany.id,
+      })
       setOpeningBalance((accounts || []).filter(isCashAccount).reduce((total: number, account: any) => total + signedOpening(account), 0))
 
-      let query: any = (supabase as any).from('vouchers').select('id, voucher_number, voucher_date, narration, status, created_at, voucher_type:voucher_types(voucher_type_name, voucher_category), voucher_entries(debit_amount, credit_amount, account:chart_of_accounts(account_name, account_group, account_type))').eq('company_id', accountingCompany.id).order('voucher_date', { ascending: true }).limit(2000)
-      if (dateFrom) query = query.gte('voucher_date', dateFrom)
-      if (dateTo) query = query.lte('voucher_date', dateTo)
-      const { data, error } = await query
-      if (error) throw error
+      const data = await fetchAllRows<any>((from, to) => {
+        let query: any = (supabase as any).from('vouchers').select('id, voucher_number, voucher_date, narration, status, created_at, voucher_type:voucher_types(voucher_type_name, voucher_category), voucher_entries(debit_amount, credit_amount, account:chart_of_accounts(account_name, account_group, account_type))').eq('company_id', accountingCompany.id).order('voucher_date', { ascending: true }).order('id')
+        if (dateFrom) query = query.gte('voucher_date', dateFrom)
+        if (dateTo) query = query.lte('voucher_date', dateTo)
+        return query.range(from, to)
+      })
       const normalized = (data || []).map((voucher: any) => ({
         id: `adamrit:${voucher.id}`,
         date: voucher.voucher_date,

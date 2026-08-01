@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchAllRows } from '@/lib/fetchAllRows';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FileText } from 'lucide-react';
@@ -17,20 +18,18 @@ export const OverviewReportsSection = () => {
     queryKey: ['overview-workflow-report-counts', hospitalConfig?.name],
     refetchInterval: 60_000,
     queryFn: async () => {
-      let query = supabase
-        .from('visits')
-        .select('workflow_status, patients!inner(hospital_name)')
-        .not('workflow_status', 'is', null);
+      const data = await fetchAllRows((from, to) => {
+        let query = supabase
+          .from('visits')
+          .select('workflow_status, patients!inner(hospital_name)')
+          .not('workflow_status', 'is', null);
 
-      if (hospitalConfig?.name) {
-        query = query.eq('patients.hospital_name', hospitalConfig.name);
-      }
+        if (hospitalConfig?.name) {
+          query = query.eq('patients.hospital_name', hospitalConfig.name);
+        }
 
-      const { data, error } = await query;
-      if (error) {
-        console.error('Error fetching workflow status counts:', error);
-        throw error;
-      }
+        return query.order('id').range(from, to);
+      });
 
       const counts: Record<string, number> = {};
       (data || []).forEach((row: any) => {

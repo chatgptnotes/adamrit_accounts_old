@@ -53,7 +53,11 @@ export const GatePassPrint: React.FC<GatePassPrintProps> = ({ visitId }) => {
           )
         `)
         .eq('visit.visit_id', visitId)
-        .single();
+        // Latest pass wins: a re-discharged visit can carry two gate passes,
+        // and .single() throws on both zero and multiple rows.
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       if (error) throw error;
       return data as GatePassData;

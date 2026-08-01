@@ -36,6 +36,9 @@ export default function CashInHandView() {
         .maybeSingle();
       if (!acct) return { receipts: 0, payments: 0, entries: [], accountFound: false };
 
+      // Today's entries filtered on the SERVER. The old shape took 300 rows
+      // ordered by UUID — effectively 300 random entries from all history —
+      // and kept whichever happened to be today's, so the totals drifted.
       const { data: rows, error } = await supabase
         .from("voucher_entries")
         .select(
@@ -45,20 +48,19 @@ export default function CashInHandView() {
         // Cash transactions only — the pharmacy sale JVs belong to the
         // pharmacy's own ledger, as on the accounting Cash/Bank screens.
         .eq("voucher.is_optional", false)
-        .order("id", { ascending: false })
-        .limit(300);
+        .eq("voucher.voucher_date", today)
+        .order("created_at", { ascending: false })
+        .limit(1000);
       if (error) throw error;
 
-      const entries: CashEntry[] = (rows || [])
-        .map((r: any) => ({
-          id: r.id,
-          debit_amount: Number(r.debit_amount) || 0,
-          credit_amount: Number(r.credit_amount) || 0,
-          narration: r.narration,
-          voucher_date: r.voucher?.voucher_date || "",
-          voucher_number: r.voucher?.voucher_number || null,
-        }))
-        .filter((e) => (e.voucher_date || "").slice(0, 10) === today);
+      const entries: CashEntry[] = (rows || []).map((r: any) => ({
+        id: r.id,
+        debit_amount: Number(r.debit_amount) || 0,
+        credit_amount: Number(r.credit_amount) || 0,
+        narration: r.narration,
+        voucher_date: r.voucher?.voucher_date || "",
+        voucher_number: r.voucher?.voucher_number || null,
+      }));
 
       return {
         accountFound: true,
