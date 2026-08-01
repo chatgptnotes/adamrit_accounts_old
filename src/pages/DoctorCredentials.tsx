@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { Stamp, Search, Plus, X, Upload, Trash2, PenLine } from 'lucide-react';
+import { Stamp, Search, Plus, X, Upload, Trash2, PenLine, Building2 } from 'lucide-react';
 
 const db = supabase as any;
 
@@ -19,6 +19,13 @@ interface Doctor {
   stamp_url: string | null;
 }
 
+// The app serves two hospitals, and a document should carry the seal of the one
+// it was raised under. Same ids as HospitalType in src/types/hospital.ts.
+const HOSPITALS = [
+  { type: 'hope', label: 'Hope', fullName: 'Hope Multi-Specialty Hospital' },
+  { type: 'ayushman', label: 'Ayushman', fullName: 'Ayushman Hospital' },
+] as const;
+
 const publicUrl = (path: string) =>
   supabase.storage.from('uploads').getPublicUrl(path).data.publicUrl;
 
@@ -31,6 +38,7 @@ const DoctorCredentials: React.FC = () => {
   const [newName, setNewName] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'missing' | 'complete'>('all');
+  const [seals, setSeals] = useState<Record<string, string | null>>({});
 
   const fetchAll = async () => {
     setLoading(true);
@@ -47,12 +55,50 @@ const DoctorCredentials: React.FC = () => {
     const rows: Doctor[] = data || [];
     setDoctors(rows);
 
+    // The hospital seals live in their own table - they belong to the hospital,
+    // not to any doctor. A missing table just means the migration has not run
+    // yet, which must not take the rest of the page down with it.
+    const { data: sealRows, error: sealError } = await db
+      .from('hospital_stamps')
+      .select('hospital_type, stamp_url');
+    if (sealError) console.warn('[DoctorCredentials] hospital_stamps unavailable:', sealError.message);
+    const sealMap: Record<string, string | null> = {};
+    (sealRows || []).forEach((s: any) => { sealMap[s.hospital_type] = s.stamp_url; });
+    setSeals(sealMap);
+
     const { data: files } = await supabase.storage
       .from('uploads')
       .list(STAMP_FOLDER, { limit: 500, sortBy: { column: 'name', order: 'asc' } });
-    const taken = new Set(rows.map(r => r.stamp_url).filter(Boolean) as string[]);
+    const taken = new Set([
+      ...rows.map(r => r.stamp_url),
+      ...Object.values(sealMap),
+    ].filter(Boolean) as string[]);
     setUnassigned((files || []).map(f => publicUrl(`${STAMP_FOLDER}/${f.name}`)).filter(u => !taken.has(u)));
     setLoading(false);
+  };
+
+  const setSeal = async (hospitalType: string, value: string | null) => {
+    setBusy(`seal:${hospitalType}`);
+    const { error } = await db
+      .from('hospital_stamps')
+      .upsert({ hospital_type: hospitalType, stamp_url: value, updated_at: new Date().toISOString() },
+        { onConflict: 'hospital_type' });
+    setBusy(null);
+    if (error) { toast.error(`Could not save: ${error.message}`); return; }
+    toast.success(value ? 'Hospital seal saved' : 'Hospital seal removed');
+    fetchAll();
+  };
+
+  const uploadSeal = async (hospitalType: string, file: File) => {
+    setBusy(`seal:${hospitalType}`);
+    const safe = file.name.replace(/[^a-z0-9.\-_]/gi, '_');
+    const path = `${STAMP_FOLDER}/${Date.now()}-${safe}`;
+    const { error } = await supabase.storage.from('uploads').upload(path, file, {
+      upsert: false,
+      cacheControl: '3600',
+    });
+    if (error) { setBusy(null); toast.error(`Upload failed: ${error.message}`); return; }
+    await setSeal(hospitalType, publicUrl(path));
   };
 
   useEffect(() => { fetchAll(); }, []);
@@ -167,6 +213,49 @@ const DoctorCredentials: React.FC = () => {
           A doctor with neither gets a ruled blank space to sign by hand.
         </p>
 
+        {/* The hospital's own seal, one per hospital the app serves. It is not
+            any doctor's, so it sits above the doctor list rather than in it. */}
+        <div className="bg-white border border-gray-200 rounded-xl p-4 mb-5">
+          <div className="flex items-center gap-2 mb-1">
+            <Building2 className="w-4 h-4 text-blue-600" />
+            <h2 className="text-sm font-semibold text-gray-900">Hospital seal</h2>
+          </div>
+          <p className="text-xs text-gray-500 mb-3">
+            Printed beside the signing doctor's stamp. Each hospital has its own.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {HOSPITALS.map(h => {
+              const url = seals[h.type] ?? null;
+              const key = `seal:${h.type}`;
+              return (
+                <div key={h.type} className={`flex items-center justify-between gap-3 border border-gray-200 rounded-lg p-3 ${busy === key ? 'opacity-50' : ''}`}>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-gray-900">{h.label}</div>
+                    <div className="text-xs text-gray-500 truncate">{h.fullName}</div>
+                  </div>
+                  {url ? (
+                    <div className="relative group h-20 w-20 shrink-0 rounded-lg border border-gray-200 overflow-hidden" style={CHECKS}>
+                      <img src={url} alt={`${h.label} seal`} className="w-full h-full object-contain p-1" />
+                      <button
+                        onClick={() => setSeal(h.type, null)}
+                        title="Remove seal"
+                        className="absolute top-1 right-1 bg-white/90 border border-gray-300 rounded-full p-1 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity">
+                        <Trash2 className="w-3 h-3 text-red-600" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="h-20 w-20 shrink-0 rounded-lg border border-dashed border-gray-300 bg-gray-50 hover:bg-blue-50 hover:border-blue-400 cursor-pointer flex flex-col items-center justify-center gap-1 text-[11px] text-gray-500 hover:text-blue-700 transition-colors">
+                      <Upload className="w-3.5 h-3.5" /> Upload
+                      <input type="file" accept="image/*" className="hidden" disabled={busy === key}
+                        onChange={e => { const f = e.target.files?.[0]; if (f) uploadSeal(h.type, f); e.target.value = ''; }} />
+                    </label>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
         {/* How much of the master is actually usable today - a doctor without
             a stamp prints unsigned, so the gap is the number that matters. */}
         <div className="grid grid-cols-3 gap-3 mb-5">
@@ -235,12 +324,24 @@ const DoctorCredentials: React.FC = () => {
                   <div className="h-16 rounded mb-2 border border-gray-100" style={CHECKS}>
                     <img src={url} alt="Unassigned stamp" className="h-full w-full object-contain p-1" />
                   </div>
+                  {/* The round seal on the sheet is the hospital's, not a
+                      doctor's, so a hospital is a valid target here too. */}
                   <select
                     defaultValue=""
-                    onChange={e => { if (e.target.value) setField(e.target.value, 'stamp_url', url); }}
+                    onChange={e => {
+                      const v = e.target.value;
+                      if (!v) return;
+                      if (v.startsWith('seal:')) setSeal(v.slice(5), url);
+                      else setField(v, 'stamp_url', url);
+                    }}
                     className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded text-gray-900 text-xs">
-                    <option value="">Assign to doctor...</option>
-                    {doctors.map(d => <option key={d.id} value={d.id}>{d.doctor_name}</option>)}
+                    <option value="">Assign to...</option>
+                    <optgroup label="Hospital seal">
+                      {HOSPITALS.map(h => <option key={h.type} value={`seal:${h.type}`}>{h.label} hospital seal</option>)}
+                    </optgroup>
+                    <optgroup label="Doctors">
+                      {doctors.map(d => <option key={d.id} value={d.id}>{d.doctor_name}</option>)}
+                    </optgroup>
                   </select>
                 </div>
               ))}
