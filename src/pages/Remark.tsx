@@ -155,12 +155,26 @@ const Remark = () => {
         return;
       }
 
+      // The portal's export repeats a claim on more than one line. Postgres
+      // refuses an upsert whose batch names the same conflict key twice — "ON
+      // CONFLICT DO UPDATE command cannot affect row a second time" — and that
+      // rejects the whole file, not the offending rows. Collapse them here,
+      // keeping the last line for each claim, which is the one the sheet ends
+      // up asserting.
+      const byClaim = new Map<string, (typeof records)[number]>();
+      records.forEach(record => byClaim.set(record!.claim_id, record));
+      const unique = Array.from(byClaim.values());
+      const collapsed = records.length - unique.length;
+
       const { error } = await supabase
         .from('esic_claim_remarks' as any)
-        .upsert(records as any, { onConflict: 'hospital_name,claim_id' });
+        .upsert(unique as any, { onConflict: 'hospital_name,claim_id' });
       if (error) throw error;
 
-      toast.success(`Imported ${records.length} claim${records.length === 1 ? '' : 's'}`);
+      toast.success(
+        `Imported ${unique.length} claim${unique.length === 1 ? '' : 's'}` +
+          (collapsed > 0 ? ` — ${collapsed} repeated line${collapsed === 1 ? '' : 's'} collapsed` : ''),
+      );
       queryClient.invalidateQueries({ queryKey: ['esic-claim-remarks', hospitalConfig.name] });
     } catch (error: any) {
       console.error('Remark import failed:', error);
