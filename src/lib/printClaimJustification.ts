@@ -64,6 +64,13 @@ export function printClaimJustification(
 ): void {
   const doctor = options.doctor;
   const letterhead = options.letterheadUrl;
+  // What actually goes above the doctor's name. A hospital stamp in this
+  // country carries the doctor's name and MCI registration, so where no
+  // signature scan exists it is the mark that identifies them — better than a
+  // blank line, and it is what the person printing chose in the dialog. The
+  // stamp is then not repeated below.
+  const signatureImage = doctor?.signatureUrl || doctor?.stampUrl || null;
+  const separateStamp = doctor?.signatureUrl ? doctor.stampUrl : null;
   const printedOn = new Date().toLocaleDateString('en-IN', {
     day: '2-digit',
     month: 'short',
@@ -103,14 +110,14 @@ export function printClaimJustification(
      on a letter and — more to the point — keeps the stamps clear of the two
      addresses printed across the foot of the letterhead. Everything here is
      sized to fit above that band on a one-page letter. */
-  .closing { margin-top: 14px; text-align: right; page-break-inside: avoid; }
+  .closing { margin-top: 10px; text-align: right; page-break-inside: avoid; }
   /* The sign-off stays on the left where the letter's own text ends; only who
      signs it, and their stamps, move to the right margin. */
   .regards { text-align: left; margin-bottom: 6px; }
-  .sig, .sig-space { height: 28px; display: block; margin-left: auto; }
-  .sig { max-width: 150px; object-fit: contain; }
+  .sig-space { height: 28px; display: block; margin-left: auto; }
+  .sig { display: block; margin-left: auto; max-width: 165px; max-height: 44px; object-fit: contain; }
   .signname { font-weight: bold; margin-top: 2px; }
-  .stamprow { display: flex; justify-content: flex-end; gap: 22px; margin-top: 8px; page-break-inside: avoid; }
+  .stamprow { display: flex; justify-content: flex-end; gap: 22px; margin-top: 4px; page-break-inside: avoid; }
   /* A wider box than tall: doctors' stamps are landscape rectangles and were
      shrinking to nothing inside a square. object-fit keeps the round hospital
      seal from stretching to fill it. */
@@ -155,7 +162,7 @@ Colaba, Mumbai – 400005</div>
   <div class="closing">
     <div class="regards">Regards,</div>
     ${doctor
-      ? `${doctor.signatureUrl ? `<img class="sig" src="${escapeHtml(doctor.signatureUrl)}" alt="" />` : '<div class="sig-space"></div>'}
+      ? `${signatureImage ? `<img class="sig" src="${escapeHtml(signatureImage)}" alt="" />` : '<div class="sig-space"></div>'}
     <div class="signname">${escapeHtml(doctor.name)}</div>
     ${doctor.qualification ? `<div>${escapeHtml(doctor.qualification)}</div>` : ''}
     ${doctor.registrationNo ? `<div>Reg. No. ${escapeHtml(doctor.registrationNo)}</div>` : ''}`
@@ -163,14 +170,14 @@ Colaba, Mumbai – 400005</div>
     <div>${escapeHtml(options.hospitalName)}, Nagpur</div>
 
     <div class="stamprow">
-      ${doctor?.stampUrl
-        ? `<div><img class="stampimg" src="${escapeHtml(doctor.stampUrl)}" alt="" /><div class="stamp-caption">Doctor's stamp</div></div>`
+      ${separateStamp
+        ? `<div><img class="stampimg" src="${escapeHtml(separateStamp)}" alt="" /></div>`
         : ''}
       <div>
         ${options.hospitalSealUrl
           ? `<img class="stampimg" src="${escapeHtml(options.hospitalSealUrl)}" alt="" />`
-          : '<div class="stamp-space"></div>'}
-        <div class="stamp-caption">Hospital stamp</div>
+          : `<div class="stamp-space"></div>
+        <div class="stamp-caption">Hospital stamp</div>`}
       </div>
     </div>
   </div>

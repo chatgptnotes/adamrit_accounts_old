@@ -439,15 +439,32 @@ const Remark = () => {
                     key={d.doctor_name}
                     type="button"
                     onClick={() => setDoctorName(d.doctor_name)}
-                    className={`w-full px-3 py-2 text-left text-sm hover:bg-muted ${
+                    className={`flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-muted ${
                       doctorName === d.doctor_name ? 'bg-muted font-medium' : ''
                     }`}
                   >
-                    <div>{d.doctor_name}</div>
-                    {/* Whether a scan exists decides what actually prints, so it
-                        is shown before printing rather than found out after. */}
-                    <div className="text-xs text-muted-foreground">
-                      {d.signature_url ? 'Signature on file' : 'No signature on file — prints a ruled space'}
+                    {/* The mark itself, not a description of it — you pick the
+                        signature by looking at what will print. */}
+                    {(d.signature_url || d.stamp_url) ? (
+                      <img
+                        src={(d.signature_url || d.stamp_url) as string}
+                        alt=""
+                        className="h-10 w-20 shrink-0 object-contain"
+                      />
+                    ) : (
+                      <div className="flex h-10 w-20 shrink-0 items-center justify-center rounded border border-dashed text-[10px] text-muted-foreground">
+                        none
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <div className="truncate">{d.doctor_name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {d.signature_url
+                          ? 'Signature'
+                          : d.stamp_url
+                            ? 'Stamp — prints as the signature'
+                            : 'Nothing on file — prints a ruled space'}
+                      </div>
                     </div>
                   </button>
                 ))
