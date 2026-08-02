@@ -313,8 +313,11 @@ const CghsSurgeryMaster = () => {
   };
 
   const handleItemsPerPageChange = (value: string) => {
+    // setItemsPerPage already resets page to 1 in the SAME URL update. A
+    // second setCurrentPage(1) here rebuilt the params from the stale
+    // searchParams of this render and overwrote the perPage change — which
+    // is why switching 10 → 100 appeared to do nothing.
     setItemsPerPage(Number(value));
-    setCurrentPage(1); // Reset to first page when changing items per page
   };
 
   const handleSearchChange = (value: string) => {
