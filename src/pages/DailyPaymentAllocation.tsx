@@ -59,8 +59,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { DailyAllocationSheet } from '@/components/DailyAllocationSheet';
 import { BeneficiaryBankHint } from '@/components/BeneficiaryBankHint';
 import { RmoPaymentsTab } from '@/components/RmoPaymentsTab';
-import SalarySheetPage from '@/pages/SalarySheet';
-import ReferralRegisterPage from '@/pages/ReferralRegister';
+// Lazy: a crash inside an embedded page must not take the allocation page
+// down with it — each tab loads its module only when opened.
+const SalarySheetPage = React.lazy(() => import('@/pages/SalarySheet'));
+const ReferralRegisterPage = React.lazy(() => import('@/pages/ReferralRegister'));
 import { listUnpaidInvoices, payInvoicesTogether, type UnpaidInvoice } from '@/lib/approval-queue-service';
 import { printSpecialistInvoice } from '@/lib/printSpecialistInvoice';
 import { useAccountingRights } from '@/components/accounting/tally/rights';
@@ -2222,10 +2224,14 @@ ${sectionsHtml}
           <RmoPaymentsTab />
         </TabsContent>
         <TabsContent value="salary-sheet" className="mt-4">
-          <SalarySheetPage />
+          <React.Suspense fallback={<div className="py-8 text-center text-muted-foreground">Loading…</div>}>
+            <SalarySheetPage />
+          </React.Suspense>
         </TabsContent>
         <TabsContent value="opd-referral" className="mt-4">
-          <ReferralRegisterPage />
+          <React.Suspense fallback={<div className="py-8 text-center text-muted-foreground">Loading…</div>}>
+            <ReferralRegisterPage />
+          </React.Suspense>
         </TabsContent>
 
       </Tabs>
