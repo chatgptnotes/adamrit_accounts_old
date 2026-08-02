@@ -43,6 +43,7 @@ interface PayrollRow {
   gross_salary: number | null;
   deductions: number | null;
   net_salary: number | null;
+  designation: string | null;
   days_present: number | null;
   duty_count: number | null;
   base_monthly_salary: number | null;
@@ -59,6 +60,7 @@ interface SlipDraft {
   ledgerId: string | null;
   /** What the row was called before editing — amounts-only edits keep it. */
   originalName: string;
+  designation: string;
   base_monthly_salary: string;
   days_present: string;
   duty_count: string;
@@ -72,6 +74,7 @@ const EMPTY_DRAFT: SlipDraft = {
   employee_name: '',
   ledgerId: null,
   originalName: '',
+  designation: '',
   base_monthly_salary: '',
   days_present: '',
   duty_count: '',
@@ -105,6 +108,7 @@ const EXPENSE_LEDGER_KEY = 'salary_sheet_expense_ledger';
 const TEMPLATE_HEADERS = [
   'Employee Name',
   'Employee ID',
+  'Designation',
   'Monthly Salary',
   'Days Present',
   'Duties',
@@ -153,7 +157,7 @@ const SalarySheet = () => {
       const { data, error } = await (supabase as any)
         .from('hr_payroll_slips')
         .select(
-          'id, employee_name, payroll_month, gross_salary, deductions, net_salary, days_present, duty_count, base_monthly_salary, entry_source',
+          'id, employee_name, payroll_month, gross_salary, deductions, net_salary, designation, days_present, duty_count, base_monthly_salary, entry_source',
         )
         .gte('payroll_month', `${month}-01`)
         .lt('payroll_month', nextMonthFirst)
@@ -451,6 +455,7 @@ const SalarySheet = () => {
       employee_name: slip.employee_name,
       ledgerId: candidates.length === 1 ? candidates[0].id : null,
       originalName: slip.employee_name,
+      designation: slip.designation ?? '',
       base_monthly_salary: slip.base_monthly_salary != null ? String(slip.base_monthly_salary) : '',
       days_present: slip.days_present != null ? String(slip.days_present) : '',
       duty_count: slip.duty_count != null ? String(slip.duty_count) : '',
@@ -484,6 +489,7 @@ const SalarySheet = () => {
     try {
       const fields = {
         employee_name: name,
+        designation: draft.designation.trim() || null,
         base_monthly_salary: num(draft.base_monthly_salary),
         days_present: num(draft.days_present),
         duty_count: num(draft.duty_count),
@@ -519,11 +525,12 @@ const SalarySheet = () => {
   // ---- Excel template + import ------------------------------------------
   const importInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
+  const [gsheetUrl, setGsheetUrl] = useState('');
 
   const downloadTemplate = () => {
     const sheet = XLSX.utils.aoa_to_sheet([
       [...TEMPLATE_HEADERS],
-      ['RAVI KUMAR', 'EMP-001', 25000, 26, 4, 26500, 500, 26000],
+      ['RAVI KUMAR', 'EMP-001', 'Staff Nurse', 25000, 26, 4, 26500, 500, 26000],
     ]);
     sheet['!cols'] = TEMPLATE_HEADERS.map((h) => ({ wch: Math.max(h.length + 2, 14) }));
     const book = XLSX.utils.book_new();
@@ -531,13 +538,8 @@ const SalarySheet = () => {
     XLSX.writeFile(book, `salary-sheet-template-${month}.xlsx`);
   };
 
-  const importExcel = async (file: File) => {
-    setImporting(true);
-    try {
-      const workbook = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
-      const parsed = XLSX.utils.sheet_to_json<Record<string, unknown>>(
-        workbook.Sheets[workbook.SheetNames[0]],
-      );
+  /** Shared ingestion for the Excel upload and the Google Sheet link. */
+  const ingestParsedRows = async (parsed: Record<string, unknown>[]) => {
       const existing = new Set(slips.map((s) => normalize(s.employee_name)));
       const records: any[] = [];
       let skippedExisting = 0;
@@ -559,6 +561,7 @@ const SalarySheet = () => {
         records.push({
           employee_name: name,
           employee_id: text('employeeid') || null,
+          designation: text('designation') || null,
           payroll_month: `${month}-01`,
           base_monthly_salary: amount('monthlysalary'),
           days_present: amount('dayspresent'),
@@ -584,8 +587,67 @@ const SalarySheet = () => {
           (skippedExisting ? ` — ${skippedExisting} already present, left untouched` : ''),
       );
       queryClient.invalidateQueries({ queryKey: ['salary-sheet-slips', month] });
+  };
+
+  const importExcel = async (file: File) => {
+    setImporting(true);
+    try {
+      const workbook = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
+      await ingestParsedRows(
+        XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[workbook.SheetNames[0]]),
+      );
     } catch (error: any) {
       toast.error(`Import failed: ${error?.message || 'unknown error'}`);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  /**
+   * Import straight from a pasted Google Sheet link. Works when the sheet is
+   * shared "Anyone with the link" — Google then serves a CSV export the
+   * browser is allowed to fetch. Same columns as the template.
+   */
+  const importGoogleSheet = async () => {
+    const match = gsheetUrl.match(/\/d\/([A-Za-z0-9_-]{20,})/);
+    if (!match) {
+      toast.error('Paste the full Google Sheet link (…docs.google.com/spreadsheets/d/…)');
+      return;
+    }
+    setImporting(true);
+    try {
+      const candidates = [
+        `https://docs.google.com/spreadsheets/d/${match[1]}/export?format=csv`,
+        `https://docs.google.com/spreadsheets/d/${match[1]}/gviz/tq?tqx=out:csv`,
+      ];
+      let csv: string | null = null;
+      for (const url of candidates) {
+        try {
+          const response = await fetch(url);
+          if (response.ok) {
+            const text = await response.text();
+            // A private sheet answers with an HTML sign-in page, not CSV.
+            if (!text.trimStart().startsWith('<')) {
+              csv = text;
+              break;
+            }
+          }
+        } catch {
+          // Try the next URL shape.
+        }
+      }
+      if (!csv) {
+        throw new Error(
+          'Could not read the sheet. In Google Sheets use Share → General access → "Anyone with the link", then paste the link again.',
+        );
+      }
+      const workbook = XLSX.read(csv, { type: 'string' });
+      await ingestParsedRows(
+        XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[workbook.SheetNames[0]]),
+      );
+      setGsheetUrl('');
+    } catch (error: any) {
+      toast.error(`Google Sheet import failed: ${error?.message || 'unknown error'}`);
     } finally {
       setImporting(false);
     }
@@ -644,6 +706,25 @@ const SalarySheet = () => {
               : 'Approve new rows & post JVs'}
           </Button>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
+        <Label className="shrink-0 text-sm">Google Sheet:</Label>
+        <Input
+          value={gsheetUrl}
+          onChange={(e) => setGsheetUrl(e.target.value)}
+          placeholder="Paste the sheet link (shared as “Anyone with the link”) — same columns as the Template"
+          className="h-8 min-w-[260px] flex-1 text-sm"
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={importing || !gsheetUrl.trim()}
+          onClick={() => void importGoogleSheet()}
+        >
+          {importing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+          Import from link
+        </Button>
       </div>
 
       <Card>
@@ -708,6 +789,7 @@ const SalarySheet = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Employee</TableHead>
+                    <TableHead>Designation</TableHead>
                     <TableHead className="text-right">Monthly salary</TableHead>
                     <TableHead className="text-right">Days</TableHead>
                     <TableHead className="text-right">Duties</TableHead>
@@ -732,6 +814,7 @@ const SalarySheet = () => {
                             <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">manual</span>
                           )}
                         </TableCell>
+                        <TableCell>{row.slip.designation || '—'}</TableCell>
                         <TableCell className="text-right">{money(row.slip.base_monthly_salary)}</TableCell>
                         <TableCell className="text-right">{row.slip.days_present ?? '—'}</TableCell>
                         <TableCell className="text-right">{row.slip.duty_count ?? '—'}</TableCell>
@@ -880,6 +963,14 @@ const SalarySheet = () => {
                     No ledger picked for “{draft.employee_name}” — search and pick one above.
                   </p>
                 ) : null}
+              </div>
+              <div className="col-span-2 space-y-1">
+                <Label>Designation</Label>
+                <Input
+                  value={draft.designation}
+                  onChange={(e) => setDraft({ ...draft, designation: e.target.value })}
+                  placeholder="e.g. Staff Nurse, RMO, Ward Boy"
+                />
               </div>
               {(
                 [
