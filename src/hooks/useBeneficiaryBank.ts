@@ -19,7 +19,9 @@ export function useBeneficiaryBank(opts: {
   accountId?: string | null;
   ledgerName?: string | null;
 }) {
-  const { accountId, ledgerName } = opts;
+  // Callers pass whatever the row holds — coerce, never trust it's a string.
+  const accountId = opts.accountId ? String(opts.accountId) : null;
+  const ledgerName = opts.ledgerName ? String(opts.ledgerName) : null;
   return useQuery<BeneficiaryBank | null>({
     queryKey: ['beneficiary-bank', accountId ?? null, ledgerName ?? null],
     enabled: !!(accountId || (ledgerName && ledgerName.trim())),

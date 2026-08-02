@@ -15,9 +15,10 @@ export function BeneficiaryBankHint({
   /** Offered as a one-click "Pay from this bank" when the mapping exists. */
   onUseBank?: (bankAccountId: string) => void;
 }) {
-  const { data: bank, isLoading, isFetched } = useBeneficiaryBank({ accountId, ledgerName });
+  const safeName = ledgerName == null ? null : String(ledgerName);
+  const { data: bank, isLoading, isFetched } = useBeneficiaryBank({ accountId, ledgerName: safeName });
 
-  if ((!accountId && !ledgerName?.trim()) || isLoading || !isFetched) return null;
+  if ((!accountId && !safeName?.trim()) || isLoading || !isFetched) return null;
 
   if (!bank) {
     return (
