@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
+import { useRowCursor } from './tally/useRowCursor';
 import { useAccountingCompany } from './AccountingCompanyContext';
 
 const count = async (table: string, filter?: (q: any) => any): Promise<number> => {
@@ -17,7 +18,7 @@ const count = async (table: string, filter?: (q: any) => any): Promise<number> =
  * Statistics — Tally Prime replica: voucher counts per type for the period
  * (plus pending/cancelled), and the masters counts, side by side.
  */
-const StatisticsScreen: React.FC = () => {
+const StatisticsScreen: React.FC<{ onNavigate?: (tab: string) => void }> = ({ onNavigate }) => {
   const report = useTallyReport({
     supportsColumns: false,
     filterFields: ['Particulars'],
@@ -69,11 +70,36 @@ const StatisticsScreen: React.FC = () => {
 
   const totalVouchers = (data?.typeCounts ?? []).reduce((s, t) => s + t.n, 0);
 
+  // Tally drills a voucher-type line into that type's register.
+  const typeRows = data?.typeCounts ?? [];
+  const { cursor, setCursor } = useRowCursor({
+    count: typeRows.length,
+    onEnter: (i) => {
+      const hit = typeRows[i];
+      if (hit) onNavigate?.(`voucher-register:${hit.name}`);
+    },
+  });
+
   const row = (name: string, n: number, bold = false) => (
     <div key={name} className={`flex justify-between border-b border-dashed border-gray-200 py-0.5 ${bold ? 'font-bold' : ''}`}>
       <span>{name}</span>
       <span className="font-mono">{n}</span>
     </div>
+  );
+
+  const typeRow = (name: string, n: number, index: number) => (
+    <button
+      key={name}
+      type="button"
+      onClick={() => onNavigate?.(`voucher-register:${name}`)}
+      onMouseEnter={() => setCursor(index)}
+      className={`flex w-full justify-between border-b border-dashed border-gray-200 py-0.5 text-left ${
+        cursor === index ? 'bg-[#ffc423] text-black' : 'hover:bg-[#fdf6d8]'
+      }`}
+    >
+      <span>{name}</span>
+      <span className="font-mono">{n}</span>
+    </button>
   );
 
   return (
@@ -94,7 +120,7 @@ const StatisticsScreen: React.FC = () => {
             <div className="min-w-0 flex-1 border-r border-gray-400 pr-3">
               <div className="border-b border-black pb-0.5 font-semibold tracking-[0.2em]">Vouchers</div>
               <div className="mt-1">
-                {data.typeCounts.map((t) => row(t.name, t.n))}
+                {data.typeCounts.map((t, i) => typeRow(t.name, t.n, i))}
                 {data.pending > 0 && row('Pending (unposted)', data.pending)}
                 {data.cancelled > 0 && row('Cancelled', data.cancelled)}
                 <div className="mt-2 flex justify-between border-t border-black pt-0.5 font-bold">

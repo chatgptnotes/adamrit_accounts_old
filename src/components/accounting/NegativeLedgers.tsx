@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
+import { useRowCursor } from './tally/useRowCursor';
 import { useAccountingPeriod, dayLabel } from './tally/PeriodContext';
 import { useAccountingCompany } from './AccountingCompanyContext';
 import { HEAD_OF, LIABILITY_HEADS } from './tally/heads';
@@ -104,6 +105,14 @@ const NegativeLedgers: React.FC<{ onOpenLedger?: (accountId: string) => void }> 
     return [...byHead.entries()];
   }, [rows]);
 
+  // Rows in the order they render, for the keyboard cursor
+  const flatRows = useMemo(() => grouped.flatMap(([, list]) => list), [grouped]);
+  const { cursor, setCursor } = useRowCursor({
+    count: flatRows.length,
+    onEnter: (i) => flatRows[i] && onOpenLedger?.(flatRows[i].accountId),
+  });
+  let rowIndex = -1;
+
   return (
     <>
       <TallyScreen title="Negative Ledgers" rail={report.rail}>
@@ -129,12 +138,16 @@ const NegativeLedgers: React.FC<{ onOpenLedger?: (accountId: string) => void }> 
             grouped.map(([head, list]) => (
               <React.Fragment key={head}>
                 <div className="mt-1.5 bg-[#eef3fa] px-1 font-bold">{head}</div>
-                {list.map((r) => (
+                {list.map((r) => {
+                  rowIndex += 1;
+                  const idx = rowIndex;
+                  return (
                   <button
                     key={r.accountId}
                     type="button"
                     onClick={() => onOpenLedger?.(r.accountId)}
-                    className="flex w-full border-b border-dashed border-gray-200 text-left hover:bg-[#fdf6d8]"
+                    onMouseEnter={() => setCursor(idx)}
+                    className={`flex w-full border-b border-dashed border-gray-200 text-left ${cursor === idx ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'}`}
                   >
                     <div className="min-w-0 flex-1 truncate px-1 pl-4">{r.name}</div>
                     <div className="w-36 shrink-0 px-1 text-right font-mono text-red-700">
@@ -142,7 +155,8 @@ const NegativeLedgers: React.FC<{ onOpenLedger?: (accountId: string) => void }> 
                     </div>
                     <div className="w-24 shrink-0 px-1 text-center italic text-gray-600">{r.expected.toLowerCase() === 'dr' ? 'Dr' : 'Cr'}</div>
                   </button>
-                ))}
+                  );
+                })}
               </React.Fragment>
             ))
           )}

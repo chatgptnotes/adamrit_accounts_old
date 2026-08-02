@@ -116,7 +116,8 @@ export const voucherBottomBar = (handlers: {
   { hotkey: 'D', mod: 'alt', label: 'Delete', aliases: [{ hotkey: 'D' }], onClick: handlers.onDelete },
   { hotkey: 'X', mod: 'alt', label: 'Cancel Vch', aliases: [{ hotkey: 'X' }], onClick: handlers.onCancelVch },
   { hotkey: 'R', mod: 'alt', label: 'Remove Line', aliases: [{ hotkey: 'R' }], onClick: handlers.onRemoveLine },
-  { hotkey: 'U', mod: 'alt', label: 'Restore Line', aliases: [{ hotkey: 'U' }], onClick: handlers.onRestoreLine },
+  // Tally's own key is Ctrl+R; Alt+U/U stay as the module's historic keys
+  { hotkey: 'U', mod: 'alt', label: 'Restore Line', aliases: [{ hotkey: 'U' }, { hotkey: 'R', mod: 'ctrl' }], onClick: handlers.onRestoreLine },
 ];
 
 /** F3's rail button and its module-wide binding open the same company list. */
@@ -813,7 +814,7 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
   const defaultBottomBar = useMemo<BottomBarItem[]>(
     () =>
       [
-        { hotkey: 'Q', label: 'Quit', onClick: handleClose },
+        { hotkey: 'Q', label: 'Quit', aliases: [{ hotkey: 'Q', mod: 'ctrl' as const }], onClick: handleClose },
         { hotkey: 'Esc', label: 'Back', onClick: handleClose },
         { hotkey: 'F1', label: 'Help', onClick: () => window.dispatchEvent(new CustomEvent('tally-help')) },
         // Only reached on a screen with no report rows to lay out — a report

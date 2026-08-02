@@ -198,8 +198,16 @@ const CashBankSummary: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
   const { cursor, setCursor } = useRowCursor({
     count: visible.length,
     onEnter: (index) => {
-      const accountId = visible[index]?.accountId;
-      if (accountId) window.dispatchEvent(new CustomEvent('tally-open-ledger', { detail: { accountId, monthly: true } }));
+      const row = visible[index];
+      if (!row) return;
+      if (row.kind === 'group') {
+        // Tally drills a group line into its ledger breakup — the Cash/Bank
+        // Book's ledger list is exactly that here.
+        window.dispatchEvent(new CustomEvent('tally-goto', { detail: 'cash-bank-book' }));
+        return;
+      }
+      if (row.accountId)
+        window.dispatchEvent(new CustomEvent('tally-open-ledger', { detail: { accountId: row.accountId, monthly: true } }));
     },
   });
 

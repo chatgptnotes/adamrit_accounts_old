@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
+import { useRowCursor } from './tally/useRowCursor';
 import { dayLabel } from './tally/PeriodContext';
 import { useAccountingCompany } from './AccountingCompanyContext';
 
@@ -120,6 +121,12 @@ const PostDatedVouchers: React.FC<{
     return [...groups.entries()];
   }, [rows]);
 
+  const flatRows = useMemo(() => byMonth.flatMap(([, list]) => list), [byMonth]);
+  const { cursor, setCursor } = useRowCursor({
+    count: flatRows.length,
+    onEnter: (i) => flatRows[i] && onOpenVoucher?.(flatRows[i].id),
+  });
+
   const total = rows.reduce((s, r) => s + r.amount, 0);
   const monthLabel = (ym: string): string =>
     new Date(`${ym}-01T00:00:00`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
@@ -169,11 +176,16 @@ const PostDatedVouchers: React.FC<{
                   </div>
                 </div>
                 {list.map((r) => {
+                  const idx = flatRows.indexOf(r);
                   const daysToDue = Math.ceil(
                     (new Date(`${r.date}T00:00:00`).getTime() - new Date(`${today}T00:00:00`).getTime()) / 86_400_000,
                   );
                   return (
-                    <div key={r.id} className="flex border-b border-dashed border-gray-200 hover:bg-[#fdf6d8]">
+                    <div
+                      key={r.id}
+                      onMouseEnter={() => setCursor(idx)}
+                      className={`flex border-b border-dashed border-gray-200 ${cursor === idx ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'}`}
+                    >
                       <button
                         type="button"
                         onClick={() => onOpenVoucher?.(r.id)}

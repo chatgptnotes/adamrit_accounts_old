@@ -344,7 +344,9 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
     <TallyScreen
       title={openMonth ? 'Ledger Vouchers' : account ? 'Ledger Monthly Summary' : 'Cash/Bank Book'}
       closeLabel="✕"
-      onClose={openMonth ? () => setOpenMonth(null) : undefined}
+      // Esc unwinds one level at a time, as Tally does: month's vouchers →
+      // monthly summary → ledger list → previous screen.
+      onClose={openMonth ? () => setOpenMonth(null) : account ? () => setSelectedId('') : undefined}
       rail={report.rail}
       bottomBar={[
         { hotkey: 'Q', label: 'Quit', onClick: () => window.dispatchEvent(new CustomEvent('tally-escape')) },

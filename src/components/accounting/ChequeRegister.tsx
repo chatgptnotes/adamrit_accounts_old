@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
+import { useRowCursor } from './tally/useRowCursor';
 import { useAccountingPeriod, dayLabel } from './tally/PeriodContext';
 import { useAccountingCompany } from './AccountingCompanyContext';
 
@@ -119,6 +120,11 @@ const ChequeRegister: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ on
     return rows;
   }, [rows, side]);
 
+  const { cursor, setCursor } = useRowCursor({
+    count: visible.length,
+    onEnter: (i) => visible[i] && onOpenVoucher?.(visible[i].voucherId),
+  });
+
   const totalIssued = visible.reduce((s, r) => s + (r.amount < 0 ? -r.amount : 0), 0);
   const totalReceived = visible.reduce((s, r) => s + (r.amount > 0 ? r.amount : 0), 0);
 
@@ -153,12 +159,13 @@ const ChequeRegister: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ on
               No bank instruments in this period. Instrument numbers are the Reference No. on bank vouchers.
             </div>
           ) : (
-            visible.map((r) => (
+            visible.map((r, idx) => (
               <button
                 key={r.voucherId}
                 type="button"
                 onClick={() => onOpenVoucher?.(r.voucherId)}
-                className="flex w-full border-b border-dashed border-gray-200 text-left hover:bg-[#fdf6d8]"
+                onMouseEnter={() => setCursor(idx)}
+                className={`flex w-full border-b border-dashed border-gray-200 text-left ${cursor === idx ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'}`}
               >
                 <div className="w-20 shrink-0 px-1">{dayLabel(r.date)}</div>
                 <div className="w-24 shrink-0 px-1 italic text-gray-600">{r.voucherType}</div>

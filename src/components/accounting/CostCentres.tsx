@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
+import { useRowCursor } from './tally/useRowCursor';
 import { useAccountingCompany } from './AccountingCompanyContext';
 
 export interface CostCentre {
@@ -179,6 +180,27 @@ const CostCentres: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpe
 
   const isLoading = centresLoading || entriesLoading;
 
+  // Centre rows in render order (grouped by category), for the keyboard cursor
+  const orderedCentres = useMemo(() => {
+    const groups = [...categories, { id: '__none__', name: 'Uncategorised' } as CostCategory]
+      .map((cat) =>
+        centres.filter((c) =>
+          cat.id === '__none__'
+            ? !c.category_id || !categories.some((k) => k.id === c.category_id)
+            : c.category_id === cat.id,
+        ),
+      );
+    return groups.flat();
+  }, [categories, centres]);
+  const { cursor: centreCursor, setCursor: setCentreCursor } = useRowCursor({
+    count: orderedCentres.length,
+    enabled: !openCentre,
+    onEnter: (i) => {
+      const c = orderedCentres[i];
+      if (c && summary.get(c.id)) setOpenCentre(c);
+    },
+  });
+
   return (
     <>
     <TallyScreen
@@ -259,8 +281,13 @@ const CostCentres: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpe
                     )}
                     {list.map((c) => {
                       const s = summary.get(c.id);
+                      const idx = orderedCentres.findIndex((x) => x.id === c.id);
                       return (
-                  <div key={c.id} className="flex border-b border-dashed border-gray-200 hover:bg-[#fdf6d8]">
+                  <div
+                    key={c.id}
+                    onMouseEnter={() => setCentreCursor(idx)}
+                    className={`flex border-b border-dashed border-gray-200 ${centreCursor === idx ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'}`}
+                  >
                     <button
                       type="button"
                       onClick={() => s && setOpenCentre(c)}

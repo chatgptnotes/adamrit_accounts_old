@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -209,7 +209,7 @@ const renderContent = (
     case 'funds-flow':
       return <FundsFlow />;
     case 'statistics':
-      return <StatisticsScreen />;
+      return <StatisticsScreen onNavigate={goTo} />;
     case 'bank-reconciliation':
       return <BankReconciliation />;
     case 'bills-receivable':
@@ -365,6 +365,12 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
   // Cash/Bank Book drills open the Ledger MONTHLY Summary first, as Tally does.
   const [drillLedgerMonthly, setDrillLedgerMonthly] = useState(false);
   const [drillGroup, setDrillGroup] = useState<string | null>(null);
+  // Tally opens the Ledger MONTHLY Summary first from every report; Enter on
+  // a month then shows that month's vouchers.
+  const openLedgerMonthly = useCallback((accountId: string) => {
+    setDrillLedgerMonthly(true);
+    setDrillLedgerId(accountId);
+  }, []);
   // Collapsed icon rail by default — Tally-style full-width canvas.
   const [navExpanded, setNavExpanded] = useState(false);
 
@@ -463,7 +469,7 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
               onClose={() => setDrillLedgerId(null)}
             />
           ) : drillGroup ? (
-            <GroupSummary head={drillGroup} onOpenLedger={setDrillLedgerId} onClose={() => setDrillGroup(null)} />
+            <GroupSummary head={drillGroup} onOpenLedger={openLedgerMonthly} onClose={() => setDrillGroup(null)} />
           ) : (
             activeTab === 'voucher-entry'
               ? <VoucherEntry
@@ -472,7 +478,7 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
                   initialVoucherTypeId={initialVoucherTypeId}
                   initialDate={insertDate ?? undefined}
                 />
-              : renderContent(activeTab, goTo, back, setAlterVoucherId, setDrillGroup, setDrillLedgerId, openNewVoucher, canSeeTile)
+              : renderContent(activeTab, goTo, back, setAlterVoucherId, setDrillGroup, openLedgerMonthly, openNewVoucher, canSeeTile)
           )}
         </div>
       </main>

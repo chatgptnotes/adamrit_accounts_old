@@ -84,6 +84,8 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const [monthly, setMonthly] = useState(initialMonthly);
+  // The period that was showing before a month drill narrowed it
+  const [monthDrill, setMonthDrill] = useState<{ from: string; upto: string } | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
   const { selectedCompanyId } = useAccountingCompany();
@@ -351,6 +353,7 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
       if (monthly) {
         const month = monthRows[index];
         if (!month) return;
+        setMonthDrill({ from: fromDate, upto: toDate });
         report.setPeriod(month.from, month.upto);
         setMonthly(false);
         return;
@@ -360,11 +363,21 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
     },
   });
 
+  // Esc from a month's vouchers returns to the monthly summary (restoring the
+  // period the drill narrowed), not out of the ledger — Tally's unwind.
+  const unwindOrClose = monthDrill && !monthly
+    ? () => {
+        report.setPeriod(monthDrill.from, monthDrill.upto);
+        setMonthly(true);
+        setMonthDrill(null);
+      }
+    : onClose;
+
   return (
     <>
     <TallyScreen
       title={monthly ? 'Ledger Monthly Summary' : 'Ledger Vouchers'}
-      onClose={onClose}
+      onClose={unwindOrClose}
       rail={report.rail}
       bottomBar={voucherBottomBar({
         onQuit: onClose,

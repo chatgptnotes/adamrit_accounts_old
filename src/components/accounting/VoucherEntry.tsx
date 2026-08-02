@@ -1665,7 +1665,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
         { hotkey: 'F2', label: 'Date', onClick: openDatePicker },
         // Only someone who may alter vouchers may reclassify one.
         ...(canAlter ? typeItems() : []),
-        { hotkey: 'L', label: 'Optional', gapBefore: true, onClick: () => setIsOptional((v) => !v), active: isOptional },
+        { hotkey: 'L', label: 'Optional', aliases: [{ hotkey: 'L', mod: 'ctrl' as const }], gapBefore: true, onClick: () => setIsOptional((v) => !v), active: isOptional },
         { hotkey: 'P', mod: 'alt' as const, aliases: [{ hotkey: 'P' }], label: 'Print Vch', gapBefore: true, onClick: printVoucher },
         ...(canAlter
           ? [
@@ -1685,7 +1685,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     if (lockedVoucherCategory) {
       return [
         { hotkey: 'F2', label: 'Date', onClick: openDatePicker },
-        { hotkey: 'L', label: 'Optional', gapBefore: true, onClick: () => setIsOptional((v) => !v), active: isOptional },
+        { hotkey: 'L', label: 'Optional', aliases: [{ hotkey: 'L', mod: 'ctrl' as const }], gapBefore: true, onClick: () => setIsOptional((v) => !v), active: isOptional },
         { hotkey: 'P', mod: 'alt' as const, aliases: [{ hotkey: 'P' }], label: 'Print Vch', gapBefore: true, onClick: printVoucher },
       ];
     }
@@ -1693,9 +1693,10 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
       { hotkey: 'F2', label: 'Date', onClick: openDatePicker },
       ...typeItems(),
     ];
-    items.push({ hotkey: 'L', label: 'Optional', gapBefore: true, onClick: () => setIsOptional((v) => !v), active: isOptional });
+    items.push({ hotkey: 'L', label: 'Optional', aliases: [{ hotkey: 'L', mod: 'ctrl' as const }], gapBefore: true, onClick: () => setIsOptional((v) => !v), active: isOptional });
     items.push({
       hotkey: 'T',
+      aliases: [{ hotkey: 'T', mod: 'ctrl' as const }],
       label: 'Post-Dated',
       active: voucherDate > format(new Date(), 'yyyy-MM-dd'),
       onClick: () => {

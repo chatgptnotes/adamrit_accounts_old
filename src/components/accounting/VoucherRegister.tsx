@@ -241,7 +241,8 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
     <>
     <TallyScreen
       title={type ? `${type.voucher_type_name} Register` : 'Voucher Register'}
-      onClose={openMonth ? () => setOpenMonth(null) : undefined}
+      // Esc: month's vouchers → month list → type list → previous screen
+      onClose={openMonth ? () => setOpenMonth(null) : typeId ? () => setTypeId('') : undefined}
       rail={report.rail}
     >
       <div className="px-3 pb-4 pt-1 text-[13px]">

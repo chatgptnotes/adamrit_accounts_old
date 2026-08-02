@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
+import { useRowCursor } from './tally/useRowCursor';
 import { dayLabel } from './tally/PeriodContext';
 import { useAccountingCompany } from './AccountingCompanyContext';
 
@@ -94,6 +95,11 @@ const BudgetVariance: React.FC<{ onOpenLedger?: (accountId: string) => void }> =
     },
   });
 
+  const { cursor, setCursor } = useRowCursor({
+    count: rows.length,
+    onEnter: (i) => rows[i] && onOpenLedger?.(rows[i].accountId),
+  });
+
   const totals = useMemo(
     () => rows.reduce((s, r) => ({ budget: s.budget + r.budget, actual: s.actual + r.actual }), { budget: 0, actual: 0 }),
     [rows],
@@ -154,7 +160,8 @@ const BudgetVariance: React.FC<{ onOpenLedger?: (accountId: string) => void }> =
                   key={r.accountId}
                   type="button"
                   onClick={() => onOpenLedger?.(r.accountId)}
-                  className="flex w-full border-b border-dashed border-gray-200 text-left hover:bg-[#fdf6d8]"
+                  onMouseEnter={() => setCursor(rows.indexOf(r))}
+                  className={`flex w-full border-b border-dashed border-gray-200 text-left ${cursor === rows.indexOf(r) ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'}`}
                 >
                   <div className="min-w-0 flex-1 truncate px-1">{r.name}</div>
                   <div className="w-32 shrink-0 px-1 text-right font-mono">{fmt(r.budget)}</div>

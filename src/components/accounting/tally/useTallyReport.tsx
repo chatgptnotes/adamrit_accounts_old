@@ -386,6 +386,8 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
       {
         hotkey: 'E',
         mod: 'alt' as const,
+        // Tally accepts Ctrl+E as well as Alt+E for Export
+        aliases: [{ hotkey: 'E', mod: 'ctrl' as const }],
         label: 'Export',
         disabled: !canExport,
         onClick: canExport ? () => void exportReport(exportRef.current!()) : undefined,
