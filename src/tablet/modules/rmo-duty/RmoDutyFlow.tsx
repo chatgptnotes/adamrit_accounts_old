@@ -6,9 +6,14 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import {
   addRmoDutyApproval,
+  approveAndPostJV,
   deleteRmoDutyApproval,
   listRmoDutyApprovals,
+  updateApprovalDetails,
 } from "@/lib/approval-queue-service";
+import { printSpecialistInvoice } from "@/lib/printSpecialistInvoice";
+import { fetchActiveAccounts } from "@/lib/fetchAccounts";
+import { useCompanies } from "@/hooks/useCompanies";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
@@ -59,6 +64,60 @@ export default function RmoDutyFlow() {
   const [savingDuty, setSavingDuty] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [reportMonth, setReportMonth] = useState(() => todayDate().slice(0, 7));
+  // Approving from the report posts the JV; the bill needs a company and an
+  // expense ledger — chosen once here and remembered.
+  const [approveCompanyId, setApproveCompanyId] = useState(() => localStorage.getItem("rmo_duty_company") || "");
+  const [approveExpenseId, setApproveExpenseId] = useState(() => localStorage.getItem("rmo_duty_expense_ledger") || "");
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const { data: companies = [] } = useCompanies();
+  const expenseOptions = useQuery({
+    queryKey: ["rmo-duty-expense-options", approveCompanyId],
+    enabled: !!approveCompanyId,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const all = await fetchActiveAccounts<{ id: string; account_name: string; account_group: string | null }>({
+        columns: "id, account_name, account_group",
+        companyId: approveCompanyId,
+      });
+      return all.filter((a) =>
+        `${a.account_name} ${a.account_group || ""}`.toLowerCase().match(/salary|rmo|duty|professional/),
+      );
+    },
+  });
+
+  const approveDuty = async (bill: { id: string; amount: number; party_account_id: string | null; company_id: string | null; expense_account_id: string | null; party_name: string }) => {
+    if (!bill.party_account_id) {
+      toast({ title: "No ledger on the RMO", description: `Map ${bill.party_name}'s ledger on the RMO master first.`, variant: "destructive" });
+      return;
+    }
+    const companyId = bill.company_id || approveCompanyId;
+    const expenseId = bill.expense_account_id || approveExpenseId;
+    if (!companyId || !expenseId) {
+      toast({ title: "Pick company & expense ledger", description: "Select them above — remembered for next time.", variant: "destructive" });
+      return;
+    }
+    setApprovingId(bill.id);
+    try {
+      if (!bill.company_id || !bill.expense_account_id) {
+        await updateApprovalDetails(bill.id, {
+          amount: bill.amount,
+          companyId,
+          expenseAccountId: expenseId,
+          partyAccountId: bill.party_account_id,
+        });
+      }
+      const { voucherNumber } = await approveAndPostJV(bill.id, user?.email || undefined);
+      toast({ title: "Invoice approved", description: `JV ${voucherNumber} posted for ${bill.party_name}.` });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["rmo-duty-report", reportMonth] }),
+        qc.invalidateQueries({ queryKey: ["rmo-duty-entries"] }),
+      ]);
+    } catch (error) {
+      toast({ title: "Could not approve", description: error instanceof Error ? error.message : "Try again.", variant: "destructive" });
+    } finally {
+      setApprovingId(null);
+    }
+  };
 
   // Both masters; only RMOs whose accounting ledger is mapped are offered.
   const rmos = useQuery({
@@ -92,36 +151,35 @@ export default function RmoDutyFlow() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("approval_queue")
-        .select("party_name, amount, duty_shift, reference_no, status, is_paid")
+        .select("id, party_name, amount, duty_shift, reference_no, status, is_paid, invoice_no, company_id, expense_account_id, party_account_id, jv_voucher_id")
         .like("reference_no", `RMO-DUTY-${reportMonth}%`)
-        .neq("status", "REJECTED");
+        .neq("status", "REJECTED")
+        .order("reference_no");
       if (error) throw error;
       return (data || []) as Array<{
+        id: string;
         party_name: string;
         amount: number;
         duty_shift: string | null;
+        reference_no: string | null;
+        status: string;
         is_paid: boolean;
+        invoice_no: string | null;
+        company_id: string | null;
+        expense_account_id: string | null;
+        party_account_id: string | null;
+        jv_voucher_id: string | null;
       }>;
     },
   });
 
-  const reportRows = useMemo(() => {
-    const byRmo = new Map<
-      string,
-      { name: string; morning: number; evening: number; night: number; other: number; total: number; paid: number }
-    >();
-    for (const r of report.data || []) {
-      const key = r.party_name.trim().toLowerCase();
-      const row =
-        byRmo.get(key) || { name: r.party_name, morning: 0, evening: 0, night: 0, other: 0, total: 0, paid: 0 };
-      const s = (r.duty_shift || "").toLowerCase();
-      if (s === "morning") row.morning += 1;
-      else if (s === "evening") row.evening += 1;
-      else if (s === "night") row.night += 1;
-      else row.other += 1;
-      row.total += Number(r.amount) || 0;
-      if (r.is_paid) row.paid += Number(r.amount) || 0;
-      byRmo.set(key, row);
+  const reportGroups = useMemo(() => {
+    const byRmo = new Map<string, { name: string; bills: NonNullable<typeof report.data> }>();
+    for (const bill of report.data || []) {
+      const key = bill.party_name.trim().toLowerCase();
+      const group = byRmo.get(key) || { name: bill.party_name, bills: [] as any };
+      group.bills.push(bill);
+      byRmo.set(key, group);
     }
     return [...byRmo.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [report.data]);
@@ -343,40 +401,87 @@ export default function RmoDutyFlow() {
             <TabletInput type="month" value={reportMonth} onChange={(e) => setReportMonth(e.target.value)} className="w-44" />
           </div>
 
+          <div className="mb-3 grid gap-2 sm:grid-cols-2">
+            <select
+              value={approveCompanyId}
+              onChange={(e) => {
+                setApproveCompanyId(e.target.value);
+                localStorage.setItem("rmo_duty_company", e.target.value);
+              }}
+              className="h-11 rounded-xl border bg-background px-3 text-sm"
+            >
+              <option value="">Company for approvals…</option>
+              {companies.map((c: any) => (
+                <option key={c.id} value={c.id}>{c.company_name || c.name}</option>
+              ))}
+            </select>
+            <select
+              value={approveExpenseId}
+              onChange={(e) => {
+                setApproveExpenseId(e.target.value);
+                localStorage.setItem("rmo_duty_expense_ledger", e.target.value);
+              }}
+              className="h-11 rounded-xl border bg-background px-3 text-sm"
+            >
+              <option value="">RMO expense ledger for approvals…</option>
+              {(expenseOptions.data || []).map((l) => (
+                <option key={l.id} value={l.id}>{l.account_name}</option>
+              ))}
+            </select>
+          </div>
+
           {report.isLoading ? (
             <p className="py-8 text-center text-sm text-muted-foreground">Loading…</p>
-          ) : reportRows.length === 0 ? (
+          ) : reportGroups.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">No duties recorded in {reportMonth}.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/60 text-left text-xs uppercase text-muted-foreground">
-                    <th className="px-2 py-2">RMO</th>
-                    <th className="px-2 py-2 text-right">Morning</th>
-                    <th className="px-2 py-2 text-right">Evening</th>
-                    <th className="px-2 py-2 text-right">Night</th>
-                    <th className="px-2 py-2 text-right">Duties</th>
-                    <th className="px-2 py-2 text-right">Amount (₹)</th>
-                    <th className="px-2 py-2 text-right">Paid (₹)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reportRows.map((row) => (
-                    <tr key={row.name} className="border-b">
-                      <td className="px-2 py-2 font-semibold">{row.name}</td>
-                      <td className="px-2 py-2 text-right">{row.morning || ""}</td>
-                      <td className="px-2 py-2 text-right">{row.evening || ""}</td>
-                      <td className="px-2 py-2 text-right">{row.night || ""}</td>
-                      <td className="px-2 py-2 text-right font-semibold">
-                        {row.morning + row.evening + row.night + row.other}
-                      </td>
-                      <td className="px-2 py-2 text-right font-mono">{row.total.toLocaleString("en-IN")}</td>
-                      <td className="px-2 py-2 text-right font-mono text-emerald-700">{row.paid.toLocaleString("en-IN")}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="space-y-4">
+              {reportGroups.map((group) => {
+                const total = group.bills.reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
+                const paid = group.bills.reduce((sum, b) => sum + (b.is_paid ? Number(b.amount) || 0 : 0), 0);
+                return (
+                  <div key={group.name} className="rounded-xl border">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/50 px-3 py-2">
+                      <p className="font-bold">{group.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {group.bills.length} dut{group.bills.length === 1 ? "y" : "ies"} · ₹{total.toLocaleString("en-IN")}
+                        {paid > 0 ? ` · paid ₹${paid.toLocaleString("en-IN")}` : ""}
+                      </p>
+                    </div>
+                    <div className="divide-y">
+                      {group.bills.map((bill) => (
+                        <div key={bill.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+                          <span className="w-24 font-mono text-xs">{(bill.reference_no || "").replace("RMO-DUTY-", "")}</span>
+                          <span className="w-20 capitalize">{bill.duty_shift || "—"}</span>
+                          <button
+                            type="button"
+                            className="font-mono text-xs font-semibold text-blue-600 hover:underline"
+                            title="Open the invoice"
+                            onClick={() => void printSpecialistInvoice(bill.id).catch((err) => toast({ title: "Invoice", description: err?.message || "Could not open", variant: "destructive" }))}
+                          >
+                            {bill.invoice_no || "invoice"}
+                          </button>
+                          <span className="ml-auto font-mono">₹{Number(bill.amount).toLocaleString("en-IN")}</span>
+                          {bill.is_paid ? (
+                            <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">Paid</span>
+                          ) : bill.status === "APPROVED" ? (
+                            <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">JV posted</span>
+                          ) : (
+                            <TabletButton
+                              variant="outline"
+                              className="h-9 px-3"
+                              disabled={approvingId === bill.id}
+                              onClick={() => void approveDuty(bill)}
+                            >
+                              {approvingId === bill.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Approve"}
+                            </TabletButton>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </TabletCard>
