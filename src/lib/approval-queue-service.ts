@@ -305,13 +305,17 @@ export async function deleteDoctorLedgerMap(id: string): Promise<void> {
 export async function createDoctorApprovalsFromOt(ot: {
   id: string
   surgeon_name?: string | null
+  anesthetist_name?: string | null
   surgery_name?: string | null
   visit_id?: string | null
   patient_name?: string | null
 }): Promise<{ created: number }> {
   try {
+    // The anesthetist is paid per case exactly like the surgeon and hands in
+    // no invoice either — one bill per person, deduped with the surgeons.
     const surgeons = [...new Set(
-      (ot.surgeon_name || '')
+      [ot.surgeon_name || '', ot.anesthetist_name || '']
+        .join(',')
         .split(',')
         .map((name) => name.trim())
         .filter(Boolean),
@@ -346,6 +350,170 @@ export async function createDoctorApprovalsFromOt(ot: {
   } catch (err: any) {
     console.warn('[ot-auto] createDoctorApprovalsFromOt failed:', err?.message || err)
     return { created: 0 }
+  }
+}
+
+/**
+ * Bills for the outsourced OT / cath-lab assistants on a scheduled surgery.
+ * Raised at SCHEDULING time with the fee that was decided beforehand, so the
+ * bill can be approved (and its JV posted) before the procedure happens.
+ * Idempotent per (ot_schedule_id, party_name); a changed fee updates the
+ * PENDING bill rather than duplicating it. Never throws — scheduling must
+ * not fail because of billing.
+ */
+export async function createAssistantApprovalsFromOt(
+  ot: {
+    id: string
+    surgery_name?: string | null
+    visit_id?: string | null
+    patient_name?: string | null
+  },
+  assistants: Array<{ role: string; name: string | null | undefined; fee: number | null | undefined }>,
+): Promise<{ created: number }> {
+  let created = 0
+  for (const assistant of assistants) {
+    const name = (assistant.name || '').trim()
+    const fee = Number(assistant.fee) || 0
+    if (!name || fee <= 0) continue
+    try {
+      const { data: maps } = await doctorLedgerMap()
+        .select('company_id, party_account_id, expense_account_id')
+        .ilike('surgeon_name', name)
+        .limit(1)
+      const map = (maps || [])[0]
+      const narration = [`${assistant.role}`, ot.surgery_name, ot.patient_name].filter(Boolean).join(' - ')
+      const { error } = await approvalQueue().insert({
+        category: 'DOCTOR',
+        party_name: name,
+        reference_no: ot.visit_id ? `OT-${ot.visit_id}` : null,
+        amount: fee,
+        company_id: map?.company_id || null,
+        expense_account_id: map?.expense_account_id || null,
+        party_account_id: map?.party_account_id || null,
+        narration,
+        ot_schedule_id: ot.id,
+        created_by: 'ot-schedule',
+      })
+      if (!error) {
+        created += 1
+      } else if (error.code === '23505') {
+        // Same assistant already billed for this OT — refresh the fee while
+        // the bill is still pending; an approved bill is frozen.
+        await approvalQueue()
+          .update({ amount: fee, narration })
+          .eq('ot_schedule_id', ot.id)
+          .ilike('party_name', name)
+          .eq('status', 'PENDING')
+      } else {
+        console.warn('[ot-schedule] assistant bill insert failed:', error.message)
+      }
+    } catch (err: any) {
+      console.warn('[ot-schedule] assistant bill failed:', err?.message || err)
+    }
+  }
+  return { created }
+}
+
+/** One unpaid, JV-posted invoice of a party — what the payment screen searches. */
+export interface UnpaidInvoice {
+  id: string
+  invoice_no: string | null
+  party_name: string
+  amount: number
+  narration: string | null
+  created_at: string | null
+  ot_schedule_id: string | null
+  company_id: string | null
+}
+
+/**
+ * The party's open invoices: approved, JV posted, not yet paid. Paid
+ * invoices never appear here — that is the whole point of the list.
+ */
+export async function listUnpaidInvoices(partyAccountId: string): Promise<UnpaidInvoice[]> {
+  const { data, error } = await approvalQueue()
+    .select('id, invoice_no, party_name, amount, narration, created_at, ot_schedule_id, company_id')
+    .eq('party_account_id', partyAccountId)
+    .eq('status', 'APPROVED')
+    .eq('is_paid', false)
+    .not('jv_voucher_id', 'is', null)
+    .order('created_at', { ascending: true })
+  if (error) throw new Error(error.message || 'Could not load the unpaid invoices')
+  return (data || []) as UnpaidInvoice[]
+}
+
+/**
+ * Pays SEVERAL invoices of one party with ONE payment voucher:
+ * Dr party (total) / Cr cash-bank (total), every invoice linked to the same
+ * voucher. Same claim-then-post shape as the single payment: all rows flip
+ * is_paid first; if any cannot be claimed the claimed ones are released and
+ * nothing posts.
+ */
+export async function payInvoicesTogether(
+  ids: string[],
+  input: { cashBankAccountId: string; date: string },
+): Promise<{ voucherNumber: string; total: number; count: number }> {
+  if (!ids.length) throw new Error('Pick at least one invoice')
+  if (!input.cashBankAccountId) throw new Error('Select a cash or bank ledger')
+  if (!input.date) throw new Error('Select a payment date')
+
+  const { data: claimed, error: claimError } = await approvalQueue()
+    .update({ is_paid: true, paid_at: new Date().toISOString() })
+    .in('id', ids)
+    .eq('status', 'APPROVED')
+    .eq('is_paid', false)
+    .not('jv_voucher_id', 'is', null)
+    .select('*')
+  if (claimError) throw new Error(claimError.message || 'Failed to start the payment')
+  const rows = (claimed || []) as ApprovalQueueRow[]
+
+  const release = async () => {
+    if (rows.length) {
+      await approvalQueue()
+        .update({ is_paid: false, paid_at: null })
+        .in('id', rows.map((r) => r.id))
+        .is('payment_voucher_id', null)
+    }
+  }
+
+  if (rows.length !== ids.length) {
+    await release()
+    throw new Error('Some of these invoices were just paid or changed by someone else. Reload and pick again.')
+  }
+  const party = new Set(rows.map((r) => r.party_account_id))
+  const company = new Set(rows.map((r) => r.company_id))
+  if (party.size > 1 || company.size > 1) {
+    await release()
+    throw new Error('All invoices in one payment must belong to the same party and company')
+  }
+  if (input.cashBankAccountId === rows[0].party_account_id) {
+    await release()
+    throw new Error('Cash/Bank ledger must be different from the party ledger')
+  }
+
+  const total = rows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
+  const invoiceNos = rows.map((r) => (r as any).invoice_no || r.reference_no).filter(Boolean)
+
+  try {
+    const voucher = await createAccountingVoucher({
+      companyId: rows[0].company_id,
+      category: 'PAYMENT',
+      date: input.date,
+      referenceNumber: invoiceNos.join(', ') || undefined,
+      narration: `Paid ${rows[0].party_name} against ${rows.length} invoice(s): ${invoiceNos.join(', ')}`,
+      entries: [
+        { accountId: rows[0].party_account_id, debitAmount: total, creditAmount: 0 },
+        { accountId: input.cashBankAccountId, debitAmount: 0, creditAmount: total },
+      ],
+    })
+    const { error: linkError } = await approvalQueue()
+      .update({ payment_voucher_id: voucher.id })
+      .in('id', rows.map((r) => r.id))
+    if (linkError) console.warn('[approval-queue] payment posted but link failed:', linkError.message)
+    return { voucherNumber: voucher.voucher_number, total, count: rows.length }
+  } catch (err) {
+    await release()
+    throw err
   }
 }
 

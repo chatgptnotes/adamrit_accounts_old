@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/integrations/supabase/client'
 import { fetchAllRows } from '@/lib/fetchAllRows'
+import { printSpecialistInvoice } from '@/lib/printSpecialistInvoice'
 import { toast } from 'sonner'
 import {
   PlusCircle, Loader2, CheckCircle2, XCircle, Trash2, Eye, Banknote, FileText, Image as ImageIcon,
@@ -686,13 +687,22 @@ export default function TallyApprovals({ companyName }: Props) {
                       <td className="px-3 py-2"><InvoiceCell row={row} /></td>
                       <td className="px-3 py-2 text-xs text-gray-500">{formatDate(row.approved_at)}</td>
                       <td className="px-3 py-2 text-right">
-                        <button
-                          onClick={() => { setPayingRow(row); setPayForm({ cashBankLedger: '', date: today() }) }}
-                          disabled={processing || !canAlter}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-50"
-                        >
-                          <Banknote className="h-3.5 w-3.5" /> Pay
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => void printSpecialistInvoice(row.id).catch((err) => toast.error(err?.message || 'Could not open the invoice'))}
+                            title="Print the system-generated invoice"
+                            className="rounded p-1.5 text-gray-600 hover:bg-gray-100"
+                          >
+                            <FileText className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => { setPayingRow(row); setPayForm({ cashBankLedger: '', date: today() }) }}
+                            disabled={processing || !canAlter}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-50"
+                          >
+                            <Banknote className="h-3.5 w-3.5" /> Pay
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

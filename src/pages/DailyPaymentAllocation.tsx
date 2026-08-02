@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -58,6 +58,8 @@ import { useCompanies } from '@/hooks/useCompanies';
 import { useAuth } from '@/contexts/AuthContext';
 import { DailyAllocationSheet } from '@/components/DailyAllocationSheet';
 import { BeneficiaryBankHint } from '@/components/BeneficiaryBankHint';
+import { listUnpaidInvoices, payInvoicesTogether, type UnpaidInvoice } from '@/lib/approval-queue-service';
+import { printSpecialistInvoice } from '@/lib/printSpecialistInvoice';
 import { useAccountingRights } from '@/components/accounting/tally/rights';
 
 const formatINR = (n: number) =>
@@ -481,6 +483,14 @@ const DailyPaymentAllocation = () => {
   const [payDebitLedgerSearch, setPayDebitLedgerSearch] = useState('');
   const [payCreditLedgerId, setPayCreditLedgerId] = useState('');
   const [paymentError, setPaymentError] = useState('');
+  // System-generated invoices of the picked ledger: approved, JV posted, and
+  // NOT yet paid — paid ones never appear. Selecting some pays them together
+  // with one voucher whose amount is their total.
+  const [payInvoiceIds, setPayInvoiceIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setPayInvoiceIds(new Set());
+  }, [payDebitLedgerId, payDialogOpen]);
 
   // Sub-allocation dialog mode: 'plan' = manage payees, 'confirm' = confirm payment for one payee
   const [subAllocDialogMode, setSubAllocDialogMode] = useState<'plan' | 'confirm'>('plan');
@@ -629,6 +639,21 @@ const DailyPaymentAllocation = () => {
   const { data: history = [] } = usePaymentHistory(historyFrom, historyTo, selectedHospital, activeTab === 'history');
   const { data: payDebitLedgers = [] } = useAccountingLedgerSearch(payDebitLedgerSearch, payTallyCompanyId);
   const { data: payCreditLedgers = [] } = useAccountingCashBankLedgers(payTallyCompanyId);
+
+  const { data: unpaidInvoices = [] } = useQuery({
+    queryKey: ['unpaid-invoices', payDebitLedgerId],
+    enabled: payDialogOpen && !!payDebitLedgerId,
+    queryFn: () => listUnpaidInvoices(payDebitLedgerId),
+  });
+  const toggleInvoice = (id: string) =>
+    setPayInvoiceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const selectedInvoices = unpaidInvoices.filter((inv: UnpaidInvoice) => payInvoiceIds.has(inv.id));
+  const invoiceTotal = selectedInvoices.reduce((sum: number, inv: UnpaidInvoice) => sum + (Number(inv.amount) || 0), 0);
 
   // "Pay from this bank" may only pick a bank the selected company can credit.
   // Setting an out-of-company ledger id renders the Select blank while the
@@ -998,6 +1023,37 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
   // made here, after the payee plan is saved, so planning a payment never
   // posts accounting entries by itself.
   const confirmPay = async () => {
+    // Paying against system-generated invoices: one payment voucher for the
+    // selected invoices' total, every invoice marked paid and linked to it.
+    if (payInvoiceIds.size > 0) {
+      if (!payCreditLedgerId) {
+        setPaymentError('Select the cash or bank account the payment goes out from.');
+        return;
+      }
+      const wrongCompany = selectedInvoices.find(
+        (inv) => inv.company_id && payTallyCompanyId && inv.company_id !== payTallyCompanyId,
+      );
+      if (wrongCompany) {
+        setPaymentError("These invoices belong to a different company's books — switch the Company above to match.");
+        return;
+      }
+      try {
+        const result = await payInvoicesTogether([...payInvoiceIds], {
+          cashBankAccountId: payCreditLedgerId,
+          date: new Date().toISOString().slice(0, 10),
+        });
+        toast.success(
+          `Paid ${result.count} invoice(s) — ₹${result.total.toLocaleString('en-IN')} on voucher ${result.voucherNumber}`,
+        );
+        setPayInvoiceIds(new Set());
+        setPayDialogOpen(false);
+      } catch (error: any) {
+        const message = error?.message || 'Invoice payment failed.';
+        setPaymentError(message);
+        toast.error(message);
+      }
+      return;
+    }
     setPaymentError('');
     if (!payingEntry) {
       setPaymentError('Payment obligation is not selected. Close this window and open Pay again.');
@@ -2491,6 +2547,48 @@ ${sectionsHtml}
                   </>
                 )}
               </div>
+              {payDebitLedgerId && (
+                <div className="rounded-md border bg-slate-50 p-2">
+                  <Label className="text-xs font-semibold">
+                    Unpaid invoices of this ledger ({unpaidInvoices.length})
+                  </Label>
+                  {unpaidInvoices.length === 0 ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      No unpaid invoices — paid ones never show here. Approve a bill in Accounting to raise its invoice.
+                    </p>
+                  ) : (
+                    <div className="mt-1 max-h-44 space-y-1 overflow-y-auto">
+                      {unpaidInvoices.map((inv) => (
+                        <label key={inv.id} className="flex items-center gap-2 rounded border bg-white px-2 py-1 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={payInvoiceIds.has(inv.id)}
+                            onChange={() => toggleInvoice(inv.id)}
+                          />
+                          <button
+                            type="button"
+                            className="font-mono font-semibold text-blue-700 hover:underline"
+                            title="Print this invoice"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              void printSpecialistInvoice(inv.id).catch((err) => toast.error(err?.message || 'Could not open the invoice'));
+                            }}
+                          >
+                            {inv.invoice_no || '—'}
+                          </button>
+                          <span className="min-w-0 flex-1 truncate text-muted-foreground">{inv.narration || ''}</span>
+                          <span className="font-mono">₹{Number(inv.amount).toLocaleString('en-IN')}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  {payInvoiceIds.size > 0 && (
+                    <p className="mt-1 text-xs font-semibold text-emerald-700">
+                      {payInvoiceIds.size} invoice(s) selected — paying ₹{invoiceTotal.toLocaleString('en-IN')} in one voucher
+                    </p>
+                  )}
+                </div>
+              )}
               <div>
                 <Label>Pay From (Credit Cash / Bank)</Label>
                 <Select value={payCreditLedgerId} onValueChange={setPayCreditLedgerId}>
@@ -2506,11 +2604,17 @@ ${sectionsHtml}
                 <Label>Payment Amount (Rs.)</Label>
                 <Input
                   type="number"
-                  value={payAmount}
+                  value={payInvoiceIds.size > 0 ? String(invoiceTotal) : payAmount}
                   onChange={(e) => setPayAmount(e.target.value)}
                   placeholder="Enter amount"
                   className="mt-1"
+                  disabled={payInvoiceIds.size > 0}
                 />
+                {payInvoiceIds.size > 0 && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Amount is the total of the selected invoices.
+                  </p>
+                )}
               </div>
               <p className="text-xs text-muted-foreground">
                 On confirmation, only a Payment Voucher is created. No Journal Voucher or ledger posting is created.

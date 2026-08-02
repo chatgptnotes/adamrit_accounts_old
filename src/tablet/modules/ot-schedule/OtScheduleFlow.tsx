@@ -20,6 +20,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import {
   addRmoDutyApproval,
+  createAssistantApprovalsFromOt,
   createDoctorApprovalsFromOt,
   deleteRmoDutyApproval,
   listOtDoctorApprovals,
@@ -430,6 +431,7 @@ async function markScheduleCompleted(row: OTScheduleItem) {
   void createDoctorApprovalsFromOt({
     id: row.id,
     surgeon_name: row.surgeonName,
+    anesthetist_name: row.anesthetistName,
     surgery_name: row.surgeryName,
     visit_id: row.visitNumber,
     patient_name: row.patientName,
@@ -782,6 +784,12 @@ function GauravScheduler() {
   const [anesthetistName, setAnesthetistName] = useState("");
   const [anesthesiaType, setAnesthesiaType] = useState("");
   const [otRoom, setOtRoom] = useState("OT");
+  // Outsourced per-case help, entered the day before with the fee decided
+  // beforehand — saving raises their bill for approval ahead of the surgery.
+  const [otAssistantName, setOtAssistantName] = useState("");
+  const [otAssistantFee, setOtAssistantFee] = useState("");
+  const [cathlabAssistantName, setCathlabAssistantName] = useState("");
+  const [cathlabAssistantFee, setCathlabAssistantFee] = useState("");
   const [saving, setSaving] = useState(false);
   // Id of the patient's already-saved OT row, so Save updates it instead of
   // inserting a duplicate and the surgery/package survives a reopen.
@@ -813,6 +821,10 @@ function GauravScheduler() {
     setAnesthetistName("");
     setAnesthesiaType("");
     setOtRoom(visibleRooms[0] || "OT");
+    setOtAssistantName("");
+    setOtAssistantFee("");
+    setCathlabAssistantName("");
+    setCathlabAssistantFee("");
     setExistingScheduleId(null);
 
     // Reload the most recent saved OT row for this visit so the surgery/package
@@ -820,7 +832,7 @@ function GauravScheduler() {
     try {
       const { data } = await supabase
         .from("ot_schedule")
-        .select("id, surgery_name, scheduled_date, scheduled_time, ot_room")
+        .select("id, surgery_name, scheduled_date, scheduled_time, ot_room, ot_assistant_name, ot_assistant_fee, cathlab_assistant_name, cathlab_assistant_fee")
         .eq("visit_id", visit.id)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -831,6 +843,11 @@ function GauravScheduler() {
         if (data.scheduled_date) setScheduledDate(data.scheduled_date);
         if (data.scheduled_time) setScheduledTime(data.scheduled_time);
         if (data.ot_room) setOtRoom(data.ot_room);
+        const extras = data as any;
+        if (extras.ot_assistant_name) setOtAssistantName(extras.ot_assistant_name);
+        if (extras.ot_assistant_fee) setOtAssistantFee(String(extras.ot_assistant_fee));
+        if (extras.cathlab_assistant_name) setCathlabAssistantName(extras.cathlab_assistant_name);
+        if (extras.cathlab_assistant_fee) setCathlabAssistantFee(String(extras.cathlab_assistant_fee));
       }
     } catch {
       // Non-fatal: fall back to the package-derived defaults already set above.
@@ -868,13 +885,33 @@ function GauravScheduler() {
         special_requirements: anesthesiaType.trim() ? `Anesthesia Type: ${anesthesiaType.trim()}` : null,
         urgency: "elective",
         status: "scheduled",
+        ot_assistant_name: otAssistantName.trim() || null,
+        ot_assistant_fee: Number(otAssistantFee) > 0 ? Number(otAssistantFee) : null,
+        cathlab_assistant_name: cathlabAssistantName.trim() || null,
+        cathlab_assistant_fee: Number(cathlabAssistantFee) > 0 ? Number(cathlabAssistantFee) : null,
       };
       // Update the existing row when one was loaded, so re-saving the same
       // patient keeps one OT record instead of stacking duplicates.
-      const { error } = existingScheduleId
-        ? await supabase.from("ot_schedule").update(payload).eq("id", existingScheduleId)
-        : await supabase.from("ot_schedule").insert(payload);
+      const { data: savedRow, error } = existingScheduleId
+        ? await supabase.from("ot_schedule").update(payload).eq("id", existingScheduleId).select("id").single()
+        : await supabase.from("ot_schedule").insert(payload).select("id").single();
       if (error) throw error;
+
+      // Assistant fees are decided beforehand — raise their bills NOW so the
+      // amount can be approved (and the JV posted) before the procedure. The
+      // approved bill doubles as the system-generated invoice.
+      void createAssistantApprovalsFromOt(
+        {
+          id: savedRow.id,
+          surgery_name: surgeryName.trim(),
+          visit_id: selected.visitId,
+          patient_name: selected.patientName,
+        },
+        [
+          { role: "OT Assistant", name: otAssistantName, fee: Number(otAssistantFee) },
+          { role: "Cath Lab Assistant", name: cathlabAssistantName, fee: Number(cathlabAssistantFee) },
+        ],
+      );
       await qc.invalidateQueries({ queryKey: ["tablet-daily-ot-schedule"] });
       toast({ title: "OT scheduled", description: `${selected.patientName} added for ${formatDateTime(scheduledDate, scheduledTime)}.` });
       setSelected(null);
@@ -883,6 +920,10 @@ function GauravScheduler() {
       setSurgeonName("");
       setAnesthetistName("");
       setAnesthesiaType("");
+      setOtAssistantName("");
+      setOtAssistantFee("");
+      setCathlabAssistantName("");
+      setCathlabAssistantFee("");
       setExistingScheduleId(null);
       setScheduledTime(nowTime());
     } catch (error) {
@@ -1004,6 +1045,29 @@ function GauravScheduler() {
                 <TabletInput value={anesthesiaType} onChange={(event) => setAnesthesiaType(event.target.value)} placeholder="Auto-filled from package master" />
               </label>
             </div>
+            <div className="mt-3 grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-2">
+              <label className="block space-y-1">
+                <span className="text-sm font-medium">OT Assistant (outsourced)</span>
+                <TabletInput value={otAssistantName} onChange={(event) => setOtAssistantName(event.target.value)} placeholder="Name" />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-sm font-medium">Fee (₹)</span>
+                <TabletInput type="number" inputMode="decimal" value={otAssistantFee} onChange={(event) => setOtAssistantFee(event.target.value)} placeholder="0" />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-sm font-medium">Cath Lab Assistant</span>
+                <TabletInput value={cathlabAssistantName} onChange={(event) => setCathlabAssistantName(event.target.value)} placeholder="Name" />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-sm font-medium">Fee (₹)</span>
+                <TabletInput type="number" inputMode="decimal" value={cathlabAssistantFee} onChange={(event) => setCathlabAssistantFee(event.target.value)} placeholder="0" />
+              </label>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Assistant fees raise their bill for approval the moment the schedule is saved — approve it in
+              Accounting before the procedure and the invoice is ready to pay against.
+            </p>
+
             {!packageDefaults.isFetching && surgeryName && !packageDefaults.data ? (
               <p className="mt-2 text-xs text-amber-700">
                 No matching package master defaults found for this surgery/package.
