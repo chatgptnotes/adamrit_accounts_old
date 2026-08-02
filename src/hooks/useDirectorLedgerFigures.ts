@@ -159,7 +159,10 @@ export function useDirectorLedgerFigures(year: number) {
       // through Date() buckets by the viewer's timezone and shifts a day in
       // UTC-negative zones.
       const movement = new Map<string, { pre: number; months: number[] }>();
+      // Entries per account — the busiest ledgers sort to the top of each card.
+      const txCountByAccount = new Map<string, number>();
       for (const e of entries) {
+        txCountByAccount.set(e.account_id, (txCountByAccount.get(e.account_id) ?? 0) + 1);
         const signed = (Number(e.debit_amount) || 0) - (Number(e.credit_amount) || 0);
         if (!signed) continue;
         const dateStr = String(e.voucher.voucher_date || '');
@@ -198,11 +201,13 @@ export function useDirectorLedgerFigures(year: number) {
       const receivableTotals = new Map<string, number>();
       const payableTotals = new Map<string, number>();
       const cashTotals = new Map<string, number>();
+      const txCountByLabel = new Map<string, number>();
 
       for (const account of accounts) {
         const head = headOfType(account.account_type);
         const m = movement.get(account.id);
         const rowLabel = ledgerLabel(account);
+        txCountByLabel.set(rowLabel, (txCountByLabel.get(rowLabel) ?? 0) + (txCountByAccount.get(account.id) ?? 0));
 
         if (head && INCOME_HEADS.has(head)) {
           for (let month = 0; month <= lastFlowMonth; month += 1) {
@@ -263,10 +268,15 @@ export function useDirectorLedgerFigures(year: number) {
         add(marketing, name.toLowerCase(), entryMonth, Number(r.cost) || 0);
       }
 
+      // Busiest ledger first (most transactions this year); amount breaks ties.
       const rowsByTotal = (totals: Map<string, number>) =>
         Array.from(totals.entries())
           .filter(([, total]) => Math.abs(total) >= 0.5)
-          .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+          .sort(
+            (a, b) =>
+              (txCountByLabel.get(b[0]) ?? 0) - (txCountByLabel.get(a[0]) ?? 0) ||
+              Math.abs(b[1]) - Math.abs(a[1]),
+          )
           .map(([label]) => label);
 
       return {

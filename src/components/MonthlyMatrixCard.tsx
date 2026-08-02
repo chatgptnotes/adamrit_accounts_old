@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { CalendarDays } from 'lucide-react';
+import { CalendarDays, ChevronDown } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -48,6 +48,7 @@ export function MonthlyMatrixCard({
   const year = new Date().getFullYear();
   const navigate = useNavigate();
   const [manualValues, setManualValues] = useState<CellValues>({});
+  const [expanded, setExpanded] = useState(false);
 
   // director_matrix_entries isn't in the generated types yet
   const table = () => (supabase as any).from('director_matrix_entries');
@@ -145,7 +146,14 @@ export function MonthlyMatrixCard({
 
   return (
     <Card className={`border-l-4 ${accentClass}`}>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0">
+      {/* Accordion header — the dashboard holds six of these matrices, so each
+          stays collapsed until the director opens it. */}
+      <CardHeader
+        className="flex cursor-pointer select-none flex-row items-center justify-between space-y-0"
+        role="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+      >
         <div className="flex items-center gap-2">
           {icon}
           <div>
@@ -153,8 +161,12 @@ export function MonthlyMatrixCard({
             {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
           </div>
         </div>
-        <span className="text-sm text-gray-500">all amounts in ₹</span>
+        <span className="flex items-center gap-2 text-sm text-gray-500">
+          all amounts in ₹
+          <ChevronDown className={`h-5 w-5 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        </span>
       </CardHeader>
+      {expanded && (
       <CardContent>
         <div className="overflow-x-auto">
           <table className="border-collapse text-sm [font-variant-numeric:tabular-nums]">
@@ -233,6 +245,7 @@ export function MonthlyMatrixCard({
           {footnote ? ` ${footnote}` : ''}
         </p>
       </CardContent>
+      )}
     </Card>
   );
 }
