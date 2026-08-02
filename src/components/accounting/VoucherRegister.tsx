@@ -75,6 +75,9 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
 
   const { selectedCompanyId } = useAccountingCompany();
   const report = useTallyReport({
+    // Monthly register and voucher lists have no comparison columns in Tally.
+    supportsColumns: false,
+    detailedToggle: { hotkey: 'F5', mod: 'alt', label: 'Detailed' },
     filterFields: ['Particulars', 'Vch No.'],
     views: [
       { label: 'Day Book', target: 'day-book' },
@@ -109,7 +112,7 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
             rows: months.map((m) => [m.label, m.count, m.total]),
           },
   });
-  const { from: fyFrom, to: fyTo, fmtAmount: fmt } = report;
+  const { from: fyFrom, to: fyTo, fmtAmount: fmt, detailed } = report;
   const periodMonths = monthsInPeriod({ from: fyFrom, to: fyTo });
 
   const { data: nativeVouchers = [], isLoading } = useQuery({
@@ -186,6 +189,36 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
     [vouchers, openMonth],
   );
 
+  // Alt+F5 Detailed: the ledger lines of every voucher in the open month,
+  // exactly the By/To expansion the Day Book shows.
+  const monthNativeIds = useMemo(
+    () => monthVouchers.filter((v) => v.source === 'adamrit').map((v) => v.id),
+    [monthVouchers],
+  );
+  const { data: monthEntries = new Map<string, { label: string; debit: number; credit: number }[]>() } = useQuery({
+    queryKey: ['voucher_register_entries', openMonth, monthNativeIds.join(',')],
+    enabled: detailed && !!openMonth && monthNativeIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('voucher_entries')
+        .select('voucher_id, debit_amount, credit_amount, entry_order, account:chart_of_accounts(account_name)')
+        .in('voucher_id', monthNativeIds)
+        .order('entry_order', { ascending: true });
+      if (error) throw error;
+      const map = new Map<string, { label: string; debit: number; credit: number }[]>();
+      for (const e of (data || []) as any[]) {
+        const list = map.get(e.voucher_id) || [];
+        list.push({
+          label: e.account?.account_name || '?',
+          debit: Number(e.debit_amount) || 0,
+          credit: Number(e.credit_amount) || 0,
+        });
+        map.set(e.voucher_id, list);
+      }
+      return map;
+    },
+  });
+
   const { cursor, setCursor } = useRowCursor({
     count: !type ? voucherTypes.length : openMonth ? monthVouchers.length : months.length,
     onEnter: (index) => {
@@ -246,29 +279,40 @@ const VoucherRegister: React.FC<{ onOpenVoucher?: (id: string) => void; initialT
               <div className="w-36 px-1 text-right">Amount</div>
             </div>
             {monthVouchers.map((v, i) => (
-              <button
-                key={v.id}
-                type="button"
-                onClick={() => v.source === 'adamrit' && onOpenVoucher?.(v.id)}
-                onMouseEnter={() => setCursor(i)}
-                title={v.source === 'adamrit' ? 'Open voucher (alter)' : 'Tally voucher'}
-                className={`flex w-full border-b border-dashed border-gray-200 text-left ${
-                  cursor === i ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'
-                }`}
-              >
-                <div className="w-20 px-1">{tallyDateLabel(v.voucher_date)}</div>
-                <div className="min-w-0 flex-1 truncate px-1">
-                  {v.narration || ''}
-                </div>
-                <div className="w-32 px-1 font-mono text-[12px]">
-                  {v.voucher_number}
-                  {/* Posted by a trigger rather than typed by anyone. */}
-                  {v.is_auto && (
-                    <span className="ml-1 bg-gray-200 px-1 text-[9px] font-bold text-gray-600">AUTO</span>
-                  )}
-                </div>
-                <div className="w-36 px-1 text-right font-mono">{fmt(Number(v.total_amount) || 0)}</div>
-              </button>
+              <React.Fragment key={v.id}>
+                <button
+                  type="button"
+                  onClick={() => v.source === 'adamrit' && onOpenVoucher?.(v.id)}
+                  onMouseEnter={() => setCursor(i)}
+                  title={v.source === 'adamrit' ? 'Open voucher (alter)' : 'Tally voucher'}
+                  className={`flex w-full border-b border-dashed border-gray-200 text-left ${
+                    cursor === i ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'
+                  }`}
+                >
+                  <div className="w-20 px-1">{tallyDateLabel(v.voucher_date)}</div>
+                  <div className="min-w-0 flex-1 truncate px-1">
+                    {v.narration || ''}
+                  </div>
+                  <div className="w-32 px-1 font-mono text-[12px]">
+                    {v.voucher_number}
+                    {/* Posted by a trigger rather than typed by anyone. */}
+                    {v.is_auto && (
+                      <span className="ml-1 bg-gray-200 px-1 text-[9px] font-bold text-gray-600">AUTO</span>
+                    )}
+                  </div>
+                  <div className="w-36 px-1 text-right font-mono">{fmt(Number(v.total_amount) || 0)}</div>
+                </button>
+                {detailed && (monthEntries.get(v.id) || []).map((e, ei) => (
+                  <div key={`${v.id}-${ei}`} className="flex bg-[#fffdf2] text-[12px] italic text-gray-700">
+                    <div className="w-20" />
+                    <div className="min-w-0 flex-1 truncate px-1">
+                      {e.debit > 0 ? `Dr ${e.label}` : `Cr ${e.label}`}
+                    </div>
+                    <div className="w-32" />
+                    <div className="w-36 px-1 text-right font-mono">{fmt(e.debit > 0 ? e.debit : e.credit)}</div>
+                  </div>
+                ))}
+              </React.Fragment>
             ))}
             <div className="mt-1 flex border-t border-black pt-0.5 font-bold">
               <div className="w-20 px-1" />

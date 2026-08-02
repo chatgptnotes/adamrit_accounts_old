@@ -183,7 +183,7 @@ const CashBankSummary: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
     count: visible.length,
     onEnter: (index) => {
       const accountId = visible[index]?.accountId;
-      if (accountId) window.dispatchEvent(new CustomEvent('tally-open-ledger', { detail: accountId }));
+      if (accountId) window.dispatchEvent(new CustomEvent('tally-open-ledger', { detail: { accountId, monthly: true } }));
     },
   });
 
@@ -269,7 +269,7 @@ const CashBankSummary: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
                     onClick={() => {
                       setCursor(i);
                       if (row.accountId) {
-                        window.dispatchEvent(new CustomEvent('tally-open-ledger', { detail: row.accountId }));
+                        window.dispatchEvent(new CustomEvent('tally-open-ledger', { detail: { accountId: row.accountId, monthly: true } }));
                       }
                     }}
                     className={`flex w-full text-left ${

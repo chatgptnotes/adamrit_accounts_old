@@ -38,6 +38,7 @@ import CashBankBook from './CashBankBook';
 import BillsReceivable from './BillsReceivable';
 import BillsPayable from './BillsPayable';
 import GroupSummary from './GroupSummary';
+import GroupVouchers from './GroupVouchers';
 import VoucherRegister from './VoucherRegister';
 import VoucherTypePicker from './VoucherTypePicker';
 import RatioAnalysis from './RatioAnalysis';
@@ -156,6 +157,8 @@ const renderContent = (
       return <LedgerView onOpenVoucher={openVoucher} />;
     case 'group-summary':
       return <GroupSummary onOpenLedger={openLedger} />;
+    case 'group-vouchers':
+      return <GroupVouchers onOpenVoucher={openVoucher} />;
     case 'voucher-register':
       return <VoucherRegister onOpenVoucher={openVoucher} />;
     case 'ratio-analysis':
@@ -255,7 +258,16 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
       goTo('voucher-entry');
     };
     // Drill from a report line straight into that ledger's vouchers
-    const onOpenLedger = (e: Event) => setDrillLedgerId((e as CustomEvent).detail as string);
+    const onOpenLedger = (e: Event) => {
+      const detail = (e as CustomEvent).detail as string | { accountId: string; monthly?: boolean };
+      if (typeof detail === 'string') {
+        setDrillLedgerMonthly(false);
+        setDrillLedgerId(detail);
+      } else {
+        setDrillLedgerMonthly(!!detail.monthly);
+        setDrillLedgerId(detail.accountId);
+      }
+    };
     const onDuplicate = (e: Event) => {
       setInsertDate(null);
       setDuplicateVoucherId((e as CustomEvent).detail as string);
@@ -327,6 +339,8 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
   const [duplicateVoucherId, setDuplicateVoucherId] = useState<string | null>(null);
   const [insertDate, setInsertDate] = useState<string | null>(null);
   const [drillLedgerId, setDrillLedgerId] = useState<string | null>(null);
+  // Cash/Bank Book drills open the Ledger MONTHLY Summary first, as Tally does.
+  const [drillLedgerMonthly, setDrillLedgerMonthly] = useState(false);
   const [drillGroup, setDrillGroup] = useState<string | null>(null);
   // Collapsed icon rail by default — Tally-style full-width canvas.
   const [navExpanded, setNavExpanded] = useState(false);
@@ -421,6 +435,7 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
             <LedgerView
               key={drillLedgerId}
               initialAccountId={drillLedgerId}
+              initialMonthly={drillLedgerMonthly}
               onOpenVoucher={setAlterVoucherId}
               onClose={() => setDrillLedgerId(null)}
             />

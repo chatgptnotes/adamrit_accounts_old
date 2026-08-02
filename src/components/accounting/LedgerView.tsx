@@ -73,15 +73,17 @@ interface LedgerViewProps {
   onOpenVoucher?: (id: string) => void;
   /** Preselect a ledger (drill from Group Summary) */
   initialAccountId?: string;
+  /** Open in the Monthly Summary view (Tally's Cash/Bank Book drill). */
+  initialMonthly?: boolean;
   onClose?: () => void;
 }
 
-const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId, onClose }) => {
+const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId, initialMonthly = false, onClose }) => {
   const [selectedAccountId, setSelectedAccountId] = useState<string>(initialAccountId ?? '');
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
-  const [monthly, setMonthly] = useState(false);
+  const [monthly, setMonthly] = useState(initialMonthly);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
   const { selectedCompanyId } = useAccountingCompany();

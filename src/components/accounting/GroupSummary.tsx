@@ -59,23 +59,49 @@ const GroupSummary: React.FC<GroupSummaryProps> = ({ head: headProp, onOpenLedge
     queryFn: () => mergedLedgerBalances({ upto: asOfDate, companyId: selectedCompanyId }),
   });
 
+  // Tally's List of Groups is not just the primary heads: the custom groups
+  // ("Consultant", "Pharmacy Vendor") appear under their head, indented, and
+  // picking one summarises just that group's ledgers.
+  const groupList = useMemo(() => {
+    const byHead = new Map<string, Set<string>>();
+    for (const r of ledgerRows) {
+      const g = (r.group || '').trim();
+      if (!g || g === r.head) continue;
+      const set = byHead.get(r.head) || new Set<string>();
+      set.add(g);
+      byHead.set(r.head, set);
+    }
+    const items: { label: string; isHead: boolean }[] = [];
+    for (const h of HEAD_ORDER) {
+      items.push({ label: h, isHead: true });
+      for (const g of [...(byHead.get(h) || [])].sort((a, b) => a.localeCompare(b))) {
+        items.push({ label: g, isHead: false });
+      }
+    }
+    return items;
+  }, [ledgerRows]);
+
+  const isHeadPick = !head || HEAD_ORDER.includes(head);
+
   const rows = useMemo(() => {
     if (!head) return [];
     return ledgerRows
-      .filter((r) => r.head === head && matchesSource(r.source, srcFilter))
+      .filter((r) => (isHeadPick ? r.head === head : (r.group || '').trim() === head))
+      .filter((r) => matchesSource(r.source, srcFilter))
       .filter((r) => report.passesBasis(r.balance) && report.passesFilter({ Particulars: r.name }))
       .map((r) => ({ name: r.name, bal: r.balance, source: r.source, accountId: r.accountId }));
-  }, [ledgerRows, head, srcFilter, report.passesBasis, report.passesFilter]);
+  }, [ledgerRows, head, isHeadPick, srcFilter, report.passesBasis, report.passesFilter]);
 
   const totalDr = rows.reduce((s, r) => s + Math.max(0, r.bal), 0);
   const totalCr = rows.reduce((s, r) => s + Math.max(0, -r.bal), 0);
 
   // The cursor walks the List of Groups first, then the group's ledgers
   const { cursor, setCursor } = useRowCursor({
-    count: head ? rows.length : HEAD_ORDER.length,
+    count: head ? rows.length : groupList.length,
     onEnter: (index) => {
       if (!head) {
-        setPickedHead(HEAD_ORDER[index]);
+        const item = groupList[index];
+        if (item) setPickedHead(item.label);
         return;
       }
       const accountId = rows[index]?.accountId;
@@ -96,19 +122,21 @@ const GroupSummary: React.FC<GroupSummaryProps> = ({ head: headProp, onOpenLedge
           <div className="mx-auto max-w-md pt-4">
             <div className="border bg-[#eef3fa]">
               <div className="bg-[#16437e] px-3 py-1 text-xs font-semibold text-white">List of Groups</div>
-              {HEAD_ORDER.map((h, i) => (
-                <button
-                  key={h}
-                  type="button"
-                  onClick={() => setPickedHead(h)}
-                  onMouseEnter={() => setCursor(i)}
-                  className={`block w-full border-b border-white px-3 py-1 text-left ${
-                    cursor === i ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'
-                  }`}
-                >
-                  {h}
-                </button>
-              ))}
+              <div className="max-h-[60vh] overflow-y-auto">
+                {groupList.map((item, i) => (
+                  <button
+                    key={`${item.isHead ? 'h' : 'g'}:${item.label}`}
+                    type="button"
+                    onClick={() => setPickedHead(item.label)}
+                    onMouseEnter={() => setCursor(i)}
+                    className={`block w-full border-b border-white py-1 text-left ${
+                      item.isHead ? 'px-3 font-semibold' : 'px-7'
+                    } ${cursor === i ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'}`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         ) : (

@@ -128,7 +128,7 @@ const MENUS: Record<string, Menu> = {
           { label: 'Cash/Bank Book(s)', target: 'cash-bank-summary' },
           { label: 'Ledger', target: 'ledger-view' },
           { label: 'Group Summary', target: 'group-summary', gapBefore: true },
-          { label: 'Group Vouchers', target: 'voucher-register', hotIndex: 6 },
+          { label: 'Group Vouchers', target: 'group-vouchers', hotIndex: 6 },
         ],
       },
       {
