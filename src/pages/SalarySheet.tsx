@@ -127,6 +127,8 @@ const SalarySheet = () => {
   );
   const [busyRow, setBusyRow] = useState<string | null>(null);
   const [approvingSheet, setApprovingSheet] = useState(false);
+  // Background JV posting progress — the sheet stays usable while it runs.
+  const [postProgress, setPostProgress] = useState<{ done: number; total: number } | null>(null);
   // Manual row entry/edit — HRPulse import fills most rows, but staff off the
   // portal (and corrections) are typed one row at a time.
   const [draft, setDraft] = useState<SlipDraft | null>(null);
@@ -337,31 +339,66 @@ const SalarySheet = () => {
     return approval.id;
   };
 
+  /**
+   * Approve whatever is new and post its JVs, in the background.
+   *
+   * Meant to be clicked repeatedly through the day — rows added since the
+   * last click are the only ones touched, because rows that already carry a
+   * JV are skipped (and ensureApproved re-checks the database besides). The
+   * sheet stays fully usable while posting runs; the button shows progress.
+   */
   const approveSheet = async () => {
     if (!requireSetup()) return;
+    const eligible = rows.filter(
+      (row) =>
+        !(row.approval && row.approval.status !== 'PENDING') &&
+        !row.ambiguous &&
+        row.ledger &&
+        Number(row.slip.net_salary) > 0,
+    );
+    const skipped = rows
+      .filter(
+        (row) =>
+          !(row.approval && row.approval.status !== 'PENDING') &&
+          (row.ambiguous || !row.ledger || !(Number(row.slip.net_salary) > 0)),
+      )
+      .map((row) => row.slip.employee_name);
+
+    if (!eligible.length) {
+      toast.info(
+        'Nothing new to approve — every eligible row already has its JV' +
+          (skipped.length ? `; needs attention: ${skipped.join(', ')}` : ''),
+      );
+      return;
+    }
+
     setApprovingSheet(true);
+    setPostProgress({ done: 0, total: eligible.length });
+    toast.info(`Posting ${eligible.length} JV(s) in the background — you can keep working.`);
     try {
       let posted = 0;
-      const skipped: string[] = [];
-      for (const row of rows) {
-        if (row.approval && row.approval.status !== 'PENDING') continue;
-        if (row.ambiguous || !row.ledger || !(Number(row.slip.net_salary) > 0)) {
-          skipped.push(row.slip.employee_name);
-          continue;
+      const failed: string[] = [];
+      for (const row of eligible) {
+        try {
+          await ensureApproved(row);
+          posted += 1;
+        } catch (error: any) {
+          failed.push(`${row.slip.employee_name} (${error?.message || 'failed'})`);
         }
-        await ensureApproved(row);
-        posted += 1;
+        setPostProgress({ done: posted + failed.length, total: eligible.length });
       }
-      toast.success(
-        `Salary sheet approved — ${posted} JV(s) posted` +
-          (skipped.length ? `; skipped: ${skipped.join(', ')}` : ''),
-      );
-      refresh();
-    } catch (error: any) {
-      toast.error(error?.message || 'Could not approve the sheet');
+      if (failed.length) {
+        toast.error(`${posted} JV(s) posted; failed: ${failed.join('; ')}`);
+      } else {
+        toast.success(
+          `${posted} JV(s) posted` +
+            (skipped.length ? `; needs attention: ${skipped.join(', ')}` : ''),
+        );
+      }
       refresh();
     } finally {
       setApprovingSheet(false);
+      setPostProgress(null);
     }
   };
 
@@ -602,7 +639,9 @@ const SalarySheet = () => {
           </Button>
           <Button onClick={() => void approveSheet()} disabled={approvingSheet || isLoading}>
             {approvingSheet ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <IndianRupee className="mr-2 h-4 w-4" />}
-            Approve sheet &amp; post JVs
+            {postProgress
+              ? `Posting JVs… ${postProgress.done}/${postProgress.total}`
+              : 'Approve new rows & post JVs'}
           </Button>
         </div>
       </div>
