@@ -45,23 +45,23 @@ async function countSince(table: string, column: string, startISO: string, endIS
   }
 }
 
-// Radiology's daily work is photo uploads (file_uploads, category
-// radiology_investigation), not radiology_orders rows — count those too.
-async function countUploadsSince(category: string, startISO: string, endISO: string): Promise<number> {
+// Departments whose daily work is photo uploads (file_uploads categories) —
+// radiology investigations, and the nurses' treatment sheets / vital charts.
+async function countUploadsSince(categories: string[], startISO: string, endISO: string): Promise<number> {
   try {
     const { count, error } = await sb
       .from('file_uploads')
       .select('*', { count: 'exact', head: true })
-      .eq('category', category)
+      .in('category', categories)
       .gte('created_at', startISO)
       .lt('created_at', endISO);
     if (error) {
-      console.error(`Error counting ${category} uploads:`, error);
+      console.error(`Error counting ${categories.join(',')} uploads:`, error);
       return 0;
     }
     return count || 0;
   } catch (error) {
-    console.error(`Error in ${category} uploads query:`, error);
+    console.error(`Error in ${categories.join(',')} uploads query:`, error);
     return 0;
   }
 }
@@ -90,13 +90,18 @@ export const useDepartmentActivity = (enabled: boolean = true) => {
     queryFn: async () => {
       const { startISO, endISO, startDate } = getDateRange('today', '');
 
-      const [lab, radiology, radiologyPhotos, pharmacy, ot, nursing, accounts, advance, finalPay] = await Promise.all([
+      const [lab, radiology, radiologyPhotos, pharmacy, ot, otUploads, nursing, nursingUploads, accounts, advance, finalPay] = await Promise.all([
         countSince('visit_labs', 'created_at', startISO, endISO),
         countSince('radiology_orders', 'created_at', startISO, endISO),
-        countUploadsSince('radiology_investigation', startISO, endISO),
+        countUploadsSince(['radiology_investigation'], startISO, endISO),
         countSince('visit_medications', 'created_at', startISO, endISO),
         countOnDate('ot_schedule', 'scheduled_date', startDate),
+        // OT staff's uploads: surgery snaps, OT notes, implant photos/bills.
+        countUploadsSince(['ot_photos', 'ot_notes', 'implant_sticker', 'implant_invoice'], startISO, endISO),
         countSince('vital_signs', 'recorded_at', startISO, endISO),
+        // Nurses' documentation: treatment sheets, monitor/vital charts,
+        // dialysis charts, clinical notes — each upload is an entry.
+        countUploadsSince(['treatment_sheet', 'monitor_chart', 'dialysis', 'dialysis_scan', 'clinical_notes'], startISO, endISO),
         countOnDate('vouchers', 'voucher_date', startDate),
         countSince('advance_payment', 'created_at', startISO, endISO),
         countSince('final_payments', 'created_at', startISO, endISO),
@@ -106,8 +111,8 @@ export const useDepartmentActivity = (enabled: boolean = true) => {
         { key: 'lab', label: 'Lab', count: lab, route: '/lab' },
         { key: 'radiology', label: 'Radiology', count: radiology + radiologyPhotos, route: '/radiology' },
         { key: 'pharmacy', label: 'Pharmacy', count: pharmacy, route: '/pharmacy' },
-        { key: 'ot', label: 'Operation Theatre', count: ot, route: '/ot' },
-        { key: 'nursing', label: 'Nursing', count: nursing, route: '/nursing' },
+        { key: 'ot', label: 'Operation Theatre', count: ot + otUploads, route: '/ot' },
+        { key: 'nursing', label: 'Nursing', count: nursing + nursingUploads, route: '/nursing' },
         { key: 'accounts', label: 'Accounts', count: accounts, route: '/accounting' },
         { key: 'collections', label: 'Collections', count: advance + finalPay, route: '/daily-payment-allocation' },
       ].map(d => ({ ...d, entered: d.count > 0 }));
