@@ -115,6 +115,8 @@ export interface ArshiyaSummaryPdfInput {
   visitNumber: string | null | undefined;
   registrationId: string | null | undefined;
   portalUrl: string;
+  /** "DISCHARGE SUMMARY" (default) or "DEATH SUMMARY". */
+  documentTitle?: string;
   /** The specialist who treated or operated on the patient. */
   signatory?: SummarySignatory | null;
 }
@@ -276,7 +278,7 @@ export async function buildArshiyaSummaryPdfBlob(
     setInk(INK);
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(13);
-    pdf.text("DISCHARGE SUMMARY", PAGE_W / 2, bodyTop + 5, { align: "center" });
+    pdf.text(input.documentTitle || "DISCHARGE SUMMARY", PAGE_W / 2, bodyTop + 5, { align: "center" });
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(8.5);
     setInk(MUTED);
@@ -312,7 +314,7 @@ export async function buildArshiyaSummaryPdfBlob(
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(9);
     setInk(MUTED);
-    pdf.text("Discharge Summary", textX, 21);
+    pdf.text((input.documentTitle || "Discharge Summary").replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase()), textX, 21);
 
     pdf.text(new Date().toLocaleString(), PAGE_W - MARGIN_X, 15, { align: "right" });
     pdf.text(`Visit ${input.visitNumber || "-"}`, PAGE_W - MARGIN_X, 21, { align: "right" });

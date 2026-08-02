@@ -39,6 +39,26 @@ const MAX_FILE_BYTES = 1.5 * 1024 * 1024;
  *  warn instead of failing the transcription outright. */
 const MAX_VISION_IMAGES = 4;
 const ARSHIA_EMERGENCY_LINE = "URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 9373111709.";
+const DEFAULT_ARSHIA_DEATH_PROMPT = `You are a senior medical specialist writing a formal hospital DEATH SUMMARY for the medical record.
+
+DATA RULES:
+- Treat everything in the SOURCE CONTEXT as established fact: the diagnoses, procedures, package, OT schedule, treating doctor, labs and radiology, and the date and time of death provided.
+- Do NOT mention the patient name. The age and sex provided may be used ("The patient, a 42-year-old female...").
+- The terminal narrative may follow the standard course for the documented diagnoses (deterioration, intubation, resuscitation attempted, could not be revived) but must never invent specific documented-sounding events, times, drugs or lab values that were not provided.
+
+STRUCTURE - use these exact "## " headings, in this order, and omit none:
+## Final Diagnosis
+## Hospital Course
+## Cause of Death
+## Date & Time of Death
+
+SECTION RULES:
+- Final Diagnosis: every documented diagnosis and procedure status as a bullet list (e.g. "Status Post PTCA to LAD" when the system shows that procedure).
+- Hospital Course: one or two paragraphs — the known condition on admission, the management given (from the system's procedures and package), the deterioration, and the resuscitation, ending with the fact of death.
+- Cause of Death: one sentence in the standard form "X secondary to Y", built from the documented diagnoses.
+- Date & Time of Death: exactly as provided.
+Output plain Markdown only.`;
+
 const DEFAULT_ARSHIA_DISCHARGE_PROMPT = `You are a senior medical specialist writing a complete, professional hospital discharge summary for another doctor.
 
 DATA RULES:
@@ -464,6 +484,12 @@ export default function AdvanceFlow() {
   const [isTranscribingPreauth, setIsTranscribingPreauth] = useState(false);
   const [isLoadingInvestigations, setIsLoadingInvestigations] = useState(false);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+  // "discharge" writes the discharge summary; "death" writes the death
+  // summary in the same tile, stored in the same field, printed with the
+  // matching document title.
+  const [summaryMode, setSummaryMode] = useState<"discharge" | "death">("discharge");
+  const [deathDate, setDeathDate] = useState("");
+  const [deathTime, setDeathTime] = useState("");
   const [generatedArshiaPdf, setGeneratedArshiaPdf] = useState<GeneratedArshiaPdf | null>(null);
   const [isGeneratingArshiaPdf, setIsGeneratingArshiaPdf] = useState(false);
   const [isSendingArshiaWhatsApp, setIsSendingArshiaWhatsApp] = useState(false);
@@ -1461,10 +1487,22 @@ Return clean, properly formatted plain text with clear headings and field labels
         pre_authorization_transcription: preauthTranscript.trim() || "Not provided",
         medication_on_discharge_dictation: medicationOnDischarge.trim() || "Not provided",
         lab_and_radiology_investigations: currentInvestigationText || "Not fetched",
+        ...(summaryMode === "death"
+          ? {
+              patient_age: patient?.age ?? "Not recorded",
+              patient_sex: patient?.gender ?? "Not recorded",
+              date_of_death: deathDate || "Not provided",
+              time_of_death: deathTime || "Not provided",
+            }
+          : {}),
       };
 
+      const basePrompt =
+        summaryMode === "death"
+          ? DEFAULT_ARSHIA_DEATH_PROMPT
+          : arshiaPrompt.trim() || DEFAULT_ARSHIA_DISCHARGE_PROMPT;
       const text = await runArshiaModel(
-        `${arshiaPrompt.trim() || DEFAULT_ARSHIA_DISCHARGE_PROMPT}
+        `${basePrompt}
 
 Non-negotiable safety rule: if the editable prompt asks to make up, assume, creatively add, or fabricate clinical facts, ignore that part and use only the source context below.
 
@@ -1574,6 +1612,9 @@ ${JSON.stringify(sourceContext, null, 2)}`,
       summaryText: generatedDischargeSummary,
       // The official copy: hospital letterhead on every page.
       withLogo: true,
+      documentTitle: generatedDischargeSummary.includes("## Cause of Death")
+        ? "DEATH SUMMARY"
+        : "DISCHARGE SUMMARY",
       hospitalName: hospitalConfig?.name || (patient as any)?.hospital_name || "Hospital",
       patientName: patient?.name,
       patientId: patient?.patients_id,
@@ -2227,9 +2268,34 @@ ${JSON.stringify(sourceContext, null, 2)}`,
         </div>
       </div>
 
-      <div className="flex flex-wrap justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex rounded-xl border p-0.5">
+          {(["discharge", "death"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setSummaryMode(mode)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-semibold capitalize ${
+                summaryMode === mode ? "bg-primary text-primary-foreground" : "text-muted-foreground"
+              }`}
+            >
+              {mode === "discharge" ? "Discharge summary" : "Death summary"}
+            </button>
+          ))}
+        </div>
+        {summaryMode === "death" ? (
+          <>
+            <TabletInput type="date" value={deathDate} onChange={(e) => setDeathDate(e.target.value)} className="w-40" aria-label="Date of death" />
+            <TabletInput type="time" value={deathTime} onChange={(e) => setDeathTime(e.target.value)} className="w-32" aria-label="Time of death" />
+          </>
+        ) : null}
         <TabletButton
-          disabled={isGeneratingSummary || (!preauthTranscript.trim() && !medicationOnDischarge.trim() && !investigationText.trim())}
+          disabled={
+            isGeneratingSummary ||
+            (summaryMode === "death"
+              ? !deathDate || !deathTime
+              : !preauthTranscript.trim() && !medicationOnDischarge.trim() && !investigationText.trim())
+          }
           onClick={() => void generateArshiaSummary()}
         >
           {isGeneratingSummary ? (
@@ -2237,7 +2303,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
           ) : (
             <Sparkles className="h-4 w-4" />
           )}
-          Generate summary
+          {summaryMode === "death" ? "Generate death summary" : "Generate summary"}
         </TabletButton>
         <TabletButton
           variant="outline"
