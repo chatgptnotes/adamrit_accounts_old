@@ -124,6 +124,8 @@ const TallyLedgerCreation: React.FC = () => {
   const [editing, setEditing] = useState<LedgerAccount | null>(null);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
+  // Alter-by-search box at the top of the form — finds a saved ledger to edit.
+  const [alterSearch, setAlterSearch] = useState('');
 
   const { data: groups = [] } = useQuery({
     queryKey: ['ledger_groups'],
@@ -497,6 +499,74 @@ const TallyLedgerCreation: React.FC = () => {
           {editingShared && (
             <div className="mb-2 border border-amber-400 bg-amber-50 px-2 py-1 text-xs text-amber-900">
               This is a shared ledger used by every company. Alter it from Chart of Accounts.
+            </div>
+          )}
+
+          {/* Alter-by-search: find a saved ledger and load it into the form,
+              the way Tally's Alteration opens with a ledger list. The result
+              row already answers "which bank holds them as beneficiary". */}
+          {!editing && (
+            <div className="relative mb-3 flex items-center gap-2">
+              <span className="w-40 shrink-0 text-sm font-semibold">Alter existing</span>
+              <span className="text-sm">:</span>
+              <div className="relative w-full max-w-md">
+                <Input
+                  value={alterSearch}
+                  onChange={(e) => setAlterSearch(e.target.value)}
+                  autoComplete="off"
+                  placeholder="Search a saved ledger by name or code to edit it…"
+                  className="h-8 w-full rounded-none border border-gray-400 bg-white px-2 shadow-none focus-visible:ring-0 focus-visible:border-blue-600"
+                />
+                {alterSearch.trim().length >= 2 && (
+                  <div className="absolute left-0 right-0 top-full z-50 mt-0.5 max-h-64 overflow-y-auto border border-gray-400 bg-white shadow-lg">
+                    {(() => {
+                      const q = alterSearch.trim().toLowerCase();
+                      const hits = accounts
+                        .filter(
+                          (a) =>
+                            a.account_name.toLowerCase().includes(q) ||
+                            (a.account_code || '').toLowerCase().includes(q) ||
+                            (a.alias || '').toLowerCase().includes(q),
+                        )
+                        .slice(0, 10);
+                      if (!hits.length) {
+                        return (
+                          <p className="px-3 py-2 text-sm text-muted-foreground">
+                            No saved ledger matches — the form below creates a new one.
+                          </p>
+                        );
+                      }
+                      return hits.map((a) => {
+                        const bank = a.beneficiary_of_bank_account_id
+                          ? accounts.find((b) => b.id === a.beneficiary_of_bank_account_id)
+                          : null;
+                        return (
+                          <button
+                            key={a.id}
+                            type="button"
+                            className="block w-full border-b border-gray-200 px-3 py-2 text-left text-sm last:border-b-0 hover:bg-[#fdf6d8]"
+                            onPointerDown={(e) => {
+                              e.preventDefault();
+                              startEdit(a);
+                              setAlterSearch('');
+                            }}
+                          >
+                            <span className="font-medium">{a.account_name}</span>
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              {[a.account_code, a.account_group].filter(Boolean).join(' · ')}
+                            </span>
+                            <span className={`block text-xs ${bank ? 'text-emerald-700' : 'text-amber-700'}`}>
+                              {bank
+                                ? `Beneficiary in ${bank.account_name}`
+                                : 'Not added in any bank portal'}
+                            </span>
+                          </button>
+                        );
+                      });
+                    })()}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
