@@ -48,6 +48,11 @@ import {
   type GovernmentPortalReportKind,
 } from '@/lib/governmentPortalReportDb';
 
+
+/** The portal repeats the package once per admission day ("MG157AMH|MG157AMH|…") — show each value once. */
+const dedupePortalText = (value: string | null | undefined): string =>
+  [...new Set((value || '').split('|').map((p) => p.trim().replace(/\s+/g, ' ')).filter(Boolean))].join(', ');
+
 const sectionStyles: Record<GovernmentPortalSection, string> = {
   dialysis: 'bg-cyan-50 text-cyan-700 border-cyan-200',
   generalMedical: 'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -88,8 +93,8 @@ const formatAmount = (value: string) => {
 };
 
 const compactProcedure = (row: GovernmentPortalRow) => {
-  const code = row.values['Procedure Code'];
-  const details = row.values['Procedure Details'];
+  const code = dedupePortalText(row.values['Procedure Code']);
+  const details = dedupePortalText(row.values['Procedure Details']);
   if (code && details) return `${code} - ${details}`;
   return code || details || '-';
 };

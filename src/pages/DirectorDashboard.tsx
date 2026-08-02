@@ -21,7 +21,7 @@ import {
   type OfficeFileKind,
 } from '@/lib/office-upload-validation';
 import { DirectorFilePreviewDialog } from '@/components/DirectorFilePreviewDialog';
-import { DirectorKpiCards } from '@/components/DirectorKpiCards';
+import { HospitalOverviewSplit } from '@/components/HospitalOverviewSplit';
 import { DepartmentActivityMonitor } from '@/components/DepartmentActivityMonitor';
 import { DirectorProjectLauncher } from '@/components/DirectorProjectLauncher';
 import { DailyRevenueReportSection } from '@/components/DailyRevenueReportSection';
@@ -296,7 +296,7 @@ export default function DirectorDashboard() {
         </div>
       </div>
 
-      <DirectorKpiCards canSeeTile={canSeeTile} />
+      <HospitalOverviewSplit />
       <DepartmentActivityMonitor />
       <GovernmentPortalGeneralMedicalSection />
 

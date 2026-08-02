@@ -252,9 +252,14 @@ export const hasPreauthApprovedAmount = (row: GovernmentPortalRow): boolean => {
   return Number.isFinite(amount) && amount > 0;
 };
 
+
+/** The portal repeats the package once per admission day ("MG157AMH|MG157AMH|…") — show each value once. */
+const dedupePortalText = (value: string | null | undefined): string =>
+  [...new Set((value || '').split('|').map((p) => p.trim().replace(/\s+/g, ' ')).filter(Boolean))].join(', ');
+
 const procedureLabel = (row: GovernmentPortalRow): string => {
-  const code = row.values['Procedure Code'];
-  const details = row.values['Procedure Details'];
+  const code = dedupePortalText(row.values['Procedure Code']);
+  const details = dedupePortalText(row.values['Procedure Details']);
   if (code && details) return `${code} - ${details}`;
   return code || details || 'Procedure not available';
 };
