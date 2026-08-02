@@ -37,6 +37,7 @@ export interface DirectorLedgerFigures {
   receivables: RowValues;
   payableRows: string[];
   payables: RowValues;
+  cashRows: string[];
   cash: RowValues;
   marketing: RowValues;
 }
@@ -44,6 +45,7 @@ export interface DirectorLedgerFigures {
 interface AccountRow {
   id: string;
   account_name: string;
+  account_code: string | null;
   account_type: string;
   account_group: string | null;
   opening_balance: number | null;
@@ -90,29 +92,12 @@ const add = (values: RowValues, row: string, month: number, amount: number) => {
   values[row][month] = (values[row][month] ?? 0) + amount;
 };
 
-// The director's named report rows, linked to their source ledgers by name.
-// The group-level rows below stay; these fill the named rows the director
-// actually reads, so the cards stop looking blank.
-const NAMED_INCOME_ROWS: Array<[string, (name: string) => boolean]> = [
-  ['Hope OPD income', (n) => n === 'opd pt income (hope)'],
-  ['Hope IPD income', (n) => n === 'ipd pt income (hope)'],
-  ['Ayushman OPD income', (n) => n === 'opd patient income [ayushman]'],
-  ['Ayushman IPD income', (n) => n === 'ipd patient income'],
-  ['Vaccine income', (n) => n.includes('vaccine')],
-];
-
-const NAMED_EXPENSE_ROWS: Array<[string, (name: string) => boolean]> = [
-  ['Salary', (n) => n.includes('salary') || n.includes('wages')],
-  ['Rent', (n) => /\brent\b/.test(n)],
-  ['Electricity bill', (n) => n.includes('electric')],
-];
-
-const NAMED_PAYABLE_ROWS: Array<[string, (name: string, group: string) => boolean]> = [
-  ['Implant vendors', (_n, g) => g.includes('implant')],
-  ['Doctors', (n, g) => g.includes('consultant') || /^dr[. ]/.test(n)],
-  ['Pharmacy vendors', (_n, g) => g.includes('pharmacy')],
-  ['Lab charges — Gandhi', (n) => n.includes('gandhi')],
-];
+// Every report row IS a ledger, shown with its code so the director can see
+// exactly which account the figure comes from (owner's order, 2026-08-02).
+const ledgerLabel = (account: { account_name: string; account_code?: string | null }): string => {
+  const code = (account.account_code || '').trim();
+  return code ? `${account.account_name.trim()} [${code}]` : account.account_name.trim();
+};
 
 export function useDirectorLedgerFigures(year: number) {
   return useQuery({
@@ -122,7 +107,7 @@ export function useDirectorLedgerFigures(year: number) {
       const [accounts, groupRows, entries, revenueRows] = await Promise.all([
         fetchActiveAccounts<AccountRow>({
           columns:
-            'id, account_name, account_type, account_group, opening_balance, opening_balance_type',
+            'id, account_name, account_code, account_type, account_group, opening_balance, opening_balance_type',
         }),
         // Every paged query is ordered by a unique column: unordered .range()
         // windows have no stable row order in Postgres, so pages can repeat
@@ -212,31 +197,26 @@ export function useDirectorLedgerFigures(year: number) {
       const expenseTotals = new Map<string, number>();
       const receivableTotals = new Map<string, number>();
       const payableTotals = new Map<string, number>();
+      const cashTotals = new Map<string, number>();
 
       for (const account of accounts) {
         const head = headOfType(account.account_type);
         const m = movement.get(account.id);
-        const groupLabel = (account.account_group || '').trim() || head || 'Ungrouped';
-
-        const nameKey = (account.account_name || '').trim().toLowerCase();
+        const rowLabel = ledgerLabel(account);
 
         if (head && INCOME_HEADS.has(head)) {
-          const named = NAMED_INCOME_ROWS.find(([, match]) => match(nameKey))?.[0];
           for (let month = 0; month <= lastFlowMonth; month += 1) {
             const earned = -(m?.months[month] ?? 0); // income is credit-natured
-            add(income, groupLabel, month, earned);
-            if (named) add(income, named, month, earned);
-            incomeTotals.set(groupLabel, (incomeTotals.get(groupLabel) ?? 0) + earned);
+            add(income, rowLabel, month, earned);
+            incomeTotals.set(rowLabel, (incomeTotals.get(rowLabel) ?? 0) + earned);
           }
           continue;
         }
         if (head && EXPENSE_HEADS.has(head)) {
-          const named = NAMED_EXPENSE_ROWS.find(([, match]) => match(nameKey))?.[0];
           for (let month = 0; month <= lastFlowMonth; month += 1) {
             const spent = m?.months[month] ?? 0;
-            add(expense, groupLabel, month, spent);
-            if (named) add(expense, named, month, spent);
-            expenseTotals.set(groupLabel, (expenseTotals.get(groupLabel) ?? 0) + spent);
+            add(expense, rowLabel, month, spent);
+            expenseTotals.set(rowLabel, (expenseTotals.get(rowLabel) ?? 0) + spent);
           }
           continue;
         }
@@ -256,21 +236,18 @@ export function useDirectorLedgerFigures(year: number) {
         for (let month = 0; month <= Math.max(lastPositionMonth, lastFlowMonth); month += 1) {
           // `running` here is the balance as on the 1st of `month`.
           if (isDebtor && month <= lastPositionMonth && monthStartsAfterCutover(month)) {
-            add(receivables, groupLabel, month, running);
-            receivableTotals.set(groupLabel, (receivableTotals.get(groupLabel) ?? 0) + Math.abs(running));
+            add(receivables, rowLabel, month, running);
+            receivableTotals.set(rowLabel, (receivableTotals.get(rowLabel) ?? 0) + Math.abs(running));
           }
           if (isCreditor && month <= lastPositionMonth && monthStartsAfterCutover(month)) {
-            add(payables, groupLabel, month, -running);
-            const namedPayable = NAMED_PAYABLE_ROWS.find(([, match]) =>
-              match(nameKey, normalizeGroup(account.account_group)),
-            )?.[0];
-            if (namedPayable) add(payables, namedPayable, month, -running);
-            payableTotals.set(groupLabel, (payableTotals.get(groupLabel) ?? 0) + Math.abs(running));
+            add(payables, rowLabel, month, -running);
+            payableTotals.set(rowLabel, (payableTotals.get(rowLabel) ?? 0) + Math.abs(running));
           }
           running += m?.months[month] ?? 0;
           // And now it is the balance at the end of `month`.
           if ((isCash || isBank) && month <= lastFlowMonth && monthEndsAfterCutover(month)) {
-            add(cash, isCash ? 'Cash in Hand (Tilak)' : 'Cash in Bank (Tilak)', month, running);
+            add(cash, rowLabel, month, running);
+            cashTotals.set(rowLabel, (cashTotals.get(rowLabel) ?? 0) + Math.abs(running));
           }
         }
       }
@@ -301,6 +278,7 @@ export function useDirectorLedgerFigures(year: number) {
         receivables,
         payableRows: rowsByTotal(payableTotals),
         payables,
+        cashRows: rowsByTotal(cashTotals),
         cash,
         marketing,
       };
