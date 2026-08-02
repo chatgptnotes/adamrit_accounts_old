@@ -17,6 +17,7 @@ interface Account {
 
 
 interface FlowLine {
+  accountId?: string;
   name: string;
   amount: number;
 }
@@ -52,11 +53,11 @@ const computeFlow = (
     if (t.includes('INCOME')) income += -net;
     else if (t.includes('EXPENSE')) expense += net;
     else if (t === 'FIXED_ASSETS') {
-      if (net > 0) applications.push({ name: a.account_name, amount: net });
-      else sources.push({ name: a.account_name, amount: -net });
+      if (net > 0) applications.push({ accountId: a.id, name: a.account_name, amount: net });
+      else sources.push({ accountId: a.id, name: a.account_name, amount: -net });
     } else if (t === 'LONG_TERM_LIABILITIES' || t === 'EQUITY') {
-      if (net < 0) sources.push({ name: a.account_name, amount: -net });
-      else applications.push({ name: a.account_name, amount: net });
+      if (net < 0) sources.push({ accountId: a.id, name: a.account_name, amount: -net });
+      else applications.push({ accountId: a.id, name: a.account_name, amount: net });
     } else {
       wcDelta += net;
     }
@@ -141,10 +142,16 @@ const FundsFlow: React.FC = () => {
               <div className="border-b border-black pb-0.5 font-semibold tracking-[0.3em]">Sources</div>
               <div className="mt-1 space-y-0.5">
                 {openMonth.sources.map((l) => (
-                  <div key={l.name} className="flex justify-between border-b border-dashed border-gray-200">
+                  <button
+                    key={l.name}
+                    type="button"
+                    disabled={!l.accountId}
+                    onClick={() => l.accountId && window.dispatchEvent(new CustomEvent('tally-open-ledger', { detail: { accountId: l.accountId, monthly: true } }))}
+                    className="flex w-full justify-between border-b border-dashed border-gray-200 text-left enabled:hover:bg-[#fdf6d8]"
+                  >
                     <span className="min-w-0 flex-1 truncate">{l.name}</span>
                     <span className="font-mono">{fmt(l.amount)}</span>
-                  </div>
+                  </button>
                 ))}
               </div>
               <div className="mt-8 flex justify-between border-t border-black pt-1 font-bold">
@@ -156,10 +163,16 @@ const FundsFlow: React.FC = () => {
               <div className="border-b border-black pb-0.5 font-semibold tracking-[0.3em]">Applications</div>
               <div className="mt-1 space-y-0.5">
                 {openMonth.applications.map((l) => (
-                  <div key={l.name} className="flex justify-between border-b border-dashed border-gray-200">
+                  <button
+                    key={l.name}
+                    type="button"
+                    disabled={!l.accountId}
+                    onClick={() => l.accountId && window.dispatchEvent(new CustomEvent('tally-open-ledger', { detail: { accountId: l.accountId, monthly: true } }))}
+                    className="flex w-full justify-between border-b border-dashed border-gray-200 text-left enabled:hover:bg-[#fdf6d8]"
+                  >
                     <span className="min-w-0 flex-1 truncate">{l.name}</span>
                     <span className="font-mono">{fmt(l.amount)}</span>
-                  </div>
+                  </button>
                 ))}
               </div>
               <div className="mt-8 flex justify-between border-t border-black pt-1 font-bold">

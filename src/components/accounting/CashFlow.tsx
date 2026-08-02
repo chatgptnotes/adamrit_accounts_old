@@ -6,7 +6,8 @@ import { useAccountingCompany } from './AccountingCompanyContext';
 import { accountMovements, type Movement } from '@/lib/accountMovements';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
-import { dayBefore } from './tally/PeriodContext';
+import { useRowCursor } from './tally/useRowCursor';
+import { dayBefore, monthsInPeriod } from './tally/PeriodContext';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 import { toast } from 'sonner';
 import { Printer, Download, Loader2, AlertCircle } from 'lucide-react';
@@ -165,8 +166,23 @@ const CashFlow: React.FC = () => {
       { label: 'Cash/Bank Summary', target: 'cash-bank-summary' },
       { label: 'Balance Sheet', target: 'balance-sheet' },
     ],
+    screenKeys: [
+      {
+        hotkey: 'F6',
+        label: 'Full Period',
+        active: false,
+        onClick: () => {
+          setMonthDetail(null);
+          setFullStatement((v) => !v);
+        },
+      },
+    ],
   });
   const { from: fromDate, to: toDate, setPeriod } = report;
+  // Tally's Cash Flow opens as a monthly matrix; Enter on a month opens that
+  // month's statement, F6 shows the whole period's statement.
+  const [monthDetail, setMonthDetail] = useState<{ from: string; upto: string; label: string } | null>(null);
+  const [fullStatement, setFullStatement] = useState(false);
   const setFromDate = (v: string) => setPeriod(v, toDate);
   const setToDate = (v: string) => setPeriod(fromDate, v);
 
@@ -220,6 +236,59 @@ const CashFlow: React.FC = () => {
     },
   });
 
+  const periodMonths = useMemo(() => monthsInPeriod({ from: fromDate, to: toDate }), [fromDate, toDate]);
+
+  const cashIds = useMemo(
+    () => new Set(accounts.filter((a) => isCashOrBankAccount(a)).map((a) => a.id)),
+    [accounts],
+  );
+
+  // Month rows: inflow / outflow of the cash pool per month
+  const monthRows = useMemo(() => {
+    return periodMonths.map((m) => {
+      let inflow = 0;
+      let outflow = 0;
+      for (const e of entries) {
+        const d = (e as any).voucher?.voucher_date ?? '';
+        if (d < m.from || d > m.upto) continue;
+        if (!cashIds.has(e.account_id)) continue;
+        inflow += Number(e.debit_amount) || 0;
+        outflow += Number(e.credit_amount) || 0;
+      }
+      return { ...m, inflow, outflow };
+    });
+  }, [periodMonths, entries, cashIds]);
+
+  const { cursor, setCursor } = useRowCursor({
+    count: monthRows.length,
+    enabled: !monthDetail && !fullStatement,
+    onEnter: (i) => monthRows[i] && setMonthDetail(monthRows[i]),
+  });
+
+  // The statement below computes over the whole period, or one month of it
+  const scopedEntries = useMemo(
+    () =>
+      monthDetail
+        ? entries.filter((e) => {
+            const d = (e as any).voucher?.voucher_date ?? '';
+            return d >= monthDetail.from && d <= monthDetail.upto;
+          })
+        : entries,
+    [entries, monthDetail],
+  );
+  // Cash movement before the drilled month, so its opening is honest
+  const cashDeltaBefore = useMemo(() => {
+    if (!monthDetail) return 0;
+    let delta = 0;
+    for (const e of entries) {
+      const d = (e as any).voucher?.voucher_date ?? '';
+      if (d >= monthDetail.from) continue;
+      if (!cashIds.has(e.account_id)) continue;
+      delta += (Number(e.debit_amount) || 0) - (Number(e.credit_amount) || 0);
+    }
+    return delta;
+  }, [entries, monthDetail, cashIds]);
+
   const isLoading = accountsLoading || entriesLoading;
   const isError = accountsError || entriesError;
   const error = accErr || entErr;
@@ -232,7 +301,7 @@ const CashFlow: React.FC = () => {
     netOperating,
     netInvesting,
     netFinancing,
-    openingCash,
+    openingCash: openingCashBase,
   } = useMemo(() => {
     // Build account lookup map
     const accountMap = new Map<string, Account>();
@@ -241,7 +310,7 @@ const CashFlow: React.FC = () => {
     // Aggregate debit/credit per account from entries
     const debitMap = new Map<string, number>();
     const creditMap = new Map<string, number>();
-    entries.forEach((e) => {
+    scopedEntries.forEach((e) => {
       debitMap.set(e.account_id, (debitMap.get(e.account_id) || 0) + Number(e.debit_amount || 0));
       creditMap.set(e.account_id, (creditMap.get(e.account_id) || 0) + Number(e.credit_amount || 0));
     });
@@ -322,9 +391,11 @@ const CashFlow: React.FC = () => {
       netFinancing,
       openingCash,
     };
-  }, [accounts, entries, priorMovements]);
+  }, [accounts, scopedEntries, priorMovements]);
 
   const netChange = netOperating + netInvesting + netFinancing;
+  // A drilled month opens with the period's opening plus the cash moved before it
+  const openingCash = openingCashBase + cashDeltaBefore;
   const closingCash = openingCash + netChange;
 
   // Print handler
@@ -402,9 +473,66 @@ const CashFlow: React.FC = () => {
     );
   }
 
+  const fmtIn = (n: number): string => new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2 }).format(n);
+
+  // Tally's default Cash Flow: one line per month, Inflow / Outflow / Nett.
+  if (!monthDetail && !fullStatement) {
+    const totalIn = monthRows.reduce((t, m) => t + m.inflow, 0);
+    const totalOut = monthRows.reduce((t, m) => t + m.outflow, 0);
+    return (
+      <>
+      <TallyScreen title="Cash Flow" rail={report.rail}>
+        <div className="px-3 pb-4 pt-1 text-[13px]">
+          <div className="text-center">
+            <div className="font-bold">Cash Flow Summary</div>
+            <div className="text-[11px]">{format(new Date(fromDate), 'd-MMM-yy')} to {format(new Date(toDate), 'd-MMM-yy')}</div>
+          </div>
+          <div className="mt-1 flex border-y border-black bg-[#f0f4fa] font-semibold">
+            <div className="min-w-0 flex-1 px-1">Particulars</div>
+            <div className="w-36 shrink-0 px-1 text-right">Inflow</div>
+            <div className="w-36 shrink-0 px-1 text-right">Outflow</div>
+            <div className="w-36 shrink-0 px-1 text-right">Nett Flow</div>
+          </div>
+          {monthRows.map((m, idx) => (
+            <button
+              key={m.from}
+              type="button"
+              onClick={() => setMonthDetail(m)}
+              onMouseEnter={() => setCursor(idx)}
+              className={`flex w-full border-b border-dashed border-gray-200 text-left ${cursor === idx ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'}`}
+            >
+              <div className="min-w-0 flex-1 px-1">{m.label}</div>
+              <div className="w-36 shrink-0 px-1 text-right font-mono">{m.inflow ? fmtIn(m.inflow) : ''}</div>
+              <div className="w-36 shrink-0 px-1 text-right font-mono">{m.outflow ? fmtIn(m.outflow) : ''}</div>
+              <div className="w-36 shrink-0 px-1 text-right font-mono">{fmtIn(m.inflow - m.outflow)}</div>
+            </button>
+          ))}
+          <div className="mt-2 flex border-t border-black pt-0.5 font-bold">
+            <div className="min-w-0 flex-1 px-1 tracking-[0.2em]">Total</div>
+            <div className="w-36 shrink-0 px-1 text-right font-mono">{fmtIn(totalIn)}</div>
+            <div className="w-36 shrink-0 px-1 text-right font-mono">{fmtIn(totalOut)}</div>
+            <div className="w-36 shrink-0 px-1 text-right font-mono">{fmtIn(totalIn - totalOut)}</div>
+          </div>
+          <p className="mt-3 text-[11px] italic text-gray-500">
+            Enter on a month opens its statement · F6 shows the full-period statement
+          </p>
+        </div>
+      </TallyScreen>
+      {report.popups}
+      </>
+    );
+  }
+
   return (
     <>
-    <TallyScreen title="Cash Flow" rail={report.rail}>
+    <TallyScreen
+      title={monthDetail ? `Cash Flow — ${monthDetail.label}` : 'Cash Flow'}
+      onClose={() => {
+        setMonthDetail(null);
+        setFullStatement(false);
+      }}
+      rail={report.rail}
+    >
     
     <div className="space-y-6">
       {/* Header */}

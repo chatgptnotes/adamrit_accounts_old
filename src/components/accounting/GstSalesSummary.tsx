@@ -33,6 +33,8 @@ const GST_RATES = [0, 5, 12, 18] as const;
 const GstSalesSummary: React.FC = () => {
   const queryClient = useQueryClient();
   const [byHsn, setByHsn] = useState(false);
+  // Rate/HSN group expanded to its medicines (Tally-style drill, in place)
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
 
   const report = useTallyReport({
     supportsColumns: false,
@@ -116,9 +118,10 @@ const GstSalesSummary: React.FC = () => {
         unrated.set(key, cur);
       }
       const key = byHsn ? (med?.hsn_code || (rate == null ? '— rate not set —' : '— no HSN —')) : rate == null ? '— rate not set —' : `${rate}%`;
-      const cur = groups.get(key) ?? { label: key, rate, gross: 0, count: 0 };
+      const cur = groups.get(key) ?? { label: key, rate, gross: 0, count: 0, meds: new Map<string, number>() };
       cur.gross += item.gross;
       cur.count += 1;
+      cur.meds.set(item.name, (cur.meds.get(item.name) ?? 0) + item.gross);
       // In HSN view a code's rate comes from its medicines; keep the first seen
       if (cur.rate == null && rate != null) cur.rate = rate;
       groups.set(key, cur);
@@ -179,17 +182,36 @@ const GstSalesSummary: React.FC = () => {
             <div className="py-10 text-center text-gray-400">No pharmacy sales in this period.</div>
           ) : (
             summary.rows.map((r) => (
-              <div key={r.label} className="flex border-b border-dashed border-gray-200 hover:bg-[#fdf6d8]">
-                <div className={`min-w-0 flex-1 truncate px-1 ${r.rate == null ? 'font-semibold text-amber-700' : ''}`}>
-                  {r.label}
-                  {byHsn && r.rate != null ? <span className="ml-2 text-xs text-gray-500">@ {r.rate}%</span> : ''}
-                </div>
-                <div className="w-20 shrink-0 px-1 text-right font-mono">{r.count}</div>
-                <div className="w-32 shrink-0 px-1 text-right font-mono">{r.rate == null ? '' : fmt(r.taxable)}</div>
-                <div className="w-28 shrink-0 px-1 text-right font-mono">{r.rate == null ? '' : fmt(r.tax / 2)}</div>
-                <div className="w-28 shrink-0 px-1 text-right font-mono">{r.rate == null ? '' : fmt(r.tax / 2)}</div>
-                <div className="w-32 shrink-0 px-1 text-right font-mono">{fmt(r.gross)}</div>
-              </div>
+              <React.Fragment key={r.label}>
+                <button
+                  type="button"
+                  onClick={() => setExpandedGroup((g) => (g === r.label ? null : r.label))}
+                  className={`flex w-full border-b border-dashed border-gray-200 text-left ${
+                    expandedGroup === r.label ? 'bg-[#fdf6d8]' : 'hover:bg-[#fdf6d8]'
+                  }`}
+                >
+                  <div className={`min-w-0 flex-1 truncate px-1 ${r.rate == null ? 'font-semibold text-amber-700' : ''}`}>
+                    {expandedGroup === r.label ? '▾ ' : '▸ '}
+                    {r.label}
+                    {byHsn && r.rate != null ? <span className="ml-2 text-xs text-gray-500">@ {r.rate}%</span> : ''}
+                  </div>
+                  <div className="w-20 shrink-0 px-1 text-right font-mono">{r.count}</div>
+                  <div className="w-32 shrink-0 px-1 text-right font-mono">{r.rate == null ? '' : fmt(r.taxable)}</div>
+                  <div className="w-28 shrink-0 px-1 text-right font-mono">{r.rate == null ? '' : fmt(r.tax / 2)}</div>
+                  <div className="w-28 shrink-0 px-1 text-right font-mono">{r.rate == null ? '' : fmt(r.tax / 2)}</div>
+                  <div className="w-32 shrink-0 px-1 text-right font-mono">{fmt(r.gross)}</div>
+                </button>
+                {expandedGroup === r.label &&
+                  [...r.meds.entries()]
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 30)
+                    .map(([med, gross]) => (
+                      <div key={med} className="flex border-b border-dotted border-gray-100 text-[12px] text-gray-600">
+                        <div className="min-w-0 flex-1 truncate px-1 pl-6 italic">{med}</div>
+                        <div className="w-32 shrink-0 px-1 text-right font-mono">{fmt(gross)}</div>
+                      </div>
+                    ))}
+              </React.Fragment>
             ))
           )}
 

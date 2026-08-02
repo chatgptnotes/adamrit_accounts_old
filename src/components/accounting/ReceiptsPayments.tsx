@@ -128,15 +128,13 @@ const ReceiptsPayments: React.FC = () => {
         for (const c of counters) {
           const amt = (Number(c.credit_amount) || 0) - (Number(c.debit_amount) || 0);
           if (amt <= 0) continue;
-          const name = nameById.get(c.account_id) ?? 'Unknown';
-          receiptsMap.set(name, (receiptsMap.get(name) ?? 0) + amt);
+          receiptsMap.set(c.account_id, (receiptsMap.get(c.account_id) ?? 0) + amt);
         }
       } else if (net < -0.005) {
         for (const c of counters) {
           const amt = (Number(c.debit_amount) || 0) - (Number(c.credit_amount) || 0);
           if (amt <= 0) continue;
-          const name = nameById.get(c.account_id) ?? 'Unknown';
-          paymentsMap.set(name, (paymentsMap.get(name) ?? 0) + amt);
+          paymentsMap.set(c.account_id, (paymentsMap.get(c.account_id) ?? 0) + amt);
         }
       }
     }
@@ -151,6 +149,9 @@ const ReceiptsPayments: React.FC = () => {
   const panelTotal = Math.max(openingCash + receiptsTotal, paymentsTotal + closingCash);
   const isLoading = l1 || l2;
 
+  const openLedger = (accountId: string) =>
+    window.dispatchEvent(new CustomEvent('tally-open-ledger', { detail: { accountId, monthly: true } }));
+
   const panel = (title: string, rows: [string, number][], frame: { label: string; value: number }, frameFirst: boolean) => (
     <div className="min-w-0 flex-1">
       <div className="border-b border-black pb-0.5 font-semibold tracking-[0.3em]">{title}</div>
@@ -161,11 +162,16 @@ const ReceiptsPayments: React.FC = () => {
             <span className="font-mono">{fmt(frame.value)}</span>
           </div>
         )}
-        {rows.map(([name, amt]) => (
-          <div key={name} className="flex justify-between border-b border-dashed border-gray-200">
-            <span className="min-w-0 flex-1 truncate">{name}</span>
+        {rows.map(([accountId, amt]) => (
+          <button
+            key={accountId}
+            type="button"
+            onClick={() => openLedger(accountId)}
+            className="flex w-full justify-between border-b border-dashed border-gray-200 text-left hover:bg-[#fdf6d8]"
+          >
+            <span className="min-w-0 flex-1 truncate">{nameById.get(accountId) ?? 'Unknown'}</span>
             <span className="font-mono">{fmt(amt)}</span>
-          </div>
+          </button>
         ))}
         {!frameFirst && (
           <div className="flex justify-between font-bold italic">

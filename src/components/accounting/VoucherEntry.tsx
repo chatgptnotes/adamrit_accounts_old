@@ -1678,6 +1678,17 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
                 onClick: cancelVoucher,
               },
               { hotkey: 'D', mod: 'alt' as const, aliases: [{ hotkey: 'D' }], label: 'Delete', onClick: deleteVoucher },
+              {
+                hotkey: '2',
+                mod: 'alt' as const,
+                aliases: [{ hotkey: '2' }],
+                label: 'Duplicate Vch',
+                onClick: () => {
+                  if (!voucherId) return;
+                  window.dispatchEvent(new CustomEvent('tally-duplicate-voucher', { detail: voucherId }));
+                  onDone?.();
+                },
+              },
             ]
           : []),
       ];

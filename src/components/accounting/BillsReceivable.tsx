@@ -4,6 +4,8 @@ import { useBillAgingReport } from '@/hooks/useBillAgingReport';
 import type { BillAgingRecord } from '@/types/billAging';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
+import { useRowCursor } from './tally/useRowCursor';
+import { supabase } from '@/integrations/supabase/client';
 
 const fmt = (n: number): string =>
   new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
@@ -85,8 +87,42 @@ const BillsReceivable: React.FC = () => {
   const today = new Date();
   const asAt = tallyDateLabel(today.toISOString());
 
-  const billRow = (r: BillAgingRecord) => (
-    <div key={r.id} className="flex border-b border-dashed border-gray-200 hover:bg-[#fdf6d8]">
+  // Tally drills a bill to its party — open the corporate's ledger when one
+  // matches by name, else fall back to the bill-wise outstandings.
+  const drillBill = async (r: BillAgingRecord) => {
+    const name = (r.corporate || '').trim();
+    if (name) {
+      const { data } = await (supabase as any)
+        .from('chart_of_accounts')
+        .select('id')
+        .ilike('account_name', name.replace(/[%_\\]/g, '\\$&'))
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle();
+      if (data?.id) {
+        window.dispatchEvent(new CustomEvent('tally-open-ledger', { detail: { accountId: data.id, monthly: true } }));
+        return;
+      }
+    }
+    window.dispatchEvent(new CustomEvent('tally-goto', { detail: 'billwise' }));
+  };
+
+  const visibleRows = outstanding;
+  const { cursor, setCursor } = useRowCursor({
+    count: visibleRows.length,
+    onEnter: (i) => visibleRows[i] && void drillBill(visibleRows[i]),
+  });
+
+  const billRow = (r: BillAgingRecord) => {
+    const idx = visibleRows.indexOf(r);
+    return (
+    <button
+      key={r.id}
+      type="button"
+      onClick={() => void drillBill(r)}
+      onMouseEnter={() => setCursor(idx)}
+      className={`flex w-full border-b border-dashed border-gray-200 text-left ${cursor === idx ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'}`}
+    >
       <div className="w-20 shrink-0 px-1">{tallyDateLabel(r.date_of_submission)}</div>
       <div className="w-32 shrink-0 truncate px-1 font-mono text-[12px]">{r.bill_no || r.claim_id || r.visit_id}</div>
       <div className="min-w-0 flex-1 truncate px-1">
@@ -96,8 +132,9 @@ const BillsReceivable: React.FC = () => {
       <div className="w-32 shrink-0 px-1 text-right font-mono">{fmt(r.outstanding_amount)}</div>
       <div className="w-24 shrink-0 px-1">{tallyDateLabel(r.expected_payment_date)}</div>
       <div className="w-24 shrink-0 px-1 text-right font-mono">{r.days_outstanding > 0 ? r.days_outstanding : ''}</div>
-    </div>
-  );
+    </button>
+    );
+  };
 
   return (
     <>

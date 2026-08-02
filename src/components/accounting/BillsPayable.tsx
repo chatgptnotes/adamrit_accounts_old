@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
+import { useRowCursor } from './tally/useRowCursor';
 
 interface ScheduleRow {
   id: string;
@@ -126,16 +127,48 @@ const BillsPayable: React.FC = () => {
 
   const asAt = tallyDateLabel(new Date().toISOString());
 
-  const lineRow = (l: PayableLine) => (
-    <div key={`${l.party}-${l.date}`} className="flex border-b border-dashed border-gray-200 hover:bg-[#fdf6d8]">
+  // Tally drills a payable line to the party's ledger; unmatched names land on
+  // the bill-wise outstandings.
+  const drillLine = async (l: PayableLine) => {
+    const { data } = await (supabase as any)
+      .from('chart_of_accounts')
+      .select('id')
+      .ilike('account_name', l.party.trim().replace(/[%_\\]/g, '\\$&'))
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle();
+    if (data?.id) {
+      window.dispatchEvent(new CustomEvent('tally-open-ledger', { detail: { accountId: data.id, monthly: true } }));
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('tally-goto', { detail: 'billwise' }));
+  };
+
+  const flatVisible = ageWise ? byBucket.flatMap((b) => b.rows) : visible;
+  const { cursor, setCursor } = useRowCursor({
+    count: flatVisible.length,
+    onEnter: (i) => flatVisible[i] && void drillLine(flatVisible[i]),
+  });
+
+  const lineRow = (l: PayableLine) => {
+    const idx = flatVisible.indexOf(l);
+    return (
+    <button
+      key={`${l.party}-${l.date}`}
+      type="button"
+      onClick={() => void drillLine(l)}
+      onMouseEnter={() => setCursor(idx)}
+      className={`flex w-full border-b border-dashed border-gray-200 text-left ${cursor === idx ? 'bg-[#ffc423]' : 'hover:bg-[#fdf6d8]'}`}
+    >
       <div className="w-20 shrink-0 px-1">{tallyDateLabel(l.date)}</div>
       <div className="w-24 shrink-0 px-1 capitalize italic text-gray-600">{l.category}</div>
       <div className="min-w-0 flex-1 truncate px-1">{l.party}</div>
       <div className="w-32 shrink-0 px-1 text-right font-mono">{fmt(l.pending)}</div>
       <div className="w-24 shrink-0 px-1">{tallyDateLabel(l.date)}</div>
       <div className="w-24 shrink-0 px-1 text-right font-mono">{l.overdue > 0 ? l.overdue : ''}</div>
-    </div>
-  );
+    </button>
+    );
+  };
 
   return (
     <>

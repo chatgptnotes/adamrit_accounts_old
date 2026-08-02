@@ -385,6 +385,15 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
           const voucherId = rows[cursor]?.voucherId;
           if (voucherId) onOpenVoucher?.(voucherId);
         },
+        // Real handlers so the bar's keys act instead of swallowing: the bare
+        // A/D/2/I letters used to be dead here and shadow the column keys.
+        onAdd: () => window.dispatchEvent(new CustomEvent('tally-goto', { detail: 'voucher-entry' })),
+        onDuplicate: !monthly && rows[cursor]?.voucherId
+          ? () => window.dispatchEvent(new CustomEvent('tally-duplicate-voucher', { detail: rows[cursor]!.voucherId }))
+          : undefined,
+        onInsert: !monthly && rows[cursor]
+          ? () => window.dispatchEvent(new CustomEvent('tally-insert-voucher', { detail: rows[cursor]!.date }))
+          : undefined,
       })}
     >
       <div className="px-3 pb-4 pt-1 text-[13px]">

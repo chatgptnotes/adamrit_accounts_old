@@ -294,7 +294,8 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
       {
         hotkey: 'B',
         mod: 'ctrl' as const,
-        aliases: [{ hotkey: 'B' }],
+        // Ctrl+F12 is Tally's value filter — Basis of Values is that filter here
+        aliases: [{ hotkey: 'B' }, { hotkey: 'F12', mod: 'ctrl' as const }],
         label: 'Basis of Values',
         gapBefore: true,
         active: !isDefaultBasis(basis),

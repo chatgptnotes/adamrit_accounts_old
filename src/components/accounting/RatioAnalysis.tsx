@@ -149,11 +149,24 @@ const RatioAnalysis: React.FC = () => {
 
   const isLoading = accountsLoading || l1 || l2;
 
-  const row = (label: string, value: string, indent = false) => (
+  // Tally drills a ratio line into the report that explains it
+  const row = (label: string, value: string, indent = false, target?: string) => (
+    target ? (
+      <button
+        key={label}
+        type="button"
+        onClick={() => window.dispatchEvent(new CustomEvent('tally-goto', { detail: target }))}
+        className="flex w-full justify-between border-b border-dashed border-gray-200 py-0.5 text-left hover:bg-[#fdf6d8]"
+      >
+        <span className="font-semibold">{label}</span>
+        <span className="font-mono">{value}</span>
+      </button>
+    ) : (
     <div key={label} className="flex justify-between border-b border-dashed border-gray-200 py-0.5">
       <span className={indent ? 'pl-4 text-[11px] italic text-gray-500' : 'font-semibold'}>{label}</span>
       <span className="font-mono">{value}</span>
     </div>
+    )
   );
   const ratio = (v: number | null, suffix = ''): string => (v === null ? '—' : `${fmt(v)}${suffix}`);
 
@@ -175,17 +188,17 @@ const RatioAnalysis: React.FC = () => {
             <div className="min-w-0 flex-1 border-r border-gray-400 pr-3">
               <div className="border-b border-black pb-0.5 font-semibold tracking-[0.2em]">Principal Groups</div>
               <div className="mt-1">
-                {row('Working Capital', fmt(R.workingCapital))}
+                {row('Working Capital', fmt(R.workingCapital), false, 'balance-sheet')}
                 {row('(Current Assets − Current Liabilities)', '', true)}
-                {row('Cash-in-Hand', fmt(R.cash))}
-                {row('Bank Accounts', fmt(R.bank))}
-                {row('Sundry Debtors', fmt(R.debtors))}
-                {row('Current Assets', fmt(R.currentAssets))}
-                {row('Current Liabilities', fmt(R.currentLiab))}
-                {row('Loans (Liability)', fmt(R.loans))}
-                {row('Capital Account', fmt(R.capital))}
-                {row('Fixed Assets', fmt(R.fixedAssets))}
-                {row('Nett Profit', fmt(R.nettProfit))}
+                {row('Cash-in-Hand', fmt(R.cash), false, 'cash-bank-summary')}
+                {row('Bank Accounts', fmt(R.bank), false, 'cash-bank-summary')}
+                {row('Sundry Debtors', fmt(R.debtors), false, 'billwise')}
+                {row('Current Assets', fmt(R.currentAssets), false, 'balance-sheet')}
+                {row('Current Liabilities', fmt(R.currentLiab), false, 'balance-sheet')}
+                {row('Loans (Liability)', fmt(R.loans), false, 'balance-sheet')}
+                {row('Capital Account', fmt(R.capital), false, 'balance-sheet')}
+                {row('Fixed Assets', fmt(R.fixedAssets), false, 'balance-sheet')}
+                {row('Nett Profit', fmt(R.nettProfit), false, 'profit-loss')}
               </div>
             </div>
             {/* Principal Ratios */}
@@ -196,9 +209,9 @@ const RatioAnalysis: React.FC = () => {
                 {row('(Current Assets : Current Liabilities)', '', true)}
                 {row('Quick Ratio', ratio(R.quickRatio, ' : 1'))}
                 {row('Debt/Equity Ratio', ratio(R.debtEquity, ' : 1'))}
-                {row('Gross Profit %', ratio(R.grossPct, ' %'))}
-                {row('Nett Profit %', ratio(R.nettPct, ' %'))}
-                {row('Operating Cost %', ratio(R.opCostPct, ' %'))}
+                {row('Gross Profit %', ratio(R.grossPct, ' %'), false, 'profit-loss')}
+                {row('Nett Profit %', ratio(R.nettPct, ' %'), false, 'profit-loss')}
+                {row('Operating Cost %', ratio(R.opCostPct, ' %'), false, 'profit-loss')}
                 {row(
                   'Recv. Turnover in days',
                   R.recvTurnoverDays === null ? '—' : `${Math.round(R.recvTurnoverDays)} days`,
