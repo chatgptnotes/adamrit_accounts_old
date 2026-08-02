@@ -45,6 +45,27 @@ async function countSince(table: string, column: string, startISO: string, endIS
   }
 }
 
+// Radiology's daily work is photo uploads (file_uploads, category
+// radiology_investigation), not radiology_orders rows — count those too.
+async function countUploadsSince(category: string, startISO: string, endISO: string): Promise<number> {
+  try {
+    const { count, error } = await sb
+      .from('file_uploads')
+      .select('*', { count: 'exact', head: true })
+      .eq('category', category)
+      .gte('created_at', startISO)
+      .lt('created_at', endISO);
+    if (error) {
+      console.error(`Error counting ${category} uploads:`, error);
+      return 0;
+    }
+    return count || 0;
+  } catch (error) {
+    console.error(`Error in ${category} uploads query:`, error);
+    return 0;
+  }
+}
+
 // Count rows whose date-only column equals today's date string.
 async function countOnDate(table: string, column: string, dateStr: string): Promise<number> {
   try {
@@ -69,9 +90,10 @@ export const useDepartmentActivity = (enabled: boolean = true) => {
     queryFn: async () => {
       const { startISO, endISO, startDate } = getDateRange('today', '');
 
-      const [lab, radiology, pharmacy, ot, nursing, accounts, advance, finalPay] = await Promise.all([
+      const [lab, radiology, radiologyPhotos, pharmacy, ot, nursing, accounts, advance, finalPay] = await Promise.all([
         countSince('visit_labs', 'created_at', startISO, endISO),
         countSince('radiology_orders', 'created_at', startISO, endISO),
+        countUploadsSince('radiology_investigation', startISO, endISO),
         countSince('visit_medications', 'created_at', startISO, endISO),
         countOnDate('ot_schedule', 'scheduled_date', startDate),
         countSince('vital_signs', 'recorded_at', startISO, endISO),
@@ -82,7 +104,7 @@ export const useDepartmentActivity = (enabled: boolean = true) => {
 
       const departments: DepartmentActivity[] = [
         { key: 'lab', label: 'Lab', count: lab, route: '/lab' },
-        { key: 'radiology', label: 'Radiology', count: radiology, route: '/radiology' },
+        { key: 'radiology', label: 'Radiology', count: radiology + radiologyPhotos, route: '/radiology' },
         { key: 'pharmacy', label: 'Pharmacy', count: pharmacy, route: '/pharmacy' },
         { key: 'ot', label: 'Operation Theatre', count: ot, route: '/ot' },
         { key: 'nursing', label: 'Nursing', count: nursing, route: '/nursing' },
