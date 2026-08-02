@@ -5,6 +5,8 @@ import { fetchActiveAccounts } from '@/lib/fetchAccounts';
 import GroupCreation from './GroupCreation';
 import TallyLedgerCreation from './TallyLedgerCreation';
 import VoucherTypeCreation from './VoucherTypeCreation';
+import CostCentreMasters from './CostCentreMasters';
+import BudgetMaster from './BudgetMaster';
 import { useAccountingCompany } from './AccountingCompanyContext';
 import { TallyScreen } from './tally/TallyChrome';
 import { useShortcuts } from './tally/keyboard';
@@ -16,6 +18,9 @@ export interface MasterItem {
     | 'ledger'
     | 'currency'
     | 'voucher-type'
+    | 'cost-category'
+    | 'cost-centre'
+    | 'budget'
     | 'stock-group'
     | 'stock-category'
     | 'stock-item'
@@ -33,6 +38,9 @@ const MASTERS: MasterItem[] = [
   { id: 'ledger', label: 'Ledger', section: 'Accounting Masters' },
   { id: 'currency', label: 'Currency', section: 'Accounting Masters' },
   { id: 'voucher-type', label: 'Voucher Type', section: 'Accounting Masters' },
+  { id: 'cost-category', label: 'Cost Category', section: 'Accounting Masters' },
+  { id: 'cost-centre', label: 'Cost Centre', section: 'Accounting Masters' },
+  { id: 'budget', label: 'Budget', section: 'Accounting Masters' },
   { id: 'stock-group', label: 'Stock Group', section: 'Inventory Masters' },
   { id: 'stock-category', label: 'Stock Category', section: 'Inventory Masters' },
   { id: 'stock-item', label: 'Stock Item', section: 'Inventory Masters' },
@@ -225,7 +233,10 @@ const AccountMasters: React.FC<AccountMastersProps> = ({ mode = 'alter' }) => {
             />
           )}
           {active === 'voucher-type' && <VoucherTypeCreation />}
-          {!['group', 'ledger', 'voucher-type'].includes(active) && (
+          {active === 'cost-category' && <CostCentreMasters kind="category" />}
+          {active === 'cost-centre' && <CostCentreMasters kind="centre" />}
+          {active === 'budget' && <BudgetMaster />}
+          {!['group', 'ledger', 'voucher-type', 'cost-category', 'cost-centre', 'budget'].includes(active) && (
             <div className="border border-[#b8c9dd] bg-[#e2e7ee] p-8 text-center">
               <div className="text-base font-semibold text-[#1a4d8f]">
                 {activeTitle} Master

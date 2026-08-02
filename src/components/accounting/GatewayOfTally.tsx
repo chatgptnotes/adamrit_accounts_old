@@ -90,6 +90,7 @@ const MENUS: Record<string, Menu> = {
           { label: 'Day Book', target: 'day-book', hotIndex: 4 },
           { label: 'Cash Flow', target: 'cash-flow' },
           { label: 'Funds Flow', target: 'funds-flow' },
+          { label: 'Budget Variance', target: 'budget-variance', hotIndex: 2 },
         ],
       },
       {
@@ -113,6 +114,7 @@ const MENUS: Record<string, Menu> = {
         heading: 'EXCEPTION',
         items: [
           { label: 'EXception Reports', target: 'exception-reports', hotIndex: 1 },
+          { label: 'Negative Ledgers', target: 'negative-ledgers' },
           { label: 'Analysis & Verification', target: 'statistics', hotIndex: 11 },
           { label: 'Edit Log Summary', target: 'edit-log', hotIndex: 5 },
         ],
@@ -170,6 +172,7 @@ const MENUS: Record<string, Menu> = {
           // row mouse-only. 'K' is free, and capitalising the marked letter is
           // how Day BooK and BaNking already read.
           { label: 'BanK Reconciliation', target: 'bank-reconciliation', hotIndex: 3 },
+          { label: 'CHeque Register', target: 'cheque-register', hotIndex: 1 },
           { label: 'StatIstics', target: 'statistics', hotIndex: 4 },
         ],
       },

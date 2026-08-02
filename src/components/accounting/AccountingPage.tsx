@@ -52,6 +52,9 @@ import OpeningBalances from './OpeningBalances';
 import ExceptionReports from './ExceptionReports';
 import BillwiseOutstanding from './BillwiseOutstanding';
 import Banking from './Banking';
+import ChequeRegister from './ChequeRegister';
+import NegativeLedgers from './NegativeLedgers';
+import BudgetVariance from './BudgetVariance';
 import { AccountingCompanyProvider } from './AccountingCompanyContext';
 import { AccountingPeriodProvider } from './tally/PeriodContext';
 import TallyGlobalKeys from './tally/TallyGlobalKeys';
@@ -101,6 +104,9 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'bank-reconciliation', label: 'Bank Reconciliation', icon: Building2 },
   { id: 'bills-receivable', label: 'Bills Receivable', icon: Landmark },
   { id: 'bills-payable', label: 'Bills Payable', icon: Landmark },
+  { id: 'cheque-register', label: 'Cheque Register', icon: BookMarked },
+  { id: 'negative-ledgers', label: 'Negative Ledgers', icon: Scale },
+  { id: 'budget-variance', label: 'Budget Variance', icon: TrendingUp },
   { id: 'bill-aging', label: 'Bill Aging Statement', icon: Calendar, route: '/bill-aging-statement' },
   { id: 'expected-payments', label: 'Expected Payments', icon: Calendar, route: '/expected-payment-date-report' },
   { id: 'director-receivables', label: 'Receivables Matrix', icon: TrendingUp, route: '/director-dashboard' },
@@ -205,6 +211,12 @@ const renderContent = (
       return <BillsReceivable />;
     case 'bills-payable':
       return <BillsPayable />;
+    case 'cheque-register':
+      return <ChequeRegister onOpenVoucher={openVoucher} />;
+    case 'negative-ledgers':
+      return <NegativeLedgers onOpenLedger={openLedger} />;
+    case 'budget-variance':
+      return <BudgetVariance onOpenLedger={openLedger} />;
     case 'tally-import-export':
       return <TallyImportExport />;
     default:

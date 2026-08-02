@@ -127,6 +127,7 @@ const Banking: React.FC = () => {
     filterFields: ['Payee'],
     views: [
       { label: 'Bank Reconciliation', target: 'bank-reconciliation' },
+      { label: 'Cheque Register', target: 'cheque-register' },
       { label: 'Cash/Bank Book', target: 'cash-bank-book' },
       { label: 'Cash/Bank Summary', target: 'cash-bank-summary' },
       { label: 'Bills Payable', target: 'bills-payable' },
