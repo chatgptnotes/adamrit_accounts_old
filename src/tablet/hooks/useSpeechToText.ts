@@ -16,6 +16,8 @@ export interface SpeechToTextOptions {
   onFinal: (text: string) => void;
   /** Live (not-yet-final) transcript — show it, don't commit it. */
   onInterim: (text: string) => void;
+  /** A readable reason when recognition dies — mic blocked, no network... */
+  onError?: (message: string) => void;
 }
 
 export interface UseSpeechToText {
@@ -76,7 +78,16 @@ export function useSpeechToText(opts: SpeechToTextOptions): UseSpeechToText {
       setListening(false);
       optsRef.current.onInterim("");
     };
-    rec.onerror = () => {
+    rec.onerror = (e: any) => {
+      // Silence here looked like "the mic ate my words" — say why it stopped.
+      const reasons: Record<string, string> = {
+        'not-allowed': 'Microphone access is blocked — allow it in the browser settings.',
+        'service-not-allowed': 'Speech service is blocked on this device.',
+        network: 'Speech recognition needs internet — check the connection.',
+        'audio-capture': 'No microphone was found on this device.',
+      };
+      const reason = reasons[e?.error];
+      if (reason) optsRef.current.onError?.(reason);
       recognitionRef.current = null;
       setListening(false);
       optsRef.current.onInterim("");

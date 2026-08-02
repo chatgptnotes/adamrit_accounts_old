@@ -41,11 +41,16 @@ export function DictationTextarea({
   className,
 }: DictationTextareaProps) {
   const [interim, setInterim] = useState("");
+  const [speechError, setSpeechError] = useState<string | null>(null);
 
   const speech = useSpeechToText({
     lang: "en-IN",
-    onFinal: (text) => onChange(appendText(value, text)),
+    onFinal: (text) => {
+      setSpeechError(null);
+      onChange(appendText(value, text));
+    },
     onInterim: setInterim,
+    onError: setSpeechError,
   });
 
   // Live preview — committed value plus the not-yet-final words.
@@ -83,6 +88,9 @@ export function DictationTextarea({
         >
           <Mic className="h-5 w-5" />
         </button>
+      ) : null}
+      {speechError ? (
+        <p className="mt-1 text-xs font-medium text-destructive">{speechError}</p>
       ) : null}
     </div>
   );

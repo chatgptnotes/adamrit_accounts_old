@@ -39,17 +39,17 @@ const MAX_FILE_BYTES = 1.5 * 1024 * 1024;
  *  warn instead of failing the transcription outright. */
 const MAX_VISION_IMAGES = 4;
 const ARSHIA_EMERGENCY_LINE = "URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 9373111709.";
-const DEFAULT_ARSHIA_DISCHARGE_PROMPT = `You are a senior medical specialist writing a professional hospital discharge summary for another doctor.
+const DEFAULT_ARSHIA_DISCHARGE_PROMPT = `You are a senior medical specialist writing a complete, professional hospital discharge summary for another doctor.
 
-CLINICAL SAFETY - these override every formatting rule below:
-- Use ONLY the provided pre-authorization transcription, medication-on-discharge dictation, and fetched lab/radiology data.
+DATA RULES:
+- Treat everything in the SOURCE CONTEXT as established fact: the diagnoses, the package and procedure from the hospital system, the OT schedule (surgeon, anesthetist, anesthesia type, date and time), the treating doctor, the labs and radiology, the pre-authorization transcription and the dictated medications. Use ALL of it — the procedure done, the package taken and the doctors who performed must all appear.
 - Do NOT mention the patient name, sex, or age.
-- Do NOT invent symptoms, diagnoses, examination findings, events during stay, surgery details, complications, medicines, Indian brands, doses, lab values, radiology findings, dates, or comorbidities.
-- If a required fact is not provided, write "Not provided" or "Not recorded". Never pad a section to make it look complete.
-- Mention that the patient has no comorbidities other than those explicitly provided.
+- Where routine details are not recorded, write the STANDARD clinical narrative expected for the documented diagnosis and procedure — typical presenting complaints, an uneventful course, routine post-operative recovery — so every section reads complete. This narrative must stay generic and typical; it must never contradict anything provided, and never invent specific lab values, complication events, transfusions, or drug doses that were not given.
+- The summary is a draft: the treating doctor reviews, corrects and signs it before it leaves the hospital.
 
 STRUCTURE - use these exact "## " headings, in this order, and omit none of them:
 ## Diagnosis
+## History and Presenting Complaints
 ## Medications on Discharge
 ## Course in Hospital
 ## Procedure and Surgery Notes
@@ -62,6 +62,7 @@ STRUCTURE - use these exact "## " headings, in this order, and omit none of them
 
 SECTION RULES:
 - Diagnosis: the working diagnosis as one line, then any secondary diagnoses as bullets.
+- History and Presenting Complaints: a short detailed history — presenting complaints, duration, and relevant background — from the pre-authorization transcription where given, otherwise the standard presentation for the documented diagnosis.
 - Medications on Discharge: a Markdown table with columns Name | Strength | Route | Dosage | Days. In each Dosage cell put the English dosage first and the Hindi dosage on the next line using <br/>. If no medication is dictated, write "Not provided" instead of the table.
 - Course in Hospital: short paragraphs, documented events only.
 - Procedure and Surgery Notes: only the details provided. If none, write "Not provided."
@@ -256,11 +257,17 @@ function stringifyInvestigationValue(value: unknown): string {
   }
 }
 
-const uniqueByStableKey = (items: any[]) => {
+/**
+ * Dedupe by CONTENT, not by row id: the same lab report uploaded or synced
+ * twice gets a fresh id each time, and id-based dedupe kept every copy — so
+ * discharge summaries repeated the same report over and over. Two rows that
+ * say the same thing are one investigation.
+ */
+const uniqueByContent = (items: any[], keyOf: (item: any) => string) => {
   const seen = new Set<string>();
-  return items.filter((item, index) => {
-    const key = String(item?.id || `${item?.test_name || item?.main_test_name || item?.file_name || item?.ordered_date || "row"}-${index}`);
-    if (seen.has(key)) return false;
+  return items.filter((item) => {
+    const key = keyOf(item).toLowerCase().replace(/\s+/g, " ").trim();
+    if (!key || seen.has(key)) return !key ? true : false;
     seen.add(key);
     return true;
   });
@@ -319,9 +326,21 @@ async function loadVisitInvestigationText(
     return lines.length ? lines.join("\n") : emptyText;
   };
 
-  const orderedLabs = uniqueByStableKey((orderedLabsResult.data || []) as any[]);
-  const structuredLabs = uniqueByStableKey((structuredLabsResult.data || []) as any[]);
-  const radiologyItems = uniqueByStableKey((radiologyResult.data || []) as any[]);
+  const orderedLabs = uniqueByContent(
+    (orderedLabsResult.data || []) as any[],
+    (item) => [item.lab?.name, stringifyInvestigationValue(item.result_value), item.completed_date].filter(Boolean).join("|"),
+  );
+  const structuredLabs = uniqueByContent(
+    (structuredLabsResult.data || []) as any[],
+    (item) =>
+      item.file_name
+        ? `file:${item.file_name}`
+        : [item.main_test_name, item.test_name, stringifyInvestigationValue(item.result_value), item.result_unit].filter(Boolean).join("|"),
+  );
+  const radiologyItems = uniqueByContent(
+    (radiologyResult.data || []) as any[],
+    (item) => [item.radiology?.name, item.file_name, item.findings, item.impression].filter(Boolean).join("|"),
+  );
 
   const orderedLabLines = orderedLabs.map((item, index) => {
     const labName = item.lab?.name || "Lab investigation";
@@ -803,7 +822,7 @@ export default function AdvanceFlow() {
     queryFn: async (): Promise<VisitRow | null> => {
       const query = supabase
         .from("visits")
-        .select("id, visit_id, yojana_registration_id, package_code, package_name, corporate, arshiya_discharge_summary, appointment_with")
+        .select("id, visit_id, admission_date, discharge_date, planned_discharge_date, yojana_registration_id, package_code, package_name, corporate, arshiya_discharge_summary, appointment_with")
         .eq("id", selectedVisitId!);
       const { data, error } = await query.maybeSingle();
       if (error) throw error;
@@ -1392,12 +1411,53 @@ Return clean, properly formatted plain text with clear headings and field labels
         setArshiaWarning(warnings.length ? warnings.join(" ") : null);
       }
 
+      // The system already knows the diagnoses, the procedure, and who
+      // operated — the summary must correlate with them, so they are fetched
+      // and handed to the model as established facts.
+      const [diagnosesRes, surgeriesRes, otRes] = await Promise.all([
+        supabase
+          .from("visit_diagnoses" as any)
+          .select("is_primary, diagnoses(name)")
+          .eq("visit_id", visit.data.id),
+        supabase
+          .from("visit_surgeries" as any)
+          .select("sanction_status, cghs_surgery(name, code)")
+          .eq("visit_id", visit.data.id),
+        supabase
+          .from("ot_schedule" as any)
+          .select("surgery_name, scheduled_date, scheduled_time, status, surgeon_name, anesthetist_name, special_requirements")
+          .eq("visit_id", visit.data.id)
+          .order("scheduled_date", { ascending: true }),
+      ]);
+
       const sourceContext = {
         visit_id: visit.data.visit_id,
         yojana_registration_id: visit.data.yojana_registration_id,
+        admission_date: visit.data.admission_date || null,
+        discharge_date: visit.data.discharge_date || visit.data.planned_discharge_date || null,
         package_code: resolvedPackageCode || null,
         package_name: visit.data.package_name,
         corporate: visit.data.corporate,
+        treating_doctor: visit.data.appointment_with || "Not recorded",
+        diagnoses_from_system: (diagnosesRes.data || [])
+          .map((d: any) => `${d.diagnoses?.name || ""}${d.is_primary ? " (primary)" : ""}`)
+          .filter(Boolean),
+        procedures_from_system: (surgeriesRes.data || [])
+          .map((sRow: any) =>
+            sRow.cghs_surgery
+              ? `${sRow.cghs_surgery.name}${sRow.cghs_surgery.code ? ` (${sRow.cghs_surgery.code})` : ""}`
+              : "",
+          )
+          .filter(Boolean),
+        ot_schedule_from_system: (otRes.data || []).map((ot: any) => ({
+          procedure: ot.surgery_name,
+          date: ot.scheduled_date,
+          time: ot.scheduled_time,
+          status: ot.status,
+          surgeon: ot.surgeon_name,
+          anesthetist: ot.anesthetist_name,
+          anesthesia: ot.special_requirements,
+        })),
         pre_authorization_transcription: preauthTranscript.trim() || "Not provided",
         medication_on_discharge_dictation: medicationOnDischarge.trim() || "Not provided",
         lab_and_radiology_investigations: currentInvestigationText || "Not fetched",
@@ -1512,7 +1572,8 @@ ${JSON.stringify(sourceContext, null, 2)}`,
   const buildArshiaSummaryPdfBlob = async () =>
     buildArshiyaSummaryPdfBlob({
       summaryText: generatedDischargeSummary,
-      withLogo: false,
+      // The official copy: hospital letterhead on every page.
+      withLogo: true,
       hospitalName: hospitalConfig?.name || (patient as any)?.hospital_name || "Hospital",
       patientName: patient?.name,
       patientId: patient?.patients_id,
