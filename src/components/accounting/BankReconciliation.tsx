@@ -179,8 +179,27 @@ const BankReconciliation: React.FC = () => {
         } else current += ch;
       }
       cells.push(current.trim());
-      return cells;
+      // Banks wrap values as ="10.00" so Excel keeps them as text. The quotes
+      // are gone by here; drop the leading = or the amount reads as NaN.
+      return cells.map((c) => c.replace(/^=/, '').trim());
     };
+    // The header is not necessarily line 1 — Canara and others put 20-odd
+    // preamble lines (account holder, IFSC, opening balance) above it. The
+    // header is the first line that names a date column and a money column.
+    const isHeader = (cells: string[]) => {
+      const lower = cells.map((c) => c.toLowerCase());
+      return (
+        lower.some((c) => c.includes('date')) &&
+        lower.some(
+          (c) =>
+            c.includes('debit') || c.includes('withdraw') || c.includes('credit') ||
+            c.includes('deposit') || c.includes('amount'),
+        )
+      );
+    };
+    const headerLine = lines.findIndex((l) => isHeader(split(l)));
+    if (headerLine === -1) return [];
+    lines.splice(0, headerLine);
     const header = split(lines[0]).map((h) => h.toLowerCase());
     const idx = (names: string[]) => header.findIndex((h) => names.some((n) => h.includes(n)));
     const di = idx(['date']);
