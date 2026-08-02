@@ -244,6 +244,14 @@ export const TABLET_MODULES: TabletModule[] = [
     tint: "from-blue-400 to-cyan-600",
   },
   {
+    id: "rmo-duty-gaurav",
+    label: "RMO Duty - Gaurav",
+    description: "Record duty shifts & monthly report",
+    icon: CalendarClock,
+    accent: "text-indigo-700",
+    tint: "from-indigo-400 to-violet-600",
+  },
+  {
     id: "ot-photos-sarvesh",
     label: "OT Photos - Sarvesh",
     description: "Mark OT done & upload photos",

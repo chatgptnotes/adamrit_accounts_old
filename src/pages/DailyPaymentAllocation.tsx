@@ -58,6 +58,9 @@ import { useCompanies } from '@/hooks/useCompanies';
 import { useAuth } from '@/contexts/AuthContext';
 import { DailyAllocationSheet } from '@/components/DailyAllocationSheet';
 import { BeneficiaryBankHint } from '@/components/BeneficiaryBankHint';
+import { RmoPaymentsTab } from '@/components/RmoPaymentsTab';
+import SalarySheetPage from '@/pages/SalarySheet';
+import ReferralRegisterPage from '@/pages/ReferralRegister';
 import { listUnpaidInvoices, payInvoicesTogether, type UnpaidInvoice } from '@/lib/approval-queue-service';
 import { printSpecialistInvoice } from '@/lib/printSpecialistInvoice';
 import { useAccountingRights } from '@/components/accounting/tally/rights';
@@ -1762,7 +1765,7 @@ ${sectionsHtml}
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-2 md:grid-cols-5">
+        <TabsList className="grid w-full grid-cols-2 md:grid-cols-8">
           <TabsTrigger value="allocation">
             Today's Allocation
             {displaySchedule.filter(s => s.status === 'pending').length > 0 && (
@@ -1778,6 +1781,9 @@ ${sectionsHtml}
           <TabsTrigger value="master">Obligations Master</TabsTrigger>
           <TabsTrigger value="history">Payment History</TabsTrigger>
           <TabsTrigger value="daily-allocation">Daily Allocation</TabsTrigger>
+          <TabsTrigger value="rmo-payments">RMO Payments</TabsTrigger>
+          <TabsTrigger value="salary-sheet">Salary Sheet</TabsTrigger>
+          <TabsTrigger value="opd-referral">OPD Referral</TabsTrigger>
         </TabsList>
 
         {/* TAB 1: Today's Allocation — drag-and-drop, inline edit, skip */}
@@ -2209,6 +2215,19 @@ ${sectionsHtml}
             }}
           />
         </TabsContent>
+      
+        {/* All payments in one place: the RMO duty invoices, the salary
+            sheet, and the OPD referral register live beside the allocation. */}
+        <TabsContent value="rmo-payments" className="mt-4">
+          <RmoPaymentsTab />
+        </TabsContent>
+        <TabsContent value="salary-sheet" className="mt-4">
+          <SalarySheetPage />
+        </TabsContent>
+        <TabsContent value="opd-referral" className="mt-4">
+          <ReferralRegisterPage />
+        </TabsContent>
+
       </Tabs>
 
       {/* Save Day Confirmation Dialog */}

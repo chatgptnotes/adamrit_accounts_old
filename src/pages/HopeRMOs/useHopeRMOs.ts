@@ -103,6 +103,9 @@ export const useHopeRMOs = () => {
       private_rate: formData.private_rate ? parseFloat(formData.private_rate) : undefined,
       daily_remuneration: formData.daily_remuneration ? parseFloat(formData.daily_remuneration) : 0,
       ledger_account_id: formData.ledger_account_id || null,
+      morning_rate: formData.morning_rate ? parseFloat(formData.morning_rate) : null,
+      evening_rate: formData.evening_rate ? parseFloat(formData.evening_rate) : null,
+      night_rate: formData.night_rate ? parseFloat(formData.night_rate) : null,
     } as any);
   };
 
@@ -126,6 +129,9 @@ export const useHopeRMOs = () => {
           private_rate: formData.private_rate ? parseFloat(formData.private_rate) : undefined,
           daily_remuneration: formData.daily_remuneration ? parseFloat(formData.daily_remuneration) : 0,
           ledger_account_id: formData.ledger_account_id || null,
+          morning_rate: formData.morning_rate ? parseFloat(formData.morning_rate) : null,
+          evening_rate: formData.evening_rate ? parseFloat(formData.evening_rate) : null,
+          night_rate: formData.night_rate ? parseFloat(formData.night_rate) : null,
         } as any
       });
     }

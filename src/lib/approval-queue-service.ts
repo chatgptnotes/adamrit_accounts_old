@@ -575,6 +575,8 @@ export async function addRmoDutyApproval(input: {
   /** yyyy-mm-dd */
   dutyDate: string
   amount: number
+  /** morning | evening | night — stored for the monthly duty report. */
+  shift?: string | null
   /** The RMO's ledger from the master — pre-fills the bill's party side. */
   partyAccountId?: string | null
   hospital?: string | null
@@ -590,12 +592,13 @@ export async function addRmoDutyApproval(input: {
   // corrected one from being entered. The partial unique index
   // approval_queue_duty_salary_reference_uniq backstops the race two
   // concurrent taps leave open.
-  const { data: existing, error: checkError } = await approvalQueue()
+  let existingQuery = approvalQueue()
     .select('id')
     .eq('reference_no', reference)
     .ilike('party_name', name)
     .neq('status', 'REJECTED')
-    .limit(1)
+  if (input.shift) existingQuery = existingQuery.eq('duty_shift', input.shift)
+  const { data: existing, error: checkError } = await existingQuery.limit(1)
   if (checkError) throw new Error(checkError.message || 'Could not check existing duty entries')
   if ((existing || []).length) return { created: false }
 
@@ -605,7 +608,8 @@ export async function addRmoDutyApproval(input: {
     reference_no: reference,
     amount: input.amount,
     party_account_id: input.partyAccountId || null,
-    narration: `RMO duty ${input.dutyDate}${input.hospital ? ` (${input.hospital})` : ''}`,
+    duty_shift: input.shift || null,
+    narration: `RMO duty ${input.dutyDate}${input.shift ? ` ${input.shift}` : ''}${input.hospital ? ` (${input.hospital})` : ''}`,
     created_by: input.createdBy || 'ot-rmo-duty',
   })
   if (error) {
@@ -620,9 +624,10 @@ export async function listRmoDutyApprovals(dutyDate: string): Promise<Array<{
   party_name: string
   amount: number
   status: string
+  duty_shift: string | null
 }>> {
   const { data, error } = await approvalQueue()
-    .select('id, party_name, amount, status')
+    .select('id, party_name, amount, status, duty_shift')
     .eq('reference_no', `${RMO_DUTY_PREFIX}${dutyDate}`)
     .neq('status', 'REJECTED')
     .order('party_name')

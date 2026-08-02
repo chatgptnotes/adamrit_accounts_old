@@ -85,6 +85,9 @@ const AyushmanRMOs = () => {
               nabh_rate: editingRMO.nabh_rate?.toString() || '',
               private_rate: editingRMO.private_rate?.toString() || '',
               daily_remuneration: editingRMO.daily_remuneration?.toString() || '',
+              morning_rate: editingRMO.morning_rate?.toString() || '',
+              evening_rate: editingRMO.evening_rate?.toString() || '',
+              night_rate: editingRMO.night_rate?.toString() || '',
               ledger_account_id: editingRMO.ledger_account_id || ''
             }}
             fields={fields}

@@ -11,6 +11,9 @@ export interface AyushmanRMO {
   private_rate?: number;
   daily_remuneration?: number;
   ledger_account_id?: string | null;
+  morning_rate?: number;
+  evening_rate?: number;
+  night_rate?: number;
   is_active?: boolean;
   created_at: string;
   updated_at: string;

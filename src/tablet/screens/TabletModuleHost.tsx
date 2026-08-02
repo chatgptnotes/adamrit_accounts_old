@@ -64,6 +64,9 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   "ot-schedule-gaurav": lazy(
     () => import("@/tablet/modules/ot-schedule/OtScheduleFlow"),
   ),
+  "rmo-duty-gaurav": lazy(
+    () => import("@/tablet/modules/rmo-duty/RmoDutyFlow"),
+  ),
   "ot-photos-sarvesh": lazy(
     () => import("@/tablet/modules/ot-schedule/OtScheduleFlow"),
   ),
