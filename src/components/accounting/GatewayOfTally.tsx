@@ -108,7 +108,10 @@ const MENUS: Record<string, Menu> = {
       },
       {
         heading: 'STATUTORY',
-        items: [{ label: 'MSME RepOrts', disabled: true, hotIndex: 8 }],
+        items: [
+          { label: 'GST Sales Summary', target: 'gst-sales-summary' },
+          { label: 'MSME RepOrts', disabled: true, hotIndex: 8 },
+        ],
       },
       {
         heading: 'EXCEPTION',

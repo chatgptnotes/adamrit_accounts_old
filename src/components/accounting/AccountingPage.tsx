@@ -55,6 +55,7 @@ import Banking from './Banking';
 import ChequeRegister from './ChequeRegister';
 import NegativeLedgers from './NegativeLedgers';
 import PostDatedVouchers from './PostDatedVouchers';
+import GstSalesSummary from './GstSalesSummary';
 import BudgetVariance from './BudgetVariance';
 import { AccountingCompanyProvider } from './AccountingCompanyContext';
 import { AccountingPeriodProvider } from './tally/PeriodContext';
@@ -109,6 +110,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'negative-ledgers', label: 'Negative Ledgers', icon: Scale },
   { id: 'post-dated-vouchers', label: 'Post-Dated Vouchers', icon: Calendar },
   { id: 'optional-vouchers', label: 'Optional Vouchers', icon: FileText },
+  { id: 'gst-sales-summary', label: 'GST Sales Summary', icon: TrendingUp },
   { id: 'budget-variance', label: 'Budget Variance', icon: TrendingUp },
   { id: 'bill-aging', label: 'Bill Aging Statement', icon: Calendar, route: '/bill-aging-statement' },
   { id: 'expected-payments', label: 'Expected Payments', icon: Calendar, route: '/expected-payment-date-report' },
@@ -222,6 +224,8 @@ const renderContent = (
       return <PostDatedVouchers key="pdv" initialMode="post-dated" onOpenVoucher={openVoucher} />;
     case 'optional-vouchers':
       return <PostDatedVouchers key="opt" initialMode="optional" onOpenVoucher={openVoucher} />;
+    case 'gst-sales-summary':
+      return <GstSalesSummary />;
     case 'budget-variance':
       return <BudgetVariance onOpenLedger={openLedger} />;
     case 'tally-import-export':
