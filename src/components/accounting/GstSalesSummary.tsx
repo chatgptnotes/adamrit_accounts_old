@@ -91,7 +91,7 @@ const GstSalesSummary: React.FC = () => {
       const meds = new Map<string, MedInfo>();
       for (let at = 0; at < medIds.length; at += 200) {
         const { data: page, error } = await (supabase as any)
-          .from('medication')
+          .from('medicine_master')
           .select('id, gst_rate, hsn_code')
           .in('id', medIds.slice(at, at + 200));
         if (error) throw error;
@@ -138,7 +138,7 @@ const GstSalesSummary: React.FC = () => {
   }, [data, byHsn]);
 
   const setRate = async (medicationId: string, rate: number) => {
-    const { error } = await (supabase as any).from('medication').update({ gst_rate: rate }).eq('id', medicationId);
+    const { error } = await (supabase as any).from('medicine_master').update({ gst_rate: rate }).eq('id', medicationId);
     if (error) { toast.error(error.message); return; }
     toast.success(`Rate set to ${rate}%.`);
     queryClient.invalidateQueries({ queryKey: ['gst_sales_summary'] });
