@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Banknote, IndianRupee, Loader2 } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { Banknote, Download, IndianRupee, Loader2, Pencil, Plus, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchActiveAccounts } from '@/lib/fetchAccounts';
@@ -18,6 +19,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 // The salary sheet, run like the Daily Revenue Report's RM cuts: every staff
 // member with a payroll slip for the month, the ledger and beneficiary bank
@@ -34,7 +42,34 @@ interface PayrollRow {
   gross_salary: number | null;
   deductions: number | null;
   net_salary: number | null;
+  days_present: number | null;
+  duty_count: number | null;
+  base_monthly_salary: number | null;
+  entry_source: string | null;
 }
+
+/** The add/edit dialog's field set — everything the desk types by hand. */
+interface SlipDraft {
+  id: string | null;
+  employee_name: string;
+  base_monthly_salary: string;
+  days_present: string;
+  duty_count: string;
+  gross_salary: string;
+  deductions: string;
+  net_salary: string;
+}
+
+const EMPTY_DRAFT: SlipDraft = {
+  id: null,
+  employee_name: '',
+  base_monthly_salary: '',
+  days_present: '',
+  duty_count: '',
+  gross_salary: '',
+  deductions: '',
+  net_salary: '',
+};
 
 interface LedgerLite {
   id: string;
@@ -56,6 +91,21 @@ const money = (v: number | null | undefined) =>
 
 const EXPENSE_LEDGER_KEY = 'salary_sheet_expense_ledger';
 
+/** The upload format, exactly as the downloadable template writes it. */
+const TEMPLATE_HEADERS = [
+  'Employee Name',
+  'Employee ID',
+  'Monthly Salary',
+  'Days Present',
+  'Duties',
+  'Gross Salary',
+  'Deductions',
+  'Net Salary',
+] as const;
+
+/** "Days  Present" / "days_present" / "DAYS PRESENT" all read the same. */
+const normalizeHeader = (key: string) => key.toLowerCase().replace(/[^a-z0-9]/g, '');
+
 const SalarySheet = () => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -67,6 +117,10 @@ const SalarySheet = () => {
   );
   const [busyRow, setBusyRow] = useState<string | null>(null);
   const [approvingSheet, setApprovingSheet] = useState(false);
+  // Manual row entry/edit — HRPulse import fills most rows, but staff off the
+  // portal (and corrections) are typed one row at a time.
+  const [draft, setDraft] = useState<SlipDraft | null>(null);
+  const [savingDraft, setSavingDraft] = useState(false);
 
   const reference = `SALARY-${month}`;
 
@@ -85,7 +139,9 @@ const SalarySheet = () => {
     queryFn: async (): Promise<PayrollRow[]> => {
       const { data, error } = await (supabase as any)
         .from('hr_payroll_slips')
-        .select('id, employee_name, payroll_month, gross_salary, deductions, net_salary')
+        .select(
+          'id, employee_name, payroll_month, gross_salary, deductions, net_salary, days_present, duty_count, base_monthly_salary, entry_source',
+        )
         .gte('payroll_month', `${month}-01`)
         .lt('payroll_month', nextMonthFirst)
         .order('employee_name');
@@ -330,6 +386,146 @@ const SalarySheet = () => {
     }
   };
 
+  const openDraft = (slip?: PayrollRow) => {
+    setDraft(
+      slip
+        ? {
+            id: slip.id,
+            employee_name: slip.employee_name,
+            base_monthly_salary: slip.base_monthly_salary != null ? String(slip.base_monthly_salary) : '',
+            days_present: slip.days_present != null ? String(slip.days_present) : '',
+            duty_count: slip.duty_count != null ? String(slip.duty_count) : '',
+            gross_salary: slip.gross_salary != null ? String(slip.gross_salary) : '',
+            deductions: slip.deductions != null ? String(slip.deductions) : '',
+            net_salary: slip.net_salary != null ? String(slip.net_salary) : '',
+          }
+        : { ...EMPTY_DRAFT },
+    );
+  };
+
+  const saveDraft = async () => {
+    if (!draft) return;
+    const name = draft.employee_name.trim();
+    if (!name) {
+      toast.error("Enter the staff member's name");
+      return;
+    }
+    const num = (v: string) => (v.trim() === '' ? null : Number(v));
+    if (!(Number(draft.net_salary) > 0)) {
+      toast.error("Enter this month's salary (net payable)");
+      return;
+    }
+    setSavingDraft(true);
+    try {
+      const fields = {
+        employee_name: name,
+        base_monthly_salary: num(draft.base_monthly_salary),
+        days_present: num(draft.days_present),
+        duty_count: num(draft.duty_count),
+        gross_salary: num(draft.gross_salary) ?? Number(draft.net_salary),
+        deductions: num(draft.deductions) ?? 0,
+        net_salary: Number(draft.net_salary),
+      };
+      if (draft.id) {
+        const { error } = await (supabase as any)
+          .from('hr_payroll_slips')
+          .update(fields)
+          .eq('id', draft.id);
+        if (error) throw error;
+        toast.success(`${name} updated`);
+      } else {
+        const { error } = await (supabase as any).from('hr_payroll_slips').insert({
+          ...fields,
+          payroll_month: `${month}-01`,
+          entry_source: 'manual',
+        });
+        if (error) throw error;
+        toast.success(`${name} added to the ${month} sheet`);
+      }
+      setDraft(null);
+      queryClient.invalidateQueries({ queryKey: ['salary-sheet-slips', month] });
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not save the row');
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  // ---- Excel template + import ------------------------------------------
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+
+  const downloadTemplate = () => {
+    const sheet = XLSX.utils.aoa_to_sheet([
+      [...TEMPLATE_HEADERS],
+      ['RAVI KUMAR', 'EMP-001', 25000, 26, 4, 26500, 500, 26000],
+    ]);
+    sheet['!cols'] = TEMPLATE_HEADERS.map((h) => ({ wch: Math.max(h.length + 2, 14) }));
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, 'Salary Sheet');
+    XLSX.writeFile(book, `salary-sheet-template-${month}.xlsx`);
+  };
+
+  const importExcel = async (file: File) => {
+    setImporting(true);
+    try {
+      const workbook = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
+      const parsed = XLSX.utils.sheet_to_json<Record<string, unknown>>(
+        workbook.Sheets[workbook.SheetNames[0]],
+      );
+      const existing = new Set(slips.map((s) => normalize(s.employee_name)));
+      const records: any[] = [];
+      let skippedExisting = 0;
+      for (const raw of parsed) {
+        const byKey = new Map<string, unknown>();
+        Object.entries(raw).forEach(([k, v]) => byKey.set(normalizeHeader(k), v));
+        const text = (k: string) => String(byKey.get(k) ?? '').trim();
+        const amount = (k: string) => {
+          const v = Number(String(byKey.get(k) ?? '').replace(/[₹, ]/g, ''));
+          return Number.isFinite(v) ? v : null;
+        };
+        const name = text('employeename');
+        if (!name) continue;
+        if (existing.has(normalize(name))) {
+          skippedExisting += 1;
+          continue;
+        }
+        existing.add(normalize(name));
+        records.push({
+          employee_name: name,
+          employee_id: text('employeeid') || null,
+          payroll_month: `${month}-01`,
+          base_monthly_salary: amount('monthlysalary'),
+          days_present: amount('dayspresent'),
+          duty_count: amount('duties'),
+          gross_salary: amount('grosssalary') ?? amount('netsalary') ?? 0,
+          deductions: amount('deductions') ?? 0,
+          net_salary: amount('netsalary') ?? 0,
+          entry_source: 'import',
+        });
+      }
+      if (!records.length) {
+        toast.error(
+          skippedExisting
+            ? `Nothing new to import — ${skippedExisting} row(s) already on this month's sheet`
+            : 'No rows with an Employee Name found. Download the template to see the format.',
+        );
+        return;
+      }
+      const { error } = await (supabase as any).from('hr_payroll_slips').insert(records);
+      if (error) throw error;
+      toast.success(
+        `${records.length} row(s) imported to ${month}` +
+          (skippedExisting ? ` — ${skippedExisting} already present, left untouched` : ''),
+      );
+      queryClient.invalidateQueries({ queryKey: ['salary-sheet-slips', month] });
+    } catch (error: any) {
+      toast.error(`Import failed: ${error?.message || 'unknown error'}`);
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const totals = rows.reduce(
     (acc, row) => ({
       gross: acc.gross + (Number(row.slip.gross_salary) || 0),
@@ -347,15 +543,40 @@ const SalarySheet = () => {
           <div>
             <h1 className="text-2xl font-bold">Salary Sheet</h1>
             <p className="text-sm text-muted-foreground">
-              Slips from the HR module — approve to post the JVs, then pay each person from the
-              bank that holds them as a beneficiary.
+              Rows come from the HRPulse sync, the Excel import, or Add staff row — approve to
+              post the JVs, then pay each person from the bank that holds them as a beneficiary.
             </p>
           </div>
         </div>
-        <Button onClick={() => void approveSheet()} disabled={approvingSheet || isLoading}>
-          {approvingSheet ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <IndianRupee className="mr-2 h-4 w-4" />}
-          Approve sheet &amp; post JVs
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void importExcel(f);
+              e.target.value = '';
+            }}
+          />
+          <Button variant="outline" onClick={downloadTemplate} title="Download the upload format with column headers">
+            <Download className="mr-2 h-4 w-4" />
+            Template
+          </Button>
+          <Button variant="outline" disabled={importing} onClick={() => importInputRef.current?.click()}>
+            <Upload className="mr-2 h-4 w-4" />
+            {importing ? 'Importing…' : 'Import Excel'}
+          </Button>
+          <Button variant="outline" onClick={() => openDraft()}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add staff row
+          </Button>
+          <Button onClick={() => void approveSheet()} disabled={approvingSheet || isLoading}>
+            {approvingSheet ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <IndianRupee className="mr-2 h-4 w-4" />}
+            Approve sheet &amp; post JVs
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -411,7 +632,8 @@ const SalarySheet = () => {
             <p className="py-10 text-center text-sm text-muted-foreground">Loading payroll slips…</p>
           ) : rows.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted-foreground">
-              No payroll slips for {month}. Generate them in the HR module first.
+              No rows for {month} yet — sync from HRPulse, import the Excel (download the
+              Template for the format), or use Add staff row.
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -419,9 +641,12 @@ const SalarySheet = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Employee</TableHead>
+                    <TableHead className="text-right">Monthly salary</TableHead>
+                    <TableHead className="text-right">Days</TableHead>
+                    <TableHead className="text-right">Duties</TableHead>
                     <TableHead className="text-right">Gross</TableHead>
                     <TableHead className="text-right">Deductions</TableHead>
-                    <TableHead className="text-right">Net</TableHead>
+                    <TableHead className="text-right">This month</TableHead>
                     <TableHead>Ledger</TableHead>
                     <TableHead>Beneficiary bank</TableHead>
                     <TableHead>Status</TableHead>
@@ -434,7 +659,15 @@ const SalarySheet = () => {
                     const approved = row.approval && row.approval.status !== 'PENDING';
                     return (
                       <TableRow key={row.slip.id}>
-                        <TableCell className="font-medium">{row.slip.employee_name}</TableCell>
+                        <TableCell className="font-medium">
+                          {row.slip.employee_name}
+                          {row.slip.entry_source === 'manual' && (
+                            <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">manual</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">{money(row.slip.base_monthly_salary)}</TableCell>
+                        <TableCell className="text-right">{row.slip.days_present ?? '—'}</TableCell>
+                        <TableCell className="text-right">{row.slip.duty_count ?? '—'}</TableCell>
                         <TableCell className="text-right">{money(row.slip.gross_salary)}</TableCell>
                         <TableCell className="text-right">{money(row.slip.deductions)}</TableCell>
                         <TableCell className="text-right font-semibold">{money(row.slip.net_salary)}</TableCell>
@@ -472,13 +705,24 @@ const SalarySheet = () => {
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button
-                            size="sm"
-                            disabled={paid || busyRow === row.slip.id || row.ambiguous || !row.ledger || !(Number(row.slip.net_salary) > 0)}
-                            onClick={() => void payRow(row)}
-                          >
-                            {busyRow === row.slip.id ? <Loader2 className="h-4 w-4 animate-spin" /> : paid ? 'Paid' : 'Pay'}
-                          </Button>
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              title={row.approval ? 'Figures are frozen once the JV is raised' : 'Edit this row'}
+                              disabled={!!row.approval}
+                              onClick={() => openDraft(row.slip)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              disabled={paid || busyRow === row.slip.id || row.ambiguous || !row.ledger || !(Number(row.slip.net_salary) > 0)}
+                              onClick={() => void payRow(row)}
+                            >
+                              {busyRow === row.slip.id ? <Loader2 className="h-4 w-4 animate-spin" /> : paid ? 'Paid' : 'Pay'}
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
@@ -489,6 +733,55 @@ const SalarySheet = () => {
           )}
         </CardContent>
       </Card>
+      <Dialog open={!!draft} onOpenChange={(open) => !open && setDraft(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{draft?.id ? `Edit ${draft.employee_name}` : `Add staff to ${month}`}</DialogTitle>
+          </DialogHeader>
+          {draft && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2 space-y-1">
+                <Label>Staff name (as on the ledger)</Label>
+                <Input
+                  value={draft.employee_name}
+                  onChange={(e) => setDraft({ ...draft, employee_name: e.target.value })}
+                  placeholder="Name — matched to the chart of accounts by this"
+                />
+              </div>
+              {(
+                [
+                  ['Monthly salary (₹)', 'base_monthly_salary'],
+                  ['Days attended', 'days_present'],
+                  ['Duties done', 'duty_count'],
+                  ['Gross salary (₹)', 'gross_salary'],
+                  ['Deductions (₹)', 'deductions'],
+                  ["This month's salary (₹)", 'net_salary'],
+                ] as const
+              ).map(([label, field]) => (
+                <div key={field} className="space-y-1">
+                  <Label>{label}</Label>
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    value={draft[field]}
+                    onChange={(e) => setDraft({ ...draft, [field]: e.target.value })}
+                    placeholder="0"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDraft(null)} disabled={savingDraft}>
+              Cancel
+            </Button>
+            <Button onClick={() => void saveDraft()} disabled={savingDraft}>
+              {savingDraft ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {draft?.id ? 'Save changes' : 'Add to sheet'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
