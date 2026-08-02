@@ -26,6 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { BeneficiaryBankHint } from '@/components/BeneficiaryBankHint';
 
 // The salary sheet, run like the Daily Revenue Report's RM cuts: every staff
 // member with a payroll slip for the month, the ledger and beneficiary bank
@@ -48,10 +49,16 @@ interface PayrollRow {
   entry_source: string | null;
 }
 
-/** The add/edit dialog's field set — everything the desk types by hand. */
+/** The add/edit dialog's field set — everything the desk types by hand.
+ *  The name is never free-typed: it is picked from the ledger search, and
+ *  ledgerId records the pick so the beneficiary bank can be shown. */
 interface SlipDraft {
   id: string | null;
   employee_name: string;
+  /** The picked chart_of_accounts ledger; null until a pick is made. */
+  ledgerId: string | null;
+  /** What the row was called before editing — amounts-only edits keep it. */
+  originalName: string;
   base_monthly_salary: string;
   days_present: string;
   duty_count: string;
@@ -63,6 +70,8 @@ interface SlipDraft {
 const EMPTY_DRAFT: SlipDraft = {
   id: null,
   employee_name: '',
+  ledgerId: null,
+  originalName: '',
   base_monthly_salary: '',
   days_present: '',
   duty_count: '',
@@ -73,6 +82,7 @@ const EMPTY_DRAFT: SlipDraft = {
 
 interface LedgerLite {
   id: string;
+  account_code: string | null;
   account_name: string;
   account_group: string | null;
   beneficiary_of_bank_account_id: string | null;
@@ -121,6 +131,7 @@ const SalarySheet = () => {
   // portal (and corrections) are typed one row at a time.
   const [draft, setDraft] = useState<SlipDraft | null>(null);
   const [savingDraft, setSavingDraft] = useState(false);
+  const [ledgerSearch, setLedgerSearch] = useState('');
 
   const reference = `SALARY-${month}`;
 
@@ -159,7 +170,7 @@ const SalarySheet = () => {
     staleTime: 5 * 60_000,
     queryFn: () =>
       fetchActiveAccounts<LedgerLite>({
-        columns: 'id, account_name, account_group, beneficiary_of_bank_account_id',
+        columns: 'id, account_code, account_name, account_group, beneficiary_of_bank_account_id',
       }),
   });
 
@@ -387,27 +398,41 @@ const SalarySheet = () => {
   };
 
   const openDraft = (slip?: PayrollRow) => {
-    setDraft(
-      slip
-        ? {
-            id: slip.id,
-            employee_name: slip.employee_name,
-            base_monthly_salary: slip.base_monthly_salary != null ? String(slip.base_monthly_salary) : '',
-            days_present: slip.days_present != null ? String(slip.days_present) : '',
-            duty_count: slip.duty_count != null ? String(slip.duty_count) : '',
-            gross_salary: slip.gross_salary != null ? String(slip.gross_salary) : '',
-            deductions: slip.deductions != null ? String(slip.deductions) : '',
-            net_salary: slip.net_salary != null ? String(slip.net_salary) : '',
-          }
-        : { ...EMPTY_DRAFT },
-    );
+    if (!slip) {
+      setDraft({ ...EMPTY_DRAFT });
+      setLedgerSearch('');
+      return;
+    }
+    // Re-resolve the pick from the name so the edit dialog shows the same
+    // ledger (and its beneficiary bank) the row is matched to.
+    const candidates = ledgersByName.get(normalize(slip.employee_name)) || [];
+    setDraft({
+      id: slip.id,
+      employee_name: slip.employee_name,
+      ledgerId: candidates.length === 1 ? candidates[0].id : null,
+      originalName: slip.employee_name,
+      base_monthly_salary: slip.base_monthly_salary != null ? String(slip.base_monthly_salary) : '',
+      days_present: slip.days_present != null ? String(slip.days_present) : '',
+      duty_count: slip.duty_count != null ? String(slip.duty_count) : '',
+      gross_salary: slip.gross_salary != null ? String(slip.gross_salary) : '',
+      deductions: slip.deductions != null ? String(slip.deductions) : '',
+      net_salary: slip.net_salary != null ? String(slip.net_salary) : '',
+    });
+    setLedgerSearch('');
   };
 
   const saveDraft = async () => {
     if (!draft) return;
     const name = draft.employee_name.trim();
     if (!name) {
-      toast.error("Enter the staff member's name");
+      toast.error('Search and pick the staff ledger first');
+      return;
+    }
+    // The name comes from the ledger master, not the keyboard. The one
+    // exception: editing only the amounts of an existing row whose name has
+    // no ledger yet (e.g. an imported slip awaiting its ledger).
+    if (!draft.ledgerId && name !== draft.originalName) {
+      toast.error('Pick the ledger from the search list — names are not typed in by hand');
       return;
     }
     const num = (v: string) => (v.trim() === '' ? null : Number(v));
@@ -741,12 +766,74 @@ const SalarySheet = () => {
           {draft && (
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2 space-y-1">
-                <Label>Staff name (as on the ledger)</Label>
-                <Input
-                  value={draft.employee_name}
-                  onChange={(e) => setDraft({ ...draft, employee_name: e.target.value })}
-                  placeholder="Name — matched to the chart of accounts by this"
-                />
+                <Label>Staff ledger (search the chart of accounts)</Label>
+                <div className="relative">
+                  <Input
+                    value={ledgerSearch || draft.employee_name}
+                    onChange={(e) => {
+                      // Typing is searching — the name itself only ever comes
+                      // from picking a ledger below.
+                      setLedgerSearch(e.target.value);
+                      if (draft.ledgerId || draft.employee_name) {
+                        setDraft({ ...draft, employee_name: draft.originalName && draft.id ? draft.employee_name : '', ledgerId: null });
+                      }
+                    }}
+                    placeholder="Search by ledger name or code…"
+                  />
+                  {ledgerSearch.trim().length >= 2 && (
+                    <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-md border bg-background shadow-lg">
+                      {(() => {
+                        const term = ledgerSearch.trim().toLowerCase();
+                        const hits = ledgers
+                          .filter(
+                            (l) =>
+                              l.account_name.toLowerCase().includes(term) ||
+                              (l.account_code || '').toLowerCase().includes(term),
+                          )
+                          .slice(0, 8);
+                        return hits.length === 0 ? (
+                          <p className="px-3 py-2 text-sm text-muted-foreground">
+                            No ledger matches — create it on Ledger Creation first.
+                          </p>
+                        ) : (
+                          hits.map((l) => (
+                            <button
+                              key={l.id}
+                              type="button"
+                              className="block w-full border-b px-3 py-2 text-left text-sm last:border-b-0 hover:bg-muted/60"
+                              onPointerDown={(e) => {
+                                e.preventDefault();
+                                setDraft({ ...draft, employee_name: l.account_name, ledgerId: l.id });
+                                setLedgerSearch('');
+                              }}
+                            >
+                              <span className="font-medium">{l.account_name}</span>
+                              <span className="ml-2 text-xs text-muted-foreground">
+                                {[l.account_code, l.account_group].filter(Boolean).join(' · ')}
+                              </span>
+                            </button>
+                          ))
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
+                {draft.ledgerId ? (
+                  <>
+                    <p className="text-xs text-emerald-700">
+                      Ledger picked
+                      {(() => {
+                        const l = ledgerById.get(draft.ledgerId);
+                        return l?.account_code ? ` · code ${l.account_code}` : '';
+                      })()}
+                    </p>
+                    <BeneficiaryBankHint accountId={draft.ledgerId} />
+                  </>
+                ) : draft.employee_name ? (
+                  <p className="text-xs text-amber-700">
+                    No ledger picked for “{draft.employee_name}” — search and pick one above.
+                  </p>
+                ) : null}
               </div>
               {(
                 [
