@@ -55,6 +55,7 @@ const SECTIONS: ReportSection[] = [
     heading: 'Financial',
     items: [
       { title: 'Bill Aging Statement', route: '/bill-aging-statement', description: 'Corporate bills aged by days outstanding', icon: Clock },
+      { title: 'TPA / Insurance Claims', route: '/tpa-claims', description: 'Pre-auth to settlement tracker for private insurers and TPAs', icon: FileCheck2 },
       { title: 'Ledger Statement', route: '/ledger-statement', description: 'Account ledger by date range and narration', icon: FileText },
       { title: 'Cash Book', route: '/cash-book', description: 'Daily cash receipts and payments', icon: BookOpen },
       { title: 'Day Book', route: '/day-book', description: 'Daily journal of all transactions by mode', icon: BookOpen },

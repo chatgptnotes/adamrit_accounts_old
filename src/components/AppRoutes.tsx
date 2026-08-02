@@ -44,6 +44,7 @@ import SimpleSignup from "./SimpleSignup";
 const AdvancedStatementReport = lazy(() => import("../pages/AdvancedStatementReport"));
 const ReportsCenter = lazy(() => import("../pages/ReportsCenter"));
 const DepartmentActivityReport = lazy(() => import("../pages/DepartmentActivityReport"));
+const TpaClaims = lazy(() => import("../pages/TpaClaims"));
 const PharmacyMonthlyPurchaseSalesReport = lazy(() => import("../pages/PharmacyMonthlyPurchaseSalesReport"));
 const PatientDocumentsReport = lazy(() => import("../pages/PatientDocumentsReport"));
 const YojanaBillingTodoDocumentsReport = lazy(() => import("../pages/YojanaBillingTodoDocumentsReport"));
@@ -350,6 +351,7 @@ export const AppRoutes = () => {
         <Route path="/reports" element={<Suspense fallback={<PageLoader />}><Reports /></Suspense>} />
         <Route path="/reports-center" element={<Suspense fallback={<PageLoader />}><ReportsCenter /></Suspense>} />
         <Route path="/department-activity-report" element={<Suspense fallback={<PageLoader />}><DepartmentActivityReport /></Suspense>} />
+        <Route path="/tpa-claims" element={<Suspense fallback={<PageLoader />}><TpaClaims /></Suspense>} />
         <Route path="/pharmacy-monthly-purchase-sales-report" element={<Suspense fallback={<PageLoader />}><PharmacyMonthlyPurchaseSalesReport /></Suspense>} />
         <Route path="/patient-documents-report" element={<Suspense fallback={<PageLoader />}><PatientDocumentsReport /></Suspense>} />
         <Route path="/yojana-billing-todo-documents-report" element={<Suspense fallback={<PageLoader />}><YojanaBillingTodoDocumentsReport /></Suspense>} />
