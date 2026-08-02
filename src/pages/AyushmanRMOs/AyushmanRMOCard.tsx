@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Edit, Trash2 } from 'lucide-react';
 import { AyushmanRMO } from './types';
 import { usePermissions } from '@/hooks/usePermissions';
+import { LedgerBadge } from '@/components/LedgerSearchField';
 
 interface AyushmanRMOCardProps {
   rmo: AyushmanRMO;
@@ -53,6 +54,16 @@ export const AyushmanRMOCard = ({ rmo, onEdit, onDelete }: AyushmanRMOCardProps)
       </CardHeader>
       <CardContent>
         <div className="space-y-1 text-sm">
+          {rmo.ledger_account_id ? (
+            <div>
+              <span className="font-semibold">Ledger: </span>
+              <LedgerBadge accountId={rmo.ledger_account_id} />
+            </div>
+          ) : (
+            <p className="text-xs font-semibold text-amber-700">
+              No accounting ledger mapped — the duty roster will not offer this RMO until one is picked.
+            </p>
+          )}
           {(rmo.daily_remuneration !== undefined && rmo.daily_remuneration !== null && rmo.daily_remuneration > 0) && (
             <div className="flex items-center gap-2">
               <span className="font-semibold">Daily Remuneration:</span>

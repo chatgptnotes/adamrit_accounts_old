@@ -33,6 +33,7 @@ import { TabletInput } from "@/tablet/ui/TabletInput";
 import { shortDate } from "@/tablet/lib/format";
 import { compressImageToLimit } from "@/tablet/lib/image";
 import { MultiShotCamera, type CapturedPhotoItem } from "@/tablet/modules/patient-profile/MultiShotCamera";
+import { LedgerBadge } from "@/components/LedgerSearchField";
 import {
   uploadPatientDocs,
   usePatientDocs,
@@ -440,6 +441,9 @@ interface RmoOption {
   name: string;
   specialty: string | null;
   daily_remuneration: number | null;
+  /** The RMO's mapped accounting ledger. Only mapped RMOs are offered. */
+  ledger_account_id: string | null;
+  source: "Hope" | "Ayushman";
 }
 
 /**
@@ -459,17 +463,31 @@ function RmoDutySection() {
   const [savingDuty, setSavingDuty] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
 
-  const rmoTable = hospitalConfig.name === "ayushman" ? "ayushman_rmos" : "hope_rmos";
+  // Both masters, but ONLY the RMOs whose accounting ledger is mapped — a
+  // duty entry without a ledger cannot be paid, so an unmapped RMO is not
+  // offered. Map them on Masters → Hope RMOs / Ayushman RMOs.
   const rmos = useQuery({
-    queryKey: ["ot-rmo-master", rmoTable],
+    queryKey: ["ot-rmo-master-mapped"],
     staleTime: 5 * 60_000,
     queryFn: async (): Promise<RmoOption[]> => {
-      const { data, error } = await (supabase as any)
-        .from(rmoTable)
-        .select("id, name, specialty, daily_remuneration")
-        .order("name");
-      if (error) throw error;
-      return data || [];
+      const [hope, ayushman] = await Promise.all([
+        (supabase as any)
+          .from("hope_rmos")
+          .select("id, name, specialty, daily_remuneration, ledger_account_id")
+          .not("ledger_account_id", "is", null)
+          .order("name"),
+        (supabase as any)
+          .from("ayushman_rmos")
+          .select("id, name, specialty, daily_remuneration, ledger_account_id")
+          .not("ledger_account_id", "is", null)
+          .order("name"),
+      ]);
+      if (hope.error) throw hope.error;
+      if (ayushman.error) throw ayushman.error;
+      return [
+        ...(hope.data || []).map((r: any) => ({ ...r, source: "Hope" as const })),
+        ...(ayushman.data || []).map((r: any) => ({ ...r, source: "Ayushman" as const })),
+      ];
     },
   });
 
@@ -501,6 +519,7 @@ function RmoDutySection() {
         rmoName: selectedRmo.name,
         dutyDate,
         amount: Number(dutyAmount),
+        partyAccountId: selectedRmo.ledger_account_id,
         hospital: hospitalConfig.name,
         createdBy: user?.id ?? null,
       });
@@ -581,7 +600,7 @@ function RmoDutySection() {
                 >
                   <span className="font-medium">{rmo.name}</span>
                   <span className="ml-2 text-xs text-muted-foreground">
-                    {[rmo.specialty, rmo.daily_remuneration ? `₹${Number(rmo.daily_remuneration).toLocaleString("en-IN")}/day` : null]
+                    {[rmo.source, rmo.specialty, rmo.daily_remuneration ? `₹${Number(rmo.daily_remuneration).toLocaleString("en-IN")}/day` : null]
                       .filter(Boolean)
                       .join(" · ")}
                   </span>
@@ -602,6 +621,18 @@ function RmoDutySection() {
           Add duty
         </TabletButton>
       </div>
+
+      {selectedRmo?.ledger_account_id ? (
+        <div className="mt-2 rounded-xl border bg-muted/40 px-3 py-2">
+          <LedgerBadge accountId={selectedRmo.ledger_account_id} />
+        </div>
+      ) : null}
+      {!rmos.isLoading && (rmos.data || []).length === 0 ? (
+        <p className="mt-2 text-sm text-amber-700">
+          No RMO has an accounting ledger mapped yet — map them on Masters → Hope RMOs / Ayushman RMOs,
+          then they appear here.
+        </p>
+      ) : null}
 
       <div className="mt-4">
         {entries.isLoading ? (

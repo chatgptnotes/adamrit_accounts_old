@@ -4,6 +4,7 @@ import { HopeRMOsHeader } from './HopeRMOs/HopeRMOsHeader';
 import { HopeRMOsControls } from './HopeRMOs/HopeRMOsControls';
 import { HopeRMOsList } from './HopeRMOs/HopeRMOsList';
 import { hopeRMOFields } from './HopeRMOs/formFields';
+import { LedgerSearchField } from '@/components/LedgerSearchField';
 
 const HopeRMOs = () => {
   const {
@@ -12,6 +13,20 @@ const HopeRMOs = () => {
     isLoading, filteredRMOs, handleAdd, handleEdit, handleDelete, handleUpdate,
     handleExport, handleImport
   } = useHopeRMOs();
+
+  // The accounting ledger is picked by searching the chart of accounts —
+  // never typed. The duty roster only offers RMOs that carry this mapping.
+  const fields = [
+    ...hopeRMOFields,
+    {
+      key: 'ledger_account_id',
+      label: 'Accounting Ledger (search — shows beneficiary bank)',
+      type: 'custom' as const,
+      render: (value: string, onChange: (v: string) => void) => (
+        <LedgerSearchField value={value} onChange={onChange} />
+      ),
+    },
+  ];
 
   if (isLoading) {
     return (
@@ -48,7 +63,7 @@ const HopeRMOs = () => {
           onClose={() => setIsAddDialogOpen(false)}
           onAdd={handleAdd}
           title="Add Hope RMO"
-          fields={hopeRMOFields}
+          fields={fields}
         />
 
         {editingRMO && (
@@ -68,9 +83,11 @@ const HopeRMOs = () => {
               tpa_rate: editingRMO.tpa_rate?.toString() || '',
               non_nabh_rate: editingRMO.non_nabh_rate?.toString() || '',
               nabh_rate: editingRMO.nabh_rate?.toString() || '',
-              private_rate: editingRMO.private_rate?.toString() || ''
+              private_rate: editingRMO.private_rate?.toString() || '',
+              daily_remuneration: editingRMO.daily_remuneration?.toString() || '',
+              ledger_account_id: editingRMO.ledger_account_id || ''
             }}
-            fields={hopeRMOFields}
+            fields={fields}
           />
         )}
       </div>

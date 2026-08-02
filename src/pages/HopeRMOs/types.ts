@@ -10,6 +10,7 @@ export interface HopeRMO {
   nabh_rate?: number;
   private_rate?: number;
   daily_remuneration?: number;
+  ledger_account_id?: string | null;
   is_active?: boolean;
   created_at: string;
   updated_at: string;

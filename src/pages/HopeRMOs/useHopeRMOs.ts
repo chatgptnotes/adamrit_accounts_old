@@ -102,7 +102,8 @@ export const useHopeRMOs = () => {
       nabh_rate: formData.nabh_rate ? parseFloat(formData.nabh_rate) : undefined,
       private_rate: formData.private_rate ? parseFloat(formData.private_rate) : undefined,
       daily_remuneration: formData.daily_remuneration ? parseFloat(formData.daily_remuneration) : 0,
-    });
+      ledger_account_id: formData.ledger_account_id || null,
+    } as any);
   };
 
   const handleEdit = (rmo: HopeRMO) => {
@@ -124,7 +125,8 @@ export const useHopeRMOs = () => {
           nabh_rate: formData.nabh_rate ? parseFloat(formData.nabh_rate) : undefined,
           private_rate: formData.private_rate ? parseFloat(formData.private_rate) : undefined,
           daily_remuneration: formData.daily_remuneration ? parseFloat(formData.daily_remuneration) : 0,
-        }
+          ledger_account_id: formData.ledger_account_id || null,
+        } as any
       });
     }
   };

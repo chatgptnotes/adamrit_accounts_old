@@ -407,6 +407,8 @@ export async function addRmoDutyApproval(input: {
   /** yyyy-mm-dd */
   dutyDate: string
   amount: number
+  /** The RMO's ledger from the master — pre-fills the bill's party side. */
+  partyAccountId?: string | null
   hospital?: string | null
   createdBy?: string | null
 }): Promise<{ created: boolean }> {
@@ -434,6 +436,7 @@ export async function addRmoDutyApproval(input: {
     party_name: name,
     reference_no: reference,
     amount: input.amount,
+    party_account_id: input.partyAccountId || null,
     narration: `RMO duty ${input.dutyDate}${input.hospital ? ` (${input.hospital})` : ''}`,
     created_by: input.createdBy || 'ot-rmo-duty',
   })

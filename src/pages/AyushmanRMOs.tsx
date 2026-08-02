@@ -4,6 +4,7 @@ import { AyushmanRMOsHeader } from './AyushmanRMOs/AyushmanRMOsHeader';
 import { AyushmanRMOsControls } from './AyushmanRMOs/AyushmanRMOsControls';
 import { AyushmanRMOsList } from './AyushmanRMOs/AyushmanRMOsList';
 import { ayushmanRMOFields } from './AyushmanRMOs/formFields';
+import { LedgerSearchField } from '@/components/LedgerSearchField';
 
 const AyushmanRMOs = () => {
   const {
@@ -12,6 +13,20 @@ const AyushmanRMOs = () => {
     isLoading, filteredRMOs, handleAdd, handleEdit, handleDelete, handleUpdate,
     handleExport, handleImport
   } = useAyushmanRMOs();
+
+  // The accounting ledger is picked by searching the chart of accounts —
+  // never typed. The duty roster only offers RMOs that carry this mapping.
+  const fields = [
+    ...ayushmanRMOFields,
+    {
+      key: 'ledger_account_id',
+      label: 'Accounting Ledger (search — shows beneficiary bank)',
+      type: 'custom' as const,
+      render: (value: string, onChange: (v: string) => void) => (
+        <LedgerSearchField value={value} onChange={onChange} />
+      ),
+    },
+  ];
 
   if (isLoading) {
     return (
@@ -48,7 +63,7 @@ const AyushmanRMOs = () => {
           onClose={() => setIsAddDialogOpen(false)}
           onAdd={handleAdd}
           title="Add Ayushman RMO"
-          fields={ayushmanRMOFields}
+          fields={fields}
         />
 
         {editingRMO && (
@@ -68,9 +83,11 @@ const AyushmanRMOs = () => {
               tpa_rate: editingRMO.tpa_rate?.toString() || '',
               non_nabh_rate: editingRMO.non_nabh_rate?.toString() || '',
               nabh_rate: editingRMO.nabh_rate?.toString() || '',
-              private_rate: editingRMO.private_rate?.toString() || ''
+              private_rate: editingRMO.private_rate?.toString() || '',
+              daily_remuneration: editingRMO.daily_remuneration?.toString() || '',
+              ledger_account_id: editingRMO.ledger_account_id || ''
             }}
-            fields={ayushmanRMOFields}
+            fields={fields}
           />
         )}
       </div>
