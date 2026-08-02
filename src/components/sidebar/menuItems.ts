@@ -147,6 +147,11 @@ export const menuItems: MenuItemDef[] = [
     icon: Wallet,
   },
   {
+    title: "Surgery Fees Payable",
+    url: "/surgery-fee-master",
+    icon: Wallet,
+  },
+  {
     title: "Payment Voucher",
     url: "/payment-voucher",
     icon: Receipt,

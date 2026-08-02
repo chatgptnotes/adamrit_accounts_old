@@ -322,6 +322,39 @@ export async function createDoctorApprovalsFromOt(ot: {
     )]
     if (!surgeons.length) return { created: 0 }
 
+    // The Surgery Fees master decides the payable — panel rate for
+    // Yojana/corporate patients, private rate otherwise — matched on the
+    // procedure name or any of the row's tags. No match leaves 0 for the
+    // approver, exactly as before.
+    let masterAmount = 0
+    try {
+      const surgeryName = (ot.surgery_name || '').trim()
+      if (surgeryName) {
+        const { data: feeRows } = await (supabase as any)
+          .from('surgery_fee_master')
+          .select('procedure_name, tags, panel_rate, private_rate')
+          .eq('is_active', true)
+        const lowerName = surgeryName.toLowerCase()
+        const fee = (feeRows || []).find(
+          (row: any) =>
+            row.procedure_name.toLowerCase() === lowerName ||
+            (row.tags || []).some((tag: string) => tag.toLowerCase() === lowerName),
+        )
+        if (fee && ot.visit_id) {
+          const { data: visitRow } = await supabase
+            .from('visits')
+            .select('patients!inner(corporate)')
+            .eq('visit_id', ot.visit_id)
+            .maybeSingle()
+          const corporate = String((visitRow as any)?.patients?.corporate || '').toLowerCase()
+          const isPrivate = !corporate || corporate.includes('private')
+          masterAmount = Number(isPrivate ? fee.private_rate : fee.panel_rate) || 0
+        }
+      }
+    } catch (err: any) {
+      console.warn('[ot-auto] surgery fee lookup failed:', err?.message || err)
+    }
+
     let created = 0
     for (const surgeon of surgeons) {
       const { data: maps } = await doctorLedgerMap()
@@ -334,7 +367,7 @@ export async function createDoctorApprovalsFromOt(ot: {
         category: 'DOCTOR',
         party_name: surgeon,
         reference_no: ot.visit_id ? `OT-${ot.visit_id}` : null,
-        amount: 0,
+        amount: masterAmount,
         company_id: map?.company_id || null,
         expense_account_id: map?.expense_account_id || null,
         party_account_id: map?.party_account_id || null,
