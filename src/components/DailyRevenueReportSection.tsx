@@ -158,7 +158,14 @@ const isDirect = (rm: string | null | undefined): boolean => {
   return s === '' || s === 'direct';
 };
 
-export function DailyRevenueReportSection() {
+export function DailyRevenueReportSection({
+  defaultPatientType = 'OPD',
+  title = 'Daily Revenue Report — Patient List & RM Cuts',
+}: {
+  /** Which patient list this section opens on — the Director Dashboard mounts one OPD and one IPD copy. */
+  defaultPatientType?: PatientTypeFilter;
+  title?: string;
+} = {}) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [reportDate, setReportDate] = useState<string>(todayIso());
@@ -185,7 +192,7 @@ export function DailyRevenueReportSection() {
   const [payingKey, setPayingKey] = useState<string | null>(null);
   const [onlyWithRm, setOnlyWithRm] = useState<boolean>(true);
   const [showHidden, setShowHidden] = useState<boolean>(false);
-  const [patientTypeFilter, setPatientTypeFilter] = useState<PatientTypeFilter>('OPD');
+  const [patientTypeFilter, setPatientTypeFilter] = useState<PatientTypeFilter>(defaultPatientType);
 
   const hospitalType = user?.hospitalType ?? '';
   const [debouncedManualPatientSearch] = useDebounce(manualForm.patient_name, 300);
@@ -1285,7 +1292,7 @@ export function DailyRevenueReportSection() {
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <div className="flex items-center gap-2">
           <Users className="h-5 w-5 text-emerald-600" />
-          <CardTitle>Daily Revenue Report — Patient List & RM Cuts</CardTitle>
+          <CardTitle>{title}</CardTitle>
         </div>
         <div className="flex items-center gap-2">
           <div className="inline-flex rounded border border-gray-300 overflow-hidden text-xs" role="group" aria-label="Filter by patient type">

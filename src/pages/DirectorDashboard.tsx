@@ -366,6 +366,10 @@ export default function DirectorDashboard() {
       </Card>
 
       <DailyRevenueReportSection />
+      <DailyRevenueReportSection
+        defaultPatientType="IPD"
+        title="IPD Daily Revenue Report — Admitted Patients & RM Cuts"
+      />
       <DirectorFinancialStatements />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
