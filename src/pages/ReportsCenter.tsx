@@ -43,6 +43,7 @@ const SECTIONS: ReportSection[] = [
     heading: 'Dashboards & KPIs',
     items: [
       { title: 'Director Dashboard', route: '/director-dashboard', description: 'Hospital KPIs, collections, department activity', icon: LayoutDashboard },
+      { title: 'Department Activity (Monthly)', route: '/department-activity-report', description: 'Day-wise entry counts per department — spot the dips', icon: LayoutDashboard },
       { title: "Today's IPD", route: '/todays-ipd', description: 'Current IPD census and discharge status', icon: Calendar },
       { title: "Today's OPD", route: '/todays-opd', description: 'Today’s OPD visits and walk-ins', icon: ClipboardList },
       { title: 'OPD Summary', route: '/opd-summary', description: 'Searchable OPD visit summaries', icon: ClipboardList },
