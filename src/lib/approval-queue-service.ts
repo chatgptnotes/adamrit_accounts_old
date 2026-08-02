@@ -406,8 +406,10 @@ export async function createAssistantApprovalsFromOt(
   let created = 0
   for (const assistant of assistants) {
     const name = (assistant.name || '').trim()
-    const fee = Number(assistant.fee) || 0
-    if (!name || fee <= 0) continue
+    // Assistants are paid a flat 1,000 per case (owner's rate, 2026-08-02)
+    // unless the OT screen names a different fee.
+    const fee = Number(assistant.fee) || 1000
+    if (!name) continue
     try {
       const { data: maps } = await doctorLedgerMap()
         .select('company_id, party_account_id, expense_account_id')
