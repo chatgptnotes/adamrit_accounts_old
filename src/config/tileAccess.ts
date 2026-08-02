@@ -114,7 +114,6 @@ export const TILE_ACCESS_RULES: TileAccessRule[] = [
   { id: "a-income-fy", label: "Income (FY)", group: "accounting" },
   { id: "a-expenses-fy", label: "Expenses (FY)", group: "accounting" },
   { id: "a-nett-profit-loss", label: "Nett Profit/Loss (FY)", group: "accounting" },
-  { id: "a-patient-advance", label: "Patient Advance", group: "accounting" },
 
   // ── Marketing Stats (12) ──────────────────────────────────────────
   { id: "m-doctors-today", label: "Doctors Today", group: "marketing" },

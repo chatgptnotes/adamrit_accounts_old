@@ -113,14 +113,12 @@ const Dashboard: React.FC<{ onOpenVoucher?: (id: string) => void; canSeeTile?: (
     let bank = 0;
     let income = 0;
     let expense = 0;
-    let advance = 0;
     const expenseHeads: { name: string; amount: number }[] = [];
     for (const a of accounts) {
       const t = (a.account_type || '').toUpperCase();
       const optional = optionalNet.get(a.id) ?? 0;
       if (a.account_code.startsWith('111')) cash += bal(a) - optional;
       else if (a.account_code.startsWith('112')) bank += bal(a) - optional;
-      if (a.account_code === '2110') advance = -bal(a);
       const m = period.get(a.id);
       if (!m) continue;
       if (t.includes('INCOME')) income += m.credit - m.debit;
@@ -131,7 +129,7 @@ const Dashboard: React.FC<{ onOpenVoucher?: (id: string) => void; canSeeTile?: (
       }
     }
     expenseHeads.sort((a, b) => b.amount - a.amount);
-    return { cash, bank, income, expense, nett: income - expense, advance, expenseHeads: expenseHeads.slice(0, 8) };
+    return { cash, bank, income, expense, nett: income - expense, expenseHeads: expenseHeads.slice(0, 8) };
   }, [accounts, cumulative, period, optionalNet]);
 
   const maxExp = S.expenseHeads[0]?.amount || 1;
@@ -164,7 +162,6 @@ const Dashboard: React.FC<{ onOpenVoucher?: (id: string) => void; canSeeTile?: (
           {tile('Income (FY)', S.income, false, 'a-income-fy')}
           {tile('Expenses (FY)', S.expense, false, 'a-expenses-fy')}
           {tile(S.nett >= 0 ? 'Nett Profit (FY)' : 'Nett Loss (FY)', S.nett, false, 'a-nett-profit-loss')}
-          {tile('Patient Advance', S.advance, false, 'a-patient-advance')}
         </div>
 
         <div className="mt-3 flex gap-3">
