@@ -117,20 +117,35 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
   const [openMonth, setOpenMonth] = useState<string | null>(null); // 'YYYY-MM'
   const [ledgerPicker, setLedgerPicker] = useState(false);
 
-  // Cash-in-hand + bank ledgers (codes 111x / 112x)
+  // Cash-in-hand + bank ledgers — picked by GROUP as well as the native
+  // 111x/112x codes, because Tally-imported banks (State Bank of India,
+  // Pusad Urban...) carry TL... codes and were invisible to the prefix filter.
   const { data: accounts = [] } = useQuery({
     queryKey: ['cash_bank_accounts', selectedCompanyId],
     enabled: !!selectedCompanyId,
-    queryFn: () =>
-      fetchActiveAccounts<Account>({
-        columns: 'id, account_code, account_name, opening_balance, opening_balance_type',
-        codePrefixes: ['111', '112'],
+    queryFn: async () => {
+      const all = await fetchActiveAccounts<Account & { account_group?: string | null; account_type?: string }>({
+        columns: 'id, account_code, account_name, account_group, account_type, opening_balance, opening_balance_type',
         companyId: selectedCompanyId,
-      }),
+      });
+      return all.filter((a) => {
+        const group = ((a as any).account_group || '').toLowerCase();
+        const liability = ((a as any).account_type || '').toUpperCase().includes('LIABILIT');
+        if (liability) return false;
+        return (
+          a.account_code.startsWith('111') ||
+          a.account_code.startsWith('112') ||
+          group.includes('cash') ||
+          group.includes('bank')
+        );
+      });
+    },
   });
 
   const account = accounts.find((a) => a.id === selectedId) || null;
-  const dropOptional = isCashBankLedger(account?.account_code);
+  // Every account offered by this screen is a cash/bank ledger by
+  // construction, whatever its code says.
+  const dropOptional = isCashBankLedger(account?.account_code) || !!account;
 
   const report = useTallyReport({
     filterFields: ['Particulars', 'Narration', 'Vch Type', 'Vch No.'],
@@ -208,8 +223,18 @@ const CashBankBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOp
   const ledgerGroups = useMemo(
     () =>
       [
-        { name: 'Cash-in-Hand', items: accounts.filter((a) => a.account_code.startsWith('111')) },
-        { name: 'Bank Accounts', items: accounts.filter((a) => a.account_code.startsWith('112')) },
+        {
+          name: 'Cash-in-Hand',
+          items: accounts.filter(
+            (a) => a.account_code.startsWith('111') || ((a as any).account_group || '').toLowerCase().includes('cash'),
+          ),
+        },
+        {
+          name: 'Bank Accounts',
+          items: accounts.filter(
+            (a) => !(a.account_code.startsWith('111') || ((a as any).account_group || '').toLowerCase().includes('cash')),
+          ),
+        },
       ].filter((g) => g.items.length > 0),
     [accounts],
   );

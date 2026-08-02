@@ -398,7 +398,15 @@ Output JSON only, no prose: [{"s": <statement index>, "e": "<book entry id>"}]`;
   } = useQuery({
     queryKey: ['bank_recon_accounts', selectedCompanyId],
     // Bank ledgers live under account codes 112x in this chart
-    queryFn: () => fetchActiveAccounts<Account>({ columns: '*', codePrefixes: ['112'], companyId: selectedCompanyId }),
+    queryFn: async () => {
+      // By group, not code prefix — Tally-imported banks carry TL... codes.
+      const all = await fetchActiveAccounts<Account>({ columns: '*', companyId: selectedCompanyId });
+      return all.filter((a: any) => {
+        const group = (a.account_group || '').toLowerCase();
+        const liability = (a.account_type || '').toUpperCase().includes('LIABILIT');
+        return !liability && (String(a.account_code || '').startsWith('112') || group.includes('bank'));
+      });
+    },
   });
 
   // Fetch voucher entries for the selected bank account within the date range

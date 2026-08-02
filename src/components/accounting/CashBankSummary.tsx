@@ -73,12 +73,26 @@ const CashBankSummary: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
   const { data: accounts = [] } = useQuery({
     queryKey: ['cash_bank_accounts', selectedCompanyId],
     enabled: !!selectedCompanyId,
-    queryFn: () =>
-      fetchActiveAccounts<Account>({
-        columns: 'id, account_code, account_name, opening_balance, opening_balance_type',
-        codePrefixes: ['111', '112'],
+    queryFn: async () => {
+      // Banks are picked by GROUP, not by account-code prefix: Tally-imported
+      // ledgers (State Bank of India, Pusad Urban, Shikshak Sahakari...) carry
+      // TL... codes and were invisible to the old 111/112 prefix filter.
+      const all = await fetchActiveAccounts<Account & { account_group: string | null; account_type: string }>({
+        columns: 'id, account_code, account_name, account_group, account_type, opening_balance, opening_balance_type',
         companyId: selectedCompanyId,
-      }),
+      });
+      return all.filter((a) => {
+        const group = (a.account_group || '').toLowerCase();
+        const liability = (a.account_type || '').toUpperCase().includes('LIABILIT');
+        if (liability) return false; // Bank OD / loans live under Loans, as in Tally
+        return (
+          a.account_code.startsWith('111') ||
+          a.account_code.startsWith('112') ||
+          group.includes('cash') ||
+          group.includes('bank')
+        );
+      });
+    },
   });
 
   const accountIds = useMemo(() => accounts.map((a) => a.id), [accounts]);
@@ -123,9 +137,11 @@ const CashBankSummary: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
 
   // Group + ledger lines as one flat list, so the cursor walks them like Tally
   const rows = useMemo(() => {
+    const isCash = (a: Account & { account_group?: string | null }) =>
+      a.account_code.startsWith('111') || ((a as any).account_group || '').toLowerCase().includes('cash');
     const groups = [
-      { name: 'Cash-in-Hand', items: accounts.filter((a) => a.account_code.startsWith('111')) },
-      { name: 'Bank Accounts', items: accounts.filter((a) => a.account_code.startsWith('112')) },
+      { name: 'Cash-in-Hand', items: accounts.filter((a) => isCash(a)) },
+      { name: 'Bank Accounts', items: accounts.filter((a) => !isCash(a)) },
     ].filter((g) => groupFilter === 0 || g.name === GROUP_FILTERS[groupFilter]);
 
     const columnTotals = columnSums.map((q) => q.data ?? {});
