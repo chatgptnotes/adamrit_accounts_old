@@ -42,6 +42,12 @@ class Boundary extends React.Component<
           <p className="text-gray-600 mb-4">
             The rest of the app is still working — pick another item from the sidebar, or try again.
           </p>
+          {/* The exact failure, on screen — a screenshot of this page is a bug report. */}
+          <pre className="mb-4 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-red-50 p-3 text-left text-xs text-red-800">
+            {error.message}
+            {'\n'}
+            {(error.stack || '').split('\n').slice(1, 4).join('\n')}
+          </pre>
           <div className="flex gap-2 justify-center">
             <button
               onClick={() => this.setState({ error: undefined })}
