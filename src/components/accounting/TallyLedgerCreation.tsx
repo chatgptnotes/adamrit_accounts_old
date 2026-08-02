@@ -93,7 +93,10 @@ const signedOpening = (account: Pick<LedgerAccount, 'opening_balance' | 'opening
   return (account.opening_balance_type ?? '').toUpperCase() === 'CR' ? -Math.abs(value) : Math.abs(value);
 };
 
-const TallyLedgerCreation: React.FC = () => {
+const TallyLedgerCreation: React.FC<{
+  /** Open straight into alteration of this ledger (Tally's List of Ledgers picker). */
+  initialAccountId?: string | null;
+}> = ({ initialAccountId = null }) => {
   const queryClient = useQueryClient();
   const { selectedCompanyId, companies } = useAccountingCompany();
   const companyName = companies.find((c) => c.id === selectedCompanyId)?.company_name ?? '';
@@ -126,6 +129,9 @@ const TallyLedgerCreation: React.FC = () => {
   const [search, setSearch] = useState('');
   // Alter-by-search box at the top of the form — finds a saved ledger to edit.
   const [alterSearch, setAlterSearch] = useState('');
+  // A ledger handed in by the List of Ledgers picker loads once, when the
+  // chart arrives — after that the user is free to switch or clear.
+  const consumedInitial = React.useRef(false);
 
   const { data: groups = [] } = useQuery({
     queryKey: ['ledger_groups'],
@@ -274,6 +280,16 @@ const TallyLedgerCreation: React.FC = () => {
         .sort((a, b) => a.account_name.localeCompare(b.account_name)),
     [accounts],
   );
+
+  React.useEffect(() => {
+    if (consumedInitial.current || !initialAccountId || !accounts.length) return;
+    const account = accounts.find((a) => a.id === initialAccountId);
+    if (account) {
+      consumedInitial.current = true;
+      startEdit(account);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialAccountId, accounts]);
 
   const startEdit = (account: LedgerAccount): void => {
     setEditing(account);
