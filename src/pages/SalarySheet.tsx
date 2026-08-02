@@ -161,16 +161,19 @@ const SalarySheet = () => {
     },
   });
 
-  // Every active ledger once — employee rows match on the name, exactly the
-  // way the Trial Balance merges ledgers. fetchActiveAccounts pages in a
-  // stable order; a hand-rolled unordered .range() loop can skip or repeat
-  // rows between pages.
+  // The SELECTED COMPANY's ledgers (plus the shared ones) — the JV posts into
+  // this company's books, so only its chart is offered. Fetching every
+  // company's chart showed each ledger once per company in the pickers, and
+  // the duplicate-name guard then flagged every staffer as ambiguous.
+  // fetchActiveAccounts pages in a stable order past the 1000-row cap.
   const { data: ledgers = [] } = useQuery({
-    queryKey: ['salary-sheet-ledgers'],
+    queryKey: ['salary-sheet-ledgers', companyId],
+    enabled: !!companyId,
     staleTime: 5 * 60_000,
     queryFn: () =>
       fetchActiveAccounts<LedgerLite>({
         columns: 'id, account_code, account_name, account_group, beneficiary_of_bank_account_id',
+        companyId,
       }),
   });
 
@@ -705,6 +708,8 @@ const SalarySheet = () => {
                             </span>
                           ) : row.ledger ? (
                             row.ledger.account_name
+                          ) : !companyId ? (
+                            <span className="text-xs text-muted-foreground">Select company to match ledgers</span>
                           ) : (
                             <span className="text-xs font-semibold text-amber-700">
                               No ledger — create one with this name
@@ -793,7 +798,9 @@ const SalarySheet = () => {
                           .slice(0, 8);
                         return hits.length === 0 ? (
                           <p className="px-3 py-2 text-sm text-muted-foreground">
-                            No ledger matches — create it on Ledger Creation first.
+                            {companyId
+                              ? 'No ledger matches — create it on Ledger Creation first.'
+                              : 'Select the company first — the ledger list is per company.'}
                           </p>
                         ) : (
                           hits.map((l) => (
