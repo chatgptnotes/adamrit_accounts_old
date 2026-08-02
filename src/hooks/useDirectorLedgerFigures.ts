@@ -90,6 +90,30 @@ const add = (values: RowValues, row: string, month: number, amount: number) => {
   values[row][month] = (values[row][month] ?? 0) + amount;
 };
 
+// The director's named report rows, linked to their source ledgers by name.
+// The group-level rows below stay; these fill the named rows the director
+// actually reads, so the cards stop looking blank.
+const NAMED_INCOME_ROWS: Array<[string, (name: string) => boolean]> = [
+  ['Hope OPD income', (n) => n === 'opd pt income (hope)'],
+  ['Hope IPD income', (n) => n === 'ipd pt income (hope)'],
+  ['Ayushman OPD income', (n) => n === 'opd patient income [ayushman]'],
+  ['Ayushman IPD income', (n) => n === 'ipd patient income'],
+  ['Vaccine income', (n) => n.includes('vaccine')],
+];
+
+const NAMED_EXPENSE_ROWS: Array<[string, (name: string) => boolean]> = [
+  ['Salary', (n) => n.includes('salary') || n.includes('wages')],
+  ['Rent', (n) => /\brent\b/.test(n)],
+  ['Electricity bill', (n) => n.includes('electric')],
+];
+
+const NAMED_PAYABLE_ROWS: Array<[string, (name: string, group: string) => boolean]> = [
+  ['Implant vendors', (_n, g) => g.includes('implant')],
+  ['Doctors', (n, g) => g.includes('consultant') || /^dr[. ]/.test(n)],
+  ['Pharmacy vendors', (_n, g) => g.includes('pharmacy')],
+  ['Lab charges — Gandhi', (n) => n.includes('gandhi')],
+];
+
 export function useDirectorLedgerFigures(year: number) {
   return useQuery({
     queryKey: ['director-ledger-figures', year],
@@ -194,18 +218,24 @@ export function useDirectorLedgerFigures(year: number) {
         const m = movement.get(account.id);
         const groupLabel = (account.account_group || '').trim() || head || 'Ungrouped';
 
+        const nameKey = (account.account_name || '').trim().toLowerCase();
+
         if (head && INCOME_HEADS.has(head)) {
+          const named = NAMED_INCOME_ROWS.find(([, match]) => match(nameKey))?.[0];
           for (let month = 0; month <= lastFlowMonth; month += 1) {
             const earned = -(m?.months[month] ?? 0); // income is credit-natured
             add(income, groupLabel, month, earned);
+            if (named) add(income, named, month, earned);
             incomeTotals.set(groupLabel, (incomeTotals.get(groupLabel) ?? 0) + earned);
           }
           continue;
         }
         if (head && EXPENSE_HEADS.has(head)) {
+          const named = NAMED_EXPENSE_ROWS.find(([, match]) => match(nameKey))?.[0];
           for (let month = 0; month <= lastFlowMonth; month += 1) {
             const spent = m?.months[month] ?? 0;
             add(expense, groupLabel, month, spent);
+            if (named) add(expense, named, month, spent);
             expenseTotals.set(groupLabel, (expenseTotals.get(groupLabel) ?? 0) + spent);
           }
           continue;
@@ -231,6 +261,10 @@ export function useDirectorLedgerFigures(year: number) {
           }
           if (isCreditor && month <= lastPositionMonth && monthStartsAfterCutover(month)) {
             add(payables, groupLabel, month, -running);
+            const namedPayable = NAMED_PAYABLE_ROWS.find(([, match]) =>
+              match(nameKey, normalizeGroup(account.account_group)),
+            )?.[0];
+            if (namedPayable) add(payables, namedPayable, month, -running);
             payableTotals.set(groupLabel, (payableTotals.get(groupLabel) ?? 0) + Math.abs(running));
           }
           running += m?.months[month] ?? 0;
