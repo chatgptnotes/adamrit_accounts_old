@@ -242,16 +242,35 @@ const BankReconciliation: React.FC = () => {
   const aiReconcile = async (
     unmatched: { date: string; desc: string; amount: number }[],
     candidates: TransactionRow[],
-  ): Promise<{ pairs: Map<number, string>; failed: boolean }> => {
+  ): Promise<{ pairs: Map<number, string>; failed: boolean; reason?: string }> => {
     const pairs = new Map<number, string>();
     if (!unmatched.length || !candidates.length) return { pairs, failed: false };
     try {
+      // Only lines with at least one same-amount book candidate go to the AI —
+      // the verifier below refuses any other pairing, so sending the rest
+      // (595 lines on a real statement) only bloats the prompt until the
+      // reply truncates. The AI's job is narrowed to what it is good at:
+      // choosing between same-amount candidates by date and narration.
+      const matchable = unmatched
+        .map((u, i) => ({ u, i }))
+        .filter(({ u }) =>
+          candidates.some(
+            (t) => Math.abs((u.amount >= 0 ? t.debit : t.credit) - Math.abs(u.amount)) < 0.01,
+          ),
+        )
+        .slice(0, 80);
+      if (!matchable.length) return { pairs, failed: false };
+      const amounts = new Set(matchable.map(({ u }) => Math.abs(u.amount).toFixed(2)));
+      const sendCandidates = candidates
+        .filter((t) => amounts.has(t.debit.toFixed(2)) || amounts.has(t.credit.toFixed(2)))
+        .slice(0, 160);
+
       const prompt = `You are reconciling a bank statement against a hospital's accounting book.
 Statement lines (index | date | description | amount, positive = money IN to the bank, negative = money OUT):
-${unmatched.map((u, i) => `${i} | ${u.date} | ${u.desc || '-'} | ${u.amount.toFixed(2)}`).join('\n')}
+${matchable.map(({ u, i }) => `${i} | ${u.date} | ${u.desc || '-'} | ${u.amount.toFixed(2)}`).join('\n')}
 
 Unreconciled book entries (id | voucher date | narration | debit = money in, credit = money out):
-${candidates
+${sendCandidates
   .map((t) => `${t.entryId} | ${t.voucherDate} | ${t.narration || '-'} | Dr ${t.debit.toFixed(2)} / Cr ${t.credit.toFixed(2)}`)
   .join('\n')}
 
@@ -263,12 +282,16 @@ Output JSON only, no prose: [{"s": <statement index>, "e": "<book entry id>"}]`;
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0, maxOutputTokens: 2000 },
+          generationConfig: { temperature: 0, maxOutputTokens: 8000 },
         }),
       });
       const data = await response.json();
       const text: string = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      const parsed = JSON.parse(text.replace(/^```(?:json)?|```$/gm, '').trim());
+      // The model sometimes wraps JSON in prose or fences — take the array.
+      const start = text.indexOf('[');
+      const end = text.lastIndexOf(']');
+      if (start === -1 || end <= start) throw new Error('The AI returned no pairing list');
+      const parsed = JSON.parse(text.slice(start, end + 1));
       if (!Array.isArray(parsed)) return { pairs, failed: false };
 
       const byId = new Map(candidates.map((t) => [t.entryId, t]));
@@ -285,9 +308,9 @@ Output JSON only, no prose: [{"s": <statement index>, "e": "<book entry id>"}]`;
         }
       }
       return { pairs, failed: false };
-    } catch (err) {
+    } catch (err: any) {
       console.warn('AI reconciliation pass failed:', err);
-      return { pairs, failed: true };
+      return { pairs, failed: true, reason: err?.message || 'unknown error' };
     }
   };
 
@@ -321,12 +344,14 @@ Output JSON only, no prose: [{"s": <statement index>, "e": "<book entry id>"}]`;
       // AI pass on whatever the exact pass could not place.
       let aiMatched = 0;
       let aiFailed = false;
+      let aiFailReason = '';
       if (unmatched.length > 0) {
         setAiMatching(true);
         try {
           const candidates = transactions.filter((t) => !used.has(t.entryId));
-          const { pairs, failed } = await aiReconcile(unmatched, candidates);
+          const { pairs, failed, reason } = await aiReconcile(unmatched, candidates);
           aiFailed = failed;
+          aiFailReason = reason || '';
           const stillUnmatched: typeof unmatched = [];
           unmatched.forEach((u, i) => {
             const entryId = pairs.get(i);
@@ -349,7 +374,9 @@ Output JSON only, no prose: [{"s": <statement index>, "e": "<book entry id>"}]`;
       toast.success(
         `${matchedNow.size} of ${rows.length} statement line(s) ticked` +
           (aiMatched > 0 ? ` (${aiMatched} matched by AI)` : '') +
-          (aiFailed ? ' — AI pass unavailable, exact matches only' : ''),
+          (aiFailed
+            ? ` — AI pass failed (${aiFailReason.slice(0, 120) || 'unknown'}), exact matches only`
+            : ''),
       );
     } catch (err) {
       console.error('Statement import failed:', err);
