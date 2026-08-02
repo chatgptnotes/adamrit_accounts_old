@@ -115,6 +115,10 @@ const MENUS: Record<string, Menu> = {
         items: [
           { label: 'EXception Reports', target: 'exception-reports', hotIndex: 1 },
           { label: 'Negative Ledgers', target: 'negative-ledgers' },
+          { label: 'Post-dated Vouchers', target: 'post-dated-vouchers' },
+          // 'I' and 'O' belong to the greyed Inventory/MSME rows above, so the
+          // marked letter here is the U of VoUchers.
+          { label: 'Optional VoUchers', target: 'optional-vouchers', hotIndex: 11 },
           { label: 'Analysis & Verification', target: 'statistics', hotIndex: 11 },
           { label: 'Edit Log Summary', target: 'edit-log', hotIndex: 5 },
         ],

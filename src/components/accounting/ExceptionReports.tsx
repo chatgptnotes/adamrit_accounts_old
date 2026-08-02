@@ -35,6 +35,9 @@ const ExceptionReports: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ 
       { label: 'Day Book', target: 'day-book' },
       { label: 'Trial Balance', target: 'trial-balance' },
       { label: 'Statistics', target: 'statistics' },
+      { label: 'Negative Ledgers', target: 'negative-ledgers' },
+      { label: 'Post-Dated Vouchers', target: 'post-dated-vouchers' },
+      { label: 'Optional Vouchers', target: 'optional-vouchers' },
     ],
   });
   const { from: fromDate, to: toDate } = report;
