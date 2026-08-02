@@ -146,11 +146,7 @@ export const menuItems: MenuItemDef[] = [
     url: "/salary-sheet",
     icon: Wallet,
   },
-  {
-    title: "Surgery Fees Payable",
-    url: "/surgery-fee-master",
-    icon: Wallet,
-  },
+
   {
     title: "Payment Voucher",
     url: "/payment-voucher",
@@ -310,6 +306,12 @@ export const menuItems: MenuItemDef[] = [
   {
     title: "Surgery",
     url: "/cghs-surgery-master",
+    icon: Syringe,
+    section: 'masters',
+  },
+  {
+    title: "Surgery Fees Payable",
+    url: "/surgery-fee-master",
     icon: Syringe,
     section: 'masters',
   },
