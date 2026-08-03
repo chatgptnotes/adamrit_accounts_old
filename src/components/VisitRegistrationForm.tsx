@@ -173,8 +173,64 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
     fetchPatientCorporate();
   }, [patient.id]);
 
+  // Dialysis visits default to the nephrology unit: Dr. Milind Dekate as the
+  // appointment/referring doctor and DIRECT as RM. The referee and RM rows are
+  // live data (not seeded), so resolve their exact name + id from the DB.
+  // Only fills fields that are still empty — never overwrites a user's choice.
+  const applyDialysisDefaults = async () => {
+    if (!formData.appointmentWith) {
+      const { data: consultant } = await supabase
+        .from('hope_consultants')
+        .select('name')
+        .ilike('name', '%milind dekate%')
+        .limit(1)
+        .maybeSingle();
+      const consultantName = consultant?.name || 'Dr. Milind Dekate';
+      setFormData(prev => prev.appointmentWith ? prev : { ...prev, appointmentWith: consultantName });
+    }
+
+    if (!formData.referringDoctor) {
+      const { data: referee } = await supabase
+        .from('referees')
+        .select('id, name')
+        .ilike('name', '%milind dekhate%')
+        .limit(1)
+        .maybeSingle();
+      if (referee) {
+        setFormData(prev => prev.referringDoctor ? prev : { ...prev, referringDoctor: referee.name });
+        setSelectedIds(prev => prev.referringDoctorId ? prev : { ...prev, referringDoctorId: referee.id });
+      }
+    }
+
+    if (!formData.relationshipManager) {
+      const { data: manager } = await supabase
+        .from('relationship_managers')
+        .select('id, name')
+        .ilike('name', 'direct')
+        .limit(1)
+        .maybeSingle();
+      if (manager) {
+        setFormData(prev => prev.relationshipManager ? prev : { ...prev, relationshipManager: manager.name });
+        setSelectedIds(prev => prev.relationshipManagerId ? prev : { ...prev, relationshipManagerId: manager.id });
+      }
+    }
+  };
+
+  // When the form opens already set to Dialysis (Todays Dialysis page), the
+  // dropdown never fires handleInputChange, so apply the defaults on mount.
+  useEffect(() => {
+    if (!editMode && defaultPatientType === 'Dialysis') {
+      applyDialysisDefaults();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+
+    if (field === 'patientType' && value === 'Dialysis') {
+      applyDialysisDefaults();
+    }
 
     // Handle referring doctor ID mapping
     if (field === 'referringDoctor') {
