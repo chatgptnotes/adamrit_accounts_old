@@ -57,6 +57,11 @@ export const menuItems: MenuItemDef[] = [
     icon: Activity,
   },
   {
+    title: "Dialysis",
+    url: "/dialysis",
+    icon: Activity,
+  },
+  {
     title: "IPD Dashboard",
     url: "/todays-ipd",
     icon: Calendar,

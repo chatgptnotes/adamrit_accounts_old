@@ -390,6 +390,7 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
               <SelectItem value="OPD">OPD (Outpatient)</SelectItem>
               <SelectItem value="IPD">IPD (Inpatient)</SelectItem>
               <SelectItem value="Emergency">Emergency</SelectItem>
+              <SelectItem value="Dialysis">Dialysis</SelectItem>
             </SelectContent>
           </Select>
         </div>

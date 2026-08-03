@@ -15,6 +15,7 @@ import PatientOverview from "../pages/PatientOverview";
 import TodaysIpdDashboard from "../pages/TodaysIpdDashboard";
 import ConferenceCallPage from "../pages/ConferenceCall";
 import TodaysOpd from "../pages/TodaysOpd";
+import DialysisDashboard from "../pages/DialysisDashboard";
 import AdvanceStatementReport from "../pages/AdvanceStatementReport";
 import NoDeductionLetterPage from "../pages/NoDeductionLetter";
 import CurrentlyAdmittedPatients from "../pages/CurrentlyAdmittedPatients";
@@ -279,6 +280,7 @@ export const AppRoutes = () => {
         <Route path="/todays-ipd" element={<TodaysIpdDashboard />} />
         <Route path="/conference-call" element={<ConferenceCallPage />} />
         <Route path="/todays-opd" element={<TodaysOpd />} />
+        <Route path="/dialysis" element={<DialysisDashboard />} />
         <Route path="/advance-statement-report" element={<AdvanceStatementReport />} />
         <Route path="/workflow-status-report/:reportKey" element={<Suspense fallback={<PageLoader />}><WorkflowStatusReport /></Suspense>} />
         <Route path="/workflow-status-master" element={<Suspense fallback={<PageLoader />}><WorkflowStatusMaster /></Suspense>} />

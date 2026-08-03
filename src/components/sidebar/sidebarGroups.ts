@@ -37,6 +37,7 @@ export const GROUP_BY_TITLE: Record<string, string> = {
   'Cath Lab': 'Patient Care',
   'Casualty Register': 'Patient Care',
   'NephroPlus Dialysis': 'Patient Care',
+  'Dialysis': 'Patient Care',
   'Shifting': 'Patient Care',
   'Doctor View': 'Patient Care',
 

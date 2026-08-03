@@ -399,6 +399,8 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
           } else if (formData.patientType === 'Emergency') {
             // For emergency, redirect to IPD dashboard as well
             navigate('/todays-ipd');
+          } else if (formData.patientType === 'Dialysis') {
+            navigate('/dialysis');
           }
         }, 1500); // Wait 1.5 seconds to let user see the success message
 
@@ -617,6 +619,8 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
         } else if (formData.patientType === 'Emergency') {
           // For emergency, redirect to IPD dashboard as well
           navigate('/todays-ipd');
+        } else if (formData.patientType === 'Dialysis') {
+          navigate('/dialysis');
         }
       }, 1500); // Wait 1.5 seconds to let user see the success message
       }  // Close the else block for create new visit
