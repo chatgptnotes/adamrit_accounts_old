@@ -35,16 +35,13 @@ import {
   parseGovernmentPortalReport,
 } from '@/lib/governmentPortalReport';
 import {
-  dischargeDateFor,
   fetchGovernmentPortalImportHistory,
   fetchGovernmentPortalReportById,
   fetchLatestGovernmentPortalReport,
-  loadDischargeDates,
   loadDischargedPatientKeys,
   rowNeedsExtension,
   saveGovernmentPortalReport,
   updateGovernmentPortalRowStatus,
-  type DischargeDateLookup,
   type GovernmentPortalReportKind,
 } from '@/lib/governmentPortalReportDb';
 
@@ -141,34 +138,21 @@ const CopyBox = ({
   </div>
 );
 
-/**
- * Written the same way as the Preauth column beside it. A date-only value is
- * read as local midnight — `new Date('2026-07-24')` is parsed as UTC and shows
- * as the 23rd anywhere behind Greenwich, which is everywhere this runs.
- */
-const formatDischargeDate = (value: string | null) => {
-  if (!value) return '-';
-  const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString('en-IN');
-};
-
 const ResultTable = ({
   rows,
   onStatusChange,
   savingRowId,
-  dischargeDates,
+  showDischargeDate,
   needsExtension,
 }: {
   rows: GovernmentPortalRow[];
   onStatusChange: (row: GovernmentPortalRow, status: GovernmentPortalPatientStatus) => void;
   savingRowId: string | null;
   /**
-   * Supplied only by the sections that show a Date of Discharge column. The
-   * portal export has no such field, so the date is matched in from our own
-   * visits — see `loadDischargeDates`.
+   * When true, renders the "Date of Discharge" column. The portal export
+   * carries no discharge date, so every cell is always "-".
    */
-  dischargeDates?: DischargeDateLookup;
+  showDischargeDate?: boolean;
   /** The one test for "still needs an extension" — see `needsExtension` below. */
   needsExtension: (row: GovernmentPortalRow) => boolean;
 }) => {
@@ -190,7 +174,7 @@ const ResultTable = ({
             <TableHead>Registration ID</TableHead>
             <TableHead>Case Type</TableHead>
             <TableHead>Preauth</TableHead>
-            {dischargeDates && <TableHead>Date of Discharge</TableHead>}
+            {showDischargeDate && <TableHead>Date of Discharge</TableHead>}
             <TableHead className="text-right">Days</TableHead>
             <TableHead>Procedure</TableHead>
             <TableHead className="text-right">Approved</TableHead>
@@ -219,16 +203,8 @@ const ResultTable = ({
               <TableCell className="min-w-[120px]">
                 {row.preauthDateLabel || row.values['Preauth Initiated Date'] || '-'}
               </TableCell>
-              {dischargeDates && (
-                <TableCell className="min-w-[120px] whitespace-nowrap">
-                  {formatDischargeDate(
-                    dischargeDateFor(
-                      dischargeDates,
-                      row.values['Registration ID'],
-                      row.values['Beneficiary Name'],
-                    ),
-                  )}
-                </TableCell>
+              {showDischargeDate && (
+                <TableCell className="min-w-[120px] whitespace-nowrap">-</TableCell>
               )}
               <TableCell className="text-right">
                 {row.daysSincePreauth === null ? '-' : row.daysSincePreauth}
@@ -310,11 +286,6 @@ export function GovernmentPortalCsvSection({
     byRegistrationId: Set<string>;
     byPatientName: Set<string>;
   }>({ byRegistrationId: new Set(), byPatientName: new Set() });
-  // Matched in from our own visits — the portal export carries no discharge date
-  const [dischargeDates, setDischargeDates] = useState<DischargeDateLookup>({
-    byRegistrationId: new Map(),
-    byPatientName: new Map(),
-  });
 
   const applySavedReport = (
     saved: {
@@ -371,17 +342,15 @@ export function GovernmentPortalCsvSection({
     const loadSaved = async () => {
       setIsLoadingSaved(true);
       try {
-        const [latest, history, discharged, dischargedOn] = await Promise.all([
+        const [latest, history, discharged] = await Promise.all([
           fetchLatestGovernmentPortalReport(reportKind),
           fetchGovernmentPortalImportHistory(reportKind),
           // Discharged patients must never appear in the extension-needed list.
           loadDischargedPatientKeys(),
-          loadDischargeDates(),
         ]);
         if (cancelled) return;
         setImportHistory(history);
         setDischargedKeys(discharged);
-        setDischargeDates(dischargedOn);
         if (latest) applySavedReport(latest);
       } catch (error) {
         if (!cancelled) {
@@ -808,7 +777,7 @@ export function GovernmentPortalCsvSection({
                   rows={section.rows}
                   onStatusChange={handleStatusChange}
                   savingRowId={savingRowId}
-                  dischargeDates={section.showDischargeDate ? dischargeDates : undefined}
+                  showDischargeDate={section.showDischargeDate}
                   needsExtension={needsExtension}
                 />
               </section>
