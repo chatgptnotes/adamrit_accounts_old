@@ -494,6 +494,10 @@ const DailyPaymentAllocation = () => {
   // NOT yet paid — paid ones never appear. Selecting some pays them together
   // with one voucher whose amount is their total.
   const [payInvoiceIds, setPayInvoiceIds] = useState<Set<string>>(new Set());
+  // Filters over the unpaid-invoice list: patient / invoice text, surgery date range
+  const [payInvoiceSearch, setPayInvoiceSearch] = useState('');
+  const [payInvoiceFrom, setPayInvoiceFrom] = useState('');
+  const [payInvoiceTo, setPayInvoiceTo] = useState('');
 
   useEffect(() => {
     setPayInvoiceIds(new Set());
@@ -659,6 +663,21 @@ const DailyPaymentAllocation = () => {
       else next.add(id);
       return next;
     });
+  // Search within this ledger's unpaid invoices by patient name / invoice no /
+  // narration, and by surgery date range. Selection is preserved: a ticked
+  // invoice that no longer matches the filter still gets paid.
+  const visibleUnpaidInvoices = unpaidInvoices.filter((inv: UnpaidInvoice) => {
+    const term = payInvoiceSearch.trim().toLowerCase();
+    if (term) {
+      const hit = [inv.patient_name, inv.invoice_no, inv.narration, inv.surgery_name]
+        .some((v) => (v || '').toLowerCase().includes(term));
+      if (!hit) return false;
+    }
+    const d = inv.surgery_date || (inv.created_at || '').slice(0, 10);
+    if (payInvoiceFrom && d < payInvoiceFrom) return false;
+    if (payInvoiceTo && d > payInvoiceTo) return false;
+    return true;
+  });
   const selectedInvoices = unpaidInvoices.filter((inv: UnpaidInvoice) => payInvoiceIds.has(inv.id));
   const invoiceTotal = selectedInvoices.reduce((sum: number, inv: UnpaidInvoice) => sum + (Number(inv.amount) || 0), 0);
 
@@ -2591,30 +2610,64 @@ ${sectionsHtml}
                       No unpaid invoices — paid ones never show here. Approve a bill in Accounting to raise its invoice.
                     </p>
                   ) : (
-                    <div className="mt-1 max-h-44 space-y-1 overflow-y-auto">
-                      {unpaidInvoices.map((inv) => (
-                        <label key={inv.id} className="flex items-center gap-2 rounded border bg-white px-2 py-1 text-xs">
-                          <input
-                            type="checkbox"
-                            checked={payInvoiceIds.has(inv.id)}
-                            onChange={() => toggleInvoice(inv.id)}
-                          />
-                          <button
-                            type="button"
-                            className="font-mono font-semibold text-blue-700 hover:underline"
-                            title="Print this invoice"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              void printSpecialistInvoice(inv.id).catch((err) => toast.error(err?.message || 'Could not open the invoice'));
-                            }}
-                          >
-                            {inv.invoice_no || '—'}
-                          </button>
-                          <span className="min-w-0 flex-1 truncate text-muted-foreground">{inv.narration || ''}</span>
-                          <span className="font-mono">₹{Number(inv.amount).toLocaleString('en-IN')}</span>
-                        </label>
-                      ))}
-                    </div>
+                    <>
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
+                        <Input
+                          className="h-7 flex-1 text-xs"
+                          placeholder="Search patient / invoice no"
+                          value={payInvoiceSearch}
+                          onChange={(e) => setPayInvoiceSearch(e.target.value)}
+                        />
+                        <Input
+                          type="date"
+                          className="h-7 w-32 text-xs"
+                          title="Surgery date from"
+                          value={payInvoiceFrom}
+                          onChange={(e) => setPayInvoiceFrom(e.target.value)}
+                        />
+                        <Input
+                          type="date"
+                          className="h-7 w-32 text-xs"
+                          title="Surgery date to"
+                          value={payInvoiceTo}
+                          onChange={(e) => setPayInvoiceTo(e.target.value)}
+                        />
+                      </div>
+                      {visibleUnpaidInvoices.length === 0 ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          No unpaid invoice matches this search.
+                        </p>
+                      ) : (
+                        <div className="mt-1 max-h-44 space-y-1 overflow-y-auto">
+                          {visibleUnpaidInvoices.map((inv) => (
+                            <label key={inv.id} className="flex items-center gap-2 rounded border bg-white px-2 py-1 text-xs">
+                              <input
+                                type="checkbox"
+                                checked={payInvoiceIds.has(inv.id)}
+                                onChange={() => toggleInvoice(inv.id)}
+                              />
+                              <button
+                                type="button"
+                                className="font-mono font-semibold text-blue-700 hover:underline"
+                                title="Print this invoice"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  void printSpecialistInvoice(inv.id).catch((err) => toast.error(err?.message || 'Could not open the invoice'));
+                                }}
+                              >
+                                {inv.invoice_no || '—'}
+                              </button>
+                              <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                                {inv.patient_name ? `${inv.patient_name} — ` : ''}
+                                {inv.surgery_name || inv.narration || ''}
+                                {inv.surgery_date ? ` (${inv.surgery_date})` : ''}
+                              </span>
+                              <span className="font-mono">₹{Number(inv.amount).toLocaleString('en-IN')}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
                   {payInvoiceIds.size > 0 && (
                     <p className="mt-1 text-xs font-semibold text-emerald-700">

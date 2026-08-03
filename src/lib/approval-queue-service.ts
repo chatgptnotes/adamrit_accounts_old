@@ -459,6 +459,44 @@ export interface UnpaidInvoice {
   created_at: string | null
   ot_schedule_id: string | null
   company_id: string | null
+  /** From the linked OT row, so the payment screen can search by patient/date. */
+  patient_name: string | null
+  surgery_name: string | null
+  surgery_date: string | null
+  surgery_time: string | null
+}
+
+/**
+ * Stamps patient / surgery / date-time from each invoice's OT row onto it.
+ * A manual two-step join: approval_queue.ot_schedule_id carries no FK, so
+ * PostgREST cannot embed ot_schedule for us.
+ */
+async function attachOtContext<T extends { ot_schedule_id: string | null }>(rows: T[]): Promise<T[]> {
+  const otIds = [...new Set(rows.map((r) => r.ot_schedule_id).filter(Boolean))] as string[]
+  if (!otIds.length) {
+    return rows.map((r) => ({ ...r, patient_name: null, surgery_name: null, surgery_date: null, surgery_time: null }))
+  }
+  const { data: ots } = await (supabase as any)
+    .from('ot_schedule')
+    .select('id, surgery_name, scheduled_date, scheduled_time, patient_id')
+    .in('id', otIds)
+  const otById = new Map((ots || []).map((o: any) => [o.id, o]))
+  const patientIds = [...new Set((ots || []).map((o: any) => o.patient_id).filter(Boolean))]
+  let patientById = new Map<string, string>()
+  if (patientIds.length) {
+    const { data: pats } = await (supabase as any).from('patients').select('id, name').in('id', patientIds)
+    patientById = new Map((pats || []).map((p: any) => [p.id, p.name]))
+  }
+  return rows.map((r) => {
+    const ot: any = r.ot_schedule_id ? otById.get(r.ot_schedule_id) : null
+    return {
+      ...r,
+      patient_name: ot?.patient_id ? patientById.get(ot.patient_id) ?? null : null,
+      surgery_name: ot?.surgery_name ?? null,
+      surgery_date: ot?.scheduled_date ?? null,
+      surgery_time: ot?.scheduled_time ?? null,
+    }
+  })
 }
 
 /**
@@ -474,7 +512,34 @@ export async function listUnpaidInvoices(partyAccountId: string): Promise<Unpaid
     .not('jv_voucher_id', 'is', null)
     .order('created_at', { ascending: true })
   if (error) throw new Error(error.message || 'Could not load the unpaid invoices')
-  return (data || []) as UnpaidInvoice[]
+  return attachOtContext((data || []) as UnpaidInvoice[])
+}
+
+/** One row of the date-wise surgery invoice report. */
+export interface SurgeryInvoiceRow extends ApprovalQueueRow {
+  patient_name: string | null
+  surgery_name: string | null
+  surgery_date: string | null
+  surgery_time: string | null
+}
+
+/**
+ * Every OT-generated invoice (surgeon / anesthetist / OT & cath-lab
+ * assistant), date-wise, with the patient and surgery it belongs to. The
+ * date range filters on the SURGERY date; invoices whose OT row has no
+ * scheduled date fall back to the invoice's created date.
+ */
+export async function listSurgeryInvoices(fromDate: string, toDate: string): Promise<SurgeryInvoiceRow[]> {
+  const { data, error } = await approvalQueue()
+    .select('*')
+    .not('ot_schedule_id', 'is', null)
+    .order('created_at', { ascending: false })
+  if (error) throw new Error(error.message || 'Could not load the surgery invoices')
+  const rows = await attachOtContext((data || []) as SurgeryInvoiceRow[])
+  return rows.filter((row) => {
+    const d = row.surgery_date || (row.created_at || '').slice(0, 10)
+    return d >= fromDate && d <= toDate
+  })
 }
 
 /**

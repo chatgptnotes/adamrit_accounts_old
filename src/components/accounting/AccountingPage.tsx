@@ -1,5 +1,7 @@
 import React, { Suspense, lazy, useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import {
   LayoutDashboard,
   BookOpen,
@@ -57,6 +59,7 @@ import NegativeLedgers from './NegativeLedgers';
 import PostDatedVouchers from './PostDatedVouchers';
 import GstSalesSummary from './GstSalesSummary';
 import BudgetVariance from './BudgetVariance';
+import SurgeryInvoiceReport from './SurgeryInvoiceReport';
 import { AccountingCompanyProvider } from './AccountingCompanyContext';
 import { AccountingPeriodProvider } from './tally/PeriodContext';
 import TallyGlobalKeys from './tally/TallyGlobalKeys';
@@ -84,6 +87,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'opening-balances', label: 'Opening Balances', icon: Scale },
   { id: 'voucher-entry', label: 'Voucher Entry', icon: FileText },
   { id: 'approvals', label: 'Approvals', icon: ClipboardCheck },
+  { id: 'surgery-invoices', label: 'Surgery Invoices', icon: FileText },
   { id: 'day-book', label: 'Day Book', icon: Calendar },
   { id: 'cash-bank-book', label: 'Cash/Bank Book', icon: BookOpen },
   { id: 'cash-bank-summary', label: 'Cash/Bank Summary', icon: Landmark },
@@ -198,6 +202,8 @@ const renderContent = (
           <TallyLivePage initialTab="approvals" />
         </Suspense>
       );
+    case 'surgery-invoices':
+      return <SurgeryInvoiceReport />;
     case 'trial-balance':
       return <TrialBalance onOpenGroup={openGroup} onOpenLedger={openLedger} />;
     case 'balance-sheet':
@@ -243,6 +249,19 @@ const renderContent = (
 const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
   const navigate = useNavigate();
   const { canSeeTile } = useTileAccess();
+  // Pending bills awaiting the accountant — badge on Approvals / Surgery
+  // Invoices so new OT invoices are noticed without opening the screen.
+  const { data: pendingApprovals = 0 } = useQuery({
+    queryKey: ['approval-queue-pending-count'],
+    queryFn: async () => {
+      const { count } = await (supabase as any)
+        .from('approval_queue')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'PENDING');
+      return count ?? 0;
+    },
+    refetchInterval: 60_000,
+  });
   const [activeTab, setActiveTab] = useState<string>(
     () => initialTab ?? localStorage.getItem('accounting-default-tab') ?? 'gateway',
   );
@@ -408,14 +427,18 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
             {NAV_ITEMS.map((item) => {
               const isActive = activeTab === item.id;
               const Icon = item.icon;
+              const badge =
+                pendingApprovals > 0 && (item.id === 'approvals' || item.id === 'surgery-invoices')
+                  ? pendingApprovals
+                  : 0;
 
               return (
                 <button
                   key={item.id}
                   onClick={() => (item.route ? navigate(item.route) : goTo(item.id))}
-                  title={item.label}
+                  title={badge ? `${item.label} — ${badge} pending` : item.label}
                   className={`
-                    w-full flex items-center gap-3 py-2.5 text-sm transition-colors
+                    relative w-full flex items-center gap-3 py-2.5 text-sm transition-colors
                     ${navExpanded ? 'px-5' : 'justify-center px-0'}
                     ${
                       isActive
@@ -424,8 +447,18 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
                     }
                   `}
                 >
-                  <Icon className="h-4 w-4 flex-shrink-0" />
-                  {navExpanded && <span>{item.label}</span>}
+                  <span className="relative flex-shrink-0">
+                    <Icon className="h-4 w-4" />
+                    {badge > 0 && !navExpanded && (
+                      <span className="absolute -right-1.5 -top-1.5 h-2 w-2 rounded-full bg-red-500" />
+                    )}
+                  </span>
+                  {navExpanded && <span className="flex-1 text-left">{item.label}</span>}
+                  {navExpanded && badge > 0 && (
+                    <span className="rounded-full bg-red-500 px-1.5 text-[10px] font-semibold leading-4 text-white">
+                      {badge}
+                    </span>
+                  )}
                 </button>
               );
             })}
