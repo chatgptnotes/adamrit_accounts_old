@@ -19,9 +19,21 @@
 --   2. Post-cutover (>= 2026-07-25) entries sitting on the orphans move to the
 --      matching company ledger, keyed by each voucher's company. Pre-cutover
 --      rows came with the legacy import, are not the book of record, and stay
---      on the stub.
+--      on the stub. Per the owner: Canara Bank Jaripatka is DRM's account and
+--      no one else's, so ALL its receipts go to DRM's ledger regardless of the
+--      payer's company, and the Ayushman / Hope Hospitals copies of that
+--      ledger fold into DRM's and retire.
 --   3. The orphans retire the way merged ledgers do: renamed with a
---      '(merged 03 Aug 26)' suffix and made inactive.
+--      '(merged 03 Aug 26)' suffix and made inactive. EXCEPT 'STATE BANK OF
+--      INDIA (DRM)': the owner says that bank never existed, but its 19
+--      post-cutover entries are real Ayushman patient receipts pending
+--      verification against the bank statement - so it is left active and
+--      untouched for now; only the trigger stops feeding it. (The remark rule
+--      that sent anything containing 'drm' to that ledger is deleted - a
+--      remark naming the company is not naming a bank.)
+--   4. DRM's 'Cash' ledger sat in group 'Capital Account', which is why the
+--      Cash-in-Hand section of DRM's Cash/Bank Summary looked empty after the
+--      02-Aug Cash (HOPE) merge. It moves to Cash-in-Hand where it belongs.
 --
 -- The rest of the function is exactly as 20260730120000 left it.
 
@@ -166,7 +178,7 @@ BEGIN
 
   IF v_payment_mode IN ('CASH', 'Cash', 'cash') THEN
     IF v_remarks IS NOT NULL AND v_remarks != '' THEN
-      IF v_remarks ILIKE '%sbi%' OR v_remarks ILIKE '%state bank%' OR v_remarks ILIKE '%drm%' THEN
+      IF v_remarks ILIKE '%sbi%' OR v_remarks ILIKE '%state bank%' THEN
         v_requested_name := 'State Bank of India';
       ELSIF v_remarks ILIKE '%saraswat%' THEN
         v_requested_name := 'Saraswat Bank';
@@ -188,7 +200,7 @@ BEGIN
     END IF;
 
     IF v_requested_name IS NULL AND v_remarks IS NOT NULL AND v_remarks != '' THEN
-      IF v_remarks ILIKE '%sbi%' OR v_remarks ILIKE '%state bank%' OR v_remarks ILIKE '%drm%' THEN
+      IF v_remarks ILIKE '%sbi%' OR v_remarks ILIKE '%state bank%' THEN
         v_requested_name := 'State Bank of India';
       ELSIF v_remarks ILIKE '%saraswat%' THEN
         v_requested_name := 'Saraswat Bank';
@@ -507,14 +519,14 @@ BEGIN
       ('3d648798-7776-4b55-8caf-8b89efc4180d'::uuid, '4adfe31a-7073-49fe-bc18-90fd32e00e52'::uuid, '71424fd8-3ff1-4300-8ceb-3a52bc90b380'::uuid),
       ('3d648798-7776-4b55-8caf-8b89efc4180d'::uuid, '5a9cc083-a370-4867-bcde-6d064bebff26'::uuid, 'f7bd244a-b8f6-4663-bf6b-761e1b6a71ff'::uuid),
       ('3d648798-7776-4b55-8caf-8b89efc4180d'::uuid, 'd718b1f4-a85f-409d-8193-b8781a75a550'::uuid, 'fbc08333-ef5b-49c7-9e19-1d84a99f43b5'::uuid),
-      -- STATE BANK OF INDIA (DRM) -> State Bank of India
-      ('3adab687-4734-4615-9ee8-c947859cfb28'::uuid, '4adfe31a-7073-49fe-bc18-90fd32e00e52'::uuid, '77a186d4-ecae-4028-8023-e837bce343a3'::uuid),
-      ('3adab687-4734-4615-9ee8-c947859cfb28'::uuid, '5a9cc083-a370-4867-bcde-6d064bebff26'::uuid, 'e932df23-0131-4c4c-8d32-3e4850480962'::uuid),
-      ('3adab687-4734-4615-9ee8-c947859cfb28'::uuid, 'd718b1f4-a85f-409d-8193-b8781a75a550'::uuid, '7b844ae0-de2f-4d37-8c19-89dc116b52cf'::uuid),
-      -- Canara Bank [A/C120023677813)JARIPATHKA ] -> Canara Bank Jaripatka
+      -- Canara Bank [A/C120023677813)JARIPATHKA ] -> DRM's Canara Bank
+      -- Jaripatka for EVERY company: the account is DRM's, whoever paid in.
+      -- ('STATE BANK OF INDIA (DRM)' is deliberately absent: its entries are
+      -- held for bank-statement verification.)
       ('ae35c7ef-e030-445d-a543-92701584429a'::uuid, '4adfe31a-7073-49fe-bc18-90fd32e00e52'::uuid, 'd0b85165-d202-4507-aec2-2e54295e37ce'::uuid),
-      ('ae35c7ef-e030-445d-a543-92701584429a'::uuid, '5a9cc083-a370-4867-bcde-6d064bebff26'::uuid, '3a7f7288-f079-462a-9a8c-a4e0d0e5c557'::uuid),
-      ('ae35c7ef-e030-445d-a543-92701584429a'::uuid, 'd718b1f4-a85f-409d-8193-b8781a75a550'::uuid, 'f4246968-f47e-441c-af73-46ac054df76d'::uuid),
+      ('ae35c7ef-e030-445d-a543-92701584429a'::uuid, '5a9cc083-a370-4867-bcde-6d064bebff26'::uuid, 'd0b85165-d202-4507-aec2-2e54295e37ce'::uuid),
+      ('ae35c7ef-e030-445d-a543-92701584429a'::uuid, 'd718b1f4-a85f-409d-8193-b8781a75a550'::uuid, 'd0b85165-d202-4507-aec2-2e54295e37ce'::uuid),
+      ('ae35c7ef-e030-445d-a543-92701584429a'::uuid, '05513224-58c5-4f6d-974d-78b9ff0de0d5'::uuid, 'd0b85165-d202-4507-aec2-2e54295e37ce'::uuid),
       -- Canara Bank HOPE PHARMACY [...] -> Canara Bank (Hope Pharmacy co.) / CANARA BANK (Hope Pharmacy) (DRM)
       ('ace5c97d-0c45-4c61-a7d3-6dc728f40739'::uuid, '05513224-58c5-4f6d-974d-78b9ff0de0d5'::uuid, '16987e4a-eb68-4775-a497-12b6c57bcb51'::uuid),
       ('ace5c97d-0c45-4c61-a7d3-6dc728f40739'::uuid, '4adfe31a-7073-49fe-bc18-90fd32e00e52'::uuid, '7f3235ad-67a3-49e7-ad57-399b9b604284'::uuid),
@@ -544,7 +556,6 @@ BEGIN
     FROM voucher_entries e
     JOIN vouchers v ON v.id = e.voucher_id
    WHERE e.account_id IN ('3d648798-7776-4b55-8caf-8b89efc4180d',
-                          '3adab687-4734-4615-9ee8-c947859cfb28',
                           'ae35c7ef-e030-445d-a543-92701584429a',
                           'ace5c97d-0c45-4c61-a7d3-6dc728f40739',
                           '1e91b68b-c52b-487b-870e-9e0fa0d8ad8b')
@@ -554,16 +565,35 @@ BEGIN
     RAISE WARNING '% post-cutover entries remain on orphan bank ledgers (no company on the voucher, or no such bank in that company); left in place.', v_left;
   END IF;
 
-  -- The orphans retire as inactive audit stubs, the same convention the
-  -- Cash (HOPE) / Cash at Almirah merges used.
+  -- Canara Bank Jaripatka exists once, under DRM. The Ayushman and Hope
+  -- Hospitals copies (a stray entry each, no opening balance) fold into
+  -- DRM's ledger and retire with the orphans.
+  UPDATE voucher_entries
+     SET account_id = 'd0b85165-d202-4507-aec2-2e54295e37ce'
+   WHERE account_id IN ('3a7f7288-f079-462a-9a8c-a4e0d0e5c557',
+                        'f4246968-f47e-441c-af73-46ac054df76d');
+
+  -- The orphans and the extra Jaripatka copies retire as inactive audit
+  -- stubs, the same convention the Cash (HOPE) / Cash at Almirah merges used.
+  -- 'STATE BANK OF INDIA (DRM)' stays active pending verification.
   UPDATE chart_of_accounts
      SET is_active = false,
          account_name = account_name || ' (merged 03 Aug 26)',
          updated_at = NOW()
    WHERE id IN ('3d648798-7776-4b55-8caf-8b89efc4180d',
-                '3adab687-4734-4615-9ee8-c947859cfb28',
                 'ae35c7ef-e030-445d-a543-92701584429a',
                 'ace5c97d-0c45-4c61-a7d3-6dc728f40739',
-                '1e91b68b-c52b-487b-870e-9e0fa0d8ad8b')
+                '1e91b68b-c52b-487b-870e-9e0fa0d8ad8b',
+                '3a7f7288-f079-462a-9a8c-a4e0d0e5c557',
+                'f4246968-f47e-441c-af73-46ac054df76d')
      AND is_active = true;
+
+  -- DRM's cash book, back where a cash book lives. 'Cash' sat in group
+  -- 'Capital Account' / EQUITY, so DRM's Cash-in-Hand section showed nothing
+  -- after the 02-Aug Cash (HOPE) merge even though the entries were all there.
+  UPDATE chart_of_accounts
+     SET account_group = 'Cash-in-Hand',
+         account_type = 'CURRENT_ASSETS',
+         updated_at = NOW()
+   WHERE id = '23994951-c09b-4924-8963-c74933c08680';
 END $merge$;
