@@ -170,6 +170,35 @@ export const usePatientRegistration = (onClose: () => void) => {
 
     setIsSubmitting(true);
 
+    // Reuse an already-registered patient when the submitted details match one,
+    // so repeat visitors (e.g. recurring dialysis patients) keep a single record
+    // and their sittings are counted together instead of splitting across duplicates.
+    const findExistingPatient = async (): Promise<any | null> => {
+      const aadhaarDigits = (formData.aadharId || '').replace(/\D/g, '');
+      if (aadhaarDigits) {
+        const { data } = await supabase
+          .from('patients')
+          .select('*')
+          .eq('hospital_name', formData.hospitalName)
+          .eq('aadhaar_number', aadhaarDigits)
+          .limit(1);
+        if (data && data.length > 0) return data[0];
+      }
+
+      const phoneDigits = formData.phone.replace(/\D/g, '');
+      const trimmedName = formData.patientName.trim();
+      if (!phoneDigits || !trimmedName) return null;
+
+      const { data } = await supabase
+        .from('patients')
+        .select('*')
+        .eq('hospital_name', formData.hospitalName)
+        .ilike('phone', `%${phoneDigits}%`)
+        .ilike('name', trimmedName)
+        .limit(1);
+      return data && data.length > 0 ? data[0] : null;
+    };
+
     const createPatientWithRetry = async (maxRetries = 3): Promise<any> => {
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
@@ -243,18 +272,23 @@ export const usePatientRegistration = (onClose: () => void) => {
     };
 
     try {
-      const { newPatient, customPatientId } = await createPatientWithRetry();
+      const existingPatient = await findExistingPatient();
 
+      const { newPatient, customPatientId } = existingPatient
+        ? { newPatient: existingPatient, customPatientId: existingPatient.patients_id }
+        : await createPatientWithRetry();
 
-      // Log patient creation activity
-      logActivity('patient_create', {
-        patient_id: newPatient.id,
-        patients_id: customPatientId,
-        patient_name: formData.patientName,
-      });
+      if (!existingPatient) {
+        // Log patient creation activity
+        logActivity('patient_create', {
+          patient_id: newPatient.id,
+          patients_id: customPatientId,
+          patient_name: formData.patientName,
+        });
+      }
 
       // IMPORTANT: Create initial record in patient_data table with proper patient_id
-      try {
+      if (!existingPatient) try {
         const patientDataRecord = {
           patient_name: formData.patientName,
           patient_id: customPatientId, // CRITICAL: Use readable patient_id, not UUID
@@ -331,10 +365,14 @@ export const usePatientRegistration = (onClose: () => void) => {
       }
 
       toast({
-        title: failedDocumentUploads.length > 0 ? "Patient saved with upload issues" : "Success",
+        title: failedDocumentUploads.length > 0
+          ? "Patient saved with upload issues"
+          : existingPatient ? "Patient already registered" : "Success",
         description: failedDocumentUploads.length > 0
           ? `Patient ID: ${customPatientId}. Uploaded ${uploadedDocumentCount}/${selectedRegistrationDocuments.length + (patientPhotoFile ? 1 : 0)} registration documents.`
-          : `Patient registered successfully! Patient ID: ${customPatientId}`,
+          : existingPatient
+            ? `Patient ID: ${customPatientId}. Visit will be counted on the same patient record.`
+            : `Patient registered successfully! Patient ID: ${customPatientId}`,
       });
 
       // Refresh the patients list
