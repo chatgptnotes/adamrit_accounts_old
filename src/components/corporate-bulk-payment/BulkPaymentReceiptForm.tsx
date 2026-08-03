@@ -72,23 +72,30 @@ const BulkPaymentReceiptForm: React.FC<BulkPaymentReceiptFormProps> = ({
       const { data } = await supabase
         .from('chart_of_accounts')
         .select('account_name, account_code')
-        .in('account_code', ['1121', '1122', '1123', '1124', '1125'])
+        .eq('account_group', 'Bank Accounts')
         .eq('is_active', true)
         .order('account_name');
       if (data && data.length > 0) {
-        const dbBanks = data.map((b: any) => ({ value: b.account_name, label: b.account_name }));
-        setBankOptions([
-          ...dbBanks,
-          { value: 'Canara Bank (Itwari)', label: 'Canara Bank (Itwari)' },
-          { value: 'Shikshak Sahakari Bank', label: 'Shikshak Sahakari Bank' },
-        ]);
+        // The same bank exists once per company under an identical name; the
+        // receipt trigger resolves the name inside the payer's company, so one
+        // option per name is enough.
+        const seen = new Set<string>();
+        setBankOptions(
+          data
+            .filter((b: any) => {
+              if (seen.has(b.account_name)) return false;
+              seen.add(b.account_name);
+              return true;
+            })
+            .map((b: any) => ({ value: b.account_name, label: b.account_name }))
+        );
       } else {
         setBankOptions([
-          { value: 'Canara Bank [A/C120023677813)JARIPATHKA ]', label: 'Canara Bank [A/C120023677813)JARIPATHKA ]' },
-          { value: 'SARASWAT BANK', label: 'SARASWAT BANK' },
-          { value: 'STATE BANK OF INDIA (DRM)', label: 'STATE BANK OF INDIA (DRM)' },
+          { value: 'Canara Bank Jaripatka', label: 'Canara Bank Jaripatka' },
+          { value: 'Saraswat Bank', label: 'Saraswat Bank' },
+          { value: 'State Bank of India', label: 'State Bank of India' },
           { value: 'Canara Bank (Itwari)', label: 'Canara Bank (Itwari)' },
-          { value: 'Shikshak Sahakari Bank', label: 'Shikshak Sahakari Bank' },
+          { value: 'Shikshak Sahakari Bank Ltd', label: 'Shikshak Sahakari Bank Ltd' },
         ]);
       }
     };

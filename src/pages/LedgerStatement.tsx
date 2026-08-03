@@ -22,7 +22,7 @@ const LedgerStatement: React.FC = () => {
 
   // URL-persisted state
   const mrnNo = searchParams.get('mrn') || '';
-  const accountName = searchParams.get('account') || 'STATE BANK OF INDIA (DRM)';
+  const accountName = searchParams.get('account') || 'Saraswat Bank';
   const fromDate = searchParams.get('from') || today;
   const toDate = searchParams.get('to') || today;
   const searchNarration = searchParams.get('narration') || '';
@@ -33,7 +33,7 @@ const LedgerStatement: React.FC = () => {
   const updateParams = (updates: Record<string, string | null>) => {
     const newParams = new URLSearchParams(searchParams);
     Object.entries(updates).forEach(([key, value]) => {
-      if (value === null || value === '' || (key === 'from' && value === today) || (key === 'to' && value === today) || (key === 'account' && value === 'STATE BANK OF INDIA (DRM)') || (key === 'payMode' && value === 'ONLINE')) {
+      if (value === null || value === '' || (key === 'from' && value === today) || (key === 'to' && value === today) || (key === 'account' && value === 'Saraswat Bank') || (key === 'payMode' && value === 'ONLINE')) {
         newParams.delete(key);
       } else {
         newParams.set(key, value);
@@ -64,7 +64,7 @@ const LedgerStatement: React.FC = () => {
         const { data, error } = await supabase
           .from('chart_of_accounts')
           .select('id, account_name, account_code')
-          .in('account_code', ['1121', '1122', '1123', '1124'])
+          .eq('account_group', 'Bank Accounts')
           .eq('is_active', true)
           .order('account_name');
 
@@ -74,7 +74,14 @@ const LedgerStatement: React.FC = () => {
         // account, so selecting one silently produces an empty statement that
         // looks like a real ledger with no activity. Showing nothing at all is
         // honest; showing a bank that does not exist is not.
-        setBankAccounts(data ?? []);
+        // The same bank exists once per company under an identical name; the
+        // statement matches by name, so one entry covers all of them.
+        const seen = new Set<string>();
+        setBankAccounts((data ?? []).filter(a => {
+          if (seen.has(a.account_name)) return false;
+          seen.add(a.account_name);
+          return true;
+        }));
 
         if (!data || data.length === 0) {
           toast.error('No bank accounts are configured.');
@@ -91,9 +98,10 @@ const LedgerStatement: React.FC = () => {
 
   // Auto-set ONLINE mode for bank accounts by default
   useEffect(() => {
-    if (accountName === 'SARASWAT BANK' ||
-        accountName === 'STATE BANK OF INDIA (DRM)' ||
-        accountName.includes('Canara Bank')) {
+    const upper = accountName.toUpperCase();
+    if (upper.includes('SARASWAT') ||
+        upper.includes('STATE BANK OF INDIA') ||
+        upper.includes('CANARA BANK')) {
       setPaymentModeFilter('ONLINE');
     }
   }, [accountName]);
