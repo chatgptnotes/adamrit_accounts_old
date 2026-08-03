@@ -72,7 +72,7 @@ export const menuItems: MenuItemDef[] = [
     icon: ClipboardList,
   },
   {
-    title: "Dialysis",
+    title: "Todays Dialysis",
     url: "/dialysis",
     icon: Activity,
   },

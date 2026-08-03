@@ -8,9 +8,10 @@ interface StatisticsProps {
     total: number;
   };
   canSeeTile?: (tileId: string, role?: string | null) => boolean;
+  totalLabel?: string;
 }
 
-export const OpdStatisticsCards = ({ statistics, canSeeTile }: StatisticsProps) => {
+export const OpdStatisticsCards = ({ statistics, canSeeTile, totalLabel = 'Total OPD Today' }: StatisticsProps) => {
   return (
     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
       {(!canSeeTile || canSeeTile("o-waiting")) && (
@@ -41,7 +42,7 @@ export const OpdStatisticsCards = ({ statistics, canSeeTile }: StatisticsProps) 
       <Card className="border-0 shadow-sm">
         <CardContent className="p-6 text-center">
           <div className="text-3xl font-bold">{statistics.total}</div>
-          <div className="text-sm text-muted-foreground mt-1">Total OPD Today</div>
+          <div className="text-sm text-muted-foreground mt-1">{totalLabel}</div>
         </CardContent>
       </Card>
       )}

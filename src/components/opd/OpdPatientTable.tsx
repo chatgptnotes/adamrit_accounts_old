@@ -63,6 +63,7 @@ interface OpdPatientTableProps {
   patients: Patient[];
   refetch?: () => void;
   isMarketingManager?: boolean;
+  emptyMessage?: string;
 }
 
 // Referee DOA Amount Cell with Payment Modal and Referral Tooltip
@@ -261,7 +262,7 @@ const ReferralPaymentStatusCell = ({ patient }: { patient: Patient }) => {
   return <span className="text-xs">{latestStatus || '-'}</span>;
 };
 
-export const OpdPatientTable = ({ patients, refetch, isMarketingManager = false }: OpdPatientTableProps) => {
+export const OpdPatientTable = ({ patients, refetch, isMarketingManager = false, emptyMessage = 'No OPD patients found for today' }: OpdPatientTableProps) => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { isAdmin, user } = useAuth();
@@ -1392,7 +1393,7 @@ Verified by: [To be verified by doctor]`;
   if (patients.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground">
-        No OPD patients found for today
+        {emptyMessage}
       </div>
     );
   }

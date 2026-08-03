@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -8,12 +8,15 @@ import { useTileAccess } from '@/hooks/useTileAccess';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Printer, Search, ClipboardList, Download } from 'lucide-react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Printer, Search, ClipboardList, Download, UserPlus } from 'lucide-react';
 import { OpdStatisticsCards } from '@/components/opd/OpdStatisticsCards';
 import { OpdPatientTable } from '@/components/opd/OpdPatientTable';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
 import { DateRange } from 'react-day-picker';
 import { format } from 'date-fns';
+import { VisitRegistrationForm } from '@/components/VisitRegistrationForm';
+import { PatientLookup } from '@/components/PatientLookup';
 
 const DialysisDashboard = () => {
   const { hospitalConfig, user } = useAuth();
@@ -21,6 +24,10 @@ const DialysisDashboard = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const isMarketingManager = user?.role === 'marketing_manager' || user?.role === 'superadmin';
+
+  // Patient selected for a new dialysis visit (from roster or lookup)
+  const [selectedPatient, setSelectedPatient] = useState<{ id: string; name: string; patients_id?: string } | null>(null);
+  const [isPatientLookupOpen, setIsPatientLookupOpen] = useState(false);
 
   // URL-persisted state
   const searchTerm = searchParams.get('search') || '';
@@ -120,6 +127,83 @@ const DialysisDashboard = () => {
     staleTime: 30000,
   });
 
+  // Roster of every patient who has ever had a dialysis visit
+  const { data: rosterVisits = [], isLoading: isRosterLoading, refetch: refetchRoster } = useQuery({
+    queryKey: ['dialysis-patient-roster', hospitalConfig?.name],
+    queryFn: async () => {
+      let query = supabase
+        .from('visits')
+        .select(`
+          patient_id,
+          visit_date,
+          patients!inner (
+            id,
+            name,
+            patients_id,
+            gender,
+            age,
+            phone,
+            corporate,
+            hospital_name
+          )
+        `)
+        .eq('patient_type', 'Dialysis')
+        .order('visit_date', { ascending: false });
+
+      if (hospitalConfig?.name) {
+        query = query.eq('patients.hospital_name', hospitalConfig.name);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Error fetching dialysis patient roster:', error);
+        throw error;
+      }
+
+      return data || [];
+    },
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+
+  // Dedupe roster by patient, keeping last visit date and sitting count
+  const rosterPatients = useMemo(() => {
+    const byPatient = new Map<string, {
+      patient: any;
+      lastVisitDate: string | null;
+      sittings: number;
+    }>();
+    rosterVisits.forEach((visit: any) => {
+      if (!visit.patient_id || !visit.patients) return;
+      const existing = byPatient.get(visit.patient_id);
+      if (existing) {
+        existing.sittings += 1;
+        if (visit.visit_date && (!existing.lastVisitDate || visit.visit_date > existing.lastVisitDate)) {
+          existing.lastVisitDate = visit.visit_date;
+        }
+      } else {
+        byPatient.set(visit.patient_id, {
+          patient: visit.patients,
+          lastVisitDate: visit.visit_date || null,
+          sittings: 1,
+        });
+      }
+    });
+    return Array.from(byPatient.values())
+      .sort((a, b) => (b.lastVisitDate || '').localeCompare(a.lastVisitDate || ''));
+  }, [rosterVisits]);
+
+  const handleNewDialysisVisit = (patient: { id: string; name: string; patients_id?: string }) => {
+    setSelectedPatient({ id: patient.id, name: patient.name, patients_id: patient.patients_id });
+  };
+
+  const handleVisitFormClose = () => {
+    setSelectedPatient(null);
+    refetch();
+    refetchRoster();
+  };
+
   // Filter patients based on search term (date filtering is done at DB level)
   const filteredPatients = dialysisPatients.filter(patient => {
     const searchLower = searchTerm.toLowerCase();
@@ -173,6 +257,14 @@ const DialysisDashboard = () => {
               </div>
             </div>
             <div className="flex items-center gap-2 print:hidden">
+              <Button
+                size="sm"
+                onClick={() => setIsPatientLookupOpen(true)}
+                className="flex items-center gap-1 text-xs h-8 bg-blue-600 hover:bg-blue-700"
+              >
+                <UserPlus className="h-3 w-3" />
+                New Dialysis Visit
+              </Button>
               <div className="relative">
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
                 <Input
@@ -211,7 +303,7 @@ const DialysisDashboard = () => {
 
       {/* Statistics Cards */}
       <div className="print:hidden">
-        <OpdStatisticsCards statistics={statistics} canSeeTile={canSeeTile} />
+        <OpdStatisticsCards statistics={statistics} canSeeTile={canSeeTile} totalLabel="Total Dialysis Today" />
       </div>
 
       {/* Patients Table */}
@@ -225,10 +317,97 @@ const DialysisDashboard = () => {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
             </div>
           ) : (
-            <OpdPatientTable patients={filteredPatients} refetch={refetch} isMarketingManager={isMarketingManager} />
+            <OpdPatientTable
+              patients={filteredPatients}
+              refetch={refetch}
+              isMarketingManager={isMarketingManager}
+              emptyMessage="No dialysis patients found for today"
+            />
           )}
         </CardContent>
       </Card>
+
+      {/* Dialysis patient roster - every patient who has done dialysis */}
+      <Card className="print:hidden">
+        <CardHeader>
+          <CardTitle>DIALYSIS PATIENTS</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            All patients who have taken dialysis. Use "New Dialysis Visit" when a patient comes again.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {isRosterLoading ? (
+            <div className="flex justify-center items-center h-32">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            </div>
+          ) : rosterPatients.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              No dialysis patients yet
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-gray-50">
+                    <TableHead>Patient Name</TableHead>
+                    <TableHead>Patient ID</TableHead>
+                    <TableHead>Age/Gender</TableHead>
+                    <TableHead>Phone</TableHead>
+                    <TableHead>Corporate</TableHead>
+                    <TableHead>Last Dialysis</TableHead>
+                    <TableHead>Total Sittings</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rosterPatients.map(({ patient, lastVisitDate, sittings }) => (
+                    <TableRow key={patient.id}>
+                      <TableCell className="font-medium">{patient.name || '-'}</TableCell>
+                      <TableCell>{patient.patients_id || '-'}</TableCell>
+                      <TableCell>{patient.age ?? '-'} / {patient.gender || '-'}</TableCell>
+                      <TableCell>{patient.phone || '-'}</TableCell>
+                      <TableCell>{patient.corporate || '-'}</TableCell>
+                      <TableCell>{lastVisitDate ? format(new Date(lastVisitDate), 'dd/MM/yyyy') : '-'}</TableCell>
+                      <TableCell className="text-center">{sittings}</TableCell>
+                      <TableCell>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleNewDialysisVisit(patient)}
+                          className="flex items-center gap-1 text-xs h-8"
+                        >
+                          <UserPlus className="h-3 w-3" />
+                          New Dialysis Visit
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Search any patient to start a dialysis visit */}
+      <PatientLookup
+        isOpen={isPatientLookupOpen}
+        onClose={() => setIsPatientLookupOpen(false)}
+        onPatientSelected={(patient) => {
+          setIsPatientLookupOpen(false);
+          handleNewDialysisVisit(patient);
+        }}
+      />
+
+      {/* Visit registration pre-set to Dialysis */}
+      {selectedPatient && (
+        <VisitRegistrationForm
+          isOpen={true}
+          onClose={handleVisitFormClose}
+          patient={selectedPatient}
+          defaultPatientType="Dialysis"
+        />
+      )}
     </div>
   );
 };
