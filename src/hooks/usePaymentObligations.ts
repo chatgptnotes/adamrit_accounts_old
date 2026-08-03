@@ -21,6 +21,8 @@ export interface PaymentObligation {
   tally_ledger_id: string | null; // legacy single FK; kept for back-compat
   approximate_balance: number | null; // director's manual estimate when ledger is stale
   section: string | null; // explicit Obligations Master section; null → derive from sub_category
+  monthly_amount: number | null; // Monthly Obligation tab figure, independent of daily amount
+  expense_account_id: string | null; // expense ledger debited by the monthly accrual JV
   tally_ledgers?: { id: string; name: string; closing_balance: number } | null; // legacy embed
   payment_obligation_ledgers?: ObligationLedgerLink[]; // per-company ledger links (current)
   created_at: string;

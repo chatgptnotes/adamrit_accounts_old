@@ -60,6 +60,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { DailyAllocationSheet } from '@/components/DailyAllocationSheet';
 import { BeneficiaryBankHint } from '@/components/BeneficiaryBankHint';
 import { RmoPaymentsTab } from '@/components/RmoPaymentsTab';
+import { MonthlyObligationTab } from '@/components/MonthlyObligationTab';
 // Lazy: a crash inside an embedded page must not take the allocation page
 // down with it — each tab loads its module only when opened.
 const SalarySheetPage = React.lazy(() => import('@/pages/SalarySheet'));
@@ -68,13 +69,13 @@ import { listUnpaidInvoices, payInvoicesTogether, type UnpaidInvoice } from '@/l
 import { printSpecialistInvoice } from '@/lib/printSpecialistInvoice';
 import { useAccountingRights } from '@/components/accounting/tally/rights';
 
-const formatINR = (n: number) =>
+export const formatINR = (n: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n);
 
 // Maps an obligation's sub_category to one of the four Obligations Master sections.
-type ObligationSection = 'pharmacy_implant' | 'consultants' | 'overheads' | 'other_vendors';
+export type ObligationSection = 'pharmacy_implant' | 'consultants' | 'overheads' | 'other_vendors';
 
-const OBLIGATION_SECTIONS: { key: ObligationSection; title: string }[] = [
+export const OBLIGATION_SECTIONS: { key: ObligationSection; title: string }[] = [
   { key: 'pharmacy_implant', title: 'Pharmacy & Implant Vendors' },
   { key: 'consultants',      title: 'Consultants' },
   { key: 'overheads',        title: 'Overheads (Rent, Salary, Electricity, etc.)' },
@@ -101,7 +102,7 @@ const getSectionForSubCategory = (subCategory: string | null | undefined): Oblig
 
 // Prefer the explicit section column when set; otherwise derive from sub_category
 // so existing rows keep working without manual backfill.
-const getSectionForObligation = (ob: { section?: string | null; sub_category?: string | null }): ObligationSection => {
+export const getSectionForObligation = (ob: { section?: string | null; sub_category?: string | null }): ObligationSection => {
   const valid: ObligationSection[] = ['pharmacy_implant', 'consultants', 'overheads', 'other_vendors'];
   if (ob.section && (valid as string[]).includes(ob.section)) return ob.section as ObligationSection;
   return getSectionForSubCategory(ob.sub_category);
@@ -1768,13 +1769,14 @@ ${sectionsHtml}
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-2 md:grid-cols-8">
+        <TabsList className="grid w-full grid-cols-2 md:grid-cols-9">
           <TabsTrigger value="allocation">
             Today's Allocation
             {displaySchedule.filter(s => s.status === 'pending').length > 0 && (
               <Badge className="ml-2 bg-red-500">{displaySchedule.filter(s => s.status === 'pending').length}</Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="monthly-obligation">Monthly Obligation</TabsTrigger>
           <TabsTrigger value="saved">
             Saved Days
             {savedAllocations.length > 0 && (
@@ -2205,6 +2207,12 @@ ${sectionsHtml}
               </TableBody>
             </Table>
           </Card>
+        </TabsContent>
+
+        {/* Monthly Obligation — month-level amounts, accrual JVs (Dr expense / Cr party),
+            remaining balance reduced by the daily Pay clicks above */}
+        <TabsContent value="monthly-obligation" className="mt-4">
+          <MonthlyObligationTab hospital={selectedHospital} />
         </TabsContent>
 
         {/* TAB 5: Daily Allocation — editable today's expenses sheet (database-backed, carries forward) */}
