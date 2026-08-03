@@ -16727,6 +16727,7 @@ export type Database = {
           surgical_approval: string | null
           thumb_registration_no: string | null
           treatment_type: string | null
+          todays_discharge_marked: boolean
           updated_at: string
           visit_date: string
           visit_id: string
@@ -16823,6 +16824,7 @@ export type Database = {
           surgical_approval?: string | null
           thumb_registration_no?: string | null
           treatment_type?: string | null
+          todays_discharge_marked?: boolean
           updated_at?: string
           visit_date: string
           visit_id: string
@@ -16919,6 +16921,7 @@ export type Database = {
           surgical_approval?: string | null
           thumb_registration_no?: string | null
           treatment_type?: string | null
+          todays_discharge_marked?: boolean
           updated_at?: string
           visit_date?: string
           visit_id?: string

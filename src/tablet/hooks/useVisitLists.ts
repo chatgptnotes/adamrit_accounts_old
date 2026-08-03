@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -9,7 +10,10 @@ export interface TabletVisit {
   admissionDate: string | null;
   dischargeDate: string | null;
   dischargeMode: string | null;
+  isDischarged: boolean | null;
+  status: string | null;
   plannedDischargeDate: string | null;
+  todaysDischargeMarked: boolean;
   billPaid: boolean | null;
   billingClearedAt: string | null;
   ward: string | null;
@@ -30,7 +34,10 @@ function mapRow(v: any): TabletVisit {
     admissionDate: v.admission_date ?? null,
     dischargeDate: v.discharge_date ?? null,
     dischargeMode: v.discharge_mode ?? null,
+    isDischarged: v.is_discharged ?? null,
+    status: v.status ?? null,
     plannedDischargeDate: v.planned_discharge_date ?? null,
+    todaysDischargeMarked: v.todays_discharge_marked === true,
     billPaid: v.bill_paid ?? null,
     billingClearedAt: v.billing_cleared_at ?? null,
     ward: v.ward_allotted ?? null,
@@ -45,7 +52,7 @@ function mapRow(v: any): TabletVisit {
 }
 
 const SELECT =
-  "id, visit_id, patient_type, admission_date, discharge_date, discharge_mode, planned_discharge_date, bill_paid, billing_cleared_at, ward_allotted, room_allotted, appointment_with, patients!inner(id, name, patients_id, age, gender, hospital_name)";
+  "id, visit_id, patient_type, admission_date, discharge_date, discharge_mode, is_discharged, status, planned_discharge_date, todays_discharge_marked, bill_paid, billing_cleared_at, ward_allotted, room_allotted, appointment_with, patients!inner(id, name, patients_id, age, gender, hospital_name)";
 
 /** Currently admitted IPD + Emergency visits for the active hospital. */
 export function useAdmittedVisits() {
@@ -153,11 +160,11 @@ export function useRecentlyDischargedVisits() {
  * (discharge_date set) drops them off on the next refresh. Polls every 30s so
  * the two desks see the same list without talking.
  */
-export function useTodaysExpectedDischarges() {
+export function useTodaysDischarges() {
   const { hospitalConfig } = useAuth();
-  const { to: today } = dateWindow(0);
+  const queryClient = useQueryClient();
   const query = useQuery({
-    queryKey: ["tablet-todays-expected-discharges", hospitalConfig.name, today],
+    queryKey: ["tablet-todays-discharges", hospitalConfig.name],
     staleTime: 15_000,
     refetchInterval: 30_000,
     queryFn: async (): Promise<TabletVisit[]> => {
@@ -166,13 +173,30 @@ export function useTodaysExpectedDischarges() {
         .select(SELECT)
         .in("patient_type", ["IPD", "IPD (Inpatient)", "Emergency"])
         .is("discharge_date", null)
-        .eq("planned_discharge_date", today)
+        .or("is_discharged.is.null,is_discharged.eq.false")
+        .or("status.is.null,status.neq.discharged")
+        .eq("todays_discharge_marked", true)
         .eq("patients.hospital_name", hospitalConfig.name)
         .order("admission_date", { ascending: true });
       if (error) throw error;
       return (data || []).map(mapRow);
     },
   });
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(`tablet-todays-discharge-${hospitalConfig.name}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "visits" },
+        () => queryClient.invalidateQueries({ queryKey: ["tablet-todays-discharges", hospitalConfig.name] }),
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [hospitalConfig.name, queryClient]);
   return {
     visits: query.data || [],
     count: query.data?.length || 0,

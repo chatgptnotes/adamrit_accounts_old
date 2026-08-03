@@ -154,6 +154,7 @@ interface AdvancePatientRow {
   packageCode: string | null;
   packageName: string | null;
   plannedDischargeDate: string | null;
+  todaysDischargeMarked: boolean;
   dischargeBillingStaff: string | null;
   arshiyaSummary: string | null;
   /** The specialist who treated the patient, and so who signs their documents. */
@@ -510,7 +511,7 @@ export default function AdvanceFlow() {
       let query = supabase
         .from("visits")
         .select(
-          "id, visit_id, admission_date, discharge_date, yojana_registration_id, package_code, package_name, patient_id, planned_discharge_date, discharge_billing_staff, arshiya_discharge_summary, bill_paid, appointment_with, patients!inner(id, name, patients_id, phone, age, gender, corporate, hospital_name)",
+          "id, visit_id, admission_date, discharge_date, yojana_registration_id, package_code, package_name, patient_id, planned_discharge_date, todays_discharge_marked, discharge_billing_staff, arshiya_discharge_summary, bill_paid, appointment_with, patients!inner(id, name, patients_id, phone, age, gender, corporate, hospital_name)",
         )
         .eq("patient_type", "IPD")
         .not("admission_date", "is", null)
@@ -542,6 +543,7 @@ export default function AdvanceFlow() {
           packageCode: row.package_code,
           packageName: row.package_name,
           plannedDischargeDate: row.planned_discharge_date,
+          todaysDischargeMarked: row.todays_discharge_marked === true,
           dischargeBillingStaff: row.discharge_billing_staff,
           arshiyaSummary: row.arshiya_discharge_summary,
           consultant: row.appointment_with ?? null,
@@ -638,12 +640,14 @@ export default function AdvanceFlow() {
                 planned_discharge_marked_at: now.toISOString(),
                 planned_discharge_marked_by: user?.id ?? null,
                 discharge_billing_staff: resolveDischargeStaff(now),
+                todays_discharge_marked: true,
               }
             : {
                 planned_discharge_date: null,
                 planned_discharge_marked_at: null,
                 planned_discharge_marked_by: null,
                 discharge_billing_staff: null,
+                todays_discharge_marked: false,
               }) as any,
         )
         .eq("id", row.visitId);
@@ -1760,6 +1764,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
 
   const renderPatientRow = (row: AdvancePatientRow) => {
     const isPlanned = row.plannedDischargeDate === todayIso;
+    const isTodayDischarge = row.todaysDischargeMarked;
     const confirmation = thumbConfirmations.data?.get(row.patient.id) || null;
     const unlocked = !!confirmation;
     const lockedHint = "Attach the portal thumb confirmation first";
@@ -1809,7 +1814,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
             <input
               type="checkbox"
               className="h-6 w-6 cursor-pointer accent-primary"
-              checked={isPlanned}
+              checked={isTodayDischarge}
               disabled={togglePlannedDischarge.isPending}
               onChange={(event) =>
                 togglePlannedDischarge.mutate({ row, planned: event.target.checked })

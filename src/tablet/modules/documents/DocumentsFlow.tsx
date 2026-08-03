@@ -12,7 +12,7 @@ import {
   useAdmittedVisits,
   useDischargedVisits,
   useRecentlyDischargedVisits,
-  useTodaysExpectedDischarges,
+  useTodaysDischarges,
   useWardNames,
   type TabletVisit,
 } from "@/tablet/hooks/useVisitLists";
@@ -32,7 +32,7 @@ function DocumentsPicker({ onSelect }: { onSelect: (visit: TabletVisit) => void 
   const admitted = useAdmittedVisits();
   const discharged = useDischargedVisits();
   const billing = useRecentlyDischargedVisits();
-  const expected = useTodaysExpectedDischarges();
+  const todaysDischarges = useTodaysDischarges();
   const wardNames = useWardNames();
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -90,7 +90,7 @@ function DocumentsPicker({ onSelect }: { onSelect: (visit: TabletVisit) => void 
             variant={mode === "today" ? "default" : "outline"}
             onClick={() => setMode(mode === "today" ? "all" : "today")}
           >
-            {`Today's Expected Discharge (${expected.count})`}
+            {`Today's Discharge (${todaysDischarges.count})`}
           </TabletButton>
           <TabletButton
             variant={mode === "billing" ? "default" : "outline"}
@@ -103,21 +103,21 @@ function DocumentsPicker({ onSelect }: { onSelect: (visit: TabletVisit) => void 
 
       {mode === "today" ? (
         <div className="tablet-no-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
-          {expected.isLoading ? (
+          {todaysDischarges.isLoading ? (
             <div className="flex justify-center py-10">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
-          ) : expected.isError ? (
+          ) : todaysDischarges.isError ? (
             <p className="py-10 text-center text-destructive">
               Could not load today's expected discharges. Check the connection.
             </p>
-          ) : expected.visits.length === 0 ? (
+          ) : todaysDischarges.visits.length === 0 ? (
             <p className="py-10 text-center text-muted-foreground">
               Nobody is marked for discharge today on Arshiya's tile yet.
             </p>
           ) : (
-            expected.visits.map((visit) => (
-              <ExpectedDischargeRow
+            todaysDischarges.visits.map((visit) => (
+              <TodaysDischargeRow
                 key={visit.id}
                 visit={visit}
                 wardName={visit.ward ? wardNames.data?.get(visit.ward) || visit.ward : null}
@@ -171,7 +171,7 @@ function DocumentsPicker({ onSelect }: { onSelect: (visit: TabletVisit) => void 
 /** One patient Arshiya marked "Discharge today". Everything here reads straight
  *  off the visit, so unticking on her tile — or completing the discharge —
  *  removes the row on the next refresh without anyone copying anything. */
-function ExpectedDischargeRow({
+function TodaysDischargeRow({
   visit,
   wardName,
   onSelect,
@@ -190,6 +190,10 @@ function ExpectedDischargeRow({
     {
       label: "Expected discharge",
       value: visit.plannedDischargeDate ? shortDate(visit.plannedDischargeDate) : "—",
+    },
+    {
+      label: "Discharge status",
+      value: visit.status || (visit.isDischarged || visit.dischargeDate ? "Discharged" : "Admitted"),
     },
   ];
   return (
