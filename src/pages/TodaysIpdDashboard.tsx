@@ -4,6 +4,7 @@ import { ExtensionDaysCell } from '@/components/ipd/ExtensionDaysCell';
 import { useAuth } from '@/contexts/AuthContext';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { SendBillOnWhatsApp } from '@/components/patient/SendBillOnWhatsApp';
 import { fetchAllRows, fetchAllByIn } from '@/utils/fetchAllRows';
 import { toast } from "@/hooks/use-toast";
 import { Button } from '@/components/ui/button';
@@ -3826,6 +3827,18 @@ const TodaysIpdDashboard = () => {
                        >
                          <Eye className="h-4 w-4 text-blue-600" />
                        </Button>
+                       {/* Send the patient their bill on WhatsApp, with a UPI
+                           link for the balance. Composed message is shown
+                           before anything leaves. */}
+                       <SendBillOnWhatsApp
+                         patientName={visit.patients?.name || 'Patient'}
+                         mobile={visit.patients?.phone}
+                         billNumber={visit.visit_id}
+                         amount={Number((visit as any).package_amount) || 0}
+                         hospital={visit.patients?.hospital_name}
+                         variant="ghost"
+                         className="h-8 px-2"
+                       />
                        <Button
                          variant="ghost"
                          size="sm"
