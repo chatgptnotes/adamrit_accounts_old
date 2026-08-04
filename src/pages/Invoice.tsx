@@ -48,7 +48,7 @@ const convertAmountToWords = (amount: number): string => {
 const Invoice = () => {
   const [showPharmacyCharges, setShowPharmacyCharges] = useState(false);
   const [discountRemoved, setDiscountRemoved] = useState(false);
-  const [chargeFilter, setChargeFilter] = useState('all'); // 'all', 'lab', 'radiology', 'surgery'
+  const [chargeFilter, setChargeFilter] = useState('all'); // 'all', 'lab', 'radiology', 'surgery', 'implants'
   const [hideLabRadiology, setHideLabRadiology] = useState(false);
   const [isEditingPaidOverride, setIsEditingPaidOverride] = useState(false);
   const [paidOverrideInput, setPaidOverrideInput] = useState('');
@@ -893,6 +893,39 @@ const Invoice = () => {
     const services = [];
     let srNo = 1;
 
+    const addVisitImplantRows = () => {
+      const existingImplantKeys = new Set(
+        services.map((service: any) => [
+          String(service.item || '').trim().toLowerCase(),
+          Number(service.rate || 0),
+          Number(service.qty || 1),
+          Number(service.amount || 0),
+        ].join('|'))
+      );
+
+      (implantOrdersData || []).forEach((visitImplant: any) => {
+        const rate = Number(visitImplant.rate) || 0;
+        const qty = Number(visitImplant.quantity) || 1;
+        const amount = Number(visitImplant.amount) || (rate * qty);
+        const item = String(visitImplant.implant_name || 'Implant').trim() || 'Implant';
+        const key = [item.toLowerCase(), rate, qty, amount].join('|');
+
+        // A saved bill may already contain the implant as a line item. Keep
+        // the invoice readable and avoid charging the same implant twice.
+        if (existingImplantKeys.has(key)) return;
+
+        services.push({
+          srNo: srNo++,
+          item,
+          rate,
+          qty,
+          amount,
+          type: 'implant'
+        });
+        existingImplantKeys.add(key);
+      });
+    };
+
     // If filter is set to lab or radiology, show only that data
     if (chargeFilter === 'lab') {
 
@@ -988,24 +1021,7 @@ const Invoice = () => {
     }
 
     if (chargeFilter === 'implants') {
-
-      if (implantOrdersData && implantOrdersData.length > 0) {
-        implantOrdersData.forEach((visitImplant: any) => {
-          const rate = parseFloat(visitImplant.rate) || 0;
-          const qty = visitImplant.quantity || 1;
-          const amount = parseFloat(visitImplant.amount) || (rate * qty);
-
-          services.push({
-            srNo: srNo++,
-            item: visitImplant.implant_name || 'Implant',
-            rate: rate,
-            qty: qty,
-            amount: amount,
-            type: 'implant'
-          });
-        });
-      } else {
-      }
+      addVisitImplantRows();
       return services;
     }
 
@@ -1065,6 +1081,10 @@ const Invoice = () => {
       }
       });
     }
+
+    // Implants are stored separately from bill sections. Include each saved
+    // implant by name in the default invoice view as well.
+    addVisitImplantRows();
 
     // NOW INCLUDING lab and radiology charges in "All Charges" view as SUMMARY LINES
     // Calculate lab charges by recalculating rates dynamically (same logic as Final Bill)
@@ -1321,7 +1341,10 @@ const Invoice = () => {
 
     // ===== 5. IMPLANT CHARGES (from surgery data) =====
     let totalImplantCharges = 0;
-    if (surgeryOrdersData && surgeryOrdersData.length > 0) {
+    // Older visits may only have the aggregate surgery implant cost. Prefer
+    // named visit_implants rows whenever they exist so the amount is not
+    // duplicated alongside the individual implant rows above.
+    if ((!implantOrdersData || implantOrdersData.length === 0) && surgeryOrdersData && surgeryOrdersData.length > 0) {
       surgeryOrdersData.forEach((visitSurgery: any) => {
         const implantCost = parseFloat(visitSurgery.implant_cost) || 0;
         if (implantCost > 0) {
@@ -2224,6 +2247,7 @@ const Invoice = () => {
               <option value="all">All Charges</option>
               <option value="lab">Lab Charges Only</option>
               <option value="radiology">Radiology Charges Only</option>
+              <option value="implants">Implant Charges Only</option>
             </select>
           </div>
 
