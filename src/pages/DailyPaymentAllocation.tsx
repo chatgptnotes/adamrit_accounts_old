@@ -143,6 +143,8 @@ const printTable = (title: string, headers: string[], rows: string[][], dateLabe
 interface SortableScheduleRowProps {
   entry: ScheduleEntry;
   idx: number;
+  /** Merged all-hospitals view: tag each row with its hospital. */
+  showHospital?: boolean;
   isEditing: boolean;
   editAmount: string;
   editNotes: string;
@@ -172,13 +174,21 @@ interface SortableScheduleRowProps {
   onSkip: () => void;
 }
 
+/** Tabs that work per hospital ask the merged view to narrow down first. */
+const PickHospitalNote = () => (
+  <div className="rounded-lg border border-dashed bg-slate-50 py-10 text-center text-sm text-muted-foreground">
+    This tab works one hospital at a time — pick <b>Hope Hospital</b> or <b>Ayushman Hospital</b> in
+    the dropdown at the top right to use it.
+  </div>
+);
+
 const SortableScheduleRow = ({
   entry, idx, isEditing, editAmount, editNotes, skipConfirmId,
   subAllocations, companyName, ledgerName, narration, companies,
   editParty, editCompanyId, editLedgerId, editLedgerName, editLedgerSearch,
   onStartEdit, onSaveEdit, onCancelEdit, onEditAmountChange, onEditNotesChange,
   onEditPartyChange, onEditCompanyChange, onEditLedgerChange, onEditLedgerSearchChange,
-  onPay, onSkipConfirm, onSkipCancel, onSkip,
+  onPay, onSkipConfirm, onSkipCancel, onSkip, showHospital,
 }: SortableScheduleRowProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: entry.id });
   const { data: editLedgers = [] } = useAccountingLedgerSearch(editLedgerSearch, editCompanyId || null);
@@ -198,7 +208,18 @@ const SortableScheduleRow = ({
       <TableCell>
         {isEditing ? (
           <Input value={editParty} onChange={(e) => onEditPartyChange(e.target.value)} className="h-8 min-w-[180px]" />
-        ) : <div className="font-medium">{entry.party_name}</div>}
+        ) : (
+          <div className="font-medium">
+            {entry.party_name}
+            {showHospital && entry.hospital_name && (
+              <span className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase align-middle ${
+                (entry.hospital_name || '').includes('ayush') ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+              }`}>
+                {(entry.hospital_name || '').includes('ayush') ? 'Ayushman' : 'Hope'}
+              </span>
+            )}
+          </div>
+        )}
         {subAllocations.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1">
             {subAllocations.map((sa) => (
@@ -474,7 +495,8 @@ const DailyPaymentAllocation = () => {
   }, [companies]);
 
   const [selectedDate, setSelectedDate] = useState(today);
-  const [selectedHospital, setSelectedHospital] = useState('hope');
+  // The owner's default is the merged view over both hospitals.
+  const [selectedHospital, setSelectedHospital] = useState('all');
   const [activeTab, setActiveTab] = useState('allocation');
 
   // Pay dialog state
@@ -824,7 +846,7 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
 @media print{body{padding:10px}.summary{break-inside:avoid}}
 </style>
 </head><body>
-<h2>Detailed Payment Allocation — ${selectedHospital.charAt(0).toUpperCase() + selectedHospital.slice(1)}</h2>
+<h2>Detailed Payment Allocation — ${selectedHospital === 'all' ? 'All Hospitals' : selectedHospital.charAt(0).toUpperCase() + selectedHospital.slice(1)}</h2>
 <p class="meta">${dateLabel}</p>
 <div class="summary">
   <div>Total Due: <span>${formatINR(grandDue)}</span></div>
@@ -1127,7 +1149,7 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
         amount,
         userId: user?.username || 'admin',
         payeeName: confirmingSubAlloc?.payee_name || payingEntry.party_name,
-        hospitalType: selectedHospital,
+        hospitalType: payingEntry.hospital_name || (selectedHospital === 'all' ? 'hope' : selectedHospital),
         companyId: payTallyCompanyId,
         debitAccountId: payDebitLedgerId,
         creditAccountId: payCreditLedgerId,
@@ -1154,7 +1176,7 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
   // Each section starts on a new page when printed. Pass a section key to
   // print only that section; pass null/undefined for the full report.
   const printObligationsReport = (onlySection: ObligationSection | null = null) => {
-    const hospitalLabel = selectedHospital.charAt(0).toUpperCase() + selectedHospital.slice(1);
+    const hospitalLabel = selectedHospital === 'all' ? 'All Hospitals' : selectedHospital.charAt(0).toUpperCase() + selectedHospital.slice(1);
     const generatedAt = new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
     const sectionsToRender = OBLIGATION_SECTIONS.filter(s => onlySection ? s.key === onlySection : true);
 
@@ -1269,6 +1291,10 @@ ${sectionsHtml}
   };
 
   const handleAddObligation = () => {
+    if (selectedHospital === 'all') {
+      toast.error('Pick Hope or Ayushman in the hospital dropdown first — an obligation belongs to one hospital.');
+      return;
+    }
     if (!newObligation.party_name || !newObligation.default_daily_amount) {
       toast.error('Party name and daily amount are required');
       return;
@@ -1359,6 +1385,10 @@ ${sectionsHtml}
 
   // Sync active RMOs from master tables into obligations
   const syncRMOsFromMaster = async () => {
+    if (selectedHospital === 'all') {
+      toast.error('Pick Hope or Ayushman in the hospital dropdown first — RMOs sync per hospital.');
+      return;
+    }
     setIsSyncingRMOs(true);
     try {
       const rmoTable = selectedHospital === 'hope' ? 'hope_rmos' : 'ayushman_rmos';
@@ -1425,6 +1455,10 @@ ${sectionsHtml}
 
   // Save/finalize day's allocation
   const handleSaveDay = (status: 'saved' | 'finalized' | 'revised') => {
+    if (selectedHospital === 'all') {
+      toast.error("Pick Hope or Ayushman in the hospital dropdown to save the day — a day's record is kept per hospital.");
+      return;
+    }
     saveAllocation.mutate({
       save_date: selectedDate,
       hospital_name: selectedHospital,
@@ -1515,6 +1549,7 @@ ${sectionsHtml}
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="all">All Hospitals (merged)</SelectItem>
               <SelectItem value="hope">Hope Hospital</SelectItem>
               <SelectItem value="ayushman">Ayushman Hospital</SelectItem>
             </SelectContent>
@@ -1896,6 +1931,7 @@ ${sectionsHtml}
                               const idx = globalIdx++;
                               return (
                                 <SortableScheduleRow
+                                  showHospital={selectedHospital === 'all'}
                                   key={entry.id}
                                   entry={entry}
                                   idx={idx}
@@ -2231,11 +2267,12 @@ ${sectionsHtml}
         {/* Monthly Obligation — month-level amounts, accrual JVs (Dr expense / Cr party),
             remaining balance reduced by the daily Pay clicks above */}
         <TabsContent value="monthly-obligation" className="mt-4">
-          <MonthlyObligationTab hospital={selectedHospital} />
+          {selectedHospital === 'all' ? <PickHospitalNote /> : <MonthlyObligationTab hospital={selectedHospital} />}
         </TabsContent>
 
         {/* TAB 5: Daily Allocation — editable today's expenses sheet (database-backed, carries forward) */}
         <TabsContent value="daily-allocation" className="mt-4">
+          {selectedHospital === 'all' ? <PickHospitalNote /> : (
           <DailyAllocationSheet
             hospital={selectedHospital}
             onSent={({ date }) => {
@@ -2244,6 +2281,7 @@ ${sectionsHtml}
               void refetch();
             }}
           />
+          )}
         </TabsContent>
       
         {/* All payments in one place: the RMO duty invoices, the salary
@@ -3102,6 +3140,10 @@ ${sectionsHtml}
                   <Button size="sm" className="w-full mt-2 bg-green-600 hover:bg-green-700 text-xs h-7"
                     disabled={isImporting || extractedStaff.filter(s => s.selected).length === 0}
                     onClick={async () => {
+                      if (selectedHospital === 'all') {
+                        toast.error('Pick Hope or Ayushman in the hospital dropdown first — imported staff belong to one hospital.');
+                        return;
+                      }
                       setIsImporting(true);
                       const selected = extractedStaff.filter(s => s.selected);
                       let imported = 0;

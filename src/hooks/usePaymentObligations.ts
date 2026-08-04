@@ -76,11 +76,14 @@ export const usePaymentObligations = (hospital: string = 'hope', includeDetails 
             priority, chart_of_accounts_id, is_active, notes, hospital_name,
             payee_name, payee_search_table, company_id, approximate_balance, section
           `;
-      const { data, error } = await (supabase as any)
+      let query = (supabase as any)
         .from('payment_obligations')
         .select(select)
-        .eq('hospital_name', hospital)
         .order('priority', { ascending: true });
+      // 'all' is the merged owner's view over both hospitals.
+      if (hospital !== 'all') query = query.eq('hospital_name', hospital);
+      else query = query.in('hospital_name', ['hope', 'ayushman']);
+      const { data, error } = await query;
       if (error) throw error;
       return (data || []) as PaymentObligation[];
     },

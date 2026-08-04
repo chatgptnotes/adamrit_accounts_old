@@ -358,13 +358,13 @@ const SpecialistPayouts: React.FC = () => {
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan={7} className="px-3 py-10 text-center text-muted-foreground">
+                <td colSpan={8} className="px-3 py-10 text-center text-muted-foreground">
                   <Loader2 className="mx-auto h-5 w-5 animate-spin" />
                 </td>
               </tr>
             ) : groups.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-3 py-10 text-center text-muted-foreground">
+                <td colSpan={8} className="px-3 py-10 text-center text-muted-foreground">
                   No surgery invoices in this period.
                 </td>
               </tr>
@@ -394,7 +394,7 @@ const SpecialistPayouts: React.FC = () => {
                       <td className="px-3 py-2 text-right font-mono text-amber-700">{inr(group.pendingTotal)}</td>
                       <td className="px-3 py-2 text-right font-mono text-blue-700">{inr(group.approvedTotal)}</td>
                       <td className="px-3 py-2 text-right font-mono text-emerald-700">{inr(group.paidTotal)}</td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right">
+                      <td className="whitespace-nowrap px-3 py-2 text-right" colSpan={2}>
                         <Button
                           size="sm"
                           variant="ghost"
@@ -467,6 +467,7 @@ const SpecialistPayouts: React.FC = () => {
                         <td className="py-1.5 pl-8 pr-3">Invoice</td>
                         <td className="px-3 py-1.5">Patient Name</td>
                         <td className="px-3 py-1.5">Package</td>
+                        <td className="px-3 py-1.5">Anesthesia</td>
                         <td className="px-3 py-1.5">Procedure Date</td>
                         <td className="px-3 py-1.5 text-right">Amount (₹)</td>
                         <td className="px-3 py-1.5 text-right">Status</td>
@@ -507,6 +508,13 @@ const SpecialistPayouts: React.FC = () => {
                             <td className="px-3 py-1.5 font-medium">{row.patient_name || '—'}</td>
                             <td className="px-3 py-1.5 text-muted-foreground">
                               {row.surgery_name || row.narration || '—'}
+                            </td>
+                            <td className="px-3 py-1.5">
+                              {row.anesthesia_type ? (
+                                <span className="rounded bg-indigo-100 px-1.5 py-0.5 font-medium text-indigo-700">
+                                  {row.anesthesia_type}
+                                </span>
+                              ) : '—'}
                             </td>
                             <td className="px-3 py-1.5">
                               {row.surgery_date || (row.created_at || '').slice(0, 10)}

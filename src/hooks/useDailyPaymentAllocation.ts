@@ -66,14 +66,20 @@ export interface FundSummary {
   lastSyncAt: string | null;
 }
 
-// Generate today's schedule by calling the RPC
+/** The two real hospitals — 'all' is the merged owner's view over both. */
+export const ALL_HOSPITALS = ['hope', 'ayushman'] as const;
+
+// Generate today's schedule by calling the RPC ('all' generates both).
 const generateSchedule = async (date: string, hospital: string) => {
-  const { error } = await (supabase as any).rpc('generate_daily_payment_schedule', {
-    p_date: date,
-    p_hospital: hospital,
-  });
-  if (error) {
-    console.error('Failed to generate schedule:', error);
+  const targets = hospital === 'all' ? ALL_HOSPITALS : [hospital];
+  for (const target of targets) {
+    const { error } = await (supabase as any).rpc('generate_daily_payment_schedule', {
+      p_date: date,
+      p_hospital: target,
+    });
+    if (error) {
+      console.error('Failed to generate schedule:', error);
+    }
   }
 };
 
@@ -85,13 +91,16 @@ export const useDailyPaymentSchedule = (date: string, hospital: string = 'hope')
     queryFn: async () => {
       await generateSchedule(date, hospital);
 
-      const { data, error } = await (supabase as any)
+      let scheduleQuery = (supabase as any)
         .from('daily_payment_schedule')
         .select('*')
         .eq('schedule_date', date)
-        .eq('hospital_name', hospital)
         .order('days_overdue', { ascending: false })
         .order('category', { ascending: true });
+      scheduleQuery = hospital === 'all'
+        ? scheduleQuery.in('hospital_name', [...ALL_HOSPITALS])
+        : scheduleQuery.eq('hospital_name', hospital);
+      const { data, error } = await scheduleQuery;
 
       if (error) throw error;
 
@@ -748,14 +757,17 @@ export const usePaymentHistory = (fromDate: string, toDate: string, hospital: st
   return useQuery({
     queryKey: ['payment-history', fromDate, toDate, hospital],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      let query = (supabase as any)
         .from('daily_payment_schedule')
         .select('*')
-        .eq('hospital_name', hospital)
         .gte('schedule_date', fromDate)
         .lte('schedule_date', toDate)
         .order('schedule_date', { ascending: false })
         .order('days_overdue', { ascending: false });
+      query = hospital === 'all'
+        ? query.in('hospital_name', [...ALL_HOSPITALS])
+        : query.eq('hospital_name', hospital);
+      const { data, error } = await query;
 
       if (error) throw error;
       return (data || []) as ScheduleEntry[];
@@ -797,7 +809,8 @@ export const useAllocationSaveStatus = (date: string, hospital: string) => {
       if (error) throw error;
       return data as SavedAllocation | null;
     },
-    enabled: !!date && !!hospital,
+    // A day is saved per hospital — the merged view has no single save row.
+    enabled: !!date && !!hospital && hospital !== 'all',
   });
 
   return {
@@ -858,13 +871,16 @@ export const useSavedAllocations = (fromDate: string, toDate: string, hospital: 
   return useQuery({
     queryKey: ['saved-allocations', fromDate, toDate, hospital],
     queryFn: async (): Promise<SavedAllocation[]> => {
-      const { data, error } = await (supabase as any)
+      let query = (supabase as any)
         .from('daily_allocation_saves')
         .select('*')
-        .eq('hospital_name', hospital)
         .gte('save_date', fromDate)
         .lte('save_date', toDate)
         .order('save_date', { ascending: false });
+      query = hospital === 'all'
+        ? query.in('hospital_name', [...ALL_HOSPITALS])
+        : query.eq('hospital_name', hospital);
+      const { data, error } = await query;
       if (error) throw error;
       return (data || []) as SavedAllocation[];
     },

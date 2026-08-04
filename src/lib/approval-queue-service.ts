@@ -504,6 +504,14 @@ export interface UnpaidInvoice {
   surgery_name: string | null
   surgery_date: string | null
   surgery_time: string | null
+  /** GA / SA / LA…, parsed from the OT row's marked segment. */
+  anesthesia_type: string | null
+}
+
+/** special_requirements also carries free-text notes — only the marked segment is the anaesthesia. */
+const parseAnesthesia = (value: string | null | undefined): string | null => {
+  const match = String(value || '').match(/Anesthesia Type:\s*([^|\n]+)/i)
+  return match ? match[1].trim() || null : null
 }
 
 /**
@@ -514,11 +522,11 @@ export interface UnpaidInvoice {
 async function attachOtContext<T extends { ot_schedule_id: string | null }>(rows: T[]): Promise<T[]> {
   const otIds = [...new Set(rows.map((r) => r.ot_schedule_id).filter(Boolean))] as string[]
   if (!otIds.length) {
-    return rows.map((r) => ({ ...r, patient_name: null, surgery_name: null, surgery_date: null, surgery_time: null }))
+    return rows.map((r) => ({ ...r, patient_name: null, surgery_name: null, surgery_date: null, surgery_time: null, anesthesia_type: null }))
   }
   const { data: ots } = await (supabase as any)
     .from('ot_schedule')
-    .select('id, surgery_name, scheduled_date, scheduled_time, patient_id')
+    .select('id, surgery_name, scheduled_date, scheduled_time, patient_id, special_requirements')
     .in('id', otIds)
   const otById = new Map((ots || []).map((o: any) => [o.id, o]))
   const patientIds = [...new Set((ots || []).map((o: any) => o.patient_id).filter(Boolean))]
@@ -535,6 +543,7 @@ async function attachOtContext<T extends { ot_schedule_id: string | null }>(rows
       surgery_name: ot?.surgery_name ?? null,
       surgery_date: ot?.scheduled_date ?? null,
       surgery_time: ot?.scheduled_time ?? null,
+      anesthesia_type: parseAnesthesia(ot?.special_requirements),
     }
   })
 }
@@ -561,6 +570,7 @@ export interface SurgeryInvoiceRow extends ApprovalQueueRow {
   surgery_name: string | null
   surgery_date: string | null
   surgery_time: string | null
+  anesthesia_type: string | null
 }
 
 /**
