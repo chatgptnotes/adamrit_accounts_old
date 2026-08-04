@@ -8,7 +8,7 @@ export const DIALYSIS_QUERY_KEY = "tablet-dialysis";
 /**
  * Every dialysis patient for the active hospital, with how many cycles are
  * waiting to be billed and whether their 30-day lab report is overdue.
- * Shared by the Dialysis tile badge and the Dialysis module.
+ * The home tile badge is reserved for complete six-cycle billing blocks.
  */
 export function useDialysisTracker() {
   const { hospitalConfig } = useAuth();
@@ -26,8 +26,8 @@ export function useDialysisTracker() {
     return {
       billsDue,
       labsDue,
-      // Patients needing either — what the home-screen badge shows.
-      actionCount: rows.filter((r) => r.billsDue > 0 || r.labDue).length,
+      // Only complete six-cycle billing blocks create a home-screen badge.
+      actionCount: billsDue,
     };
   }, [rows]);
 

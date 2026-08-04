@@ -70,18 +70,20 @@ function mapDoc(r: any): PatientDoc {
 export function usePatientDocs(
   patientId: string | undefined,
   category: PatientDocCategory,
+  notesFilter?: string | null,
 ) {
   return useQuery({
-    queryKey: ["tablet-patient-docs", patientId, category],
+    queryKey: ["tablet-patient-docs", patientId, category, notesFilter ?? null],
     enabled: !!patientId,
     staleTime: 1000 * 15,
     queryFn: async (): Promise<PatientDoc[]> => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("file_uploads")
         .select("id, file_name, file_url, file_type, storage_path, created_at, latitude, longitude, notes, category")
         .eq("patient_id", patientId)
-        .eq("category", category)
-        .order("created_at", { ascending: false });
+        .eq("category", category);
+      if (notesFilter) query = query.eq("notes", notesFilter);
+      const { data, error } = await query.order("created_at", { ascending: false });
       if (error) throw error;
       return (data || []).map(mapDoc);
     },

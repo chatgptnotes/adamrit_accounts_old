@@ -1,262 +1,578 @@
-import { useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { BellRing, Droplets, FlaskConical, Loader2, Printer, RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  CalendarDays,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Droplets,
+  FileCheck2,
+  Loader2,
+  RefreshCw,
+  Search,
+  UserRound,
+} from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
+import { TabletInput } from "@/tablet/ui/TabletInput";
 import { shortDate } from "@/tablet/lib/format";
-import { DIALYSIS_QUERY_KEY, useDialysisTracker } from "@/tablet/hooks/useDialysisTracker";
-import {
-  CYCLES_PER_BILL,
-  LAB_REPORT_INTERVAL_DAYS,
-  markCyclesBilled,
-  type DialysisTrackerRow,
-} from "@/lib/nephroplus/dialysisTracker";
-import { printDialysisLabReport } from "@/lib/nephroplus/dialysisLabReport";
+import { cn } from "@/lib/utils";
+import { PatientDocsTab } from "@/tablet/modules/patient-profile/PatientDocsTab";
+import { usePatientDocs, type PatientDocCategory } from "@/tablet/hooks/usePatientDocs";
+import { CYCLES_PER_BILL } from "@/lib/nephroplus/dialysisTracker";
 
-type Filter = "action" | "bill" | "lab" | "all";
+const today = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
+    now.getDate(),
+  ).padStart(2, "0")}`;
+};
 
-const FILTERS: { id: Filter; label: string }[] = [
-  { id: "action", label: "Needs action" },
-  { id: "bill", label: "Bill due" },
-  { id: "lab", label: "Lab due" },
-  { id: "all", label: "All" },
+type DialysisPeriod = "today" | "month" | "year";
+
+const periodLabels: Record<DialysisPeriod, string> = {
+  today: "Today",
+  month: "This month",
+  year: "This year",
+};
+
+function periodRange(period: DialysisPeriod) {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const endOfMonth = (targetYear: number, targetMonth: number) =>
+    new Date(targetYear, targetMonth + 1, 0).getDate();
+
+  if (period === "today") {
+    const date = `${year}-${pad(month + 1)}-${pad(now.getDate())}`;
+    return { start: date, end: date };
+  }
+
+  if (period === "month") {
+    return {
+      start: `${year}-${pad(month + 1)}-01`,
+      end: `${year}-${pad(month + 1)}-${pad(endOfMonth(year, month))}`,
+    };
+  }
+
+  return {
+    start: `${year}-01-01`,
+    end: `${year}-12-31`,
+  };
+}
+
+type PatientShape = {
+  id: string;
+  name: string | null;
+  patients_id: string | null;
+  phone: string | null;
+};
+
+type DialysisVisit = {
+  id: string;
+  visit_id: string | null;
+  visit_date: string;
+  status: string | null;
+  patient_id: string;
+  patient: PatientShape;
+  amount: number;
+};
+
+type Session = DialysisVisit & { sessionNumber: number };
+
+function money(value: number) {
+  return value.toLocaleString("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  });
+}
+
+function isCompleted(status: string | null) {
+  return ["completed", "complete", "done"].includes((status || "").toLowerCase());
+}
+
+async function loadVisits(hospitalName: string, patientId?: string): Promise<DialysisVisit[]> {
+  let query = supabase
+    .from("visits")
+    .select(
+      "id, visit_id, visit_date, status, patient_id, patients!inner(id, name, patients_id, phone, hospital_name)",
+    )
+    .eq("patient_type", "Dialysis")
+    .eq("patients.hospital_name", hospitalName)
+    .order("visit_date", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  if (patientId) query = query.eq("patient_id", patientId);
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  const visits = (data || []) as any[];
+  const visitIds = visits.map((v) => v.id).filter(Boolean);
+  const amounts = new Map<string, number>();
+
+  if (visitIds.length > 0) {
+    const { data: charges, error: chargesError } = await supabase
+      .from("visit_clinical_services")
+      .select("visit_id, amount, clinical_services!inner(service_name)")
+      .in("visit_id", visitIds)
+      .ilike("clinical_services.service_name", "%dialy%");
+    if (chargesError) throw chargesError;
+    for (const charge of (charges || []) as any[]) {
+      amounts.set(
+        charge.visit_id,
+        (amounts.get(charge.visit_id) || 0) + (Number(charge.amount) || 0),
+      );
+    }
+  }
+
+  return visits.map((visit) => ({
+    id: visit.id,
+    visit_id: visit.visit_id,
+    visit_date: visit.visit_date,
+    status: visit.status,
+    patient_id: visit.patient_id,
+    patient: visit.patients,
+    amount: amounts.get(visit.id) || 0,
+  }));
+}
+
+function reportMarker(visitId: string) {
+  return `dialysis_visit:${visitId}`;
+}
+
+type ReportCategory = Extract<
+  PatientDocCategory,
+  "dialysis" | "lab_investigation" | "treatment_sheet" | "monitor_chart"
+>;
+
+const REPORTS: ReadonlyArray<{ category: ReportCategory; label: string }> = [
+  { category: "dialysis", label: "Patient photo" },
+  { category: "lab_investigation", label: "Lab report" },
+  { category: "treatment_sheet", label: "Clinical report" },
+  { category: "monitor_chart", label: "Vital report" },
 ];
 
-/**
- * Dialysis — who is due a bill (every 6 cycles) and whose mandatory 30-day
- * lab report has run out.
- */
-export default function DialysisFlow() {
-  const { hospitalConfig } = useAuth();
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const { rows, billsDue, labsDue, loading, error, refetch } = useDialysisTracker();
-  const [filter, setFilter] = useState<Filter>("action");
-  const [busyKey, setBusyKey] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const visible = useMemo(() => {
-    if (filter === "bill") return rows.filter((r) => r.billsDue > 0);
-    if (filter === "lab") return rows.filter((r) => r.labDue);
-    if (filter === "action") return rows.filter((r) => r.billsDue > 0 || r.labDue);
-    return rows;
-  }, [rows, filter]);
-
-  const refresh = async () => {
-    setRefreshing(true);
-    await refetch();
-    setRefreshing(false);
-  };
-
-  const handleMarkBilled = async (row: DialysisTrackerRow) => {
-    const upTo = row.billedCycles + row.billsDue * CYCLES_PER_BILL;
-    const carryOver = row.unbilledCycles % CYCLES_PER_BILL;
-    setBusyKey(row.key);
-    try {
-      await markCyclesBilled(hospitalConfig.name, row, upTo);
-      await queryClient.invalidateQueries({ queryKey: [DIALYSIS_QUERY_KEY] });
-      toast({
-        title: `Billed ${row.billsDue * CYCLES_PER_BILL} cycles for ${row.patientName}`,
-        description: carryOver > 0 ? `${carryOver} cycle(s) carry over to the next bill.` : undefined,
-      });
-    } catch (err) {
-      toast({
-        title: "Could not save",
-        description: err instanceof Error ? err.message : undefined,
-        variant: "destructive",
-      });
-    }
-    setBusyKey(null);
-  };
-
-  const handlePrintLab = async (row: DialysisTrackerRow) => {
-    setBusyKey(row.key);
-    try {
-      const problem = await printDialysisLabReport(row);
-      if (problem) {
-        toast({ title: "Cannot print lab report", description: problem, variant: "destructive" });
-      }
-    } catch (err) {
-      toast({
-        title: "Could not print lab report",
-        description: err instanceof Error ? err.message : undefined,
-        variant: "destructive",
-      });
-    }
-    setBusyKey(null);
+function SessionDocuments({
+  session,
+  onUploaded,
+}: {
+  session: Session;
+  onUploaded: () => Promise<void>;
+}) {
+  const marker = reportMarker(session.id);
+  const common = {
+    patientId: session.patient_id,
+    patientName: session.patient.name,
+    notesFilter: marker,
+    latestOnly: true,
+    compact: true,
+    onUploaded,
   };
 
   return (
+    <div className="space-y-4 border-t pt-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold">Session {session.sessionNumber} documents</p>
+          <p className="text-xs text-muted-foreground">
+            Upload, capture, or download reports for this dialysis visit.
+          </p>
+        </div>
+        <span className="shrink-0 rounded-full bg-muted px-3 py-1 text-xs font-semibold">
+          {shortDate(session.visit_date)}
+        </span>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        {REPORTS.map((report) => (
+          <ReportSlot
+            key={report.category}
+            label={report.label}
+            category={report.category}
+            {...common}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ReportSlot({
+  label,
+  category,
+  ...props
+}: {
+  label: string;
+  category: ReportCategory;
+  patientId: string;
+  patientName: string | null;
+  notesFilter: string | null;
+  latestOnly: boolean;
+  compact: boolean;
+  onUploaded: () => Promise<void>;
+}) {
+  const docs = usePatientDocs(props.patientId, category, props.notesFilter);
+  const latest = docs.data?.[0] || null;
+
+  return (
+    <TabletCard variant="flat" className="space-y-2 p-2.5">
+      <div className="flex items-center gap-2">
+        <FileCheck2 className="h-4 w-4 shrink-0 text-primary" />
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{label}</span>
+        <span className="shrink-0 text-[11px] text-muted-foreground">
+          {docs.isLoading ? "Loading" : latest ? `Uploaded · ${shortDate(latest.uploadedAt)}` : "No file"}
+        </span>
+      </div>
+      <PatientDocsTab category={category} label={label} uploadNotes={props.notesFilter} {...props} />
+    </TabletCard>
+  );
+}
+
+function PatientDialysisRow({
+  visit,
+  history,
+  onUploaded,
+  onExpanded,
+}: {
+  visit: DialysisVisit;
+  history: Session[];
+  onUploaded: (visit: DialysisVisit) => Promise<void>;
+  onExpanded: (expanded: boolean) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(visit.id);
+  const documentsRef = useRef<HTMLDivElement>(null);
+  const activeSession = history.find((item) => item.id === activeSessionId);
+  const completed = isCompleted(visit.status);
+  const currentCycle = ((history.length - 1) % CYCLES_PER_BILL) + 1;
+
+  useEffect(() => {
+    if (!expanded || !activeSessionId || history.length <= 1) return;
+    documentsRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [activeSessionId, expanded, history.length]);
+
+  return (
+    <TabletCard variant="flat" className={cn("space-y-3", completed && "border-emerald-200") }>
+      <button
+        type="button"
+        className="flex w-full items-start gap-3 text-left active:scale-[0.99]"
+        onClick={() =>
+          setExpanded((value) => {
+            const next = !value;
+            onExpanded(next);
+            return next;
+          })
+        }
+      >
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
+          <UserRound className="h-5 w-5 text-primary" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-base font-bold">{visit.patient.name || "Unnamed patient"}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            {visit.patient.patients_id || "No patient ID"} · {visit.patient.phone || "No phone"}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span
+            className={cn(
+              "rounded-full px-2.5 py-1 text-[11px] font-bold",
+              completed ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800",
+            )}
+          >
+            {completed ? "Dialysis done" : "Registered"}
+          </span>
+          {expanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+        </div>
+      </button>
+
+      <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
+        <Metric label="Last dialysis" value={shortDate(visit.visit_date)} />
+        <Metric label="This visit" value={money(visit.amount)} />
+        <Metric label="Six-cycle sitting" value={`${currentCycle} / ${CYCLES_PER_BILL}`} />
+        <Metric label="Total sittings" value={String(history.length)} />
+      </div>
+
+      {expanded ? (
+        <div className="space-y-4 border-t pt-4">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold">Dialysis history</p>
+            <span className="text-xs text-muted-foreground">Newest visit first</span>
+          </div>
+
+          <div className="space-y-2">
+            {history.map((session) => {
+              const selected = activeSession?.id === session.id;
+              return (
+                <div
+                  key={session.id}
+                  ref={selected ? documentsRef : undefined}
+                  className={cn(
+                    "overflow-hidden rounded-xl border",
+                    selected ? "border-primary bg-primary/5" : "border-border",
+                  )}
+                >
+                  <button
+                    type="button"
+                    aria-label={`View dialysis session ${session.sessionNumber} from ${shortDate(session.visit_date)}`}
+                    aria-pressed={selected}
+                    onClick={() => setActiveSessionId((current) => (current === session.id ? null : session.id))}
+                    className="grid w-full grid-cols-[auto_1fr_auto_auto] items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/40 active:scale-[0.99]"
+                  >
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-bold">
+                      {session.sessionNumber}
+                    </span>
+                    <span>
+                      <span className="block text-sm font-semibold">{shortDate(session.visit_date)}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {session.amount ? money(session.amount) : "Amount not recorded"}
+                      </span>
+                    </span>
+                    <span className="text-right text-xs font-semibold">
+                      {selected ? "Viewing" : isCompleted(session.status) ? "Done" : "Open"}
+                    </span>
+                    <ChevronDown
+                      className={cn(
+                        "h-4 w-4 transition-transform",
+                        selected && "rotate-180 text-primary",
+                      )}
+                    />
+                  </button>
+
+                  {selected ? (
+                    <div className="border-t px-3 pb-3">
+                      <SessionDocuments
+                        session={session}
+                        onUploaded={() => onUploaded(session)}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+
+          {!completed ? (
+            <TabletButton className="w-full" onClick={() => onUploaded(visit)}>
+              <CheckCircle2 className="mr-2 h-5 w-5" />
+              Mark today’s dialysis done
+            </TabletButton>
+          ) : null}
+        </div>
+      ) : null}
+    </TabletCard>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-background/70 px-2 py-2">
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className="mt-0.5 truncate text-sm font-bold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+export default function DialysisFlow() {
+  const { hospitalConfig } = useAuth();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [refreshing, setRefreshing] = useState(false);
+  const [period, setPeriod] = useState<DialysisPeriod>("today");
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const todayVisits = useQuery({
+    queryKey: ["tablet-dialysis-today", hospitalConfig.name, period, searchTerm.trim().toLowerCase()],
+    queryFn: async () => {
+      const visits = await loadVisits(hospitalConfig.name);
+      const range = periodRange(period);
+      const normalizedSearch = searchTerm.trim().toLowerCase();
+      const periodRows = normalizedSearch
+        ? visits.filter((row) =>
+            [row.patient.name, row.patient.patients_id, row.patient.phone, row.visit_id]
+              .filter(Boolean)
+              .some((value) => String(value).toLowerCase().includes(normalizedSearch)),
+          )
+        : visits.filter((row) => row.visit_date >= range.start && row.visit_date <= range.end);
+      const unique = new Map<string, DialysisVisit>();
+      for (const row of periodRows) {
+        if (!unique.has(row.patient_id)) unique.set(row.patient_id, row);
+      }
+      return Array.from(unique.values());
+    },
+    staleTime: 30_000,
+  });
+
+  const [expandedPatientId, setExpandedPatientId] = useState<string | null>(null);
+  const history = useQuery({
+    queryKey: ["tablet-dialysis-history", expandedPatientId, hospitalConfig.name],
+    enabled: !!expandedPatientId,
+    queryFn: async () => {
+      const rows = await loadVisits(hospitalConfig.name, expandedPatientId || undefined);
+      return rows
+        .filter((row) => row.patient_id === expandedPatientId)
+        .sort((a, b) => b.visit_date.localeCompare(a.visit_date))
+        .map((row, index) => ({ ...row, sessionNumber: rows.length - index }));
+    },
+    staleTime: 30_000,
+  });
+
+  const patients = useMemo(() => todayVisits.data || [], [todayVisits.data]);
+  const visiblePatients = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return patients;
+    return patients.filter((visit) =>
+      [
+        visit.patient.name,
+        visit.patient.patients_id,
+        visit.patient.phone,
+        visit.visit_id,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term)),
+    );
+  }, [patients, searchTerm]);
+
+  const refresh = async () => {
+    setRefreshing(true);
+    await Promise.all([
+      todayVisits.refetch(),
+      expandedPatientId ? history.refetch() : Promise.resolve(),
+    ]);
+    setRefreshing(false);
+  };
+
+  const markDone = async (visit: DialysisVisit) => {
+    const { error } = await supabase
+      .from("visits")
+      .update({ status: "completed" })
+      .eq("id", visit.id);
+    if (error) {
+      toast({ title: "Could not update dialysis status", description: error.message, variant: "destructive" });
+      return;
+    }
+    await qc.invalidateQueries({ queryKey: ["tablet-dialysis-today"] });
+    await qc.invalidateQueries({ queryKey: ["tablet-dialysis-history", visit.patient_id] });
+    toast({ title: "Dialysis marked done", description: `${visit.patient.name || "Patient"} is recorded for today.` });
+  };
+
+  const handlePatientUploaded = async (visit: DialysisVisit) => {
+    await markDone(visit);
+    await refresh();
+  };
+
+  const isSearching = searchTerm.trim().length > 0;
+  const selectedPeriodLabel = isSearching ? "All matching visits" : periodLabels[period];
+
+  return (
     <FlowScaffold
-      heading="Dialysis"
-      subheading={`Bill every ${CYCLES_PER_BILL} cycles · lab report every ${LAB_REPORT_INTERVAL_DAYS} days`}
+      heading="Dialysis Done"
+      subheading="Dialysis patients, session history, billing, and reports"
       actions={
         <TabletButton variant="outline" className="flex-1" onClick={refresh} disabled={refreshing}>
-          {refreshing ? (
-            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-          ) : (
-            <RefreshCw className="mr-2 h-5 w-5" />
-          )}
+          {refreshing ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <RefreshCw className="mr-2 h-5 w-5" />}
           Refresh
         </TabletButton>
       }
     >
       <div className="space-y-4">
+        <div className="grid grid-cols-3 gap-2" role="tablist" aria-label="Dialysis date range">
+          {(Object.keys(periodLabels) as DialysisPeriod[]).map((option) => (
+            <TabletButton
+              key={option}
+              type="button"
+              size="sm"
+              variant={period === option ? "default" : "outline"}
+              aria-selected={period === option}
+              onClick={() => setPeriod(option)}
+              className="min-h-12 px-2 text-sm sm:text-base"
+            >
+              {periodLabels[option]}
+            </TabletButton>
+          ))}
+        </div>
+
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+          <TabletInput
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search patient name, patient ID, phone, or visit ID"
+            aria-label="Search dialysis patients"
+            className="pl-12 pr-4"
+          />
+          {isSearching ? (
+            <p className="mt-1 text-xs text-muted-foreground">Search is showing results from all dates.</p>
+          ) : null}
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
-          <TabletCard
-            variant="flat"
-            className={cn("py-3", billsDue > 0 && "border-rose-200 bg-rose-50")}
-          >
-            <p className="text-xs text-muted-foreground">Bills to prepare</p>
-            <p className={cn("mt-1 text-2xl font-bold", billsDue > 0 && "text-rose-600")}>
-              {loading ? "…" : billsDue}
-            </p>
+          <TabletCard variant="flat" className="py-3">
+            <p className="text-xs text-muted-foreground">Registered · {selectedPeriodLabel}</p>
+            <p className="mt-1 text-2xl font-bold">{todayVisits.isLoading ? "…" : visiblePatients.length}</p>
           </TabletCard>
-          <TabletCard
-            variant="flat"
-            className={cn("py-3", labsDue > 0 && "border-amber-200 bg-amber-50")}
-          >
-            <p className="text-xs text-muted-foreground">Lab reports due</p>
-            <p className={cn("mt-1 text-2xl font-bold", labsDue > 0 && "text-amber-600")}>
-              {loading ? "…" : labsDue}
+          <TabletCard variant="flat" className="py-3">
+            <p className="text-xs text-muted-foreground">Completed · {selectedPeriodLabel}</p>
+            <p className="mt-1 text-2xl font-bold text-emerald-700">
+              {todayVisits.isLoading ? "…" : visiblePatients.filter((row) => isCompleted(row.status)).length}
             </p>
           </TabletCard>
         </div>
 
-        <TabletCard variant="flat" className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Droplets className="h-5 w-5 text-sky-600" />
-            <span className="text-sm font-semibold">Show</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {FILTERS.map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => setFilter(f.id)}
-                className={cn(
-                  "min-w-[64px] rounded-full border px-4 py-2 text-sm font-semibold transition-colors active:scale-[0.98]",
-                  filter === f.id
-                    ? "border-slate-900 bg-slate-900 text-white"
-                    : "bg-background hover:bg-muted/60",
-                )}
-              >
-                {f.label}
-              </button>
-            ))}
+        <TabletCard variant="flat" className="flex items-start gap-3 bg-sky-50/70">
+          <Droplets className="mt-0.5 h-5 w-5 shrink-0 text-sky-700" />
+          <div>
+            <p className="text-sm font-semibold text-sky-950">{selectedPeriodLabel} dialysis list</p>
+            <p className="mt-1 text-xs text-sky-900/70">
+              Tap a patient name to open the six-session history. Reports uploaded here are also visible in Patient Profile → Dialysis.
+            </p>
           </div>
         </TabletCard>
 
-        {loading ? (
+        {todayVisits.isLoading ? (
           <TabletCard variant="flat" className="flex items-center gap-2">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            <span className="text-sm">Loading dialysis patients…</span>
+            <Loader2 className="h-5 w-5 animate-spin" /> Loading today’s patients…
           </TabletCard>
-        ) : null}
-
-        {error ? (
+        ) : todayVisits.isError ? (
           <TabletCard variant="flat" className="border-red-200 bg-red-50">
             <p className="text-sm font-semibold text-red-700">Unable to load dialysis patients.</p>
-            <p className="mt-1 text-sm text-red-600">{error.message || "Please retry."}</p>
+            <p className="mt-1 text-sm text-red-600">{todayVisits.error instanceof Error ? todayVisits.error.message : "Please retry."}</p>
           </TabletCard>
-        ) : null}
-
-        {!loading && !error && visible.length === 0 ? (
-          <TabletCard variant="flat">
-            <p className="text-sm text-muted-foreground">
-              {filter === "all"
-                ? "No dialysis patients found."
-                : "Nothing pending — every dialysis patient is billed and has a current lab report."}
+        ) : visiblePatients.length === 0 ? (
+          <TabletCard variant="flat" className="py-10 text-center">
+            <CalendarDays className="mx-auto h-8 w-8 text-muted-foreground" />
+            <p className="mt-3 text-sm font-semibold">
+              {searchTerm.trim()
+                ? "No matching dialysis patients found."
+                : `No dialysis patients found for ${selectedPeriodLabel.toLowerCase()}.`}
             </p>
+            <p className="mt-1 text-xs text-muted-foreground">Patients registered from the dashboard will appear here.</p>
           </TabletCard>
-        ) : null}
-
-        {visible.map((row) => (
-          <PatientCard
-            key={row.key}
-            row={row}
-            busy={busyKey === row.key}
-            onPrintLab={() => handlePrintLab(row)}
-            onMarkBilled={() => handleMarkBilled(row)}
-          />
-        ))}
+        ) : (
+          <div className="space-y-3">
+            {visiblePatients.map((visit) => (
+              <PatientDialysisRow
+                key={visit.patient_id}
+                visit={visit}
+                history={
+                  expandedPatientId === visit.patient_id && history.data?.length
+                    ? history.data
+                    : [{ ...visit, sessionNumber: 1 }]
+                }
+                onUploaded={handlePatientUploaded}
+                onExpanded={(expanded) => setExpandedPatientId(expanded ? visit.patient_id : null)}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </FlowScaffold>
-  );
-}
-
-function PatientCard({
-  row,
-  busy,
-  onPrintLab,
-  onMarkBilled,
-}: {
-  row: DialysisTrackerRow;
-  busy: boolean;
-  onPrintLab: () => void;
-  onMarkBilled: () => void;
-}) {
-  return (
-    <TabletCard
-      variant="flat"
-      className={cn("space-y-3", row.billsDue > 0 && "border-rose-200 bg-rose-50/50")}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate text-base font-bold">{row.patientName}</p>
-          <p className="text-xs text-muted-foreground">
-            {row.patientsId ? `${row.patientsId} · ` : ""}last session {shortDate(row.lastSessionDate)}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {row.billsDue > 0 ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-rose-600 px-3 py-1 text-xs font-bold text-white">
-              <BellRing className="h-3.5 w-3.5" />
-              Prepare bill{row.billsDue > 1 ? ` ×${row.billsDue}` : ""}
-            </span>
-          ) : null}
-          {row.labDue ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">
-              <FlaskConical className="h-3.5 w-3.5" />
-              {row.lastLabDate ? `Lab ${row.daysSinceLab}d old` : "No lab report"}
-            </span>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-3 gap-2 text-center">
-        <Figure label="Cycles" value={String(row.totalCycles)} />
-        <Figure label="To bill" value={String(row.unbilledCycles)} />
-        <Figure
-          label="Lab due in"
-          value={row.labDue ? "now" : `${row.daysUntilLabDue}d`}
-        />
-      </div>
-
-      <div className="flex gap-3">
-        <TabletButton variant="outline" className="flex-1" onClick={onPrintLab} disabled={busy}>
-          <Printer className="mr-2 h-5 w-5" />
-          Lab report
-        </TabletButton>
-        {row.billsDue > 0 ? (
-          <TabletButton className="flex-1" onClick={onMarkBilled} disabled={busy}>
-            Mark {row.billsDue * CYCLES_PER_BILL} billed
-          </TabletButton>
-        ) : null}
-      </div>
-    </TabletCard>
-  );
-}
-
-function Figure({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl bg-background/70 py-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-0.5 text-lg font-bold tracking-tight">{value}</p>
-    </div>
   );
 }

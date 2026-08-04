@@ -16,10 +16,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import { shortDate } from "@/tablet/lib/format";
 import { compressImageToLimit } from "@/tablet/lib/image";
+import { cn } from "@/lib/utils";
 import { MultiShotCamera, type CapturedPhotoItem } from "@/tablet/modules/patient-profile/MultiShotCamera";
 import { googleMapsUrl } from "@/lib/geotag";
 
@@ -47,6 +49,14 @@ interface PatientDocsTabProps {
   uploadNotes?: string | null;
   /** Blocks upload until the caller supplies uploadNotes (e.g. picks a name). */
   uploadDisabledReason?: string | null;
+  /** Restrict the gallery to one dialysis/session upload marker. */
+  notesFilter?: string | null;
+  /** Show only the newest file while retaining the existing upload controls. */
+  latestOnly?: boolean;
+  /** Put a download-latest action beside this category's upload controls. */
+  compact?: boolean;
+  /** Called after at least one file is successfully uploaded. */
+  onUploaded?: () => void | Promise<void>;
 }
 
 function isImage(type: string | null): boolean {
@@ -82,11 +92,15 @@ export function PatientDocsTab({
   label,
   uploadNotes = null,
   uploadDisabledReason = null,
+  notesFilter = null,
+  latestOnly = false,
+  compact = false,
+  onUploaded,
 }: PatientDocsTabProps) {
   const { user, hospitalConfig } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
-  const docs = usePatientDocs(patientId, category);
+  const docs = usePatientDocs(patientId, category, notesFilter);
 
   const chooseRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -131,11 +145,12 @@ export function PatientDocsTab({
         return;
       }
       await uploadPatientDocs(
-        prepared.map((p) => ({
-          file: p.file,
-          geo: p.geo,
-          captureSource: p.geo ? "in_app_camera" : "file_picker",
-        })),
+        prepared.map((p) => {
+          const captureSource: "in_app_camera" | "file_picker" = p.geo
+            ? "in_app_camera"
+            : "file_picker";
+          return { file: p.file, geo: p.geo, captureSource };
+        }),
         {
           patientId,
           patientName,
@@ -152,6 +167,7 @@ export function PatientDocsTab({
         title: "Uploaded",
         description: `${prepared.length} file(s) added to ${label}.`,
       });
+      await onUploaded?.();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Upload failed.";
       toast({ title: "Upload failed", description: message, variant: "destructive" });
@@ -173,12 +189,13 @@ export function PatientDocsTab({
     }
   };
 
-  const items = docs.data || [];
+  const items = latestOnly ? (docs.data || []).slice(0, 1) : docs.data || [];
+  const latest = items[0] || null;
 
   return (
     <div className="space-y-4">
       {/* Upload controls */}
-      <div className="flex gap-3">
+      <div className={cn("flex gap-2", compact ? "flex-wrap" : "gap-3")}>
         <input
           ref={chooseRef}
           type="file"
@@ -190,26 +207,57 @@ export function PatientDocsTab({
             e.target.value = "";
           }}
         />
-        <TabletButton
-          className="flex-1"
-          disabled={uploading || !!uploadDisabledReason}
-          onClick={() => chooseRef.current?.click()}
-        >
-          {uploading ? (
-            <Loader2 className="h-5 w-5 animate-spin" />
-          ) : (
-            <Upload className="h-5 w-5" />
-          )}
-          Upload / Choose Photos
-        </TabletButton>
-        <TabletButton
-          variant="outline"
-          className="flex-1"
-          disabled={uploading || !!uploadDisabledReason}
-          onClick={() => setCameraOpen(true)}
-        >
-          <Camera className="h-5 w-5" /> Take Photos
-        </TabletButton>
+        {compact ? (
+          <>
+            <Button
+              size="sm"
+              className="min-w-[7rem] flex-1 rounded-lg px-3 text-xs shadow-none"
+              disabled={uploading || !!uploadDisabledReason}
+              onClick={() => chooseRef.current?.click()}
+            >
+              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              Upload
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="min-w-[7rem] flex-1 rounded-lg px-3 text-xs shadow-none"
+              disabled={uploading || !!uploadDisabledReason}
+              onClick={() => setCameraOpen(true)}
+            >
+              <Camera className="h-4 w-4" /> Camera
+            </Button>
+            {latest ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="min-w-[7rem] flex-1 rounded-lg px-3 text-xs shadow-none"
+                onClick={() => void downloadDoc(latest)}
+              >
+                <Download className="h-4 w-4" /> Download
+              </Button>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <TabletButton
+              className="flex-1"
+              disabled={uploading || !!uploadDisabledReason}
+              onClick={() => chooseRef.current?.click()}
+            >
+              {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
+              Upload / Choose Photos
+            </TabletButton>
+            <TabletButton
+              variant="outline"
+              className="flex-1"
+              disabled={uploading || !!uploadDisabledReason}
+              onClick={() => setCameraOpen(true)}
+            >
+              <Camera className="h-5 w-5" /> Take Photos
+            </TabletButton>
+          </>
+        )}
       </div>
 
       {uploadDisabledReason ? (
@@ -222,8 +270,37 @@ export function PatientDocsTab({
         onCapture={(photos) => handleFiles(photos)}
       />
 
-      {/* Gallery */}
-      {docs.isLoading ? (
+      {/* Compact latest-file status for dialysis; full gallery remains unchanged elsewhere. */}
+      {compact ? (
+        <div className="flex min-h-10 items-center gap-2 rounded-lg border border-dashed px-2 py-1.5">
+          {docs.isLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          ) : docs.isError ? (
+            <span className="text-xs text-destructive">Could not load this report.</span>
+          ) : latest ? (
+            <>
+              {isImage(latest.fileType) ? (
+                <img src={latest.fileUrl} alt="" className="h-9 w-9 rounded-md object-cover" />
+              ) : (
+                <FileText className="h-5 w-5 text-muted-foreground" />
+              )}
+              <span className="min-w-0 truncate text-xs text-muted-foreground">
+                {latest.fileName} · {shortDate(latest.uploadedAt)}
+              </span>
+              <button
+                type="button"
+                aria-label={`Delete ${label}`}
+                className="ml-auto shrink-0 rounded-md p-1.5 text-destructive hover:bg-destructive/10"
+                onClick={() => void handleDelete(latest)}
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </>
+          ) : (
+            <span className="text-xs text-muted-foreground">No file uploaded yet.</span>
+          )}
+        </div>
+      ) : docs.isLoading ? (
         <div className="flex justify-center py-10">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
