@@ -18,6 +18,41 @@ const normalizeRegistrationId = (value: string | null | undefined) =>
 const normalizeMatchValue = (value: string | null | undefined) =>
   (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
+/**
+ * The portal's spelling of a name drifts from ours — "Vrandavan Shukl" for
+ * our "Vrindavan Shukla" — so a discharged patient kept his Extension Needed
+ * badge forever. Exact name matching cannot see through that.
+ *
+ * This is deliberately strict, because a false match HIDES a patient who
+ * still needs action: at least 8 characters, a length difference of no more
+ * than 2, the same first letter, and a Levenshtein distance of 1 (short
+ * names) or 2. "vrandavanshukl" vs "vrindavanshukla" passes; two different
+ * people with similar names do not.
+ */
+const editDistanceWithin = (a: string, b: string, max: number): boolean => {
+  if (Math.abs(a.length - b.length) > max) return false;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i += 1) {
+    const row = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + cost);
+      best = Math.min(best, row[j]);
+    }
+    if (best > max) return false;   // no path can recover
+    prev = row;
+  }
+  return prev[b.length] <= max;
+};
+
+export const isNearIdenticalName = (a: string, b: string): boolean => {
+  if (!a || !b || a === b) return a === b && !!a;
+  if (a.length < 8 || b.length < 8) return false;
+  if (a[0] !== b[0]) return false;
+  return editDistanceWithin(a, b, Math.min(a.length, b.length) >= 12 ? 2 : 1);
+};
+
 export type GovernmentPortalReportKind = 'under_treatment' | 'claims_to_be_submitted';
 
 export interface SavedGovernmentPortalImport {
@@ -587,7 +622,18 @@ export function isDischargedPatient(
   const regId = normalizeRegistrationId(registrationId);
   if (regId && keys.byRegistrationId.has(regId)) return true;
   const name = normalizeMatchValue(patientName);
-  return !!name && keys.byPatientName.has(name);
+  if (!name) return false;
+  if (keys.byPatientName.has(name)) return true;
+  // Last resort: the portal's spelling of the name drifts from ours. Only a
+  // near-identical name counts, and the match is logged — hiding a patient
+  // who still needs an extension is the dangerous direction.
+  for (const discharged of keys.byPatientName) {
+    if (isNearIdenticalName(name, discharged)) {
+      console.info(`[portal] treating "${patientName}" as discharged "${discharged}" (near-identical name)`);
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -689,12 +735,15 @@ export async function fetchLatestGovernmentPortalExtensionAlerts(
   // then by normalized beneficiary name (fallback when the visit has no ID).
   const { byRegistrationId: dischargedByRegId, byPatientName: dischargedByName } =
     await dischargedKeysPromise;
-  const isDischarged = (row: DbReportRow): boolean => {
-    const regId = normalizeRegistrationId(row.registration_id);
-    if (regId && dischargedByRegId.has(regId)) return true;
-    const name = normalizeMatchValue(row.beneficiary_name);
-    return Boolean(name) && dischargedByName.has(name);
+  // One definition of "discharged", shared with rowNeedsExtension — a second
+  // copy here is how a patient came to be filtered by one surface and not the
+  // other (and it missed the near-identical-name case entirely).
+  const dischargedKeys: DischargedPatientKeys = {
+    byRegistrationId: dischargedByRegId,
+    byPatientName: dischargedByName,
   };
+  const isDischarged = (row: DbReportRow): boolean =>
+    isDischargedPatient(dischargedKeys, row.registration_id, row.beneficiary_name);
 
   const alertRows = Array.from(uniqueRows.values())
     .filter((row) => !isDischarged(row))
