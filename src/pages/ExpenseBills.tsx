@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
 import {
-  Banknote, FileText, Filter, Loader2, Paperclip, Plus, Receipt, Search, Users, X,
+  Banknote, CalendarClock, FileText, Filter, Loader2, Paperclip, Plus, Receipt, Search, Users, X,
 } from 'lucide-react';
 import { LedgerAutocomplete, type LedgerAccountOption } from '@/components/accounting/LedgerAutocomplete';
 import { useCashBankLedgers } from '@/hooks/useCashBankLedgers';
@@ -189,7 +189,31 @@ const invalidateBills = (qc: ReturnType<typeof useQueryClient>) => {
   qc.invalidateQueries({ queryKey: ['expense-bill-register'] });
   qc.invalidateQueries({ queryKey: ['expense-bill-referral'] });
   qc.invalidateQueries({ queryKey: ['expense-bills-outstanding'] });
+  qc.invalidateQueries({ queryKey: ['expense-bill-moved'] });
+  qc.invalidateQueries({ queryKey: ['daily-payment-schedule'] });
 };
+
+/**
+ * Which invoices are already sitting on a live (unpaid, unskipped) daily
+ * allocation, so the page shows "In allocation" instead of a checkbox and a
+ * second move is blocked before the database has to refuse it.
+ */
+function useMovedToAllocation() {
+  return useQuery({
+    queryKey: ['expense-bill-moved'],
+    queryFn: async (): Promise<Record<string, string>> => {
+      const { data, error } = await (supabase as any)
+        .from('daily_payment_schedule')
+        .select('expense_bill_id, schedule_date, status')
+        .not('expense_bill_id', 'is', null)
+        .not('status', 'in', '(paid,skipped)');
+      if (error) throw error;
+      const map: Record<string, string> = {};
+      for (const r of (data ?? []) as any[]) map[r.expense_bill_id] = r.schedule_date;
+      return map;
+    },
+  });
+}
 
 // ── Pay dialog ──────────────────────────────────────────────────────────
 
@@ -524,6 +548,7 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
 
 function BillTable({
   rows, isLoading, error, onPay, emptyMessage, showPatient,
+  selectedIds, onToggleRow, onToggleAll, movedDates, onMove, moving,
 }: {
   rows: BillRow[];
   isLoading: boolean;
@@ -531,6 +556,14 @@ function BillTable({
   onPay: (bill: BillRow) => void;
   emptyMessage: string;
   showPatient?: boolean;
+  /** Selection for the move-to-daily-allocation flow, shared across the page. */
+  selectedIds: Set<string>;
+  onToggleRow: (id: string) => void;
+  onToggleAll: (rows: BillRow[], select: boolean) => void;
+  /** billId → schedule_date for invoices already on a live allocation. */
+  movedDates: Record<string, string>;
+  onMove: (ids: string[]) => void;
+  moving: boolean;
 }) {
   if (isLoading) {
     return (
@@ -555,11 +588,27 @@ function BillTable({
       </div>
     );
   }
+  // Only unpaid bills not already on a live allocation can be selected.
+  const movable = rows.filter((b) => statusOf(b) !== 'paid' && !movedDates[b.id]);
+  const allSelected = movable.length > 0 && movable.every((b) => selectedIds.has(b.id));
+
   return (
     <div className="overflow-x-auto">
       <Table>
         <TableHeader>
           <TableRow className="bg-gray-50">
+            <TableHead className="w-24">
+              <label className="flex items-center gap-1.5 text-xs font-medium cursor-pointer" title="Select every payable bill in this list for Daily Allocation">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={allSelected}
+                  disabled={movable.length === 0}
+                  onChange={(e) => onToggleAll(movable, e.target.checked)}
+                />
+                Allocate
+              </label>
+            </TableHead>
             <TableHead>Bill No</TableHead>
             <TableHead>Bill Date</TableHead>
             {showPatient && <TableHead>Patient</TableHead>}
@@ -578,8 +627,29 @@ function BillTable({
         <TableBody>
           {rows.map((b) => {
             const status = statusOf(b);
+            const movedDate = movedDates[b.id];
             return (
               <TableRow key={b.id} className="hover:bg-gray-50">
+                <TableCell>
+                  {status === 'paid' ? (
+                    <span className="text-xs text-gray-400">—</span>
+                  ) : movedDate ? (
+                    <span
+                      className="inline-block rounded bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700"
+                      title={`Already on the ${new Date(movedDate).toLocaleDateString('en-IN')} allocation — pay it from the Payment Allocation page`}
+                    >
+                      In allocation
+                    </span>
+                  ) : (
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={selectedIds.has(b.id)}
+                      onChange={() => onToggleRow(b.id)}
+                      aria-label={`Select invoice ${b.billNumber} for Daily Allocation`}
+                    />
+                  )}
+                </TableCell>
                 <TableCell className="font-medium">{b.billNumber}</TableCell>
                 <TableCell>{new Date(b.billDate).toLocaleDateString('en-IN')}</TableCell>
                 {showPatient && <TableCell>{b.patientName || '—'}</TableCell>}
@@ -605,9 +675,23 @@ function BillTable({
                 </TableCell>
                 <TableCell className="text-right">
                   {status !== 'paid' ? (
-                    <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" onClick={() => onPay(b)}>
-                      <Banknote className="h-3.5 w-3.5" /> Pay
-                    </Button>
+                    <span className="inline-flex gap-1">
+                      <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" onClick={() => onPay(b)}>
+                        <Banknote className="h-3.5 w-3.5" /> Pay
+                      </Button>
+                      {!movedDate && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 gap-1 px-2 text-xs"
+                          disabled={moving}
+                          title="Move this invoice to today's Daily Payment Allocation"
+                          onClick={() => onMove([b.id])}
+                        >
+                          <CalendarClock className="h-3.5 w-3.5" /> Move
+                        </Button>
+                      )}
+                    </span>
                   ) : (
                     <span className="text-xs text-emerald-700">settled</span>
                   )}
@@ -623,7 +707,20 @@ function BillTable({
 
 // ── DRR referral section (OPD / IPD) ────────────────────────────────────
 
-function ReferralSection({ patientType, onPay }: { patientType: 'OPD' | 'IPD'; onPay: (b: BillRow) => void }) {
+interface SelectionProps {
+  selectedIds: Set<string>;
+  onToggleRow: (id: string) => void;
+  onToggleAll: (rows: BillRow[], select: boolean) => void;
+  movedDates: Record<string, string>;
+  onMove: (ids: string[]) => void;
+  moving: boolean;
+}
+
+function ReferralSection({ patientType, onPay, selection }: {
+  patientType: 'OPD' | 'IPD';
+  onPay: (b: BillRow) => void;
+  selection: SelectionProps;
+}) {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [date, setDate] = useState('');
@@ -682,6 +779,7 @@ function ReferralSection({ patientType, onPay }: { patientType: 'OPD' | 'IPD'; o
           onPay={onPay}
           showPatient
           emptyMessage={`No ${patientType} referral invoices found${date ? ` for ${new Date(date).toLocaleDateString('en-IN')}` : ''}.`}
+          {...selection}
         />
       </CardContent>
     </Card>
@@ -691,14 +789,76 @@ function ReferralSection({ patientType, onPay }: { patientType: 'OPD' | 'IPD'; o
 // ── The page ────────────────────────────────────────────────────────────
 
 export default function ExpenseBills() {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
   const company = useExpenseBillCompanyId();
   const [draft, setDraft] = useState<RegisterFilters>(emptyFilters);
   const [applied, setApplied] = useState<RegisterFilters>(emptyFilters);
   const [showFilters, setShowFilters] = useState(false);
   const [paying, setPaying] = useState<BillRow | null>(null);
   const [recording, setRecording] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const registerQuery = useExpenseBillRegister(company.data, applied);
+  const movedQuery = useMovedToAllocation();
+
+  const toggleRow = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const toggleAll = (rows: BillRow[], select: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const r of rows) {
+        if (select) next.add(r.id);
+        else next.delete(r.id);
+      }
+      return next;
+    });
+
+  // One invoice at a time, so a failure names its bill instead of sinking the
+  // whole batch; everything that succeeded stays moved.
+  const moveMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const moved: Array<{ billNumber: string; amount: number }> = [];
+      const failed: string[] = [];
+      for (const id of ids) {
+        const { data, error } = await (supabase as any).rpc('move_expense_bill_to_daily_allocation', {
+          p_bill_id: id,
+          p_date: todayIso(),
+          p_created_by: user?.email ?? user?.username ?? null,
+        });
+        if (error) failed.push(error.message);
+        else moved.push({ billNumber: data.bill_number, amount: Number(data.amount) || 0 });
+      }
+      return { moved, failed };
+    },
+    onSuccess: ({ moved, failed }) => {
+      invalidateBills(queryClient);
+      setSelected(new Set());
+      if (moved.length) {
+        const total = moved.reduce((s, m) => s + m.amount, 0);
+        toast.success(
+          `Moved ${moved.length} invoice${moved.length === 1 ? '' : 's'} (₹${rupees(total)}) to today's Daily Payment Allocation`,
+        );
+      }
+      for (const message of failed) toast.error(message);
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
+  const selection: SelectionProps = {
+    selectedIds: selected,
+    onToggleRow: toggleRow,
+    onToggleAll: toggleAll,
+    movedDates: movedQuery.data ?? {},
+    onMove: (ids) => moveMutation.mutate(ids),
+    moving: moveMutation.isPending,
+  };
 
   const activeFilterCount = useMemo(
     () =>
@@ -714,9 +874,23 @@ export default function ExpenseBills() {
           <Receipt className="h-6 w-6 text-emerald-600" />
           <h1 className="text-2xl font-bold">Expense Bill</h1>
         </div>
-        <Button onClick={() => setRecording(true)} className="gap-1">
-          <Plus className="h-4 w-4" /> Record an invoice
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            className="gap-1"
+            disabled={selected.size === 0 || moveMutation.isPending}
+            title="Send the selected invoices to today's Daily Payment Allocation"
+            onClick={() => moveMutation.mutate([...selected])}
+          >
+            {moveMutation.isPending
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <CalendarClock className="h-4 w-4" />}
+            Move to Daily Allocation{selected.size > 0 ? ` (${selected.size})` : ''}
+          </Button>
+          <Button onClick={() => setRecording(true)} className="gap-1">
+            <Plus className="h-4 w-4" /> Record an invoice
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -814,12 +988,13 @@ export default function ExpenseBills() {
             error={registerQuery.error ?? (company.isError ? company.error : null)}
             onPay={setPaying}
             emptyMessage="No expense bills match this search."
+            {...selection}
           />
         </CardContent>
       </Card>
 
-      <ReferralSection patientType="OPD" onPay={setPaying} />
-      <ReferralSection patientType="IPD" onPay={setPaying} />
+      <ReferralSection patientType="OPD" onPay={setPaying} selection={selection} />
+      <ReferralSection patientType="IPD" onPay={setPaying} selection={selection} />
 
       <PayBillDialog bill={paying} onClose={() => setPaying(null)} />
       <RecordBillDialog open={recording} onClose={() => setRecording(false)} />
