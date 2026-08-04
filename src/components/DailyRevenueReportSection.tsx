@@ -835,7 +835,21 @@ export function DailyRevenueReportSection({
       } as never])
       .select('id')
       .single();
-    if (error) throw error;
+    if (error) {
+      // A previous attempt may have inserted the row before its posting
+      // failed (one row per visit is enforced by a unique index). Reuse it
+      // instead of dead-ending every retry on the duplicate key.
+      if ((error as { code?: string }).code === '23505' && row.visitId) {
+        const { data: existing } = await supabase
+          .from('daily_revenue_entries' as never)
+          .select('id')
+          .eq('visit_id', row.visitId)
+          .maybeSingle();
+        const existingId = (existing as unknown as { id: string } | null)?.id;
+        if (existingId) return existingId;
+      }
+      throw error;
+    }
     return (data as unknown as { id: string }).id;
   };
 
@@ -869,7 +883,12 @@ export function DailyRevenueReportSection({
         `Invoice ${result.billNumber} raised — hospital bill posted, ML journals ${result.salesVoucher} & ${result.commissionVoucher}. Pay it from the Expense Bill page.`,
       );
     },
-    onError: (err) => toast.error(getErrorMessage(err)),
+    onError: (err) => {
+      // The entry row may now exist even though posting failed — refresh so
+      // the retry goes through the saved row.
+      invalidate();
+      toast.error(getErrorMessage(err));
+    },
     onSettled: () => setApprovingKey(null),
   });
 

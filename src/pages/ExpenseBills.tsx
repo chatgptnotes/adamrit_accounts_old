@@ -231,8 +231,11 @@ function PayBillDialog({ bill, onClose }: { bill: BillRow | null; onClose: () =>
   const signedRef = useRef<HTMLInputElement>(null);
   const banksQuery = useCashBankLedgers(bill?.companyId ?? null);
 
-  // Reset the form each time a different bill opens the dialog.
+  // Reset the form each time the dialog opens — including on the SAME bill,
+  // or a part-payment would reopen with the previous amount, bank and signed
+  // voucher still attached.
   const lastBillId = useRef<string | null>(null);
+  if (!bill) lastBillId.current = null;
   if (bill && bill.id !== lastBillId.current) {
     lastBillId.current = bill.id;
     setAmount(bill.outstanding.toFixed(2));
@@ -274,8 +277,9 @@ function PayBillDialog({ bill, onClose }: { bill: BillRow | null; onClose: () =>
         p_payment_date: payDate,
         p_created_by: user?.email ?? user?.username ?? null,
         p_remarks: remarks.trim() || null,
-        p_signed_voucher_path: signedPath,
-        p_signed_voucher_url: signedUrl,
+        // Only sent when a voucher was attached, so payments keep working
+        // even on an environment whose migration lags the deploy.
+        ...(signedPath ? { p_signed_voucher_path: signedPath, p_signed_voucher_url: signedUrl } : {}),
       });
       if (error) {
         if (signedPath) await supabase.storage.from('uploads').remove([signedPath]);
@@ -437,8 +441,11 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
 
   const mappedName = EXPENSE_CATEGORIES.find((c) => c.value === category)?.ledgerName ?? null;
   const mappedHead = useExpenseLedgerByName(!head ? mappedName : null);
-  // Suggest the category's ledger once it resolves, without overriding a manual pick.
-  if (!head && mappedHead.data && category && category !== 'other') {
+  // Suggest the category's ledger ONCE per category pick — otherwise clearing
+  // the suggestion re-applies it instantly from the query cache.
+  const suggestedFor = useRef<string | null>(null);
+  if (!head && mappedHead.data && category && category !== 'other' && suggestedFor.current !== category) {
+    suggestedFor.current = category;
     setHead({
       id: mappedHead.data.id,
       account_code: mappedHead.data.code,
@@ -457,6 +464,7 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
     setCategory(''); setParty(null); setHead(null); setBillNumber('');
     setBillDate(todayIso()); setDueDate(''); setAmount(''); setPoc(''); setRm('');
     setNarration(''); setFile(null);
+    suggestedFor.current = null;
   };
 
   const save = () => {
@@ -873,6 +881,13 @@ export default function ExpenseBills() {
   const registerQuery = useExpenseBillRegister(company.data, applied);
   const movedQuery = useMovedToAllocation();
 
+  // Changing the register filters clears the selection — a bulk move must
+  // never include invoices the new filter has hidden from view.
+  const applyFilters = (filters: RegisterFilters) => {
+    setApplied(filters);
+    setSelected(new Set());
+  };
+
   const toggleRow = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -974,16 +989,16 @@ export default function ExpenseBills() {
                 placeholder="Search by vendor, consultant, staff, bill no, POC, RM, category or description…"
                 className="pl-9"
                 onChange={(e) => setDraft({ ...draft, search: e.target.value })}
-                onKeyDown={(e) => e.key === 'Enter' && setApplied(draft)}
+                onKeyDown={(e) => e.key === 'Enter' && applyFilters(draft)}
               />
             </div>
-            <Button onClick={() => setApplied(draft)} className="gap-1">
+            <Button onClick={() => applyFilters(draft)} className="gap-1">
               <Search className="h-4 w-4" /> Search
             </Button>
             <Button
               variant="outline"
               className="gap-1"
-              onClick={() => { setDraft(emptyFilters); setApplied(emptyFilters); }}
+              onClick={() => { setDraft(emptyFilters); applyFilters(emptyFilters); }}
             >
               <X className="h-4 w-4" /> Clear Filters
             </Button>
@@ -1046,7 +1061,7 @@ export default function ExpenseBills() {
                 </Select>
               </div>
               <div className="flex items-end">
-                <Button className="w-full gap-1" onClick={() => setApplied(draft)}>
+                <Button className="w-full gap-1" onClick={() => applyFilters(draft)}>
                   <Search className="h-4 w-4" /> Apply
                 </Button>
               </div>

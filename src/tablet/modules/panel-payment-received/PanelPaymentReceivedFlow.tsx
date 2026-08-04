@@ -75,6 +75,7 @@ function usePanelVisitSearch(term: string) {
           "id, visit_id, patient_type, admission_date, discharge_date, patients!inner(id, name, patients_id, corporate, hospital_name)",
         )
         .ilike("patient_type", "IPD")
+        .eq("patients.hospital_name", hospitalConfig.name)
         .or(`name.ilike.%${safe}%,patients_id.ilike.%${safe}%`, { foreignTable: "patients" })
         .order("created_at", { ascending: false })
         .limit(40);
@@ -102,8 +103,9 @@ function usePanelVisitSearch(term: string) {
 }
 
 function useReceipts(visitCode: string | null) {
+  const { hospitalConfig } = useAuth();
   return useQuery({
-    queryKey: ["panel-payment-receipts", visitCode ?? "recent"],
+    queryKey: ["panel-payment-receipts", visitCode ?? "recent", hospitalConfig.name],
     queryFn: async (): Promise<Receipt[]> => {
       let q = (supabase as any)
         .from("panel_payment_receipts")
@@ -112,6 +114,7 @@ function useReceipts(visitCode: string | null) {
         .order("created_at", { ascending: false })
         .limit(25);
       if (visitCode) q = q.eq("visit_id", visitCode);
+      else q = q.eq("hospital_name", hospitalConfig.name);
       const { data, error } = await q;
       if (error) throw error;
       return ((data ?? []) as any[]).map(mapReceipt);

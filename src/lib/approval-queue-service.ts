@@ -727,26 +727,22 @@ export async function setOtDoctorAmount(
   await createDoctorApprovalsFromOt(ot)
 
   // The pre-filled amount is the DECIDED rate (fee master / defaults). The OT
-  // desk may negotiate it DOWN with the surgeon, never up — raising a fee is
-  // management's call, made on the Approvals screen.
-  const { data: current, error: currentError } = await approvalQueue()
-    .select('id, amount')
-    .eq('ot_schedule_id', ot.id)
-    .eq('status', 'PENDING')
-  if (currentError) throw new Error(currentError.message || 'Could not check the decided amount')
-  const ceiling = Math.max(...((current || []).map((r: any) => Number(r.amount) || 0)), 0)
-  if (ceiling > 0 && amount > ceiling) {
-    throw new Error(
-      `The decided amount is ₹${ceiling.toLocaleString('en-IN')} — it can be reduced after negotiation, not raised`,
-    )
-  }
-
+  // desk may negotiate a fee DOWN, never up — raising is management's call on
+  // the Approvals screen. Enforced per bill: an undecided bill (amount 0)
+  // takes the entered amount, a decided bill only accepts a reduction, and a
+  // bill already below the entered amount is left alone rather than raised.
   const { data, error } = await approvalQueue()
     .update({ amount })
     .eq('ot_schedule_id', ot.id)
     .eq('status', 'PENDING')
+    .or(`amount.eq.0,amount.gte.${amount}`)
     .select('id')
   if (error) throw new Error(error.message || 'Failed to save the amount')
+  if (!(data || []).length) {
+    throw new Error(
+      'The decided amount is lower — fees can be reduced after negotiation, not raised',
+    )
+  }
   return { updated: (data || []).length }
 }
 

@@ -12,6 +12,19 @@ const PASSWORD = '2605';
 
 export const ML_COMPANY_KEY = 'ml_enterprises';
 
+// Lock state lives in sessionStorage, which React cannot observe — consumers
+// subscribe here (useSyncExternalStore) so locking takes effect immediately
+// instead of waiting for an unrelated re-render.
+const listeners = new Set<() => void>();
+const notify = (): void => {
+  for (const listener of [...listeners]) listener();
+};
+
+export const subscribeMlLock = (listener: () => void): (() => void) => {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+};
+
 export const isMlUnlocked = (): boolean => {
   try {
     return sessionStorage.getItem(STORAGE_KEY) === '1';
@@ -28,6 +41,7 @@ export const unlockMl = (password: string): boolean => {
   } catch {
     return false;
   }
+  notify();
   return true;
 };
 
@@ -37,4 +51,5 @@ export const lockMl = (): void => {
   } catch {
     /* nothing to lock */
   }
+  notify();
 };

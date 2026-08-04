@@ -128,7 +128,16 @@ const SpecialistPayouts: React.FC = () => {
       for (const fee of feeMaster) {
         const hit = fee.procedure_name.toLowerCase().includes(term)
           || (fee.tags || []).some((tag) => String(tag).toLowerCase().includes(term));
-        if (hit) matchingProcedures.add(fee.procedure_name.trim().toLowerCase());
+        if (hit) {
+          // Surgeries are filed under the procedure name OR any of its tags
+          // (that is how the fee lookup matches them), so all of those names
+          // count as hits.
+          matchingProcedures.add(fee.procedure_name.trim().toLowerCase());
+          for (const tag of fee.tags || []) {
+            const key = String(tag).trim().toLowerCase();
+            if (key) matchingProcedures.add(key);
+          }
+        }
       }
     }
     const rowMatches = (r: SurgeryInvoiceRow): boolean => {

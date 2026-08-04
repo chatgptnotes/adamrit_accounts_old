@@ -133,7 +133,11 @@ function mapVisit(row: any): VisitOption {
 }
 
 function parseAnesthesiaType(value: string | null | undefined) {
-  return String(value || "").replace(/^Anesthesia Type:\s*/i, "").trim() || null;
+  // special_requirements also carries free-text notes from the desktop OT
+  // screen ("arrange 2 units blood…") — only the marked segment is the
+  // anaesthesia, never the whole field.
+  const match = String(value || "").match(/Anesthesia Type:\s*([^|\n]+)/i);
+  return match ? match[1].trim() || null : null;
 }
 
 function mapSchedule(row: any): OTScheduleItem {
@@ -1069,11 +1073,22 @@ function OnTableChange({
     }
     setSaving(true);
     try {
+      // The field may hold free-text notes from the desktop OT screen —
+      // replace only the anaesthesia segment and keep the rest.
+      const { data: currentRow, error: fetchError } = await supabase
+        .from("ot_schedule")
+        .select("special_requirements")
+        .eq("id", row.id)
+        .maybeSingle();
+      if (fetchError) throw fetchError;
+      const current = String((currentRow as { special_requirements?: string | null } | null)?.special_requirements || "");
+      const freeText = current.replace(/\s*\|?\s*Anesthesia Type:[^|\n]*/gi, "").trim();
+      const marker = anesthesia.trim() ? `Anesthesia Type: ${anesthesia.trim()}` : "";
       const { error } = await supabase
         .from("ot_schedule")
         .update({
           surgery_name: name,
-          special_requirements: anesthesia.trim() ? `Anesthesia Type: ${anesthesia.trim()}` : null,
+          special_requirements: [freeText, marker].filter(Boolean).join(" | ") || null,
         } as never)
         .eq("id", row.id);
       if (error) throw error;

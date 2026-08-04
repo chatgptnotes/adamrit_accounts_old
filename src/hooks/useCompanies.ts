@@ -1,6 +1,7 @@
+import { useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { isMlUnlocked, ML_COMPANY_KEY } from '@/lib/ml-lock';
+import { isMlUnlocked, ML_COMPANY_KEY, subscribeMlLock } from '@/lib/ml-lock';
 
 export interface Company {
   id: string;
@@ -16,7 +17,8 @@ export interface Company {
 export const useCompanies = () => {
   // M.L. Enterprises stays hidden from every company list until the super
   // admin unlocks it (F3 company list → its locked row asks the password).
-  const mlUnlocked = isMlUnlocked();
+  // Subscribed, so Lock/Unlock takes effect on the spot.
+  const mlUnlocked = useSyncExternalStore(subscribeMlLock, isMlUnlocked);
   return useQuery({
     queryKey: ['companies', mlUnlocked],
     queryFn: async () => {
