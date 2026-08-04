@@ -66,13 +66,14 @@ interface LedgerAccount {
   pan: string | null;
   gstin: string | null;
   beneficiary_of_bank_account_id: string | null;
+  point_of_contact: string | null;
 }
 
 const LEDGER_COLUMNS =
   'id, account_code, account_name, account_type, account_group, ledger_group_id, company_id, ' +
   'is_active, opening_balance, opening_balance_type, created_at, alias, mailing_name, address, ' +
   'state, country, pincode, bank_name, bank_branch, bank_account_number, ifsc_code, pan, gstin, ' +
-  'beneficiary_of_bank_account_id';
+  'beneficiary_of_bank_account_id, point_of_contact';
 
 // A group picked from the chart_of_accounts text rather than from ledger_groups
 const COA_GROUP_PREFIX = 'coa:';
@@ -120,6 +121,9 @@ const TallyLedgerCreation: React.FC<{
   // Our bank account whose portal has this party saved as a beneficiary —
   // payment screens read it to say which bank the payment goes out from.
   const [beneficiaryBankId, setBeneficiaryBankId] = useState('');
+  // The owner or person we deal with at this party. Optional; not shown for
+  // patient / staff / consultant ledgers.
+  const [pointOfContact, setPointOfContact] = useState('');
   const [pan, setPan] = useState('');
   const [gstin, setGstin] = useState('');
   const [isActive, setIsActive] = useState(true);
@@ -317,6 +321,7 @@ const TallyLedgerCreation: React.FC<{
     setAccountNumber(account.bank_account_number ?? '');
     setIfsc(account.ifsc_code ?? '');
     setBeneficiaryBankId(account.beneficiary_of_bank_account_id ?? '');
+    setPointOfContact(account.point_of_contact ?? '');
     setPan(account.pan ?? '');
     setGstin(account.gstin ?? '');
     setIsActive(account.is_active !== false);
@@ -341,12 +346,18 @@ const TallyLedgerCreation: React.FC<{
     setAccountNumber('');
     setIfsc('');
     setBeneficiaryBankId('');
+    setPointOfContact('');
     setPan('');
     setGstin('');
     setIsActive(true);
   };
 
+  // Patients, staff and consultants have no company contact person — the
+  // field is hidden (and never saved) for ledgers filed under those groups.
+  const showPointOfContact = !/patient|staff|consultant|salary/i.test(selectedGroupName ?? '');
+
   const detailFields = () => ({
+    point_of_contact: showPointOfContact ? pointOfContact.trim() || null : null,
     alias: alias.trim() || null,
     mailing_name: mailingName.trim() || null,
     address: address.trim() || null,
@@ -691,6 +702,20 @@ const TallyLedgerCreation: React.FC<{
                   />
                 </div>
               ))}
+              {showPointOfContact && (
+                <div className="mt-0.5 flex items-center gap-2">
+                  <span className="w-24 shrink-0">Point of Contact</span>
+                  <span>:</span>
+                  <Input
+                    value={pointOfContact}
+                    onChange={(e) => setPointOfContact(e.target.value)}
+                    placeholder="owner / person we deal with (optional)"
+                    autoComplete="off"
+                    title="Invoices of this ledger can be searched by this person on the Expense Bill page"
+                    className="h-7 w-full rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0 focus-visible:border-blue-600 focus-visible:border-solid"
+                  />
+                </div>
+              )}
 
               <div className="mt-3 border-b border-gray-400 font-semibold">Banking Details</div>
               <div className="mt-0.5 flex items-center gap-2">
