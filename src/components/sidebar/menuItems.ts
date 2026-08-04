@@ -142,6 +142,11 @@ export const menuItems: MenuItemDef[] = [
     icon: Wallet,
   },
   {
+    title: "Expense Bill",
+    url: "/expense-bill",
+    icon: Receipt,
+  },
+  {
     title: "Payment Allocation",
     url: "/daily-payment-allocation",
     icon: Wallet,
@@ -317,6 +322,12 @@ export const menuItems: MenuItemDef[] = [
   {
     title: "Surgery Fees Payable",
     url: "/surgery-fee-master",
+    icon: Syringe,
+    section: 'masters',
+  },
+  {
+    title: "Cath Lab Technicians",
+    url: "/cathlab-technician-master",
     icon: Syringe,
     section: 'masters',
   },

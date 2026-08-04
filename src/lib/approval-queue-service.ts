@@ -293,12 +293,29 @@ export async function deleteDoctorLedgerMap(id: string): Promise<void> {
   if (error) throw new Error(error.message || 'Failed to delete the doctor mapping')
 }
 
+// Owner's default per-case rates (2026-08-04) when the Surgery Fees master
+// has no row for the procedure. Panel = Yojana/corporate, private otherwise.
+const SURGEON_DEFAULT_FEE = { panel: 5000, private: 8000 }
+const ANESTHETIST_FEE = {
+  general: { panel: 3000, private: 3500 },
+  spinal: { panel: 2000, private: 2500 },
+}
+
+function anesthesiaKind(type: string | null | undefined): 'general' | 'spinal' | null {
+  const t = String(type || '').toLowerCase()
+  if (/gener|\bga\b|g\.a/.test(t)) return 'general'
+  if (/spinal|\bsa\b|s\.a/.test(t)) return 'spinal'
+  return null
+}
+
 /**
  * Auto-creates one DOCTOR approval per surgeon when an OT surgery is marked
- * completed. Amount stays 0 (management fills it while approving); ledgers are
- * pre-filled from doctor_ledger_map when the surgeon is mapped. The partial
- * unique index on (ot_schedule_id, party_name) makes this idempotent, so
- * re-marking the same surgery done never duplicates a bill.
+ * completed. The surgeon's amount comes from the Surgery Fees master (panel
+ * rate for Yojana/corporate patients, private rate otherwise) with the
+ * default rates as fallback; the anesthetist's from the anesthesia type.
+ * Ledgers are pre-filled from doctor_ledger_map when the person is mapped.
+ * The partial unique index on (ot_schedule_id, party_name) makes this
+ * idempotent, so re-marking the same surgery done never duplicates a bill.
  *
  * Never throws — OT completion must not fail because of billing.
  */
@@ -306,27 +323,40 @@ export async function createDoctorApprovalsFromOt(ot: {
   id: string
   surgeon_name?: string | null
   anesthetist_name?: string | null
+  anesthesia_type?: string | null
   surgery_name?: string | null
   visit_id?: string | null
   patient_name?: string | null
 }): Promise<{ created: number }> {
   try {
-    // The anesthetist is paid per case exactly like the surgeon and hands in
-    // no invoice either — one bill per person, deduped with the surgeons.
-    const surgeons = [...new Set(
-      [ot.surgeon_name || '', ot.anesthetist_name || '']
-        .join(',')
-        .split(',')
-        .map((name) => name.trim())
-        .filter(Boolean),
-    )]
-    if (!surgeons.length) return { created: 0 }
+    // Either field can carry several comma-separated names.
+    const splitNames = (value: string | null | undefined) =>
+      [...new Set(String(value || '').split(',').map((name) => name.trim()).filter(Boolean))]
+    const surgeonNames = splitNames(ot.surgeon_name)
+    const anesthetistNames = splitNames(ot.anesthetist_name)
+    if (!surgeonNames.length && !anesthetistNames.length) return { created: 0 }
 
-    // The Surgery Fees master decides the payable — panel rate for
-    // Yojana/corporate patients, private rate otherwise — matched on the
-    // procedure name or any of the row's tags. No match leaves 0 for the
-    // approver, exactly as before.
-    let masterAmount = 0
+    // Panel (Yojana/corporate) or private, from the patient on the visit.
+    // Unknown patients fall back to private, as the fee lookup always has.
+    let isPrivate = true
+    try {
+      if (ot.visit_id) {
+        const { data: visitRow } = await supabase
+          .from('visits')
+          .select('patients!inner(corporate)')
+          .eq('visit_id', ot.visit_id)
+          .maybeSingle()
+        const corporate = String((visitRow as any)?.patients?.corporate || '').toLowerCase()
+        isPrivate = !corporate || corporate.includes('private')
+      }
+    } catch (err: any) {
+      console.warn('[ot-auto] patient class lookup failed:', err?.message || err)
+    }
+    const rate = isPrivate ? 'private' : 'panel'
+
+    // Surgeon: Surgery Fees master matched on procedure name or tag; the
+    // owner's default rate when no row matches.
+    let surgeonAmount = SURGEON_DEFAULT_FEE[rate]
     try {
       const surgeryName = (ot.surgery_name || '').trim()
       if (surgeryName) {
@@ -340,23 +370,31 @@ export async function createDoctorApprovalsFromOt(ot: {
             row.procedure_name.toLowerCase() === lowerName ||
             (row.tags || []).some((tag: string) => tag.toLowerCase() === lowerName),
         )
-        if (fee && ot.visit_id) {
-          const { data: visitRow } = await supabase
-            .from('visits')
-            .select('patients!inner(corporate)')
-            .eq('visit_id', ot.visit_id)
-            .maybeSingle()
-          const corporate = String((visitRow as any)?.patients?.corporate || '').toLowerCase()
-          const isPrivate = !corporate || corporate.includes('private')
-          masterAmount = Number(isPrivate ? fee.private_rate : fee.panel_rate) || 0
-        }
+        const masterAmount = Number(isPrivate ? fee?.private_rate : fee?.panel_rate) || 0
+        if (masterAmount > 0) surgeonAmount = masterAmount
       }
     } catch (err: any) {
       console.warn('[ot-auto] surgery fee lookup failed:', err?.message || err)
     }
 
+    // Anesthetist: fixed rate by anesthesia type; an unrecognised type
+    // leaves 0 for the approver to fill.
+    const kind = anesthesiaKind(ot.anesthesia_type)
+    const anesthetistAmount = kind ? ANESTHETIST_FEE[kind][rate] : 0
+
+    // One bill per person; the same name in both roles gets the surgeon fee.
+    const people: Array<{ name: string; amount: number }> = surgeonNames.map((name) => ({
+      name,
+      amount: surgeonAmount,
+    }))
+    for (const name of anesthetistNames) {
+      if (!surgeonNames.some((s) => s.toLowerCase() === name.toLowerCase())) {
+        people.push({ name, amount: anesthetistAmount })
+      }
+    }
+
     let created = 0
-    for (const surgeon of surgeons) {
+    for (const { name: surgeon, amount: masterAmount } of people) {
       const { data: maps } = await doctorLedgerMap()
         .select('company_id, party_account_id, expense_account_id')
         .ilike('surgeon_name', surgeon)

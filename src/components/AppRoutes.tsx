@@ -53,6 +53,7 @@ const PmjayMjpjayPackageUsageReport = lazy(() => import("../pages/PmjayMjpjayPac
 
 // Lazy load heavy feature pages
 const Accounting = lazy(() => import("../pages/Accounting"));
+const ExpenseBillsPage = lazy(() => import("../pages/ExpenseBills"));
 const CashBook = lazy(() => import("../pages/CashBook"));
 const PatientLedger = lazy(() => import("../pages/PatientLedger"));
 const DayBook = lazy(() => import("../pages/DayBook"));
@@ -149,6 +150,7 @@ const BillApprovals = lazy(() => import("../pages/BillApprovals"));
 const DailyPaymentAllocation = lazy(() => import("../pages/DailyPaymentAllocation"));
 const SalarySheet = lazy(() => import("../pages/SalarySheet"));
 const SurgeryFeeMaster = lazy(() => import("../pages/SurgeryFeeMaster"));
+const CathLabTechnicianMaster = lazy(() => import("../pages/CathLabTechnicianMaster"));
 const PanelPortalUploads = lazy(() => import("../pages/PanelPortalUploads"));
 const PaymentVoucher = lazy(() => import("../pages/PaymentVoucher"));
 const QueueManagement = lazy(() => import("../pages/QueueManagement"));
@@ -335,6 +337,7 @@ export const AppRoutes = () => {
         <Route path="/ayushman-rmos" element={<Suspense fallback={<PageLoader />}><AyushmanRMOs /></Suspense>} />
         <Route path="/pmjay-mjpjay-master" element={<Suspense fallback={<PageLoader />}><PmjayMjpjayMaster /></Suspense>} />
         <Route path="/accounting" element={<Suspense fallback={<PageLoader />}><Accounting /></Suspense>} />
+        <Route path="/expense-bill" element={<Suspense fallback={<PageLoader />}><ExpenseBillsPage /></Suspense>} />
         <Route path="/cash-book" element={<Suspense fallback={<PageLoader />}><CashBook /></Suspense>} />
         <Route path="/patient-ledger" element={<Suspense fallback={<PageLoader />}><PatientLedger /></Suspense>} />
         <Route path="/day-book" element={<Suspense fallback={<PageLoader />}><DayBook /></Suspense>} />
@@ -407,6 +410,7 @@ export const AppRoutes = () => {
         <Route path="/daily-payment-allocation" element={<Suspense fallback={<PageLoader />}><DailyPaymentAllocation /></Suspense>} />
         <Route path="/salary-sheet" element={<Suspense fallback={<PageLoader />}><SalarySheet /></Suspense>} />
         <Route path="/surgery-fee-master" element={<Suspense fallback={<PageLoader />}><SurgeryFeeMaster /></Suspense>} />
+        <Route path="/cathlab-technician-master" element={<Suspense fallback={<PageLoader />}><CathLabTechnicianMaster /></Suspense>} />
         <Route path="/panel-portal" element={<Suspense fallback={<PageLoader />}><PanelPortalUploads /></Suspense>} />
         <Route path="/panel-portal/:panelName" element={<Suspense fallback={<PageLoader />}><PanelPortalUploads /></Suspense>} />
         <Route path="/payment-voucher" element={<Suspense fallback={<PageLoader />}><PaymentVoucher /></Suspense>} />

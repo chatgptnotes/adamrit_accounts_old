@@ -347,6 +347,23 @@ function usePackageMasterSearch(term: string) {
   });
 }
 
+// Active cath-lab technicians from the master, for the assistant dropdown.
+function useCathlabTechnicians() {
+  return useQuery({
+    queryKey: ["tablet-cathlab-technicians"],
+    staleTime: 1000 * 60 * 5,
+    queryFn: async (): Promise<Array<{ name: string; default_fee: number }>> => {
+      const { data, error } = await (supabase as any)
+        .from("cathlab_technicians")
+        .select("name, default_fee")
+        .eq("is_active", true)
+        .order("name");
+      if (error) throw error;
+      return (data || []).map((t: any) => ({ name: t.name, default_fee: Number(t.default_fee) || 0 }));
+    },
+  });
+}
+
 function useOtRooms() {
   return useQuery({
     queryKey: ["tablet-ot-rooms"],
@@ -428,6 +445,7 @@ async function markScheduleCompleted(row: OTScheduleItem) {
     id: row.id,
     surgeon_name: row.surgeonName,
     anesthetist_name: row.anesthetistName,
+    anesthesia_type: row.anesthesiaType,
     surgery_name: row.surgeryName,
     visit_id: row.visitNumber,
     patient_name: row.patientName,
@@ -561,6 +579,7 @@ function GauravScheduler() {
   const [showPackageSuggestions, setShowPackageSuggestions] = useState(false);
   const [debouncedSurgeryName] = useDebounce(surgeryName, 250);
   const packageSearch = usePackageMasterSearch(debouncedSurgeryName);
+  const cathlabTechnicians = useCathlabTechnicians();
   const packageSuggestions = packageSearch.data || [];
 
   // Doctor bills auto-created for today's completed surgeries (amount editor).
@@ -817,8 +836,27 @@ function GauravScheduler() {
                 <TabletInput type="number" inputMode="decimal" value={otAssistantFee} onChange={(event) => setOtAssistantFee(event.target.value)} placeholder="0" />
               </label>
               <label className="block space-y-1">
-                <span className="text-sm font-medium">Cath Lab Assistant</span>
-                <TabletInput value={cathlabAssistantName} onChange={(event) => setCathlabAssistantName(event.target.value)} placeholder="Name" />
+                <span className="text-sm font-medium">Cath Lab Technician</span>
+                <select
+                  className="h-14 w-full rounded-xl border border-input bg-background px-4 text-lg"
+                  value={cathlabAssistantName}
+                  onChange={(event) => {
+                    const name = event.target.value;
+                    setCathlabAssistantName(name);
+                    const tech = (cathlabTechnicians.data || []).find((t) => t.name === name);
+                    if (tech?.default_fee) setCathlabAssistantFee(String(tech.default_fee));
+                  }}
+                >
+                  <option value="">— None —</option>
+                  {/* A previously saved name missing from the master must not vanish. */}
+                  {cathlabAssistantName &&
+                    !(cathlabTechnicians.data || []).some((t) => t.name === cathlabAssistantName) && (
+                      <option value={cathlabAssistantName}>{cathlabAssistantName}</option>
+                    )}
+                  {(cathlabTechnicians.data || []).map((tech) => (
+                    <option key={tech.name} value={tech.name}>{tech.name}</option>
+                  ))}
+                </select>
               </label>
               <label className="block space-y-1">
                 <span className="text-sm font-medium">Fee (₹)</span>
