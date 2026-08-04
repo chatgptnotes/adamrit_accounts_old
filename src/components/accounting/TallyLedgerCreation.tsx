@@ -269,7 +269,7 @@ const TallyLedgerCreation: React.FC<{
         .slice(0, RECENT_LIMIT);
     }
     return accounts.filter((a) =>
-      [a.account_name, a.alias, a.account_code, a.account_group].some((field) =>
+      [a.account_name, a.alias, a.account_code, a.account_group, a.point_of_contact].some((field) =>
         (field ?? '').toLowerCase().includes(q),
       ),
     );
@@ -820,7 +820,7 @@ const TallyLedgerCreation: React.FC<{
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name, alias, code or group…"
+              placeholder="Search name, alias, code, group or contact…"
               className="h-7 w-64 rounded-none border-0 bg-white px-2 text-xs text-black shadow-none focus-visible:ring-0"
             />
           </span>
@@ -830,6 +830,7 @@ const TallyLedgerCreation: React.FC<{
             <TableRow className="bg-[#f0f4fa]">
               <TableHead>Name</TableHead>
               <TableHead>Alias</TableHead>
+              <TableHead>Point of Contact</TableHead>
               <TableHead>Under</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Code</TableHead>
@@ -840,7 +841,7 @@ const TallyLedgerCreation: React.FC<{
           <TableBody>
             {visible.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="py-6 text-center text-sm text-gray-400">
+                <TableCell colSpan={8} className="py-6 text-center text-sm text-gray-400">
                   {accountsLoading ? 'Loading ledgers…' : search ? 'No ledger matches that search.' : 'No ledgers yet.'}
                 </TableCell>
               </TableRow>
@@ -866,6 +867,7 @@ const TallyLedgerCreation: React.FC<{
                       )}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{account.alias || '-'}</TableCell>
+                    <TableCell className="text-sm">{account.point_of_contact || '-'}</TableCell>
                     <TableCell className="text-sm">{account.account_group || '-'}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{titleOfType(account.account_type)}</TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">{account.account_code}</TableCell>
