@@ -252,6 +252,14 @@ export const TABLET_MODULES: TabletModule[] = [
     tint: "from-indigo-400 to-violet-600",
   },
   {
+    id: "panel-payment-received",
+    label: "Shashank Payment Received",
+    description: "Record corporate / panel / Yojana payments as they arrive",
+    icon: ReceiptIndianRupee,
+    accent: "text-emerald-700",
+    tint: "from-emerald-500 to-green-700",
+  },
+  {
     id: "ot-photos-sarvesh",
     label: "OT Photos - Sarvesh",
     description: "Mark OT done & upload photos",

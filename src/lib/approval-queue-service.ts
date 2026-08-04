@@ -471,12 +471,14 @@ export async function createAssistantApprovalsFromOt(
         created += 1
       } else if (error.code === '23505') {
         // Same assistant already billed for this OT — refresh the fee while
-        // the bill is still pending; an approved bill is frozen.
+        // the bill is still pending; an approved bill is frozen. The fee can
+        // only come DOWN from what was decided, never up (lte guard).
         await approvalQueue()
           .update({ amount: fee, narration })
           .eq('ot_schedule_id', ot.id)
           .ilike('party_name', name)
           .eq('status', 'PENDING')
+          .gte('amount', fee)
       } else {
         console.warn('[ot-schedule] assistant bill insert failed:', error.message)
       }
@@ -723,6 +725,22 @@ export async function setOtDoctorAmount(
 ): Promise<{ updated: number }> {
   if (!amount || amount <= 0) throw new Error('Enter an amount greater than zero')
   await createDoctorApprovalsFromOt(ot)
+
+  // The pre-filled amount is the DECIDED rate (fee master / defaults). The OT
+  // desk may negotiate it DOWN with the surgeon, never up — raising a fee is
+  // management's call, made on the Approvals screen.
+  const { data: current, error: currentError } = await approvalQueue()
+    .select('id, amount')
+    .eq('ot_schedule_id', ot.id)
+    .eq('status', 'PENDING')
+  if (currentError) throw new Error(currentError.message || 'Could not check the decided amount')
+  const ceiling = Math.max(...((current || []).map((r: any) => Number(r.amount) || 0)), 0)
+  if (ceiling > 0 && amount > ceiling) {
+    throw new Error(
+      `The decided amount is ₹${ceiling.toLocaleString('en-IN')} — it can be reduced after negotiation, not raised`,
+    )
+  }
+
   const { data, error } = await approvalQueue()
     .update({ amount })
     .eq('ot_schedule_id', ot.id)

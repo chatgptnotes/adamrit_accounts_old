@@ -6,6 +6,7 @@ import {
   Camera,
   CheckCircle2,
   Clock,
+  Edit3,
   FileImage,
   Loader2,
   Receipt,
@@ -27,7 +28,7 @@ import {
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
-import { TabletInput } from "@/tablet/ui/TabletInput";
+import { TabletInput, TabletLabel } from "@/tablet/ui/TabletInput";
 import { shortDate } from "@/tablet/lib/format";
 import { compressImageToLimit } from "@/tablet/lib/image";
 import { MultiShotCamera, type CapturedPhotoItem } from "@/tablet/modules/patient-profile/MultiShotCamera";
@@ -1037,6 +1038,101 @@ function LinkedImplantDocument({
   );
 }
 
+/**
+ * A case sometimes changes on the table — a different procedure is done, or
+ * the anaesthesia is switched. The OT Photos tile is where the person in the
+ * theatre records that, so the schedule (and every bill raised from it)
+ * carries what actually happened.
+ */
+function OnTableChange({
+  row,
+  onSaved,
+}: {
+  row: OTScheduleItem;
+  onSaved: (surgeryName: string, anesthesiaType: string | null) => void;
+}) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [procedure, setProcedure] = useState(row.surgeryName);
+  const [anesthesia, setAnesthesia] = useState(row.anesthesiaType || "");
+  const [saving, setSaving] = useState(false);
+
+  const changed =
+    procedure.trim() !== row.surgeryName.trim()
+    || (anesthesia.trim() || null) !== (row.anesthesiaType || null);
+
+  const save = async () => {
+    const name = procedure.trim();
+    if (!name) {
+      toast({ title: "Enter the procedure name", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("ot_schedule")
+        .update({
+          surgery_name: name,
+          special_requirements: anesthesia.trim() ? `Anesthesia Type: ${anesthesia.trim()}` : null,
+        } as never)
+        .eq("id", row.id);
+      if (error) throw error;
+      toast({ title: "On-table change saved", description: `${name}${anesthesia.trim() ? ` · ${anesthesia.trim()}` : ""}` });
+      onSaved(name, anesthesia.trim() || null);
+      setOpen(false);
+    } catch (error) {
+      toast({
+        title: "Could not save the change",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <TabletButton variant="outline" className="w-full" onClick={() => setOpen(true)}>
+        <Edit3 className="h-5 w-5" />
+        Case changed on the table?
+      </TabletButton>
+    );
+  }
+
+  return (
+    <div className="space-y-3 rounded-xl border border-amber-300 bg-amber-50/60 p-4">
+      <p className="text-sm font-semibold">On-table change</p>
+      <div>
+        <TabletLabel htmlFor="ot-change-procedure">Procedure done</TabletLabel>
+        <TabletInput
+          id="ot-change-procedure"
+          value={procedure}
+          onChange={(event) => setProcedure(event.target.value)}
+        />
+      </div>
+      <div>
+        <TabletLabel htmlFor="ot-change-anesthesia">Anesthesia given</TabletLabel>
+        <TabletInput
+          id="ot-change-anesthesia"
+          value={anesthesia}
+          onChange={(event) => setAnesthesia(event.target.value)}
+          placeholder="GA / SA / LA…"
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <TabletButton variant="outline" onClick={() => { setProcedure(row.surgeryName); setAnesthesia(row.anesthesiaType || ""); setOpen(false); }}>
+          Cancel
+        </TabletButton>
+        <TabletButton disabled={saving || !changed} onClick={() => void save()}>
+          {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
+          Save change
+        </TabletButton>
+      </div>
+    </div>
+  );
+}
+
 function SarveshWorklist() {
   const { user, hospitalConfig } = useAuth();
   const { toast } = useToast();
@@ -1240,6 +1336,17 @@ function SarveshWorklist() {
                   {formatDateTime(selected.scheduledDate, selected.scheduledTime)} · {selected.otRoom || "OT"}
                 </p>
               </div>
+
+              <OnTableChange
+                key={selected.id}
+                row={selected}
+                onSaved={(surgeryName, anesthesiaType) => {
+                  setSelected((prev) =>
+                    prev && prev.id === selected.id ? { ...prev, surgeryName, anesthesiaType } : prev,
+                  );
+                  void refresh();
+                }}
+              />
 
               <div className="grid grid-cols-2 gap-3">
                 <TabletButton

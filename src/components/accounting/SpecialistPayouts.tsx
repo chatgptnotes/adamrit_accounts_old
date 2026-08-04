@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -96,6 +97,21 @@ const SpecialistPayouts: React.FC = () => {
     queryFn: listSurgeryInvoiceAllocations,
   });
 
+  // The Surgery Fees master carries the MJPJAY package keywords (tags), so a
+  // search by any package keyword finds the surgeries filed under it.
+  const { data: feeMaster = [] } = useQuery({
+    queryKey: ['surgery-fee-master-tags'],
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('surgery_fee_master')
+        .select('procedure_name, tags')
+        .eq('is_active', true);
+      if (error) throw error;
+      return (data || []) as Array<{ procedure_name: string; tags: string[] | null }>;
+    },
+  });
+
   const groups = useMemo<PersonGroup[]>(() => {
     const byPerson = new Map<string, SurgeryInvoiceRow[]>();
     for (const row of rows) {
@@ -105,9 +121,25 @@ const SpecialistPayouts: React.FC = () => {
       byPerson.get(key)!.push(row);
     }
     const term = search.trim().toLowerCase();
+    // Package keywords: master rows whose name or any tag mentions the term
+    // make every surgery filed under that procedure name a match.
+    const matchingProcedures = new Set<string>();
+    if (term) {
+      for (const fee of feeMaster) {
+        const hit = fee.procedure_name.toLowerCase().includes(term)
+          || (fee.tags || []).some((tag) => String(tag).toLowerCase().includes(term));
+        if (hit) matchingProcedures.add(fee.procedure_name.trim().toLowerCase());
+      }
+    }
+    const rowMatches = (r: SurgeryInvoiceRow): boolean => {
+      const surgery = (r.surgery_name || '').trim().toLowerCase();
+      return [r.surgery_name, r.narration, r.patient_name]
+        .some((field) => (field || '').toLowerCase().includes(term))
+        || (surgery !== '' && matchingProcedures.has(surgery));
+    };
     const list: PersonGroup[] = [];
     for (const [key, personRows] of byPerson) {
-      if (term && !key.includes(term)) continue;
+      if (term && !key.includes(term) && !personRows.some(rowMatches)) continue;
       const sum = (pred: (r: SurgeryInvoiceRow) => boolean) =>
         personRows.filter(pred).reduce((s, r) => s + (Number(r.amount) || 0), 0);
       const payable = personRows.filter(
@@ -127,7 +159,7 @@ const SpecialistPayouts: React.FC = () => {
       });
     }
     return list.sort((a, b) => a.name.localeCompare(b.name));
-  }, [rows, search, allocatedDates]);
+  }, [rows, search, allocatedDates, feeMaster]);
 
   const totals = useMemo(() => {
     const sum = (pick: (g: PersonGroup) => number) => groups.reduce((s, g) => s + pick(g), 0);
@@ -286,7 +318,7 @@ const SpecialistPayouts: React.FC = () => {
             <Label className="text-xs">Search person</Label>
             <Input
               className="mt-1 h-8 w-44"
-              placeholder="Doctor / assistant name"
+              placeholder="Doctor, surgery, package keyword or patient…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
