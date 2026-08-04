@@ -32,6 +32,7 @@ import { format } from 'date-fns';
 import { CascadingBillingStatusDropdown } from '@/components/shared/CascadingBillingStatusDropdown';
 import { EnhancedDatePicker } from '@/components/ui/enhanced-date-picker';
 import { RefereeDoaPaymentModal } from '@/components/ipd/RefereeDoaPaymentModal';
+import { SendBillOnWhatsApp } from '@/components/patient/SendBillOnWhatsApp';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { calculateReferralAmount, formatIndianCurrency } from '@/utils/referralCalculator';
 
@@ -2379,6 +2380,14 @@ const DischargedPatients = () => {
                             )}
                             Send to WhatsApp
                           </Button>
+                          <SendBillOnWhatsApp
+                            patientName={visit.patients?.name || 'Patient'}
+                            mobile={visit.patients?.phone}
+                            billNumber={visit.visit_id}
+                            amount={visit.bill_preparation?.bill_amount ?? visit.package_amount ?? 0}
+                            hospital={visit.patients?.hospital_name}
+                            className="text-green-700 hover:text-green-800 hover:bg-green-50"
+                          />
                           <Button
                             variant="outline"
                             size="sm"
