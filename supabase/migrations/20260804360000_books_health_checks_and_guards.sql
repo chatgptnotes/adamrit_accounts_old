@@ -91,6 +91,10 @@ BEGIN
   END IF;
 
   -- (a) Each company's opening balances must still net to zero.
+  --     Hope Hospitals (legacy partnership) is exempt until Ruby supplies a
+  --     Tally export for it — its ~₹54.3L imbalance is known and accepted,
+  --     and nagging about it daily would train everyone to ignore this check.
+  --     Remove the company_key exclusion once that company is restated.
   FOR r IN
     SELECT c.company_name,
            round(sum(CASE WHEN upper(coalesce(a.opening_balance_type,'DR'))='CR'
@@ -99,6 +103,7 @@ BEGIN
       FROM public.chart_of_accounts a
       JOIN public.companies c ON c.id = a.company_id
      WHERE a.is_active
+       AND c.company_key <> 'hope_partnership'
      GROUP BY c.company_name
     HAVING abs(round(sum(CASE WHEN upper(coalesce(a.opening_balance_type,'DR'))='CR'
                               THEN -coalesce(a.opening_balance,0)
