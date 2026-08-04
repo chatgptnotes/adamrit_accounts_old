@@ -32,10 +32,22 @@ SELECT id, account_code, account_name, company_id, opening_balance,
   FROM public.chart_of_accounts
  WHERE NOT EXISTS (SELECT 1 FROM public.opening_balance_backup_20260804);
 
+-- Mirror rows whose name drifted from their ledger make the chart→mirror
+-- sync trigger collide on rename (tally_ledgers_accounting_account_uniq).
+-- Drop stale ones — the trigger rebuilds them on the updates below.
+DELETE FROM public.tally_ledgers tl
+ USING public.chart_of_accounts a
+ WHERE tl.accounting_account_id = a.id
+   AND tl.name IS DISTINCT FROM a.account_name;
+
 -- ===== DRM HOPE: restore the TDS AY / FY split (Tally keeps them separate) =====
 UPDATE public.chart_of_accounts
    SET opening_balance = 1705180.51, opening_balance_type = 'DR'
  WHERE id = '3cbfe8c1-c4e5-48bb-8f17-d557648d027f';  -- Tds Receivable AY 23-24
+
+-- The stub is being renamed, so its old-name mirror must go first.
+DELETE FROM public.tally_ledgers
+ WHERE accounting_account_id = '4461fecc-b862-43a3-b1d0-27f3fd74d8b6';
 
 UPDATE public.chart_of_accounts
    SET account_name = 'Tds Receivable F Y 23-24', is_active = true,
