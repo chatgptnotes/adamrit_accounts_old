@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -195,6 +196,14 @@ const invalidateBills = (qc: ReturnType<typeof useQueryClient>) => {
   qc.invalidateQueries({ queryKey: ['daily-payment-schedule'] });
 };
 
+interface MovedInfo {
+  date: string;
+  hospital: string | null;
+}
+
+const hospitalLabel = (hospital: string | null | undefined): string =>
+  (hospital ?? '').toLowerCase().includes('ayush') ? 'Ayushman Hospital' : 'Hope Hospital';
+
 /**
  * Which invoices are already sitting on a live (unpaid, unskipped) daily
  * allocation, so the page shows "In allocation" instead of a checkbox and a
@@ -203,15 +212,17 @@ const invalidateBills = (qc: ReturnType<typeof useQueryClient>) => {
 function useMovedToAllocation() {
   return useQuery({
     queryKey: ['expense-bill-moved'],
-    queryFn: async (): Promise<Record<string, string>> => {
+    queryFn: async (): Promise<Record<string, MovedInfo>> => {
       const { data, error } = await (supabase as any)
         .from('daily_payment_schedule')
-        .select('expense_bill_id, schedule_date, status')
+        .select('expense_bill_id, schedule_date, hospital_name, status')
         .not('expense_bill_id', 'is', null)
         .not('status', 'in', '(paid,skipped)');
       if (error) throw error;
-      const map: Record<string, string> = {};
-      for (const r of (data ?? []) as any[]) map[r.expense_bill_id] = r.schedule_date;
+      const map: Record<string, MovedInfo> = {};
+      for (const r of (data ?? []) as any[]) {
+        map[r.expense_bill_id] = { date: r.schedule_date, hospital: r.hospital_name };
+      }
       return map;
     },
   });
@@ -631,7 +642,7 @@ function BillTable({
   onToggleRow: (id: string) => void;
   onToggleAll: (rows: BillRow[], select: boolean) => void;
   /** billId → schedule_date for invoices already on a live allocation. */
-  movedDates: Record<string, string>;
+  movedDates: Record<string, MovedInfo>;
   onMove: (ids: string[]) => void;
   moving: boolean;
 }) {
@@ -697,16 +708,16 @@ function BillTable({
         <TableBody>
           {rows.map((b) => {
             const status = statusOf(b);
-            const movedDate = movedDates[b.id];
+            const movedInfo = movedDates[b.id];
             return (
               <TableRow key={b.id} className="hover:bg-gray-50">
                 <TableCell>
                   {status === 'paid' ? (
                     <span className="text-xs text-gray-400">—</span>
-                  ) : movedDate ? (
+                  ) : movedInfo ? (
                     <span
                       className="inline-block rounded bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700"
-                      title={`Already on the ${new Date(movedDate).toLocaleDateString('en-IN')} allocation — pay it from the Payment Allocation page`}
+                      title={`On the ${new Date(movedInfo.date).toLocaleDateString('en-IN')} allocation — open Payment Allocation, pick ${hospitalLabel(movedInfo.hospital)}, and pay it there`}
                     >
                       In allocation
                     </span>
@@ -758,7 +769,7 @@ function BillTable({
                       <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" onClick={() => onPay(b)}>
                         <Banknote className="h-3.5 w-3.5" /> Pay
                       </Button>
-                      {!movedDate && (
+                      {!movedInfo && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -790,7 +801,7 @@ interface SelectionProps {
   selectedIds: Set<string>;
   onToggleRow: (id: string) => void;
   onToggleAll: (rows: BillRow[], select: boolean) => void;
-  movedDates: Record<string, string>;
+  movedDates: Record<string, MovedInfo>;
   onMove: (ids: string[]) => void;
   moving: boolean;
 }
@@ -869,6 +880,7 @@ function ReferralSection({ patientType, onPay, selection }: {
 
 export default function ExpenseBills() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const company = useExpenseBillCompanyId();
   const [draft, setDraft] = useState<RegisterFilters>(emptyFilters);
@@ -910,7 +922,7 @@ export default function ExpenseBills() {
   // whole batch; everything that succeeded stays moved.
   const moveMutation = useMutation({
     mutationFn: async (ids: string[]) => {
-      const moved: Array<{ billNumber: string; amount: number }> = [];
+      const moved: Array<{ billNumber: string; amount: number; hospital: string | null }> = [];
       const failed: string[] = [];
       for (const id of ids) {
         const { data, error } = await (supabase as any).rpc('move_expense_bill_to_daily_allocation', {
@@ -919,7 +931,11 @@ export default function ExpenseBills() {
           p_created_by: user?.email ?? user?.username ?? null,
         });
         if (error) failed.push(error.message);
-        else moved.push({ billNumber: data.bill_number, amount: Number(data.amount) || 0 });
+        else moved.push({
+          billNumber: data.bill_number,
+          amount: Number(data.amount) || 0,
+          hospital: data.hospital ?? null,
+        });
       }
       return { moved, failed };
     },
@@ -928,8 +944,13 @@ export default function ExpenseBills() {
       setSelected(new Set());
       if (moved.length) {
         const total = moved.reduce((s, m) => s + m.amount, 0);
+        const hospitals = [...new Set(moved.map((m) => hospitalLabel(m.hospital)))];
         toast.success(
-          `Moved ${moved.length} invoice${moved.length === 1 ? '' : 's'} (₹${rupees(total)}) to today's Daily Payment Allocation`,
+          `Moved ${moved.length} invoice${moved.length === 1 ? '' : 's'} (₹${rupees(total)}) to today's Daily Payment Allocation — open Payment Allocation and pick ${hospitals.join(' / ')} to see and pay ${moved.length === 1 ? 'it' : 'them'}.`,
+          {
+            duration: 10000,
+            action: { label: 'View', onClick: () => navigate('/daily-payment-allocation') },
+          },
         );
       }
       for (const message of failed) toast.error(message);
