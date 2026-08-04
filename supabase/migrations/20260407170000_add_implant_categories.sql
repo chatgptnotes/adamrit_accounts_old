@@ -11,8 +11,13 @@ ALTER TABLE implants
   ADD COLUMN IF NOT EXISTS gst_percentage NUMERIC(5,2) DEFAULT 5;
 
 -- Unique constraint on name (needed for ON CONFLICT DO NOTHING seeding)
-ALTER TABLE implants
-  ADD CONSTRAINT IF NOT EXISTS implants_name_unique UNIQUE (name);
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'implants_name_unique'
+  ) THEN
+    ALTER TABLE implants ADD CONSTRAINT implants_name_unique UNIQUE (name);
+  END IF;
+END $$;
 
 -- Seed common implants
 INSERT INTO implants (name, category, subcategory, nabh_nabl_rate, non_nabh_nabl_rate, private_rate, bhopal_nabh_rate, bhopal_non_nabh_rate, gst_percentage)
@@ -67,3 +72,5 @@ VALUES
 ('Central Venous Catheter', 'General', 'Catheter', 0, 0, 0, 0, 0, 5)
 
 ON CONFLICT (name) DO NOTHING;
+
+NOTIFY pgrst, 'reload schema';

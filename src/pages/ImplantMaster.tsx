@@ -106,7 +106,7 @@ const ImplantMaster = () => {
     },
     onError: (error) => {
       console.error('Add implant error:', error);
-      toast({ title: "Error", description: "Failed to add implant", variant: "destructive" });
+      toast({ title: "Error", description: `Failed to add implant: ${error?.message || error}`, variant: "destructive" });
     }
   });
 
@@ -125,7 +125,7 @@ const ImplantMaster = () => {
     },
     onError: (error) => {
       console.error('Delete implant error:', error);
-      toast({ title: "Error", description: "Failed to delete implant", variant: "destructive" });
+      toast({ title: "Error", description: `Failed to delete implant: ${error?.message || error}`, variant: "destructive" });
     }
   });
 
@@ -144,7 +144,7 @@ const ImplantMaster = () => {
     },
     onError: (error) => {
       console.error('Edit implant error:', error);
-      toast({ title: "Error", description: "Failed to update implant", variant: "destructive" });
+      toast({ title: "Error", description: `Failed to update implant: ${error?.message || error}`, variant: "destructive" });
     }
   });
 
