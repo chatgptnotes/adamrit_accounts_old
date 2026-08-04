@@ -36,7 +36,10 @@ interface Draft {
 }
 
 const EMPTY: Draft = { id: null, procedure_name: '', surgery_id: null, tags: [], panel_rate: '', private_rate: '' };
-const money = (v: number | null) => (v == null ? '—' : `₹ ${Number(v).toLocaleString('en-IN')}`);
+// A fee nobody has decided must not look like a decision — the OT bill
+// auto-fill reads these, and a seeded placeholder would be paid as if real.
+const money = (v: number | null) =>
+  v == null ? 'Not set' : `₹ ${Number(v).toLocaleString('en-IN')}`;
 
 const SurgeryFeeMaster = () => {
   const queryClient = useQueryClient();
@@ -191,8 +194,12 @@ const SurgeryFeeMaster = () => {
                         )) : <span className="text-xs text-muted-foreground">—</span>}
                       </div>
                     </TableCell>
-                    <TableCell className="text-right font-mono">{money(row.panel_rate)}</TableCell>
-                    <TableCell className="text-right font-mono">{money(row.private_rate)}</TableCell>
+                    <TableCell className={`text-right font-mono ${row.panel_rate == null ? 'text-amber-600' : ''}`}>
+                      {money(row.panel_rate)}
+                    </TableCell>
+                    <TableCell className={`text-right font-mono ${row.private_rate == null ? 'text-amber-600' : ''}`}>
+                      {money(row.private_rate)}
+                    </TableCell>
                     <TableCell className="text-right">
                       <Button variant="ghost" size="sm" onClick={() => {
                         setDraft({

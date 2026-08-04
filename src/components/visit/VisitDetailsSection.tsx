@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { isYojanaPanel } from '@/lib/yojanaPanel';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -27,6 +28,7 @@ interface VisitDetailsSectionProps {
     claimId?: string;
     cardNo?: string;
     thumbRegistrationNo?: string;
+    yojanaRegistrationId?: string;
     treatmentType?: string;
     diagnosisId?: string;
     billingCategoryOverride?: string;
@@ -732,6 +734,28 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
             onChange={(e) => handleInputChange('thumbRegistrationNo', e.target.value)}
           />
         </div>
+
+        {/* Yojana Registration ID — the key that matches this patient to
+            their government-portal row. Only shown for Yojana panels, where
+            it is required: without it, portal reconciliation falls back to
+            matching names, which drift. */}
+        {isYojanaPanel(patientCorporate) && (
+          <div className="space-y-2">
+            <Label htmlFor="yojanaRegistrationId" className="text-sm font-medium">
+              Yojana Registration ID <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              id="yojanaRegistrationId"
+              placeholder="As printed on the Yojana card"
+              value={formData.yojanaRegistrationId || ''}
+              onChange={(e) => handleInputChange('yojanaRegistrationId', e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Matches this patient to the government portal — claims and extension
+              alerts depend on it.
+            </p>
+          </div>
+        )}
 
         {/* Treatment Type */}
         <div className="space-y-2">

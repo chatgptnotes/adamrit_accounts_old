@@ -55,6 +55,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
     claimId: '',
     cardNo: '',
     thumbRegistrationNo: '',
+    yojanaRegistrationId: '',
     treatmentType: '',
     patientType: defaultPatientType,
     wardAllotted: '',
@@ -143,6 +144,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
         claimId: existingVisit.claim_id || '',
         cardNo: existingVisit.card_no || '',
         thumbRegistrationNo: existingVisit.thumb_registration_no || '',
+        yojanaRegistrationId: existingVisit.yojana_registration_id || '',
         treatmentType: existingVisit.treatment_type || '',
         patientType: existingVisit.patient_type || 'OPD',
         wardAllotted: existingVisit.ward_allotted || '',
@@ -300,6 +302,17 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
     if (!formData.referringDoctor || formData.referringDoctor.trim() === '' || formData.referringDoctor === 'none') missingFields.push('Referring Doctor');
     if (!formData.relationshipManager || formData.relationshipManager.trim() === '' || formData.relationshipManager === 'none') missingFields.push('Relationship Manager');
 
+    // A Yojana patient without their registration ID cannot be matched to the
+    // government portal — claims and extension alerts then rely on the
+    // patient's name, which drifts between the portal and our records.
+    const billingCategory = formData.billingCategoryOverride === 'private'
+      ? 'private'
+      : (patientCorporate || '');
+    if (isYojanaPanel(billingCategory)
+        && (!formData.yojanaRegistrationId || formData.yojanaRegistrationId.trim() === '')) {
+      missingFields.push('Yojana Registration ID');
+    }
+
     // Validate ward and room only for IPD/Emergency patients
     const requiresWardRoom = formData.patientType === 'IPD' ||
                              formData.patientType === 'IPD (Inpatient)' ||
@@ -388,6 +401,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
             claim_id: formData.claimId || null,
             card_no: formData.cardNo || null,
             thumb_registration_no: formData.thumbRegistrationNo,
+            yojana_registration_id: formData.yojanaRegistrationId?.trim() || null,
             treatment_type: formData.treatmentType,
             ward_allotted: formData.wardAllotted || null,
             room_allotted: formData.roomAllotted || null,
@@ -487,6 +501,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
             claim_id: formData.claimId,
           card_no: formData.cardNo || null,
             thumb_registration_no: formData.thumbRegistrationNo,
+            yojana_registration_id: formData.yojanaRegistrationId?.trim() || null,
             treatment_type: formData.treatmentType,
             ward_allotted: formData.wardAllotted || null,
             room_allotted: formData.roomAllotted || null,

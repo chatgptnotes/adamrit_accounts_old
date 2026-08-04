@@ -10,6 +10,7 @@ import { generatePatientId } from "@/utils/patientIdGenerator";
 import { generateVisitId } from "@/utils/visitIdGenerator";
 import { normalizeAadhaar, isValidAadhaar } from "@/utils/aadhaar";
 import { cn } from "@/lib/utils";
+import { isYojanaPanel } from "@/lib/yojanaPanel";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletConfirm } from "@/tablet/components/TabletConfirm";
 import { DictationTextarea } from "@/tablet/components/DictationTextarea";
@@ -80,6 +81,7 @@ interface VisitForm {
   reason: string;
   treatmentType: string;
   thumbReg: string;
+  yojanaRegId: string;
   claimId: string;
 }
 
@@ -122,6 +124,7 @@ const EMPTY_VISIT: VisitForm = {
   reason: "",
   treatmentType: "",
   thumbReg: "",
+  yojanaRegId: "",
   claimId: "",
 };
 
@@ -335,6 +338,8 @@ export default function RegisterPatientFlow() {
           patient_type: visit.patientType,
           claim_id: claimId,
           thumb_registration_no: visit.thumbReg.trim() || visitId,
+          // The key that matches this patient to the government portal.
+          yojana_registration_id: visit.yojanaRegId.trim() || null,
           treatment_type: visit.treatmentType,
           ward_allotted: isAdmit ? wardId : null,
           room_allotted: isAdmit ? room || null : null,
@@ -397,7 +402,10 @@ export default function RegisterPatientFlow() {
     !!visit.visitType &&
     !!visit.doctor &&
     !!visit.reason.trim() &&
-    !!visit.treatmentType;
+    !!visit.treatmentType &&
+    // A Yojana patient needs the ID printed on their card — portal claims and
+    // extension alerts match on it, and names drift.
+    (!isYojanaPanel(patient.corporate) || !!visit.yojanaRegId.trim());
   const wardValid = !isAdmit || (!!wardId && !!room);
 
   // --- success --------------------------------------------------------------
@@ -896,6 +904,15 @@ export default function RegisterPatientFlow() {
                 placeholder="Optional"
               />
             </Field>
+            {isYojanaPanel(patient.corporate) && (
+              <Field label="Yojana registration ID *">
+                <TabletInput
+                  value={visit.yojanaRegId}
+                  onChange={(e) => setV("yojanaRegId", e.target.value)}
+                  placeholder="As printed on the Yojana card"
+                />
+              </Field>
+            )}
             <Field label="Reason for visit *" span={3}>
               <TabletInput
                 value={visit.reason}
