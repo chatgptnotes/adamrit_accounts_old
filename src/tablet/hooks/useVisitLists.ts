@@ -1,5 +1,4 @@
-import { useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -37,7 +36,7 @@ function mapRow(v: any): TabletVisit {
     isDischarged: v.is_discharged ?? null,
     status: v.status ?? null,
     plannedDischargeDate: v.planned_discharge_date ?? null,
-    todaysDischargeMarked: v.todays_discharge_marked === true,
+    todaysDischargeMarked: Boolean(v.planned_discharge_date),
     billPaid: v.bill_paid ?? null,
     billingClearedAt: v.billing_cleared_at ?? null,
     ward: v.ward_allotted ?? null,
@@ -52,7 +51,7 @@ function mapRow(v: any): TabletVisit {
 }
 
 const SELECT =
-  "id, visit_id, patient_type, admission_date, discharge_date, discharge_mode, is_discharged, status, planned_discharge_date, todays_discharge_marked, bill_paid, billing_cleared_at, ward_allotted, room_allotted, appointment_with, patients!inner(id, name, patients_id, age, gender, hospital_name)";
+  "id, visit_id, patient_type, admission_date, discharge_date, discharge_mode, is_discharged, status, planned_discharge_date, bill_paid, billing_cleared_at, ward_allotted, room_allotted, appointment_with, patients!inner(id, name, patients_id, age, gender, hospital_name)";
 
 /** Currently admitted IPD + Emergency visits for the active hospital. */
 export function useAdmittedVisits() {
@@ -157,49 +156,55 @@ export function useRecentlyDischargedVisits() {
  * ticked "Discharge today" on the advance-statement tile, live from
  * visits.planned_discharge_date. There is no copy step to go stale — ticking
  * puts a patient here, unticking removes them, and completing the discharge
- * (discharge_date set) drops them off on the next refresh. Polls every 30s so
- * the two desks see the same list without talking.
+ * (discharge_date set) drops them off on the next refresh. To cap Supabase
+ * usage, it makes its two small reads only while Azhar has this view open and
+ * polls once per minute.
  */
-export function useTodaysDischarges() {
+export function useTodaysDischarges(enabled: boolean) {
   const { hospitalConfig } = useAuth();
-  const queryClient = useQueryClient();
+  const { from: today, to } = dateWindow(0);
   const query = useQuery({
-    queryKey: ["tablet-todays-discharges", hospitalConfig.name],
-    staleTime: 15_000,
-    refetchInterval: 30_000,
-    queryFn: async (): Promise<TabletVisit[]> => {
-      const { data, error } = await supabase
-        .from("visits")
-        .select(SELECT)
-        .in("patient_type", ["IPD", "IPD (Inpatient)", "Emergency"])
-        .is("discharge_date", null)
-        .or("is_discharged.is.null,is_discharged.eq.false")
-        .or("status.is.null,status.neq.discharged")
-        .eq("todays_discharge_marked", true)
-        .eq("patients.hospital_name", hospitalConfig.name)
-        .order("admission_date", { ascending: true });
-      if (error) throw error;
-      return (data || []).map(mapRow);
+    queryKey: ["tablet-todays-discharges", hospitalConfig.name, today],
+    enabled,
+    staleTime: 60_000,
+    refetchInterval: enabled ? 60_000 : false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: false,
+    queryFn: async (): Promise<{ expected: TabletVisit[]; discharged: TabletVisit[] }> => {
+      const base = () =>
+        supabase
+          .from("visits")
+          .select(SELECT)
+          .in("patient_type", ["IPD", "IPD (Inpatient)", "Emergency"])
+          .eq("patients.hospital_name", hospitalConfig.name);
+
+      const [expectedResult, dischargedResult] = await Promise.all([
+        base()
+          .is("discharge_date", null)
+          .or("is_discharged.is.null,is_discharged.eq.false")
+          .or("status.is.null,status.neq.discharged")
+          .eq("planned_discharge_date", today)
+          .order("admission_date", { ascending: true }),
+        base()
+          .gte("discharge_date", today)
+          .lte("discharge_date", to)
+          .order("discharge_date", { ascending: false }),
+      ]);
+      if (expectedResult.error) throw expectedResult.error;
+      if (dischargedResult.error) throw dischargedResult.error;
+
+      return {
+        expected: (expectedResult.data || []).map(mapRow),
+        discharged: (dischargedResult.data || []).map(mapRow),
+      };
     },
   });
 
-  useEffect(() => {
-    const channel = supabase
-      .channel(`tablet-todays-discharge-${hospitalConfig.name}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "visits" },
-        () => queryClient.invalidateQueries({ queryKey: ["tablet-todays-discharges", hospitalConfig.name] }),
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [hospitalConfig.name, queryClient]);
   return {
-    visits: query.data || [],
-    count: query.data?.length || 0,
+    expectedVisits: query.data?.expected || [],
+    dischargedVisits: query.data?.discharged || [],
+    count: (query.data?.expected.length || 0) + (query.data?.discharged.length || 0),
     isLoading: query.isLoading,
     isError: query.isError,
   };

@@ -2,11 +2,14 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Printer } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { useDischargedVisits, type TabletVisit } from "@/tablet/hooks/useVisitLists";
 import { TabletVisitList } from "@/tablet/components/TabletVisitList";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { shortDate } from "@/tablet/lib/format";
+import { buildArshiyaSummaryPdfBlob } from "@/tablet/modules/advance/arshiyaSummaryPdf";
+import { loadSummarySignatory } from "@/tablet/modules/advance/doctorCredentials";
 
 const HIDE_KEYS = new Set([
   "id",
@@ -23,6 +26,7 @@ function labelize(key: string): string {
 
 /** Module 2 — view & print an IPD discharge summary (read-only). */
 export default function DischargeSummaryFlow() {
+  const { hospitalConfig } = useAuth();
   const visits = useDischargedVisits();
   const [selected, setSelected] = useState<TabletVisit | null>(null);
 
@@ -65,6 +69,37 @@ export default function DischargeSummaryFlow() {
       )
     : [];
 
+  const printSummary = async () => {
+    if (!summary.data) return;
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+
+    const summaryText = fields
+      .map(([key, value]) => `## ${labelize(key)}\n${String(value)}`)
+      .join("\n\n") || "No discharge-summary details recorded.";
+
+    try {
+      const blob = await buildArshiyaSummaryPdfBlob({
+        summaryText,
+        withLogo: true,
+        documentTitle: "DISCHARGE SUMMARY",
+        hospitalName: hospitalConfig.name,
+        patientName: selected.patientName,
+        patientId: selected.patientsId,
+        visitNumber: selected.visitId,
+        registrationId: null,
+        portalUrl: `${window.location.origin}/patient-portal`,
+        signatory: await loadSummarySignatory(selected.doctorName),
+      });
+      const printUrl = URL.createObjectURL(blob);
+      printWindow.location.replace(printUrl);
+      window.setTimeout(() => URL.revokeObjectURL(printUrl), 60_000);
+    } catch {
+      printWindow.close();
+    }
+  };
+
   return (
     <FlowScaffold
       heading="Discharge Summary"
@@ -81,7 +116,7 @@ export default function DischargeSummaryFlow() {
           <TabletButton
             className="flex-1"
             disabled={!summary.data}
-            onClick={() => window.print()}
+            onClick={() => void printSummary()}
           >
             <Printer className="h-5 w-5" /> Print
           </TabletButton>

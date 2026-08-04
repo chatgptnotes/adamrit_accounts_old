@@ -24,7 +24,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { compressImageToLimit } from "@/tablet/lib/image";
 import { deletePatientDoc, uploadPatientDocs, usePatientDocs, type PatientDoc } from "@/tablet/hooks/usePatientDocs";
 import { MultiShotCamera, type CapturedPhotoItem } from "@/tablet/modules/patient-profile/MultiShotCamera";
-import { buildArshiyaSummaryPdfBlob, stripMarkdownForPdf } from "./arshiyaSummaryPdf";
+import { buildArshiyaSummaryPdfBlob } from "./arshiyaSummaryPdf";
 import { loadSummarySignatory } from "./doctorCredentials";
 import { resolveDischargeStaff } from "./dischargeStaff";
 
@@ -200,14 +200,6 @@ const normalizeWhatsAppPhone = (phone: string | null | undefined) => {
   if (digits.length === 10) return `91${digits}`;
   return digits;
 };
-
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
 
 function extractGeneratedText(data: any): string {
   return String(data?.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
@@ -511,7 +503,7 @@ export default function AdvanceFlow() {
       let query = supabase
         .from("visits")
         .select(
-          "id, visit_id, admission_date, discharge_date, yojana_registration_id, package_code, package_name, patient_id, planned_discharge_date, todays_discharge_marked, discharge_billing_staff, arshiya_discharge_summary, bill_paid, appointment_with, patients!inner(id, name, patients_id, phone, age, gender, corporate, hospital_name)",
+          "id, visit_id, admission_date, discharge_date, yojana_registration_id, package_code, package_name, patient_id, planned_discharge_date, discharge_billing_staff, arshiya_discharge_summary, bill_paid, appointment_with, patients!inner(id, name, patients_id, phone, age, gender, corporate, hospital_name)",
         )
         .eq("patient_type", "IPD")
         .not("admission_date", "is", null)
@@ -543,7 +535,7 @@ export default function AdvanceFlow() {
           packageCode: row.package_code,
           packageName: row.package_name,
           plannedDischargeDate: row.planned_discharge_date,
-          todaysDischargeMarked: row.todays_discharge_marked === true,
+          todaysDischargeMarked: row.planned_discharge_date === todayIso,
           dischargeBillingStaff: row.discharge_billing_staff,
           arshiyaSummary: row.arshiya_discharge_summary,
           consultant: row.appointment_with ?? null,
@@ -640,14 +632,12 @@ export default function AdvanceFlow() {
                 planned_discharge_marked_at: now.toISOString(),
                 planned_discharge_marked_by: user?.id ?? null,
                 discharge_billing_staff: resolveDischargeStaff(now),
-                todays_discharge_marked: true,
               }
             : {
                 planned_discharge_date: null,
                 planned_discharge_marked_at: null,
                 planned_discharge_marked_by: null,
                 discharge_billing_staff: null,
-                todays_discharge_marked: false,
               }) as any,
         )
         .eq("id", row.visitId);
@@ -737,7 +727,7 @@ export default function AdvanceFlow() {
     }
   };
 
-  const downloadPlannedSummaryPdf = async (row: AdvancePatientRow, withLogo: boolean) => {
+  const downloadPlannedSummaryPdf = async (row: AdvancePatientRow) => {
     const summaryText = (row.arshiyaSummary || "").trim();
     if (!summaryText) {
       toast({
@@ -752,7 +742,9 @@ export default function AdvanceFlow() {
     try {
       const blob = await buildArshiyaSummaryPdfBlob({
         summaryText,
-        withLogo,
+        // Discharge summaries are official hospital documents. Every copy uses
+        // the hospital letterhead rather than allowing an unbranded variant.
+        withLogo: true,
         hospitalName: hospitalConfig?.name || row.hospitalName || "Hospital",
         patientName: row.patient.name,
         patientId: row.patient.patients_id,
@@ -761,9 +753,7 @@ export default function AdvanceFlow() {
         portalUrl: `${window.location.origin}/patient-portal`,
         signatory: await loadSummarySignatory(row.consultant),
       });
-      const fileName = `Discharge_Summary_${withLogo ? "Letterhead" : "Plain"}_${safeFilePart(
-        row.patient.patients_id || row.visitNumber,
-      )}.pdf`;
+      const fileName = `Discharge_Summary_Letterhead_${safeFilePart(row.patient.patients_id || row.visitNumber)}.pdf`;
       const downloadUrl = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = downloadUrl;
@@ -1559,11 +1549,14 @@ ${JSON.stringify(sourceContext, null, 2)}`,
   const arshiaSummaryFileBase = () =>
     `Arshiya_Discharge_Summary_${safeFilePart(patient?.patients_id || visit.data?.visit_id || patient?.id)}_${new Date().toISOString().slice(0, 16).replace(/\D/g, "")}`;
 
-  const printArshiaSummary = () => {
+  const printArshiaSummary = async () => {
     const summary = generatedDischargeSummary.trim();
     if (!summary) return;
 
-    const printWindow = window.open("", "_blank", "width=900,height=1100");
+    // Print the same official, branded PDF that is downloaded and shared on
+    // WhatsApp. Keeping print on the PDF path avoids a plain HTML printout
+    // that would omit the hospital letterhead.
+    const printWindow = window.open("", "_blank");
     if (!printWindow) {
       toast({
         title: "Print blocked",
@@ -1573,42 +1566,18 @@ ${JSON.stringify(sourceContext, null, 2)}`,
       return;
     }
 
-    const hospitalName = hospitalConfig?.name || (patient as any)?.hospital_name || "Hospital";
-    const portalUrl = `${window.location.origin}/patient-portal`;
-    printWindow.document.write(`
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Arshiya Discharge Summary</title>
-  <style>
-    body { font-family: Arial, sans-serif; color: #111827; margin: 28px; }
-    header { border-bottom: 2px solid #111827; padding-bottom: 12px; margin-bottom: 18px; }
-    h1 { font-size: 20px; margin: 0 0 6px; }
-    .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; font-size: 12px; color: #374151; }
-    .summary { white-space: pre-wrap; font-size: 13px; line-height: 1.55; }
-    footer { border-top: 1px solid #d1d5db; margin-top: 20px; padding-top: 10px; font-size: 11px; color: #4b5563; }
-    @media print { body { margin: 18mm; } }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>${escapeHtml(hospitalName)} - Discharge Summary</h1>
-    <div class="meta">
-      <div><strong>Patient:</strong> ${escapeHtml(patient?.name || "-")}</div>
-      <div><strong>Patient ID:</strong> ${escapeHtml(patient?.patients_id || "-")}</div>
-      <div><strong>Visit ID:</strong> ${escapeHtml(visit.data?.visit_id || "-")}</div>
-      <div><strong>Generated:</strong> ${escapeHtml(new Date().toLocaleString())}</div>
-    </div>
-  </header>
-  <main class="summary">${escapeHtml(stripMarkdownForPdf(summary))}</main>
-  <footer>
-    Patient Portal: ${escapeHtml(portalUrl)} | Password as provided by the hospital.
-  </footer>
-  <script>window.onload = function () { setTimeout(function () { window.print(); }, 150); };</script>
-</body>
-</html>`);
-    printWindow.document.close();
+    try {
+      const blob = await buildArshiaSummaryPdfBlob();
+      const printUrl = URL.createObjectURL(blob);
+      printWindow.location.replace(printUrl);
+      // Give the browser's PDF viewer time to load before releasing the blob.
+      window.setTimeout(() => URL.revokeObjectURL(printUrl), 60_000);
+    } catch (error) {
+      printWindow.close();
+      const message = error instanceof Error ? error.message : "Could not prepare the discharge summary for printing.";
+      setArshiaError(message);
+      toast({ title: "Print failed", description: message, variant: "destructive" });
+    }
   };
 
   const buildArshiaSummaryPdfBlob = async () =>
@@ -1764,7 +1733,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
 
   const renderPatientRow = (row: AdvancePatientRow) => {
     const isPlanned = row.plannedDischargeDate === todayIso;
-    const isTodayDischarge = row.todaysDischargeMarked;
+    const isTodayDischarge = isPlanned;
     const confirmation = thumbConfirmations.data?.get(row.patient.id) || null;
     const unlocked = !!confirmation;
     const lockedHint = "Attach the portal thumb confirmation first";
@@ -1881,21 +1850,12 @@ ${JSON.stringify(sourceContext, null, 2)}`,
               </TabletButton>
               <TabletButton
                 variant="outline"
-                onClick={() => downloadPlannedSummaryPdf(row, true)}
+                onClick={() => void downloadPlannedSummaryPdf(row)}
                 disabled={!summaryUnlocked || summaryPdfVisitId === row.visitId}
                 title={summaryUnlocked ? undefined : lockedHint}
               >
                 <Download className="mr-2 h-4 w-4" />
-                Summary PDF (with logo)
-              </TabletButton>
-              <TabletButton
-                variant="outline"
-                onClick={() => downloadPlannedSummaryPdf(row, false)}
-                disabled={!summaryUnlocked || summaryPdfVisitId === row.visitId}
-                title={summaryUnlocked ? undefined : lockedHint}
-              >
-                <Download className="mr-2 h-4 w-4" />
-                Summary PDF (no logo)
+                Summary PDF
               </TabletButton>
               <TabletButton
                 onClick={() => setDischargeConfirmRow(row)}
@@ -2313,7 +2273,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
         <TabletButton
           variant="outline"
           disabled={!generatedDischargeSummary.trim()}
-          onClick={printArshiaSummary}
+          onClick={() => void printArshiaSummary()}
         >
           <Printer className="h-4 w-4" />
           Print
@@ -3093,7 +3053,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
           <TabletButton
             variant="outline"
             disabled={!generatedDischargeSummary.trim()}
-            onClick={printArshiaSummary}
+            onClick={() => void printArshiaSummary()}
           >
             <Printer className="h-4 w-4" />
             Print

@@ -32,7 +32,7 @@ function DocumentsPicker({ onSelect }: { onSelect: (visit: TabletVisit) => void 
   const admitted = useAdmittedVisits();
   const discharged = useDischargedVisits();
   const billing = useRecentlyDischargedVisits();
-  const todaysDischarges = useTodaysDischarges();
+  const todaysDischarges = useTodaysDischarges(mode === "today");
   const wardNames = useWardNames();
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -81,7 +81,7 @@ function DocumentsPicker({ onSelect }: { onSelect: (visit: TabletVisit) => void 
             {mode === "billing"
               ? "Discharged in the last 7 days or planned for discharge — waiting to be billed"
               : mode === "today"
-                ? "Marked “Discharge today” on Arshiya's tile — live, no manual entry"
+                ? "Expected discharges from Arshiya and patients discharged by reception — live, no manual entry"
                 : "All admitted and discharged patients"}
           </p>
         </div>
@@ -111,19 +111,25 @@ function DocumentsPicker({ onSelect }: { onSelect: (visit: TabletVisit) => void 
             <p className="py-10 text-center text-destructive">
               Could not load today's expected discharges. Check the connection.
             </p>
-          ) : todaysDischarges.visits.length === 0 ? (
-            <p className="py-10 text-center text-muted-foreground">
-              Nobody is marked for discharge today on Arshiya's tile yet.
-            </p>
           ) : (
-            todaysDischarges.visits.map((visit) => (
-              <TodaysDischargeRow
-                key={visit.id}
-                visit={visit}
-                wardName={visit.ward ? wardNames.data?.get(visit.ward) || visit.ward : null}
+            <div className="grid gap-4 xl:grid-cols-2">
+              <TodaysDischargeColumn
+                title="Expected Discharge Patients"
+                emptyText="Nobody is marked for discharge today on Arshiya's tile yet."
+                visits={todaysDischarges.expectedVisits}
+                wardNames={wardNames.data}
                 onSelect={onSelect}
+                kind="expected"
               />
-            ))
+              <TodaysDischargeColumn
+                title="Discharged Patients"
+                emptyText="No patient has been discharged by reception today yet."
+                visits={todaysDischarges.dischargedVisits}
+                wardNames={wardNames.data}
+                onSelect={onSelect}
+                kind="discharged"
+              />
+            </div>
           )}
         </div>
       ) : showDischarged ? (
@@ -168,17 +174,59 @@ function DocumentsPicker({ onSelect }: { onSelect: (visit: TabletVisit) => void 
   );
 }
 
-/** One patient Arshiya marked "Discharge today". Everything here reads straight
- *  off the visit, so unticking on her tile — or completing the discharge —
- *  removes the row on the next refresh without anyone copying anything. */
+/** The two live Today’s Discharge columns shown in Azhar’s Documents tile. */
+function TodaysDischargeColumn({
+  title,
+  emptyText,
+  visits,
+  wardNames,
+  onSelect,
+  kind,
+}: {
+  title: string;
+  emptyText: string;
+  visits: TabletVisit[];
+  wardNames: Map<string, string> | undefined;
+  onSelect: (visit: TabletVisit) => void;
+  kind: "expected" | "discharged";
+}) {
+  return (
+    <section className="min-w-0 rounded-xl border border-border bg-muted/20 p-3">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h3 className="font-semibold">{title}</h3>
+        <span className="rounded-full bg-background px-2 py-0.5 text-xs font-semibold text-muted-foreground">
+          {visits.length}
+        </span>
+      </div>
+      <div className="space-y-3">
+        {visits.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">{emptyText}</p>
+        ) : (
+          visits.map((visit) => (
+            <TodaysDischargeRow
+              key={visit.id}
+              visit={visit}
+              wardName={visit.ward ? wardNames?.get(visit.ward) || visit.ward : null}
+              onSelect={onSelect}
+              kind={kind}
+            />
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
 function TodaysDischargeRow({
   visit,
   wardName,
   onSelect,
+  kind,
 }: {
   visit: TabletVisit;
   wardName: string | null;
   onSelect: (visit: TabletVisit) => void;
+  kind: "expected" | "discharged";
 }) {
   const fields: { label: string; value: string }[] = [
     { label: "UHID", value: visit.patientsId || "—" },
@@ -188,8 +236,11 @@ function TodaysDischargeRow({
     { label: "Room / Bed", value: visit.room || "—" },
     { label: "Admitted", value: visit.admissionDate ? shortDate(visit.admissionDate) : "—" },
     {
-      label: "Expected discharge",
-      value: visit.plannedDischargeDate ? shortDate(visit.plannedDischargeDate) : "—",
+      label: kind === "expected" ? "Expected discharge" : "Discharged",
+      value:
+        kind === "expected"
+          ? visit.plannedDischargeDate ? shortDate(visit.plannedDischargeDate) : "—"
+          : visit.dischargeDate ? shortDate(visit.dischargeDate) : "—",
     },
     {
       label: "Discharge status",
@@ -204,13 +255,13 @@ function TodaysDischargeRow({
         className="w-full p-4 text-left"
       >
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-sky-100">
-            <User className="h-6 w-6 text-sky-700" />
+          <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${kind === "expected" ? "bg-sky-100" : "bg-emerald-100"}`}>
+            <User className={`h-6 w-6 ${kind === "expected" ? "text-sky-700" : "text-emerald-700"}`} />
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate font-semibold">{visit.patientName}</p>
-            <span className="mt-0.5 inline-block rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-800">
-              Admitted · discharge expected today
+            <span className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${kind === "expected" ? "bg-sky-100 text-sky-800" : "bg-emerald-100 text-emerald-800"}`}>
+              {kind === "expected" ? "Admitted · discharge expected today" : "Discharged today"}
             </span>
           </div>
         </div>
