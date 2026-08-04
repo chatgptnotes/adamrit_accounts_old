@@ -20,6 +20,7 @@ import {
   PanelLeftOpen,
   PanelLeftClose,
   ClipboardCheck,
+  Banknote,
 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import Dashboard from './Dashboard';
@@ -60,6 +61,7 @@ import PostDatedVouchers from './PostDatedVouchers';
 import GstSalesSummary from './GstSalesSummary';
 import BudgetVariance from './BudgetVariance';
 import SurgeryInvoiceReport from './SurgeryInvoiceReport';
+import SpecialistPayouts from './SpecialistPayouts';
 import { AccountingCompanyProvider } from './AccountingCompanyContext';
 import { AccountingPeriodProvider } from './tally/PeriodContext';
 import TallyGlobalKeys from './tally/TallyGlobalKeys';
@@ -88,6 +90,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'voucher-entry', label: 'Voucher Entry', icon: FileText },
   { id: 'approvals', label: 'Approvals', icon: ClipboardCheck },
   { id: 'surgery-invoices', label: 'Surgery Invoices', icon: FileText },
+  { id: 'specialist-payouts', label: 'Specialist Payouts', icon: Banknote },
   { id: 'day-book', label: 'Day Book', icon: Calendar },
   { id: 'cash-bank-book', label: 'Cash/Bank Book', icon: BookOpen },
   { id: 'cash-bank-summary', label: 'Cash/Bank Summary', icon: Landmark },
@@ -204,6 +207,8 @@ const renderContent = (
       );
     case 'surgery-invoices':
       return <SurgeryInvoiceReport />;
+    case 'specialist-payouts':
+      return <SpecialistPayouts />;
     case 'trial-balance':
       return <TrialBalance onOpenGroup={openGroup} onOpenLedger={openLedger} />;
     case 'balance-sheet':
@@ -428,7 +433,7 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
               const isActive = activeTab === item.id;
               const Icon = item.icon;
               const badge =
-                pendingApprovals > 0 && (item.id === 'approvals' || item.id === 'surgery-invoices')
+                pendingApprovals > 0 && (item.id === 'approvals' || item.id === 'surgery-invoices' || item.id === 'specialist-payouts')
                   ? pendingApprovals
                   : 0;
 
