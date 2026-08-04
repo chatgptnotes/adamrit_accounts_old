@@ -1,7 +1,10 @@
 import React from 'react';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import { TallyList, type TallyListItem } from './TallyPopup';
 import { useAccountingCompanyOptional } from '../AccountingCompanyContext';
+import { isMlUnlocked, lockMl, ML_COMPANY_KEY, unlockMl } from '@/lib/ml-lock';
 
 /**
  * Tally's two company pop-ups, shared by every accounting screen.
@@ -14,7 +17,48 @@ import { useAccountingCompanyOptional } from '../AccountingCompanyContext';
 /** F3 / F1 on the Gateway — "Select Company", with Tally's Shut Company row. */
 export const CompanySelectPopup: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const accountingCompany = useAccountingCompanyOptional();
+  const queryClient = useQueryClient();
   const companies = accountingCompany?.companies ?? [];
+
+  // The super admin's private books: hidden from the list until the session
+  // password is given; a Lock row hides them again.
+  const mlUnlocked = isMlUnlocked();
+  const unlockRow: TallyListItem = mlUnlocked
+    ? {
+        label: 'Lock M.L. Enterprises',
+        onSelect: () => {
+          lockMl();
+          const ml = companies.find((company) => company.company_key === ML_COMPANY_KEY);
+          if (ml && accountingCompany?.selectedCompanyId === ml.id) {
+            accountingCompany?.shutCompany();
+          }
+          queryClient.invalidateQueries({ queryKey: ['companies'] });
+          toast.info('M.L. Enterprises locked');
+          onClose();
+        },
+      }
+    : {
+        label: 'M.L. Enterprises  🔒',
+        onSelect: async () => {
+          const password = window.prompt('Enter the password for M.L. Enterprises');
+          if (password === null) return;
+          if (!unlockMl(password)) {
+            toast.error('Wrong password');
+            return;
+          }
+          queryClient.invalidateQueries({ queryKey: ['companies'] });
+          // Select it straight away — the filtered list in memory does not
+          // hold its id, so ask the database.
+          const { data } = await (supabase as any)
+            .from('companies')
+            .select('id')
+            .eq('company_key', ML_COMPANY_KEY)
+            .maybeSingle();
+          if (data?.id) accountingCompany?.setSelectedCompanyId(data.id);
+          toast.success('M.L. Enterprises unlocked for this session');
+          onClose();
+        },
+      };
 
   const items: TallyListItem[] = [
     ...companies.map((company) => ({
@@ -25,6 +69,7 @@ export const CompanySelectPopup: React.FC<{ onClose: () => void }> = ({ onClose 
         onClose();
       },
     })),
+    unlockRow,
     {
       label: 'Shut Company',
       disabled: !accountingCompany?.selectedCompanyId,

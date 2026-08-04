@@ -287,6 +287,8 @@ export interface BillPayment {
   amount: number;
   bankAccountId: string;
   paymentDate: string;
+  /** The printed payment voucher signed by the receiver — attached on cash payments. */
+  signedVoucherFile?: File | null;
 }
 
 /**
@@ -301,14 +303,34 @@ export function useRecordBillPayment() {
 
   return useMutation({
     mutationFn: async (p: BillPayment): Promise<string> => {
+      // The signed paper voucher goes up first; a failed payment removes it so
+      // a retry starts clean.
+      let signedPath: string | null = null;
+      let signedUrl: string | null = null;
+      if (p.signedVoucherFile) {
+        const ext = p.signedVoucherFile.name.split(".").pop() || "bin";
+        signedPath = `expense-bills/${crypto.randomUUID()}.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from(BUCKET)
+          .upload(signedPath, p.signedVoucherFile);
+        if (upErr) throw new Error(`Could not upload the signed voucher: ${upErr.message}`);
+        signedUrl = supabase.storage.from(BUCKET).getPublicUrl(signedPath).data?.publicUrl ?? null;
+      }
+
       const { data, error } = await (supabase as any).rpc("record_expense_bill_payment", {
         p_bill_id: p.billId,
         p_amount: p.amount,
         p_bank_account_id: p.bankAccountId,
         p_payment_date: p.paymentDate,
         p_created_by: user?.email ?? "tablet",
+        // Only sent when attached, so the tablet keeps working until the
+        // migration that adds these arguments has been applied.
+        ...(signedPath ? { p_signed_voucher_path: signedPath, p_signed_voucher_url: signedUrl } : {}),
       });
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (signedPath) await supabase.storage.from(BUCKET).remove([signedPath]);
+        throw new Error(error.message);
+      }
       return data as string;
     },
     onSuccess: () => {

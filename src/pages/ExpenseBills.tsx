@@ -54,6 +54,7 @@ interface BillRow {
   paid: number;
   outstanding: number;
   documentUrl: string | null;
+  signedVoucherUrl: string | null;
   companyId: string | null;
   narration: string | null;
   pointOfContact: string | null;
@@ -85,6 +86,7 @@ const mapRow = (r: any): BillRow => ({
   paid: Number(r.paid) || 0,
   outstanding: Number(r.outstanding) || 0,
   documentUrl: r.document_url,
+  signedVoucherUrl: r.signed_voucher_url ?? null,
   companyId: r.company_id ?? null,
   narration: r.narration ?? null,
   pointOfContact: r.point_of_contact ?? null,
@@ -224,6 +226,9 @@ function PayBillDialog({ bill, onClose }: { bill: BillRow | null; onClose: () =>
   const [bankId, setBankId] = useState('');
   const [payDate, setPayDate] = useState(todayIso());
   const [remarks, setRemarks] = useState('');
+  // The printed payment voucher signed by the receiver of the cash.
+  const [signedVoucher, setSignedVoucher] = useState<File | null>(null);
+  const signedRef = useRef<HTMLInputElement>(null);
   const banksQuery = useCashBankLedgers(bill?.companyId ?? null);
 
   // Reset the form each time a different bill opens the dialog.
@@ -234,14 +239,34 @@ function PayBillDialog({ bill, onClose }: { bill: BillRow | null; onClose: () =>
     setBankId('');
     setPayDate(todayIso());
     setRemarks('');
+    setSignedVoucher(null);
   }
 
   const value = Number(amount.replace(/,/g, '')) || 0;
   const overpaying = bill ? value > bill.outstanding + 0.005 : false;
+  const selectedBank = (banksQuery.data ?? []).find((a) => a.id === bankId);
+  const isCash = Boolean(
+    selectedBank
+    && ((selectedBank.account_group ?? '').toLowerCase().includes('cash')
+      || selectedBank.account_name.toLowerCase().includes('cash')),
+  );
 
   const payMutation = useMutation({
     mutationFn: async (): Promise<string> => {
       if (!bill) throw new Error('No bill selected');
+
+      // Upload the signed voucher first — evidence before entry, same as the
+      // invoice itself; a failed payment removes the upload so a retry is clean.
+      let signedPath: string | null = null;
+      let signedUrl: string | null = null;
+      if (isCash && signedVoucher) {
+        const ext = signedVoucher.name.split('.').pop() || 'bin';
+        signedPath = `expense-bills/${crypto.randomUUID()}.${ext}`;
+        const { error: upErr } = await supabase.storage.from('uploads').upload(signedPath, signedVoucher);
+        if (upErr) throw new Error(`Could not upload the signed voucher: ${upErr.message}`);
+        signedUrl = supabase.storage.from('uploads').getPublicUrl(signedPath).data?.publicUrl ?? null;
+      }
+
       const { data, error } = await (supabase as any).rpc('record_expense_bill_payment', {
         p_bill_id: bill.id,
         p_amount: value,
@@ -249,8 +274,13 @@ function PayBillDialog({ bill, onClose }: { bill: BillRow | null; onClose: () =>
         p_payment_date: payDate,
         p_created_by: user?.email ?? user?.username ?? null,
         p_remarks: remarks.trim() || null,
+        p_signed_voucher_path: signedPath,
+        p_signed_voucher_url: signedUrl,
       });
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (signedPath) await supabase.storage.from('uploads').remove([signedPath]);
+        throw new Error(error.message);
+      }
       return data as string;
     },
     onSuccess: (voucherNo) => {
@@ -331,6 +361,38 @@ function PayBillDialog({ bill, onClose }: { bill: BillRow | null; onClose: () =>
               <Label htmlFor="pay-remarks">Payment remarks (optional)</Label>
               <Input id="pay-remarks" value={remarks} maxLength={200} onChange={(e) => setRemarks(e.target.value)} />
             </div>
+
+            {isCash && (
+              <div>
+                <Label>Signed payment voucher (cash payment)</Label>
+                {signedVoucher ? (
+                  <div className="mt-1 flex items-center gap-3 rounded-lg border p-2">
+                    <FileText className="h-4 w-4 shrink-0 text-primary" />
+                    <span className="min-w-0 flex-1 truncate text-xs">{signedVoucher.name}</span>
+                    <button type="button" onClick={() => setSignedVoucher(null)} aria-label="Remove the signed voucher"
+                      className="shrink-0 rounded-full p-1 hover:bg-muted">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <Button variant="outline" type="button" size="sm" className="mt-1"
+                    onClick={() => signedRef.current?.click()}>
+                    <Paperclip className="mr-2 h-4 w-4" /> Upload signed voucher
+                  </Button>
+                )}
+                <input
+                  ref={signedRef}
+                  type="file"
+                  accept="image/*,application/pdf"
+                  hidden
+                  onChange={(e) => setSignedVoucher(e.target.files?.[0] ?? null)}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Print the payment voucher, take the receiver's signature on it, and upload the
+                  signed copy here. It is kept beside the invoice on this bill.
+                </p>
+              </div>
+            )}
           </div>
         )}
         <DialogFooter>
@@ -666,12 +728,21 @@ function BillTable({
                   </span>
                 </TableCell>
                 <TableCell>
-                  {b.documentUrl ? (
-                    <a href={b.documentUrl} target="_blank" rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-primary hover:underline">
-                      <Paperclip className="h-3.5 w-3.5" /> View
-                    </a>
-                  ) : '—'}
+                  <span className="inline-flex flex-col gap-0.5">
+                    {b.documentUrl ? (
+                      <a href={b.documentUrl} target="_blank" rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-primary hover:underline">
+                        <Paperclip className="h-3.5 w-3.5" /> Invoice
+                      </a>
+                    ) : '—'}
+                    {b.signedVoucherUrl && (
+                      <a href={b.signedVoucherUrl} target="_blank" rel="noreferrer"
+                        title="Payment voucher signed by the receiver of the cash"
+                        className="inline-flex items-center gap-1 text-emerald-700 hover:underline">
+                        <FileText className="h-3.5 w-3.5" /> Signed PV
+                      </a>
+                    )}
+                  </span>
                 </TableCell>
                 <TableCell className="text-right">
                   {status !== 'paid' ? (

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { isMlUnlocked, ML_COMPANY_KEY } from '@/lib/ml-lock';
 
 export interface Company {
   id: string;
@@ -13,8 +14,11 @@ export interface Company {
 }
 
 export const useCompanies = () => {
+  // M.L. Enterprises stays hidden from every company list until the super
+  // admin unlocks it (F3 company list → its locked row asks the password).
+  const mlUnlocked = isMlUnlocked();
   return useQuery({
-    queryKey: ['companies'],
+    queryKey: ['companies', mlUnlocked],
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from('companies')
@@ -23,7 +27,10 @@ export const useCompanies = () => {
         .order('company_name');
 
       if (error) throw error;
-      return (data || []) as Company[];
+      const companies = (data || []) as Company[];
+      return mlUnlocked
+        ? companies
+        : companies.filter((c) => c.company_key !== ML_COMPANY_KEY);
     },
     staleTime: 10 * 60 * 1000,
   });

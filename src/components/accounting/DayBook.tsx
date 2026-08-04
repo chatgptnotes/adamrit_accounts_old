@@ -13,6 +13,8 @@ import { useAccountingCompany } from './AccountingCompanyContext';
 import { useVoucherActions } from '@/hooks/useVoucherActions';
 import { toast } from 'sonner';
 import { VoucherAttachmentButton, useVoucherAttachmentMap } from './VoucherAttachmentViewer';
+import { openGeneratedInvoice, useGeneratedInvoiceMap } from '@/lib/generated-voucher-invoices';
+import { FileText } from 'lucide-react';
 
 type LedgerSource = 'adamrit' | 'tally';
 
@@ -51,6 +53,7 @@ interface Voucher {
   id: string;
   voucher_number: string;
   voucher_date: string;
+  reference_number: string | null;
   narration: string | null;
   total_amount: number;
   status: string;
@@ -176,7 +179,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
       let query = supabase
         .from('vouchers')
         .select(`
-          id, voucher_number, voucher_date, narration, total_amount, status, is_auto,
+          id, voucher_number, voucher_date, reference_number, narration, total_amount, status, is_auto,
           voucher_type:voucher_types(id, voucher_type_name, voucher_category),
           voucher_entries(
             id, debit_amount, credit_amount, narration, entry_order,
@@ -208,6 +211,14 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
   });
   const nativeVoucherIds = useMemo(() => vouchers.map((voucher) => voucher.id), [vouchers]);
   const { data: attachmentMap = new Map() } = useVoucherAttachmentMap(nativeVoucherIds);
+  // The system-generated invoice behind auto-posted vouchers (expense bills,
+  // M.L. Enterprises referral invoices, specialist/OT bills) — every JV shows
+  // its evidence, uploaded or generated.
+  const voucherRefs = useMemo(
+    () => vouchers.map((voucher) => ({ id: voucher.id, referenceNumber: voucher.reference_number })),
+    [vouchers],
+  );
+  const { data: generatedInvoiceMap = new Map() } = useGeneratedInvoiceMap(voucherRefs);
 
   // Tally mirror vouchers for the same window (Regular scope only — Optional /
   // Post-Dated are native-only concepts). Deduped against native by number.
@@ -490,12 +501,28 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
                         <span className="ml-1 bg-gray-200 px-1 text-[9px] font-bold text-gray-600">AUTO</span>
                       )}
                     </div>
-                    <div className="w-10 px-1 text-center">
+                    <div className="flex w-10 items-center justify-center gap-0.5 px-1 text-center">
                       {r.nativeId && (
                         <VoucherAttachmentButton
                           attachments={attachmentMap.get(r.nativeId) || []}
                           voucherNumber={r.number}
                         />
+                      )}
+                      {r.nativeId && generatedInvoiceMap.get(r.nativeId) && (
+                        <button
+                          type="button"
+                          title={`View ${generatedInvoiceMap.get(r.nativeId)!.label || 'the generated invoice'}`}
+                          aria-label={`View invoice for voucher ${r.number}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void openGeneratedInvoice(generatedInvoiceMap.get(r.nativeId!)!).catch(
+                              (err: any) => toast.error(err?.message || 'Could not open the invoice'),
+                            );
+                          }}
+                          className="inline-flex h-7 w-8 items-center justify-center rounded text-emerald-700 hover:bg-emerald-100"
+                        >
+                          <FileText className="h-4 w-4" />
+                        </button>
                       )}
                     </div>
                     <div className={`w-32 px-1 text-right font-mono ${r.cancelled ? 'line-through' : ''}`}>
