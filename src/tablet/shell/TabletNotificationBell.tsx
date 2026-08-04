@@ -26,6 +26,8 @@ import { useTabletTheme } from "@/tablet/theme/TabletTheme";
 import { haptics } from "@/tablet/lib/haptics";
 
 const QUERY_KEY = ["tablet-notifications"];
+/** One books-health run per device per day — the function itself dedupes findings. */
+const BOOKS_CHECK_STORAGE_KEY = "adamrit_books_health_last_run";
 
 interface NotificationRow {
   id: string;
@@ -85,6 +87,17 @@ export function TabletNotificationBell() {
     queryKey: QUERY_KEY,
     enabled: Boolean(user),
     queryFn: async () => {
+      // The books checks run at most once a day (the function dedupes its own
+      // findings), so the first person to open the app each day is what makes
+      // a money problem announce itself. Never blocks the bell.
+      const lastRun = localStorage.getItem(BOOKS_CHECK_STORAGE_KEY);
+      const today = new Date().toISOString().slice(0, 10);
+      if (lastRun !== today) {
+        localStorage.setItem(BOOKS_CHECK_STORAGE_KEY, today);
+        const { error: healthError } = await (supabase as any).rpc("notify_books_health");
+        if (healthError) console.warn("Books health check failed:", healthError.message);
+      }
+
       const { data, error: queryError } = await (supabase as any)
         .from("notifications")
         .select("*")
@@ -160,10 +173,15 @@ export function TabletNotificationBell() {
   const otSurgicalRows = rows.filter(
     (row) => row.notification_type === "ot_surgical_threshold",
   );
+  // Nightly books checks: openings that stopped netting to zero, unbalanced
+  // vouchers, obligations quietly regenerating money. Their own group, so a
+  // money problem is never buried under routine threshold alerts.
+  const booksRows = rows.filter((row) => row.notification_type === "books_health");
   const otherRows = rows.filter(
     (row) =>
       row.notification_type !== "pharmacy_threshold" &&
-      row.notification_type !== "ot_surgical_threshold",
+      row.notification_type !== "ot_surgical_threshold" &&
+      row.notification_type !== "books_health",
   );
 
   const renderNotificationCard = (row: NotificationRow) => {
@@ -479,6 +497,7 @@ export function TabletNotificationBell() {
                 {[
                   { title: "Pharmacy", items: pharmacyRows },
                   { title: "OT Surgical", items: otSurgicalRows },
+                  ...(booksRows.length ? [{ title: "Books Check", items: booksRows }] : []),
                 ].map((group) => (
                   <section
                     key={group.title}

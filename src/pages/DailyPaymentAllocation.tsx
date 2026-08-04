@@ -544,6 +544,7 @@ const DailyPaymentAllocation = () => {
     tally_ledger_name: '',
     tally_ledger_closing: null as number | null,
     approximate_balance: '',
+    active_until: '',
     section: '' as '' | ObligationSection,
   });
   // Per-Tally-company ledger links for the obligation being edited.
@@ -1315,6 +1316,9 @@ ${sectionsHtml}
       approximate_balance: newObligation.approximate_balance === ''
         ? null
         : parseFloat(newObligation.approximate_balance),
+      // A recurring payment that ends: expire_due_obligations() switches it
+      // off the day after, so it cannot keep generating money forever.
+      active_until: newObligation.active_until || null,
       section: newObligation.section || null,
     };
     // Snapshot the ledger links BEFORE we reset state, so the async create
@@ -1338,7 +1342,7 @@ ${sectionsHtml}
     setLedgerLinks({});
     setLedgerSearchTerm('');
     setOpenPickerCompanyId(null);
-    setNewObligation({ party_name: '', category: 'variable', sub_category: 'other', default_daily_amount: '', priority: '10', notes: '', payee_name: '', payee_search_table: '', attachment_url: '', google_sheet_link: '', company_id: null, tally_ledger_id: null, tally_ledger_name: '', tally_ledger_closing: null, approximate_balance: '', section: '' });
+    setNewObligation({ party_name: '', category: 'variable', sub_category: 'other', default_daily_amount: '', priority: '10', notes: '', payee_name: '', payee_search_table: '', attachment_url: '', google_sheet_link: '', company_id: null, tally_ledger_id: null, tally_ledger_name: '', tally_ledger_closing: null, approximate_balance: '', active_until: '', section: '' });
   };
 
   const handleEditObligation = (ob: PaymentObligation) => {
@@ -1359,6 +1363,7 @@ ${sectionsHtml}
       tally_ledger_name: ob.tally_ledgers?.name || '',
       tally_ledger_closing: ob.tally_ledgers?.closing_balance ?? null,
       approximate_balance: ob.approximate_balance != null ? String(ob.approximate_balance) : '',
+      active_until: (ob as { active_until?: string | null }).active_until || '',
       section: (ob.section as ObligationSection) || '',
     });
     // Hydrate per-company links from the junction table
@@ -3282,6 +3287,19 @@ ${sectionsHtml}
                     placeholder="e.g. 50000 — used when ledger values are stale"
                     className="h-8 text-sm font-mono"
                   />
+                </div>
+                <div>
+                  <Label className="text-xs">Pay until (optional)</Label>
+                  <Input
+                    type="date"
+                    value={newObligation.active_until}
+                    onChange={(e) => setNewObligation({ ...newObligation, active_until: e.target.value })}
+                    className="h-8 text-sm"
+                    title="Last day this obligation should be scheduled. It switches itself off afterwards — leave blank for an open-ended payment."
+                  />
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Leave blank for open-ended. Set it for a fixed run (e.g. two months' rent) and it stops itself.
+                  </p>
                 </div>
               </div>
 

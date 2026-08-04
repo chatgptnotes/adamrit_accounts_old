@@ -20,6 +20,8 @@ export interface PaymentObligation {
   company_id: string | null;
   tally_ledger_id: string | null; // legacy single FK; kept for back-compat
   approximate_balance: number | null; // director's manual estimate when ledger is stale
+  /** Last day this obligation is scheduled; NULL = open-ended. */
+  active_until?: string | null;
   section: string | null; // explicit Obligations Master section; null → derive from sub_category
   monthly_amount: number | null; // Monthly Obligation tab figure, independent of daily amount
   expense_account_id: string | null; // expense ledger debited by the monthly accrual JV
@@ -74,7 +76,7 @@ export const usePaymentObligations = (hospital: string = 'hope', includeDetails 
         : `
             id, party_name, category, sub_category, default_daily_amount,
             priority, chart_of_accounts_id, is_active, notes, hospital_name,
-            payee_name, payee_search_table, company_id, approximate_balance, section
+            payee_name, payee_search_table, company_id, approximate_balance, active_until, section
           `;
       let query = (supabase as any)
         .from('payment_obligations')
@@ -110,6 +112,8 @@ export const usePaymentObligations = (hospital: string = 'hope', includeDetails 
           google_sheet_link: obligation.google_sheet_link || null,
           tally_ledger_id: obligation.tally_ledger_id || null,
           approximate_balance: obligation.approximate_balance ?? null,
+          // A fixed-run obligation stops itself; NULL is open-ended.
+          active_until: obligation.active_until || null,
           section: obligation.section || null,
         })
         .select()

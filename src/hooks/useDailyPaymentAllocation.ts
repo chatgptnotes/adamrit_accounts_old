@@ -71,6 +71,11 @@ export const ALL_HOSPITALS = ['hope', 'ayushman'] as const;
 
 // Generate today's schedule by calling the RPC ('all' generates both).
 const generateSchedule = async (date: string, hospital: string) => {
+  // Retire obligations past their last day BEFORE generating, so an expired
+  // one never adds another row. Never blocks the page if it fails.
+  const { error: expiryError } = await (supabase as any).rpc('expire_due_obligations');
+  if (expiryError) console.warn('Could not expire due obligations:', expiryError.message);
+
   const targets = hospital === 'all' ? ALL_HOSPITALS : [hospital];
   for (const target of targets) {
     const { error } = await (supabase as any).rpc('generate_daily_payment_schedule', {
