@@ -36,8 +36,12 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 /** PostgREST or() filters break on these characters. */
 const sanitize = (s: string) => s.replace(/[%,()]/g, ' ').trim();
 
-const getErrorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : 'An unexpected error occurred';
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  // Supabase/PostgREST errors are plain objects with a message field.
+  const message = (error as { message?: unknown } | null)?.message;
+  return typeof message === 'string' && message ? message : 'An unexpected error occurred';
+};
 
 interface BillRow {
   id: string;
