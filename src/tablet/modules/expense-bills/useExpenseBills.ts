@@ -213,6 +213,9 @@ export interface NewExpenseBill {
   amount: number;
   narration: string;
   file: File;
+  /** Optional, captured on the desktop form for searching later. */
+  pointOfContact?: string;
+  relationshipManager?: string;
 }
 
 /**
@@ -255,6 +258,10 @@ export function useRecordExpenseBill() {
           company_id: bill.companyId,
           amount: bill.amount,
           narration: bill.narration.trim() || null,
+          // Only sent when filled, so the tablet keeps working until the
+          // migration that adds these columns has been applied.
+          ...(bill.pointOfContact?.trim() ? { point_of_contact: bill.pointOfContact.trim() } : {}),
+          ...(bill.relationshipManager?.trim() ? { relationship_manager: bill.relationshipManager.trim() } : {}),
           document_path: documentPath,
           document_url: documentUrl,
           created_by: user?.email ?? "tablet",

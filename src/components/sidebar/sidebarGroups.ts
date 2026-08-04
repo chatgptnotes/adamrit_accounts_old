@@ -60,6 +60,7 @@ export const GROUP_BY_TITLE: Record<string, string> = {
 
   // Billing & Accounts
   'Accounting': 'Billing & Accounts',
+  'Expense Bill': 'Billing & Accounts',
   'Cash Book': 'Billing & Accounts',
   'Payment Allocation': 'Billing & Accounts',
   'Payment Voucher': 'Billing & Accounts',
