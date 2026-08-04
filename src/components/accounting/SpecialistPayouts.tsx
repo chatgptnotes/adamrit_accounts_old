@@ -11,9 +11,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Banknote, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import { Banknote, CalendarClock, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import {
   listSurgeryInvoices,
+  listSurgeryInvoiceAllocations,
+  moveSurgeryInvoiceToDailyAllocation,
   approveAndPostJV,
   payInvoicesTogether,
   needsDetails,
@@ -21,6 +23,7 @@ import {
 } from '@/lib/approval-queue-service';
 import { printSpecialistInvoice } from '@/lib/printSpecialistInvoice';
 import { useAccountingCashBankLedgers } from '@/hooks/usePaymentObligations';
+import { useAuth } from '@/contexts/AuthContext';
 
 /**
  * Person-wise payout screen for everyone paid per OT case — surgeons,
@@ -60,8 +63,9 @@ interface PersonGroup {
   paidTotal: number;
   /** Pending rows whose amount/company/ledgers are filled — approvable now. */
   approvable: SurgeryInvoiceRow[];
-  /** Approved, unpaid, JV posted — payable together. */
+  /** Approved, unpaid, JV posted, not on a daily allocation — payable together. */
   payable: SurgeryInvoiceRow[];
+  payableTotal: number;
   /** Some pending bills are missing amount/ledgers (unmapped doctor). */
   needsMapping: boolean;
 }
@@ -75,11 +79,20 @@ const SpecialistPayouts: React.FC = () => {
   const [payingGroup, setPayingGroup] = useState<PersonGroup | null>(null);
   const [payForm, setPayForm] = useState({ cashBankAccountId: '', date: todayStr() });
   const [posting, setPosting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [moving, setMoving] = useState(false);
+  const { user } = useAuth();
   const queryClient = useQueryClient();
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ['surgery-invoices', fromDate, toDate],
     queryFn: () => listSurgeryInvoices(fromDate, toDate),
+  });
+
+  /** invoice id → schedule_date for invoices already on a live daily allocation. */
+  const { data: allocatedDates = {} } = useQuery({
+    queryKey: ['surgery-invoice-allocations'],
+    queryFn: listSurgeryInvoiceAllocations,
   });
 
   const groups = useMemo<PersonGroup[]>(() => {
@@ -96,6 +109,9 @@ const SpecialistPayouts: React.FC = () => {
       if (term && !key.includes(term)) continue;
       const sum = (pred: (r: SurgeryInvoiceRow) => boolean) =>
         personRows.filter(pred).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+      const payable = personRows.filter(
+        (r) => statusOf(r) === 'APPROVED' && r.jv_voucher_id && !allocatedDates[r.id],
+      );
       list.push({
         key,
         name: personRows[0].party_name,
@@ -104,12 +120,13 @@ const SpecialistPayouts: React.FC = () => {
         approvedTotal: sum((r) => statusOf(r) === 'APPROVED'),
         paidTotal: sum((r) => statusOf(r) === 'PAID'),
         approvable: personRows.filter((r) => statusOf(r) === 'PENDING' && !needsDetails(r)),
-        payable: personRows.filter((r) => statusOf(r) === 'APPROVED' && r.jv_voucher_id),
+        payable,
+        payableTotal: payable.reduce((s, r) => s + (Number(r.amount) || 0), 0),
         needsMapping: personRows.some((r) => statusOf(r) === 'PENDING' && needsDetails(r)),
       });
     }
     return list.sort((a, b) => a.name.localeCompare(b.name));
-  }, [rows, search]);
+  }, [rows, search, allocatedDates]);
 
   const totals = useMemo(() => {
     const sum = (pick: (g: PersonGroup) => number) => groups.reduce((s, g) => s + pick(g), 0);
@@ -132,7 +149,52 @@ const SpecialistPayouts: React.FC = () => {
     });
   };
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ['surgery-invoices'] });
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['surgery-invoices'] });
+    queryClient.invalidateQueries({ queryKey: ['surgery-invoice-allocations'] });
+  };
+
+  /** Approved, unpaid, JV posted, not already on a live allocation. */
+  const canAllocate = (row: SurgeryInvoiceRow) =>
+    statusOf(row) === 'APPROVED' && !!row.jv_voucher_id && !allocatedDates[row.id];
+
+  const toggleSelected = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  // One invoice at a time, so a failure names its invoice instead of sinking
+  // the whole batch; everything that succeeded stays moved.
+  const moveToAllocation = async (ids: string[]) => {
+    setMoving(true);
+    const moved: number[] = [];
+    try {
+      for (const id of ids) {
+        try {
+          const result = await moveSurgeryInvoiceToDailyAllocation(
+            id,
+            todayStr(),
+            (user as any)?.email ?? (user as any)?.username ?? null,
+          );
+          moved.push(Number(result.amount) || 0);
+        } catch (err: any) {
+          toast.error(err?.message || 'Could not move an invoice to the daily allocation');
+        }
+      }
+      if (moved.length) {
+        const total = moved.reduce((s, n) => s + n, 0);
+        toast.success(
+          `Moved ${moved.length} invoice(s) (₹${inr(total)}) to today's Daily Payment Allocation`,
+        );
+      }
+    } finally {
+      setMoving(false);
+      setSelected(new Set());
+      refresh();
+    }
+  };
 
   const approveAll = async (group: PersonGroup) => {
     setApprovingKey(group.key);
@@ -201,6 +263,16 @@ const SpecialistPayouts: React.FC = () => {
           </p>
         </div>
         <div className="ml-auto flex flex-wrap items-end gap-2">
+          <Button
+            variant="outline"
+            className="h-8 gap-1"
+            disabled={selected.size === 0 || moving}
+            title="Send the ticked invoices to today's Daily Payment Allocation — payment happens there, against the day's budget"
+            onClick={() => void moveToAllocation([...selected])}
+          >
+            {moving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
+            Move to Daily Allocation{selected.size > 0 ? ` (${selected.size})` : ''}
+          </Button>
           <div>
             <Label className="text-xs">From (surgery date)</Label>
             <Input type="date" className="mt-1 h-8" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
@@ -299,23 +371,66 @@ const SpecialistPayouts: React.FC = () => {
                         {group.payable.length > 0 && (
                           <Button size="sm" className="ml-2 h-7" onClick={() => openPayModal(group)}>
                             <Banknote className="mr-1 h-3.5 w-3.5" />
-                            Pay ₹{inr(group.approvedTotal)}
+                            Pay ₹{inr(group.payableTotal)}
                           </Button>
                         )}
                         {group.approvable.length === 0 && group.payable.length === 0 && (
                           <span className="text-xs text-muted-foreground">
-                            {group.needsMapping ? 'Complete details in Approvals' : 'Settled'}
+                            {group.needsMapping
+                              ? 'Complete details in Approvals'
+                              : group.rows.some((r) => statusOf(r) === 'APPROVED' && allocatedDates[r.id])
+                                ? 'On daily allocation'
+                                : 'Settled'}
                           </span>
                         )}
                       </td>
                     </tr>
+                    {open && (
+                      <tr className="border-b bg-slate-100 text-[11px] uppercase text-gray-500">
+                        <td className="px-3 py-1.5">
+                          <input
+                            type="checkbox"
+                            className="h-3.5 w-3.5"
+                            title="Select every approved invoice of this person for Daily Allocation"
+                            checked={group.payable.length > 0 && group.payable.every((r) => selected.has(r.id))}
+                            disabled={group.payable.length === 0}
+                            onChange={(e) =>
+                              setSelected((prev) => {
+                                const next = new Set(prev);
+                                for (const r of group.payable) {
+                                  e.target.checked ? next.add(r.id) : next.delete(r.id);
+                                }
+                                return next;
+                              })
+                            }
+                          />
+                        </td>
+                        <td className="py-1.5 pl-8 pr-3">Invoice</td>
+                        <td className="px-3 py-1.5">Patient Name</td>
+                        <td className="px-3 py-1.5">Package</td>
+                        <td className="px-3 py-1.5">Procedure Date</td>
+                        <td className="px-3 py-1.5 text-right">Amount (₹)</td>
+                        <td className="px-3 py-1.5 text-right">Status</td>
+                      </tr>
+                    )}
                     {open &&
                       group.rows.map((row) => {
                         const status = statusOf(row);
+                        const allocatedOn = allocatedDates[row.id];
                         return (
                           <tr key={row.id} className="border-b bg-slate-50/60 text-xs last:border-0">
-                            <td />
-                            <td className="py-1.5 pl-8 pr-3" colSpan={2}>
+                            <td className="px-3 py-1.5">
+                              {canAllocate(row) && (
+                                <input
+                                  type="checkbox"
+                                  className="h-3.5 w-3.5"
+                                  checked={selected.has(row.id)}
+                                  onChange={() => toggleSelected(row.id)}
+                                  aria-label={`Select invoice ${row.invoice_no || row.reference_no || ''} for Daily Allocation`}
+                                />
+                              )}
+                            </td>
+                            <td className="py-1.5 pl-8 pr-3">
                               <button
                                 type="button"
                                 className="font-mono text-blue-700 hover:underline"
@@ -328,20 +443,28 @@ const SpecialistPayouts: React.FC = () => {
                               >
                                 {row.invoice_no || row.reference_no || '—'}
                               </button>
-                              <span className="ml-2 text-muted-foreground">
-                                {row.surgery_date || (row.created_at || '').slice(0, 10)}
-                              </span>
                             </td>
-                            <td className="px-3 py-1.5" colSpan={2}>
-                              <span className="font-medium">{row.patient_name || '—'}</span>
-                              <span className="ml-2 text-muted-foreground">{row.surgery_name || row.narration || ''}</span>
+                            <td className="px-3 py-1.5 font-medium">{row.patient_name || '—'}</td>
+                            <td className="px-3 py-1.5 text-muted-foreground">
+                              {row.surgery_name || row.narration || '—'}
+                            </td>
+                            <td className="px-3 py-1.5">
+                              {row.surgery_date || (row.created_at || '').slice(0, 10)}
                             </td>
                             <td className="px-3 py-1.5 text-right font-mono">{inr(Number(row.amount))}</td>
-                            <td className="px-3 py-1.5 text-right">
+                            <td className="whitespace-nowrap px-3 py-1.5 text-right">
                               <span className={`rounded px-2 py-0.5 font-medium ${STATUS_BADGE[status]}`}>
                                 {status === 'APPROVED' ? 'APPROVED · UNPAID' : status}
                                 {status === 'PAID' && row.paid_at ? ` ${row.paid_at.slice(0, 10)}` : ''}
                               </span>
+                              {allocatedOn && status !== 'PAID' && (
+                                <span
+                                  className="ml-1 rounded bg-blue-100 px-2 py-0.5 font-medium text-blue-700"
+                                  title={`On the ${new Date(allocatedOn).toLocaleDateString('en-IN')} allocation — pay it from the Payment Allocation page`}
+                                >
+                                  In allocation
+                                </span>
+                              )}
                             </td>
                           </tr>
                         );

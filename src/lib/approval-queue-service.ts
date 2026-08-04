@@ -581,6 +581,40 @@ export async function listSurgeryInvoices(fromDate: string, toDate: string): Pro
 }
 
 /**
+ * invoice id → schedule_date for surgery invoices already sitting on a live
+ * (unpaid, unskipped) daily payment allocation.
+ */
+export async function listSurgeryInvoiceAllocations(): Promise<Record<string, string>> {
+  const { data, error } = await (supabase as any)
+    .from('daily_payment_schedule')
+    .select('approval_queue_id, schedule_date, status')
+    .not('approval_queue_id', 'is', null)
+    .not('status', 'in', '(paid,skipped)')
+  if (error) throw new Error(error.message || 'Could not check the daily allocations')
+  const map: Record<string, string> = {}
+  for (const r of (data || []) as any[]) map[r.approval_queue_id] = r.schedule_date
+  return map
+}
+
+/**
+ * Moves one approved, unpaid surgery invoice onto a day's Daily Payment
+ * Allocation, where accounting pays it against the day's budget.
+ */
+export async function moveSurgeryInvoiceToDailyAllocation(
+  invoiceId: string,
+  date: string,
+  createdBy?: string | null,
+): Promise<{ invoice_no: string; party: string; amount: number }> {
+  const { data, error } = await (supabase as any).rpc('move_surgery_invoice_to_daily_allocation', {
+    p_invoice_id: invoiceId,
+    p_date: date,
+    p_created_by: createdBy ?? null,
+  })
+  if (error) throw new Error(error.message || 'Could not move the invoice to the daily allocation')
+  return data
+}
+
+/**
  * Pays SEVERAL invoices of one party with ONE payment voucher:
  * Dr party (total) / Cr cash-bank (total), every invoice linked to the same
  * voucher. Same claim-then-post shape as the single payment: all rows flip
