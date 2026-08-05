@@ -204,6 +204,14 @@ export const TABLET_MODULES: TabletModule[] = [
   },
 
   {
+    id: "implant-calculation",
+    label: "Implant Calculation - Azhar",
+    description: "Settle each discharged patient: direct or referred cut",
+    icon: ClipboardCheck,
+    accent: "text-rose-700",
+    tint: "from-rose-500 to-orange-700",
+  },
+  {
     id: "incoming-referrals",
     label: "Incoming Referrals - Suraj Arpit",
     description: "Announce a referred patient before arrival, link on registration",

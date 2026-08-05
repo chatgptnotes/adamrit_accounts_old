@@ -64,6 +64,7 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
     () => import("@/tablet/modules/private-room-charges-reena/PrivateRoomChargesReenaFlow"),
   ),
 
+  "implant-calculation": lazy(() => import("@/tablet/modules/implant-calculation/ImplantCalculationFlow")),
   "incoming-referrals": lazy(() => import("@/tablet/modules/incoming-referrals/IncomingReferralsFlow")),
   "akshay-payouts": lazy(() => import("@/tablet/modules/akshay-payouts/AkshayPayoutsFlow")),
   "diagnostics-hope": lazy(() => import("@/tablet/modules/diagnostics/DiagnosticsFlow")),

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDebounce } from 'use-debounce';
 import { supabase } from '@/integrations/supabase/client';
@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
-import { CheckCircle2, Edit2, Eye, EyeOff, FileCheck2, Loader2, Lock, Plus, Printer, RotateCcw, Trash2, Users, Save } from 'lucide-react';
+import { Camera, CheckCircle2, Edit2, Eye, EyeOff, FileCheck2, Loader2, Lock, Paperclip, Plus, Printer, RotateCcw, Trash2, Users, Save } from 'lucide-react';
 import { LedgerAutocomplete, type LedgerAccountOption } from '@/components/accounting/LedgerAutocomplete';
 import { approveReferralRow } from '@/lib/referral-invoice-service';
 
@@ -58,6 +58,108 @@ interface OverrideRow {
   approval_id: string | null;
   // Set when the per-row Approve has raised the M.L. Enterprises invoice.
   expense_bill_id: string | null;
+}
+
+/**
+ * The handwritten calculation sheet Azhar uploads (or snaps) against a row
+ * before it is approved. Sheets are per row per report date.
+ */
+function CalcSheetCell({ rowKey, reportDate, uploadedBy }: {
+  rowKey: string;
+  reportDate: string;
+  uploadedBy: string | null;
+}) {
+  const queryClient = useQueryClient();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  const { data: sheets = [] } = useQuery({
+    queryKey: ['revenue-calc-sheets', reportDate, rowKey],
+    queryFn: async (): Promise<{ id: string; url: string }[]> => {
+      const { data, error } = await (supabase as any)
+        .from('revenue_calc_sheets')
+        .select('id, url')
+        .eq('report_date', reportDate)
+        .eq('row_key', rowKey)
+        .order('created_at');
+      if (error) return [];
+      return (data || []) as { id: string; url: string }[];
+    },
+  });
+
+  const upload = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setBusy(true);
+    try {
+      for (const file of Array.from(files)) {
+        if (file.size > 12 * 1024 * 1024) throw new Error(`${file.name}: max 12 MB`);
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const path = `revenue-calc-sheets/${Date.now()}_${crypto.randomUUID()}_${safeName}`;
+        const { error: upErr } = await supabase.storage.from('uploads').upload(path, file, {
+          contentType: file.type || 'application/octet-stream',
+        });
+        if (upErr) throw upErr;
+        const { data: pub } = supabase.storage.from('uploads').getPublicUrl(path);
+        const { error: insErr } = await (supabase as any).from('revenue_calc_sheets').insert({
+          row_key: rowKey,
+          report_date: reportDate,
+          url: pub.publicUrl,
+          path,
+          uploaded_by: uploadedBy,
+        });
+        if (insErr) throw new Error(insErr.message);
+      }
+      toast.success('Calculation sheet uploaded.');
+      queryClient.invalidateQueries({ queryKey: ['revenue-calc-sheets', reportDate, rowKey] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  };
+
+  return (
+    <span className="mb-1 flex items-center gap-1 print:hidden">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*,application/pdf"
+        capture="environment"
+        multiple
+        className="hidden"
+        onChange={(e) => void upload(e.target.files)}
+      />
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 gap-1 px-1.5 text-[11px]"
+        disabled={busy}
+        title="Snap / upload the calculated sheet before approving"
+        onClick={() => inputRef.current?.click()}
+      >
+        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+        Sheet
+      </Button>
+      {sheets.map((sheet, index) => (
+        <a
+          key={sheet.id}
+          href={sheet.url}
+          target="_blank"
+          rel="noreferrer"
+          title={`Calculation sheet ${index + 1}`}
+          className="text-blue-600"
+        >
+          <Paperclip className="h-3.5 w-3.5" />
+        </a>
+      ))}
+      {sheets.length === 0 && (
+        <span className="text-[10px] text-amber-600" title="No calculated sheet uploaded yet">
+          no sheet
+        </span>
+      )}
+    </span>
+  );
 }
 
 /** What became of a cut that has been raised for payment. */
@@ -1614,6 +1716,7 @@ export function DailyRevenueReportSection({
                               )}
                             </TableCell>
                             <TableCell className="print:hidden">
+                              <CalcSheetCell rowKey={r.key} reportDate={reportDate} uploadedBy={user?.email || null} />
                               {r.approvalId ? (
                                 // Already paid. Name the vouchers, because the
                                 // point of the button was to get them into the
