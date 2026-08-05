@@ -7,7 +7,12 @@ import { HOSPITAL_CONFIGS, type HospitalType } from '@/types/hospital';
 import { useCompanies } from '@/hooks/useCompanies';
 import { useAccountingCompanyOptional } from '../AccountingCompanyContext';
 import { companyKey } from '@/lib/tallyCompanyMatch';
-import { dayLabel, periodLabel as labelOfPeriod, useAccountingPeriodOptional } from './PeriodContext';
+import {
+  currentFinancialYear,
+  dayLabel,
+  periodLabel as labelOfPeriod,
+  useAccountingPeriodOptional,
+} from './PeriodContext';
 import {
   hotkeyLabel,
   isTypingTarget,
@@ -763,6 +768,10 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
   const { hospitalConfig } = useAuth();
   const accountingCompany = useAccountingCompanyOptional();
   const periodContext = useAccountingPeriodOptional();
+  /** Today sits outside the saved Current Period, so recent vouchers are hidden. */
+  const outOfPeriod =
+    !!periodContext &&
+    (periodContext.currentDate < periodContext.period.from || periodContext.currentDate > periodContext.period.to);
   // Stable, so the default key bar below (and the hotkey binding that reads it)
   // is not rebuilt on every render.
   const handleClose = useCallback(
@@ -902,6 +911,29 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
       <div className="flex min-h-0 flex-1">
         {/* Content — focusable so the report owns the keyboard, not the sidebar */}
         <div ref={contentRef} tabIndex={-1} className="min-w-0 flex-1 overflow-auto outline-none">
+          {/*
+            Tally remembers one Current Period, and so do we — but a period left
+            behind after a month-end job silently hides every voucher dated
+            after it, which reads as missing postings rather than a date filter.
+            Say so whenever today falls outside the period.
+          */}
+          {outOfPeriod && (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-[#e0b34a] bg-[#fdf6d8] px-2 py-1 text-[12px] text-[#7a4a00] print:hidden">
+              <span className="font-semibold">Current Period is {labelOfPeriod(periodContext!.period)}.</span>
+              <span>
+                Vouchers dated outside it — including today, {dayLabel(periodContext!.currentDate)} — are not shown on
+                this or any other report.
+              </span>
+              <button
+                type="button"
+                onClick={() => periodContext!.setPeriod(currentFinancialYear())}
+                className="rounded border border-[#c08a1e] bg-white px-2 py-0.5 font-semibold text-[#7a4a00] hover:bg-[#fffbe9]"
+              >
+                Show this financial year
+              </button>
+              <span className="italic text-[#9a7331]">or press F2 to pick another period</span>
+            </div>
+          )}
           {children}
         </div>
 

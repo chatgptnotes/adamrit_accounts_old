@@ -60,7 +60,7 @@
   "src/components/accounting/tally/QuickLedgerPopup.tsx": "8a917dca116fad6c8e4d77dbbfd9df1425743c40d634df0e7c9067f0ba9c9275",
   "src/components/accounting/tally/ReportConfigure.tsx": "02de8a3d5f8797d24a16b237a8be3c815117fcc06a5e2c1e44c1fb0f741067cc",
   "src/components/accounting/tally/TallyCalculator.tsx": "653f240ce9a14090d29fb2f13011fa941f4d9af961f5ee53f722a2331736a43f",
-  "src/components/accounting/tally/TallyChrome.tsx": "1a9b331b11ab511c86e17c4b46b7e9748fc2c4687ced1cbcc0d62c58ac0a894b",
+  "src/components/accounting/tally/TallyChrome.tsx": "e9e6a9865bb5c81263c199f6c8d19ca21648ba49b03858a1b0a8c14249a56583",
   "src/components/accounting/tally/TallyConfirm.tsx": "d9621a98c0cb5bf83ac8ee3446350bd1cbb7251b0c8428dd43e4eb07b28600b7",
   "src/components/accounting/tally/TallyGlobalKeys.tsx": "f693da650cc1977416a917fb247781c76a9c3286a0a28b8e0cf8f1bc2f0bc765",
   "src/components/accounting/tally/TallyPopup.tsx": "7fa2202c1db8f794894a8605f0ce2469c917ba5eeb5dd44219d59aa9a2a7c2fc",
