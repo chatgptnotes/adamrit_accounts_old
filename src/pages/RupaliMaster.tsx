@@ -1,12 +1,17 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Loader2 } from 'lucide-react';
+import { Plus, Loader2, Check, ChevronsUpDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
+} from '@/components/ui/command';
+import { cn } from '@/lib/utils';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -36,6 +41,7 @@ interface DoctorOption {
 export default function RupaliMaster() {
   const queryClient = useQueryClient();
   const [filterCategory, setFilterCategory] = useState<string>('all');
+  const [doctorOpen, setDoctorOpen] = useState(false);
   const [form, setForm] = useState({
     category: 'OPD',
     doctorKey: '',
@@ -157,18 +163,47 @@ export default function RupaliMaster() {
           </div>
           <div className="w-72">
             <label className="text-xs font-medium">Doctor</label>
-            <Select value={form.doctorKey} onValueChange={(v) => setForm((f) => ({ ...f, doctorKey: v }))}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select doctor" />
-              </SelectTrigger>
-              <SelectContent>
-                {doctors.map((d) => (
-                  <SelectItem key={`${d.hospital}:${d.id}`} value={`${d.hospital}:${d.id}`}>
-                    {d.name} <span className="text-muted-foreground">({d.hospital})</span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Popover open={doctorOpen} onOpenChange={setDoctorOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+                  {doctorByKey.get(form.doctorKey)
+                    ? `${doctorByKey.get(form.doctorKey)!.name} (${doctorByKey.get(form.doctorKey)!.hospital})`
+                    : 'Select doctor'}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-0">
+                <Command>
+                  <CommandInput placeholder="Search doctor…" />
+                  <CommandList>
+                    <CommandEmpty>No doctor found.</CommandEmpty>
+                    <CommandGroup>
+                      {doctors.map((d) => {
+                        const key = `${d.hospital}:${d.id}`;
+                        return (
+                          <CommandItem
+                            key={key}
+                            value={`${d.name} ${d.hospital}`}
+                            onSelect={() => {
+                              setForm((f) => ({ ...f, doctorKey: key }));
+                              setDoctorOpen(false);
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                'mr-2 h-4 w-4',
+                                form.doctorKey === key ? 'opacity-100' : 'opacity-0',
+                              )}
+                            />
+                            {d.name} <span className="ml-1 text-muted-foreground">({d.hospital})</span>
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </div>
           <div className="w-64">
             <label className="text-xs font-medium">Purpose / Reason (optional)</label>
