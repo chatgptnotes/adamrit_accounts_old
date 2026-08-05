@@ -149,14 +149,43 @@ function reportMarker(visitId: string) {
 
 type ReportCategory = Extract<
   PatientDocCategory,
-  "dialysis" | "lab_investigation" | "treatment_sheet" | "monitor_chart"
+  "dialysis" | "lab_investigation" | "clinic_notes" | "monitor_chart" | "radiology_investigation"
 >;
 
-const REPORTS: ReadonlyArray<{ category: ReportCategory; label: string }> = [
-  { category: "dialysis", label: "Patient photo" },
-  { category: "lab_investigation", label: "Lab report" },
-  { category: "treatment_sheet", label: "Clinical report" },
-  { category: "monitor_chart", label: "Vital report" },
+function clinicNotesMarker(patientId: string) {
+  return `clinic_notes:${patientId}`;
+}
+
+const REPORTS: ReadonlyArray<{
+  category: ReportCategory;
+  label: string;
+  notesFilter: (session: Session) => string | null;
+}> = [
+  {
+    category: "dialysis",
+    label: "Patient photo",
+    notesFilter: (session) => reportMarker(session.id),
+  },
+  {
+    category: "lab_investigation",
+    label: "Lab report",
+    notesFilter: (session) => reportMarker(session.id),
+  },
+  {
+    category: "clinic_notes",
+    label: "Clinic notes",
+    notesFilter: (session) => clinicNotesMarker(session.patient_id),
+  },
+  {
+    category: "monitor_chart",
+    label: "Vital report",
+    notesFilter: (session) => reportMarker(session.id),
+  },
+  {
+    category: "radiology_investigation",
+    label: "Radiology report",
+    notesFilter: (session) => reportMarker(session.id),
+  },
 ];
 
 function SessionDocuments({
@@ -166,11 +195,9 @@ function SessionDocuments({
   session: Session;
   onUploaded: () => Promise<void>;
 }) {
-  const marker = reportMarker(session.id);
   const common = {
     patientId: session.patient_id,
     patientName: session.patient.name,
-    notesFilter: marker,
     latestOnly: true,
     compact: true,
     onUploaded,
@@ -182,7 +209,7 @@ function SessionDocuments({
         <div>
           <p className="text-sm font-semibold">Session {session.sessionNumber} documents</p>
           <p className="text-xs text-muted-foreground">
-            Upload, capture, or download reports for this dialysis visit.
+            System-generated reports for this dialysis visit.
           </p>
         </div>
         <span className="shrink-0 rounded-full bg-muted px-3 py-1 text-xs font-semibold">
@@ -196,6 +223,7 @@ function SessionDocuments({
             key={report.category}
             label={report.label}
             category={report.category}
+            notesFilter={report.notesFilter(session)}
             {...common}
           />
         ))}
@@ -230,7 +258,13 @@ function ReportSlot({
           {docs.isLoading ? "Loading" : latest ? `Uploaded · ${shortDate(latest.uploadedAt)}` : "No file"}
         </span>
       </div>
-      <PatientDocsTab category={category} label={label} uploadNotes={props.notesFilter} {...props} />
+      <PatientDocsTab
+        category={category}
+        label={label}
+        uploadNotes={props.notesFilter}
+        readOnly
+        {...props}
+      />
     </TabletCard>
   );
 }

@@ -9,6 +9,7 @@ import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletInput } from "@/tablet/ui/TabletInput";
 import { shortDate } from "@/tablet/lib/format";
 import { cn } from "@/lib/utils";
+import { ClinicNotesTab } from "@/tablet/modules/patient-profile/ClinicNotesTab";
 import { PatientDocsTab } from "@/tablet/modules/patient-profile/PatientDocsTab";
 import {
   DOCUMENTS_AND_PHOTOS_CATEGORIES,
@@ -26,6 +27,7 @@ import {
  */
 const TABS = [
   { id: "profile", label: "Patient Profile" },
+  { id: "clinic-notes", label: "Clinic Notes" },
   ...DOCUMENTS_AND_PHOTOS_CATEGORIES,
 ] as const;
 
@@ -110,6 +112,7 @@ export default function PatientProfileFlow() {
   const [registrationDocumentName, setRegistrationDocumentName] = useState("");
 
   const isRegistrationTab = tab === REGISTRATION_DOCUMENT_CATEGORY;
+  const isClinicNotesTab = tab === "clinic-notes";
   const requiredDocuments = selected
     ? getCorporateRegistrationDocuments(selected.corporate || "")
     : [];
@@ -205,6 +208,8 @@ export default function PatientProfileFlow() {
               </div>
             </dl>
           </>
+        ) : isClinicNotesTab ? (
+          <ClinicNotesTab patientId={selected.id} patientName={selected.name} />
         ) : (
           <>
             {/* Registration documents are identified by name, not filename. The

@@ -55,6 +55,8 @@ interface PatientDocsTabProps {
   latestOnly?: boolean;
   /** Put a download-latest action beside this category's upload controls. */
   compact?: boolean;
+  /** Read-only display for generated documents. */
+  readOnly?: boolean;
   /** Called after at least one file is successfully uploaded. */
   onUploaded?: () => void | Promise<void>;
 }
@@ -95,6 +97,7 @@ export function PatientDocsTab({
   notesFilter = null,
   latestOnly = false,
   compact = false,
+  readOnly = false,
   onUploaded,
 }: PatientDocsTabProps) {
   const { user, hospitalConfig } = useAuth();
@@ -109,10 +112,10 @@ export function PatientDocsTab({
 
   const handleFiles = async (items: File[] | CapturedPhotoItem[]) => {
     if (items.length === 0) return;
-    if (uploadDisabledReason) {
+    if (readOnly || uploadDisabledReason) {
       toast({
         title: "Cannot upload yet",
-        description: uploadDisabledReason,
+        description: readOnly ? "This report is system-generated." : uploadDisabledReason,
         variant: "destructive",
       });
       return;
@@ -194,81 +197,87 @@ export function PatientDocsTab({
 
   return (
     <div className="space-y-4">
-      {/* Upload controls */}
-      <div className={cn("flex gap-2", compact ? "flex-wrap" : "gap-3")}>
-        <input
-          ref={chooseRef}
-          type="file"
-          accept="image/*,application/pdf"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            handleFiles(Array.from(e.target.files || []));
-            e.target.value = "";
-          }}
-        />
-        {compact ? (
-          <>
-            <Button
-              size="sm"
-              className="min-w-[7rem] flex-1 rounded-lg px-3 text-xs shadow-none"
-              disabled={uploading || !!uploadDisabledReason}
-              onClick={() => chooseRef.current?.click()}
-            >
-              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-              Upload
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="min-w-[7rem] flex-1 rounded-lg px-3 text-xs shadow-none"
-              disabled={uploading || !!uploadDisabledReason}
-              onClick={() => setCameraOpen(true)}
-            >
-              <Camera className="h-4 w-4" /> Camera
-            </Button>
-            {latest ? (
-              <Button
-                size="sm"
-                variant="outline"
-                className="min-w-[7rem] flex-1 rounded-lg px-3 text-xs shadow-none"
-                onClick={() => void downloadDoc(latest)}
-              >
-                <Download className="h-4 w-4" /> Download
-              </Button>
-            ) : null}
-          </>
-        ) : (
-          <>
-            <TabletButton
-              className="flex-1"
-              disabled={uploading || !!uploadDisabledReason}
-              onClick={() => chooseRef.current?.click()}
-            >
-              {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
-              Upload / Choose Photos
-            </TabletButton>
-            <TabletButton
-              variant="outline"
-              className="flex-1"
-              disabled={uploading || !!uploadDisabledReason}
-              onClick={() => setCameraOpen(true)}
-            >
-              <Camera className="h-5 w-5" /> Take Photos
-            </TabletButton>
-          </>
-        )}
-      </div>
+      {!readOnly ? (
+        <>
+          {/* Upload controls */}
+          <div className={cn("flex gap-2", compact ? "flex-wrap" : "gap-3")}>
+            <input
+              ref={chooseRef}
+              type="file"
+              accept="image/*,application/pdf"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                handleFiles(Array.from(e.target.files || []));
+                e.target.value = "";
+              }}
+            />
+            {compact ? (
+              <>
+                <Button
+                  size="sm"
+                  className="min-w-[7rem] flex-1 rounded-lg px-3 text-xs shadow-none"
+                  disabled={uploading || !!uploadDisabledReason}
+                  onClick={() => chooseRef.current?.click()}
+                >
+                  {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  Upload
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="min-w-[7rem] flex-1 rounded-lg px-3 text-xs shadow-none"
+                  disabled={uploading || !!uploadDisabledReason}
+                  onClick={() => setCameraOpen(true)}
+                >
+                  <Camera className="h-4 w-4" /> Camera
+                </Button>
+                {latest ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="min-w-[7rem] flex-1 rounded-lg px-3 text-xs shadow-none"
+                    onClick={() => void downloadDoc(latest)}
+                  >
+                    <Download className="h-4 w-4" /> Download
+                  </Button>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <TabletButton
+                  className="flex-1"
+                  disabled={uploading || !!uploadDisabledReason}
+                  onClick={() => chooseRef.current?.click()}
+                >
+                  {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
+                  Upload / Choose Photos
+                </TabletButton>
+                <TabletButton
+                  variant="outline"
+                  className="flex-1"
+                  disabled={uploading || !!uploadDisabledReason}
+                  onClick={() => setCameraOpen(true)}
+                >
+                  <Camera className="h-5 w-5" /> Take Photos
+                </TabletButton>
+              </>
+            )}
+          </div>
+        </>
+      ) : null}
 
-      {uploadDisabledReason ? (
+      {!readOnly && uploadDisabledReason ? (
         <p className="text-sm text-muted-foreground">{uploadDisabledReason}</p>
       ) : null}
 
-      <MultiShotCamera
-        open={cameraOpen}
-        onClose={() => setCameraOpen(false)}
-        onCapture={(photos) => handleFiles(photos)}
-      />
+      {!readOnly ? (
+        <MultiShotCamera
+          open={cameraOpen}
+          onClose={() => setCameraOpen(false)}
+          onCapture={(photos) => handleFiles(photos)}
+        />
+      ) : null}
 
       {/* Compact latest-file status for dialysis; full gallery remains unchanged elsewhere. */}
       {compact ? (
@@ -287,17 +296,30 @@ export function PatientDocsTab({
               <span className="min-w-0 truncate text-xs text-muted-foreground">
                 {latest.fileName} · {shortDate(latest.uploadedAt)}
               </span>
-              <button
-                type="button"
-                aria-label={`Delete ${label}`}
-                className="ml-auto shrink-0 rounded-md p-1.5 text-destructive hover:bg-destructive/10"
-                onClick={() => void handleDelete(latest)}
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
+              {readOnly ? (
+                <button
+                  type="button"
+                  aria-label={`Open ${label}`}
+                  className="ml-auto shrink-0 rounded-md px-2 py-1 text-xs text-primary hover:bg-primary/10"
+                  onClick={() => window.open(latest.fileUrl, "_blank", "noopener,noreferrer")}
+                >
+                  Open
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  aria-label={`Delete ${label}`}
+                  className="ml-auto shrink-0 rounded-md p-1.5 text-destructive hover:bg-destructive/10"
+                  onClick={() => void handleDelete(latest)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
             </>
           ) : (
-            <span className="text-xs text-muted-foreground">No file uploaded yet.</span>
+            <span className="text-xs text-muted-foreground">
+              {readOnly ? "No system-generated report yet." : "No file uploaded yet."}
+            </span>
           )}
         </div>
       ) : docs.isLoading ? (
@@ -366,14 +388,16 @@ export function PatientDocsTab({
                 >
                   <Download className="h-4 w-4" />
                 </button>
-                <button
-                  type="button"
-                  aria-label="Delete"
-                  className="rounded-lg p-2 text-destructive hover:bg-destructive/10"
-                  onClick={() => handleDelete(doc)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                {!readOnly ? (
+                  <button
+                    type="button"
+                    aria-label="Delete"
+                    className="rounded-lg p-2 text-destructive hover:bg-destructive/10"
+                    onClick={() => handleDelete(doc)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                ) : null}
               </div>
             </TabletCard>
           ))}

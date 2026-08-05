@@ -30,6 +30,7 @@ export const DOCUMENTS_AND_PHOTOS_CATEGORIES = [
 export type PatientDocCategory =
   | (typeof PATIENT_DOC_CATEGORIES)[number]["id"]
   | typeof REGISTRATION_DOCUMENT_CATEGORY
+  | "clinic_notes"
   | "advance_image"
   | "discharge_thumb_confirmation"
   | "payment_proof"
@@ -77,15 +78,25 @@ export function usePatientDocs(
     enabled: !!patientId,
     staleTime: 1000 * 15,
     queryFn: async (): Promise<PatientDoc[]> => {
-      let query = supabase
-        .from("file_uploads")
-        .select("id, file_name, file_url, file_type, storage_path, created_at, latitude, longitude, notes, category")
-        .eq("patient_id", patientId)
-        .eq("category", category);
-      if (notesFilter) query = query.eq("notes", notesFilter);
-      const { data, error } = await query.order("created_at", { ascending: false });
-      if (error) throw error;
-      return (data || []).map(mapDoc);
+      const buildQuery = (matchNotes: boolean) => {
+        let query = supabase
+          .from("file_uploads")
+          .select("id, file_name, file_url, file_type, storage_path, created_at, latitude, longitude, notes, category")
+          .eq("patient_id", patientId)
+          .eq("category", category);
+        if (matchNotes && notesFilter) query = query.eq("notes", notesFilter);
+        return query.order("created_at", { ascending: false });
+      };
+
+      if (notesFilter) {
+        const exact = await buildQuery(true);
+        if (exact.error) throw exact.error;
+        if ((exact.data || []).length > 0) return (exact.data || []).map(mapDoc);
+      }
+
+      const fallback = await buildQuery(false);
+      if (fallback.error) throw fallback.error;
+      return (fallback.data || []).map(mapDoc);
     },
   });
 }
