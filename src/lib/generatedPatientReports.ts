@@ -95,7 +95,7 @@ async function renderReportPdf(input: PublishGeneratedPatientReportInput): Promi
     }
   };
 
-  const renderClinicNotes = () => {
+  const renderClinicNotes = async () => {
     doc.setTextColor(20, 20, 20);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(letterhead ? 15 : 16);
@@ -181,7 +181,7 @@ async function renderReportPdf(input: PublishGeneratedPatientReportInput): Promi
   };
 
   if (input.category === 'clinic_notes') {
-    renderClinicNotes();
+    await renderClinicNotes();
   } else {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(letterhead ? 16 : 18);
