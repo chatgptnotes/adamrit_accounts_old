@@ -339,6 +339,7 @@ export async function createDoctorApprovalsFromOt(ot: {
     // Panel (Yojana/corporate) or private, from the patient on the visit.
     // Unknown patients fall back to private, as the fee lookup always has.
     let isPrivate = true
+    let corporateName = ''
     try {
       if (ot.visit_id) {
         const { data: visitRow } = await supabase
@@ -346,13 +347,17 @@ export async function createDoctorApprovalsFromOt(ot: {
           .select('patients!inner(corporate)')
           .eq('visit_id', ot.visit_id)
           .maybeSingle()
-        const corporate = String((visitRow as any)?.patients?.corporate || '').toLowerCase()
+        corporateName = String((visitRow as any)?.patients?.corporate || '').trim()
+        const corporate = corporateName.toLowerCase()
         isPrivate = !corporate || corporate.includes('private')
       }
     } catch (err: any) {
       console.warn('[ot-auto] patient class lookup failed:', err?.message || err)
     }
     const rate = isPrivate ? 'private' : 'panel'
+    // Named on the bill and therefore in the JV: Private, or the actual
+    // panel/Yojana the patient belongs to.
+    const patientClassLabel = isPrivate ? 'Private' : corporateName || 'Panel'
 
     // Surgeon: match the package name first, then the exact Yojana surgery
     // name. Keywords are intentionally search-only and do not determine a
@@ -382,23 +387,49 @@ export async function createDoctorApprovalsFromOt(ot: {
     const anesthetistAmount = kind ? ANESTHETIST_FEE[kind][rate] : 0
 
     // One bill per person; the same name in both roles gets the surgeon fee.
-    const people: Array<{ name: string; amount: number }> = surgeonNames.map((name) => ({
+    const people: Array<{ name: string; amount: number; isAnesthetist: boolean }> = surgeonNames.map((name) => ({
       name,
       amount: surgeonAmount,
+      isAnesthetist: false,
     }))
     for (const name of anesthetistNames) {
       if (!surgeonNames.some((s) => s.toLowerCase() === name.toLowerCase())) {
-        people.push({ name, amount: anesthetistAmount })
+        people.push({ name, amount: anesthetistAmount, isAnesthetist: true })
       }
     }
 
     let created = 0
-    for (const { name: surgeon, amount: masterAmount } of people) {
+    for (const { name: surgeon, amount: masterAmount, isAnesthetist } of people) {
       const { data: maps } = await doctorLedgerMap()
         .select('company_id, party_account_id, expense_account_id')
         .ilike('surgeon_name', surgeon)
         .limit(1)
       const map = (maps || [])[0]
+
+      // An anaesthetist's fee is Anaesthetist Charges, never Surgeon Fees.
+      let expenseAccountId = map?.expense_account_id || null
+      if (isAnesthetist && map?.company_id) {
+        try {
+          const { data: anaes } = await (supabase as any)
+            .from('chart_of_accounts')
+            .select('id')
+            .eq('company_id', map.company_id)
+            .eq('is_active', true)
+            .ilike('account_name', 'anaesthetist charges')
+            .limit(1)
+          if (anaes?.[0]?.id) expenseAccountId = anaes[0].id
+        } catch { /* fall back to the mapped expense */ }
+      }
+
+      // The bill's narration becomes the JV's narration on approval, so it
+      // carries the anaesthesia type and the patient class.
+      const detail = [
+        isAnesthetist && ot.anesthesia_type ? String(ot.anesthesia_type).trim() : null,
+        patientClassLabel,
+      ].filter(Boolean).join(', ')
+      const narration =
+        ([ot.surgery_name, ot.patient_name].filter(Boolean).join(' - ') || 'OT surgery')
+        + (detail ? ` (${detail})` : '')
 
       const { error } = await approvalQueue().insert({
         category: 'DOCTOR',
@@ -406,9 +437,9 @@ export async function createDoctorApprovalsFromOt(ot: {
         reference_no: ot.visit_id ? `OT-${ot.visit_id}` : null,
         amount: masterAmount,
         company_id: map?.company_id || null,
-        expense_account_id: map?.expense_account_id || null,
+        expense_account_id: expenseAccountId,
         party_account_id: map?.party_account_id || null,
-        narration: [ot.surgery_name, ot.patient_name].filter(Boolean).join(' - ') || 'OT surgery',
+        narration,
         ot_schedule_id: ot.id,
         created_by: 'ot-auto',
       })
