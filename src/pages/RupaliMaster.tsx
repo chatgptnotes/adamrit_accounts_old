@@ -84,13 +84,14 @@ export default function RupaliMaster() {
       const doctor = doctorByKey.get(form.doctorKey);
       const amount = parseFloat(form.amount);
       if (!doctor) throw new Error('Select the doctor');
-      if (!form.purpose.trim()) throw new Error('Enter the purpose / reason');
       if (!Number.isFinite(amount) || amount < 0) throw new Error('Enter a valid amount');
       const { error } = await (supabase as any).from('rupali_charge_rules').insert({
         category: form.category,
         doctor_id: doctor.id,
         doctor_name: doctor.name,
-        purpose_reason: form.purpose.trim(),
+        // The tablet flow charges directly per category + doctor; purpose is
+        // optional detail and falls back to the category name.
+        purpose_reason: form.purpose.trim() || form.category,
         amount,
       });
       if (error) {
@@ -170,7 +171,7 @@ export default function RupaliMaster() {
             </Select>
           </div>
           <div className="w-64">
-            <label className="text-xs font-medium">Purpose / Reason</label>
+            <label className="text-xs font-medium">Purpose / Reason (optional)</label>
             <Input
               value={form.purpose}
               onChange={(e) => setForm((f) => ({ ...f, purpose: e.target.value }))}
