@@ -42,7 +42,11 @@ export default function DiagnosticsFlow() {
   const { moduleId } = useParams();
   const queryClient = useQueryClient();
 
-  const hospitalType = moduleId === "diagnostics-ayushman" ? "ayushman" : "hope";
+  // The tile sets the default; the patient step can switch hospitals, and the
+  // invoice + JV follow the hospital the patient was searched in.
+  const [hospitalType, setHospitalType] = useState<"hope" | "ayushman">(
+    moduleId === "diagnostics-ayushman" ? "ayushman" : "hope",
+  );
   const hospitalLabel =
     hospitalType === "ayushman" ? "Ayushman Nagpur Hospital" : "Hope Multi-Specialty Hospital";
   const companyLabel =
@@ -285,6 +289,8 @@ export default function DiagnosticsFlow() {
           <TabletPatientPicker
             heading={`Find the ${patientType} patient`}
             hint="Search by name, patient ID or mobile number"
+            hospital={hospitalType}
+            onHospitalChange={setHospitalType}
             onSelect={(p) => {
               setPatient(p);
               setStep(3);

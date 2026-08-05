@@ -40,6 +40,10 @@ export default function SpotApprovalFlow() {
   const [ledger, setLedger] = useState<RefereeLedger | null>(null);
   const [ledgerSearch, setLedgerSearch] = useState("");
   const [patient, setPatient] = useState<Patient | null>(null);
+  // Which hospital's patients are searched — and whose books carry the spot.
+  const [searchHospital, setSearchHospital] = useState<"hope" | "ayushman">(
+    hospitalType === "ayushman" ? "ayushman" : "hope",
+  );
   const [depositToCollect, setDepositToCollect] = useState("");
   const [maxSpot, setMaxSpot] = useState(String(DEFAULT_SPOT));
   const [debouncedSearch] = useDebounce(ledgerSearch, 250);
@@ -119,7 +123,7 @@ export default function SpotApprovalFlow() {
         p_deposit_paid: deposit?.amount ?? 0,
         p_deposit_to_collect: collect,
         p_max_spot: spot,
-        p_hospital_type: hospitalType,
+        p_hospital_type: searchHospital,
         p_approved_by: user?.email || user?.id || null,
       });
       if (error) throw new Error(error.message);
@@ -218,6 +222,8 @@ export default function SpotApprovalFlow() {
         <TabletPatientPicker
           heading="Whose admission is this?"
           hint="Search by name, patient ID or mobile number"
+          hospital={searchHospital}
+          onHospitalChange={setSearchHospital}
           onSelect={(p) => {
             setPatient(p);
             setStep(3);

@@ -33,6 +33,13 @@ interface TabletPatientPickerProps {
   onSelect: (patient: Patient) => void;
   heading?: string;
   hint?: string;
+  /**
+   * When provided, a Hope/Ayushman toggle appears and the search runs against
+   * the chosen hospital's patients — the caller uses the same value to post
+   * in that hospital's books.
+   */
+  hospital?: 'hope' | 'ayushman';
+  onHospitalChange?: (hospital: 'hope' | 'ayushman') => void;
 }
 
 /**
@@ -47,6 +54,8 @@ export function TabletPatientPicker({
   onSelect,
   heading,
   hint,
+  hospital,
+  onHospitalChange,
 }: TabletPatientPickerProps) {
   const {
     criteria,
@@ -57,7 +66,7 @@ export function TabletPatientPicker({
     showNoResults,
     search,
     hasCriteria,
-  } = usePatientLookup();
+  } = usePatientLookup(hospital);
   const [field, setField] = useState<FieldKey>("name");
 
   const updateField = (key: FieldKey, value: string) => {
@@ -77,6 +86,21 @@ export function TabletPatientPicker({
           ) : null}
           {hint ? (
             <p className="text-sm text-muted-foreground">{hint}</p>
+          ) : null}
+          {hospital && onHospitalChange ? (
+            <div className="flex gap-2">
+              {(["hope", "ayushman"] as const).map((h) => (
+                <TabletButton
+                  key={h}
+                  size="default"
+                  variant={hospital === h ? "default" : "outline"}
+                  className="min-h-[44px] flex-1 text-sm"
+                  onClick={() => onHospitalChange(h)}
+                >
+                  {h === "hope" ? "Hope Hospital" : "Ayushman Hospital"}
+                </TabletButton>
+              ))}
+            </div>
           ) : null}
 
           {/* Field selector — wraps instead of overflowing on narrow phones */}

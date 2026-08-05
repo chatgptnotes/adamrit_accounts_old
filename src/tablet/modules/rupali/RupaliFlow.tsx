@@ -43,6 +43,10 @@ export default function RupaliFlow() {
   const [patient, setPatient] = useState<Patient | null>(null);
   const [rule, setRule] = useState<ChargeRule | null>(null);
   const [doctorSearch, setDoctorSearch] = useState("");
+  // Which hospital's patients are searched — and whose books get the JV.
+  const [searchHospital, setSearchHospital] = useState<"hope" | "ayushman">(
+    hospitalType === "ayushman" ? "ayushman" : "hope",
+  );
   const [amount, setAmount] = useState("");
   const [editingAmount, setEditingAmount] = useState(false);
 
@@ -129,7 +133,7 @@ export default function RupaliFlow() {
         p_patient_name: patient.name,
         p_purpose: purpose,
         p_amount: finalAmount,
-        p_hospital_type: hospitalType,
+        p_hospital_type: searchHospital,
         p_created_by: user?.email || user?.id || null,
         p_patient_category: rule?.patient_category ?? null,
       });
@@ -264,6 +268,8 @@ export default function RupaliFlow() {
         <TabletPatientPicker
           heading="Find the patient"
           hint="Search by name, patient ID or mobile number"
+          hospital={searchHospital}
+          onHospitalChange={setSearchHospital}
           onSelect={(p) => {
             setPatient(p);
             setStep(4);

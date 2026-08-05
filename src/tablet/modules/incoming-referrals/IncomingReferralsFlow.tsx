@@ -64,12 +64,15 @@ async function uploadReferralDoc(file: File, category: string): Promise<Referral
  * announcement is linked to that registration with the patient picker.
  */
 export default function IncomingReferralsFlow() {
-  const { user } = useAuth();
+  const { user, hospitalType } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const [mode, setMode] = useState<"list" | "announce">("list");
   const [linkFor, setLinkFor] = useState<Announcement | null>(null);
+  const [searchHospital, setSearchHospital] = useState<"hope" | "ayushman">(
+    hospitalType === "ayushman" ? "ayushman" : "hope",
+  );
   const [form, setForm] = useState({ patientName: "", comingFrom: "", refereeInitials: "" });
   const [docs, setDocs] = useState<ReferralDoc[]>([]);
   const [uploadingCategory, setUploadingCategory] = useState<string | null>(null);
@@ -177,6 +180,8 @@ export default function IncomingReferralsFlow() {
         <TabletPatientPicker
           heading="Registered patient"
           hint="Search by name, patient ID or mobile number"
+          hospital={searchHospital}
+          onHospitalChange={setSearchHospital}
           onSelect={(patient) => link.mutate({ announcement: linkFor, patient })}
         />
       </FlowScaffold>

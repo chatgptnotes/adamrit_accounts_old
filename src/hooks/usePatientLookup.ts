@@ -9,8 +9,9 @@ import type { Patient, SearchCriteria } from '@/components/PatientLookup/types/p
  * the desktop dialog and the tablet patient picker run one query path.
  * The query is hospital-scoped (`hospital_name`) and kept in the query key.
  */
-export function usePatientLookup() {
+export function usePatientLookup(hospitalNameOverride?: string) {
   const { hospitalConfig } = useAuth();
+  const hospitalName = hospitalNameOverride || hospitalConfig.name;
   const [criteria, setCriteria] = useState<SearchCriteria>({
     mobile: '',
     name: '',
@@ -26,7 +27,7 @@ export function usePatientLookup() {
       criteria.name,
       criteria.patientId,
       criteria.aadhaar,
-      hospitalConfig.name,
+      hospitalName,
     ],
     queryFn: async (): Promise<Patient[]> => {
       if (!criteria.mobile && !criteria.name && !criteria.patientId && !criteria.aadhaar) {
@@ -36,7 +37,7 @@ export function usePatientLookup() {
       let query = supabase
         .from('patients')
         .select('*')
-        .eq('hospital_name', hospitalConfig.name)
+        .eq('hospital_name', hospitalName)
         .order('created_at', { ascending: false });
 
       if (criteria.mobile) {
