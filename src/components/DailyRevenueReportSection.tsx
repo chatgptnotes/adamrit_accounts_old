@@ -23,7 +23,17 @@ interface VisitRow {
   patient_type: string | null;
   created_at: string;
   patients: { id: string; name: string; hospital_name: string | null; relationship_manager: string | null } | null;
-  relationship_managers: { id: string; name: string; code: string | null; commission_percent: number | null } | null;
+  relationship_managers: { id: string; name: string; code: string | null; commission_percent: number | null; ledger_account_id: string | null } | null;
+  visit_relationship_managers?: Array<{ position: number; relationship_managers: { id: string; name: string; code: string | null; commission_percent: number | null; ledger_account_id: string | null } | null }>;
+}
+
+interface RmAllocation {
+  id: string;
+  name: string;
+  ledgerId: string | null;
+  amount: number;
+  position: number;
+  approvalId?: string | null;
 }
 
 interface OverrideRow {
@@ -87,13 +97,10 @@ interface DisplayRow {
   approvalId: string | null;
   /** Non-null once the per-row Approve raised its M.L. Enterprises invoice. */
   expenseBillId: string | null;
+  rms: RmAllocation[];
 }
 
 type PatientTypeFilter = 'all' | 'OPD' | 'IPD';
-
-// A distinct sentinel is required because an empty select value means that an
-// existing RM selection should be left unchanged.
-const DIRECT_RM_VALUE = '__direct__';
 
 const COST_SOURCE_LABEL: Record<CostSource, string> = {
   override: 'man',
@@ -174,7 +181,7 @@ export function DailyRevenueReportSection({
   const [editingRateId, setEditingRateId] = useState<string | null>(null);
   const [draftCut, setDraftCut] = useState<string>('');
   const [draftCost, setDraftCost] = useState<string>('');
-  const [draftRmId, setDraftRmId] = useState<string>(''); // '' means leave unchanged
+  const [draftRmIds, setDraftRmIds] = useState<string[]>([]);
   const [draftRmPercent, setDraftRmPercent] = useState<string>('');
   const [isManualDialogOpen, setIsManualDialogOpen] = useState(false);
   const [manualEditId, setManualEditId] = useState<string | null>(null);
@@ -246,7 +253,11 @@ export function DailyRevenueReportSection({
           patient_type,
           created_at,
           patients!inner ( id, name, hospital_name, relationship_manager ),
-          relationship_managers ( id, name, code, commission_percent )
+          relationship_managers!visits_relationship_manager_id_fkey ( id, name, code, commission_percent, ledger_account_id )
+          , visit_relationship_managers (
+              position,
+              relationship_managers ( id, name, code, commission_percent, ledger_account_id )
+            )
         `)
         .eq('visit_date', reportDate)
         .order('created_at', { ascending: true });
@@ -336,13 +347,29 @@ export function DailyRevenueReportSection({
     },
   });
 
+  const overrideIds = (overridesQuery.data ?? []).map((row) => row.id);
+  const allocationsQuery = useQuery({
+    queryKey: ['dailyRevenueRmAllocations', overrideIds.join(',')],
+    enabled: overrideIds.length > 0,
+    queryFn: async (): Promise<Array<{ revenue_entry_id: string; relationship_manager_id: string | null; position: number; rm_name: string; rm_ledger_account_id: string | null; allocated_cut: number; approval_id: string | null }>> => {
+      const { data, error } = await (supabase as any).from('daily_revenue_rm_allocations')
+        .select('revenue_entry_id, relationship_manager_id, position, rm_name, rm_ledger_account_id, allocated_cut, approval_id')
+        .in('revenue_entry_id', overrideIds).order('position');
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   // What was posted for the cuts already raised, so a paid row can name its
   // vouchers rather than just claiming to be paid.
   const approvalIds: string[] = useMemo(
     () => Array.from(new Set(
-      (overridesQuery.data ?? []).map((o) => o.approval_id).filter(Boolean) as string[],
+      [
+        ...(overridesQuery.data ?? []).map((o) => o.approval_id),
+        ...(allocationsQuery.data ?? []).map((allocation) => allocation.approval_id),
+      ].filter(Boolean) as string[],
     )),
-    [overridesQuery.data],
+    [overridesQuery.data, allocationsQuery.data],
   );
 
   const paymentStateQuery = useQuery({
@@ -409,6 +436,13 @@ export function DailyRevenueReportSection({
     const overrides = overridesQuery.data ?? [];
     const advanceMap = advanceQuery.data ?? {};
     const finalPayMap = finalPayQuery.data ?? {};
+    const savedAllocations = allocationsQuery.data ?? [];
+    const allocationsByEntry = new Map<string, typeof savedAllocations>();
+    for (const allocation of savedAllocations) {
+      const list = allocationsByEntry.get(allocation.revenue_entry_id) ?? [];
+      list.push(allocation);
+      allocationsByEntry.set(allocation.revenue_entry_id, list);
+    }
 
     const overrideByVisit = new Map<string, OverrideRow>();
     for (const o of overrides) {
@@ -459,6 +493,17 @@ export function DailyRevenueReportSection({
       const savedCut = o ? Number(o.cut) : 0;
       const hasSavedCut = Boolean(o) && savedCut > 0;
       const suggestedCut = rowIsDirect ? 0 : Math.round((cost * rmPercent) / 100);
+      const totalCut = hasSavedCut ? savedCut : suggestedCut;
+      const visitManagers = [...(v.visit_relationship_managers ?? [])]
+        .sort((a, b) => a.position - b.position).map((item) => item.relationship_managers).filter(Boolean) as Array<{ id: string; name: string; ledger_account_id: string | null }>;
+      const persisted = o ? allocationsByEntry.get(o.id) ?? [] : [];
+      const managerSources = persisted.length
+        ? persisted.map((a) => ({ id: a.relationship_manager_id ?? '', name: a.rm_name, ledgerId: a.rm_ledger_account_id, position: a.position, amount: Number(a.allocated_cut), approvalId: a.approval_id }))
+        : visitManagers.length
+          ? visitManagers.map((m, index) => ({ id: m.id, name: m.name, ledgerId: m.ledger_account_id, position: index + 1, amount: 0 }))
+          : rm ? [{ id: rm.id, name: rm.name, ledgerId: (rm as any).ledger_account_id ?? null, position: 1, amount: totalCut }] : [];
+      const totalPaise = Math.round(totalCut * 100);
+      const rms = managerSources.map((m, index) => ({ ...m, amount: persisted.length ? m.amount : (Math.floor(totalPaise / managerSources.length) + (index < totalPaise % managerSources.length ? 1 : 0)) / 100 }));
       return {
         key: `visit-${v.id}`,
         visitId: v.id,
@@ -471,7 +516,7 @@ export function DailyRevenueReportSection({
         rmId: rm?.id ?? null,
         rmPercent,
         cost,
-        cut: hasSavedCut ? savedCut : suggestedCut,
+        cut: totalCut,
         cutIsSuggested: !hasSavedCut && suggestedCut > 0,
         cost_source,
         isManual: false,
@@ -480,8 +525,9 @@ export function DailyRevenueReportSection({
         // What the row was saved against wins; the master's mapping is the
         // fallback for rows saved before the ledger was recorded here.
         rmLedgerId: o?.rm_ledger_account_id ?? rm?.ledger_account_id ?? null,
-        approvalId: o?.approval_id ?? null,
+        approvalId: o?.approval_id ?? persisted.find((allocation) => allocation.approval_id)?.approval_id ?? null,
         expenseBillId: o?.expense_bill_id ?? null,
+        rms,
       };
     });
 
@@ -512,6 +558,7 @@ export function DailyRevenueReportSection({
           rmLedgerId: o.rm_ledger_account_id ?? rm?.ledger_account_id ?? null,
           approvalId: o.approval_id ?? null,
           expenseBillId: o.expense_bill_id ?? null,
+          rms: (allocationsByEntry.get(o.id) ?? []).map((a) => ({ id: a.relationship_manager_id ?? '', name: a.rm_name, ledgerId: a.rm_ledger_account_id, amount: Number(a.allocated_cut), position: a.position, approvalId: a.approval_id })),
         };
       });
 
@@ -529,7 +576,7 @@ export function DailyRevenueReportSection({
       all = all.filter((r) => !r.isHidden);
     }
     return all;
-  }, [visitsQuery.data, overridesQuery.data, advanceQuery.data, finalPayQuery.data, rmMasterQuery.data, onlyWithRm, patientTypeFilter, showHidden]);
+  }, [visitsQuery.data, overridesQuery.data, allocationsQuery.data, advanceQuery.data, finalPayQuery.data, rmMasterQuery.data, onlyWithRm, patientTypeFilter, showHidden]);
 
   const totals = useMemo(
     () => rows.reduce((acc, r) => ({ cost: acc.cost + r.cost, cut: acc.cut + r.cut }), { cost: 0, cut: 0 }),
@@ -561,6 +608,7 @@ export function DailyRevenueReportSection({
     queryClient.invalidateQueries({ queryKey: ['dailyRevenueVisits'] });
     queryClient.invalidateQueries({ queryKey: ['dailyRevenueApproval'] });
     queryClient.invalidateQueries({ queryKey: ['dailyRevenueRmMaster'] });
+    queryClient.invalidateQueries({ queryKey: ['dailyRevenueRmAllocations'] });
   };
 
   const saveCutMutation = useMutation({
@@ -574,28 +622,25 @@ export function DailyRevenueReportSection({
       // Override row is tagged with the visit's hospital, not the editor's.
       const rowHospital = row.hospital || hospitalType || 'hope';
 
-      // Resolve the picked RM from the master list. Direct is an explicit
-      // selection, not an empty "leave unchanged" value.
-      const choosingDirect = draftRmId === DIRECT_RM_VALUE;
-      const pickedRm = !choosingDirect && draftRmId
-        ? (rmMasterQuery.data ?? []).find((m) => m.id === draftRmId) ?? null
-        : null;
-      // Keep an explicit marker on the report override. A null value would
-      // fall back to the patient's older RM text (for example, "1001") when
-      // this report is rendered again.
-      const finalRmName = choosingDirect ? 'DIRECT' : pickedRm?.name ?? row.rm_name ?? null;
+      const pickedRms = draftRmIds.map((id) => (rmMasterQuery.data ?? []).find((m) => m.id === id)).filter(Boolean) as NonNullable<typeof rmMasterQuery.data>;
+      if (pickedRms.length < 1 || pickedRms.length > 3) throw new Error('Choose between one and three relationship managers');
+      const choosingDirect = pickedRms.some((manager) => isDirect(manager.name));
+      if (choosingDirect && pickedRms.length > 1) throw new Error('Direct cannot be combined with another RM');
+      const pickedRm = pickedRms[0];
+      const finalRmName = pickedRm.name;
       // Changing the assigned RM must also change this visit's cut to that
       // RM's permanent rate. Editing only cost/cut still preserves a manually
       // entered cut amount.
       const rmChanged = choosingDirect
         ? !isDirect(row.rm_name)
-        : Boolean(pickedRm && pickedRm.id !== row.rmId);
+        : Boolean(pickedRm.id !== row.rmId);
       const cut = choosingDirect
         ? 0
         : rmChanged
-        ? Math.round((cost * validCommissionPercent(pickedRm?.commission_percent)) / 100)
+        ? Math.round((cost * validCommissionPercent(pickedRm.commission_percent)) / 100)
         : draftedCut;
 
+      let entryId = row.overrideId;
       if (row.overrideId) {
         const { error } = await supabase
           .from('daily_revenue_entries' as never)
@@ -608,7 +653,7 @@ export function DailyRevenueReportSection({
           .eq('id', row.overrideId);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from('daily_revenue_entries' as never).insert([
+        const { data, error } = await supabase.from('daily_revenue_entries' as never).insert([
           {
             entry_date: reportDate,
             visit_id: row.visitId,
@@ -619,22 +664,14 @@ export function DailyRevenueReportSection({
             cut,
             hospital_type: rowHospital,
           } as never,
-        ]);
+        ]).select('id').single();
         if (error) throw error;
+        entryId = (data as unknown as { id: string }).id;
       }
-
-      // Propagate the picked RM back to the visit itself, so other pages
-      // (and future days) see it automatically without a manual override.
-      if ((pickedRm || choosingDirect) && row.visitId) {
-        const { error: visitErr } = await supabase
-          .from('visits')
-          .update({ relationship_manager_id: choosingDirect ? null : pickedRm!.id } as never)
-          .eq('id', row.visitId);
-        if (visitErr) {
-          // Non-fatal: override already saved. Just warn.
-          console.warn('Failed to update visit RM:', visitErr.message);
-        }
-      }
+      const { error: allocationError } = await (supabase as any).rpc('set_daily_revenue_relationship_managers', {
+        p_entry_id: entryId, p_manager_ids: pickedRms.map((manager) => manager.id),
+      });
+      if (allocationError) throw allocationError;
     },
     onSuccess: () => {
       invalidate();
@@ -819,7 +856,13 @@ export function DailyRevenueReportSection({
   // row is what carries the approval stamp. Rows generated from a visit have no
   // saved row until someone edits them, so one is written on the way to paying.
   const ensureEntryRow = async (row: DisplayRow): Promise<string> => {
-    if (row.overrideId) return row.overrideId;
+    if (row.overrideId) {
+      if (row.rms.length) {
+        const { error } = await (supabase as any).rpc('set_daily_revenue_relationship_managers', { p_entry_id: row.overrideId, p_manager_ids: row.rms.map((rm) => rm.id) });
+        if (error) throw error;
+      }
+      return row.overrideId;
+    }
     const { data, error } = await supabase
       .from('daily_revenue_entries' as never)
       .insert([{
@@ -850,7 +893,13 @@ export function DailyRevenueReportSection({
       }
       throw error;
     }
-    return (data as unknown as { id: string }).id;
+    const id = (data as unknown as { id: string }).id;
+    const managerIds = row.rms.map((rm) => rm.id).filter(Boolean);
+    if (managerIds.length) {
+      const { error: allocationError } = await (supabase as any).rpc('set_daily_revenue_relationship_managers', { p_entry_id: id, p_manager_ids: managerIds });
+      if (allocationError) throw allocationError;
+    }
+    return id;
   };
 
   /** A real commission not yet raised — through either the old pay flow or the new invoice flow. */
@@ -870,7 +919,7 @@ export function DailyRevenueReportSection({
       return approveReferralRow({
         entryId,
         patientName: row.patient_name,
-        rmName: row.rm_name,
+        rmName: row.rms.length ? row.rms.map((rm) => rm.name).join(', ') : row.rm_name,
         hospital: row.hospital || hospitalType || 'hope',
         amount: row.cut,
         entryDate: reportDate,
@@ -944,7 +993,10 @@ export function DailyRevenueReportSection({
     const match = (rmMasterQuery.data ?? []).find(
       (m) => m.name.toLowerCase() === (row.rm_name ?? '').toLowerCase(),
     );
-    setDraftRmId(isDirect(row.rm_name) ? DIRECT_RM_VALUE : match?.id ?? '');
+    const direct = (rmMasterQuery.data ?? []).find((manager) => isDirect(manager.name));
+    setDraftRmIds(row.rms.map((rm) => rm.id).filter(Boolean).length
+      ? row.rms.map((rm) => rm.id).filter(Boolean)
+      : isDirect(row.rm_name) && direct ? [direct.id] : match ? [match.id] : []);
   };
 
   const openRateEdit = (row: DisplayRow) => {
@@ -1099,7 +1151,7 @@ export function DailyRevenueReportSection({
             runningIdx += 1;
             const rmDisplay = isDirect(r.rm_name)
               ? '<span class="pill direct">Direct</span>'
-              : esc(r.rm_name);
+              : esc(r.rms.length ? r.rms.map((rm) => `${rm.name}${r.rms.length > 1 ? ` (Rs ${formatINR(rm.amount)})` : ''}`).join(', ') : r.rm_name);
             const typeBadge =
               r.patient_type === 'OPD' ? '<span class="pill opd">OPD</span>' :
               r.patient_type === 'IPD' ? '<span class="pill ipd">IPD</span>' : '';
@@ -1425,24 +1477,36 @@ export function DailyRevenueReportSection({
                             <TableCell>{r.department || '—'}</TableCell>
                             <TableCell>
                               {editing ? (
-                                <select
-                                  value={draftRmId}
-                                  onChange={(e) => setDraftRmId(e.target.value)}
-                                  className="h-8 w-40 border border-gray-300 rounded px-1 text-sm bg-white"
-                                >
-                                  <option value={DIRECT_RM_VALUE}>— Direct —</option>
-                                  {(rmMasterQuery.data ?? []).filter((m) => !isDirect(m.name)).map((m) => (
-                                    <option key={m.id} value={m.id}>
-                                      {m.name}{m.code ? ` (${m.code})` : ''}
-                                    </option>
-                                  ))}
-                                </select>
+                                <div className="max-h-32 min-w-52 space-y-1 overflow-y-auto rounded border bg-white p-2">
+                                  {(rmMasterQuery.data ?? []).map((manager) => {
+                                    const checked = draftRmIds.includes(manager.id);
+                                    const directConflict = isDirect(manager.name) && draftRmIds.length > 0 && !checked;
+                                    const hasDirect = draftRmIds.some((id) => isDirect((rmMasterQuery.data ?? []).find((item) => item.id === id)?.name));
+                                    const disabled = !checked && (draftRmIds.length >= 3 || directConflict || hasDirect);
+                                    return (
+                                      <label key={manager.id} className="flex items-center gap-2 text-xs">
+                                        <input type="checkbox" checked={checked} disabled={disabled} onChange={() => {
+                                          setDraftRmIds(checked ? draftRmIds.filter((id) => id !== manager.id) : [...draftRmIds, manager.id]);
+                                        }} />
+                                        <span>{manager.name}{manager.code ? ` (${manager.code})` : ''}{draftRmIds[0] === manager.id ? ' · Primary' : ''}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
                               ) : isDirect(r.rm_name) ? (
                                 <span className="inline-block px-2 py-0.5 rounded text-[11px] font-medium uppercase bg-gray-100 text-gray-700">
                                   Direct
                                 </span>
                               ) : (
-                                r.rm_name
+                                <div className="space-y-0.5">
+                                  {(r.rms.length ? r.rms : [{ id: r.rmId || '', name: r.rm_name, ledgerId: r.rmLedgerId, amount: r.cut, position: 1 }]).map((rm, index) => (
+                                    <div key={`${rm.id}-${index}`} className="whitespace-nowrap text-xs">
+                                      <span className="font-medium">{rm.name}</span>
+                                      {r.rms.length > 1 && <span className="ml-1 text-gray-500">₹{formatINR(rm.amount)}</span>}
+                                      {index === 0 && r.rms.length > 1 && <span className="ml-1 text-[10px] text-blue-600">Primary</span>}
+                                    </div>
+                                  ))}
+                                </div>
                               )}
                             </TableCell>
                             <TableCell className="text-right">
@@ -1958,7 +2022,7 @@ function PatientDetailsDialog({ row, reportDate, onClose }: PatientDetailsDialog
                 <div><dt className="inline text-gray-500">Date: </dt><dd className="inline">{new Date(reportDate).toLocaleDateString('en-IN')}</dd></div>
                 <div><dt className="inline text-gray-500">Hospital: </dt><dd className="inline">{row.hospital || '—'}</dd></div>
                 <div><dt className="inline text-gray-500">Department: </dt><dd className="inline">{row.department || '—'}</dd></div>
-                <div><dt className="inline text-gray-500">RM Manager: </dt><dd className="inline">{row.rm_name || '—'}</dd></div>
+                <div><dt className="inline text-gray-500">RM Manager: </dt><dd className="inline">{row.rms.length ? row.rms.map((rm) => `${rm.name} (₹${formatINR(rm.amount)})`).join(', ') : row.rm_name || '—'}</dd></div>
                 <div><dt className="inline text-gray-500">Cost: </dt><dd className="inline font-medium">Rs {row.cost.toLocaleString('en-IN')}</dd></div>
                 <div><dt className="inline text-gray-500">Cut: </dt><dd className="inline font-medium">Rs {row.cut.toLocaleString('en-IN')}{row.cutIsSuggested && <span className="ml-1 text-xs text-gray-400">(suggested)</span>}</dd></div>
                 <div><dt className="inline text-gray-500">Cost source: </dt><dd className="inline">{COST_SOURCE_LABEL[row.cost_source] || '—'}</dd></div>

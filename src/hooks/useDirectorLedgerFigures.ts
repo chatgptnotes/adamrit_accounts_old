@@ -135,11 +135,11 @@ export function useDirectorLedgerFigures(year: number) {
             .order('id')
             .range(from, to),
         ),
-        fetchAllRows<{ rm_name: string | null; cost: number | null; entry_date: string }>(
+        fetchAllRows<{ rm_name: string | null; cost: number | null; entry_date: string; daily_revenue_rm_allocations: Array<{ rm_name: string }> }>(
           (from, to) =>
             (supabase as any)
               .from('daily_revenue_entries')
-              .select('id, rm_name, cost, entry_date')
+              .select('id, rm_name, cost, entry_date, daily_revenue_rm_allocations(rm_name)')
               .eq('is_hidden', false)
               .gte('entry_date', `${year}-01-01`)
               .lte('entry_date', `${year}-12-31`)
@@ -261,11 +261,13 @@ export function useDirectorLedgerFigures(year: number) {
       // Daily Revenue Report entries.
       const marketing: RowValues = {};
       for (const r of revenueRows) {
-        const name = (r.rm_name || '').trim();
-        if (!name) continue;
         const entryMonth = Number(String(r.entry_date || '').slice(5, 7)) - 1;
         if (entryMonth < 0 || entryMonth > 11) continue;
-        add(marketing, name.toLowerCase(), entryMonth, Number(r.cost) || 0);
+        const names = (r.daily_revenue_rm_allocations ?? []).map((allocation) => allocation.rm_name.trim()).filter(Boolean);
+        if (!names.length && r.rm_name?.trim()) names.push(r.rm_name.trim());
+        if (!names.length) continue;
+        const attributed = (Number(r.cost) || 0) / names.length;
+        for (const name of names) add(marketing, name.toLowerCase(), entryMonth, attributed);
       }
 
       // Busiest ledger first (most transactions this year); amount breaks ties.

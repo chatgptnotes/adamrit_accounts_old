@@ -9,6 +9,7 @@ export const REFERRAL_EXPENSE_CODE = "5130";
 /** One unbilled relationship-manager cut, with everything needed to judge it. */
 export interface ImplantReferralRow {
   id: string;
+  revenueEntryId: string;
   entryDate: string;
   patientName: string;
   uhid: string | null;
@@ -42,18 +43,19 @@ export function useImplantReferralRows() {
     staleTime: 30_000,
     queryFn: async (): Promise<ImplantReferralRow[]> => {
       let query = (supabase as any)
-        .from("daily_revenue_entries")
-        .select("id, entry_date, visit_id, patient_name, department, rm_name, cut, hospital_type")
-        .gt("cut", 0)
-        .eq("is_hidden", false)
+        .from("daily_revenue_rm_allocations")
+        .select("id, revenue_entry_id, rm_name, rm_ledger_account_id, allocated_cut, approval_id, daily_revenue_entries!inner(id, entry_date, visit_id, patient_name, department, hospital_type, is_hidden, expense_bill_id)")
+        .gt("allocated_cut", 0)
         .is("approval_id", null)
-        .order("entry_date", { ascending: false })
+        .eq("daily_revenue_entries.is_hidden", false)
+        .is("daily_revenue_entries.expense_bill_id", null)
+        .order("created_at", { ascending: false })
         .limit(1000);
-      if (hospital) query = query.eq("hospital_type", hospital);
+      if (hospital) query = query.eq("daily_revenue_entries.hospital_type", hospital);
 
       const { data: entries, error } = await query;
       if (error) throw error;
-      const rows = (entries || []) as any[];
+      const rows = ((entries || []) as any[]).map((allocation) => ({ ...allocation, ...(Array.isArray(allocation.daily_revenue_entries) ? allocation.daily_revenue_entries[0] : allocation.daily_revenue_entries) }));
       if (rows.length === 0) return [];
 
       // DIRECT is the report's marker for "no relationship manager". There is
@@ -82,29 +84,19 @@ export function useImplantReferralRows() {
         ),
       ) as string[];
 
-      const [billsRes, managersRes] = await Promise.all([
+      const [billsRes] = await Promise.all([
         visitCodes.length
           ? (supabase as any)
               .from("bills")
               .select("visit_id, bill_no, formatted_bill_no")
               .in("visit_id", visitCodes)
           : Promise.resolve({ data: [] }),
-        (supabase as any)
-          .from("relationship_managers")
-          .select("name, ledger_account_id, is_hidden")
-          .eq("is_hidden", false),
       ]);
 
       const billByVisitCode = new Map<string, any>(
         ((billsRes.data || []) as any[]).map((b) => [b.visit_id, b]),
       );
-      const ledgerIds = Array.from(
-        new Set(
-          ((managersRes.data || []) as any[])
-            .map((m) => m.ledger_account_id)
-            .filter(Boolean),
-        ),
-      ) as string[];
+      const ledgerIds = Array.from(new Set(payable.map((row) => row.rm_ledger_account_id).filter(Boolean))) as string[];
 
       const { data: ledgers } = ledgerIds.length
         ? await (supabase as any)
@@ -115,21 +107,17 @@ export function useImplantReferralRows() {
       const ledgerById = new Map<string, any>(
         ((ledgers || []) as any[]).map((l) => [l.id, l]),
       );
-      const managerByName = new Map<string, any>(
-        ((managersRes.data || []) as any[]).map((m) => [normalise(m.name), m]),
-      );
-
       return payable.map((row): ImplantReferralRow => {
         const visit = row.visit_id ? visitById.get(row.visit_id) : null;
         const patient = Array.isArray(visit?.patients) ? visit.patients[0] : visit?.patients;
         const bill = visit?.visit_id ? billByVisitCode.get(visit.visit_id) : null;
-        const manager = managerByName.get(normalise(row.rm_name));
-        const ledger = manager?.ledger_account_id
-          ? ledgerById.get(manager.ledger_account_id)
+        const ledger = row.rm_ledger_account_id
+          ? ledgerById.get(row.rm_ledger_account_id)
           : null;
 
         return {
           id: row.id,
+          revenueEntryId: row.revenue_entry_id,
           entryDate: row.entry_date,
           patientName: row.patient_name || patient?.name || "Unknown",
           uhid: patient?.patients_id ?? null,
@@ -138,9 +126,9 @@ export function useImplantReferralRows() {
           billNumber: bill?.formatted_bill_no || bill?.bill_no || visit?.visit_id || null,
           consultant: row.department || visit?.appointment_with || null,
           rmName: row.rm_name,
-          ledgerId: manager?.ledger_account_id ?? null,
+          ledgerId: row.rm_ledger_account_id ?? null,
           ledgerName: ledger?.account_name ?? null,
-          amount: Number(row.cut) || 0,
+          amount: Number(row.allocated_cut) || 0,
           hospitalType: row.hospital_type ?? null,
         };
       });
@@ -239,7 +227,7 @@ export function useApproveImplantReferral() {
 
         // Stamping the invoice on each cut is what keeps it off this list.
         const { error: stampError } = await (supabase as any)
-          .from("daily_revenue_entries")
+          .from("daily_revenue_rm_allocations")
           .update({ approval_id: approval.id, updated_at: new Date().toISOString() })
           .in("id", ledgerRows.map((row) => row.id));
         if (stampError) throw new Error(stampError.message);

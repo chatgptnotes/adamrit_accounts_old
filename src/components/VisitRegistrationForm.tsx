@@ -137,6 +137,14 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
     referringDoctorId: '' as string,
     relationshipManagerId: '' as string
   });
+  const [relationshipManagerIds, setRelationshipManagerIds] = useState<string[]>([]);
+
+  const handleRelationshipManagersChange = (ids: string[], managers: Array<{ id: string; name: string }>) => {
+    setRelationshipManagerIds(ids);
+    const primary = managers.find((manager) => manager.id === ids[0]);
+    setSelectedIds((previous) => ({ ...previous, relationshipManagerId: ids[0] || '' }));
+    setFormData((previous) => ({ ...previous, relationshipManager: primary?.name || '' }));
+  };
 
   // Populate form with existing data when in edit mode
   React.useEffect(() => {
@@ -169,6 +177,19 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
         setVisitDate(new Date(existingVisit.visit_date));
       }
     }
+  }, [editMode, existingVisit]);
+
+  useEffect(() => {
+    if (!editMode || !existingVisit?.id) return;
+    (async () => {
+      const { data } = await (supabase as any).from('visit_relationship_managers')
+        .select('relationship_manager_id, position').eq('visit_id', existingVisit.id).order('position');
+      const ids = (data ?? []).map((row: any) => row.relationship_manager_id);
+      const fallback = existingVisit.relationship_manager_id ? [existingVisit.relationship_manager_id] : [];
+      const next = ids.length ? ids : fallback;
+      setRelationshipManagerIds(next);
+      setSelectedIds((previous) => ({ ...previous, relationshipManagerId: next[0] || '' }));
+    })();
   }, [editMode, existingVisit]);
 
   // Fetch patient's corporate/yojna category (billing override).
@@ -223,6 +244,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
       if (manager) {
         setFormData(prev => prev.relationshipManager ? prev : { ...prev, relationshipManager: manager.name });
         setSelectedIds(prev => prev.relationshipManagerId ? prev : { ...prev, relationshipManagerId: manager.id });
+        setRelationshipManagerIds((previous) => previous.length ? previous : [manager.id]);
       }
     }
   };
@@ -438,6 +460,12 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
           return;
         }
 
+        const updatedVisitId = (updateData?.[0] as any)?.id || existingVisit.id;
+        const { error: rmError } = await (supabase as any).rpc('set_visit_relationship_managers', {
+          p_visit_id: updatedVisitId, p_manager_ids: relationshipManagerIds,
+        });
+        if (rmError) throw new Error(`Visit saved but RM assignment failed: ${rmError.message}`);
+
 
         // Save billing category override (non-blocking — column may not exist yet)
         if (formData.billingCategoryOverride && formData.billingCategoryOverride !== 'same_as_registration') {
@@ -537,6 +565,11 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
         });
         return;
       }
+
+      const { error: rmError } = await (supabase as any).rpc('set_visit_relationship_managers', {
+        p_visit_id: visitData.id, p_manager_ids: relationshipManagerIds,
+      });
+      if (rmError) throw new Error(`Visit saved but RM assignment failed: ${rmError.message}`);
 
       // Save billing category override (non-blocking — column may not exist yet)
       if (formData.billingCategoryOverride) {
@@ -749,6 +782,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
       referringDoctorId: '',
       relationshipManagerId: ''
     });
+    setRelationshipManagerIds([]);
     setRegistrationDocuments([]);
     setVisitDate(new Date());
     onClose();
@@ -772,6 +806,8 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
             setVisitDate={setVisitDate}
             formData={formData}
             handleInputChange={handleInputChange}
+            relationshipManagerIds={relationshipManagerIds}
+            onRelationshipManagersChange={handleRelationshipManagersChange}
             existingVisit={existingVisit}
             patientCorporate={patientCorporate}
             registrationDocuments={registrationDocuments}

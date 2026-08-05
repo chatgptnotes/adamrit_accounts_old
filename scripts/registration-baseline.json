@@ -1,6 +1,6 @@
 {
-  "src/components/VisitRegistrationForm.tsx": "314cd35de3a9a42576e03e3969ec8d86f0f105802cfc2c464086d7a23ee12235",
-  "src/components/visit/VisitDetailsSection.tsx": "b5456bccd821ebd62fd6d3d07278dda7cfc22fb68f50fc15b15ebf93c8569ddc",
+  "src/components/VisitRegistrationForm.tsx": "edc4617d70e9659825fa59a16bdc30d476c6fd7694c70daf207d99c8aea41cd7",
+  "src/components/visit/VisitDetailsSection.tsx": "1de42f30c6e680771bb462eba45ab4efbdf996b46b88b3641cb37a9efd4ada99",
   "src/components/visit/VisitFormActions.tsx": "1bd1a79f3d0877ada74cf4c73f358ea4cc3d785a58349851edc8efddc5669ecd",
   "src/components/PatientRegistrationForm/usePatientRegistration.ts": "867f6769d779fddb38145f5db2074c01450bf0e396687f3e594968beabf81eb1",
   "src/components/PatientRegistrationForm/PatientInfoSection.tsx": "3925a9663b4adf62617e41a00a8fc89fa6ebd5b060f2d635fa7208965db842d7",

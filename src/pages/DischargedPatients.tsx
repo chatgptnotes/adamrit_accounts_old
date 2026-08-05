@@ -803,7 +803,7 @@ const DischargedPatients = () => {
           referees(
             name
           ),
-          relationship_managers(
+          relationship_managers!visits_relationship_manager_id_fkey(
             name,
             code
           ),

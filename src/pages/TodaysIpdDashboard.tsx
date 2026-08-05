@@ -1729,7 +1729,7 @@ const TodaysIpdDashboard = () => {
               id,
               name
             ),
-            relationship_managers (
+            relationship_managers!visits_relationship_manager_id_fkey (
               id,
               name,
               code

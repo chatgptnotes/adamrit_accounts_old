@@ -34,6 +34,8 @@ interface VisitDetailsSectionProps {
     billingCategoryOverride?: string;
   };
   handleInputChange: (field: string, value: string) => void;
+  relationshipManagerIds: string[];
+  onRelationshipManagersChange: (ids: string[], managers: Array<{ id: string; name: string }>) => void;
   existingVisit?: any; // Optional existing visit data for edit mode
   patientCorporate?: string; // Patient's original corporate/yojna category
   registrationDocuments: RegistrationDocumentSelection[];
@@ -50,6 +52,8 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
   setVisitDate,
   formData,
   handleInputChange,
+  relationshipManagerIds,
+  onRelationshipManagersChange,
   existingVisit,
   patientCorporate,
   registrationDocuments,
@@ -669,27 +673,49 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
           />
         </div>
 
-        {/* Relationship Manager */}
+        {/* Relationship Managers */}
         <div className="space-y-2">
           <Label htmlFor="relationshipManager" className="text-sm font-medium">
-            Relationship Manager <span className="text-red-500">*</span>
+            Relationship Managers <span className="text-red-500">*</span>
           </Label>
+          {relationshipManagerIds.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {relationshipManagerIds.map((id, index) => {
+                const manager = relationshipManagers.find((item) => item.id === id);
+                return (
+                  <span key={id} className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
+                    {manager?.name || 'Manager'}{index === 0 ? ' · Primary' : ''}
+                    <button type="button" aria-label="Remove relationship manager" onClick={() => {
+                      const next = relationshipManagerIds.filter((item) => item !== id);
+                      onRelationshipManagersChange(next, relationshipManagers);
+                    }}><X className="h-3 w-3" /></button>
+                  </span>
+                );
+              })}
+            </div>
+          )}
           <SearchableSelect
             options={[
-              { value: 'none', label: 'None' },
-              ...relationshipManagers.map((manager) => ({
-                value: manager.name,
+              ...relationshipManagers.filter((manager) => !relationshipManagerIds.includes(manager.id)).map((manager) => ({
+                value: manager.id,
                 label: manager.code ? `${manager.name} (${manager.code})` : manager.name
               }))
             ]}
-            value={formData.relationshipManager || ''}
-            onValueChange={(value) => handleInputChange('relationshipManager', value)}
+            value=""
+            onValueChange={(value) => {
+              if (!value || relationshipManagerIds.length >= 3) return;
+              const selected = relationshipManagers.find((manager) => manager.id === value);
+              const isDirectSelection = selected?.name.trim().toLowerCase() === 'direct';
+              const hasDirect = relationshipManagerIds.some((id) => relationshipManagers.find((manager) => manager.id === id)?.name.trim().toLowerCase() === 'direct');
+              if ((isDirectSelection && relationshipManagerIds.length > 0) || (hasDirect && !isDirectSelection)) return;
+              onRelationshipManagersChange([...relationshipManagerIds, value], relationshipManagers);
+            }}
             placeholder={
               isLoadingRelationshipManagers
                 ? "Loading..."
                 : relationshipManagers.length === 0
                 ? "No managers available"
-                : "Select Relationship Manager"
+                : relationshipManagerIds.length >= 3 ? "Maximum three managers selected" : "Add Relationship Manager"
             }
             searchPlaceholder="Search managers..."
             emptyText="No manager found."
