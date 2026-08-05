@@ -168,6 +168,26 @@ export const menuItems: MenuItemDef[] = [
     icon: Building2,
   },
   {
+    title: "ECHS Scheme",
+    url: "/corporate-schemes/echs",
+    icon: ShieldCheck,
+  },
+  {
+    title: "ESIC Scheme",
+    url: "/corporate-schemes/esic",
+    icon: ShieldCheck,
+  },
+  {
+    title: "WCL Scheme",
+    url: "/corporate-schemes/wcl",
+    icon: Building2,
+  },
+  {
+    title: "MPKAY Scheme",
+    url: "/corporate-schemes/mpkay",
+    icon: Building2,
+  },
+  {
     title: "Panel Portal Uploads",
     url: "/panel-portal",
     icon: Building2,
