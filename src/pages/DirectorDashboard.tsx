@@ -26,6 +26,7 @@ import { DepartmentActivityMonitor } from '@/components/DepartmentActivityMonito
 import { DirectorProjectLauncher } from '@/components/DirectorProjectLauncher';
 import { DailyRevenueReportSection } from '@/components/DailyRevenueReportSection';
 import { ManualVoucherWatchdog } from '@/components/ManualVoucherWatchdog';
+import { AnomalyGuardCard } from '@/components/AnomalyGuardCard';
 import { DirectorFinancialStatements } from '@/components/DirectorFinancialStatements';
 import { GovernmentPortalGeneralMedicalSection } from '@/components/GovernmentPortalGeneralMedicalSection';
 import {
@@ -366,6 +367,7 @@ export default function DirectorDashboard() {
         </CardContent>
       </Card>
 
+      <AnomalyGuardCard />
       <ManualVoucherWatchdog />
       <DailyRevenueReportSection />
       <DailyRevenueReportSection
