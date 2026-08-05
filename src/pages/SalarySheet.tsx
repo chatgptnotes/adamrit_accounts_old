@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as XLSX from 'xlsx';
 import { Banknote, Download, IndianRupee, Loader2, Pencil, Plus, Upload } from 'lucide-react';
@@ -103,6 +103,7 @@ const money = (v: number | null | undefined) =>
   v == null ? '—' : `₹ ${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
 const EXPENSE_LEDGER_KEY = 'salary_sheet_expense_ledger';
+const COMPANY_KEY = 'salary_sheet_company_id';
 
 /** The upload format, exactly as the downloadable template writes it. */
 const TEMPLATE_HEADERS = [
@@ -124,7 +125,7 @@ const SalarySheet = () => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7)); // yyyy-mm
-  const [companyId, setCompanyId] = useState('');
+  const [companyId, setCompanyId] = useState(() => localStorage.getItem(COMPANY_KEY) || '');
   const [defaultBankId, setDefaultBankId] = useState('');
   const [expenseLedgerId, setExpenseLedgerId] = useState(
     () => localStorage.getItem(EXPENSE_LEDGER_KEY) || '',
@@ -143,6 +144,21 @@ const SalarySheet = () => {
 
   const { data: companies = [] } = useCompanies();
   const { data: bankLedgers = [] } = useAccountingCashBankLedgers(companyId || null);
+
+  // Keep the salary sheet scoped to a real company by default. The ledger
+  // search, bank list, and approval queries are company-bound, so starting
+  // with an empty company makes the page look broken even though the slip
+  // data itself is available.
+  useEffect(() => {
+    if (!companies.length) return;
+
+    const savedCompany = companies.find((company) => company.id === companyId) || null;
+    if (savedCompany) return;
+
+    const nextCompany = companies[0];
+    setCompanyId(nextCompany.id);
+    localStorage.setItem(COMPANY_KEY, nextCompany.id);
+  }, [companies, companyId]);
 
   // Upper bound is the 1st of the NEXT month — "yyyy-mm-31" is an invalid
   // date literal in February and the query would error out.
@@ -267,6 +283,11 @@ const SalarySheet = () => {
   const pickExpenseLedger = (id: string) => {
     setExpenseLedgerId(id);
     localStorage.setItem(EXPENSE_LEDGER_KEY, id);
+  };
+
+  const pickCompany = (id: string) => {
+    setCompanyId(id);
+    localStorage.setItem(COMPANY_KEY, id);
   };
 
   const requireSetup = (): boolean => {
@@ -735,7 +756,7 @@ const SalarySheet = () => {
           </div>
           <div className="space-y-2">
             <Label>Company</Label>
-            <Select value={companyId} onValueChange={setCompanyId}>
+            <Select value={companyId} onValueChange={pickCompany}>
               <SelectTrigger><SelectValue placeholder="Select company" /></SelectTrigger>
               <SelectContent>
                 {companies.map((c: any) => (
@@ -907,7 +928,7 @@ const SalarySheet = () => {
                     }}
                     placeholder="Search by ledger name or code…"
                   />
-                  {ledgerSearch.trim().length >= 2 && (
+                  {ledgerSearch.trim().length >= 1 && (
                     <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-md border bg-background shadow-lg">
                       {(() => {
                         const term = ledgerSearch.trim().toLowerCase();
