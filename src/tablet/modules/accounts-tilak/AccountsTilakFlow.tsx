@@ -11,7 +11,7 @@ import { TabletNumpad } from "@/tablet/components/TabletNumpad";
 import { TabletInput } from "@/tablet/ui/TabletInput";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRef } from "react";
-import { extractInvoiceFromImage, fileToBase64 } from "@/lib/accounting-ai";
+import { extractInvoiceFromImage, fileToBase64, suggestExpenseLedger } from "@/lib/accounting-ai";
 import { inr } from "@/tablet/lib/format";
 
 type AmountField = "receipts" | "expenses" | "cashInHand" | "cashInBank";
@@ -356,7 +356,49 @@ function TilakExpenseBill() {
     }
   };
 
+  const [suggesting, setSuggesting] = useState(false);
+
   const companyKey = hospital === "ayushman" ? "ayushman_nagpur" : "drm_pvt_ltd";
+
+  // AI: pick the right expense ledger from the narration, and say so if the
+  // narration does not explain what the money was for.
+  const aiSuggest = async () => {
+    if (!party) {
+      toast.error("Pick who was paid first");
+      return;
+    }
+    setSuggesting(true);
+    try {
+      const { data: company } = await (supabase as any)
+        .from("companies").select("id").eq("company_key", companyKey).single();
+      const { data: ledgers } = await (supabase as any)
+        .from("chart_of_accounts")
+        .select("id, account_name")
+        .eq("is_active", true)
+        .in("account_type", ["DIRECT_EXPENSES", "INDIRECT_EXPENSES", "EXPENSES"])
+        .or(`company_id.eq.${company.id},company_id.is.null`)
+        .limit(80);
+      const names = (ledgers || []).map((l: any) => l.account_name);
+      const result = await suggestExpenseLedger(note || "(no narration)", party.account_name, names);
+      if (!result) throw new Error("AI could not suggest - pick manually");
+      if (result.ledger) {
+        const match = (ledgers || []).find(
+          (l: any) => l.account_name.toLowerCase() === result.ledger!.toLowerCase(),
+        );
+        if (match) {
+          setExpense(match);
+          toast.success(`AI suggests: ${match.account_name}`);
+        }
+      }
+      if (!result.narration_ok && result.narration_advice) {
+        toast.warning(`Narration: ${result.narration_advice}`, { duration: 9000 });
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Suggestion failed");
+    } finally {
+      setSuggesting(false);
+    }
+  };
   const { data: options = [] } = useQuery({
     queryKey: ["tilak-ledger-search", companyKey, picking, search],
     enabled: !!picking && search.trim().length >= 2,
@@ -476,6 +518,15 @@ function TilakExpenseBill() {
       </div>
       {pickerButton("party", party, "Paid to (party ledger)")}
       {pickerButton("expense", expense, "What it is for (expense ledger)")}
+      <TabletButton
+        variant="outline"
+        size="default"
+        className="min-h-[40px] w-full text-sm"
+        disabled={suggesting}
+        onClick={() => void aiSuggest()}
+      >
+        {suggesting ? "Thinking…" : "✨ AI: suggest the expense ledger"}
+      </TabletButton>
       {picking && (
         <div className="rounded-lg border p-2">
           <TabletInput
