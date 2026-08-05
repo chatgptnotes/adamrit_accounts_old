@@ -53,6 +53,14 @@ export interface TabletModule {
 /** All tablet modules, including child flows that should not appear on the home grid. */
 export const TABLET_MODULES: TabletModule[] = [
   {
+    id: "hr-pulse",
+    label: "HR Pulse",
+    description: "Attendance, leave & HR alerts",
+    icon: HeartPulse,
+    accent: "text-cyan-700",
+    tint: "from-cyan-500 to-blue-700",
+  },
+  {
     id: "director",
     label: "Director Dashboard",
     description: "KPIs & payment deadlines",

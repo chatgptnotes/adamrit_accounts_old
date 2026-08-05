@@ -14,6 +14,7 @@ const supabaseAnon = createClient(
 
 interface User {
   id?: string;
+  employeeId?: string | null;
   email: string;
   username: string;
   role: 'superadmin' | 'super_admin' | 'admin' | 'doctor' | 'nurse' | 'user' | 'marketing_manager' | 'receptionist' | 'lab_technician' | 'pharmacy' | 'pharmacist' | 'radiology' | 'radiology_tech' | 'ot_tech' | 'cath_lab_tech' | 'billing' | 'housekeeping' | 'security' | 'driver' | 'physiotherapist' | 'lab' | 'reception' | 'maintenance' | 'hr' | 'quality' | 'consultant' | 'front_office';
@@ -86,7 +87,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       email: data.email,
       username: data.email.split('@')[0],
       role: data.role,
-      hospitalType: data.hospital_type || 'hope'
+      hospitalType: data.hospital_type || 'hope',
+      employeeId: data.employee_id || null,
     };
 
     const { data: googleSession } = await supabase.auth.getSession();

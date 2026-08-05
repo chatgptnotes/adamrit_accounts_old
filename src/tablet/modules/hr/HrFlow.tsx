@@ -15,7 +15,6 @@ import {
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -82,6 +81,20 @@ type HrPayrollSlip = {
   slip_url: string | null;
 };
 
+type HrNotification = {
+  id: string;
+  employee_id: string;
+  notification_type: string;
+  title: string;
+  message: string;
+  source_system: string;
+  source_id: string | null;
+  payload: Record<string, unknown> | null;
+  is_read: boolean;
+  read_at: string | null;
+  created_at: string;
+};
+
 const LATE_CUTOFF_HOUR = 9;
 const LATE_CUTOFF_MINUTE = 15;
 const LOOKBACK_DAYS = 90;
@@ -124,19 +137,30 @@ const isLateRecord = (row: StaffAttendanceRow) => {
   return checkIn.getHours() > LATE_CUTOFF_HOUR || (checkIn.getHours() === LATE_CUTOFF_HOUR && checkIn.getMinutes() > LATE_CUTOFF_MINUTE);
 };
 
+const isMissingPunch = (row: StaffAttendanceRow) =>
+  Boolean((row.check_in_at && !row.check_out_at) || (!row.check_in_at && row.check_out_at));
+
+type HrPulseResponse = {
+  identity: { employeeId: string | null; name: string; email: string; role: string; masterAccess: boolean };
+  attendance: StaffAttendanceRow[];
+  staff: StaffMemberRow[];
+  leaveRequests: HrLeaveRequest[];
+  payrollSlips: HrPayrollSlip[];
+  notifications: HrNotification[];
+};
+
+async function fetchHrPulse(monthStart: string, monthEnd: string, lookbackStart: string) {
+  const params = new URLSearchParams({ monthStart, monthEnd, lookbackStart });
+  const response = await fetch(`/api/hr-pulse?${params.toString()}`, { credentials: "include" });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || "HR Pulse could not be loaded.");
+  return body as HrPulseResponse;
+}
+
 const daysBetweenInclusive = (start: string, end: string) => {
   const startMs = parseISO(start).setHours(0, 0, 0, 0);
   const endMs = parseISO(end).setHours(0, 0, 0, 0);
   return Math.max(1, Math.round((endMs - startMs) / 86400000) + 1);
-};
-
-const matchesCurrentUser = (row: { employee_id?: string | null; employee_name?: string | null; employee_email?: string | null }, user: { id?: string; email: string; username: string } | null) => {
-  if (!user) return false;
-  const userTokens = [user.id, user.email, user.username, user.email.split("@")[0]].map(normalize).filter(Boolean);
-  const rowTokens = [row.employee_id, row.employee_email, row.employee_name].map(normalize).filter(Boolean);
-  return rowTokens.some((rowToken) =>
-    userTokens.some((userToken) => rowToken === userToken || rowToken.includes(userToken) || userToken.includes(rowToken)),
-  );
 };
 
 const deriveConsecutiveLateDays = (records: StaffAttendanceRow[]) => {
@@ -149,16 +173,6 @@ const deriveConsecutiveLateDays = (records: StaffAttendanceRow[]) => {
   }
   return streak;
 };
-
-async function safeSelect<T>(table: string, build: (query: any) => PromiseLike<{ data: T[] | null; error: any }>) {
-  const { data, error } = await build((supabase as any).from(table));
-  if (error) {
-    const message = String(error.message || "");
-    if (message.includes("does not exist") || error.code === "42P01" || error.code === "PGRST205") return [];
-    throw error;
-  }
-  return data || [];
-}
 
 function buildPdfSlip(row: HrPayrollSlip, employeeName: string, attendance: StaffAttendanceRow[]) {
   import("jspdf").then(({ jsPDF }) => {
@@ -192,7 +206,7 @@ function buildPdfSlip(row: HrPayrollSlip, employeeName: string, attendance: Staf
 }
 
 export default function HrFlow() {
-  const { user, isAdmin, isSuperAdmin } = useAuth();
+  const { user } = useAuth();
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState<"self" | "admin">("self");
   const [monthOffset, setMonthOffset] = useState(0);
@@ -202,82 +216,33 @@ export default function HrFlow() {
   const [leaveEnd, setLeaveEnd] = useState(format(new Date(), "yyyy-MM-dd"));
   const [leaveReason, setLeaveReason] = useState("");
 
-  const hasMasterAccess = isAdmin || isSuperAdmin || user?.role === "hr";
   const targetMonth = subMonths(new Date(), monthOffset);
   const monthStart = format(startOfMonth(targetMonth), "yyyy-MM-dd");
   const monthEnd = format(endOfMonth(targetMonth), "yyyy-MM-dd");
   const lookbackStart = format(addDays(new Date(), -LOOKBACK_DAYS), "yyyy-MM-dd");
   const userName = user?.username || user?.email?.split("@")[0] || "Employee";
 
-  const attendanceQuery = useQuery({
-    queryKey: ["tablet-hr-attendance", lookbackStart, monthEnd],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("staff_attendance")
-        .select("*")
-        .gte("work_date", lookbackStart)
-        .lte("work_date", monthEnd)
-        .order("work_date", { ascending: false })
-        .order("employee_name", { ascending: true });
-      if (error) throw error;
-      return (data || []) as StaffAttendanceRow[];
-    },
-    refetchInterval: 60000,
-    staleTime: 30000,
+  const hrQuery = useQuery({
+    queryKey: ["tablet-hr-pulse", monthStart, monthEnd, lookbackStart],
+    queryFn: () => fetchHrPulse(monthStart, monthEnd, lookbackStart),
+    refetchInterval: 30000,
+    staleTime: 15000,
   });
 
-  const staffQuery = useQuery({
-    queryKey: ["tablet-hr-staff-members"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("staff_members").select("*").order("name");
-      if (error) throw error;
-      return (data || []) as StaffMemberRow[];
-    },
-    staleTime: 120000,
-  });
+  const attendance = useMemo(() => hrQuery.data?.attendance || [], [hrQuery.data?.attendance]);
+  const staff = useMemo(() => hrQuery.data?.staff || [], [hrQuery.data?.staff]);
+  const leaveRequests = useMemo(() => hrQuery.data?.leaveRequests || [], [hrQuery.data?.leaveRequests]);
+  const payrollSlips = useMemo(() => hrQuery.data?.payrollSlips || [], [hrQuery.data?.payrollSlips]);
+  const notifications = useMemo(() => hrQuery.data?.notifications || [], [hrQuery.data?.notifications]);
+  const hasMasterAccess = Boolean(hrQuery.data?.identity.masterAccess);
 
-  const leaveQuery = useQuery({
-    queryKey: ["tablet-hr-leave-requests"],
-    queryFn: () =>
-      safeSelect<HrLeaveRequest>("hr_leave_requests", (query) =>
-        query.select("*").order("requested_at", { ascending: false }).limit(200),
-      ),
-    staleTime: 30000,
-  });
+  const visibleAttendance = attendance.filter((row) => row.work_date >= monthStart && row.work_date <= monthEnd);
 
-  const payrollQuery = useQuery({
-    queryKey: ["tablet-hr-payroll-slips", monthStart, monthEnd],
-    queryFn: () =>
-      safeSelect<HrPayrollSlip>("hr_payroll_slips", (query) =>
-        query.select("*").gte("payroll_month", monthStart).lte("payroll_month", monthEnd).order("employee_name"),
-      ),
-    staleTime: 60000,
-  });
+  const personalAttendance = attendance;
 
-  const attendance = attendanceQuery.data || [];
-  const staff = staffQuery.data || [];
-  const leaveRequests = leaveQuery.data || [];
-  const payrollSlips = payrollQuery.data || [];
+  const visibleLeaveRequests = leaveRequests;
 
-  const visibleAttendance = useMemo(() => {
-    const monthRows = attendance.filter((row) => row.work_date >= monthStart && row.work_date <= monthEnd);
-    return hasMasterAccess ? monthRows : monthRows.filter((row) => matchesCurrentUser(row, user));
-  }, [attendance, hasMasterAccess, monthEnd, monthStart, user]);
-
-  const personalAttendance = useMemo(
-    () => attendance.filter((row) => matchesCurrentUser(row, user)),
-    [attendance, user],
-  );
-
-  const visibleLeaveRequests = useMemo(
-    () => (hasMasterAccess ? leaveRequests : leaveRequests.filter((row) => matchesCurrentUser(row, user))),
-    [hasMasterAccess, leaveRequests, user],
-  );
-
-  const visiblePayroll = useMemo(
-    () => (hasMasterAccess ? payrollSlips : payrollSlips.filter((row) => matchesCurrentUser(row, user))),
-    [hasMasterAccess, payrollSlips, user],
-  );
+  const visiblePayroll = payrollSlips;
 
   const filteredEmployees = useMemo(() => {
     const term = normalize(search);
@@ -293,7 +258,6 @@ export default function HrFlow() {
       }
     }
     for (const member of staff) {
-      if (!hasMasterAccess && !matchesCurrentUser({ employee_name: member.name, employee_id: member.id }, user)) continue;
       const existing = byName.get(member.name);
       byName.set(member.name, {
         name: member.name,
@@ -305,11 +269,13 @@ export default function HrFlow() {
     return Array.from(byName.values())
       .filter((row) => !term || normalize(`${row.name} ${row.employeeId || ""} ${row.department || ""} ${row.role || ""}`).includes(term))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [hasMasterAccess, search, staff, user, visibleAttendance]);
+  }, [search, staff, visibleAttendance]);
 
   const consecutiveLateDays = deriveConsecutiveLateDays(personalAttendance);
   const presentCount = visibleAttendance.filter((row) => row.status !== "absent" && row.check_in_at).length;
+  const absentCount = visibleAttendance.filter((row) => normalize(row.status).includes("absent")).length;
   const lateCount = visibleAttendance.filter(isLateRecord).length;
+  const missingPunchCount = visibleAttendance.filter(isMissingPunch).length;
   const leaveDaysUsed = visibleAttendance.filter((row) => row.status === "on_leave").length;
   const pendingLeaves = visibleLeaveRequests.filter((row) => row.status === "pending").length;
   const verifiedPayroll = visiblePayroll.filter((row) => row.verified_at).length;
@@ -320,7 +286,6 @@ export default function HrFlow() {
       if (!leaveStart || !leaveEnd) throw new Error("Select leave dates.");
       if (leaveEnd < leaveStart) throw new Error("End date cannot be before start date.");
       const payload = {
-        employee_id: user.id || user.email,
         employee_name: userName,
         employee_email: user.email,
         leave_type: leaveType,
@@ -329,50 +294,53 @@ export default function HrFlow() {
         reason: leaveReason.trim() || null,
         status: "pending",
       };
-      const { error } = await (supabase as any).from("hr_leave_requests").insert(payload);
-      if (error) throw error;
+      const response = await fetch("/api/hr-pulse", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "Leave request could not be sent.");
     },
     onSuccess: () => {
       toast.success("Leave request sent to SuperAdmin");
       setLeaveReason("");
-      qc.invalidateQueries({ queryKey: ["tablet-hr-leave-requests"] });
+      qc.invalidateQueries({ queryKey: ["tablet-hr-pulse"] });
     },
     onError: (error: Error) => {
-      toast.error(error.message.includes("does not exist") ? "HR leave table is not applied in Supabase yet." : error.message);
+      toast.error(error.message === "employee_id_not_configured" ? "Ask an administrator to assign your HRPulse employee ID." : error.message);
     },
   });
 
   const reviewLeave = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: "approved" | "rejected" }) => {
-      const { error } = await (supabase as any)
-        .from("hr_leave_requests")
-        .update({
-          status,
-          reviewed_by: user?.email || user?.username || "admin",
-          reviewed_at: new Date().toISOString(),
-        })
-        .eq("id", id);
-      if (error) throw error;
+      const response = await fetch("/api/hr-pulse", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "Leave request could not be updated.");
     },
     onSuccess: () => {
       toast.success("Leave request updated");
-      qc.invalidateQueries({ queryKey: ["tablet-hr-leave-requests"] });
+      qc.invalidateQueries({ queryKey: ["tablet-hr-pulse"] });
     },
     onError: (error: Error) => toast.error(error.message),
   });
 
   return (
     <FlowScaffold
-      heading="HR"
+      heading="HR Pulse"
       subheading="Attendance, leave requests, late alerts, payroll verification, and salary slips."
       actions={
         <TabletButton
           variant="outline"
           className="w-full"
           onClick={() => {
-            qc.invalidateQueries({ queryKey: ["tablet-hr-attendance"] });
-            qc.invalidateQueries({ queryKey: ["tablet-hr-leave-requests"] });
-            qc.invalidateQueries({ queryKey: ["tablet-hr-payroll-slips"] });
+            qc.invalidateQueries({ queryKey: ["tablet-hr-pulse"] });
           }}
         >
           <RefreshCw className="mr-2 h-5 w-5" />
@@ -414,9 +382,10 @@ export default function HrFlow() {
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <MetricCard label="Present days" value={presentCount} icon={Users} tone="blue" />
+          <MetricCard label="Absent days" value={absentCount} icon={AlertTriangle} tone="rose" />
           <MetricCard label="Late days" value={lateCount} icon={Clock3} tone="amber" />
-          <MetricCard label="Leave days" value={leaveDaysUsed} icon={CalendarDays} tone="rose" />
-          <MetricCard label={hasMasterAccess && activeTab === "admin" ? "Payroll verified" : "Salary slips"} value={hasMasterAccess && activeTab === "admin" ? `${verifiedPayroll}/${visiblePayroll.length}` : visiblePayroll.length} icon={Banknote} tone="emerald" />
+          <MetricCard label="Missing punches" value={missingPunchCount} icon={Clock3} tone="amber" />
+          <MetricCard label={hasMasterAccess && activeTab === "admin" ? "Payroll verified" : "Leave days"} value={hasMasterAccess && activeTab === "admin" ? `${verifiedPayroll}/${visiblePayroll.length}` : leaveDaysUsed} icon={hasMasterAccess && activeTab === "admin" ? Banknote : CalendarDays} tone="emerald" />
         </div>
 
         {hasMasterAccess && activeTab === "admin" ? (
@@ -431,6 +400,7 @@ export default function HrFlow() {
             leaveRequests={visibleLeaveRequests}
             pendingLeaves={pendingLeaves}
             payrollSlips={visiblePayroll}
+            notifications={notifications}
             reviewLeave={(id, status) => reviewLeave.mutate({ id, status })}
             reviewing={reviewLeave.isPending}
           />
@@ -443,6 +413,7 @@ export default function HrFlow() {
             attendance={visibleAttendance}
             leaveRequests={visibleLeaveRequests}
             payrollSlips={visiblePayroll}
+            notifications={notifications}
             leaveType={leaveType}
             setLeaveType={setLeaveType}
             leaveStart={leaveStart}
@@ -485,6 +456,7 @@ function SelfServicePortal(props: {
   attendance: StaffAttendanceRow[];
   leaveRequests: HrLeaveRequest[];
   payrollSlips: HrPayrollSlip[];
+  notifications: HrNotification[];
   leaveType: string;
   setLeaveType: (value: string) => void;
   leaveStart: string;
@@ -559,8 +531,38 @@ function SelfServicePortal(props: {
       </TabletCard>
 
       <AttendanceList attendance={props.attendance} title="My attendance logs" />
+      <HrNotificationList rows={props.notifications} />
       <LeaveList rows={props.leaveRequests} />
     </div>
+  );
+}
+
+function HrNotificationList({ rows, title = "HRPulse alerts", subtitle = "Warnings and attendance notices for your account" }: { rows: HrNotification[]; title?: string; subtitle?: string }) {
+  return (
+    <TabletCard className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="font-semibold">{title}</p>
+          <p className="text-sm text-muted-foreground">{subtitle}</p>
+        </div>
+        <Badge variant="outline">{rows.filter((row) => !row.is_read).length} new</Badge>
+      </div>
+      <div className="space-y-2">
+        {rows.slice(0, 12).map((row) => (
+          <div key={row.id} className={cn("rounded-xl border p-3", row.is_read ? "bg-background" : "border-amber-200 bg-amber-50")}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-semibold">{row.title}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{row.message}</p>
+              </div>
+              <StatusBadge value={row.notification_type.replace(/_/g, " ")} />
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">{dateLabel(row.created_at)} {timeLabel(row.created_at)}</p>
+          </div>
+        ))}
+        {rows.length === 0 ? <p className="rounded-xl bg-muted p-3 text-sm text-muted-foreground">No HR alerts have been sent to you.</p> : null}
+      </div>
+    </TabletCard>
   );
 }
 
@@ -575,6 +577,7 @@ function AdminDashboard(props: {
   leaveRequests: HrLeaveRequest[];
   pendingLeaves: number;
   payrollSlips: HrPayrollSlip[];
+  notifications: HrNotification[];
   reviewLeave: (id: string, status: "approved" | "rejected") => void;
   reviewing: boolean;
 }) {
@@ -685,6 +688,7 @@ function AdminDashboard(props: {
         </div>
       </TabletCard>
 
+      <HrNotificationList rows={props.notifications} title="HRPulse alerts (all employees)" subtitle="Warnings, late alerts, missing punches, and absences across the hospital" />
       <AttendanceList attendance={props.attendance} title="Organization attendance logs" />
     </div>
   );

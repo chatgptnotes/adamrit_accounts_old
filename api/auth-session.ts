@@ -10,6 +10,7 @@ const userResponse = (row: any) => ({
   username: String(row.email).split('@')[0],
   role: String(row.role || 'user'),
   hospitalType: String(row.hospital_type || 'hope'),
+  employeeId: row.employee_id ? String(row.employee_id) : null,
 });
 
 const issueSession = async (row: any, res: VercelResponse, secret: string) => {
@@ -50,7 +51,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!accessToken) return res.status(400).json({ error: 'access_token_required' });
     const auth = await sb.auth.getUser(accessToken);
     if (auth.error || !auth.data.user?.email) return res.status(401).json({ error: 'invalid_google_session' });
-    const result = await sb.from('User').select('id,email,role,hospital_type').ilike('email', auth.data.user.email).maybeSingle();
+    const result = await sb.from('User').select('id,email,role,hospital_type,employee_id').ilike('email', auth.data.user.email).maybeSingle();
     row = result.data;
   } else {
     const email = text(req.body?.email);
@@ -58,8 +59,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const hospitalType = text(req.body?.hospitalType) || 'ayushman';
     const isStaffPin = !email && password.startsWith('@') && password.length === 5;
     const query = isStaffPin
-      ? sb.from('User').select('id,email,role,hospital_type,password').eq('staff_pin', password.slice(1)).eq('hospital_type', hospitalType).maybeSingle()
-      : sb.from('User').select('id,email,role,hospital_type,password').ilike('email', email).maybeSingle();
+      ? sb.from('User').select('id,email,role,hospital_type,password,employee_id').eq('staff_pin', password.slice(1)).eq('hospital_type', hospitalType).maybeSingle()
+      : sb.from('User').select('id,email,role,hospital_type,password,employee_id').ilike('email', email).maybeSingle();
     const result = await query;
     row = result.data;
     if (!row) return res.status(401).json({ error: 'invalid_credentials' });

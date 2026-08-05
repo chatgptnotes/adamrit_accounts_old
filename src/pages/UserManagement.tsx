@@ -74,6 +74,8 @@ import {
 interface UserRow {
   id: string;
   full_name: string | null;
+  employee_id: string | null;
+  hr_pulse_can_view_all: boolean | null;
   email: string;
   phone: string | null;
   role: string | null;
@@ -91,6 +93,7 @@ interface UserRow {
 
 interface UserFormData {
   full_name: string;
+  employee_id: string;
   email: string;
   phone: string;
   password: string;
@@ -225,9 +228,12 @@ const ROLE_ACCESS_MAP: Record<string, string[]> = {
   ],
 };
 
+const isSuperAdminRole = (role?: string | null) => role === "superadmin" || role === "super_admin";
+
 /** Default blank form state for adding a new user */
 const EMPTY_FORM: UserFormData = {
   full_name: "",
+  employee_id: "",
   email: "",
   phone: "",
   password: "",
@@ -295,6 +301,7 @@ const UserManagement: React.FC = () => {
   const [form, setForm] = useState<UserFormData>({ ...EMPTY_FORM });
   const [showPassword, setShowPassword] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [updatingHrPulseUserId, setUpdatingHrPulseUserId] = useState<string | null>(null);
 
   // ---- Dialog state: CSV Bulk Upload ----
   const [showCsvDialog, setShowCsvDialog] = useState(false);
@@ -374,6 +381,13 @@ const UserManagement: React.FC = () => {
     (u) => u.hospital_type === "ayushman"
   ).length;
   const rolesInUse = new Set(users.map((u) => u.role).filter(Boolean)).size;
+  const hrPulseUsers = useMemo(
+    () =>
+      users
+        .filter((u) => isSuperAdminRole(u.role))
+        .sort((a, b) => (a.full_name || a.email).localeCompare(b.full_name || b.email)),
+    [users],
+  );
 
   // -----------------------------------------------------------------------
   // Open Add / Edit dialog
@@ -389,6 +403,7 @@ const UserManagement: React.FC = () => {
     setEditingUserId(user.id);
     setForm({
       full_name: user.full_name || "",
+      employee_id: user.employee_id || "",
       email: user.email || "",
       phone: user.phone || "",
       password: "", // leave blank on edit; only hash if changed
@@ -429,9 +444,11 @@ const UserManagement: React.FC = () => {
 
     setSaving(true);
     try {
+      const existingUser = editingUserId ? users.find((u) => u.id === editingUserId) || null : null;
       // Build the record to upsert
       const record: Record<string, any> = {
         full_name: form.full_name.trim(),
+        employee_id: form.employee_id.trim() || null,
         email: form.email.trim().toLowerCase(),
         phone: form.phone.trim() || null,
         role: form.role,
@@ -446,6 +463,18 @@ const UserManagement: React.FC = () => {
       // Hash password when provided
       if (form.password) {
         record.password = await hashPassword(form.password);
+      }
+
+      if (isSuperAdminRole(form.role)) {
+        if (!editingUserId || !isSuperAdminRole(existingUser?.role)) {
+          record.hr_pulse_can_view_all = true;
+        }
+      } else {
+        record.hr_pulse_can_view_all = false;
+      }
+
+      if (editingUserId && isSuperAdminRole(form.role) && isSuperAdminRole(existingUser?.role)) {
+        delete record.hr_pulse_can_view_all;
       }
 
       if (editingUserId) {
@@ -514,6 +543,35 @@ const UserManagement: React.FC = () => {
         description: "Failed to update user status.",
         variant: "destructive",
       });
+    }
+  };
+
+  const toggleHrPulseAccess = async (user: UserRow, nextValue: boolean) => {
+    if (!isSuperAdminRole(user.role)) return;
+
+    setUpdatingHrPulseUserId(user.id);
+    try {
+      const { error } = await (supabase as any)
+        .from("User")
+        .update({ hr_pulse_can_view_all: nextValue })
+        .eq("id", user.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: `${user.full_name || user.email} HR Pulse access ${nextValue ? "enabled" : "revoked"}.`,
+      });
+      fetchUsers();
+    } catch (err: any) {
+      console.error("Error updating HR Pulse access:", err);
+      toast({
+        title: "Error",
+        description: err?.message || "Failed to update HR Pulse access.",
+        variant: "destructive",
+      });
+    } finally {
+      setUpdatingHrPulseUserId(null);
     }
   };
 
@@ -1131,6 +1189,67 @@ const UserManagement: React.FC = () => {
         </Card>
         )}
 
+        {isSuperAdmin && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Shield className="h-5 w-5 text-cyan-600" />
+                HR Pulse Access
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Only Super Admin accounts can be granted full HR Pulse visibility. Everyone else remains self-only.
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      <th className="px-3 py-2">User</th>
+                      <th className="px-3 py-2">Email</th>
+                      <th className="px-3 py-2">Role</th>
+                      <th className="px-3 py-2 text-center">Can see all HR Pulse data</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {hrPulseUsers.map((row) => {
+                      const canViewAll = Boolean(row.hr_pulse_can_view_all);
+                      return (
+                        <tr key={row.id} className="border-b last:border-b-0">
+                          <td className="px-3 py-3 font-medium text-gray-800">{row.full_name || "-"}</td>
+                          <td className="px-3 py-3 text-gray-600">{row.email}</td>
+                          <td className="px-3 py-3">
+                            <Badge variant="outline">{ROLE_LABELS[row.role || ""] || row.role || "-"}</Badge>
+                          </td>
+                          <td className="px-3 py-3 text-center">
+                            <div className="flex items-center justify-center gap-3">
+                              <Checkbox
+                                checked={canViewAll}
+                                disabled={updatingHrPulseUserId === row.id}
+                                onCheckedChange={(checked) => toggleHrPulseAccess(row, Boolean(checked))}
+                              />
+                              <span className="text-xs text-muted-foreground">
+                                {canViewAll ? "Full access" : "Self only"}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {hrPulseUsers.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-3 py-6 text-center text-sm text-muted-foreground">
+                          No Super Admin users found.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* ----------------------------------------------------------------
             Add / Edit User Dialog
         ---------------------------------------------------------------- */}
@@ -1168,6 +1287,18 @@ const UserManagement: React.FC = () => {
                     setForm((f) => ({ ...f, email: e.target.value }))
                   }
                 />
+              </div>
+
+              {/* HRPulse employee identity */}
+              <div className="space-y-1">
+                <Label htmlFor="um-employee-id">HRPulse Employee ID</Label>
+                <Input
+                  id="um-employee-id"
+                  placeholder="e.g. EMP-1042"
+                  value={form.employee_id}
+                  onChange={(e) => setForm((f) => ({ ...f, employee_id: e.target.value }))}
+                />
+                <p className="text-xs text-muted-foreground">Used to scope HR Pulse attendance, leave, payroll, and alerts.</p>
               </div>
 
               {/* Phone */}

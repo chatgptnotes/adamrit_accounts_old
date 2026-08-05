@@ -7,6 +7,7 @@ import { canCreateAccountingVouchers } from "@/lib/accounting-access";
 
 /** Lazy module-flow registry, keyed by the module id from config/modules.ts. */
 const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
+  "hr-pulse": lazy(() => import("@/tablet/modules/hr/HrFlow")),
   director: lazy(() => import("@/tablet/modules/director/DirectorFlow")),
   register: lazy(() => import("@/tablet/modules/register/RegisterPatientFlow")),
   occupancy: lazy(() => import("@/tablet/modules/occupancy/OccupancyBoard")),
