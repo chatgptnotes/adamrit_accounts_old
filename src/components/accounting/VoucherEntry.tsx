@@ -1564,7 +1564,8 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
           is_optional: isOptional,
           // The one screen where a person types a voucher; everything else posts itself.
           is_auto: false,
-          created_by: 'system',
+          // The typist, not 'system' — the user log must name who made the entry.
+          created_by: username,
           last_modified_by: username,
         })
         .select()
