@@ -117,7 +117,7 @@ const RelationshipManager = () => {
       const { data: company } = await (supabase as any)
         .from('companies')
         .select('id')
-        .eq('company_key', 'drm_pvt_ltd')
+        .eq('company_key', 'ml_enterprises')
         .maybeSingle();
 
       const { data: lastCode } = await (supabase as any)

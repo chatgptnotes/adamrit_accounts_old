@@ -41,7 +41,7 @@
   "src/components/accounting/StatisticsScreen.tsx": "433abf2f85b10d0e87d070242ff86cd8212e7ff4cb2b3c551d123c9c549bdb35",
   "src/components/accounting/SurgeryInvoiceReport.tsx": "3fef7ec6ce80e609f6fc9d009229924db039f0832b1aa255c768fe8cfd5a315a",
   "src/components/accounting/TallyImportExport.tsx": "2745d3202f7d6ae09496807c8681e52659bbce8ba1befc3a515152d32b48d8d3",
-  "src/components/accounting/TallyLedgerCreation.tsx": "b38d28fe4577a85863e57db957343fe8781ea07ab80a894aaa74056a90970179",
+  "src/components/accounting/TallyLedgerCreation.tsx": "a8c686c2aa994b82cdd06f3924500e4f1e0600c8e0127cd847566fdf673ce939",
   "src/components/accounting/TrialBalance.tsx": "015edb1f9a2d42eaf2df2b9ffc9c7c763d5ffb0d574e43ab32a7e87652d0e0ae",
   "src/components/accounting/VoucherAttachmentFields.tsx": "a5006ec9a33f5721ff5f93ee026d22d4664ddb5531a39cbbe3b1862d4b1bf328",
   "src/components/accounting/VoucherAttachmentViewer.tsx": "7d7c525c013e1eae665d0fe56ff2d247b620d5108a55bbea2994a5dc8d305df7",

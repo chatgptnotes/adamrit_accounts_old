@@ -634,8 +634,11 @@ export function DailyRevenueReportSection({
       const rmChanged = choosingDirect
         ? !isDirect(row.rm_name)
         : Boolean(pickedRm.id !== row.rmId);
+      const selectionChanged = row.rms.map((rm) => rm.id).filter(Boolean).join(',') !== pickedRms.map((manager) => manager.id).join(',');
       const cut = choosingDirect
         ? 0
+        : selectionChanged && pickedRms.length > 1
+        ? draftedCut
         : rmChanged
         ? Math.round((cost * validCommissionPercent(pickedRm.commission_percent)) / 100)
         : draftedCut;
@@ -985,6 +988,10 @@ export function DailyRevenueReportSection({
 
   const openInlineEdit = (row: DisplayRow) => {
     if (isApproved) return;
+    if (row.expenseBillId || row.approvalId) {
+      toast.error('This row is invoiced or paid and cannot be edited. Cancel the invoice first if a correction is required.');
+      return;
+    }
     setEditingRateId(null);
     setEditingCutId(row.key);
     setDraftCost(String(row.cost));
@@ -1478,20 +1485,20 @@ export function DailyRevenueReportSection({
                             <TableCell>
                               {editing ? (
                                 <div className="max-h-32 min-w-52 space-y-1 overflow-y-auto rounded border bg-white p-2">
-                                  {(rmMasterQuery.data ?? []).map((manager) => {
-                                    const checked = draftRmIds.includes(manager.id);
-                                    const directConflict = isDirect(manager.name) && draftRmIds.length > 0 && !checked;
-                                    const hasDirect = draftRmIds.some((id) => isDirect((rmMasterQuery.data ?? []).find((item) => item.id === id)?.name));
-                                    const disabled = !checked && (draftRmIds.length >= 3 || directConflict || hasDirect);
-                                    return (
-                                      <label key={manager.id} className="flex items-center gap-2 text-xs">
-                                        <input type="checkbox" checked={checked} disabled={disabled} onChange={() => {
-                                          setDraftRmIds(checked ? draftRmIds.filter((id) => id !== manager.id) : [...draftRmIds, manager.id]);
-                                        }} />
-                                        <span>{manager.name}{manager.code ? ` (${manager.code})` : ''}{draftRmIds[0] === manager.id ? ' · Primary' : ''}</span>
-                                      </label>
-                                    );
-                                  })}
+                                    {(rmMasterQuery.data ?? []).map((manager) => {
+                                      const checked = draftRmIds.includes(manager.id);
+                                      const directConflict = isDirect(manager.name) && draftRmIds.length > 0 && !checked;
+                                      const hasDirect = draftRmIds.some((id) => isDirect((rmMasterQuery.data ?? []).find((item) => item.id === id)?.name));
+                                      const disabled = !checked && (draftRmIds.length >= 3 || directConflict || hasDirect);
+                                      return (
+                                        <label key={manager.id} className="flex items-center gap-2 text-xs">
+                                          <input type="checkbox" checked={checked} disabled={disabled} onChange={() => {
+                                            setDraftRmIds(checked ? draftRmIds.filter((id) => id !== manager.id) : [...draftRmIds, manager.id]);
+                                          }} />
+                                          <span>{manager.name}{manager.code ? ` (${manager.code})` : ''}{draftRmIds[0] === manager.id ? ' · Primary' : ''}</span>
+                                        </label>
+                                      );
+                                    })}
                                 </div>
                               ) : isDirect(r.rm_name) ? (
                                 <span className="inline-block px-2 py-0.5 rounded text-[11px] font-medium uppercase bg-gray-100 text-gray-700">
@@ -1674,8 +1681,8 @@ export function DailyRevenueReportSection({
                                     size="sm"
                                     aria-label="Edit cost/cut"
                                     onClick={() => openInlineEdit(r)}
-                                    disabled={isApproved}
-                                    title={isApproved ? 'This approved report is locked' : 'Edit cost/cut'}
+                                    disabled={isApproved || Boolean(r.expenseBillId || r.approvalId)}
+                                    title={isApproved ? 'This approved report is locked' : r.expenseBillId || r.approvalId ? 'This invoiced or paid row is locked' : 'Edit cost/cut'}
                                   >
                                     <Edit2 className="h-4 w-4 text-blue-600" />
                                   </Button>

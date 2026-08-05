@@ -1861,6 +1861,8 @@ export type Database = {
           created_at: string | null
           id: string
           is_active: boolean | null
+          ledger_description: string | null
+          ledger_qr_code_url: string | null
           opening_balance: number | null
           opening_balance_type: string | null
           parent_account_id: string | null
@@ -1875,6 +1877,8 @@ export type Database = {
           created_at?: string | null
           id?: string
           is_active?: boolean | null
+          ledger_description?: string | null
+          ledger_qr_code_url?: string | null
           opening_balance?: number | null
           opening_balance_type?: string | null
           parent_account_id?: string | null
@@ -1889,6 +1893,8 @@ export type Database = {
           created_at?: string | null
           id?: string
           is_active?: boolean | null
+          ledger_description?: string | null
+          ledger_qr_code_url?: string | null
           opening_balance?: number | null
           opening_balance_type?: string | null
           parent_account_id?: string | null

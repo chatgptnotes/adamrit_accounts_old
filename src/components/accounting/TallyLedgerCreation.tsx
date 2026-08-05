@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { Trash2 } from 'lucide-react';
+import { ImagePlus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -67,13 +67,15 @@ interface LedgerAccount {
   gstin: string | null;
   beneficiary_of_bank_account_id: string | null;
   point_of_contact: string | null;
+  ledger_description: string | null;
+  ledger_qr_code_url: string | null;
 }
 
 const LEDGER_COLUMNS =
   'id, account_code, account_name, account_type, account_group, ledger_group_id, company_id, ' +
   'is_active, opening_balance, opening_balance_type, created_at, alias, mailing_name, address, ' +
   'state, country, pincode, bank_name, bank_branch, bank_account_number, ifsc_code, pan, gstin, ' +
-  'beneficiary_of_bank_account_id, point_of_contact';
+  'beneficiary_of_bank_account_id, point_of_contact, ledger_description, ledger_qr_code_url';
 
 // A group picked from the chart_of_accounts text rather than from ledger_groups
 const COA_GROUP_PREFIX = 'coa:';
@@ -126,6 +128,9 @@ const TallyLedgerCreation: React.FC<{
   const [pointOfContact, setPointOfContact] = useState('');
   const [pan, setPan] = useState('');
   const [gstin, setGstin] = useState('');
+  const [description, setDescription] = useState('');
+  const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
+  const [qrCodeFile, setQrCodeFile] = useState<File | null>(null);
   const [isActive, setIsActive] = useState(true);
   // When set, the form is in Tally's Ledger Alteration mode
   const [editing, setEditing] = useState<LedgerAccount | null>(null);
@@ -324,6 +329,9 @@ const TallyLedgerCreation: React.FC<{
     setPointOfContact(account.point_of_contact ?? '');
     setPan(account.pan ?? '');
     setGstin(account.gstin ?? '');
+    setDescription(account.ledger_description ?? '');
+    setQrCodeUrl(account.ledger_qr_code_url ?? null);
+    setQrCodeFile(null);
     setIsActive(account.is_active !== false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -349,6 +357,9 @@ const TallyLedgerCreation: React.FC<{
     setPointOfContact('');
     setPan('');
     setGstin('');
+    setDescription('');
+    setQrCodeUrl(null);
+    setQrCodeFile(null);
     setIsActive(true);
   };
 
@@ -371,7 +382,35 @@ const TallyLedgerCreation: React.FC<{
     beneficiary_of_bank_account_id: beneficiaryBankId || null,
     pan: pan.trim() || null,
     gstin: gstin.trim() || null,
+    ledger_description: description.trim() || null,
   });
+
+  const selectQrCode = (file: File | null): void => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Choose an image file for the QR code');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('QR image must be 5 MB or smaller');
+      return;
+    }
+    setQrCodeFile(file);
+    setQrCodeUrl(URL.createObjectURL(file));
+  };
+
+  const uploadQrCode = async (accountId: string): Promise<string | null> => {
+    if (!qrCodeFile) return qrCodeUrl;
+    const extension = qrCodeFile.name.split('.').pop()?.replace(/[^a-zA-Z0-9]/g, '') || 'png';
+    const fileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
+    const path = `ledger-qr/${selectedCompanyId}/${accountId}/${fileName}`;
+    const { error } = await supabase.storage.from('uploads').upload(path, qrCodeFile, {
+      contentType: qrCodeFile.type,
+      upsert: false,
+    });
+    if (error) throw error;
+    return supabase.storage.from('uploads').getPublicUrl(path).data.publicUrl;
+  };
 
   const handleAccept = async (): Promise<void> => {
     const trimmed = name.trim();
@@ -410,6 +449,7 @@ const TallyLedgerCreation: React.FC<{
     setSaving(true);
     try {
       if (editing) {
+        const uploadedQrCodeUrl = await uploadQrCode(editing.id);
         const { error } = await (supabase as any)
           .from('chart_of_accounts')
           .update({
@@ -418,6 +458,7 @@ const TallyLedgerCreation: React.FC<{
             account_group: selectedGroupName,
             ledger_group_id: under.startsWith(COA_GROUP_PREFIX) ? null : under,
             is_active: isActive,
+            ledger_qr_code_url: uploadedQrCodeUrl,
             ...openingFields,
             ...detailFields(),
           })
@@ -429,7 +470,7 @@ const TallyLedgerCreation: React.FC<{
         return;
       }
 
-      await insertLedgerAccount(supabase as any, {
+      const created = await insertLedgerAccount(supabase as any, {
         companyId: selectedCompanyId,
         name: trimmed,
         accountType: effectiveType,
@@ -437,6 +478,14 @@ const TallyLedgerCreation: React.FC<{
         ledgerGroupId: under.startsWith(COA_GROUP_PREFIX) ? null : under,
         extras: { ...openingFields, ...detailFields() },
       });
+      const uploadedQrCodeUrl = await uploadQrCode(created.id);
+      if (uploadedQrCodeUrl) {
+        const { error } = await (supabase as any)
+          .from('chart_of_accounts')
+          .update({ ledger_qr_code_url: uploadedQrCodeUrl })
+          .eq('id', created.id);
+        if (error) throw error;
+      }
       toast.success(`Ledger "${trimmed}" created in ${companyName}`);
       queryClient.invalidateQueries();
       handleClear();
@@ -716,6 +765,17 @@ const TallyLedgerCreation: React.FC<{
                   />
                 </div>
               )}
+              <div className="mt-1 flex items-start gap-2">
+                <span className="w-24 shrink-0 pt-1">Description</span>
+                <span className="pt-1">:</span>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Optional note for this ledger"
+                  rows={2}
+                  className="w-full resize-y rounded-none border border-dashed border-gray-400 bg-transparent px-1 py-1 text-sm shadow-none outline-none focus:border-blue-600 focus:border-solid"
+                />
+              </div>
 
               <div className="mt-3 border-b border-gray-400 font-semibold">Banking Details</div>
               <div className="mt-0.5 flex items-center gap-2">
@@ -746,7 +806,30 @@ const TallyLedgerCreation: React.FC<{
                       className="h-7 w-full rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0 focus-visible:border-blue-600 focus-visible:border-solid"
                     />
                   </div>
-                ))}
+                  ))}
+
+              <div className="mt-2 flex items-start gap-2">
+                <span className="w-24 shrink-0 pt-1">Payment QR</span>
+                <span className="pt-1">:</span>
+                <div className="min-w-0 flex-1">
+                  <label className="inline-flex h-7 cursor-pointer items-center gap-1 border-b border-dashed border-gray-400 px-1 text-sm text-blue-700 hover:bg-[#fdf6d8]">
+                    <ImagePlus className="h-4 w-4" />
+                    {qrCodeFile ? 'Change QR image' : qrCodeUrl ? 'Replace QR image' : 'Upload QR image'}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      className="sr-only"
+                      onChange={(e) => selectQrCode(e.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">PNG, JPG, WEBP or GIF — maximum 5 MB.</p>
+                  {qrCodeUrl && (
+                    <a href={qrCodeUrl} target="_blank" rel="noreferrer" className="mt-1 block w-fit">
+                      <img src={qrCodeUrl} alt="Ledger payment QR code" className="h-20 w-20 rounded border bg-white object-contain p-1" />
+                    </a>
+                  )}
+                </div>
+              </div>
 
               <div className="mt-0.5 flex items-center gap-2">
                 <span className="w-40 shrink-0">Beneficiary of bank</span>
