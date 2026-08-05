@@ -404,6 +404,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
   return (
     <>
     <TallyScreen
+      periodScope="screen"
       title={`Day Book${typeName ? ` — ${typeName}` : ''}${scope !== 'Regular' ? ` (${scope})` : ''}`}
       rail={report.rail}
       bottomBar={voucherBottomBar({

@@ -762,16 +762,23 @@ interface TallyScreenProps {
   /** Override the close button label (default "✕") */
   closeLabel?: string;
   headerAction?: React.ReactNode;
+  /**
+   * 'screen' for reports that keep a period of their own (Day Book opens on a
+   * single date). Those do not follow the shared Current Period, so the
+   * out-of-period warning would be wrong on them.
+   */
+  periodScope?: 'company' | 'screen';
   children: React.ReactNode;
 }
 
-export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp = [], bottomBar, onClose, closeLabel, headerAction, children }) => {
+export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp = [], bottomBar, onClose, closeLabel, headerAction, periodScope = 'company', children }) => {
   const { hospitalConfig } = useAuth();
   const accountingCompany = useAccountingCompanyOptional();
   const periodContext = useAccountingPeriodOptional();
   const navigation = useAccountingNavigationOptional();
   /** Today sits outside the saved Current Period, so recent vouchers are hidden. */
   const outOfPeriod =
+    periodScope === 'company' &&
     !!periodContext &&
     (periodContext.currentDate < periodContext.period.from || periodContext.currentDate > periodContext.period.to);
   // Stable, so the default key bar below (and the hotkey binding that reads it)
