@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronLeft, Pencil, User } from "lucide-react";
 import { toast } from "sonner";
@@ -14,7 +14,7 @@ import { TabletInput, TabletLabel } from "@/tablet/ui/TabletInput";
 
 // DATA SOURCE: rupali_charge_rules (the Rupali Master) -> rupali_visit_logs
 
-const CATEGORIES = ["OPD", "IPD", "Procedure"] as const;
+const CATEGORIES = ["OPD", "IPD", "Procedure", "Day Care"] as const;
 type Category = (typeof CATEGORIES)[number];
 
 interface ChargeRule {
@@ -89,6 +89,17 @@ export default function RupaliFlow() {
     [rules, doctor],
   );
 
+  // Direct charging: the moment the entry reaches the amount step, a doctor
+  // with exactly one configured charge for this category gets it applied
+  // automatically — no extra tap.
+  useEffect(() => {
+    if (step === 4 && !rule && !purposeText && purposes.length === 1) {
+      setRule(purposes[0]);
+      setAmount(String(purposes[0].amount));
+      setEditingAmount(false);
+    }
+  }, [step, rule, purposeText, purposes]);
+
   const purpose = rule?.purpose_reason || purposeText.trim();
 
   const submit = useMutation({
@@ -162,7 +173,7 @@ export default function RupaliFlow() {
         heading="Rupali Register"
         subheading="What kind of visit is this?"
       >
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {CATEGORIES.map((c) => (
             <TabletButton
               key={c}

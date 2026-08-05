@@ -15,7 +15,7 @@ import {
 // The tablet Rupali tile reads only active rules; deactivating hides a rule
 // there without losing its history here.
 
-const CATEGORIES = ['OPD', 'IPD', 'Procedure'] as const;
+const CATEGORIES = ['OPD', 'IPD', 'Procedure', 'Day Care'] as const;
 
 interface ChargeRule {
   id: string;

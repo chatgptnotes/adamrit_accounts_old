@@ -19,7 +19,7 @@ BEGIN;
 -- ------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.rupali_charge_rules (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  category       TEXT NOT NULL CHECK (category IN ('OPD', 'IPD', 'Procedure')),
+  category       TEXT NOT NULL CHECK (category IN ('OPD', 'IPD', 'Procedure', 'Day Care')),
   doctor_id      UUID,
   doctor_name    TEXT NOT NULL,
   purpose_reason TEXT NOT NULL,
@@ -50,7 +50,7 @@ CREATE POLICY "Allow all operations on rupali_charge_rules"
 -- ------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.rupali_visit_logs (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  category      TEXT NOT NULL CHECK (category IN ('OPD', 'IPD', 'Procedure')),
+  category      TEXT NOT NULL CHECK (category IN ('OPD', 'IPD', 'Procedure', 'Day Care')),
   doctor_id     UUID,
   doctor_name   TEXT NOT NULL,
   patient_id    UUID REFERENCES public.patients(id),
