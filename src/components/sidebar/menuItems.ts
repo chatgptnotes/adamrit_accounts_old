@@ -338,7 +338,7 @@ export const menuItems: MenuItemDef[] = [
     section: 'masters',
   },
   {
-    title: "Rupali Master",
+    title: "OPD/IPD Consultation / Visit Master",
     url: "/rupali-master",
     icon: ClipboardList,
     section: 'masters',

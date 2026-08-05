@@ -131,7 +131,7 @@ export default function RupaliMaster() {
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-6">
       <div>
-        <h1 className="text-2xl font-bold">Rupali Master</h1>
+        <h1 className="text-2xl font-bold">OPD/IPD Consultation / Visit Master</h1>
         <p className="text-sm text-muted-foreground">
           Standard charges for the tablet Rupali register — one amount per category, doctor and
           purpose.
