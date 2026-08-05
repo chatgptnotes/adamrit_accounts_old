@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { getModule } from "@/tablet/config/modules";
 import { useAuth } from "@/contexts/AuthContext";
 import { canCreateAccountingVouchers } from "@/lib/accounting-access";
+import { MlPinGate } from "@/components/MlPinGate";
 
 /** Lazy module-flow registry, keyed by the module id from config/modules.ts. */
 const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
@@ -40,8 +41,15 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   "journal-voucher": lazy(
     () => import("@/tablet/modules/accounting-vouchers/TabletVoucherFlow"),
   ),
-  "expense-bills": lazy(
-    () => import("@/tablet/modules/expense-bills/ExpenseBillsFlow"),
+  // Past bills sit behind the office PIN — the gate, not the flow, decides.
+  "expense-bills": lazy(() =>
+    import("@/tablet/modules/expense-bills/ExpenseBillsFlow").then((m) => ({
+      default: () => (
+        <MlPinGate>
+          <m.default />
+        </MlPinGate>
+      ),
+    })),
   ),
   "panel-payment-received": lazy(
     () => import("@/tablet/modules/panel-payment-received/PanelPaymentReceivedFlow"),

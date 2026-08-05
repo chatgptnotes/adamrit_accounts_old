@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { canAccessReferralRegister } from "@/lib/referralRegisterAccess";
 import { setOverride } from "@/lib/device-class";
+import { MlPinGate } from "@/components/MlPinGate";
 import ProtectedFinalBillRoute from "@/components/invoice/ProtectedFinalBillRoute";
 import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
 
@@ -352,7 +353,7 @@ export const AppRoutes = () => {
         <Route path="/ayushman-rmos" element={<Suspense fallback={<PageLoader />}><AyushmanRMOs /></Suspense>} />
         <Route path="/pmjay-mjpjay-master" element={<Suspense fallback={<PageLoader />}><PmjayMjpjayMaster /></Suspense>} />
         <Route path="/accounting" element={<Suspense fallback={<PageLoader />}><Accounting /></Suspense>} />
-        <Route path="/expense-bill" element={<Suspense fallback={<PageLoader />}><ExpenseBillsPage /></Suspense>} />
+        <Route path="/expense-bill" element={<Suspense fallback={<PageLoader />}><MlPinGate><ExpenseBillsPage /></MlPinGate></Suspense>} />
         <Route path="/cash-book" element={<Suspense fallback={<PageLoader />}><CashBook /></Suspense>} />
         <Route path="/patient-ledger" element={<Suspense fallback={<PageLoader />}><PatientLedger /></Suspense>} />
         <Route path="/day-book" element={<Suspense fallback={<PageLoader />}><DayBook /></Suspense>} />
