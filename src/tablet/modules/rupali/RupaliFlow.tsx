@@ -33,7 +33,7 @@ interface ChargeRule {
  * Every submission is an append-only row in rupali_visit_logs.
  */
 export default function RupaliFlow() {
-  const { user } = useAuth();
+  const { user, hospitalType } = useAuth();
   const queryClient = useQueryClient();
 
   const [step, setStep] = useState(1);
@@ -41,12 +41,13 @@ export default function RupaliFlow() {
   const [doctor, setDoctor] = useState<{ id: string | null; name: string } | null>(null);
   const [patient, setPatient] = useState<Patient | null>(null);
   const [rule, setRule] = useState<ChargeRule | null>(null);
+  const [purposeText, setPurposeText] = useState("");
   const [amount, setAmount] = useState("");
   const [editingAmount, setEditingAmount] = useState(false);
 
-  // Active master rules for the chosen category. Doctors and purposes both
-  // come from here, so the flow always mirrors the Rupali Master exactly.
-  const { data: rules = [], isLoading: rulesLoading } = useQuery({
+  // Active master rules for the chosen category — the source of the
+  // auto-fetched amount. The flow works without them (manual amount).
+  const { data: rules = [] } = useQuery({
     queryKey: ["rupali-rules", category],
     enabled: !!category,
     queryFn: async (): Promise<ChargeRule[]> => {
@@ -57,19 +58,26 @@ export default function RupaliFlow() {
         .eq("is_active", true)
         .order("doctor_name")
         .order("purpose_reason");
-      if (error) throw error;
+      if (error) return []; // master not migrated yet — flow still works manually
       return (data || []) as ChargeRule[];
     },
   });
 
-  const doctors = useMemo(() => {
-    const seen = new Map<string, { id: string | null; name: string }>();
-    for (const r of rules) {
-      const key = r.doctor_name.trim().toLowerCase();
-      if (!seen.has(key)) seen.set(key, { id: r.doctor_id, name: r.doctor_name });
-    }
-    return Array.from(seen.values());
-  }, [rules]);
+  // Every active doctor from this hospital's consultant master, so the flow
+  // never depends on the Rupali Master being filled in first.
+  const { data: doctors = [], isLoading: rulesLoading } = useQuery({
+    queryKey: ["rupali-doctors", hospitalType],
+    queryFn: async (): Promise<{ id: string | null; name: string }[]> => {
+      const table =
+        hospitalType === "ayushman" ? "ayushman_consultants" : "hope_consultants";
+      const { data, error } = await supabase
+        .from(table)
+        .select("id, name")
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return (data || []) as { id: string; name: string }[];
+    },
+  });
 
   const purposes = useMemo(
     () =>
@@ -81,10 +89,13 @@ export default function RupaliFlow() {
     [rules, doctor],
   );
 
+  const purpose = rule?.purpose_reason || purposeText.trim();
+
   const submit = useMutation({
     mutationFn: async () => {
       const finalAmount = parseFloat(amount);
-      if (!category || !doctor || !patient || !rule) throw new Error("Incomplete entry");
+      if (!category || !doctor || !patient) throw new Error("Incomplete entry");
+      if (!purpose) throw new Error("Pick or type the purpose of the visit");
       if (!Number.isFinite(finalAmount) || finalAmount < 0) {
         throw new Error("Enter a valid amount");
       }
@@ -94,7 +105,7 @@ export default function RupaliFlow() {
         doctor_name: doctor.name,
         patient_id: patient.id,
         patient_name: patient.name,
-        purpose_reason: rule.purpose_reason,
+        purpose_reason: purpose,
         amount: finalAmount,
         created_by: user?.email || user?.id || null,
       });
@@ -103,7 +114,7 @@ export default function RupaliFlow() {
     },
     onSuccess: (finalAmount) => {
       toast.success(
-        `Recorded ₹${finalAmount.toLocaleString("en-IN")} — ${patient?.name}, ${rule?.purpose_reason}.`,
+        `Recorded ₹${finalAmount.toLocaleString("en-IN")} — ${patient?.name}, ${purpose}.`,
       );
       queryClient.invalidateQueries({ queryKey: ["rupali-logs"] });
       // Straight back to step 1 for the next entry.
@@ -112,6 +123,7 @@ export default function RupaliFlow() {
       setDoctor(null);
       setPatient(null);
       setRule(null);
+      setPurposeText("");
       setAmount("");
       setEditingAmount(false);
     },
@@ -127,6 +139,7 @@ export default function RupaliFlow() {
       setStep(2);
     } else if (step === 4) {
       setRule(null);
+      setPurposeText("");
       setAmount("");
       setEditingAmount(false);
       setStep(3);
@@ -175,14 +188,13 @@ export default function RupaliFlow() {
         step={2}
         totalSteps={4}
         heading={`${category} — select doctor`}
-        subheading="Doctors with charges configured in the Rupali Master"
         actions={backButton}
       >
         {rulesLoading ? (
           <p className="py-8 text-center text-muted-foreground">Loading doctors…</p>
         ) : doctors.length === 0 ? (
           <p className="py-8 text-center text-muted-foreground">
-            No {category} charges are configured yet. Add them in the Rupali Master first.
+            No doctors found in the consultant master.
           </p>
         ) : (
           <div className="grid gap-2">
@@ -238,7 +250,7 @@ export default function RupaliFlow() {
           {backButton}
           <TabletButton
             className="flex-1"
-            disabled={!rule || submit.isPending}
+            disabled={!purpose || submit.isPending}
             onClick={() => submit.mutate()}
           >
             <Check className="mr-2 h-5 w-5" />
@@ -253,35 +265,44 @@ export default function RupaliFlow() {
         <div>
           <TabletLabel>Purpose / Reason</TabletLabel>
           <div className="mt-2 grid gap-2">
-            {purposes.length === 0 ? (
-              <p className="text-muted-foreground">
-                No purposes configured for {doctor?.name} under {category}.
-              </p>
-            ) : (
-              purposes.map((p) => (
-                <TabletCard
-                  key={p.id}
-                  className={cn(
-                    "flex cursor-pointer items-center justify-between p-4 active:scale-[0.99]",
-                    rule?.id === p.id && "border-primary ring-2 ring-primary/30",
-                  )}
-                  onClick={() => {
-                    setRule(p);
-                    setAmount(String(p.amount));
-                    setEditingAmount(false);
-                  }}
-                >
-                  <span className="text-base font-medium">{p.purpose_reason}</span>
-                  <span className="font-mono text-lg font-bold">
-                    ₹{Number(p.amount).toLocaleString("en-IN")}
-                  </span>
-                </TabletCard>
-              ))
-            )}
+            {purposes.map((p) => (
+              <TabletCard
+                key={p.id}
+                className={cn(
+                  "flex cursor-pointer items-center justify-between p-4 active:scale-[0.99]",
+                  rule?.id === p.id && "border-primary ring-2 ring-primary/30",
+                )}
+                onClick={() => {
+                  setRule(p);
+                  setPurposeText("");
+                  setAmount(String(p.amount));
+                  setEditingAmount(false);
+                }}
+              >
+                <span className="text-base font-medium">{p.purpose_reason}</span>
+                <span className="font-mono text-lg font-bold">
+                  ₹{Number(p.amount).toLocaleString("en-IN")}
+                </span>
+              </TabletCard>
+            ))}
+            <TabletInput
+              value={purposeText}
+              onChange={(e) => {
+                setPurposeText(e.target.value);
+                if (rule) {
+                  setRule(null);
+                  setAmount("");
+                }
+                setEditingAmount(true);
+              }}
+              placeholder={
+                purposes.length > 0 ? "Or type another purpose…" : "Purpose of the visit"
+              }
+            />
           </div>
         </div>
 
-        {rule && (
+        {purpose && (
           <div>
             <TabletLabel>Amount</TabletLabel>
             <div className="mt-2 flex items-center gap-3">
@@ -309,7 +330,7 @@ export default function RupaliFlow() {
                 </button>
               )}
             </div>
-            {editingAmount && parseFloat(amount || "0") !== rule.amount && (
+            {rule && editingAmount && parseFloat(amount || "0") !== rule.amount && (
               <p className="mt-1 text-sm text-amber-600">
                 Standard charge is ₹{Number(rule.amount).toLocaleString("en-IN")} — this entry
                 will record the overridden amount.

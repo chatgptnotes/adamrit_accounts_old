@@ -338,6 +338,12 @@ export const menuItems: MenuItemDef[] = [
     section: 'masters',
   },
   {
+    title: "Rupali Master",
+    url: "/rupali-master",
+    icon: ClipboardList,
+    section: 'masters',
+  },
+  {
     title: "Tile Configuration",
     url: "/tile-configuration",
     icon: MonitorSmartphone,
