@@ -54,14 +54,15 @@ const escapeHtml = (value: string) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;')
 
-const money = (n: number) => `${n.toLocaleString('en-IN')}/-`
+const money = (n: number) =>
+  `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 const displayDate = (value: string) => {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-GB')
 }
 
-/** Same layout as the Corporate Bill implant invoice, with one line item. */
+/** The M.L. Enterprises invoice: one line item, printed A4, self-contained. */
 export function buildReferralInvoiceHtml(input: {
   billNumber: string
   billDate: string
@@ -79,86 +80,151 @@ export function buildReferralInvoiceHtml(input: {
     <meta charset="utf-8" />
     <title>Implant Bill - ${escapeHtml(input.billNumber)}</title>
     <style>
-      body { margin: 0; background: white; color: #000; font-family: "Times New Roman", serif; }
-      .bill-page { width: 190mm; margin: 0 auto; padding: 8mm 0; }
-      .title { text-align: center; font-size: 30pt; font-weight: 700; }
-      .vendor-address { text-align: center; font-size: 14pt; font-weight: 700; margin-top: 8px; }
-      .vendor-phone { text-align: center; font-size: 13pt; font-weight: 700; margin-top: 4px; }
-      .top-box { display: grid; grid-template-columns: 1.55fr 1fr; border: 1px solid #000; min-height: 116px; margin-top: 10px; }
-      .top-left { border-right: 1px solid #000; padding: 10px 12px; font-size: 15pt; line-height: 1.35; }
-      .top-right { padding: 10px 12px; font-size: 15pt; line-height: 1.35; }
-      .under { display: inline-block; border-bottom: 1px solid #000; min-width: 342px; }
-      .item-grid { display: grid; grid-template-columns: 1fr 28mm 28mm 32mm; border: 1px solid #000; border-top: 0; min-height: 90mm; }
-      .head > div { background: #eef2f6; text-align: center; padding: 7px 4px; font-family: Arial, sans-serif;
-        font-size: 10pt; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
-        border-top: 1px solid #000; border-bottom: 1px solid #000; }
-      .head, .bill-item { display: contents; }
-      .bill-item > div { padding: 8px 10px; font-size: 14pt; }
-      .qty, .rate, .amount, .col-border { border-left: 1px solid #000; text-align: center; }
-      .total-row { display: grid; grid-template-columns: 1fr 28mm 32mm; border: 1px solid #000; border-top: 0; font-size: 14pt; font-weight: 700; }
-      .total-row > div { padding: 9px 8px; }
-      .total-label, .total-amount { border-left: 1px solid #000; }
-      .tax-box { border: 1px solid #000; margin-top: 18px; }
-      .declaration { display: grid; grid-template-columns: 1fr 58mm; padding: 8px 10px; font-size: 10.5pt; border-bottom: 1px solid #000; }
-      .terms { padding: 8px 10px 10px; font-size: 9.5pt; min-height: 66px; position: relative; }
-      .terms ul { margin: 2px 0 0 48px; padding-left: 14px; }
-      .sign { position: absolute; right: 14px; bottom: 10px; font-size: 14pt; font-weight: 700; }
-      @page { size: A4 portrait; margin: 10mm; }
+      /* Self-contained by necessity: this file is stored in Supabase and
+         opened straight from storage, so no external fonts or assets. */
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #fff; color: #0f1e33;
+        font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .sheet { width: 186mm; margin: 0 auto; padding: 6mm 0 0; }
+
+      /* Masthead ------------------------------------------------------ */
+      .masthead { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px; }
+      .mark { width: 54px; height: 54px; flex: none; }
+      .brand-name { font-size: 21pt; font-weight: 800; letter-spacing: .04em; line-height: 1.1; }
+      .brand-meta { margin-top: 3px; font-size: 8.4pt; line-height: 1.45; color: #5a6a80; }
+      .doc { text-align: right; }
+      .doc-kind { font-size: 8.5pt; font-weight: 800; letter-spacing: .22em; color: #1f7a8c; }
+      .doc-no { margin-top: 2px; font-size: 15pt; font-weight: 800; }
+      .doc-date { margin-top: 2px; font-size: 8.6pt; color: #5a6a80; }
+      .rule { height: 3px; margin-top: 10px; background: #1f7a8c; border-radius: 2px; }
+
+      /* Billed-to ----------------------------------------------------- */
+      .parties { display: grid; grid-template-columns: 1fr 62mm; gap: 12px; margin-top: 14px; }
+      .label { font-size: 7.6pt; font-weight: 800; letter-spacing: .16em; color: #8494a8; text-transform: uppercase; }
+      .party-name { margin-top: 5px; font-size: 12.5pt; font-weight: 700; }
+      .party-addr { margin-top: 3px; font-size: 9.4pt; line-height: 1.5; color: #44536a; }
+      .panel { background: #f4f8fa; border: 1px solid #dbe6ec; border-radius: 6px; padding: 9px 11px; }
+      .panel-row { display: flex; justify-content: space-between; gap: 10px; font-size: 9.2pt; padding: 2px 0; }
+      .panel-row span:first-child { color: #6b7b90; }
+      .panel-row span:last-child { font-weight: 700; }
+
+      /* Items --------------------------------------------------------- */
+      table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+      thead th { background: #0f1e33; color: #fff; font-size: 8pt; font-weight: 700;
+        letter-spacing: .14em; text-transform: uppercase; text-align: left; padding: 9px 12px; }
+      thead th.num { text-align: right; }
+      tbody td { padding: 12px; font-size: 10.5pt; border-bottom: 1px solid #e6ecf2; vertical-align: top; }
+      tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
+      .item-title { font-weight: 700; }
+      .item-sub { margin-top: 2px; font-size: 8.6pt; color: #7a8798; }
+
+      /* Totals -------------------------------------------------------- */
+      .totals { display: grid; grid-template-columns: 1fr 74mm; gap: 12px; margin-top: 14px; align-items: start; }
+      .words { font-size: 9.4pt; line-height: 1.5; color: #44536a; }
+      .words strong { display: block; margin-top: 3px; color: #0f1e33; font-size: 10pt; }
+      .grand { display: flex; justify-content: space-between; align-items: baseline;
+        background: #0f1e33; color: #fff; border-radius: 6px; padding: 11px 14px; }
+      .grand span { font-size: 8.4pt; letter-spacing: .16em; text-transform: uppercase; opacity: .82; }
+      .grand strong { font-size: 15pt; font-variant-numeric: tabular-nums; }
+
+      /* Footer -------------------------------------------------------- */
+      .foot { margin-top: 18px; border-top: 1px solid #e6ecf2; padding-top: 12px;
+        display: grid; grid-template-columns: 1fr 1fr; gap: 18px; font-size: 8.4pt;
+        line-height: 1.55; color: #5a6a80; }
+      .foot h4 { margin: 0 0 4px; font-size: 7.6pt; font-weight: 800; letter-spacing: .14em;
+        text-transform: uppercase; color: #8494a8; }
+      .foot ul { margin: 0; padding-left: 14px; }
+      .sign { margin-top: 26px; text-align: right; }
+      .sign-line { display: inline-block; width: 56mm; border-top: 1px solid #b9c5d2; padding-top: 5px;
+        font-size: 9.6pt; font-weight: 700; color: #0f1e33; }
+      @page { size: A4 portrait; margin: 12mm; }
     </style>
   </head>
   <body>
-    <div class="bill-page">
-      <div class="title">${VENDOR_NAME}</div>
-      <div class="vendor-address">${VENDOR_ADDRESS}</div>
-      <div class="vendor-phone">${VENDOR_PHONE}</div>
-      <div class="top-box">
-        <div class="top-left">
-          <div>M/S&nbsp;&nbsp;&nbsp;<strong>${escapeHtml(input.patientName)}</strong></div>
-          <div class="under">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${escapeHtml(line1)}</div>
-          <div class="under">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${escapeHtml(line2)}</div>
+    <div class="sheet">
+      <div class="masthead">
+        <svg class="mark" viewBox="0 0 64 64" role="img" aria-label="M.L. Enterprises">
+          <rect width="64" height="64" rx="15" fill="#0f1e33" />
+          <path d="M14 44V21h6.2l6.1 12.4L32.4 21h6.1v23h-5.4V30.6l-4.6 9.2h-3.4l-4.6-9.2V44z" fill="#fff" />
+          <path d="M41.6 44V21H47v17.6h8.2V44z" fill="#1f7a8c" />
+        </svg>
+        <div>
+          <div class="brand-name">${VENDOR_NAME}</div>
+          <div class="brand-meta">${VENDOR_ADDRESS}<br />${VENDOR_PHONE}</div>
         </div>
-        <div class="top-right">
-          <div>Bill No.: <strong>${escapeHtml(input.billNumber)}</strong></div>
-          <div style="margin-top: 64px;">Date: ${escapeHtml(displayDate(input.billDate))}</div>
-        </div>
-      </div>
-      <div class="item-grid">
-        <div class="head">
-          <div>Description</div><div class="col-border">Qty</div><div class="col-border">Rate</div><div class="col-border">Amount</div>
-        </div>
-        <div class="bill-item">
-          <div><strong>1.&nbsp;&nbsp;Surgical Implant</strong></div>
-          <div class="qty"><strong>01</strong></div>
-          <div class="rate"><strong>${money(input.amount)}</strong></div>
-          <div class="amount"><strong>${money(input.amount)}</strong></div>
+        <div class="doc">
+          <div class="doc-kind">Invoice</div>
+          <div class="doc-no">${escapeHtml(input.billNumber)}</div>
+          <div class="doc-date">${escapeHtml(displayDate(input.billDate))}</div>
         </div>
       </div>
-      <div class="total-row">
-        <div>Rupees: ${escapeHtml(words)}.</div>
-        <div class="total-label">Grand Total</div>
-        <div class="total-amount" style="text-align:center;">${money(input.amount)}</div>
-      </div>
-      <div class="tax-box">
-        <div class="declaration">
-          <div>
-            <div>Declaration:</div>
-            <div>We declare that this invoice shows the actual price of the goods</div>
-            <div>Described and that all particulars are true and correct</div>
-          </div>
-          <div>
-            <div>B.S.T. No.:4400008/S/2562 Dt. 08/12/99</div>
-            <div>C.S. T. No.:440008/C/2195 Dt. 08/12/99</div>
-          </div>
+      <div class="rule"></div>
+
+      <div class="parties">
+        <div>
+          <div class="label">Billed to</div>
+          <div class="party-name">${escapeHtml(input.patientName)}</div>
+          <div class="party-addr">${escapeHtml(line1)}<br />${escapeHtml(line2)}</div>
         </div>
-        <div class="terms">
-          <div>Terms &amp; Conditions</div>
+        <div class="panel">
+          <div class="panel-row"><span>Invoice No.</span><span>${escapeHtml(input.billNumber)}</span></div>
+          <div class="panel-row"><span>Date</span><span>${escapeHtml(displayDate(input.billDate))}</span></div>
+          <div class="panel-row"><span>Amount Due</span><span>${money(input.amount)}</span></div>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th style="width:52%">Description</th>
+            <th class="num" style="width:12%">Qty</th>
+            <th class="num" style="width:18%">Rate</th>
+            <th class="num" style="width:18%">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <div class="item-title">Surgical Implant</div>
+              <div class="item-sub">Supplied for the above patient</div>
+            </td>
+            <td class="num">01</td>
+            <td class="num">${money(input.amount)}</td>
+            <td class="num">${money(input.amount)}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="totals">
+        <div class="words">
+          Amount in words
+          <strong>Rupees ${escapeHtml(words)}.</strong>
+        </div>
+        <div class="grand"><span>Grand Total</span><strong>${money(input.amount)}</strong></div>
+      </div>
+
+      <div class="foot">
+        <div>
+          <h4>Declaration</h4>
+          We declare that this invoice shows the actual price of the goods described
+          and that all particulars are true and correct.
+          <h4 style="margin-top:9px">Registration</h4>
+          B.S.T. No.: 4400008/S/2562 Dt. 08/12/99<br />
+          C.S.T. No.: 440008/C/2195 Dt. 08/12/99
+        </div>
+        <div>
+          <h4>Terms &amp; Conditions</h4>
           <ul>
-            <li>This bill is payable immediately on presentation, otherwise interest @ 24% will be charged.</li>
-            <li>Our risk and responsibility creases on goods our premises.</li>
-            <li>Cheques are to be made cross other in favour of&nbsp; the company.</li>
+            <li>Payable immediately on presentation, otherwise interest @ 24% will be charged.</li>
+            <li>Our risk and responsibility ceases once goods leave our premises.</li>
+            <li>Cheques to be drawn crossed in favour of the company.</li>
           </ul>
-          <div class="sign">For ${VENDOR_NAME}</div>
         </div>
+      </div>
+
+      <div class="sign">
+        <div class="sign-line">For ${VENDOR_NAME}</div>
       </div>
     </div>
   </body>
