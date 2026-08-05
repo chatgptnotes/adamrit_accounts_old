@@ -10,6 +10,8 @@ import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletNumpad } from "@/tablet/components/TabletNumpad";
 import { TabletInput } from "@/tablet/ui/TabletInput";
 import { useAuth } from "@/contexts/AuthContext";
+import { useRef } from "react";
+import { extractInvoiceFromImage, fileToBase64 } from "@/lib/accounting-ai";
 import { inr } from "@/tablet/lib/format";
 
 type AmountField = "receipts" | "expenses" | "cashInHand" | "cashInBank";
@@ -323,6 +325,36 @@ function TilakExpenseBill() {
   const [picking, setPicking] = useState<"party" | "expense" | null>(null);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const scanRef = useRef<HTMLInputElement>(null);
+
+  // AI: snap the vendor invoice and the form fills itself for confirmation.
+  const scanInvoice = async (files: FileList | null) => {
+    if (!files?.[0]) return;
+    setScanning(true);
+    try {
+      const { base64, mimeType } = await fileToBase64(files[0]);
+      const read = await extractInvoiceFromImage(base64, mimeType);
+      if (!read) throw new Error("Could not read the invoice - fill it manually");
+      if (read.amount) setAmount(String(read.amount));
+      const noteParts = [read.description, read.bill_number ? `bill ${read.bill_number}` : null]
+        .filter(Boolean)
+        .join(", ");
+      if (noteParts) setNote(noteParts);
+      if (read.party_name && !party) {
+        setPicking("party");
+        setSearch(read.party_name.split(/\s+/).slice(0, 2).join(" "));
+      }
+      toast.success(
+        `Invoice read (${read.confidence} confidence)${read.party_name ? ` - ${read.party_name}` : ""}. Confirm the fields.`,
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Scan failed");
+    } finally {
+      setScanning(false);
+      if (scanRef.current) scanRef.current.value = "";
+    }
+  };
 
   const companyKey = hospital === "ayushman" ? "ayushman_nagpur" : "drm_pvt_ltd";
   const { data: options = [] } = useQuery({
@@ -408,6 +440,23 @@ function TilakExpenseBill() {
   return (
     <TabletCard className="space-y-3 p-4">
       <p className="font-semibold">Raise an expense bill (posts the JV)</p>
+      <input
+        ref={scanRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => void scanInvoice(e.target.files)}
+      />
+      <TabletButton
+        variant="outline"
+        size="default"
+        className="min-h-[44px] w-full text-sm"
+        disabled={scanning}
+        onClick={() => scanRef.current?.click()}
+      >
+        {scanning ? "Reading the invoice…" : "📸 Scan invoice with AI - fills the form"}
+      </TabletButton>
       <div className="flex gap-2">
         {(["hope", "ayushman"] as const).map((h) => (
           <TabletButton
