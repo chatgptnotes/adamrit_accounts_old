@@ -28,6 +28,8 @@ import { DailyRevenueReportSection } from '@/components/DailyRevenueReportSectio
 import { ManualVoucherWatchdog } from '@/components/ManualVoucherWatchdog';
 import { AnomalyGuardCard } from '@/components/AnomalyGuardCard';
 import { DailyBriefingCard } from '@/components/DailyBriefingCard';
+import { AskTheBooksCard } from '@/components/AskTheBooksCard';
+import { CashFlowForecastCard } from '@/components/CashFlowForecastCard';
 import { DirectorFinancialStatements } from '@/components/DirectorFinancialStatements';
 import { GovernmentPortalGeneralMedicalSection } from '@/components/GovernmentPortalGeneralMedicalSection';
 import {
@@ -369,6 +371,10 @@ export default function DirectorDashboard() {
       </Card>
 
       <DailyBriefingCard />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <AskTheBooksCard />
+        <CashFlowForecastCard />
+      </div>
       <AnomalyGuardCard />
       <ManualVoucherWatchdog />
       <DailyRevenueReportSection />
