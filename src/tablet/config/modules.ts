@@ -204,6 +204,14 @@ export const TABLET_MODULES: TabletModule[] = [
   },
 
   {
+    id: "direct-patients",
+    label: "Direct Patient - Rupali",
+    description: "Announce a patient as DIRECT - referees blocked by the database",
+    icon: UserCheck,
+    accent: "text-emerald-700",
+    tint: "from-emerald-500 to-green-700",
+  },
+  {
     id: "ask-books-voice",
     label: "Ask the Books",
     description: "Directors only - speak or type, the accounts answer",
