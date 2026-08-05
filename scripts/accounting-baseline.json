@@ -2,7 +2,7 @@
   "src/components/accounting/AccountLogs.tsx": "2f418d721e40b0257c42b6bea34e9144573549544e23323d0bd860dc84cb8bcb",
   "src/components/accounting/AccountMasters.tsx": "4b83a11260d66378a3b104f3593a3d4237423b5cf425e91f65dd9d8c57ea39e4",
   "src/components/accounting/AccountingCompanyContext.tsx": "fc3ab93f5c6692c867491cfec470ad4b90f992bdc19e911e12d689abf3725794",
-  "src/components/accounting/AccountingPage.tsx": "e691aadc396719887eb20302671326cb5ebbbba57973969ae23b35544cccb77e",
+  "src/components/accounting/AccountingPage.tsx": "28df390912f78fc547ee88ed90059a181f88e687f23b5e1e320d4ed93eaa3165",
   "src/components/accounting/BalanceSheet.tsx": "e94fe8674815b771d0f86239f449433da3a1e1919d79f8ca2115a69d79b52de7",
   "src/components/accounting/BankReconciliation.tsx": "64b7824bd2d820b97189a0a88d9e4054d83474d3dc355e8a1caf1f852cfe770a",
   "src/components/accounting/Banking.tsx": "7d9922e0ad2f170207cdc079e9e7594b30861213618a613308aa27fd2acdddf0",
@@ -75,7 +75,7 @@
   "src/components/accounting/tally/voucherKeys.ts": "4a48c33feb6a9e177807a1e31d4999fdff19d6fb7723cac1e7f21ac8f69037ce",
   "src/components/accounting/useSourceFilter.ts": "11c0b894457804e3cc8103048bb422fb845efbf54bf9266f72bfa4f218fc87c8",
   "src/lib/accounting-voucher-service.ts": "da2b3bca663882ff0b67fd6be66e239ac393352a799f1a8a16224118607ee5cf",
-  "src/lib/approval-queue-service.ts": "31c68bd193719c7c4cc0095b0ee58be37a882426c2f1a03716637a6b10f25894",
+  "src/lib/approval-queue-service.ts": "bacb48af9efa0811481b2c536d6ce83d7958855900bea3d653d5dbe2ac0a6062",
   "src/lib/rm-cut-payment-service.ts": "ea727c672c57159a20383226b7867c9bd120f353e2346f6ee884f2fdffe8edfc",
   "src/pages/Accounting.tsx": "70f32fcbe75190c2ea2f95c1b61ea8544b42ace112aec04459a5520df95f597d"
 }
