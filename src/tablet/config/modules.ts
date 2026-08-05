@@ -204,6 +204,15 @@ export const TABLET_MODULES: TabletModule[] = [
   },
 
   {
+    id: "bank-cash",
+    label: "Bank & Cash",
+    description: "Deposits, withdrawals, bank charges & interest",
+    icon: ArrowLeftRight,
+    accent: "text-cyan-700",
+    tint: "from-cyan-500 to-sky-700",
+    accountingOnly: true,
+  },
+  {
     id: "implant-calculation",
     label: "Implant Calculation - Azhar",
     description: "Settle each discharged patient: direct or referred cut",

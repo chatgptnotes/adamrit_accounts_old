@@ -8,6 +8,8 @@ import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletNumpad } from "@/tablet/components/TabletNumpad";
+import { TabletInput } from "@/tablet/ui/TabletInput";
+import { useAuth } from "@/contexts/AuthContext";
 import { inr } from "@/tablet/lib/format";
 
 type AmountField = "receipts" | "expenses" | "cashInHand" | "cashInBank";
@@ -300,8 +302,180 @@ export default function AccountsTilakFlow() {
             </TabletCard>
           </>
         )}
+        <TilakExpenseBill />
       </div>
     </FlowScaffold>
+  );
+}
+
+/**
+ * Tilak's figures stay figures — but every actual counter expense is raised
+ * as a real expense bill here, so the JV posts and the books carry it.
+ */
+function TilakExpenseBill() {
+  const { user, hospitalType } = useAuth();
+  const [hospital, setHospital] = useState<"hope" | "ayushman">(
+    hospitalType === "ayushman" ? "ayushman" : "hope",
+  );
+  const [party, setParty] = useState<{ id: string; account_name: string } | null>(null);
+  const [expense, setExpense] = useState<{ id: string; account_name: string } | null>(null);
+  const [search, setSearch] = useState("");
+  const [picking, setPicking] = useState<"party" | "expense" | null>(null);
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+
+  const companyKey = hospital === "ayushman" ? "ayushman_nagpur" : "drm_pvt_ltd";
+  const { data: options = [] } = useQuery({
+    queryKey: ["tilak-ledger-search", companyKey, picking, search],
+    enabled: !!picking && search.trim().length >= 2,
+    queryFn: async () => {
+      const { data: company } = await (supabase as any)
+        .from("companies").select("id").eq("company_key", companyKey).single();
+      let query = (supabase as any)
+        .from("chart_of_accounts")
+        .select("id, account_name")
+        .eq("is_active", true)
+        .ilike("account_name", `%${search.trim()}%`)
+        .or(`company_id.eq.${company.id},company_id.is.null`)
+        .order("account_name")
+        .limit(10);
+      if (picking === "expense") {
+        query = query.in("account_type", ["DIRECT_EXPENSES", "INDIRECT_EXPENSES", "EXPENSES"]);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data || []) as { id: string; account_name: string }[];
+    },
+  });
+
+  const raise = useMutation({
+    mutationFn: async () => {
+      const value = parseFloat(amount);
+      if (!party || !expense) throw new Error("Pick who was paid and what it was for");
+      if (party.id === expense.id) throw new Error("Pick two different ledgers");
+      if (!Number.isFinite(value) || value <= 0) throw new Error("Enter the amount");
+      const { data: company } = await (supabase as any)
+        .from("companies").select("id").eq("company_key", companyKey).single();
+      const { data, error } = await (supabase as any)
+        .from("expense_bills")
+        .insert({
+          bill_number: `TILAK-${Date.now()}`,
+          bill_date: new Date().toISOString().slice(0, 10),
+          party_ledger_id: party.id,
+          expense_ledger_id: expense.id,
+          amount: value,
+          narration: note.trim() || `Counter expense - ${party.account_name}`,
+          company_id: company.id,
+          status: "POSTED",
+          created_by: user?.email || "accounts-tilak",
+        })
+        .select("bill_number")
+        .single();
+      if (error) throw new Error(error.message);
+      return data.bill_number as string;
+    },
+    onSuccess: (billNo) => {
+      toast.success(`Expense bill ${billNo} raised — JV posted.`);
+      setParty(null);
+      setExpense(null);
+      setAmount("");
+      setNote("");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not raise the bill"),
+  });
+
+  const pickerButton = (
+    which: "party" | "expense",
+    value: { account_name: string } | null,
+    label: string,
+  ) => (
+    <div>
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <TabletButton
+        variant="outline"
+        size="default"
+        className="mt-1 min-h-[44px] w-full justify-start text-sm"
+        onClick={() => {
+          setPicking(which);
+          setSearch("");
+        }}
+      >
+        {value?.account_name || "Tap to search…"}
+      </TabletButton>
+    </div>
+  );
+
+  return (
+    <TabletCard className="space-y-3 p-4">
+      <p className="font-semibold">Raise an expense bill (posts the JV)</p>
+      <div className="flex gap-2">
+        {(["hope", "ayushman"] as const).map((h) => (
+          <TabletButton
+            key={h}
+            size="default"
+            variant={hospital === h ? "default" : "outline"}
+            className="min-h-[40px] flex-1 text-sm"
+            onClick={() => {
+              setHospital(h);
+              setParty(null);
+              setExpense(null);
+            }}
+          >
+            {h === "hope" ? "Hope" : "Ayushman"}
+          </TabletButton>
+        ))}
+      </div>
+      {pickerButton("party", party, "Paid to (party ledger)")}
+      {pickerButton("expense", expense, "What it is for (expense ledger)")}
+      {picking && (
+        <div className="rounded-lg border p-2">
+          <TabletInput
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Type at least 2 letters…"
+            autoFocus
+          />
+          <div className="mt-2 grid gap-1">
+            {options.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className="rounded border px-3 py-2 text-left text-sm active:bg-muted"
+                onClick={() => {
+                  if (picking === "party") setParty(option);
+                  else setExpense(option);
+                  setPicking(null);
+                }}
+              >
+                {option.account_name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="flex gap-2">
+        <TabletInput
+          type="number"
+          inputMode="decimal"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="Amount"
+          className="max-w-[160px] font-mono"
+        />
+        <TabletInput
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Narration (optional)"
+        />
+      </div>
+      <TabletButton
+        className="w-full"
+        disabled={raise.isPending}
+        onClick={() => raise.mutate()}
+      >
+        {raise.isPending ? "Raising…" : "Raise bill & post JV"}
+      </TabletButton>
+    </TabletCard>
   );
 }
 
