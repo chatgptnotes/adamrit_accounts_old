@@ -204,6 +204,14 @@ export const TABLET_MODULES: TabletModule[] = [
   },
 
   {
+    id: "incoming-referrals",
+    label: "Incoming Referrals - Suraj Arpit",
+    description: "Announce a referred patient before arrival, link on registration",
+    icon: Megaphone,
+    accent: "text-orange-700",
+    tint: "from-orange-500 to-amber-700",
+  },
+  {
     id: "akshay-payouts",
     label: "Akshay - Doctor Payouts",
     description: "Pay doctors for recorded services by QR or cash",
