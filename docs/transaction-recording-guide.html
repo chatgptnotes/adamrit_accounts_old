@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Adamrit - Recording Transactions: Staff Guide</title>
+<style>
+  body { font-family: Arial, Helvetica, sans-serif; color: #111; margin: 36px; font-size: 12.5px; }
+  h1 { font-size: 22px; margin: 0 0 2px; }
+  h2 { font-size: 15px; margin: 22px 0 6px; border-bottom: 2px solid #16437e; color: #16437e; padding-bottom: 2px; }
+  .sub { color: #555; margin-bottom: 14px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  th { background: #16437e; color: #fff; text-align: left; padding: 5px 8px; font-size: 11.5px; }
+  td { border: 1px solid #bbb; padding: 5px 8px; vertical-align: top; }
+  tr:nth-child(even) td { background: #f2f6fb; }
+  .rule { background: #fdf6d8; border: 1px solid #d8c97a; padding: 8px 12px; margin: 6px 0; }
+  .small { font-size: 11px; color: #555; }
+  .grp td:first-child { font-weight: bold; white-space: nowrap; }
+  .pagebreak { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<h1>Recording Transactions in Adamrit</h1>
+<p class="sub">Staff guide - Hope Multi-Specialty Hospital and Ayushman Nagpur Hospital - issued 6 Aug 2026.
+Based on an audit of 2,199 vouchers posted between 6 Jul and 5 Aug 2026.</p>
+
+<h2>The golden rules</h2>
+<div class="rule"><b>1. Never type a voucher by hand.</b> Every transaction below has its own tile or screen that posts the accounting automatically. The manual Tally Voucher Entry screen is only for corrections approved by accounts, and every manual voucher is visible in the Day Book without the AUTO badge.</div>
+<div class="rule"><b>2. Money follows the patient's hospital.</b> Wherever you search a patient, a Hope / Ayushman switch is above the search. The books that receive the entry are always the hospital you searched in - not the login.</div>
+<div class="rule"><b>3. Every payment is made against an invoice.</b> If there is no invoice on the Expense Bill page, raise it first (it posts its own journal). Part payment is fine: type any amount up to the outstanding; the invoice stays listed until fully paid.</div>
+<div class="rule"><b>4. Your name is on everything you post.</b> Every tile records who did it, and the Day Book, Account Logs and the voucher edit log show it. Past bills open only with the office PIN.</div>
+
+<h2>Money coming IN</h2>
+<table>
+<tr><th>What happened</th><th>Where you record it</th><th>What posts by itself</th><th>Last month</th></tr>
+<tr><td>Patient pays an advance or settles a bill</td><td>Final Bill page / Advance tile (Arshiya)</td><td>Receipt voucher into the company bank + income ledgers</td><td>1,047 receipts, Rs 48.2 lakh</td></tr>
+<tr><td>Pharmacy counter sale</td><td>Pharmacy billing</td><td>Pharmacy receipt; medicine returns post credit notes</td><td>included above + 4 credit notes</td></tr>
+<tr><td>Panel / corporate / Yojana money arrives</td><td>Shashank Payment Received tile; Corporate Receipts page</td><td>Receipt voucher against the panel's ledger</td><td>part of receipts above</td></tr>
+<tr><td>Yojana bill raised on a panel</td><td>Yojana bill flow</td><td>Sales voucher (income accrual)</td><td>48 sales, Rs 18.1 lakh</td></tr>
+<tr><td>Bank interest credited</td><td>Bank &amp; Cash tile - "Bank interest received"</td><td>Journal: Dr Bank / Cr Bank Interest Received</td><td>new this week</td></tr>
+</table>
+
+<h2>Money going OUT</h2>
+<table>
+<tr><th>What happened</th><th>Where you record it</th><th>What posts by itself</th><th>Last month</th></tr>
+<tr><td>Supplier / utility / any vendor invoice arrives</td><td>Expense Bills tile (or Tilak's "Raise expense bill")</td><td>Journal: Dr expense / Cr supplier. Invoice waits on the Expense Bill page</td><td>27 GRN purchases + bills</td></tr>
+<tr><td>Paying an invoice (full or part)</td><td>Expense Bill page - Pay (behind PIN); Daily Payment Allocation</td><td>Payment voucher per payment, linked to the invoice</td><td>620+ payments, Rs 28 lakh</td></tr>
+<tr><td>Salaries, rent, electricity, the six mandatory daily parties</td><td>Daily Payment Allocation (they appear every day automatically)</td><td>Payment voucher per allocation</td><td>509 payments</td></tr>
+<tr><td>Surgeon / anaesthetist fee after OT</td><td>Automatic on OT completion, then Accounting Approvals</td><td>Bill auto-raised; approving posts the journal with anaesthesia type and patient class</td><td>80+ journals</td></tr>
+<tr><td>Doctor's OPD / IPD / day-care visit fee</td><td>Rupali tile (records) then Akshay tile (pays by doctor QR or cash, proof photo uploaded)</td><td>Journal per visit; payment voucher per payout against those journals</td><td>new this week</td></tr>
+<tr><td>Referee cut / spot commission</td><td>Director Dashboard DRR Approve; Spot tile (max Rs 8,000); Implant Calculation tile (Azhar, with calc-sheet photo)</td><td>M.L. Enterprises invoice on the hospital + sale and commission journals in ML books</td><td>50 journals, Rs 0.8 lakh</td></tr>
+<tr><td>Patient sent to outside CT / MRI / lab</td><td>Diagnostics tiles (Nisha - Hope, Chetna - Ayushman)</td><td>Centre's invoice + journal; requisition and invoice print from the tile</td><td>new this week</td></tr>
+<tr><td>Bank charges debited</td><td>Bank &amp; Cash tile - "Bank charges"</td><td>Journal: Dr Bank Charges / Cr Bank</td><td>new this week</td></tr>
+</table>
+
+<h2 class="pagebreak">Cash, bank and between the hospitals</h2>
+<table>
+<tr><th>What happened</th><th>Where you record it</th><th>What posts by itself</th></tr>
+<tr><td>Counter cash deposited into the bank</td><td>Bank &amp; Cash tile - "Cash deposited"</td><td>Contra voucher (previously 5 hand-typed contras a month - now none needed)</td></tr>
+<tr><td>Cash withdrawn from the bank</td><td>Bank &amp; Cash tile - "Cash withdrawn"</td><td>Contra voucher</td></tr>
+<tr><td>One hospital pays the other's expense</td><td>Payment Voucher screen - tick "On Behalf Of ..."</td><td>Payment voucher in the payer + linked journal in the other company; deleting the payment removes the journal</td></tr>
+</table>
+
+<h2>Announcements and approvals that come before money</h2>
+<table>
+<tr><th>What happened</th><th>Where you record it</th><th>Why</th></tr>
+<tr><td>A referee says a patient is on the way</td><td>Incoming Referrals tile (Suraj / Arpit) - announce with documents</td><td>Everyone sees the claim; link it to the registration when the patient arrives - no double claim</td></tr>
+<tr><td>Spot commission at admission</td><td>Spot tile (Azhar / Arpit / Suraj) - approve up to Rs 8,000</td><td>The 8,000 ceiling is enforced by the database itself</td></tr>
+<tr><td>Discharge settlement: direct or referred?</td><td>Implant Calculation tile (Azhar) - every discharged patient, both hospitals, daily</td><td>One decision per patient; photo of the handwritten calculation becomes the invoice document</td></tr>
+</table>
+
+<h2>Who is recorded, and what is locked</h2>
+<table>
+<tr><td class="small" style="width:50%"><b>User log.</b> Every voucher stores who created it; tiles pass your login automatically, and from 6 Aug the manual screen also records the typist by name (older manual entries said "system" but kept the name in last-modified-by). Edits are tracked in the voucher edit log and the Account Logs page. Register payment stamps (Akshay payouts) can only be written by the payment function - not by hand.</td>
+<td class="small"><b>PIN lock.</b> Past bills - the Expense Bill pages, Old Bills and View Bill - open only after the office PIN. One unlock lasts until the tab closes. The M.L. Enterprises company is hidden behind the same PIN.</td></tr>
+</table>
+
+<p class="small" style="margin-top:18px">Last-month evidence: 2,199 vouchers - 97.6% posted automatically by tiles and triggers; the 53 hand-typed ones (mostly bank deposits and vendor payments) all have a tile today. If you find a transaction with no tile, report it - do not type it.</p>
+
+</body>
+</html>
