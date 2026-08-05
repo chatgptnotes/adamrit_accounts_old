@@ -58,17 +58,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const password = text(req.body?.password);
     const hospitalType = text(req.body?.hospitalType);
     const isStaffPin = !email && password.startsWith('@') && password.length === 5;
-    let query = sb.from('User').select('id,email,role,hospital_type,password,employee_id');
-    if (isStaffPin) {
-      query = query.eq('staff_pin', password.slice(1));
-      if (hospitalType) query = query.eq('hospital_type', hospitalType);
-    } else {
-      query = query.ilike('email', email);
-      if (hospitalType) query = query.eq('hospital_type', hospitalType);
-    }
+    const buildQuery = (scopeHospitalType?: string | null) => {
+      let query = sb.from('User').select('id,email,role,hospital_type,password,employee_id');
+      if (isStaffPin) {
+        query = query.eq('staff_pin', password.slice(1));
+        if (scopeHospitalType) query = query.eq('hospital_type', scopeHospitalType);
+      } else {
+        query = query.ilike('email', email);
+        if (scopeHospitalType) query = query.eq('hospital_type', scopeHospitalType);
+      }
+      return query.order('created_at', { ascending: false }).limit(1);
+    };
 
-    const result = await query.order('created_at', { ascending: false }).limit(1);
-    row = result.data?.[0] || null;
+    const scopedResult = await buildQuery(hospitalType);
+    row = scopedResult.data?.[0] || null;
+    if (!row && hospitalType) {
+      const fallbackResult = await buildQuery(null);
+      row = fallbackResult.data?.[0] || null;
+    }
     if (!row) return res.status(401).json({ error: 'invalid_credentials' });
     if (!isStaffPin) {
       const stored = String(row.password || '');
