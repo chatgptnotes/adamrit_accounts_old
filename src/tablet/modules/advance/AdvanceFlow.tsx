@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Camera, CheckCircle2, ChevronRight, Download, ExternalLink, FileText, ImageIcon, Loader2, Maximize2, MessageCircle, Printer, Search, Sparkles, Trash2, Upload, User, Wallet, X } from "lucide-react";
+import { Camera, CheckCircle2, ChevronRight, Download, ExternalLink, FileText, ImageIcon, IndianRupee, Loader2, Maximize2, MessageCircle, Printer, Search, Sparkles, Trash2, Upload, User, Wallet, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -161,6 +161,11 @@ interface AdvancePatientRow {
   consultant: string | null;
   billPaid: boolean | null;
   hospitalName: string | null;
+  /**
+   * Discharged in the IPD workflow — what Save Discharge on the Final Bill
+   * sets. The gate pass is only allowed once this is true.
+   */
+  isDischarged: boolean;
 }
 
 interface GeneratedArshiaPdf {
@@ -503,7 +508,7 @@ export default function AdvanceFlow() {
       let query = supabase
         .from("visits")
         .select(
-          "id, visit_id, admission_date, discharge_date, yojana_registration_id, package_code, package_name, patient_id, planned_discharge_date, discharge_billing_staff, arshiya_discharge_summary, bill_paid, appointment_with, patients!inner(id, name, patients_id, phone, age, gender, corporate, hospital_name)",
+          "id, visit_id, admission_date, discharge_date, is_discharged, status, yojana_registration_id, package_code, package_name, patient_id, planned_discharge_date, discharge_billing_staff, arshiya_discharge_summary, bill_paid, appointment_with, patients!inner(id, name, patients_id, phone, age, gender, corporate, hospital_name)",
         )
         .eq("patient_type", "IPD")
         .not("admission_date", "is", null)
@@ -541,6 +546,12 @@ export default function AdvanceFlow() {
           consultant: row.appointment_with ?? null,
           billPaid: row.bill_paid,
           hospitalName: relatedPatient.hospital_name ?? null,
+          // Save Discharge on the Final Bill sets all three; older visits
+          // discharged before that flag existed carry only a discharge date.
+          isDischarged:
+            row.is_discharged === true ||
+            String(row.status || "").toLowerCase() === "discharged" ||
+            !!row.discharge_date,
         });
         return rows;
       }, []);
@@ -684,6 +695,18 @@ export default function AdvanceFlow() {
   };
 
   const generatePlannedGatePass = async (row: AdvancePatientRow) => {
+    // The gate pass is the patient's authority to leave, so it must follow the
+    // discharge rather than anticipate it. The button is disabled until then;
+    // this guard covers every other way of reaching here.
+    if (!row.isDischarged) {
+      toast({
+        title: "Patient is not discharged yet",
+        description:
+          "Complete the Final Bill and press Save Discharge first. The gate pass unlocks once the patient is marked discharged.",
+        variant: "destructive",
+      });
+      return;
+    }
     setGatePassVisitId(row.visitId);
     try {
       // Reuse an existing pass rather than minting a second number for the same
@@ -1737,6 +1760,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
     const confirmation = thumbConfirmations.data?.get(row.patient.id) || null;
     const unlocked = !!confirmation;
     const lockedHint = "Attach the portal thumb confirmation first";
+    const notDischargedHint = "Complete the Final Bill and press Save Discharge first";
     const busyUpload = thumbUploadingVisitId === row.visitId;
     // Yojana patients can always take their summary PDF away, whether or not the
     // thumb confirmation has been photographed or uploaded yet.
@@ -1839,11 +1863,21 @@ ${JSON.stringify(sourceContext, null, 2)}`,
                 <Upload className="mr-2 h-4 w-4" />
                 Upload file
               </TabletButton>
+              {/* Opens the existing IPD Final Bill — the same screen as the ₹
+                  icon. The route keys on the visit CODE, not the row's uuid. */}
+              <TabletButton
+                variant="outline"
+                onClick={() => navigate(`/final-bill/${row.visitNumber}`)}
+                disabled={!row.visitNumber}
+              >
+                <IndianRupee className="mr-2 h-4 w-4" />
+                Final Bill
+              </TabletButton>
               <TabletButton
                 variant="outline"
                 onClick={() => generatePlannedGatePass(row)}
-                disabled={!unlocked || gatePassVisitId === row.visitId}
-                title={unlocked ? undefined : lockedHint}
+                disabled={!unlocked || !row.isDischarged || gatePassVisitId === row.visitId}
+                title={!unlocked ? lockedHint : row.isDischarged ? undefined : notDischargedHint}
               >
                 {gatePassVisitId === row.visitId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
                 Generate gate pass
@@ -1874,6 +1908,16 @@ ${JSON.stringify(sourceContext, null, 2)}`,
                   : "Mark discharge from government portal"}
               </TabletButton>
             </div>
+
+            {/* A disabled button has no tooltip to read on a tablet, so the
+                reason the gate pass is unavailable is said out loud. */}
+            {!row.isDischarged && (
+              <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                Gate pass is locked — {row.patient.name} has not been discharged yet. Open{" "}
+                <strong>Final Bill</strong>, complete it and press <strong>Save Discharge</strong>; the gate pass
+                unlocks as soon as the patient is marked discharged.
+              </p>
+            )}
           </div>
         ) : null}
       </div>
