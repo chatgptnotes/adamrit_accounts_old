@@ -4,7 +4,6 @@ import { Check, ChevronLeft, Pencil, User } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { cn } from "@/lib/utils";
 import type { Patient } from "@/components/PatientLookup/types/patientLookup";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletPatientPicker } from "@/tablet/components/TabletPatientPicker";
@@ -28,8 +27,8 @@ interface ChargeRule {
 
 /**
  * Rupali operational register: category -> doctor -> patient -> amount, four
- * taps and done. The amount comes from the Rupali Master for the chosen
- * category + doctor + purpose; it can be overridden before submitting.
+ * taps and done. The charge comes straight from the master for the chosen
+ * category + doctor; it can be overridden before submitting.
  * Every submission is an append-only row in rupali_visit_logs.
  */
 export default function RupaliFlow() {
@@ -41,7 +40,7 @@ export default function RupaliFlow() {
   const [doctor, setDoctor] = useState<{ id: string | null; name: string } | null>(null);
   const [patient, setPatient] = useState<Patient | null>(null);
   const [rule, setRule] = useState<ChargeRule | null>(null);
-  const [purposeText, setPurposeText] = useState("");
+  const [doctorSearch, setDoctorSearch] = useState("");
   const [amount, setAmount] = useState("");
   const [editingAmount, setEditingAmount] = useState(false);
 
@@ -89,18 +88,21 @@ export default function RupaliFlow() {
     [rules, doctor],
   );
 
-  // Direct charging: the moment the entry reaches the amount step, a doctor
-  // with exactly one configured charge for this category gets it applied
-  // automatically — no extra tap.
+  // Direct charging: reaching the amount step applies the doctor's configured
+  // charge for this category straight away. No purpose picking — the register
+  // records the rule's purpose when one matched, else the category itself.
   useEffect(() => {
-    if (step === 4 && !rule && !purposeText && purposes.length === 1) {
+    if (step === 4 && !rule && purposes.length > 0) {
       setRule(purposes[0]);
       setAmount(String(purposes[0].amount));
       setEditingAmount(false);
     }
-  }, [step, rule, purposeText, purposes]);
+    if (step === 4 && purposes.length === 0 && !editingAmount && !amount) {
+      setEditingAmount(true);
+    }
+  }, [step, rule, purposes, editingAmount, amount]);
 
-  const purpose = rule?.purpose_reason || purposeText.trim();
+  const purpose = rule?.purpose_reason || category || "";
 
   const submit = useMutation({
     mutationFn: async () => {
@@ -134,7 +136,6 @@ export default function RupaliFlow() {
       setDoctor(null);
       setPatient(null);
       setRule(null);
-      setPurposeText("");
       setAmount("");
       setEditingAmount(false);
     },
@@ -150,7 +151,6 @@ export default function RupaliFlow() {
       setStep(2);
     } else if (step === 4) {
       setRule(null);
-      setPurposeText("");
       setAmount("");
       setEditingAmount(false);
       setStep(3);
@@ -208,20 +208,33 @@ export default function RupaliFlow() {
             No doctors found in the consultant master.
           </p>
         ) : (
-          <div className="grid gap-2">
-            {doctors.map((d) => (
-              <TabletCard
-                key={d.name}
-                className="flex cursor-pointer items-center gap-3 p-4 active:scale-[0.99]"
-                onClick={() => {
-                  setDoctor(d);
-                  setStep(3);
-                }}
-              >
-                <User className="h-5 w-5 shrink-0 text-muted-foreground" />
-                <span className="text-lg font-semibold">{d.name}</span>
-              </TabletCard>
-            ))}
+          <div className="space-y-3">
+            <TabletInput
+              value={doctorSearch}
+              onChange={(e) => setDoctorSearch(e.target.value)}
+              placeholder="Search doctor by name…"
+              autoFocus
+            />
+            <div className="grid gap-2">
+              {doctors
+                .filter((d) =>
+                  d.name.toLowerCase().includes(doctorSearch.trim().toLowerCase()),
+                )
+                .map((d) => (
+                  <TabletCard
+                    key={d.name}
+                    className="flex cursor-pointer items-center gap-3 p-4 active:scale-[0.99]"
+                    onClick={() => {
+                      setDoctor(d);
+                      setDoctorSearch("");
+                      setStep(3);
+                    }}
+                  >
+                    <User className="h-5 w-5 shrink-0 text-muted-foreground" />
+                    <span className="text-lg font-semibold">{d.name}</span>
+                  </TabletCard>
+                ))}
+            </div>
           </div>
         )}
       </FlowScaffold>
@@ -261,7 +274,7 @@ export default function RupaliFlow() {
           {backButton}
           <TabletButton
             className="flex-1"
-            disabled={!purpose || submit.isPending}
+            disabled={!amount || submit.isPending}
             onClick={() => submit.mutate()}
           >
             <Check className="mr-2 h-5 w-5" />
@@ -274,81 +287,49 @@ export default function RupaliFlow() {
     >
       <div className="space-y-4">
         <div>
-          <TabletLabel>Purpose / Reason</TabletLabel>
-          <div className="mt-2 grid gap-2">
-            {purposes.map((p) => (
-              <TabletCard
-                key={p.id}
-                className={cn(
-                  "flex cursor-pointer items-center justify-between p-4 active:scale-[0.99]",
-                  rule?.id === p.id && "border-primary ring-2 ring-primary/30",
-                )}
-                onClick={() => {
-                  setRule(p);
-                  setPurposeText("");
-                  setAmount(String(p.amount));
-                  setEditingAmount(false);
-                }}
+          <TabletLabel>Amount</TabletLabel>
+          <div className="mt-2 flex items-center gap-3">
+            {editingAmount ? (
+              <TabletInput
+                type="number"
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="max-w-[200px] text-right font-mono text-xl"
+                autoFocus
+              />
+            ) : (
+              <span className="font-mono text-3xl font-bold">
+                ₹{parseFloat(amount || "0").toLocaleString("en-IN")}
+              </span>
+            )}
+            {!editingAmount && (
+              <button
+                type="button"
+                className="flex items-center gap-1 text-sm font-medium text-primary"
+                onClick={() => setEditingAmount(true)}
               >
-                <span className="text-base font-medium">{p.purpose_reason}</span>
-                <span className="font-mono text-lg font-bold">
-                  ₹{Number(p.amount).toLocaleString("en-IN")}
-                </span>
-              </TabletCard>
-            ))}
-            <TabletInput
-              value={purposeText}
-              onChange={(e) => {
-                setPurposeText(e.target.value);
-                if (rule) {
-                  setRule(null);
-                  setAmount("");
-                }
-                setEditingAmount(true);
-              }}
-              placeholder={
-                purposes.length > 0 ? "Or type another purpose…" : "Purpose of the visit"
-              }
-            />
-          </div>
-        </div>
-
-        {purpose && (
-          <div>
-            <TabletLabel>Amount</TabletLabel>
-            <div className="mt-2 flex items-center gap-3">
-              {editingAmount ? (
-                <TabletInput
-                  type="number"
-                  inputMode="decimal"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="max-w-[200px] text-right font-mono text-xl"
-                  autoFocus
-                />
-              ) : (
-                <span className="font-mono text-3xl font-bold">
-                  ₹{parseFloat(amount || "0").toLocaleString("en-IN")}
-                </span>
-              )}
-              {!editingAmount && (
-                <button
-                  type="button"
-                  className="flex items-center gap-1 text-sm font-medium text-primary"
-                  onClick={() => setEditingAmount(true)}
-                >
-                  <Pencil className="h-4 w-4" /> Override
-                </button>
-              )}
-            </div>
-            {rule && editingAmount && parseFloat(amount || "0") !== rule.amount && (
-              <p className="mt-1 text-sm text-amber-600">
-                Standard charge is ₹{Number(rule.amount).toLocaleString("en-IN")} — this entry
-                will record the overridden amount.
-              </p>
+                <Pencil className="h-4 w-4" /> Override
+              </button>
             )}
           </div>
-        )}
+          {rule ? (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {rule.purpose_reason} — standard charge for {doctor?.name} ({category}).
+            </p>
+          ) : (
+            <p className="mt-1 text-sm text-muted-foreground">
+              No standard charge configured for {doctor?.name} under {category} — enter the
+              amount.
+            </p>
+          )}
+          {rule && editingAmount && parseFloat(amount || "0") !== rule.amount && (
+            <p className="mt-1 text-sm text-amber-600">
+              Standard charge is ₹{Number(rule.amount).toLocaleString("en-IN")} — this entry
+              will record the overridden amount.
+            </p>
+          )}
+        </div>
       </div>
     </FlowScaffold>
   );
