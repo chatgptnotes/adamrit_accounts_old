@@ -10,12 +10,12 @@ import { geminiFetch, geminiGenerateContentUrl, GEMINI_MODEL_LITE } from '@/lib/
 // Ask the books in plain language. The AI NEVER writes SQL — it only picks
 // one of these safe templates and its parameters; the client runs the query.
 
-type Template =
+export type Template =
   | { template: 'party_paid'; party: string; from: string; to: string }
   | { template: 'day_totals'; date: string }
   | { template: 'ledger_activity'; ledger: string; from: string; to: string };
 
-async function aiPickTemplate(question: string): Promise<Template | null> {
+export async function aiPickTemplate(question: string): Promise<Template | null> {
   const today = format(new Date(), 'yyyy-MM-dd');
   try {
     const response = await geminiFetch(geminiGenerateContentUrl('', GEMINI_MODEL_LITE), {
@@ -45,7 +45,7 @@ async function aiPickTemplate(question: string): Promise<Template | null> {
   }
 }
 
-async function runTemplate(t: Template): Promise<string> {
+export async function runTemplate(t: Template): Promise<string> {
   if (t.template === 'day_totals') {
     const { data } = await (supabase as any)
       .from('vouchers')

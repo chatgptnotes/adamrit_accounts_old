@@ -204,6 +204,14 @@ export const TABLET_MODULES: TabletModule[] = [
   },
 
   {
+    id: "ask-books-voice",
+    label: "Ask the Books (Voice)",
+    description: "Talk to the accounts - answers out loud, two-way",
+    icon: MessageCircle,
+    accent: "text-violet-700",
+    tint: "from-violet-500 to-fuchsia-700",
+  },
+  {
     id: "canteen-sonu",
     label: "Canteen - Sonu",
     description: "Post the day's canteen collection to the books",
