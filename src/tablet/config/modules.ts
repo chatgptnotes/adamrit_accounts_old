@@ -204,6 +204,30 @@ export const TABLET_MODULES: TabletModule[] = [
   },
 
   {
+    id: "canteen-sonu",
+    label: "Canteen - Sonu",
+    description: "Post the day's canteen collection to the books",
+    icon: Receipt,
+    accent: "text-lime-700",
+    tint: "from-lime-500 to-green-700",
+  },
+  {
+    id: "quick-pay-avni",
+    label: "Quick Pay - Avni",
+    description: "Bill + JV + payment in one tap, with duplicate guard",
+    icon: Banknote,
+    accent: "text-amber-700",
+    tint: "from-amber-500 to-yellow-700",
+  },
+  {
+    id: "pharmacy-dues-abhishek",
+    label: "Supplier Dues - Abhishek",
+    description: "Outstanding supplier invoices, pay full or part in cash",
+    icon: ReceiptIndianRupee,
+    accent: "text-red-700",
+    tint: "from-red-500 to-rose-700",
+  },
+  {
     id: "bank-cash",
     label: "Bank & Cash",
     description: "Deposits, withdrawals, bank charges & interest",
