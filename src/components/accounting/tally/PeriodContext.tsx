@@ -108,6 +108,9 @@ export const periodLabel = (period: AccountingPeriod): string =>
 interface AccountingPeriodContextValue {
   period: AccountingPeriod;
   setPeriod: (period: AccountingPeriod) => void;
+  /** Screen-specific periods survive report switching while Accounting stays mounted. */
+  screenPeriods: Record<string, AccountingPeriod>;
+  setScreenPeriod: (screenKey: string, period: AccountingPeriod) => void;
   /** Tally's Current Date — the Gateway clock and the Day Book's default day */
   currentDate: string;
   setCurrentDate: (date: string) => void;
@@ -131,6 +134,7 @@ const storedPeriod = (): AccountingPeriod => {
 
 export const AccountingPeriodProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [period, setPeriodState] = useState<AccountingPeriod>(storedPeriod);
+  const [screenPeriods, setScreenPeriods] = useState<Record<string, AccountingPeriod>>({});
   const [currentDate, setCurrentDate] = useState<string>(todayISO);
 
   const setPeriod = useCallback((next: AccountingPeriod) => {
@@ -142,9 +146,13 @@ export const AccountingPeriodProvider: React.FC<{ children: React.ReactNode }> =
     }
   }, []);
 
+  const setScreenPeriod = useCallback((screenKey: string, next: AccountingPeriod) => {
+    setScreenPeriods((current) => ({ ...current, [screenKey]: next }));
+  }, []);
+
   const value = useMemo(
-    () => ({ period, setPeriod, currentDate, setCurrentDate }),
-    [period, setPeriod, currentDate],
+    () => ({ period, setPeriod, screenPeriods, setScreenPeriod, currentDate, setCurrentDate }),
+    [period, setPeriod, screenPeriods, setScreenPeriod, currentDate],
   );
 
   return <AccountingPeriodContext.Provider value={value}>{children}</AccountingPeriodContext.Provider>;

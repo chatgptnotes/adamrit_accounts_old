@@ -7,6 +7,7 @@ import { HOSPITAL_CONFIGS, type HospitalType } from '@/types/hospital';
 import { useCompanies } from '@/hooks/useCompanies';
 import { useAccountingCompanyOptional } from '../AccountingCompanyContext';
 import { companyKey } from '@/lib/tallyCompanyMatch';
+import { useAccountingNavigationOptional } from '../AccountingNavigationContext';
 import {
   currentFinancialYear,
   dayLabel,
@@ -768,6 +769,7 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
   const { hospitalConfig } = useAuth();
   const accountingCompany = useAccountingCompanyOptional();
   const periodContext = useAccountingPeriodOptional();
+  const navigation = useAccountingNavigationOptional();
   /** Today sits outside the saved Current Period, so recent vouchers are hidden. */
   const outOfPeriod =
     !!periodContext &&
@@ -775,8 +777,12 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
   // Stable, so the default key bar below (and the hotkey binding that reads it)
   // is not rebuilt on every render.
   const handleClose = useCallback(
-    () => (onClose ? onClose() : window.dispatchEvent(new CustomEvent('tally-escape'))),
-    [onClose],
+    () => {
+      if (onClose) onClose();
+      else if (navigation) navigation.backOneLevel();
+      else window.dispatchEvent(new CustomEvent('tally-escape'));
+    },
+    [navigation, onClose],
   );
   const closeText = closeLabel || '✕';
   const selectedCompanyName = accountingCompany?.companies.find(
@@ -1022,5 +1028,4 @@ export const TallyScreen: React.FC<TallyScreenProps> = ({ title, rail: railProp 
     </div>
   );
 };
-
 

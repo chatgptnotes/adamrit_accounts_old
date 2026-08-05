@@ -126,6 +126,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
   const report = useTallyReport({
     // Tally's Day Book opens on a single date (F2: Date), not the shared period
     scope: 'screen',
+    screenKey: 'day-book',
     from: getTallyConfig().dayBookMonth ? today.slice(0, 8) + '01' : today,
     to: today,
     filterFields: ['Particulars', 'Narration', 'Vch Type', 'Vch No.'],

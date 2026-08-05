@@ -61,6 +61,8 @@ export interface UseTallyReportOptions {
    * screens (Day Book, Edit Log) Tally opens on a single date, not the period.
    */
   scope?: 'company' | 'screen';
+  /** Stable key for a screen-scoped period retained during the Accounting session. */
+  screenKey?: string;
   /** Opening period for `scope: 'screen'` — defaults to the financial year */
   from?: string;
   to?: string;
@@ -128,6 +130,7 @@ export interface TallyReport {
 export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport {
   const {
     scope = 'company',
+    screenKey,
     supportsPeriod = true,
     screenKeys = [],
     detailedToggle,
@@ -144,7 +147,8 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
   // (and any screen rendered outside the provider) keep their own.
   const [ownPeriod, setOwnPeriod] = useState<AccountingPeriod>(() => {
     const fy = currentFinancialYear();
-    return { from: options.from ?? fy.from, to: options.to ?? fy.to };
+    const fallback = { from: options.from ?? fy.from, to: options.to ?? fy.to };
+    return (screenKey && periodContext?.screenPeriods[screenKey]) || fallback;
   });
   const shared = scope === 'company' ? periodContext : null;
   const period = shared ? shared.period : ownPeriod;
@@ -169,9 +173,13 @@ export function useTallyReport(options: UseTallyReportOptions = {}): TallyReport
   const setPeriod = useCallback(
     (nextFrom: string, nextTo: string) => {
       if (shared) shared.setPeriod({ from: nextFrom, to: nextTo });
-      else setOwnPeriod({ from: nextFrom, to: nextTo });
+      else {
+        const next = { from: nextFrom, to: nextTo };
+        if (screenKey && periodContext) periodContext.setScreenPeriod(screenKey, next);
+        setOwnPeriod(next);
+      }
     },
-    [shared],
+    [shared, screenKey, periodContext],
   );
 
   // Tally's PgDn / PgUp: walk the period forward or back by its own length.

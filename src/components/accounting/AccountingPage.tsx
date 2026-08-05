@@ -65,6 +65,7 @@ import SpecialistPayouts from './SpecialistPayouts';
 import { AccountingCompanyProvider } from './AccountingCompanyContext';
 import { AccountingPeriodProvider } from './tally/PeriodContext';
 import TallyGlobalKeys from './tally/TallyGlobalKeys';
+import { AccountingNavigationProvider } from './AccountingNavigationContext';
 
 // Live Tally-gateway suite is heavy (12 sub-screens) — load on demand
 const TallyLivePage = lazy(() => import('@/components/tally/TallyPage'));
@@ -401,8 +402,9 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
   return (
     <AccountingCompanyProvider>
       <AccountingPeriodProvider>
-      {/* Tally's module-wide keys: date, period, company, F4-F10 vouchers */}
-      <TallyGlobalKeys />
+      <AccountingNavigationProvider goTo={goTo} backOneLevel={back}>
+        {/* Tally's module-wide keys: date, period, company, F4-F10 vouchers */}
+        <TallyGlobalKeys />
       <div className="tally-skin min-h-screen flex overflow-x-hidden bg-[#d5e3f0]">
       {/* ---- Left Sidebar (icon rail when collapsed) ---- */}
       <aside
@@ -525,6 +527,7 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
         </div>
       </main>
       </div>
+      </AccountingNavigationProvider>
       </AccountingPeriodProvider>
     </AccountingCompanyProvider>
   );
