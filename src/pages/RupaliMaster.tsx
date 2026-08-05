@@ -21,6 +21,7 @@ import {
 // there without losing its history here.
 
 const CATEGORIES = ['OPD', 'IPD', 'Procedure', 'Day Care'] as const;
+const PATIENT_CATEGORIES = ['Any', 'Inpatient', 'Outpatient', 'Yojana', 'Private', 'Corporate', 'Other'] as const;
 
 interface ChargeRule {
   id: string;
@@ -28,6 +29,7 @@ interface ChargeRule {
   doctor_id: string | null;
   doctor_name: string;
   purpose_reason: string;
+  patient_category: string;
   amount: number;
   is_active: boolean;
 }
@@ -46,6 +48,7 @@ export default function RupaliMaster() {
     category: 'OPD',
     doctorKey: '',
     purpose: '',
+    patientCategory: 'Any',
     amount: '',
   });
 
@@ -54,7 +57,7 @@ export default function RupaliMaster() {
     queryFn: async (): Promise<ChargeRule[]> => {
       const { data, error } = await (supabase as any)
         .from('rupali_charge_rules')
-        .select('id, category, doctor_id, doctor_name, purpose_reason, amount, is_active')
+        .select('id, category, doctor_id, doctor_name, purpose_reason, patient_category, amount, is_active')
         .order('category')
         .order('doctor_name')
         .order('purpose_reason');
@@ -98,6 +101,7 @@ export default function RupaliMaster() {
         // The tablet flow charges directly per category + doctor; purpose is
         // optional detail and falls back to the category name.
         purpose_reason: form.purpose.trim() || form.category,
+        patient_category: form.patientCategory,
         amount,
       });
       if (error) {
@@ -206,12 +210,26 @@ export default function RupaliMaster() {
             </Popover>
           </div>
           <div className="w-64">
-            <label className="text-xs font-medium">Purpose / Reason (optional)</label>
+            <label className="text-xs font-medium">Purpose / Procedure (optional)</label>
             <Input
               value={form.purpose}
               onChange={(e) => setForm((f) => ({ ...f, purpose: e.target.value }))}
-              placeholder="e.g. First consultation"
+              placeholder="e.g. First consultation / Dressing"
             />
+          </div>
+          <div className="w-40">
+            <label className="text-xs font-medium">Patient Category</label>
+            <Select
+              value={form.patientCategory}
+              onValueChange={(v) => setForm((f) => ({ ...f, patientCategory: v }))}
+            >
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {PATIENT_CATEGORIES.map((c) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="w-32">
             <label className="text-xs font-medium">Amount (₹)</label>
@@ -262,7 +280,8 @@ export default function RupaliMaster() {
                 <TableRow>
                   <TableHead>Category</TableHead>
                   <TableHead>Doctor</TableHead>
-                  <TableHead>Purpose / Reason</TableHead>
+                  <TableHead>Purpose / Procedure</TableHead>
+                  <TableHead>Patient Category</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
                   <TableHead className="text-right">Status</TableHead>
                 </TableRow>
@@ -273,6 +292,7 @@ export default function RupaliMaster() {
                     <TableCell>{rule.category}</TableCell>
                     <TableCell>{rule.doctor_name}</TableCell>
                     <TableCell>{rule.purpose_reason}</TableCell>
+                    <TableCell>{rule.patient_category || 'Any'}</TableCell>
                     <TableCell className="text-right font-mono">
                       ₹{Number(rule.amount).toLocaleString('en-IN')}
                     </TableCell>

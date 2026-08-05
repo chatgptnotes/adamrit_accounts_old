@@ -4,6 +4,7 @@ import { Check, ChevronLeft, Pencil, User } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { cn } from "@/lib/utils";
 import type { Patient } from "@/components/PatientLookup/types/patientLookup";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletPatientPicker } from "@/tablet/components/TabletPatientPicker";
@@ -22,6 +23,7 @@ interface ChargeRule {
   doctor_id: string | null;
   doctor_name: string;
   purpose_reason: string;
+  patient_category: string | null;
   amount: number;
 }
 
@@ -52,7 +54,7 @@ export default function RupaliFlow() {
     queryFn: async (): Promise<ChargeRule[]> => {
       const { data, error } = await (supabase as any)
         .from("rupali_charge_rules")
-        .select("id, category, doctor_id, doctor_name, purpose_reason, amount")
+        .select("id, category, doctor_id, doctor_name, purpose_reason, patient_category, amount")
         .eq("category", category)
         .eq("is_active", true)
         .order("doctor_name")
@@ -93,11 +95,11 @@ export default function RupaliFlow() {
     [rules, doctor],
   );
 
-  // Direct charging: reaching the amount step applies the doctor's configured
-  // charge for this category straight away. No purpose picking — the register
-  // records the rule's purpose when one matched, else the category itself.
+  // Direct charging: a doctor with exactly one configured charge gets it
+  // applied straight away. Several charges (procedures / patient categories)
+  // show as one-tap cards; none configured opens manual entry.
   useEffect(() => {
-    if (step === 4 && !rule && purposes.length > 0) {
+    if (step === 4 && !rule && purposes.length === 1) {
       setRule(purposes[0]);
       setAmount(String(purposes[0].amount));
       setEditingAmount(false);
@@ -129,6 +131,7 @@ export default function RupaliFlow() {
         p_amount: finalAmount,
         p_hospital_type: hospitalType,
         p_created_by: user?.email || user?.id || null,
+        p_patient_category: rule?.patient_category ?? null,
       });
       if (error) throw new Error(error.message);
       return { finalAmount, voucherNumber: (data as any)?.voucherNumber as string | undefined };
@@ -294,6 +297,39 @@ export default function RupaliFlow() {
       }
     >
       <div className="space-y-4">
+        {purposes.length > 1 && (
+          <div>
+            <TabletLabel>Which charge applies?</TabletLabel>
+            <div className="mt-2 grid gap-2">
+              {purposes.map((p) => (
+                <TabletCard
+                  key={p.id}
+                  className={cn(
+                    "flex cursor-pointer items-center justify-between p-4 active:scale-[0.99]",
+                    rule?.id === p.id && "border-primary ring-2 ring-primary/30",
+                  )}
+                  onClick={() => {
+                    setRule(p);
+                    setAmount(String(p.amount));
+                    setEditingAmount(false);
+                  }}
+                >
+                  <span className="text-base font-medium">
+                    {p.purpose_reason}
+                    {p.patient_category && p.patient_category !== "Any" && (
+                      <span className="ml-2 rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                        {p.patient_category}
+                      </span>
+                    )}
+                  </span>
+                  <span className="font-mono text-lg font-bold">
+                    ₹{Number(p.amount).toLocaleString("en-IN")}
+                  </span>
+                </TabletCard>
+              ))}
+            </div>
+          </div>
+        )}
         <div>
           <TabletLabel>Amount</TabletLabel>
           <div className="mt-2 flex items-center gap-3">

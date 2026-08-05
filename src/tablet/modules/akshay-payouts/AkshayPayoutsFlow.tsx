@@ -1,0 +1,539 @@
+import { useMemo, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { format } from "date-fns";
+import {
+  Banknote, Check, ChevronLeft, Loader2, Printer, QrCode, Upload, User,
+} from "lucide-react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { cn } from "@/lib/utils";
+import {
+  VOUCHER_PAYMENT_PROOF_CATEGORY,
+  linkVoucherAttachments,
+  uploadVoucherAttachments,
+} from "@/lib/voucher-attachments";
+import { FlowScaffold } from "@/tablet/components/FlowScaffold";
+import { TabletButton } from "@/tablet/ui/TabletButton";
+import { TabletCard } from "@/tablet/ui/TabletCard";
+import { TabletInput, TabletLabel } from "@/tablet/ui/TabletInput";
+
+// DATA SOURCE: rupali_visit_logs (the doctor's recorded services)
+//   -> pay_doctor_services (payment voucher per company, against the JVs)
+//   -> file_uploads (QR screenshot / signed cash voucher on the voucher)
+
+interface ServiceRow {
+  id: string;
+  category: string;
+  patient_name: string;
+  purpose_reason: string;
+  patient_category: string | null;
+  amount: number;
+  paid_voucher_id: string | null;
+  created_at: string;
+}
+
+interface PaymentResult {
+  companyName: string;
+  voucherId: string;
+  voucherNumber: string;
+  amount: number;
+}
+
+const rupees = (n: number) => `₹${Number(n || 0).toLocaleString("en-IN")}`;
+
+/**
+ * Akshay pays the doctors for the services Rupali recorded. Pick a doctor
+ * and a day, tick the services to pay, then pay by scanning the doctor's QR
+ * (every doctor's ledger carries one) or in cash. A payment voucher posts
+ * against the JVs already made; the QR screenshot — or the printed, signed
+ * cash voucher — is uploaded onto that voucher.
+ */
+export default function AkshayPayoutsFlow() {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const qrFileRef = useRef<HTMLInputElement>(null);
+
+  const [step, setStep] = useState(1);
+  const [doctorSearch, setDoctorSearch] = useState("");
+  const [doctor, setDoctor] = useState<string | null>(null);
+  const [day, setDay] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [mode, setMode] = useState<"QR" | "CASH" | null>(null);
+  const [payments, setPayments] = useState<PaymentResult[] | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadedCount, setUploadedCount] = useState(0);
+
+  // Doctors who actually have recorded services, searchable.
+  const { data: doctors = [] } = useQuery({
+    queryKey: ["akshay-doctors"],
+    queryFn: async (): Promise<string[]> => {
+      const { data, error } = await (supabase as any)
+        .from("rupali_visit_logs")
+        .select("doctor_name")
+        .not("voucher_id", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1000);
+      if (error) throw error;
+      const seen = new Set<string>();
+      for (const row of data || []) {
+        if (row.doctor_name?.trim()) seen.add(row.doctor_name.trim());
+      }
+      return Array.from(seen).sort((a, b) => a.localeCompare(b));
+    },
+  });
+
+  const { data: services = [], isLoading: servicesLoading } = useQuery({
+    queryKey: ["akshay-services", doctor, day],
+    enabled: !!doctor && step >= 2,
+    queryFn: async (): Promise<ServiceRow[]> => {
+      const { data, error } = await (supabase as any)
+        .from("rupali_visit_logs")
+        .select("id, category, patient_name, purpose_reason, patient_category, amount, paid_voucher_id, created_at")
+        .eq("doctor_name", doctor)
+        .not("voucher_id", "is", null)
+        .gte("created_at", `${day}T00:00:00`)
+        .lte("created_at", `${day}T23:59:59.999`)
+        .order("created_at");
+      if (error) throw error;
+      return (data || []) as ServiceRow[];
+    },
+  });
+
+  const { data: doctorQr } = useQuery({
+    queryKey: ["akshay-doctor-qr", doctor],
+    enabled: !!doctor,
+    queryFn: async (): Promise<string | null> => {
+      const { data, error } = await (supabase as any)
+        .from("doctor_payment_qr")
+        .select("qr_url")
+        .ilike("doctor_name", doctor!)
+        .maybeSingle();
+      if (error) return null;
+      return data?.qr_url ?? null;
+    },
+  });
+
+  const total = useMemo(
+    () => services.filter((s) => selected.has(s.id)).reduce((sum, s) => sum + Number(s.amount || 0), 0),
+    [services, selected],
+  );
+
+  const pay = useMutation({
+    mutationFn: async () => {
+      if (!mode) throw new Error("Choose QR or cash first");
+      if (selected.size === 0) throw new Error("Select the services to pay");
+      const { data, error } = await (supabase as any).rpc("pay_doctor_services", {
+        p_log_ids: Array.from(selected),
+        p_payment_mode: mode,
+        p_paid_by: user?.email || user?.id || null,
+      });
+      if (error) throw new Error(error.message);
+      return ((data as any)?.payments || []) as PaymentResult[];
+    },
+    onSuccess: (results) => {
+      toast.success(
+        `Paid ${rupees(results.reduce((s, p) => s + Number(p.amount), 0))} to ${doctor} — ${results
+          .map((p) => p.voucherNumber)
+          .join(", ")}.`,
+      );
+      setPayments(results);
+      setUploadedCount(0);
+      queryClient.invalidateQueries({ queryKey: ["akshay-services"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Payment failed"),
+  });
+
+  const uploadProof = async (files: FileList | null) => {
+    if (!files?.length || !payments?.length) return;
+    setUploading(true);
+    try {
+      const uploaded = await uploadVoucherAttachments(Array.from(files), VOUCHER_PAYMENT_PROOF_CATEGORY);
+      // The proof belongs to every voucher this payment produced (usually one).
+      for (const payment of payments) {
+        await linkVoucherAttachments(payment.voucherId, uploaded.map((u) => ({ ...u, id: undefined })), user?.id || null);
+      }
+      setUploadedCount((n) => n + files.length);
+      toast.success(
+        mode === "CASH" ? "Signed voucher uploaded." : "Payment screenshot uploaded.",
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const saveDoctorQr = async (files: FileList | null) => {
+    if (!files?.length || !doctor) return;
+    setUploading(true);
+    try {
+      const [uploaded] = await uploadVoucherAttachments([files[0]], VOUCHER_PAYMENT_PROOF_CATEGORY);
+      const { error } = await (supabase as any).from("doctor_payment_qr").upsert(
+        { doctor_name: doctor, qr_url: uploaded.fileUrl, updated_by: user?.email || null, updated_at: new Date().toISOString() },
+        { onConflict: "doctor_name" },
+      );
+      if (error) {
+        // Unique index is on lower(name); fall back to update-by-ilike.
+        await (supabase as any)
+          .from("doctor_payment_qr")
+          .update({ qr_url: uploaded.fileUrl, updated_by: user?.email || null })
+          .ilike("doctor_name", doctor);
+      }
+      queryClient.invalidateQueries({ queryKey: ["akshay-doctor-qr", doctor] });
+      toast.success(`QR saved for ${doctor}.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save the QR");
+    } finally {
+      setUploading(false);
+      if (qrFileRef.current) qrFileRef.current.value = "";
+    }
+  };
+
+  const printCashVoucher = () => {
+    if (!payments?.length || !doctor) return;
+    const paidRows = services
+      .filter((s) => selected.has(s.id))
+      .map(
+        (s) =>
+          `<tr><td style="padding:6px 10px;border:1px solid #999">${s.patient_name}</td>` +
+          `<td style="padding:6px 10px;border:1px solid #999">${s.purpose_reason}</td>` +
+          `<td style="padding:6px 10px;border:1px solid #999;text-align:right">${rupees(Number(s.amount))}</td></tr>`,
+      )
+      .join("");
+    const w = window.open("", "_blank", "noopener,width=800,height=900");
+    if (!w) {
+      toast.error("Allow pop-ups to print.");
+      return;
+    }
+    const totalPaid = payments.reduce((s, p) => s + Number(p.amount), 0);
+    w.document.write(
+      `<html><head><title>Payment Voucher - ${doctor}</title></head>` +
+        `<body style="font-family:Arial,sans-serif;padding:24px;color:#111">` +
+        `<div style="text-align:center;border-bottom:2px solid #111;padding-bottom:8px">` +
+        `<h2 style="margin:2px 0">Payment Voucher${payments.length === 1 ? " " + payments[0].voucherNumber : ""}</h2>` +
+        `<p style="margin:2px 0">${payments.map((p) => `${p.voucherNumber} (${p.companyName})`).join(" · ")}</p></div>` +
+        `<table style="width:100%;margin-top:14px;font-size:14px">` +
+        `<tr><td><b>Paid to:</b> ${doctor}</td><td style="text-align:right"><b>Date:</b> ${format(new Date(), "dd/MM/yyyy")}</td></tr>` +
+        `<tr><td><b>Mode:</b> Cash</td><td style="text-align:right"><b>Services:</b> ${selected.size}</td></tr>` +
+        `</table>` +
+        `<table style="width:100%;border-collapse:collapse;margin-top:14px;font-size:14px">` +
+        `<tr><th style="padding:6px 10px;border:1px solid #999;background:#eee;text-align:left">Patient</th>` +
+        `<th style="padding:6px 10px;border:1px solid #999;background:#eee;text-align:left">Service</th>` +
+        `<th style="padding:6px 10px;border:1px solid #999;background:#eee;text-align:right">Amount</th></tr>` +
+        paidRows +
+        `<tr><td colspan="2" style="padding:6px 10px;border:1px solid #999;font-weight:bold">Total paid</td>` +
+        `<td style="padding:6px 10px;border:1px solid #999;text-align:right;font-weight:bold">${rupees(totalPaid)}</td></tr>` +
+        `</table>` +
+        `<table style="width:100%;margin-top:60px;font-size:14px"><tr>` +
+        `<td>Paid by: ______________________</td>` +
+        `<td style="text-align:right">Received (Dr signature): ______________________</td>` +
+        `</tr></table>` +
+        `<script>window.print()</` +
+        `script></body></html>`,
+    );
+    w.document.close();
+  };
+
+  const resetAll = () => {
+    setStep(1);
+    setDoctor(null);
+    setDoctorSearch("");
+    setSelected(new Set());
+    setMode(null);
+    setPayments(null);
+    setUploadedCount(0);
+  };
+
+  // ---- Done: proof upload ----
+  if (payments) {
+    return (
+      <FlowScaffold
+        heading={`Paid ${rupees(payments.reduce((s, p) => s + Number(p.amount), 0))} to ${doctor}`}
+        subheading={payments.map((p) => `${p.voucherNumber} · ${p.companyName}`).join("  ·  ")}
+        actions={
+          <TabletButton className="w-full" onClick={resetAll}>
+            <Check className="mr-2 h-5 w-5" /> Done
+          </TabletButton>
+        }
+      >
+        <div className="space-y-4">
+          {mode === "CASH" && (
+            <TabletButton variant="outline" className="w-full" onClick={printCashVoucher}>
+              <Printer className="mr-2 h-5 w-5" /> Print voucher for signature
+            </TabletButton>
+          )}
+          <div>
+            <TabletLabel>
+              {mode === "CASH"
+                ? "Upload the signed payment voucher"
+                : "Upload the payment screenshot"}
+            </TabletLabel>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*,application/pdf"
+              className="hidden"
+              onChange={(e) => void uploadProof(e.target.files)}
+            />
+            <TabletButton
+              variant="outline"
+              className="mt-2 w-full"
+              disabled={uploading}
+              onClick={() => fileRef.current?.click()}
+            >
+              {uploading ? (
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+              ) : (
+                <Upload className="mr-2 h-5 w-5" />
+              )}
+              {uploadedCount > 0 ? `Uploaded (${uploadedCount}) — add another` : "Choose photo / PDF"}
+            </TabletButton>
+            <p className="mt-2 text-sm text-muted-foreground">
+              The file attaches to the payment voucher and shows on its Day Book row.
+            </p>
+          </div>
+        </div>
+      </FlowScaffold>
+    );
+  }
+
+  // ---- Step 1: doctor ----
+  if (step === 1) {
+    const visible = doctors.filter((d) =>
+      d.toLowerCase().includes(doctorSearch.trim().toLowerCase()),
+    );
+    return (
+      <FlowScaffold
+        step={1}
+        totalSteps={3}
+        heading="Doctor Payouts"
+        subheading="Whose services are being paid?"
+      >
+        <div className="space-y-3">
+          <TabletInput
+            value={doctorSearch}
+            onChange={(e) => setDoctorSearch(e.target.value)}
+            placeholder="Search doctor…"
+            autoFocus
+          />
+          <div className="grid gap-2">
+            {visible.map((d) => (
+              <TabletCard
+                key={d}
+                className="flex cursor-pointer items-center gap-3 p-4 active:scale-[0.99]"
+                onClick={() => {
+                  setDoctor(d);
+                  setSelected(new Set());
+                  setStep(2);
+                }}
+              >
+                <User className="h-5 w-5 shrink-0 text-muted-foreground" />
+                <span className="text-lg font-semibold">{d}</span>
+              </TabletCard>
+            ))}
+            {visible.length === 0 && (
+              <p className="py-4 text-center text-muted-foreground">
+                No doctor with recorded services matches.
+              </p>
+            )}
+          </div>
+        </div>
+      </FlowScaffold>
+    );
+  }
+
+  // ---- Step 2: the day's services ----
+  if (step === 2) {
+    const unpaid = services.filter((s) => !s.paid_voucher_id);
+    const paid = services.filter((s) => s.paid_voucher_id);
+    return (
+      <FlowScaffold
+        step={2}
+        totalSteps={3}
+        heading={doctor}
+        subheading="Tick the services to pay"
+        actions={
+          <div className="flex w-full gap-3">
+            <TabletButton variant="outline" onClick={resetAll}>
+              <ChevronLeft className="mr-1 h-5 w-5" /> Back
+            </TabletButton>
+            <TabletButton
+              className="flex-1"
+              disabled={selected.size === 0}
+              onClick={() => setStep(3)}
+            >
+              Pay {selected.size > 0 ? `${selected.size} — ${rupees(total)}` : ""}
+            </TabletButton>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <TabletLabel>Day</TabletLabel>
+            <TabletInput
+              type="date"
+              value={day}
+              onChange={(e) => {
+                setDay(e.target.value);
+                setSelected(new Set());
+              }}
+              className="max-w-[200px]"
+            />
+          </div>
+          {servicesLoading ? (
+            <p className="py-6 text-center text-muted-foreground">
+              <Loader2 className="mr-2 inline h-4 w-4 animate-spin" /> Loading services…
+            </p>
+          ) : services.length === 0 ? (
+            <p className="py-6 text-center text-muted-foreground">
+              No services recorded for {doctor} on this day.
+            </p>
+          ) : (
+            <>
+              <div className="grid gap-2">
+                {unpaid.map((s) => {
+                  const isPicked = selected.has(s.id);
+                  return (
+                    <TabletCard
+                      key={s.id}
+                      className={cn(
+                        "flex cursor-pointer items-center justify-between p-4 active:scale-[0.99]",
+                        isPicked && "border-primary ring-2 ring-primary/30",
+                      )}
+                      onClick={() =>
+                        setSelected((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(s.id)) next.delete(s.id);
+                          else next.add(s.id);
+                          return next;
+                        })
+                      }
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-base font-semibold">{s.patient_name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {s.category}
+                          {s.purpose_reason && s.purpose_reason !== s.category
+                            ? ` · ${s.purpose_reason}`
+                            : ""}
+                          {s.patient_category && s.patient_category !== "Any"
+                            ? ` · ${s.patient_category}`
+                            : ""}
+                        </span>
+                      </span>
+                      <span className="font-mono text-lg font-bold">{rupees(Number(s.amount))}</span>
+                    </TabletCard>
+                  );
+                })}
+              </div>
+              {paid.length > 0 && (
+                <div className="grid gap-2 opacity-50">
+                  <TabletLabel>Already paid</TabletLabel>
+                  {paid.map((s) => (
+                    <TabletCard key={s.id} className="flex items-center justify-between p-4">
+                      <span className="text-base">{s.patient_name}</span>
+                      <span className="font-mono">{rupees(Number(s.amount))}</span>
+                    </TabletCard>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </FlowScaffold>
+    );
+  }
+
+  // ---- Step 3: pay by QR or cash ----
+  return (
+    <FlowScaffold
+      step={3}
+      totalSteps={3}
+      heading={`Pay ${rupees(total)} to ${doctor}`}
+      subheading={`${selected.size} service(s) on ${format(new Date(`${day}T00:00:00`), "dd MMM yyyy")}`}
+      actions={
+        <div className="flex w-full gap-3">
+          <TabletButton variant="outline" onClick={() => setStep(2)} disabled={pay.isPending}>
+            <ChevronLeft className="mr-1 h-5 w-5" /> Back
+          </TabletButton>
+          <TabletButton
+            className="flex-1"
+            disabled={!mode || pay.isPending}
+            onClick={() => pay.mutate()}
+          >
+            <Check className="mr-2 h-5 w-5" />
+            {pay.isPending ? "Posting voucher…" : `Confirm ${mode === "CASH" ? "cash " : mode === "QR" ? "QR " : ""}payment`}
+          </TabletButton>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <TabletButton
+            variant={mode === "QR" ? "default" : "outline"}
+            className="min-h-[72px]"
+            onClick={() => setMode("QR")}
+          >
+            <QrCode className="mr-2 h-6 w-6" /> Scan QR & pay
+          </TabletButton>
+          <TabletButton
+            variant={mode === "CASH" ? "default" : "outline"}
+            className="min-h-[72px]"
+            onClick={() => setMode("CASH")}
+          >
+            <Banknote className="mr-2 h-6 w-6" /> Paid in cash
+          </TabletButton>
+        </div>
+
+        {mode === "QR" && (
+          <div className="flex flex-col items-center gap-3 rounded-xl border p-4">
+            {doctorQr ? (
+              <>
+                <img src={doctorQr} alt={`${doctor} payment QR`} className="max-h-[340px] rounded-lg" />
+                <p className="text-center text-sm text-muted-foreground">
+                  Scan with the hospital mobile and pay {rupees(total)}, then confirm below.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-center text-muted-foreground">
+                  No QR saved for {doctor} yet — upload a photo of their payment QR once and it
+                  stays linked to their ledger.
+                </p>
+                <input
+                  ref={qrFileRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => void saveDoctorQr(e.target.files)}
+                />
+                <TabletButton
+                  variant="outline"
+                  disabled={uploading}
+                  onClick={() => qrFileRef.current?.click()}
+                >
+                  {uploading ? (
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  ) : (
+                    <Upload className="mr-2 h-5 w-5" />
+                  )}
+                  Upload {doctor}'s QR
+                </TabletButton>
+              </>
+            )}
+          </div>
+        )}
+
+        {mode === "CASH" && (
+          <p className="rounded-xl border p-4 text-sm text-muted-foreground">
+            After confirming, print the payment voucher, take the doctor's signature, and upload
+            the signed copy — it attaches to the voucher.
+          </p>
+        )}
+      </div>
+    </FlowScaffold>
+  );
+}

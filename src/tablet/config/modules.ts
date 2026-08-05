@@ -204,6 +204,14 @@ export const TABLET_MODULES: TabletModule[] = [
   },
 
   {
+    id: "akshay-payouts",
+    label: "Akshay - Doctor Payouts",
+    description: "Pay doctors for recorded services by QR or cash",
+    icon: Banknote,
+    accent: "text-green-700",
+    tint: "from-green-500 to-emerald-700",
+  },
+  {
     id: "diagnostics-hope",
     label: "Diagnostics - Nisha (Hope)",
     description: "Send patient to outside CT/MRI/lab — posts on DRM Hope",
