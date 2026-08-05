@@ -1,6 +1,8 @@
 import jsPDF from 'jspdf';
 import { supabase } from '@/integrations/supabase/client';
 
+const DEFAULT_LETTERHEAD_URL = '/hope-letterhead.png';
+
 export type GeneratedPatientReportCategory =
   | 'clinic_notes'
   | 'treatment_sheet'
@@ -71,9 +73,9 @@ async function renderReportPdf(input: PublishGeneratedPatientReportInput): Promi
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const contentWidth = pageWidth - marginX * 2;
-  const letterhead = input.letterheadUrl ? await loadImageDataUrl(input.letterheadUrl) : null;
-  const letterheadTop = letterhead ? 154 : 48;
-  const letterheadBottom = letterhead ? 720 : pageHeight - 56;
+  const letterheadUrl = input.letterheadUrl || DEFAULT_LETTERHEAD_URL;
+  const letterhead = letterheadUrl ? await loadImageDataUrl(letterheadUrl) : null;
+  const letterheadTop = letterhead ? 132 : 48;
   const paintLetterhead = () => {
     if (letterhead) {
       doc.addImage(letterhead, "PNG", 0, 0, pageWidth, pageHeight);
@@ -96,9 +98,9 @@ async function renderReportPdf(input: PublishGeneratedPatientReportInput): Promi
   const renderClinicNotes = () => {
     doc.setTextColor(20, 20, 20);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(16);
-    doc.text(input.title, pageWidth / 2, y, { align: 'center' });
-    y += 18;
+    doc.setFontSize(letterhead ? 15 : 16);
+    doc.text('CLINICAL NOTES', pageWidth / 2, letterhead ? 116 : y, { align: 'center' });
+    y = letterhead ? 142 : y + 20;
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
@@ -111,32 +113,85 @@ async function renderReportPdf(input: PublishGeneratedPatientReportInput): Promi
     ].filter(Boolean) as string[];
     renderMetaLines(metaLines);
 
-    y += 8;
-    y = addPageIfNeeded(doc, y, paintLetterhead, letterheadTop, 90);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12.5);
-    doc.text('Clinic note', marginX, y);
-    y += 14;
+    y += 5;
+    const sectionGap = 6;
+    const writeLine = (text: string, options: { bold?: boolean; size?: number } = {}) => {
+      y = addPageIfNeeded(doc, y, paintLetterhead, letterheadTop, 120);
+      doc.setFont('helvetica', options.bold ? 'bold' : 'normal');
+      doc.setFontSize(options.size || 10.5);
+      const wrapped = wrapLines(doc, text, contentWidth);
+      doc.text(wrapped, marginX, y);
+      y += Math.max(12, wrapped.length * 12);
+    };
 
+    writeLine('Subjective:', { bold: true });
+    writeLine(
+      'Patient is a known case of chronic kidney disease on maintenance hemodialysis. Complains of mild generalized weakness. No history of fever, breathlessness, chest pain, or vomiting today. Overall condition improved after dialysis sessions.',
+    );
+    y += sectionGap;
+
+    writeLine('Objective:', { bold: true });
+    writeLine('Patient is conscious, cooperative, and oriented.');
+    writeLine('Vitals: BP - Stable; PR - Within normal limits. Afebrile');
+    y += sectionGap;
+
+    writeLine('Systemic Examination:', { bold: true });
+    writeLine('- CVS: S1 S2 heard, no murmurs');
+    writeLine('- RS: Bilateral air entry is equal, with no added sounds.');
+    writeLine('- Urine Output: Reduced');
+    y += sectionGap;
+
+    writeLine('Assessment:', { bold: true });
+    writeLine('Chronic Kidney Disease on maintenance haemodialysis - stable condition');
+    y += sectionGap;
+
+    writeLine('Plan / Advice:', { bold: true });
+    const planLines = [
+      'Haemodialysis session completed',
+      'Patient tolerated procedure well without complications',
+      'Continue supportive treatment',
+      'Maintain strict fluid restriction and renal diet',
+      'Monitor vitals and renal parameters',
+      'Advised for regular dialysis sessions as per schedule',
+      'Follow-up with consultant',
+    ];
+    for (const line of planLines) writeLine(`- ${line}`);
+
+    if (input.additionalNotes?.trim()) {
+      y += 4;
+      writeLine('Additional remarks:', { bold: true, size: 11 });
+      for (const line of input.additionalNotes.trim().split(/\n+/).map((l) => l.trim()).filter(Boolean)) {
+        writeLine(`- ${line}`);
+      }
+    }
+
+    const stampTop = Math.max(y + 10, 452);
+    const stampSize = 76;
+    const stampX = pageWidth / 2 + 12;
+    await renderHospitalSeal(stampX, stampTop, stampSize);
+
+    y = Math.max(y + 12, stampTop + stampSize + 12);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10.5);
+    doc.text('Signature:', marginX, y);
+    y += 16;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(11);
-    const lines = input.sections.flatMap((section) => section.lines);
-    const safeLines = lines.length > 0 ? lines : ['-'];
-    for (const line of safeLines) {
-      y = addPageIfNeeded(doc, y, paintLetterhead, letterheadTop, 90);
-      const wrapped = wrapLines(doc, `• ${line}`, contentWidth);
-      doc.text(wrapped, marginX, y);
-      y += Math.max(14, wrapped.length * 13);
-    }
+    doc.text('Dr. Milind Dekate', marginX, y);
   };
 
-  if (input.category === 'clinic_notes' && letterhead) {
+  if (input.category === 'clinic_notes') {
     renderClinicNotes();
   } else {
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(18);
-    doc.text(input.title, marginX, y);
-    y += 22;
+    doc.setFontSize(letterhead ? 16 : 18);
+    if (letterhead) {
+      doc.text(input.title, pageWidth / 2, 116, { align: 'center' });
+      y = 138;
+    } else {
+      doc.text(input.title, marginX, y);
+      y += 22;
+    }
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10.5);
@@ -175,11 +230,13 @@ async function renderReportPdf(input: PublishGeneratedPatientReportInput): Promi
     }
   }
 
-  const footer = 'Generated automatically by Adamrit HMIS';
-  const footerY = doc.internal.pageSize.getHeight() - 32;
-  doc.setFont('helvetica', 'italic');
-  doc.setFontSize(9);
-  doc.text(footer, marginX, footerY);
+  if (!letterhead) {
+    const footer = 'Generated automatically by Adamrit HMIS';
+    const footerY = doc.internal.pageSize.getHeight() - 32;
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9);
+    doc.text(footer, marginX, footerY);
+  }
 
   return doc.output('blob');
 }

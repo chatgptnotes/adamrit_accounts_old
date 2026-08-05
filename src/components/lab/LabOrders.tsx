@@ -1986,6 +1986,40 @@ const LabOrders = () => {
         description: `${results.length} test result(s) have been saved. You can now print the report.`,
       });
 
+      const summaryLines = results.map((result: any) => {
+        const unit = result.result_unit ? ` ${result.result_unit}` : '';
+        const ref = result.reference_range ? ` (Ref: ${result.reference_range})` : '';
+        return `${result.test_name || 'Test'}: ${result.result_value || '-'}${unit}${ref}`;
+      });
+      const reportVisitId =
+        (typeof results[0]?.visit_id === 'string' && results[0].visit_id.trim() && !isUuid(results[0].visit_id)
+          ? results[0].visit_id
+          : null) ||
+        (typeof patientInfo?.visit_id === 'string' && patientInfo.visit_id.trim() && !isUuid(patientInfo.visit_id)
+          ? patientInfo.visit_id
+          : null) ||
+        (typeof patientInfo?.visit_uuid === 'string' && patientInfo.visit_uuid.trim() && !isUuid(patientInfo.visit_uuid)
+          ? patientInfo.visit_uuid
+          : null) ||
+        (typeof results[0]?.visit_id === 'string' && results[0].visit_id.trim() ? results[0].visit_id : null) ||
+        (typeof patientInfo?.visit_id === 'string' && patientInfo.visit_id.trim() ? patientInfo.visit_id : null) ||
+        (typeof patientInfo?.visit_uuid === 'string' && patientInfo.visit_uuid.trim() ? patientInfo.visit_uuid : null);
+      void publishGeneratedPatientReport({
+        category: 'lab_investigation',
+        patientId: patientInfo?.patient_id || null,
+        patientName: results[0]?.patient_name || patientInfo?.patient_name || 'Unnamed patient',
+        visitId: reportVisitId,
+        title: 'Lab Investigation',
+        subtitle: 'System-generated lab report',
+        notes: reportVisitId ? `lab_investigation:${reportVisitId}` : null,
+        letterheadUrl: '/hope-letterhead.png',
+        sections: [
+          {
+            title: 'Results',
+            lines: summaryLines,
+          },
+        ],
+      });
       // DON'T reset form immediately - keep it visible with saved data
       // setLabResultsForm({});
       // setAuthenticatedResult(false);
