@@ -742,7 +742,12 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
         {isYojanaPanel(patientCorporate) && (
           <div className="space-y-2">
             <Label htmlFor="yojanaRegistrationId" className="text-sm font-medium">
-              Yojana Registration ID <span className="text-red-500">*</span>
+              Yojana Registration ID{' '}
+              {/* The portal issues this per IPD case — an OPD visit has none
+                  yet, so it is only required on an admission. */}
+              {['IPD', 'IPD (Inpatient)', 'Emergency'].includes(formData.patientType || '')
+                ? <span className="text-red-500">*</span>
+                : <span className="text-xs font-normal text-muted-foreground">(optional for OPD)</span>}
             </Label>
             <Input
               id="yojanaRegistrationId"

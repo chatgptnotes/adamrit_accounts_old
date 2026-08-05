@@ -403,9 +403,10 @@ export default function RegisterPatientFlow() {
     !!visit.doctor &&
     !!visit.reason.trim() &&
     !!visit.treatmentType &&
-    // A Yojana patient needs the ID printed on their card — portal claims and
-    // extension alerts match on it, and names drift.
-    (!isYojanaPanel(patient.corporate) || !!visit.yojanaRegId.trim());
+    // A Yojana ADMISSION needs the ID printed on their card — portal claims
+    // and extension alerts match on it. OPD visits have no portal case yet,
+    // so requiring it there would block registration.
+    (!isAdmit || !isYojanaPanel(patient.corporate) || !!visit.yojanaRegId.trim());
   const wardValid = !isAdmit || (!!wardId && !!room);
 
   // --- success --------------------------------------------------------------
@@ -905,7 +906,7 @@ export default function RegisterPatientFlow() {
               />
             </Field>
             {isYojanaPanel(patient.corporate) && (
-              <Field label="Yojana registration ID *">
+              <Field label={isAdmit ? "Yojana registration ID *" : "Yojana registration ID"}>
                 <TabletInput
                   value={visit.yojanaRegId}
                   onChange={(e) => setV("yojanaRegId", e.target.value)}

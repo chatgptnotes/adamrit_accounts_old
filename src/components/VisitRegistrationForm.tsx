@@ -314,10 +314,18 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
     // A Yojana patient without their registration ID cannot be matched to the
     // government portal — claims and extension alerts then rely on the
     // patient's name, which drifts between the portal and our records.
+    //
+    // Only for an ADMISSION though: the portal issues the registration ID per
+    // IPD case, so an OPD visit has none to give and requiring it would block
+    // registration outright.
     const billingCategory = formData.billingCategoryOverride === 'private'
       ? 'private'
       : (patientCorporate || '');
-    if (isYojanaPanel(billingCategory)
+    const isAdmissionVisit = formData.patientType === 'IPD'
+      || formData.patientType === 'IPD (Inpatient)'
+      || formData.patientType === 'Emergency';
+    if (isAdmissionVisit
+        && isYojanaPanel(billingCategory)
         && (!formData.yojanaRegistrationId || formData.yojanaRegistrationId.trim() === '')) {
       missingFields.push('Yojana Registration ID');
     }
