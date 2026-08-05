@@ -35,8 +35,10 @@ export async function accountMovements(opts: {
   const rows = await fetchAllRows((from, to) => {
     let query = (supabase as any)
       .from('voucher_entries')
-      .select('account_id, debit_amount, credit_amount, voucher:vouchers!inner(voucher_date, status, company_id)')
-      .eq('voucher.status', 'AUTHORISED');
+      .select('account_id, debit_amount, credit_amount, voucher:vouchers!inner(voucher_date, status, company_id, is_optional)')
+      .eq('voucher.status', 'AUTHORISED')
+      // Tally semantics: optional vouchers never move the books.
+      .eq('voucher.is_optional', false);
     if (opts.from) query = query.gte('voucher.voucher_date', opts.from);
     if (opts.upto) query = query.lte('voucher.voucher_date', opts.upto);
     if (opts.companyId) query = query.eq('voucher.company_id', opts.companyId);
