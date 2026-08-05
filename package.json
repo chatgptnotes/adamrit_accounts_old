@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "prebuild": "node scripts/check-finalbill-locked.cjs && node scripts/check-registration-locked.cjs && node scripts/check-expensebill-locked.cjs",
+    "prebuild": "node scripts/check-finalbill-locked.cjs && node scripts/check-registration-locked.cjs && node scripts/check-expensebill-locked.cjs && node scripts/check-accounting-locked.cjs",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "check:finalbill": "node scripts/check-finalbill-locked.cjs",
