@@ -111,7 +111,8 @@ export default function DiagnosticsFlow() {
       toast.success(
         `Referral approved - invoice ${result.invoiceNumber}, ${rupees(result.amount)} payable to ${centre?.name}.`,
       );
-      queryClient.invalidateQueries({ queryKey: ["expense-bills"] });
+      queryClient.invalidateQueries({ queryKey: ["expense-bills-outstanding"] });
+      queryClient.invalidateQueries({ queryKey: ["abhishek-outstanding"] });
       setDone({ invoiceNumber: result.invoiceNumber, amount: result.amount });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Could not save the referral"),
@@ -136,7 +137,9 @@ export default function DiagnosticsFlow() {
         ? `<h2 style="margin:2px 0">${hospitalLabel}</h2><h3 style="margin:2px 0">Diagnostic Requisition</h3>`
         : `<h2 style="margin:2px 0">${centre.name}</h2><h3 style="margin:2px 0">Invoice ${done.invoiceNumber}</h3>` +
           `<p style="margin:2px 0">To: ${companyLabel}</p>`;
-    const w = window.open("", "_blank", "noopener,width=800,height=900");
+    // No `noopener` in the features string: it makes window.open return null,
+    // which read as "pop-ups blocked" and nothing ever printed.
+    const w = window.open("", "_blank", "width=800,height=900");
     if (!w) {
       toast.error("Allow pop-ups to print.");
       return;

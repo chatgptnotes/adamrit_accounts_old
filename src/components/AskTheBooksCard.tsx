@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { geminiFetch, geminiGenerateContentUrl, GEMINI_MODEL_LITE } from '@/lib/gemini';
+import { ML_COMPANY_KEY, isMlUnlocked } from '@/lib/ml-lock';
 
 // Ask the books in plain language. The AI NEVER writes SQL — it only picks
 // one of these safe templates and its parameters; the client runs the query.
@@ -49,11 +50,13 @@ export async function runTemplate(t: Template): Promise<string> {
   if (t.template === 'day_totals') {
     const { data } = await (supabase as any)
       .from('vouchers')
-      .select('total_amount, voucher_types(voucher_category)')
+      .select('total_amount, voucher_types(voucher_category), companies!vouchers_company_id_fkey(company_key)')
       .eq('voucher_date', t.date)
       .neq('status', 'CANCELLED')
       .limit(3000);
-    const rows = (data || []) as { total_amount: number; voucher_types: { voucher_category: string } | null }[];
+    const rows = ((data || []) as any[]).filter(
+      (r) => isMlUnlocked() || r.companies?.company_key !== ML_COMPANY_KEY,
+    ) as { total_amount: number; voucher_types: { voucher_category: string } | null }[];
     const sum = (c: string) =>
       rows.filter((r) => r.voucher_types?.voucher_category === c)
         .reduce((s, r) => s + Number(r.total_amount || 0), 0);
@@ -61,12 +64,15 @@ export async function runTemplate(t: Template): Promise<string> {
   }
   // party_paid and ledger_activity both resolve a ledger by name and total its entries.
   const name = t.template === 'party_paid' ? t.party : t.ledger;
-  const { data: ledgers } = await (supabase as any)
+  const { data: ledgerRows } = await (supabase as any)
     .from('chart_of_accounts')
-    .select('id, account_name')
+    .select('id, account_name, companies!chart_of_accounts_company_id_fkey(company_key)')
     .ilike('account_name', `%${name}%`)
     .eq('is_active', true)
-    .limit(3);
+    .limit(6);
+  const ledgers = ((ledgerRows || []) as any[])
+    .filter((l) => isMlUnlocked() || l.companies?.company_key !== ML_COMPANY_KEY)
+    .slice(0, 3);
   if (!ledgers?.length) return `No ledger matching "${name}" found.`;
   const parts: string[] = [];
   for (const ledger of ledgers) {

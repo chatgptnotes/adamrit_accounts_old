@@ -103,10 +103,11 @@ export default function RupaliFlow() {
   // applied straight away. Several charges (procedures / patient categories)
   // show as one-tap cards; none configured opens manual entry.
   useEffect(() => {
-    if (step === 4 && !rule && purposes.length === 1) {
+    // Never clobber an amount the user has already started typing (slow rule
+    // load opened manual entry first).
+    if (step === 4 && !rule && purposes.length === 1 && !editingAmount && !amount) {
       setRule(purposes[0]);
       setAmount(String(purposes[0].amount));
-      setEditingAmount(false);
     }
     if (step === 4 && purposes.length === 0 && !editingAmount && !amount) {
       setEditingAmount(true);

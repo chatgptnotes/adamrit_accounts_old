@@ -316,6 +316,7 @@ export default function AccountsTilakFlow() {
  */
 function TilakExpenseBill() {
   const { user, hospitalType } = useAuth();
+  const raiseQueryClient = useQueryClient();
   const [hospital, setHospital] = useState<"hope" | "ayushman">(
     hospitalType === "ayushman" ? "ayushman" : "hope",
   );
@@ -454,6 +455,8 @@ function TilakExpenseBill() {
       setExpense(null);
       setAmount("");
       setNote("");
+      raiseQueryClient.invalidateQueries({ queryKey: ["expense-bills-outstanding"] });
+      raiseQueryClient.invalidateQueries({ queryKey: ["abhishek-outstanding"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Could not raise the bill"),
   });

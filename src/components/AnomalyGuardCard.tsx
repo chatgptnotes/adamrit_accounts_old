@@ -35,7 +35,7 @@ export function AnomalyGuardCard() {
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
 
-  const { data: anomalies = [], isLoading } = useQuery({
+  const { data: anomalies = [], isLoading, isError } = useQuery({
     queryKey: ['voucher-anomalies'],
     queryFn: async (): Promise<Anomaly[]> => {
       const { data, error } = await (supabase as any)
@@ -111,7 +111,11 @@ export function AnomalyGuardCard() {
         {aiSummary && (
           <p className="mb-2 rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm">{aiSummary}</p>
         )}
-        {isLoading ? (
+        {isError ? (
+          <p className="text-sm font-medium text-amber-700">
+            Could not check the anomalies table — this is NOT an all-clear. Try Scan now, or tell Claude.
+          </p>
+        ) : isLoading ? (
           <p className="text-sm text-muted-foreground">Checking…</p>
         ) : anomalies.length === 0 ? (
           <p className="text-sm text-muted-foreground">

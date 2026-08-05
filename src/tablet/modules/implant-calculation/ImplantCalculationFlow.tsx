@@ -76,8 +76,8 @@ export default function ImplantCalculationFlow() {
       const { data, error } = await (supabase as any)
         .from("visits")
         .select("id, visit_id, discharge_date, patients!inner(name, hospital_name), referees(name)")
-        .gte("discharge_date", `${day}T00:00:00`)
-        .lte("discharge_date", `${day}T23:59:59.999`)
+        .gte("discharge_date", new Date(`${day}T00:00:00+05:30`).toISOString())
+        .lte("discharge_date", new Date(`${day}T23:59:59.999+05:30`).toISOString())
         .order("discharge_date");
       if (error) throw error;
       return (data || []) as DischargedRow[];
@@ -158,6 +158,8 @@ export default function ImplantCalculationFlow() {
               onClick={() => {
                 setSettling(null);
                 setDecision(null);
+                setReferee("");
+                setCut("");
                 setSheets([]);
               }}
               disabled={approve.isPending}
@@ -166,7 +168,16 @@ export default function ImplantCalculationFlow() {
             </TabletButton>
             <TabletButton
               className="flex-1"
-              disabled={!decision || approve.isPending || (decision === "REFERRED" && !parseFloat(cut))}
+              disabled={
+                !decision ||
+                approve.isPending ||
+                (decision === "REFERRED" && (!parseFloat(cut) || sheets.length === 0))
+              }
+              title={
+                decision === "REFERRED" && sheets.length === 0
+                  ? "Snap the handwritten calculation sheet first"
+                  : undefined
+              }
               onClick={() => approve.mutate()}
             >
               <Check className="mr-2 h-5 w-5" />
@@ -318,7 +329,14 @@ export default function ImplantCalculationFlow() {
                     <TabletButton
                       size="default"
                       className="min-h-[44px] shrink-0 text-sm"
-                      onClick={() => setSettling(row)}
+                      onClick={() => {
+                        // Fresh panel per patient — nothing carries over.
+                        setDecision(null);
+                        setReferee("");
+                        setCut("");
+                        setSheets([]);
+                        setSettling(row);
+                      }}
                     >
                       Settle
                     </TabletButton>

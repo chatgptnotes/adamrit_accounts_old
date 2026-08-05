@@ -65,7 +65,8 @@ export default function PharmacyDuesAbhishekFlow() {
         .select("id")
         .eq("company_id", paying.company_id)
         .eq("is_active", true)
-        .ilike("account_name", "cash")
+        .or("account_name.ilike.cash,account_group.ilike.%cash-in-hand%")
+        .order("created_at")
         .limit(1);
       if (!cash?.[0]?.id) throw new Error("No Cash ledger found for this company");
       const { data, error } = await (supabase as any).rpc("record_expense_bill_payment", {
@@ -84,6 +85,7 @@ export default function PharmacyDuesAbhishekFlow() {
       setPaying(null);
       setAmount("");
       queryClient.invalidateQueries({ queryKey: ["abhishek-outstanding"] });
+      queryClient.invalidateQueries({ queryKey: ["expense-bills-outstanding"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Payment failed"),
   });

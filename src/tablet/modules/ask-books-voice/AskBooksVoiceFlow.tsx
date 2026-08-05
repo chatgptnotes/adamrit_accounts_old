@@ -24,6 +24,7 @@ export default function AskBooksVoiceFlow() {
   const [typed, setTyped] = useState("");
   const recognitionRef = useRef<any>(null);
   const conversationMode = useRef(false);
+  const busyRef = useRef(false);
 
   useEffect(() => {
     const Recognition =
@@ -40,7 +41,19 @@ export default function AskBooksVoiceFlow() {
       const text = event.results?.[0]?.[0]?.transcript;
       if (text) void handleQuestion(text);
     };
-    recognition.onend = () => setListening(false);
+    recognition.onend = () => {
+      setListening(false);
+      // Silence (no result) ends recognition without a question — restart the
+      // loop so "keeps listening" is actually true in conversation mode.
+      setTimeout(() => {
+        if (conversationMode.current && !busyRef.current && !window.speechSynthesis?.speaking) {
+          try {
+            recognition.start();
+            setListening(true);
+          } catch { /* already started */ }
+        }
+      }, 600);
+    };
     recognition.onerror = (event: any) => {
       setListening(false);
       if (event.error === "not-allowed") {
@@ -92,6 +105,7 @@ export default function AskBooksVoiceFlow() {
     });
 
   const handleQuestion = async (question: string) => {
+    busyRef.current = true;
     setConversation((prev) => [...prev, { who: "you", text: question }]);
     setThinking(true);
     let answer: string;
@@ -106,6 +120,7 @@ export default function AskBooksVoiceFlow() {
     setThinking(false);
     setConversation((prev) => [...prev, { who: "books", text: answer }]);
     await speak(answer);
+    busyRef.current = false;
     // Two-way: after answering, listen for the follow-up.
     if (conversationMode.current) listen();
   };

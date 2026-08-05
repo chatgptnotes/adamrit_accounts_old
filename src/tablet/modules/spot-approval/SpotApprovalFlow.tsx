@@ -246,13 +246,17 @@ export default function SpotApprovalFlow() {
           {backButton}
           <TabletButton
             className="flex-1"
-            disabled={approve.isPending}
+            // Wait for the receipts lookup — approving early would record a
+            // zero deposit for a patient who has actually paid.
+            disabled={approve.isPending || depositLoading}
             onClick={() => approve.mutate()}
           >
             <Check className="mr-2 h-5 w-5" />
             {approve.isPending
               ? "Saving…"
-              : `Approve — up to ₹${spotValue.toLocaleString("en-IN")}`}
+              : depositLoading
+                ? "Checking receipts…"
+                : `Approve — up to ₹${spotValue.toLocaleString("en-IN")}`}
           </TabletButton>
         </div>
       }

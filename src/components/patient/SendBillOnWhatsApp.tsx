@@ -42,7 +42,9 @@ export function SendBillOnWhatsApp({
   const [message, setMessage] = useState('');
 
   const due = Math.max(0, (amount || 0) - (amountPaid || 0));
-  const upi = { amount: due, note: billPaymentNote(billNumber, patientName) };
+  const upi = { amount: due, note: billPaymentNote(billNumber, patientName), hospital };
+  const upiLink = buildUpiLink(upi);
+  const upiQr = buildUpiQrUrl(upi);
   const reachable = Boolean(toWhatsAppNumber(mobile));
 
   const openComposer = () => {
@@ -63,7 +65,8 @@ export function SendBillOnWhatsApp({
   };
 
   const copyLink = async () => {
-    await navigator.clipboard.writeText(buildUpiLink(upi));
+    if (!upiLink) return;
+    await navigator.clipboard.writeText(upiLink);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
     toast.success('UPI payment link copied');
@@ -100,7 +103,7 @@ export function SendBillOnWhatsApp({
               className="font-mono text-xs"
             />
 
-            {due > 0 && (
+            {due > 0 && upiLink && (
               <div className="rounded-lg border bg-slate-50 p-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">
@@ -115,10 +118,10 @@ export function SendBillOnWhatsApp({
                     </Button>
                   </span>
                 </div>
-                {showQr && (
+                {showQr && upiQr && (
                   <div className="mt-3 flex flex-col items-center gap-2">
                     <img
-                      src={buildUpiQrUrl(upi)}
+                      src={upiQr}
                       alt={`UPI QR for ₹${due}`}
                       className="rounded border bg-white p-2"
                       width={200}

@@ -27,7 +27,7 @@ interface ManualVoucher {
 export function ManualVoucherWatchdog() {
   const since = format(subDays(new Date(), 7), 'yyyy-MM-dd');
 
-  const { data: rows = [], isLoading } = useQuery({
+  const { data: rows = [], isLoading, isError } = useQuery({
     queryKey: ['manual-voucher-watchdog', since],
     queryFn: async (): Promise<ManualVoucher[]> => {
       const { data, error } = await (supabase as any)
@@ -68,7 +68,11 @@ export function ManualVoucherWatchdog() {
         </CardTitle>
       </CardHeader>
       <CardContent className="pt-0">
-        {rows.length === 0 && !isLoading ? (
+        {isError ? (
+          <p className="text-sm font-medium text-amber-700">
+            Could not check the vouchers — this is NOT an all-clear.
+          </p>
+        ) : rows.length === 0 && !isLoading ? (
           <p className="text-sm text-muted-foreground">
             Every voucher this week was posted by a tile or trigger. Nothing to explain.
           </p>

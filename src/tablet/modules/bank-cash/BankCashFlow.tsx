@@ -35,18 +35,23 @@ export default function BankCashFlow() {
   const { data: banks = [] } = useQuery({
     queryKey: ["bank-cash-banks", hospital, debounced],
     queryFn: async () => {
+      // Filter by company on the server — a client-side filter after limit()
+      // could drop this hospital's banks entirely.
+      const wanted = hospital === "ayushman" ? "ayushman_nagpur" : "drm_pvt_ltd";
+      const { data: company } = await (supabase as any)
+        .from("companies").select("id").eq("company_key", wanted).single();
       let query = (supabase as any)
         .from("chart_of_accounts")
-        .select("id, account_name, company_id, companies!chart_of_accounts_company_id_fkey(company_key)")
+        .select("id, account_name")
         .eq("is_active", true)
+        .eq("company_id", company.id)
         .or("account_group.ilike.%bank%,account_name.ilike.%bank%")
         .order("account_name")
         .limit(12);
       if (debounced.trim()) query = query.ilike("account_name", `%${debounced.trim()}%`);
       const { data, error } = await query;
       if (error) throw error;
-      const wanted = hospital === "ayushman" ? "ayushman_nagpur" : "drm_pvt_ltd";
-      return ((data || []) as any[]).filter((r) => r.companies?.company_key === wanted);
+      return (data || []) as any[];
     },
   });
 

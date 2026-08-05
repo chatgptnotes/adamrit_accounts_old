@@ -6,6 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { geminiFetch, geminiGenerateContentUrl, GEMINI_MODEL_LITE } from '@/lib/gemini';
+import { ML_COMPANY_KEY, isMlUnlocked } from '@/lib/ml-lock';
 
 // 7-day cash outlook: committed daily obligations vs what a typical day
 // actually collects (14-day average), with an AI one-liner on the risk.
@@ -28,7 +29,7 @@ export function CashFlowForecastCard() {
           .not('notes', 'ilike', 'Created from Daily Allocation%'),
         (supabase as any)
           .from('vouchers')
-          .select('voucher_date, total_amount, voucher_types!inner(voucher_category)')
+          .select('voucher_date, total_amount, voucher_types!inner(voucher_category), companies!vouchers_company_id_fkey(company_key)')
           .eq('voucher_types.voucher_category', 'RECEIPT')
           .gte('voucher_date', since)
           .neq('status', 'CANCELLED')
@@ -37,7 +38,10 @@ export function CashFlowForecastCard() {
       const dailyOut = (obligations || []).reduce(
         (sum: number, o: any) => sum + Number(o.default_daily_amount || 0), 0);
       const byDay = new Map<string, number>();
-      for (const r of receipts || []) {
+      const visibleReceipts = ((receipts || []) as any[]).filter(
+        (r) => isMlUnlocked() || r.companies?.company_key !== ML_COMPANY_KEY,
+      );
+      for (const r of visibleReceipts) {
         byDay.set(r.voucher_date, (byDay.get(r.voucher_date) || 0) + Number(r.total_amount || 0));
       }
       const days = byDay.size || 1;

@@ -124,6 +124,8 @@ export default function QuickPayAvniFlow() {
       } else {
         toast.info("No confident suggestion — pick manually.");
       }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Suggestion failed");
     } finally {
       setSuggesting(false);
     }

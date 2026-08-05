@@ -94,8 +94,9 @@ export default function AkshayPayoutsFlow() {
         .select("id, category, patient_name, purpose_reason, patient_category, amount, paid_voucher_id, created_at")
         .eq("doctor_name", doctor)
         .not("voucher_id", "is", null)
-        .gte("created_at", `${day}T00:00:00`)
-        .lte("created_at", `${day}T23:59:59.999`)
+        // The day as the hospital lives it (IST), not as UTC slices it.
+        .gte("created_at", new Date(`${day}T00:00:00+05:30`).toISOString())
+        .lte("created_at", new Date(`${day}T23:59:59.999+05:30`).toISOString())
         .order("created_at");
       if (error) throw error;
       return (data || []) as ServiceRow[];
@@ -186,17 +187,23 @@ export default function AkshayPayoutsFlow() {
     setUploading(true);
     try {
       const [uploaded] = await uploadVoucherAttachments([files[0]], VOUCHER_PAYMENT_PROOF_CATEGORY);
-      const { error } = await (supabase as any).from("doctor_payment_qr").upsert(
-        { doctor_name: doctor, qr_url: uploaded.fileUrl, updated_by: user?.email || null, updated_at: new Date().toISOString() },
-        { onConflict: "doctor_name" },
-      );
-      if (error) {
-        // Unique index is on lower(name); fall back to update-by-ilike.
-        await (supabase as any)
-          .from("doctor_payment_qr")
-          .update({ qr_url: uploaded.fileUrl, updated_by: user?.email || null })
-          .ilike("doctor_name", doctor);
-      }
+      // The unique index is on lower(btrim(doctor_name)) — an expression — so
+      // upsert(onConflict) cannot target it. Look up first, then update/insert.
+      const { data: existing } = await (supabase as any)
+        .from("doctor_payment_qr")
+        .select("id")
+        .ilike("doctor_name", doctor)
+        .maybeSingle();
+      const write = existing?.id
+        ? (supabase as any)
+            .from("doctor_payment_qr")
+            .update({ qr_url: uploaded.fileUrl, updated_by: user?.email || null, updated_at: new Date().toISOString() })
+            .eq("id", existing.id)
+        : (supabase as any)
+            .from("doctor_payment_qr")
+            .insert({ doctor_name: doctor, qr_url: uploaded.fileUrl, updated_by: user?.email || null });
+      const { error } = await write;
+      if (error) throw new Error(error.message);
       queryClient.invalidateQueries({ queryKey: ["akshay-doctor-qr", doctor] });
       toast.success(`QR saved for ${doctor}.`);
     } catch (e) {
@@ -218,7 +225,8 @@ export default function AkshayPayoutsFlow() {
           `<td style="padding:6px 10px;border:1px solid #999;text-align:right">${rupees(Number(s.amount))}</td></tr>`,
       )
       .join("");
-    const w = window.open("", "_blank", "noopener,width=800,height=900");
+    // No `noopener` here — it makes window.open return null and printing dies.
+    const w = window.open("", "_blank", "width=800,height=900");
     if (!w) {
       toast.error("Allow pop-ups to print.");
       return;

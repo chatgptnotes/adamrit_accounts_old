@@ -52,7 +52,14 @@ export const composeBillMessage = (m: BillMessage): string => {
   if (m.amountPaid) lines.push(`Paid: ${rupees(m.amountPaid)}`);
   if (due > 0) lines.push(`Balance due: ${rupees(due)}`);
   if (m.includePaymentLink && due > 0) {
-    lines.push('', 'Pay securely by UPI:', buildUpiLink({ amount: due, note: billPaymentNote(m.billNumber, m.patientName) }));
+    const upiLink = buildUpiLink({
+      amount: due,
+      note: billPaymentNote(m.billNumber, m.patientName),
+      hospital: m.hospital,
+    });
+    // No configured VPA for this hospital (Ayushman until its own is set) —
+    // omit the link rather than route money to the wrong company.
+    if (upiLink) lines.push('', 'Pay securely by UPI:', upiLink);
   }
   lines.push('', 'Thank you for choosing us.', hospitalLabel(m.hospital));
   return lines.join('\n');
