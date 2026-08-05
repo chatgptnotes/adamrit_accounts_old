@@ -120,6 +120,28 @@ const TallyLedgerCreation: React.FC<{
   const [bankBranch, setBankBranch] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
   const [ifsc, setIfsc] = useState('');
+  // Additional beneficiary accounts beyond the primary bank details.
+  const [beneficiaries, setBeneficiaries] = useState<
+    { holder: string; bank: string; accountNumber: string; ifsc: string }[]
+  >([]);
+
+  // Replace-all persistence: the list is small and not a financial record.
+  const saveBeneficiaries = async (ledgerId: string) => {
+    await (supabase as any).from('ledger_beneficiary_accounts').delete().eq('ledger_id', ledgerId);
+    const rows = beneficiaries
+      .filter((b) => b.accountNumber.trim())
+      .map((b) => ({
+        ledger_id: ledgerId,
+        account_holder: b.holder.trim() || null,
+        bank_name: b.bank.trim() || null,
+        account_number: b.accountNumber.trim(),
+        ifsc: b.ifsc.trim() || null,
+      }));
+    if (rows.length) {
+      const { error } = await (supabase as any).from('ledger_beneficiary_accounts').insert(rows);
+      if (error) throw error;
+    }
+  };
   // Our bank account whose portal has this party saved as a beneficiary —
   // payment screens read it to say which bank the payment goes out from.
   const [beneficiaryBankId, setBeneficiaryBankId] = useState('');
@@ -325,6 +347,21 @@ const TallyLedgerCreation: React.FC<{
     setBankBranch(account.bank_branch ?? '');
     setAccountNumber(account.bank_account_number ?? '');
     setIfsc(account.ifsc_code ?? '');
+    void (supabase as any)
+      .from('ledger_beneficiary_accounts')
+      .select('account_holder, bank_name, account_number, ifsc')
+      .eq('ledger_id', account.id)
+      .order('created_at')
+      .then(({ data }: any) =>
+        setBeneficiaries(
+          (data || []).map((b: any) => ({
+            holder: b.account_holder || '',
+            bank: b.bank_name || '',
+            accountNumber: b.account_number || '',
+            ifsc: b.ifsc || '',
+          })),
+        ),
+      );
     setBeneficiaryBankId(account.beneficiary_of_bank_account_id ?? '');
     setPointOfContact(account.point_of_contact ?? '');
     setPan(account.pan ?? '');
@@ -338,6 +375,7 @@ const TallyLedgerCreation: React.FC<{
 
   const handleClear = (): void => {
     setEditing(null);
+    setBeneficiaries([]);
     setName('');
     setAlias('');
     setUnder('');
@@ -464,6 +502,7 @@ const TallyLedgerCreation: React.FC<{
           })
           .eq('id', editing.id);
         if (error) throw error;
+        await saveBeneficiaries(editing.id);
         toast.success(`Ledger "${trimmed}" altered`);
         queryClient.invalidateQueries();
         handleClear();
@@ -478,6 +517,7 @@ const TallyLedgerCreation: React.FC<{
         ledgerGroupId: under.startsWith(COA_GROUP_PREFIX) ? null : under,
         extras: { ...openingFields, ...detailFields() },
       });
+      await saveBeneficiaries(created.id);
       const uploadedQrCodeUrl = await uploadQrCode(created.id);
       if (uploadedQrCodeUrl) {
         const { error } = await (supabase as any)
@@ -807,6 +847,59 @@ const TallyLedgerCreation: React.FC<{
                     />
                   </div>
                   ))}
+              {provideBank && (
+                <div className="mt-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-gray-600">
+                      More beneficiary accounts
+                    </span>
+                    <button
+                      type="button"
+                      className="border-b border-dashed border-gray-400 px-1 text-xs font-semibold hover:bg-[#fdf6d8]"
+                      onClick={() =>
+                        setBeneficiaries((prev) => [
+                          ...prev,
+                          { holder: '', bank: '', accountNumber: '', ifsc: '' },
+                        ])
+                      }
+                    >
+                      + Add account
+                    </button>
+                  </div>
+                  {beneficiaries.map((b, i) => (
+                    <div key={i} className="mt-0.5 flex items-center gap-1">
+                      {(
+                        [
+                          ['Holder', 'holder'],
+                          ['Bank', 'bank'],
+                          ['A/c no.', 'accountNumber'],
+                          ['IFSC', 'ifsc'],
+                        ] as const
+                      ).map(([ph, field]) => (
+                        <Input
+                          key={field}
+                          value={(b as any)[field]}
+                          placeholder={ph}
+                          onChange={(e) =>
+                            setBeneficiaries((prev) =>
+                              prev.map((row, j) => (j === i ? { ...row, [field]: e.target.value } : row)),
+                            )
+                          }
+                          className="h-7 rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-xs shadow-none focus-visible:ring-0 focus-visible:border-blue-600 focus-visible:border-solid"
+                        />
+                      ))}
+                      <button
+                        type="button"
+                        aria-label="Remove beneficiary account"
+                        className="px-1 text-xs text-red-500"
+                        onClick={() => setBeneficiaries((prev) => prev.filter((_, j) => j !== i))}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <div className="mt-2 flex items-start gap-2">
                 <span className="w-24 shrink-0 pt-1">Payment QR</span>
