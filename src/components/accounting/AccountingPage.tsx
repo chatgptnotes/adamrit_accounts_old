@@ -478,7 +478,11 @@ const AccountingPage: React.FC<{ initialTab?: string }> = ({ initialTab }) => {
           onGoTo={(id) => {
             const item = NAV_ITEMS.find((n) => n.id === id);
             if (item?.route) navigate(item.route);
-            else setActiveTab(id);
+            else {
+              setInitialVoucherCategory(undefined);
+              setInitialVoucherTypeId(undefined);
+              goTo(id);
+            }
           }}
         />
         <div className="flex-1">
