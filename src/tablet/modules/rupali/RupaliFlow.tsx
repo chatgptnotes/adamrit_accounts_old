@@ -108,26 +108,29 @@ export default function RupaliFlow() {
     mutationFn: async () => {
       const finalAmount = parseFloat(amount);
       if (!category || !doctor || !patient) throw new Error("Incomplete entry");
-      if (!purpose) throw new Error("Pick or type the purpose of the visit");
       if (!Number.isFinite(finalAmount) || finalAmount < 0) {
         throw new Error("Enter a valid amount");
       }
-      const { error } = await (supabase as any).from("rupali_visit_logs").insert({
-        category,
-        doctor_id: doctor.id,
-        doctor_name: doctor.name,
-        patient_id: patient.id,
-        patient_name: patient.name,
-        purpose_reason: purpose,
-        amount: finalAmount,
-        created_by: user?.email || user?.id || null,
+      // Posts the register row AND the Journal Voucher (Dr Consultation &
+      // Visit Charges / Cr the doctor's ledger) in the hospital's own
+      // company, atomically.
+      const { data, error } = await (supabase as any).rpc("record_rupali_visit", {
+        p_category: category,
+        p_doctor_id: doctor.id,
+        p_doctor_name: doctor.name,
+        p_patient_id: patient.id,
+        p_patient_name: patient.name,
+        p_purpose: purpose,
+        p_amount: finalAmount,
+        p_hospital_type: hospitalType,
+        p_created_by: user?.email || user?.id || null,
       });
       if (error) throw new Error(error.message);
-      return finalAmount;
+      return { finalAmount, voucherNumber: (data as any)?.voucherNumber as string | undefined };
     },
-    onSuccess: (finalAmount) => {
+    onSuccess: ({ finalAmount, voucherNumber }) => {
       toast.success(
-        `Recorded ₹${finalAmount.toLocaleString("en-IN")} — ${patient?.name}, ${purpose}.`,
+        `Recorded ₹${finalAmount.toLocaleString("en-IN")} — ${patient?.name}, ${purpose}${voucherNumber ? ` (${voucherNumber})` : ""}.`,
       );
       queryClient.invalidateQueries({ queryKey: ["rupali-logs"] });
       // Straight back to step 1 for the next entry.
