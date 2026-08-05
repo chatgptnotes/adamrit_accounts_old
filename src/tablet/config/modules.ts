@@ -204,6 +204,22 @@ export const TABLET_MODULES: TabletModule[] = [
   },
 
   {
+    id: "diagnostics-hope",
+    label: "Diagnostics - Nisha (Hope)",
+    description: "Send patient to outside CT/MRI/lab — posts on DRM Hope",
+    icon: ScanLine,
+    accent: "text-sky-700",
+    tint: "from-sky-500 to-blue-700",
+  },
+  {
+    id: "diagnostics-ayushman",
+    label: "Diagnostics - Chetna (Ayushman)",
+    description: "Send patient to outside CT/MRI/lab — posts on Ayushman",
+    icon: ScanLine,
+    accent: "text-violet-700",
+    tint: "from-violet-500 to-purple-700",
+  },
+  {
     id: "spot-approval",
     label: "Azhar Arpit Suraj Spot",
     description: "Approve on-the-spot referee commission at admission",

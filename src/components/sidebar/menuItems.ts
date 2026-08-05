@@ -358,6 +358,12 @@ export const menuItems: MenuItemDef[] = [
     section: 'masters',
   },
   {
+    title: "Diagnostic Centres",
+    url: "/diagnostic-centre-master",
+    icon: ScanLine,
+    section: 'masters',
+  },
+  {
     title: "OPD/IPD Consultation / Visit Master",
     url: "/rupali-master",
     icon: ClipboardList,
