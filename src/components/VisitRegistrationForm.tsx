@@ -16,6 +16,7 @@ import {
   REGISTRATION_DOCUMENT_CATEGORY,
 } from '@/lib/registrationDocuments';
 import { uploadPatientDocs, usePatientDocs } from '@/tablet/hooks/usePatientDocs';
+import { isYojanaPanel } from '@/lib/yojanaPanel';
 
 interface VisitRegistrationFormProps {
   isOpen: boolean;
@@ -38,6 +39,14 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
   editMode = false,
   defaultPatientType = '',
 }) => {
+  const initialPatientType = defaultPatientType || 'OPD';
+  const initialVisitType = initialPatientType === 'Emergency'
+    ? 'emergency'
+    : initialPatientType === 'IPD'
+      ? 'patient-admission'
+      : initialPatientType === 'Dialysis'
+        ? 'routine-checkup'
+        : 'consultation';
   const [visitDate, setVisitDate] = useState<Date>(new Date());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
@@ -45,7 +54,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
   const navigate = useNavigate();
   
   const [formData, setFormData] = useState({
-    visitType: '',
+    visitType: initialVisitType,
     appointmentWith: '',
     reasonForVisit: '',
     relationWithEmployee: '',
@@ -57,7 +66,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
     thumbRegistrationNo: '',
     yojanaRegistrationId: '',
     treatmentType: '',
-    patientType: defaultPatientType,
+    patientType: initialPatientType,
     wardAllotted: '',
     roomAllotted: '',
     diagnosisId: '',
@@ -710,7 +719,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
 
   const handleCancel = () => {
     setFormData({
-      visitType: '',
+      visitType: initialVisitType,
       appointmentWith: '',
       reasonForVisit: '',
       relationWithEmployee: '',
@@ -719,7 +728,10 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
       relationshipManager: '',
       claimId: '',
       cardNo: '',
-      patientType: '',
+      thumbRegistrationNo: '',
+      yojanaRegistrationId: '',
+      treatmentType: '',
+      patientType: initialPatientType,
       wardAllotted: '',
       roomAllotted: '',
       diagnosisId: '',
@@ -742,7 +754,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
             {editMode ? 'Edit Visit' : 'Register New Visit'}
           </DialogTitle>
           <p className="text-sm text-muted-foreground">
-            Patient: {patient.name} {patient.patients_id ? `(${patient.patients_id})` : ''} IPD
+            Patient: {patient.name} {patient.patients_id ? `(${patient.patients_id})` : ''} {formData.patientType}
           </p>
         </DialogHeader>
 

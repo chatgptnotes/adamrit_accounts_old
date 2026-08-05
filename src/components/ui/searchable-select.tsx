@@ -85,6 +85,7 @@ export function SearchableSelect({
     <Popover open={open && !disabled} onOpenChange={(o) => !disabled && setOpen(o)}>
       <PopoverTrigger asChild>
         <Button
+          type="button"
           variant="outline"
           role="combobox"
           aria-expanded={open}
