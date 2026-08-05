@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Mic, MicOff, Volume2 } from "lucide-react";
+import { Mic, MicOff, Send, Volume2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { aiPickTemplate, runTemplate } from "@/components/AskTheBooksCard";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
+import { TabletInput } from "@/tablet/ui/TabletInput";
 
 // Two-way voice over the same safe Ask-the-books templates: speech-to-text
 // via the browser's recognition engine, the answer read back aloud, then it
@@ -20,6 +21,7 @@ export default function AskBooksVoiceFlow() {
   const [speaking, setSpeaking] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [conversation, setConversation] = useState<Turn[]>([]);
+  const [typed, setTyped] = useState("");
   const recognitionRef = useRef<any>(null);
   const conversationMode = useRef(false);
 
@@ -170,6 +172,30 @@ export default function AskBooksVoiceFlow() {
                 ? "Checking the books…"
                 : 'Tap Start and ask, e.g. "how much did we pay Noble this month?"'}
         </p>
+        <div className="flex gap-2">
+          <TabletInput
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && typed.trim()) {
+                void handleQuestion(typed.trim());
+                setTyped("");
+              }
+            }}
+            placeholder="…or type your question"
+          />
+          <TabletButton
+            size="default"
+            className="min-h-[44px]"
+            disabled={!typed.trim() || thinking}
+            onClick={() => {
+              void handleQuestion(typed.trim());
+              setTyped("");
+            }}
+          >
+            <Send className="h-5 w-5" />
+          </TabletButton>
+        </div>
         <div className="space-y-2">
           {conversation.slice(-8).map((turn, index) => (
             <TabletCard
