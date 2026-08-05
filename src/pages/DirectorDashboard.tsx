@@ -25,6 +25,7 @@ import { HospitalOverviewSplit } from '@/components/HospitalOverviewSplit';
 import { DepartmentActivityMonitor } from '@/components/DepartmentActivityMonitor';
 import { DirectorProjectLauncher } from '@/components/DirectorProjectLauncher';
 import { DailyRevenueReportSection } from '@/components/DailyRevenueReportSection';
+import { ManualVoucherWatchdog } from '@/components/ManualVoucherWatchdog';
 import { DirectorFinancialStatements } from '@/components/DirectorFinancialStatements';
 import { GovernmentPortalGeneralMedicalSection } from '@/components/GovernmentPortalGeneralMedicalSection';
 import {
@@ -365,6 +366,7 @@ export default function DirectorDashboard() {
         </CardContent>
       </Card>
 
+      <ManualVoucherWatchdog />
       <DailyRevenueReportSection />
       <DailyRevenueReportSection
         defaultPatientType="IPD"
