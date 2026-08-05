@@ -354,22 +354,21 @@ export async function createDoctorApprovalsFromOt(ot: {
     }
     const rate = isPrivate ? 'private' : 'panel'
 
-    // Surgeon: Surgery Fees master matched on procedure name or tag; the
-    // owner's default rate when no row matches.
+    // Surgeon: match the package name first, then the exact Yojana surgery
+    // name. Keywords are intentionally search-only and do not determine a
+    // payable amount. The owner's default rate is used when no row matches.
     let surgeonAmount = SURGEON_DEFAULT_FEE[rate]
     try {
       const surgeryName = (ot.surgery_name || '').trim()
       if (surgeryName) {
         const { data: feeRows } = await (supabase as any)
           .from('surgery_fee_master')
-          .select('procedure_name, tags, panel_rate, private_rate')
+          .select('procedure_name, yojana_surgery_name, panel_rate, private_rate')
           .eq('is_active', true)
         const lowerName = surgeryName.toLowerCase()
-        const fee = (feeRows || []).find(
-          (row: any) =>
-            row.procedure_name.toLowerCase() === lowerName ||
-            (row.tags || []).some((tag: string) => tag.toLowerCase() === lowerName),
-        )
+        const fee =
+          (feeRows || []).find((row: any) => row.procedure_name?.trim().toLowerCase() === lowerName) ||
+          (feeRows || []).find((row: any) => row.yojana_surgery_name?.trim().toLowerCase() === lowerName)
         const masterAmount = Number(isPrivate ? fee?.private_rate : fee?.panel_rate) || 0
         if (masterAmount > 0) surgeonAmount = masterAmount
       }

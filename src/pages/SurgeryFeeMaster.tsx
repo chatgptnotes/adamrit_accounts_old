@@ -10,16 +10,17 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
-// Surgery Fees Payable — what the hospital pays the surgeon per procedure,
-// decided beforehand: one PANEL rate (Yojana/corporate) and one PRIVATE
-// rate. The procedure comes from the surgery master; the tag list carries
-// related surgery names and corporate package names that map to the same
-// row. The surgeon's system-generated invoice takes its amount from here.
+// Package Fees Payable — what the hospital pays the surgeon per package,
+// decided beforehand: one YOJANA rate and one PRIVATE rate. The existing
+// procedure_name column is retained as the stored package name for backwards
+// compatibility. The surgeon's system-generated invoice takes its amount
+// from here.
 
 interface FeeRow {
   id: string;
   procedure_name: string;
   surgery_id: string | null;
+  yojana_surgery_name: string | null;
   tags: string[];
   panel_rate: number | null;
   private_rate: number | null;
@@ -30,12 +31,13 @@ interface Draft {
   id: string | null;
   procedure_name: string;
   surgery_id: string | null;
+  yojana_surgery_name: string;
   tags: string[];
   panel_rate: string;
   private_rate: string;
 }
 
-const EMPTY: Draft = { id: null, procedure_name: '', surgery_id: null, tags: [], panel_rate: '', private_rate: '' };
+const EMPTY: Draft = { id: null, procedure_name: '', surgery_id: null, yojana_surgery_name: '', tags: [], panel_rate: '', private_rate: '' };
 // A fee nobody has decided must not look like a decision — the OT bill
 // auto-fill reads these, and a seeded placeholder would be paid as if real.
 const money = (v: number | null) =>
@@ -45,7 +47,7 @@ const SurgeryFeeMaster = () => {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [procSearch, setProcSearch] = useState('');
+  const [showProcedureSuggestions, setShowProcedureSuggestions] = useState(false);
   const [tagInput, setTagInput] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -62,15 +64,17 @@ const SurgeryFeeMaster = () => {
     },
   });
 
-  // The surgery master feeds the procedure picker — never free-typed.
+  // Existing surgery-master suggestions remain available, but package names
+  // may also be entered manually when they are not in that master.
   const { data: surgeries = [] } = useQuery({
-    queryKey: ['surgery-fee-procedures', procSearch],
-    enabled: !!draft && procSearch.trim().length >= 2,
+    queryKey: ['surgery-fee-procedures', draft?.procedure_name || ''],
+    enabled: !!draft && draft.procedure_name.trim().length >= 2,
     queryFn: async () => {
+      const packageSearch = draft?.procedure_name.trim() || '';
       const { data, error } = await supabase
         .from('cghs_surgery')
         .select('id, name, code')
-        .ilike('name', `%${procSearch.trim()}%`)
+        .ilike('name', `%${packageSearch}%`)
         .limit(10);
       if (error) throw error;
       return data || [];
@@ -83,6 +87,7 @@ const SurgeryFeeMaster = () => {
     return rows.filter(
       (r) =>
         r.procedure_name.toLowerCase().includes(q) ||
+        (r.yojana_surgery_name || '').toLowerCase().includes(q) ||
         r.tags.some((t) => t.toLowerCase().includes(q)),
     );
   }, [rows, search]);
@@ -99,7 +104,7 @@ const SurgeryFeeMaster = () => {
   const save = async () => {
     if (!draft) return;
     if (!draft.procedure_name.trim()) {
-      toast.error('Pick the procedure from the surgery master');
+      toast.error('Enter a package name');
       return;
     }
     if (!(Number(draft.panel_rate) > 0) && !(Number(draft.private_rate) > 0)) {
@@ -111,6 +116,7 @@ const SurgeryFeeMaster = () => {
       const fields = {
         procedure_name: draft.procedure_name.trim(),
         surgery_id: draft.surgery_id,
+        yojana_surgery_name: draft.yojana_surgery_name.trim() || null,
         tags: draft.tags,
         panel_rate: Number(draft.panel_rate) > 0 ? Number(draft.panel_rate) : null,
         private_rate: Number(draft.private_rate) > 0 ? Number(draft.private_rate) : null,
@@ -140,89 +146,102 @@ const SurgeryFeeMaster = () => {
   };
 
   return (
-    <div className="space-y-4 p-4 md:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Scissors className="h-6 w-6 text-primary" />
+    <div className="space-y-3 p-3 md:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Scissors className="h-5 w-5 shrink-0 text-primary" />
           <div>
-            <h1 className="text-2xl font-bold">Surgery Fees Payable</h1>
-            <p className="text-sm text-muted-foreground">
-              What the surgeon is paid per procedure — panel and private rates, decided beforehand.
+            <h1 className="text-xl font-bold tracking-tight">Package Fees Payable</h1>
+            <p className="text-xs text-muted-foreground">
+              What the surgeon is paid per package — Yojana and private amounts, decided beforehand.
               The surgeon's invoice takes its amount from here.
             </p>
           </div>
         </div>
-        <Button onClick={() => { setDraft({ ...EMPTY }); setProcSearch(''); setTagInput(''); }}>
-          <Plus className="mr-2 h-4 w-4" /> Add procedure fee
+        <Button onClick={() => { setDraft({ ...EMPTY }); setShowProcedureSuggestions(false); setTagInput(''); }}>
+          <Plus className="mr-1.5 h-4 w-4" /> Add package fee
         </Button>
       </div>
 
       <Input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search by procedure or tag…"
-        className="max-w-md"
+        placeholder="Search by package, Yojana surgery name or keyword…"
+        className="h-9 max-w-lg"
       />
 
-      <Card>
-        <CardContent className="pt-4">
+      <Card className="overflow-hidden">
+        <CardContent className="p-0">
           {isLoading ? (
             <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
-          ) : visible.length === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">
-              No fee rows yet — add the procedures the surgeons are paid for.
-            </p>
           ) : (
-            <Table>
+            <div className="overflow-x-auto">
+            <Table className="min-w-[980px] table-fixed">
               <TableHeader>
-                <TableRow>
-                  <TableHead>Procedure name</TableHead>
-                  <TableHead>Tags (related surgeries & corporate packages)</TableHead>
-                  <TableHead className="text-right">Panel rate</TableHead>
-                  <TableHead className="text-right">Private rate</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                <TableRow className="bg-muted/40 hover:bg-muted/40">
+                  <TableHead className="h-9 w-[21%] px-3 text-xs font-semibold">Package name</TableHead>
+                  <TableHead className="h-9 w-[28%] px-3 text-xs font-semibold">Surgery name as per Yojana</TableHead>
+                  <TableHead className="h-9 w-[22%] px-3 text-xs font-semibold">Keywords</TableHead>
+                  <TableHead className="h-9 w-[11%] px-3 text-right text-xs font-semibold">Yojana amount</TableHead>
+                  <TableHead className="h-9 w-[11%] px-3 text-right text-xs font-semibold">Private amount</TableHead>
+                  <TableHead className="h-9 w-[7%] px-3 text-right text-xs font-semibold">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {visible.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="font-medium">{row.procedure_name}</TableCell>
-                    <TableCell>
-                      <div className="flex max-w-md flex-wrap gap-1">
+                {visible.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
+                      No packages yet — click “Add package fee” to create the first row.
+                    </TableCell>
+                  </TableRow>
+                ) : visible.map((row) => (
+                  <TableRow key={row.id} className="h-14 hover:bg-muted/20">
+                    <TableCell className="px-3 py-2 align-middle text-sm font-medium">
+                      <div className="line-clamp-2 leading-tight" title={row.procedure_name}>{row.procedure_name}</div>
+                    </TableCell>
+                    <TableCell className="px-3 py-2 align-middle text-sm">
+                      <div className="line-clamp-2 leading-tight" title={row.yojana_surgery_name || undefined}>{row.yojana_surgery_name || <span className="text-xs text-muted-foreground">—</span>}</div>
+                    </TableCell>
+                    <TableCell className="px-3 py-2 align-middle">
+                      <div className="flex max-w-full flex-wrap gap-1">
                         {row.tags.length ? row.tags.map((t) => (
-                          <span key={t} className="rounded-full bg-muted px-2 py-0.5 text-xs">{t}</span>
+                          <span key={t} className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] leading-none">{t}</span>
                         )) : <span className="text-xs text-muted-foreground">—</span>}
                       </div>
                     </TableCell>
-                    <TableCell className={`text-right font-mono ${row.panel_rate == null ? 'text-amber-600' : ''}`}>
+                    <TableCell className={`whitespace-nowrap px-3 py-2 text-right align-middle font-mono text-sm ${row.panel_rate == null ? 'text-amber-600' : ''}`}>
                       {money(row.panel_rate)}
                     </TableCell>
-                    <TableCell className={`text-right font-mono ${row.private_rate == null ? 'text-amber-600' : ''}`}>
+                    <TableCell className={`whitespace-nowrap px-3 py-2 text-right align-middle font-mono text-sm ${row.private_rate == null ? 'text-amber-600' : ''}`}>
                       {money(row.private_rate)}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" onClick={() => {
+                    <TableCell className="px-3 py-2 text-right align-middle">
+                      <div className="flex justify-end gap-0.5">
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
                         setDraft({
                           id: row.id,
                           procedure_name: row.procedure_name,
                           surgery_id: row.surgery_id,
+                          yojana_surgery_name: row.yojana_surgery_name || '',
                           tags: row.tags,
                           panel_rate: row.panel_rate != null ? String(row.panel_rate) : '',
                           private_rate: row.private_rate != null ? String(row.private_rate) : '',
                         });
-                        setProcSearch('');
+                        setShowProcedureSuggestions(false);
                         setTagInput('');
                       }}>
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="sm" className="text-destructive" onClick={() => void remove(row)}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => void remove(row)}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -230,22 +249,23 @@ const SurgeryFeeMaster = () => {
       <Dialog open={!!draft} onOpenChange={(open) => !open && setDraft(null)}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{draft?.id ? `Edit ${draft.procedure_name}` : 'Add procedure fee'}</DialogTitle>
+            <DialogTitle>{draft?.id ? `Edit ${draft.procedure_name}` : 'Add package fee'}</DialogTitle>
           </DialogHeader>
           {draft && (
             <div className="space-y-3">
               <div className="space-y-1">
-                <Label>Procedure (search the surgery master)</Label>
+                <Label>Package name</Label>
                 <div className="relative">
                   <Input
-                    value={procSearch || draft.procedure_name}
+                    value={draft.procedure_name}
+                    onPointerDown={() => setShowProcedureSuggestions(true)}
+                    onBlur={() => window.setTimeout(() => setShowProcedureSuggestions(false), 150)}
                     onChange={(e) => {
-                      setProcSearch(e.target.value);
-                      setDraft({ ...draft, procedure_name: '', surgery_id: null });
+                      setDraft({ ...draft, procedure_name: e.target.value, surgery_id: null });
                     }}
-                    placeholder="Type to search the 2,000+ surgery master…"
+                    placeholder="Type a package name…"
                   />
-                  {procSearch.trim().length >= 2 && surgeries.length > 0 && (
+                  {showProcedureSuggestions && draft.procedure_name.trim().length >= 2 && surgeries.length > 0 && (
                     <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-52 overflow-y-auto rounded-md border bg-background shadow-lg">
                       {surgeries.map((sg: any) => (
                         <button
@@ -255,7 +275,7 @@ const SurgeryFeeMaster = () => {
                           onPointerDown={(e) => {
                             e.preventDefault();
                             setDraft({ ...draft, procedure_name: sg.name, surgery_id: sg.id });
-                            setProcSearch('');
+                            setShowProcedureSuggestions(false);
                           }}
                         >
                           {sg.name}
@@ -267,7 +287,15 @@ const SurgeryFeeMaster = () => {
                 </div>
               </div>
               <div className="space-y-1">
-                <Label>Tags — related surgery names & corporate package names</Label>
+                <Label>Surgery name as per Yojana</Label>
+                <Input
+                  value={draft.yojana_surgery_name}
+                  onChange={(e) => setDraft({ ...draft, yojana_surgery_name: e.target.value })}
+                  placeholder="Enter the exact Yojana surgery name…"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Keywords</Label>
                 <div className="flex gap-2">
                   <Input
                     value={tagInput}
@@ -290,11 +318,11 @@ const SurgeryFeeMaster = () => {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <Label>Panel rate (₹) — Yojana / corporate</Label>
+                  <Label>Yojana amount (₹)</Label>
                   <Input type="number" inputMode="decimal" value={draft.panel_rate} onChange={(e) => setDraft({ ...draft, panel_rate: e.target.value })} />
                 </div>
                 <div className="space-y-1">
-                  <Label>Private rate (₹)</Label>
+                  <Label>Private amount (₹)</Label>
                   <Input type="number" inputMode="decimal" value={draft.private_rate} onChange={(e) => setDraft({ ...draft, private_rate: e.target.value })} />
                 </div>
               </div>
@@ -302,7 +330,7 @@ const SurgeryFeeMaster = () => {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDraft(null)} disabled={saving}>Cancel</Button>
-            <Button onClick={() => void save()} disabled={saving}>{draft?.id ? 'Save changes' : 'Add to master'}</Button>
+            <Button onClick={() => void save()} disabled={saving}>{draft?.id ? 'Save changes' : 'Add package'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
