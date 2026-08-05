@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, ReactNode } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { canAccessReferralRegister } from "@/lib/referralRegisterAccess";
+import { setOverride } from "@/lib/device-class";
 import ProtectedFinalBillRoute from "@/components/invoice/ProtectedFinalBillRoute";
 import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
 
@@ -185,6 +186,17 @@ const PageLoader = () => (
     <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
   </div>
 );
+
+// The Rupali register is a tablet module. Opening its URL on a PC switches
+// into the tablet edition (same as the header's "Tablet view" button) and
+// reloads the same URL, which the tablet router then serves.
+const RupaliTabletRedirect = () => {
+  useEffect(() => {
+    setOverride("tablet");
+    window.location.assign("/rupali-register");
+  }, []);
+  return <PageLoader />;
+};
 
 // Thin wrapper that gives DeadlineDashboard a Back button bound to the router.
 const DeadlineTrackingRoute = () => {
@@ -413,6 +425,7 @@ export const AppRoutes = () => {
         <Route path="/surgery-fee-master" element={<Suspense fallback={<PageLoader />}><SurgeryFeeMaster /></Suspense>} />
         <Route path="/cathlab-technician-master" element={<Suspense fallback={<PageLoader />}><CathLabTechnicianMaster /></Suspense>} />
         <Route path="/rupali-master" element={<Suspense fallback={<PageLoader />}><RupaliMaster /></Suspense>} />
+        <Route path="/rupali-register" element={<RupaliTabletRedirect />} />
         <Route path="/panel-portal" element={<Suspense fallback={<PageLoader />}><PanelPortalUploads /></Suspense>} />
         <Route path="/panel-portal/:panelName" element={<Suspense fallback={<PageLoader />}><PanelPortalUploads /></Suspense>} />
         <Route path="/payment-voucher" element={<Suspense fallback={<PageLoader />}><PaymentVoucher /></Suspense>} />
