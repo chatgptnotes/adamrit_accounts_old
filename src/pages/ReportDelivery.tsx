@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { MessageCircle, Send, CheckCircle, Clock, Search, Phone, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
+import { composeReportReadyMessage, openWhatsApp } from '@/lib/patient-whatsapp';
 
 // DATA SOURCE: lab_results with result_status=final grouped by patient → bulk WhatsApp delivery tracking
 
@@ -73,7 +74,7 @@ export default function ReportDelivery() {
     setSending(prev => ({ ...prev, [report.patient_id]: true }));
     try {
       const testsStr = report.tests.slice(0, 5).join(', ');
-      const message = `Dear ${report.patient_name}, your lab reports for ${testsStr} are ready at Hope Hospital. Please collect from the lab counter or visit our patient portal. Thank you.`;
+      const message = composeReportReadyMessage(report.patient_name, `lab reports for ${testsStr}`);
       const mobile = report.mobile.replace(/\D/g, '');
 
       const { error } = await supabase.functions.invoke('send-whatsapp-report', {
@@ -86,8 +87,11 @@ export default function ReportDelivery() {
       });
 
       if (error) {
-        // Fall back to wa.me link
-        window.open(`https://wa.me/91${mobile}?text=${encodeURIComponent(message)}`, '_blank');
+        // Fall back to opening the chat pre-filled
+        if (!openWhatsApp(report.mobile, message)) {
+          toast.error(`Mobile number for ${report.patient_name} is not usable for WhatsApp.`);
+          return;
+        }
         toast.success(`WhatsApp opened for ${report.patient_name}`);
       } else {
         toast.success(`Report sent to ${report.patient_name}`);

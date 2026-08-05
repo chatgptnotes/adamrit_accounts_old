@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { MessageCircle, Loader2 } from 'lucide-react';
+import { composeReportReadyMessage, openWhatsApp } from '@/lib/patient-whatsapp';
 
 interface Props {
   patientName: string;
@@ -33,8 +34,8 @@ export function WhatsAppReportButton({
   const handleSend = async () => {
     setSending(true);
     try {
-      const testsStr = testNames.length > 0 ? testNames.slice(0, 5).join(', ') : 'your recent tests';
-      const message = `Dear ${patientName}, your lab report for ${testsStr} is ready. Please collect from the lab counter or view it at the patient portal. — Hope Hospital`;
+      const testsStr = testNames.length > 0 ? testNames.slice(0, 5).join(', ') : 'recent tests';
+      const message = composeReportReadyMessage(patientName, `lab report for ${testsStr}`);
 
       // Try the whatsapp edge function; fall back gracefully
       const { error } = await supabase.functions.invoke('send-whatsapp-report', {
@@ -42,10 +43,13 @@ export function WhatsAppReportButton({
       });
 
       if (error) {
-        // Edge function may not exist yet — show instructions
-        const waLink = `https://wa.me/91${mobile.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
-        window.open(waLink, '_blank');
-        toast.success('Opened WhatsApp with pre-filled message');
+        // Edge function may not exist yet — open the chat pre-filled instead
+        if (openWhatsApp(mobile, message)) {
+          toast.success('Opened WhatsApp with pre-filled message');
+        } else {
+          toast.error('Patient mobile number is not usable for WhatsApp.');
+          return;
+        }
       } else {
         toast.success(`Report notification sent to ${mobile}`);
       }

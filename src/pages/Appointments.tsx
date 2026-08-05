@@ -8,8 +8,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Calendar, Clock, User, Phone, CheckCircle, X, AlertCircle } from 'lucide-react';
-import { format, addMinutes, getDay } from 'date-fns';
+import { Calendar, Clock, User, Phone, CheckCircle, X, AlertCircle, MessageCircle } from 'lucide-react';
+import { format, addMinutes, getDay, parseISO } from 'date-fns';
+import { composeAppointmentReminder, openWhatsApp } from '@/lib/patient-whatsapp';
 
 // DATA SOURCE: appointments → doctor_id + appointment_date
 
@@ -93,14 +94,26 @@ function StatusBadge({ status }: { status: Appointment['status'] }) {
 
 function AppointmentRow({
   appt,
+  doctorName,
   onStatusChange,
   isUpdating,
 }: {
   appt: Appointment;
+  doctorName: string | null;
   onStatusChange: (id: string, status: Appointment['status']) => void;
   isUpdating: boolean;
 }) {
   const canConfirm = appt.status === 'scheduled';
+  const canRemind =
+    (appt.status === 'scheduled' || appt.status === 'confirmed') && Boolean(appt.patient_mobile);
+
+  const sendReminder = () => {
+    const whenLabel = `${format(parseISO(appt.appointment_date), 'dd MMM yyyy')} at ${appt.time_slot}`;
+    const message = composeAppointmentReminder(appt.patient_name, whenLabel, doctorName);
+    if (!openWhatsApp(appt.patient_mobile, message)) {
+      toast.error('This patient has no usable mobile number on record.');
+    }
+  };
   const canComplete = appt.status === 'confirmed';
   const canNoShow = appt.status === 'scheduled' || appt.status === 'confirmed';
   const canCancel = appt.status === 'scheduled' || appt.status === 'confirmed';
@@ -135,6 +148,18 @@ function AppointmentRow({
 
       {/* Actions */}
       <div className="flex items-center gap-1.5 flex-wrap">
+        {canRemind && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs px-2 text-green-700 border-green-200 hover:bg-green-50"
+            onClick={sendReminder}
+            title="Send an appointment reminder on WhatsApp"
+          >
+            <MessageCircle className="w-3 h-3 mr-1" />
+            Remind
+          </Button>
+        )}
         {canConfirm && (
           <Button
             size="sm"
@@ -636,6 +661,7 @@ const Appointments = () => {
                   <AppointmentRow
                     key={appt.id}
                     appt={appt}
+                    doctorName={doctors.find(d => d.id === appt.doctor_id)?.name ?? null}
                     onStatusChange={handleStatusChange}
                     isUpdating={statusMutation.isPending}
                   />
