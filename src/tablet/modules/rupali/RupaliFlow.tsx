@@ -62,19 +62,24 @@ export default function RupaliFlow() {
     },
   });
 
-  // Every active doctor from this hospital's consultant master, so the flow
-  // never depends on the Rupali Master being filled in first.
+  // One doctor master for BOTH hospitals (Ruby's rule: the master is shared,
+  // only the patient differs). Merge the two consultant tables and dedupe by
+  // name; which company the entry posts into still follows the login.
   const { data: doctors = [], isLoading: rulesLoading } = useQuery({
-    queryKey: ["rupali-doctors", hospitalType],
+    queryKey: ["rupali-doctors"],
     queryFn: async (): Promise<{ id: string | null; name: string }[]> => {
-      const table =
-        hospitalType === "ayushman" ? "ayushman_consultants" : "hope_consultants";
-      const { data, error } = await supabase
-        .from(table)
-        .select("id, name")
-        .order("name", { ascending: true });
-      if (error) throw error;
-      return (data || []) as { id: string; name: string }[];
+      const [hope, ayushman] = await Promise.all([
+        supabase.from("hope_consultants").select("id, name"),
+        supabase.from("ayushman_consultants").select("id, name"),
+      ]);
+      const seen = new Map<string, { id: string | null; name: string }>();
+      for (const row of [...(hope.data || []), ...(ayushman.data || [])]) {
+        const name = String(row.name || "").trim();
+        if (!name) continue;
+        const key = name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+        if (!seen.has(key)) seen.set(key, { id: row.id, name });
+      }
+      return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
     },
   });
 
