@@ -19,3 +19,9 @@ docs
 scripts/*
 !scripts/check-finalbill-locked.cjs
 !scripts/finalbill-baseline.sha256
+!scripts/check-registration-locked.cjs
+!scripts/registration-baseline.json
+!scripts/check-expensebill-locked.cjs
+!scripts/expensebill-baseline.json
+!scripts/check-accounting-locked.cjs
+!scripts/accounting-baseline.json
