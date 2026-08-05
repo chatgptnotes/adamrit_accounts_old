@@ -7,8 +7,10 @@ import { supabase } from '@/integrations/supabase/client';
 // the voucher is drawn from the bank that can actually transfer to the party.
 
 export interface BeneficiaryBank {
-  bankAccountId: string;
-  bankName: string;
+  bankAccountId: string | null;
+  bankName: string | null;
+  /** Optional payment QR stored on the selected ledger master. */
+  qrCodeUrl: string | null;
 }
 
 /**
@@ -29,7 +31,7 @@ export function useBeneficiaryBank(opts: {
     queryFn: async () => {
       let query = (supabase as any)
         .from('chart_of_accounts')
-        .select('id, beneficiary_of_bank_account_id')
+        .select('id, beneficiary_of_bank_account_id, ledger_qr_code_url')
         .limit(1);
       // % and _ are wildcards to ilike — a ledger literally named with them
       // would match other parties. Escape so the name matches itself only.
@@ -43,15 +45,17 @@ export function useBeneficiaryBank(opts: {
         console.warn('Beneficiary bank lookup failed:', error.message);
         return null;
       }
-      const bankId = data?.beneficiary_of_bank_account_id;
-      if (!bankId) return null;
+      if (!data) return null;
+      const bankId = data.beneficiary_of_bank_account_id;
+      const qrCodeUrl = data.ledger_qr_code_url || null;
+      if (!bankId) return { bankAccountId: null, bankName: null, qrCodeUrl };
       const { data: bank, error: bankError } = await (supabase as any)
         .from('chart_of_accounts')
         .select('id, account_name')
         .eq('id', bankId)
         .maybeSingle();
-      if (bankError || !bank) return null;
-      return { bankAccountId: bank.id, bankName: bank.account_name };
+      if (bankError || !bank) return { bankAccountId: null, bankName: null, qrCodeUrl };
+      return { bankAccountId: bank.id, bankName: bank.account_name, qrCodeUrl };
     },
   });
 }

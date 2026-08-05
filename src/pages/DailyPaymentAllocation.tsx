@@ -2460,7 +2460,7 @@ ${sectionsHtml}
                   {payDebitLedgerId && (
                     <>
                       <p className="mt-1 text-xs text-green-700">Selected: {payDebitLedgerName || payDebitLedgerId}</p>
-                      <BeneficiaryBankHint accountId={payDebitLedgerId} onUseBank={useBeneficiaryBankAsCredit} />
+                      <BeneficiaryBankHint accountId={payDebitLedgerId} onUseBank={useBeneficiaryBankAsCredit} showPaymentQr />
                     </>
                   )}
                 </div>
@@ -2639,7 +2639,7 @@ ${sectionsHtml}
                 {payDebitLedgerId && (
                   <>
                     <p className="mt-1 text-xs text-green-700">Selected: {payDebitLedgerName || payDebitLedgerId}</p>
-                    <BeneficiaryBankHint accountId={payDebitLedgerId} onUseBank={useBeneficiaryBankAsCredit} />
+                    <BeneficiaryBankHint accountId={payDebitLedgerId} onUseBank={useBeneficiaryBankAsCredit} showPaymentQr />
                   </>
                 )}
               </div>
