@@ -56,13 +56,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } else {
     const email = text(req.body?.email);
     const password = text(req.body?.password);
-    const hospitalType = text(req.body?.hospitalType) || 'ayushman';
+    const hospitalType = text(req.body?.hospitalType);
     const isStaffPin = !email && password.startsWith('@') && password.length === 5;
-    const query = isStaffPin
-      ? sb.from('User').select('id,email,role,hospital_type,password,employee_id').eq('staff_pin', password.slice(1)).eq('hospital_type', hospitalType).maybeSingle()
-      : sb.from('User').select('id,email,role,hospital_type,password,employee_id').ilike('email', email).maybeSingle();
-    const result = await query;
-    row = result.data;
+    let query = sb.from('User').select('id,email,role,hospital_type,password,employee_id');
+    if (isStaffPin) {
+      query = query.eq('staff_pin', password.slice(1));
+      if (hospitalType) query = query.eq('hospital_type', hospitalType);
+    } else {
+      query = query.ilike('email', email);
+      if (hospitalType) query = query.eq('hospital_type', hospitalType);
+    }
+
+    const result = await query.order('created_at', { ascending: false }).limit(1);
+    row = result.data?.[0] || null;
     if (!row) return res.status(401).json({ error: 'invalid_credentials' });
     if (!isStaffPin) {
       const stored = String(row.password || '');

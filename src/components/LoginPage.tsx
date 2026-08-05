@@ -5,21 +5,32 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useAuth } from '@/contexts/AuthContext';
+import { HOSPITAL_CONFIGS, HospitalType } from '@/types/hospital';
 import { Eye, EyeOff } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface LoginFormData {
   email: string;
   password: string;
 }
 
+interface LoginPageProps {
+  hospitalType?: HospitalType | null;
+}
+
 // Staff quick-login: blank email + @XXXX password
 const isStaffPinLogin = (email: string, password: string) =>
   !email.trim() && password.startsWith('@') && password.length === 5;
 
-const LoginPage: React.FC = () => {
+const LoginPage: React.FC<LoginPageProps> = ({ hospitalType }) => {
   const [formData, setFormData] = useState<LoginFormData>({
     email: '',
     password: ''
+  });
+  const [selectedHospitalType, setSelectedHospitalType] = useState<HospitalType>(() => {
+    const saved = localStorage.getItem('hmis_selected_hospital');
+    if (saved === 'hope' || saved === 'ayushman') return saved;
+    return hospitalType ?? 'hope';
   });
   
   const [showPassword, setShowPassword] = useState(false);
@@ -28,6 +39,13 @@ const LoginPage: React.FC = () => {
   
   const { login, loginWithGoogle } = useAuth();
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+
+  React.useEffect(() => {
+    if (hospitalType) {
+      setSelectedHospitalType(hospitalType);
+      localStorage.setItem('hmis_selected_hospital', hospitalType);
+    }
+  }, [hospitalType]);
 
   const handleInputChange = (field: keyof LoginFormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -51,7 +69,8 @@ const LoginPage: React.FC = () => {
     try {
       const success = await login({
         email: formData.email,
-        password: formData.password
+        password: formData.password,
+        hospitalType: selectedHospitalType
       });
 
       if (!success) {
@@ -81,6 +100,29 @@ const LoginPage: React.FC = () => {
                 <AlertDescription className="text-red-700">{error}</AlertDescription>
               </Alert>
             )}
+
+            <div className="space-y-2">
+              <Label htmlFor="hospital">Hospital</Label>
+              <Select
+                value={selectedHospitalType}
+                onValueChange={(value) => {
+                  setSelectedHospitalType(value as HospitalType);
+                  localStorage.setItem('hmis_selected_hospital', value);
+                  setError(null);
+                }}
+              >
+                <SelectTrigger id="hospital">
+                  <SelectValue placeholder="Select hospital" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.values(HOSPITAL_CONFIGS) as Array<(typeof HOSPITAL_CONFIGS)[HospitalType]>).map((hospital) => (
+                    <SelectItem key={hospital.id} value={hospital.id}>
+                      {hospital.fullName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>

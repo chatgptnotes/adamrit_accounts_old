@@ -274,7 +274,10 @@ const AppContent = () => {
   const userRole = user?.role?.toLowerCase().trim() || '';
   const canSeePharmacy = ['superadmin', 'super_admin', 'admin', 'pharmacy', 'pharmacist'].includes(userRole);
   const pendingPrescriptionsCount = usePendingPrescriptionCount(isAuthenticated && canSeePharmacy);
-  const [selectedHospitalType, setSelectedHospitalType] = React.useState<HospitalType | null>(null);
+  const [selectedHospitalType, setSelectedHospitalType] = React.useState<HospitalType | null>(() => {
+    const saved = localStorage.getItem('hmis_selected_hospital');
+    return saved === 'hope' || saved === 'ayushman' ? (saved as HospitalType) : null;
+  });
   // Role-based redirect is handled by RoleRedirect component inside BrowserRouter (no page reloads)
 
   // Show loading while auth state is being restored from localStorage
@@ -304,10 +307,12 @@ const AppContent = () => {
     setShowLanding(true);
     setShowHospitalSelection(false);
     setSelectedHospitalType(null);
+    localStorage.removeItem('hmis_selected_hospital');
   };
 
   const handleHospitalSelect = (hospitalType: HospitalType) => {
     setSelectedHospitalType(hospitalType);
+    localStorage.setItem('hmis_selected_hospital', hospitalType);
     setShowHospitalSelection(false);
   };
 
@@ -362,7 +367,7 @@ const AppContent = () => {
 
   // Show database login page after hospital selection
   if (!isAuthenticated && selectedHospitalType) {
-    return <LoginPage />;
+    return <LoginPage hospitalType={selectedHospitalType} />;
   }
 
   // Fallback: Show hospital selection if no hospital is selected
