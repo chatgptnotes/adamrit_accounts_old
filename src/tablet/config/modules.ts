@@ -204,6 +204,14 @@ export const TABLET_MODULES: TabletModule[] = [
   },
 
   {
+    id: "spot-approval",
+    label: "Azhar Arpit Suraj Spot",
+    description: "Approve on-the-spot referee commission at admission",
+    icon: Wallet,
+    accent: "text-emerald-700",
+    tint: "from-emerald-500 to-teal-700",
+  },
+  {
     id: "rupali-register",
     label: "Rupali",
     description: "OPD / IPD / procedure visit register",
