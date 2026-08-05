@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
+import { openStoredDocument } from '@/lib/openStoredDocument';
 import {
   Banknote, CalendarClock, FileText, Filter, Loader2, Paperclip, Plus, Receipt, Search, Users, X,
 } from 'lucide-react';
@@ -749,10 +750,11 @@ function BillTable({
                 <TableCell>
                   <span className="inline-flex flex-col gap-0.5">
                     {b.documentUrl ? (
-                      <a href={b.documentUrl} target="_blank" rel="noreferrer"
+                      <button type="button"
+                        onClick={() => { void openStoredDocument(b.documentUrl!).catch((e) => toast.error(e.message)); }}
                         className="inline-flex items-center gap-1 text-primary hover:underline">
                         <Paperclip className="h-3.5 w-3.5" /> Invoice
-                      </a>
+                      </button>
                     ) : '—'}
                     {b.signedVoucherUrl && (
                       <a href={b.signedVoucherUrl} target="_blank" rel="noreferrer"

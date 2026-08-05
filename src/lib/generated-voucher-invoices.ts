@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { printSpecialistInvoice } from '@/lib/printSpecialistInvoice';
+import { openStoredDocument } from '@/lib/openStoredDocument';
 
 /**
  * The invoice behind a voucher that the SYSTEM generated — as opposed to one
@@ -29,7 +30,7 @@ export interface GeneratedInvoiceRef {
 
 export const openGeneratedInvoice = async (ref: GeneratedInvoiceRef): Promise<void> => {
   if (ref.url) {
-    window.open(ref.url, '_blank', 'noopener');
+    await openStoredDocument(ref.url);
     return;
   }
   if (ref.approvalId) await printSpecialistInvoice(ref.approvalId);

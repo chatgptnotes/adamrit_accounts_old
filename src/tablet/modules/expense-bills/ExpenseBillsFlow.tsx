@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Camera, FileText, Loader2, Paperclip, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { openStoredDocument } from "@/lib/openStoredDocument";
 import {
   Select,
   SelectContent,
@@ -117,15 +118,19 @@ function OutstandingList({ onPay }: { onPay: (bill: OutstandingBill) => void }) 
               {b.paid > 0 ? ` · paid ${rupees(b.paid)}` : ""}
             </span>
             {b.documentUrl && (
-              <a
-                href={b.documentUrl}
-                target="_blank"
-                rel="noreferrer"
+              <button
+                type="button"
+                onClick={(e) => {
+                  // The card itself opens the payment sheet — viewing the
+                  // invoice should not also start a payment.
+                  e.stopPropagation();
+                  void openStoredDocument(b.documentUrl!).catch((err) => toast.error(err.message));
+                }}
                 className="flex items-center gap-1 font-medium text-primary"
               >
                 <Paperclip className="h-3.5 w-3.5" />
                 Invoice
-              </a>
+              </button>
             )}
           </div>
         </TabletCard>
