@@ -33,7 +33,7 @@ interface RefereeLedger {
  * 5,000 by default, raisable to 8,000 and never beyond.
  */
 export default function SpotApprovalFlow() {
-  const { user } = useAuth();
+  const { user, hospitalType } = useAuth();
   const queryClient = useQueryClient();
 
   const [step, setStep] = useState(1);
@@ -102,29 +102,32 @@ export default function SpotApprovalFlow() {
       const spot = parseFloat(maxSpot);
       const collect = depositToCollect.trim() === "" ? null : parseFloat(depositToCollect);
       if (!ledger || !patient) throw new Error("Incomplete approval");
-      if (!Number.isFinite(spot) || spot < 0 || spot > MAX_SPOT) {
-        throw new Error(`Maximum spot must be between 0 and ${MAX_SPOT.toLocaleString("en-IN")}`);
+      if (!Number.isFinite(spot) || spot <= 0 || spot > MAX_SPOT) {
+        throw new Error(`Maximum spot must be between 1 and ${MAX_SPOT.toLocaleString("en-IN")}`);
       }
       if (collect !== null && (!Number.isFinite(collect) || collect < 0)) {
         throw new Error("Enter a valid deposit amount to collect");
       }
-      const { error } = await (supabase as any).from("spot_payment_approvals").insert({
-        referee_ledger_id: ledger.id,
-        referee_ledger_name: ledger.account_name,
-        patient_id: patient.id,
-        patient_name: patient.name,
-        visit_id: deposit?.visitId ?? null,
-        deposit_paid: deposit?.amount ?? 0,
-        deposit_to_collect: collect,
-        max_spot: spot,
-        approved_by: user?.email || user?.id || null,
+      // One call records the approval AND posts the M.L. Enterprises implant
+      // invoice on the hospital plus the sale + referee-commission journals
+      // in ML's books — the same machinery as the revenue-report cuts.
+      const { data, error } = await (supabase as any).rpc("record_spot_approval", {
+        p_referee_ledger_id: ledger.id,
+        p_patient_id: patient.id,
+        p_patient_name: patient.name,
+        p_visit_id: deposit?.visitId ?? null,
+        p_deposit_paid: deposit?.amount ?? 0,
+        p_deposit_to_collect: collect,
+        p_max_spot: spot,
+        p_hospital_type: hospitalType,
+        p_approved_by: user?.email || user?.id || null,
       });
       if (error) throw new Error(error.message);
-      return spot;
+      return { spot, invoice: (data as any)?.invoiceNumber as string | undefined };
     },
-    onSuccess: (spot) => {
+    onSuccess: ({ spot, invoice }) => {
       toast.success(
-        `Spot approved — ${ledger?.account_name} for ${patient?.name}, up to ₹${spot.toLocaleString("en-IN")}.`,
+        `Spot approved — ${ledger?.account_name} for ${patient?.name}, up to ₹${spot.toLocaleString("en-IN")}${invoice ? ` (invoice ${invoice})` : ""}.`,
       );
       queryClient.invalidateQueries({ queryKey: ["spot-approvals"] });
       setStep(1);
