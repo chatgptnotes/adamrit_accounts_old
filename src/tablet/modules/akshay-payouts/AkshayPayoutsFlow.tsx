@@ -13,6 +13,7 @@ import {
   linkVoucherAttachments,
   uploadVoucherAttachments,
 } from "@/lib/voucher-attachments";
+import { fileToBase64, verifyPaymentProof } from "@/lib/accounting-ai";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
@@ -158,6 +159,20 @@ export default function AkshayPayoutsFlow() {
       toast.success(
         mode === "CASH" ? "Signed voucher uploaded." : "Payment screenshot uploaded.",
       );
+      // AI check: does the screenshot actually show this payment?
+      if (mode === "QR" && files[0].type.startsWith("image/") && doctor) {
+        const expected = payments.reduce((s, p) => s + Number(p.amount), 0);
+        const { base64, mimeType } = await fileToBase64(files[0]);
+        const verdict = await verifyPaymentProof(base64, mimeType, expected, doctor);
+        if (verdict && !verdict.matches) {
+          toast.warning(
+            `AI check: screenshot shows ${verdict.amount_seen != null ? `₹${verdict.amount_seen.toLocaleString("en-IN")}` : "no clear amount"}, voucher is ₹${expected.toLocaleString("en-IN")}. ${verdict.note}`,
+            { duration: 12000 },
+          );
+        } else if (verdict?.matches) {
+          toast.success("AI check: screenshot matches the voucher amount.");
+        }
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Upload failed");
     } finally {
