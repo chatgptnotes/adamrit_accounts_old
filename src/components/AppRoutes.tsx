@@ -151,6 +151,7 @@ const DailyPaymentAllocation = lazy(() => import("../pages/DailyPaymentAllocatio
 const SalarySheet = lazy(() => import("../pages/SalarySheet"));
 const SurgeryFeeMaster = lazy(() => import("../pages/SurgeryFeeMaster"));
 const CathLabTechnicianMaster = lazy(() => import("../pages/CathLabTechnicianMaster"));
+const RupaliMaster = lazy(() => import("../pages/RupaliMaster"));
 const PanelPortalUploads = lazy(() => import("../pages/PanelPortalUploads"));
 const PaymentVoucher = lazy(() => import("../pages/PaymentVoucher"));
 const QueueManagement = lazy(() => import("../pages/QueueManagement"));
@@ -411,6 +412,7 @@ export const AppRoutes = () => {
         <Route path="/salary-sheet" element={<Suspense fallback={<PageLoader />}><SalarySheet /></Suspense>} />
         <Route path="/surgery-fee-master" element={<Suspense fallback={<PageLoader />}><SurgeryFeeMaster /></Suspense>} />
         <Route path="/cathlab-technician-master" element={<Suspense fallback={<PageLoader />}><CathLabTechnicianMaster /></Suspense>} />
+        <Route path="/rupali-master" element={<Suspense fallback={<PageLoader />}><RupaliMaster /></Suspense>} />
         <Route path="/panel-portal" element={<Suspense fallback={<PageLoader />}><PanelPortalUploads /></Suspense>} />
         <Route path="/panel-portal/:panelName" element={<Suspense fallback={<PageLoader />}><PanelPortalUploads /></Suspense>} />
         <Route path="/payment-voucher" element={<Suspense fallback={<PageLoader />}><PaymentVoucher /></Suspense>} />

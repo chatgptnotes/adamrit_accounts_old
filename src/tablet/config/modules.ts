@@ -204,6 +204,14 @@ export const TABLET_MODULES: TabletModule[] = [
   },
 
   {
+    id: "rupali-register",
+    label: "Rupali",
+    description: "OPD / IPD / procedure visit register",
+    icon: ClipboardList,
+    accent: "text-fuchsia-700",
+    tint: "from-fuchsia-400 to-pink-600",
+  },
+  {
     id: "requisition",
     label: "Requisition",
     description: "Raise lab / radiology / store",

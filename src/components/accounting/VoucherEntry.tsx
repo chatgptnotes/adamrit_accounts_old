@@ -27,6 +27,7 @@ import QuickLedgerPopup from './tally/QuickLedgerPopup';
 import { TallyChoiceField, TallyPopup, TallyTextField } from './tally/TallyPopup';
 import { TallyConfirm } from './tally/TallyConfirm';
 import { useCostCentres } from './CostCentres';
+import { LedgerAutocomplete, type LedgerAccountOption } from './LedgerAutocomplete';
 import { useAccountingRights } from './tally/rights';
 import { useAccountingCompany } from './AccountingCompanyContext';
 import { useVoucherActions } from '@/hooks/useVoucherActions';
@@ -623,9 +624,65 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
       setAccount(null);
       setPartLines([newParticularsLine()]);
       setJournalLines([newJournalLine('Dr'), newJournalLine('Cr')]);
+      setObExpense(null);
+      setObPayTo('');
+      setObAmount('');
     }
     previousCompanyId.current = selectedCompanyId;
   }, [selectedCompanyId]);
+
+  // ------ On Behalf Of (DRM Hope <-> Ayushman cross-company payment) ------
+  // The counterpart is derived from the selected company, so the checkbox
+  // label flips by itself when the company changes. Only the two hospitals
+  // pay each other's expenses — pharmacy, the legacy partnership and M.L.
+  // Enterprises stay out of it.
+  const [onBehalf, setOnBehalf] = useState(false);
+  const [obExpense, setObExpense] = useState<LedgerAccountOption | null>(null);
+  const [obPayTo, setObPayTo] = useState('');
+  const [obAmount, setObAmount] = useState('');
+
+  const onBehalfCounterpart = useMemo(() => {
+    const identity = (c: { company_key: string; company_name: string }) =>
+      `${c.company_key} ${c.company_name}`.toLowerCase();
+    const self = companies.find((c) => c.id === selectedCompanyId);
+    if (!self) return null;
+    const selfIdentity = identity(self);
+    const isDrm = selfIdentity.includes('drm');
+    const isAyushman = selfIdentity.includes('ayushman');
+    if (!isDrm && !isAyushman) return null;
+    return (
+      companies.find((c) => {
+        const other = identity(c);
+        return isDrm ? other.includes('ayushman') : other.includes('drm');
+      }) ?? null
+    );
+  }, [companies, selectedCompanyId]);
+
+  // "Pay To" offers every name the hospital pays salary to (HRPulse payroll,
+  // newest months first) plus the OT staff roster.
+  const { data: obStaffNames = [] } = useQuery({
+    queryKey: ['on_behalf_staff_names'],
+    enabled: onBehalf,
+    staleTime: 300000,
+    queryFn: async (): Promise<string[]> => {
+      const [payroll, ot] = await Promise.all([
+        (supabase as any)
+          .from('hr_payroll_slips')
+          .select('employee_name')
+          .order('payroll_month', { ascending: false })
+          .limit(1000),
+        (supabase as any).from('staff_members').select('name').limit(500),
+      ]);
+      const names = new Set<string>();
+      for (const row of payroll.data || []) {
+        if (row.employee_name?.trim()) names.add(row.employee_name.trim());
+      }
+      for (const row of ot.data || []) {
+        if (row.name?.trim()) names.add(row.name.trim());
+      }
+      return Array.from(names).sort((a, b) => a.localeCompare(b));
+    },
+  });
 
   const partLedgerRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const partAmountRefs = useRef<Record<number, HTMLInputElement | null>>({});
@@ -1012,6 +1069,9 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     ? (typeChanged ? generatedVoucherNumber : loadedNumber)
     : voucherNumberOverride || generatedVoucherNumber;
   const singleMode = forceJournal ? undefined : SINGLE_ACCOUNT_MODES[category];
+  // The On Behalf Of fields replace Particulars only on a fresh Payment
+  // voucher between the two hospitals.
+  const obActive = onBehalf && !!onBehalfCounterpart && category === 'PAYMENT' && !alterMode;
   const voucherAccounts = useMemo(() => {
     if (singleMode) {
       return [
@@ -1324,6 +1384,60 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     return data as string;
   };
 
+  // ------ On Behalf Of: both companies post in one database call ------
+  const saveOnBehalf = async () => {
+    if (!onBehalfCounterpart) return;
+    const amount = parseFloat(obAmount);
+    if (!account) {
+      toast.error('Select the cash or bank ledger the payment goes out of.');
+      return;
+    }
+    if (!obExpense) {
+      toast.error(`Select the expense ledger ${onBehalfCounterpart.company_name} books this under.`);
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error('Enter the amount paid.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const { data, error } = await (supabase as any).rpc('create_on_behalf_payment', {
+        p_paying_company_id: selectedCompanyId,
+        p_behalf_company_id: onBehalfCounterpart.id,
+        p_credit_account_id: account.id,
+        p_expense_account_id: obExpense.id,
+        p_amount: amount,
+        p_voucher_date: voucherDate,
+        p_pay_to: obPayTo.trim() || null,
+        p_narration: narration.trim() || null,
+        p_user: username,
+      });
+      if (error) {
+        toast.error('Failed to save the on-behalf payment: ' + error.message);
+        return;
+      }
+      const result = (data || {}) as {
+        paymentVoucherNumber?: string;
+        journalVoucherNumber?: string;
+      };
+      toast.success(
+        `Payment ${result.paymentVoucherNumber || ''} saved — journal ${result.journalVoucherNumber || ''} posted in ${onBehalfCounterpart.company_name}.`,
+      );
+      queryClient.invalidateQueries({ queryKey: ['vouchers'] });
+      queryClient.invalidateQueries({ queryKey: ['daybook_vouchers'] });
+      queryClient.invalidateQueries({ queryKey: ['ledger_entries'] });
+      setBalances({});
+      setOnBehalf(false);
+      setObExpense(null);
+      setObPayTo('');
+      setObAmount('');
+      resetForm();
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // ------ Save voucher (draft or posted) ------
   const saveVoucher = async (status: 'draft' | 'posted') => {
     if (!selectedCompanyId) {
@@ -1332,6 +1446,12 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     }
     if (!selectedVoucherType) {
       toast.error('Select a voucher type.');
+      return;
+    }
+    if (onBehalf && onBehalfCounterpart && category === 'PAYMENT' && !alterMode) {
+      // Both sides post as AUTHORISED in one transaction; there is no draft
+      // half-state where one company has the entry and the other does not.
+      await saveOnBehalf();
       return;
     }
     const validEntries = buildEntries();
@@ -1951,13 +2071,86 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
               <span className="px-1 font-mono not-italic">{account ? balanceLabel(accountBalance) : ''}</span>
             </div>
 
+            {/* On Behalf Of — the other hospital's expense, paid from here */}
+            {category === 'PAYMENT' && !alterMode && onBehalfCounterpart && (
+              <label className="mt-2 flex w-fit cursor-pointer items-center gap-2 text-[13px] font-semibold">
+                <input
+                  type="checkbox"
+                  checked={onBehalf}
+                  onChange={(e) => setOnBehalf(e.target.checked)}
+                  className="h-3.5 w-3.5 accent-[#16437e]"
+                />
+                On Behalf Of {onBehalfCounterpart.company_name}
+              </label>
+            )}
+            {obActive && onBehalfCounterpart && (
+              <div className="mt-2 space-y-2 border border-gray-400 bg-[#f7fafd] p-3">
+                <div className="flex items-center gap-2">
+                  <span className="w-36 shrink-0 font-semibold">Expense Ledger</span>
+                  <span>:</span>
+                  <div className="w-full max-w-md">
+                    <LedgerAutocomplete
+                      value={obExpense}
+                      onChange={setObExpense}
+                      companyId={onBehalfCounterpart.id}
+                      placeholder={`Expense ledger in ${onBehalfCounterpart.company_name} — type to search`}
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-36 shrink-0 font-semibold">Pay To</span>
+                  <span>:</span>
+                  <Input
+                    data-tally-field
+                    list="ob-staff-names"
+                    value={obPayTo}
+                    onChange={(e) => setObPayTo(e.target.value)}
+                    placeholder="Staff member — type to search"
+                    className="h-7 w-full max-w-md rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-[13px] shadow-none focus-visible:border-solid focus-visible:border-blue-600 focus-visible:ring-0"
+                  />
+                  <datalist id="ob-staff-names">
+                    {obStaffNames.map((name) => (
+                      <option key={name} value={name} />
+                    ))}
+                  </datalist>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-36 shrink-0 font-semibold">Amount</span>
+                  <span>:</span>
+                  <Input
+                    data-tally-field
+                    type="number"
+                    inputMode="decimal"
+                    value={obAmount}
+                    onChange={(e) => setObAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="h-7 w-44 rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-right font-mono text-[13px] shadow-none focus-visible:border-solid focus-visible:border-blue-600 focus-visible:ring-0"
+                  />
+                </div>
+                <p className="text-xs italic text-gray-500">
+                  Saves here as{' '}
+                  <span className="font-mono not-italic">
+                    Dr {onBehalfCounterpart.company_name} / Cr {account?.account_name || 'Cash-Bank'}
+                  </span>
+                  , and posts a journal in {onBehalfCounterpart.company_name}:{' '}
+                  <span className="font-mono not-italic">
+                    Dr {obExpense?.account_name || 'Expense'} / Cr{' '}
+                    {companies.find((c) => c.id === selectedCompanyId)?.company_name || 'this company'}
+                  </span>
+                  . Both appear in each company's Day Book; deleting the payment removes the journal too.
+                </p>
+              </div>
+            )}
+
             {/* Particulars */}
-            {!alterMode && (
+            {!alterMode && !obActive && (
               <p className="mt-3 text-xs italic text-gray-500">
                 Patient receipts and advances are entered on the Final Bill page, not
                 here, so the bill and the discharge know they have been paid.
               </p>
             )}
+            {!obActive && (
+            <>
             <div className="mt-3 flex items-center justify-between border-y border-gray-400 bg-[#f0f4fa] px-2 py-0.5">
               <span className="font-bold">Particulars</span>
               <span className="pr-9 font-bold">Amount</span>
@@ -2048,6 +2241,8 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
             <div className="mt-1 flex justify-end border-t border-gray-400 pr-8 pt-0.5">
               <span className="font-mono font-bold">{partTotal > 0 ? fmtINR(partTotal) : ''}</span>
             </div>
+            </>
+            )}
           </>
         ) : (
           <>
