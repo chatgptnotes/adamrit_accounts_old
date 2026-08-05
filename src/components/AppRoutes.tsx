@@ -381,9 +381,9 @@ export const AppRoutes = () => {
         <Route path="/final-bill/:visitId" element={<ProtectedFinalBillRoute><Suspense fallback={<PageLoader />}><FinalBill /></Suspense></ProtectedFinalBillRoute>} />
         <Route path="/no-deduction-letter/:visitId" element={<NoDeductionLetterPage />} />
         <Route path="/edit-final-bill/:visitId" element={<ProtectedFinalBillRoute><Suspense fallback={<PageLoader />}><EditFinalBill /></Suspense></ProtectedFinalBillRoute>} />
-        <Route path="/old-bills/:visitId" element={<ProtectedFinalBillRoute><Suspense fallback={<PageLoader />}><OldBills /></Suspense></ProtectedFinalBillRoute>} />
-        <Route path="/old-bills" element={<Suspense fallback={<PageLoader />}><OldBills /></Suspense>} />
-        <Route path="/view-bill/:billId" element={<Suspense fallback={<PageLoader />}><ViewBill /></Suspense>} />
+        <Route path="/old-bills/:visitId" element={<ProtectedFinalBillRoute><Suspense fallback={<PageLoader />}><MlPinGate><OldBills /></MlPinGate></Suspense></ProtectedFinalBillRoute>} />
+        <Route path="/old-bills" element={<Suspense fallback={<PageLoader />}><MlPinGate><OldBills /></MlPinGate></Suspense>} />
+        <Route path="/view-bill/:billId" element={<Suspense fallback={<PageLoader />}><MlPinGate><ViewBill /></MlPinGate></Suspense>} />
         <Route path="/financial-summary" element={<Suspense fallback={<PageLoader />}><FinancialSummary /></Suspense>} />
         <Route path="/p2form/:visitId" element={<Suspense fallback={<PageLoader />}><P2Form /></Suspense>} />
         <Route path="/lab-print-demo" element={<Suspense fallback={<PageLoader />}><LabPrintDemo /></Suspense>} />
