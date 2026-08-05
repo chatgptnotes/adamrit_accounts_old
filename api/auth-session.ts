@@ -64,7 +64,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         query = query.eq('staff_pin', password.slice(1));
         if (scopeHospitalType) query = query.eq('hospital_type', scopeHospitalType);
       } else {
-        query = query.ilike('email', email);
+        query = email.includes('@')
+          ? query.ilike('email', email)
+          : query.ilike('email', `${email}@%`);
         if (scopeHospitalType) query = query.eq('hospital_type', scopeHospitalType);
       }
       return query.order('created_at', { ascending: false }).limit(1);
