@@ -86,6 +86,11 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
     () => import("@/tablet/modules/doctor-notes/DoctorNotesFlow"),
   ),
   dialysis: lazy(() => import("@/tablet/modules/dialysis/DialysisFlow")),
+  "dialysis-rakesh": lazy(() => import("@/tablet/modules/dialysis-rakesh/DialysisRakeshFlow")),
+  "dialysis-billing": lazy(() => import("@/tablet/modules/dialysis-billing/DialysisBillingFlow")),
+  "dialysis-front-office": lazy(
+    () => import("@/tablet/modules/dialysis-front-office/DialysisFrontOfficeFlow"),
+  ),
   "ot-schedule-gaurav": lazy(
     () => import("@/tablet/modules/ot-schedule/OtScheduleFlow"),
   ),
