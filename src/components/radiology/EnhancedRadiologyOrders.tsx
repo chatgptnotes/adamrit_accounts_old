@@ -38,6 +38,10 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { format } from 'date-fns';
 import { RadiologyResultDialog } from './RadiologyResultDialog';
+import {
+  RadiologyImageReportDialog,
+  type RadiologyImageReportTarget,
+} from './RadiologyImageReportDialog';
 
 interface EnhancedRadiologyOrdersProps {
   onBack?: () => void;
@@ -63,6 +67,8 @@ const EnhancedRadiologyOrders: React.FC<EnhancedRadiologyOrdersProps> = ({ onBac
   // Dialog states
   const [resultDialogOpen, setResultDialogOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  const [imageReportTarget, setImageReportTarget] =
+    useState<RadiologyImageReportTarget | null>(null);
 
   // Fetch real radiology orders data
   const { data: radiologyOrders = [], isLoading, error, refetch } = useQuery({
@@ -173,6 +179,13 @@ const EnhancedRadiologyOrders: React.FC<EnhancedRadiologyOrdersProps> = ({ onBac
             orderDate: item.ordered_date ? new Date(item.ordered_date).toLocaleString() : 'Unknown Date',
             icon: isFirstOrderForVisit ? (patient?.gender === 'Male' ? '👨‍⚕️' : '👩‍⚕️') : '',
             visitId: item.visit_id,
+            // Carried on every row (not only the group header) so View Image
+            // can find the patient's uploads from whichever order was clicked.
+            patientUuid: item.visits?.patient_id || null,
+            patientDisplayName: patient?.name || 'Unknown Patient',
+            patientCode: patient?.patients_id || null,
+            patientAge: patient?.age ?? null,
+            patientGender: patient?.gender ?? null,
             findings: item.findings,
             impression: item.impression,
             notes: item.notes,
@@ -262,8 +275,24 @@ const EnhancedRadiologyOrders: React.FC<EnhancedRadiologyOrdersProps> = ({ onBac
     }
   };
 
+  // The images the Sonali tile uploads against the patient, plus the AI draft
+  // report the radiologist reviews and approves. This used to be an empty
+  // stub, which is why the button appeared to do nothing.
   const handleViewDICOM = (orderId: string) => {
-    // DICOM viewer functionality will be implemented
+    const order = (radiologyOrders || []).find((o: any) => o.id === orderId);
+    if (!order) return;
+    setImageReportTarget({
+      orderId: order.id,
+      patientUuid: order.patientUuid ?? null,
+      patientName: order.patientDisplayName || order.patientName || 'Patient',
+      patientCode: order.patientCode ?? null,
+      patientAge: order.patientAge ?? null,
+      patientGender: order.patientGender ?? null,
+      visitId: order.visitId ?? null,
+      serviceName: order.service ?? null,
+      findings: order.findings ?? null,
+      impression: order.impression ?? null,
+    });
   };
 
   const resetToCurrentMonth = () => {
@@ -551,6 +580,15 @@ const EnhancedRadiologyOrders: React.FC<EnhancedRadiologyOrdersProps> = ({ onBac
           }}
         />
       )}
+
+      {/* View Image → the patient's uploaded scans, AI draft, approve & file */}
+      <RadiologyImageReportDialog
+        target={imageReportTarget}
+        onClose={() => {
+          setImageReportTarget(null);
+          void refetch();
+        }}
+      />
     </div>
   );
 };
