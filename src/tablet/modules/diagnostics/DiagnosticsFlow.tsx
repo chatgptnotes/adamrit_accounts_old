@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, Check, ChevronLeft, FileText, Printer, TestTube } from "lucide-react";
+import { useDebounce } from "use-debounce";
+import { Building2, Check, ChevronLeft, FileText, Plus, Printer, TestTube } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -12,6 +13,7 @@ import { TabletPatientPicker } from "@/tablet/components/TabletPatientPicker";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletInput, TabletLabel } from "@/tablet/ui/TabletInput";
+import { ceilingError, searchMasterTests } from "@/lib/diagnostics/masterTests";
 
 // DATA SOURCE: diagnostic_centres + diagnostic_centre_tests (master)
 //   -> record_diagnostic_referral -> expense_bills (JV) -> pay later
@@ -59,6 +61,7 @@ export default function DiagnosticsFlow() {
   const [patient, setPatient] = useState<Patient | null>(null);
   const [testSearch, setTestSearch] = useState("");
   const [picked, setPicked] = useState<CentreTest[]>([]);
+  const [rateDraft, setRateDraft] = useState<{ name: string; amount: string } | null>(null);
   const [done, setDone] = useState<{ invoiceNumber: string; amount: number } | null>(null);
 
   const { data: centres = [] } = useQuery({
@@ -87,6 +90,39 @@ export default function DiagnosticsFlow() {
       if (error) throw error;
       return (data || []) as CentreTest[];
     },
+  });
+
+  const [debouncedTestSearch] = useDebounce(testSearch, 250);
+  const { data: masterMatches = [] } = useQuery({
+    queryKey: ["diagnostics-master-test-search", debouncedTestSearch],
+    enabled: !!centre && debouncedTestSearch.trim().length >= 2,
+    queryFn: () => searchMasterTests(debouncedTestSearch, 10),
+  });
+
+  // Adding a rate the centre did not have yet: it goes on the centre's card in
+  // the master, so the next referral picks it up with the amount filled in.
+  const addRate = useMutation({
+    mutationFn: async ({ name, amount }: { name: string; amount: number }): Promise<CentreTest> => {
+      if (!centre) throw new Error("Pick a centre first");
+      if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter the amount");
+      const breach = ceilingError(name, amount);
+      if (breach) throw new Error(breach);
+      const { data, error } = await (supabase as any)
+        .from("diagnostic_centre_tests")
+        .insert({ centre_id: centre.id, test_name: name, amount })
+        .select("id, test_name, amount")
+        .single();
+      if (error) throw new Error(error.message);
+      return data as CentreTest;
+    },
+    onSuccess: (row) => {
+      setPicked((prev) => [...prev, row]);
+      setRateDraft(null);
+      setTestSearch("");
+      queryClient.invalidateQueries({ queryKey: ["diagnostic-centre-tests", centre?.id] });
+      toast.success(`${row.test_name} added at ${rupees(Number(row.amount))}.`);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not save the rate"),
   });
 
   const total = useMemo(() => picked.reduce((s, t) => s + Number(t.amount || 0), 0), [picked]);
@@ -312,6 +348,10 @@ export default function DiagnosticsFlow() {
   const visibleTests = tests.filter((t) =>
     t.test_name.toLowerCase().includes(testSearch.trim().toLowerCase()),
   );
+  // Anything the centre has no rate for yet is searched in the hospital's own
+  // radiology / lab master; the rate typed here joins the centre's card.
+  const configured = new Set(tests.map((t) => t.test_name.trim().toLowerCase()));
+  const fromMaster = masterMatches.filter((m) => !configured.has(m.name.trim().toLowerCase()));
   return (
     <FlowScaffold
       step={3}
@@ -337,7 +377,7 @@ export default function DiagnosticsFlow() {
         <TabletInput
           value={testSearch}
           onChange={(e) => setTestSearch(e.target.value)}
-          placeholder="Search the centre's tests…"
+          placeholder="Search a CT / MRI / lab test…"
         />
         <div className="grid gap-2">
           {visibleTests.map((t) => {
@@ -363,13 +403,73 @@ export default function DiagnosticsFlow() {
               </TabletCard>
             );
           })}
-          {tests.length === 0 && (
+          {tests.length === 0 && !testSearch.trim() && (
             <p className="py-4 text-center text-muted-foreground">
-              No tests configured for {centre?.name} yet — add them in the Diagnostic Centre
-              Master with their amounts.
+              {centre?.name} has no rate card yet — search a test above to add one.
             </p>
           )}
         </div>
+
+        {fromMaster.length > 0 && (
+          <div className="space-y-2">
+            <TabletLabel>
+              From the radiology / lab master — set what {centre?.name} is paid
+            </TabletLabel>
+            {fromMaster.map((m) => {
+              const drafting = rateDraft?.name === m.name;
+              const breach = drafting ? ceilingError(m.name, parseFloat(rateDraft!.amount)) : null;
+              return (
+                <TabletCard key={m.key} className="space-y-2 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="min-w-0">
+                      <span className="block truncate text-base font-medium">{m.name}</span>
+                      <span className="block truncate text-sm text-muted-foreground">
+                        {[m.source === "radiology" ? "Radiology" : "Lab", m.category]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </span>
+                    </span>
+                    {!drafting && (
+                      <TabletButton
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setRateDraft({ name: m.name, amount: "" })}
+                      >
+                        <Plus className="mr-1 h-4 w-4" />
+                        Amount
+                      </TabletButton>
+                    )}
+                  </div>
+                  {drafting && (
+                    <div className="space-y-2">
+                      <div className="flex gap-2">
+                        <TabletInput
+                          type="number"
+                          inputMode="decimal"
+                          autoFocus
+                          value={rateDraft!.amount}
+                          onChange={(e) =>
+                            setRateDraft({ name: m.name, amount: e.target.value })
+                          }
+                          placeholder="Amount paid to the centre"
+                        />
+                        <TabletButton
+                          disabled={!rateDraft!.amount || !!breach || addRate.isPending}
+                          onClick={() =>
+                            addRate.mutate({ name: m.name, amount: parseFloat(rateDraft!.amount) })
+                          }
+                        >
+                          {addRate.isPending ? "Saving…" : "Save"}
+                        </TabletButton>
+                      </div>
+                      {breach && <p className="text-sm font-medium text-destructive">{breach}</p>}
+                    </div>
+                  )}
+                </TabletCard>
+              );
+            })}
+          </div>
+        )}
         {picked.length > 0 && (
           <p className="text-right font-mono text-xl font-bold">Total: {rupees(total)}</p>
         )}
