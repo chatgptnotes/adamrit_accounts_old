@@ -390,13 +390,14 @@ const AddPurchaseOrder: React.FC<AddPurchaseOrderProps> = ({ onBack }) => {
 
       localStorage.removeItem(draftStorageKey);
 
-      // Clear form or navigate back to list
+      // Return to the pharmacy purchase-order list without a full browser
+      // reload. A hard reload can lose the HMIS session/device context and
+      // leaves the user on the standalone add route.
       setTimeout(() => {
         if (onBack) {
           onBack(); // Navigate to Purchase Order List
         } else {
-          // Refresh the form for a new PO
-          window.location.reload();
+          navigate('/pharmacy?tab=purchase-order', { replace: true });
         }
       }, 1500);
     } catch (error) {
