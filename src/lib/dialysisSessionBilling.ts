@@ -11,6 +11,7 @@ export type DialysisBillableSession = {
   patientName: string;
   patientsId: string | null;
   phone: string | null;
+  doctor: string | null;
   billed: boolean;
 };
 
@@ -18,7 +19,7 @@ export async function loadDialysisBillableSessions(hospitalName: string): Promis
   const [visitsResult, billedResult] = await Promise.all([
     supabase
       .from('visits')
-      .select('id, visit_id, visit_date, patient_id, patients!inner(id, name, patients_id, phone, hospital_name)')
+      .select('id, visit_id, visit_date, patient_id, appointment_with, patients!inner(id, name, patients_id, phone, hospital_name)')
       .eq('patient_type', 'Dialysis')
       .eq('patients.hospital_name', hospitalName)
       .order('visit_date', { ascending: false })
@@ -42,6 +43,7 @@ export async function loadDialysisBillableSessions(hospitalName: string): Promis
       patientName: patient?.name ?? 'Unknown patient',
       patientsId: patient?.patients_id ?? null,
       phone: patient?.phone ?? null,
+      doctor: visit.appointment_with ?? null,
       billed: billedIds.has(visit.id),
     };
   });

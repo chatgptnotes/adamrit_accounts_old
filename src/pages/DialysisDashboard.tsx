@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { Printer, Search, ClipboardList, Download, UserPlus, IndianRupee, Circle } from 'lucide-react';
+import { Printer, Search, ClipboardList, Download, UserPlus, IndianRupee, Circle, ChevronDown } from 'lucide-react';
 import { DIALYSIS_SESSION_BILLING_QUERY_KEY, loadDialysisBillableSessions, pendingDialysisPatients } from '@/lib/dialysisSessionBilling';
 import { OpdStatisticsCards } from '@/components/opd/OpdStatisticsCards';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
@@ -29,6 +29,7 @@ const DialysisDashboard = () => {
   const [selectedPatient, setSelectedPatient] = useState<{ id: string; name: string; patients_id?: string } | null>(null);
   const [isPatientLookupOpen, setIsPatientLookupOpen] = useState(false);
   const [isBillDueOpen, setIsBillDueOpen] = useState(false);
+  const [expandedDashboardPatientId, setExpandedDashboardPatientId] = useState<string | null>(null);
 
   // URL-persisted state
   const searchTerm = searchParams.get('search') || '';
@@ -241,6 +242,28 @@ const DialysisDashboard = () => {
     );
   });
 
+  // The upper dashboard starts with one patient block. Opening a block reveals
+  // every dialysis visit from the shared per-date billing ledger, newest first.
+  const dashboardPatients = useMemo(() => {
+    const byPatient = new Map<string, any>();
+    filteredPatients.forEach((visit: any) => {
+      const patient = Array.isArray(visit.patients) ? visit.patients[0] : visit.patients;
+      if (!visit.patient_id || !patient) return;
+      const existing = byPatient.get(visit.patient_id);
+      if (!existing || (visit.visit_date || '').localeCompare(existing.visitDate || '') > 0) {
+        byPatient.set(visit.patient_id, { patientId: visit.patient_id, patient, visitDate: visit.visit_date || null, doctor: visit.appointment_with || null });
+      }
+    });
+
+    return Array.from(byPatient.values()).map((entry) => {
+      const allVisits = billedSessions
+        .filter((session) => session.patientId === entry.patientId || (!!entry.patient.patients_id && session.patientsId === entry.patient.patients_id))
+        .sort((a, b) => b.visitDate.localeCompare(a.visitDate));
+      const pendingCount = allVisits.filter((session) => !session.billed).length;
+      return { ...entry, allVisits, pendingCount };
+    });
+  }, [filteredPatients, billedSessions]);
+
   const statistics = {
     waiting: filteredPatients.filter(p => p.status === 'waiting').length,
     inProgress: filteredPatients.filter(p => p.status === 'in_progress').length,
@@ -397,10 +420,11 @@ const DialysisDashboard = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Patients Table */}
+      {/* Today's dialysis patients: compact patient blocks with expandable full visit history. */}
       <Card>
         <CardHeader>
           <CardTitle>DIALYSIS PATIENTS</CardTitle>
+          <p className="text-sm text-muted-foreground">Select a patient to view every dialysis date and billing status.</p>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -408,37 +432,50 @@ const DialysisDashboard = () => {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
             </div>
           ) : (
-            filteredPatients.length === 0 ? (
+            dashboardPatients.length === 0 ? (
               <div className="py-8 text-center text-muted-foreground">No dialysis patients found for today</div>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-gray-50">
-                      <TableHead>Visit ID</TableHead>
-                      <TableHead>Patient Name</TableHead>
-                      <TableHead>Gender/Age</TableHead>
-                      <TableHead>Doctor</TableHead>
-                      <TableHead>Dialysis Date</TableHead>
-                      <TableHead className="text-center">Billed</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredPatients.map((patient: any) => {
-                      const billed = billedSessions.find((session) => session.id === patient.id)?.billed ?? false;
-                      return (
-                        <TableRow key={patient.id}>
-                          <TableCell className="font-mono text-sm text-blue-600">{patient.visit_id || '-'}</TableCell>
-                          <TableCell><p className="font-medium">{patient.patients?.name || '-'}</p><p className="text-xs text-muted-foreground">{patient.patients?.patients_id || ''}</p></TableCell>
-                          <TableCell>{patient.patients?.gender || '-'} / {patient.patients?.age ?? '-'}</TableCell>
-                          <TableCell>{patient.appointment_with || '-'}</TableCell>
-                          <TableCell>{patient.visit_date ? format(new Date(patient.visit_date), 'dd/MM/yyyy') : '-'}</TableCell>
-                          <TableCell className="text-center"><span title={billed ? 'Billed done' : 'Billing pending'} className={`inline-block h-3 w-3 rounded-full ${billed ? 'bg-emerald-500' : 'bg-red-500'}`} /></TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+              <div className="space-y-3">
+                {dashboardPatients.map(({ patientId, patient, visitDate, doctor, allVisits, pendingCount }) => {
+                  const isExpanded = expandedDashboardPatientId === patientId;
+                  return <div key={patientId} className="overflow-hidden rounded-xl border bg-card">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedDashboardPatientId((current) => current === patientId ? null : patientId)}
+                      className="flex w-full items-center justify-between gap-4 p-4 text-left transition-colors hover:bg-muted/50"
+                      aria-expanded={isExpanded}
+                    >
+                      <div className="min-w-0">
+                        <p className="font-semibold">{patient.name || '-'}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">{patient.patients_id || 'No patient ID'} · {patient.gender || '-'} / {patient.age ?? '-'} · Latest: {visitDate ? format(new Date(visitDate), 'dd/MM/yyyy') : '-'}</p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-3">
+                        <span className="inline-flex items-center gap-2 text-sm font-medium" title={pendingCount > 0 ? `${pendingCount} dialysis date${pendingCount === 1 ? '' : 's'} pending billing` : 'All dialysis dates billed'}>
+                          <Circle className={`h-3 w-3 fill-current ${pendingCount > 0 ? 'text-red-500' : 'text-emerald-500'}`} />
+                          {pendingCount > 0 ? `${pendingCount} pending` : 'Billed'}
+                        </span>
+                        <ChevronDown className={`h-5 w-5 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                      </div>
+                    </button>
+                    {isExpanded && <div className="border-t bg-muted/20 p-4">
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-semibold">Dialysis visit history · {allVisits.length} visit{allVisits.length === 1 ? '' : 's'}</p>
+                        <p className="text-sm text-muted-foreground">{doctor || 'Doctor not recorded'}</p>
+                      </div>
+                      {allVisits.length === 0 ? <p className="py-3 text-sm text-muted-foreground">No dialysis visit history found.</p> : <div className="overflow-x-auto rounded-lg border bg-background">
+                        <Table>
+                          <TableHeader><TableRow className="bg-muted/40"><TableHead>Dialysis Date</TableHead><TableHead>Visit ID</TableHead><TableHead>Doctor</TableHead><TableHead className="text-center">Billed</TableHead></TableRow></TableHeader>
+                          <TableBody>{allVisits.map((session, index) => <TableRow key={session.id}>
+                            <TableCell className="font-medium">{format(new Date(session.visitDate), 'dd/MM/yyyy')}{index === 0 && <Badge variant="secondary" className="ml-2">Latest</Badge>}</TableCell>
+                            <TableCell className="font-mono text-sm text-blue-600">{session.visitCode || '-'}</TableCell>
+                            <TableCell>{session.doctor || doctor || '-'}</TableCell>
+                            <TableCell className="text-center"><span className="inline-flex items-center gap-2 text-sm font-medium"><Circle className={`h-3 w-3 fill-current ${session.billed ? 'text-emerald-500' : 'text-red-500'}`} />{session.billed ? 'Billed' : 'Pending'}</span></TableCell>
+                          </TableRow>)}</TableBody>
+                        </Table>
+                      </div>}
+                    </div>}
+                  </div>;
+                })}
               </div>
             )
           )}
