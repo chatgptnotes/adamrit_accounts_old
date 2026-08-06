@@ -930,7 +930,6 @@ function BillTable({
             return (
               <TableRow
                 key={b.id}
-                data-state={selectedIds.has(b.id) ? 'selected' : undefined}
                 className={selectedIds.has(b.id)
                   ? 'bg-emerald-50 text-foreground hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50'
                   : 'hover:bg-muted/50'}
