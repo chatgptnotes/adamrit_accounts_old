@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
-  Banknote, Camera, Check, ChevronLeft, Loader2, Printer, QrCode, Upload, User,
+  Banknote, Camera, Check, ChevronLeft, Loader2, Printer, QrCode, ShieldCheck, Upload, User,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -51,7 +51,7 @@ const rupees = (n: number) => `₹${Number(n || 0).toLocaleString("en-IN")}`;
  * cash voucher — is uploaded onto that voucher.
  */
 export default function AkshayPayoutsFlow() {
-  const { user } = useAuth();
+  const { user, isSuperAdmin } = useAuth();
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
@@ -134,10 +134,54 @@ export default function AkshayPayoutsFlow() {
     [services, selected],
   );
 
+  // The fingerprint of exactly what is being paid. Adding or removing a
+  // patient changes it, so an approval never carries over to a bigger total.
+  const logKey = useMemo(
+    () => Array.from(selected).map(String).sort().join(","),
+    [selected],
+  );
+
+  const { data: approval, refetch: refetchApproval } = useQuery({
+    queryKey: ["akshay-payout-approval", logKey],
+    enabled: selected.size > 0,
+    queryFn: async (): Promise<{ approved_by: string; approved_at: string; total_amount: number } | null> => {
+      const { data, error } = await (supabase as any)
+        .from("doctor_payout_approvals")
+        .select("approved_by, approved_at, total_amount")
+        .eq("log_key", logKey)
+        .order("approved_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) return null;
+      return data ?? null;
+    },
+  });
+
+  const approve = useMutation({
+    mutationFn: async () => {
+      if (!isSuperAdmin) throw new Error("Only a super admin can approve a payout");
+      if (selected.size === 0) throw new Error("Select the services first");
+      const { error } = await (supabase as any).from("doctor_payout_approvals").insert({
+        doctor_name: doctor,
+        log_ids: Array.from(selected),
+        total_amount: total,
+        service_count: selected.size,
+        approved_by: user?.email || user?.id || "unknown",
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      toast.success(`${rupees(total)} approved for ${doctor}.`);
+      void refetchApproval();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not approve the payout"),
+  });
+
   const pay = useMutation({
     mutationFn: async () => {
       if (!mode) throw new Error("Choose QR or cash first");
       if (selected.size === 0) throw new Error("Select the services to pay");
+      if (!approval) throw new Error("This total has not been approved yet");
       const { data, error } = await (supabase as any).rpc("pay_doctor_services", {
         p_log_ids: Array.from(selected),
         p_payment_mode: mode,
@@ -418,13 +462,31 @@ export default function AkshayPayoutsFlow() {
             <TabletButton variant="outline" onClick={resetAll}>
               <ChevronLeft className="mr-1 h-5 w-5" /> Back
             </TabletButton>
-            <TabletButton
-              className="flex-1"
-              disabled={selected.size === 0}
-              onClick={() => setStep(3)}
-            >
-              Pay {selected.size > 0 ? `${selected.size} — ${rupees(total)}` : ""}
-            </TabletButton>
+            {/* Approval gates payment: the total covering several patients is
+                agreed by name before anyone opens the QR. */}
+            {selected.size > 0 && !approval ? (
+              <TabletButton
+                className="flex-1"
+                disabled={!isSuperAdmin || approve.isPending}
+                onClick={() => approve.mutate()}
+                title={isSuperAdmin ? undefined : "A super admin approves the total"}
+              >
+                {approve.isPending ? (
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                ) : (
+                  <ShieldCheck className="mr-2 h-5 w-5" />
+                )}
+                Approve {rupees(total)}
+              </TabletButton>
+            ) : (
+              <TabletButton
+                className="flex-1"
+                disabled={selected.size === 0 || !approval}
+                onClick={() => setStep(3)}
+              >
+                Pay {selected.size > 0 ? `${selected.size} — ${rupees(total)}` : ""}
+              </TabletButton>
+            )}
           </div>
         }
       >
@@ -441,6 +503,32 @@ export default function AkshayPayoutsFlow() {
               className="max-w-[200px]"
             />
           </div>
+          {selected.size > 0 && (
+            <div
+              className={cn(
+                "rounded-md px-3 py-2 text-sm",
+                approval ? "bg-emerald-50 text-emerald-900" : "bg-amber-50 text-amber-900",
+              )}
+            >
+              {approval ? (
+                <>
+                  {rupees(Number(approval.total_amount))} for {selected.size} service
+                  {selected.size === 1 ? "" : "s"} approved by {approval.approved_by} on{" "}
+                  {new Date(approval.approved_at).toLocaleString("en-IN")}.
+                </>
+              ) : isSuperAdmin ? (
+                <>
+                  Approve {rupees(total)} before paying — one total across the{" "}
+                  {selected.size} service{selected.size === 1 ? "" : "s"} ticked below.
+                </>
+              ) : (
+                <>
+                  Waiting for a super admin to approve {rupees(total)}. Payment stays locked
+                  until then.
+                </>
+              )}
+            </div>
+          )}
           {servicesLoading ? (
             <p className="py-6 text-center text-muted-foreground">
               <Loader2 className="mr-2 inline h-4 w-4 animate-spin" /> Loading services…
