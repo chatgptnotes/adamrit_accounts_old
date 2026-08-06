@@ -66,22 +66,33 @@ export default function AkshayPayoutsFlow() {
   const [uploading, setUploading] = useState(false);
   const [uploadedCount, setUploadedCount] = useState(0);
 
-  // Doctors who actually have recorded services, searchable.
+  // Every consultant in the two masters, searchable — not only the ones who
+  // happen to have a recorded service already. A name carried by an old log
+  // but no longer in a master stays listed, so its services remain payable.
+  // Same shared-master rule as the Rupali tile: one doctor list, both
+  // hospitals, deduped by name.
   const { data: doctors = [] } = useQuery({
     queryKey: ["akshay-doctors"],
     queryFn: async (): Promise<string[]> => {
-      const { data, error } = await (supabase as any)
-        .from("rupali_visit_logs")
-        .select("doctor_name")
-        .not("voucher_id", "is", null)
-        .order("created_at", { ascending: false })
-        .limit(1000);
-      if (error) throw error;
-      const seen = new Set<string>();
-      for (const row of data || []) {
-        if (row.doctor_name?.trim()) seen.add(row.doctor_name.trim());
-      }
-      return Array.from(seen).sort((a, b) => a.localeCompare(b));
+      const [hope, ayushman, logged] = await Promise.all([
+        supabase.from("hope_consultants").select("name"),
+        supabase.from("ayushman_consultants").select("name"),
+        (supabase as any)
+          .from("rupali_visit_logs")
+          .select("doctor_name")
+          .not("voucher_id", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(1000),
+      ]);
+      const seen = new Map<string, string>();
+      const add = (value: unknown) => {
+        const name = String(value ?? "").trim();
+        if (name && !seen.has(name.toLowerCase())) seen.set(name.toLowerCase(), name);
+      };
+      for (const row of hope.data || []) add(row.name);
+      for (const row of ayushman.data || []) add(row.name);
+      for (const row of logged.data || []) add(row.doctor_name);
+      return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
     },
   });
 
@@ -359,7 +370,8 @@ export default function AkshayPayoutsFlow() {
             ))}
             {visible.length === 0 && (
               <p className="py-4 text-center text-muted-foreground">
-                No doctor with recorded services matches.
+                No consultant matches — check the spelling, or add them in the consultant
+                master.
               </p>
             )}
           </div>
