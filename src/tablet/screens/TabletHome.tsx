@@ -10,6 +10,8 @@ import { useRecentlyDischargedVisits } from "@/tablet/hooks/useVisitLists";
 import { useDialysisTracker } from "@/tablet/hooks/useDialysisTracker";
 import { useAssignedTiles } from "@/tablet/hooks/useAssignedTiles";
 import { DIALYSIS_SESSION_BILLING_QUERY_KEY, loadDialysisBillableSessions } from "@/lib/dialysisSessionBilling";
+import { loadDialysisPatients } from "@/lib/dialysis/scheme";
+import { supabase } from "@/integrations/supabase/client";
 
 /** Home dashboard — gradient-iconed module tiles, role-filtered, with quick search. */
 export function TabletHome() {
@@ -32,6 +34,41 @@ export function TabletHome() {
     () => (dialysisBilling.data ?? []).filter((session) => !session.billed).length,
     [dialysisBilling.data],
   );
+  // Shashank's tile counts PATIENTS ready to claim, not unbilled dates: the
+  // block he must wait for differs by scheme (PMJAY 3, MJPJAY 6), so a count
+  // of dates would badge patients who are not claimable yet.
+  const dialysisReady = useQuery({
+    queryKey: ["dialysis-ready-to-bill", "home"],
+    queryFn: () => loadDialysisPatients("hope"),
+    staleTime: 30_000,
+  });
+  const dialysisReadyCount = useMemo(
+    () => (dialysisReady.data ?? []).filter((patient) => patient.readyToBill).length,
+    [dialysisReady.data],
+  );
+  // Diksha's tile: dialysis patients registered in the last 24 hours whose
+  // thumb has not been taken. They cannot start until it is.
+  const dialysisThumbsPending = useQuery({
+    queryKey: ["dialysis-thumbs-pending", "home"],
+    staleTime: 30_000,
+    queryFn: async (): Promise<number> => {
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data: visits } = await supabase
+        .from("visits")
+        .select("id, patients!inner(hospital_name)")
+        .eq("patient_type", "Dialysis")
+        .eq("patients.hospital_name", "hope")
+        .gte("created_at", since);
+      const ids = (visits ?? []).map((v: any) => v.id);
+      if (ids.length === 0) return 0;
+      const { data: done } = await (supabase as any)
+        .from("dialysis_front_office")
+        .select("visit_id")
+        .in("visit_id", ids)
+        .not("thumb_done_at", "is", null);
+      return ids.length - (done ?? []).length;
+    },
+  });
   // Tiles this person was mapped to in the Tile Configuration master. They are
   // lifted to the top of the grid; nothing is hidden if the set is empty.
   const { assigned } = useAssignedTiles();
@@ -41,6 +78,8 @@ export function TabletHome() {
     if (moduleId === "documents") return billing.count;
     if (moduleId === "dialysis") return dialysis.actionCount;
     if (moduleId === "panel-payment-received" && dialysisBillingAlertCount >= 3) return dialysisBillingAlertCount;
+    if (moduleId === "dialysis-billing") return dialysisReadyCount;
+    if (moduleId === "dialysis-front-office") return dialysisThumbsPending.data ?? 0;
     return 0;
   };
 
@@ -82,7 +121,15 @@ export function TabletHome() {
       >
         {badge > 0 ? (
           <span
-            title={isDialysisBillingAlert ? `${badge} dialysis billing date${badge === 1 ? "" : "s"} pending` : `${badge} pending item${badge === 1 ? "" : "s"}`}
+            title={
+              isDialysisBillingAlert
+                ? `${badge} dialysis billing date${badge === 1 ? "" : "s"} pending`
+                : m.id === "dialysis-billing"
+                  ? `${badge} patient${badge === 1 ? "" : "s"} ready to claim`
+                  : m.id === "dialysis-front-office"
+                    ? `${badge} thumb impression${badge === 1 ? "" : "s"} pending`
+                    : `${badge} pending item${badge === 1 ? "" : "s"}`
+            }
             className={cn(
               "absolute right-3 top-3 inline-flex min-w-[1.75rem] items-center justify-center rounded-full bg-destructive px-2 py-1 text-sm font-bold text-destructive-foreground shadow",
               isDialysisBillingAlert && "animate-pulse ring-2 ring-destructive/30 ring-offset-2 ring-offset-background",

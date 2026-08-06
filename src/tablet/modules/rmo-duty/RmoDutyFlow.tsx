@@ -20,7 +20,7 @@ import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletInput } from "@/tablet/ui/TabletInput";
 import { shortDate } from "@/tablet/lib/format";
-import { LedgerBadge } from "@/components/LedgerSearchField";
+import { LedgerBadge, LedgerSearchField } from "@/components/LedgerSearchField";
 
 const todayDate = () => new Date().toISOString().slice(0, 10);
 
@@ -127,9 +127,13 @@ export default function RmoDutyFlow() {
     queryFn: async (): Promise<RmoOption[]> => {
       const columns =
         "id, name, specialty, daily_remuneration, morning_rate, evening_rate, night_rate, ledger_account_id";
+      // Every RMO in both masters. Filtering to those with a mapped ledger hid
+      // most of the roster — 1 of 18 at Hope, none at Ayushman — so a duty
+      // could not even be searched for, let alone recorded. Unmapped RMOs are
+      // listed and their ledger is mapped from here.
       const [hope, ayushman] = await Promise.all([
-        (supabase as any).from("hope_rmos").select(columns).not("ledger_account_id", "is", null).order("name"),
-        (supabase as any).from("ayushman_rmos").select(columns).not("ledger_account_id", "is", null).order("name"),
+        (supabase as any).from("hope_rmos").select(columns).order("name"),
+        (supabase as any).from("ayushman_rmos").select(columns).order("name"),
       ]);
       if (hope.error) throw hope.error;
       if (ayushman.error) throw ayushman.error;
@@ -189,6 +193,27 @@ export default function RmoDutyFlow() {
   const suggestions = search
     ? (rmos.data || []).filter((r) => r.name.toLowerCase().includes(search)).slice(0, 8)
     : [];
+
+  /** Write the ledger back onto the RMO's own master row, so it is mapped
+   *  once and every later duty — and the monthly report — finds it. */
+  const mapLedger = async (rmo: RmoOption, accountId: string) => {
+    const table = rmo.source === "Ayushman" ? "ayushman_rmos" : "hope_rmos";
+    const { error } = await (supabase as any)
+      .from(table)
+      .update({ ledger_account_id: accountId })
+      .eq("id", rmo.id);
+    if (error) {
+      toast({
+        title: "Could not map the ledger",
+        description: error.message,
+        variant: "destructive",
+      });
+      return;
+    }
+    setSelectedRmo({ ...rmo, ledger_account_id: accountId });
+    await qc.invalidateQueries({ queryKey: ["rmo-duty-master"] });
+    toast({ title: "Ledger mapped", description: `${rmo.name} is ready for duty entries.` });
+  };
 
   const rateFor = (rmo: RmoOption, s: Shift): number => {
     const shiftRate = Number((rmo as any)[SHIFTS.find((x) => x.id === s)!.rateKey]) || 0;
@@ -313,7 +338,7 @@ export default function RmoDutyFlow() {
                 setSelectedRmo(null);
                 setRmoSearch(e.target.value);
               }}
-              placeholder="Search the RMO master (only RMOs with a mapped ledger appear)"
+              placeholder="Search every RMO — Hope and Ayushman"
               className="pl-11"
             />
             {suggestions.length > 0 ? (
@@ -333,15 +358,34 @@ export default function RmoDutyFlow() {
                     <span className="ml-2 text-xs text-muted-foreground">
                       {[rmo.source, rmo.specialty].filter(Boolean).join(" · ")}
                     </span>
+                    {!rmo.ledger_account_id && (
+                      <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                        no ledger
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
             ) : null}
           </div>
 
-          {selectedRmo?.ledger_account_id ? (
+          {selectedRmo ? (
             <div className="mt-2 rounded-xl border bg-muted/40 px-3 py-2">
-              <LedgerBadge accountId={selectedRmo.ledger_account_id} />
+              {selectedRmo.ledger_account_id ? (
+                <LedgerBadge accountId={selectedRmo.ledger_account_id} />
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs text-amber-800">
+                    {selectedRmo.name} has no ledger in the {selectedRmo.source} master. The duty
+                    is a payable, so it needs one before it can be recorded — map it here and it
+                    stays on the master.
+                  </p>
+                  <LedgerSearchField
+                    value=""
+                    onChange={(id) => id && void mapLedger(selectedRmo, id)}
+                  />
+                </div>
+              )}
             </div>
           ) : null}
 
