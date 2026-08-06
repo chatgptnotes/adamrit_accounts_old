@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
-  Banknote, Check, ChevronLeft, Loader2, Printer, QrCode, Upload, User,
+  Banknote, Camera, Check, ChevronLeft, Loader2, Printer, QrCode, Upload, User,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -54,6 +54,7 @@ export default function AkshayPayoutsFlow() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
   const qrFileRef = useRef<HTMLInputElement>(null);
 
   const [step, setStep] = useState(1);
@@ -312,19 +313,41 @@ export default function AkshayPayoutsFlow() {
               className="hidden"
               onChange={(e) => void uploadProof(e.target.files)}
             />
-            <TabletButton
-              variant="outline"
-              className="mt-2 w-full"
-              disabled={uploading}
-              onClick={() => fileRef.current?.click()}
-            >
-              {uploading ? (
-                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              ) : (
+            {/* Same upload path, camera straight away: the confirmation is on
+                the payment phone's screen, so Akshay photographs that screen
+                with this device rather than transferring a file first. */}
+            <input
+              ref={cameraRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => void uploadProof(e.target.files)}
+            />
+            <div className="mt-2 flex gap-2">
+              <TabletButton
+                variant="outline"
+                className="flex-1"
+                disabled={uploading}
+                onClick={() => cameraRef.current?.click()}
+              >
+                {uploading ? (
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                ) : (
+                  <Camera className="mr-2 h-5 w-5" />
+                )}
+                Take a photo
+              </TabletButton>
+              <TabletButton
+                variant="outline"
+                className="flex-1"
+                disabled={uploading}
+                onClick={() => fileRef.current?.click()}
+              >
                 <Upload className="mr-2 h-5 w-5" />
-              )}
-              {uploadedCount > 0 ? `Uploaded (${uploadedCount}) — add another` : "Choose photo / PDF"}
-            </TabletButton>
+                {uploadedCount > 0 ? `Uploaded (${uploadedCount})` : "Choose file"}
+              </TabletButton>
+            </div>
             <p className="mt-2 text-sm text-muted-foreground">
               The file attaches to the payment voucher and shows on its Day Book row.
             </p>
