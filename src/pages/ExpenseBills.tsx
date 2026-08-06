@@ -629,7 +629,7 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
 // ── Shared bill table ───────────────────────────────────────────────────
 
 function BillTable({
-  rows, isLoading, error, onPay, emptyMessage, showPatient,
+  rows, isLoading, error, onPay, emptyMessage, showPatient, billedToPatient,
   selectedIds, onToggleRow, onToggleAll, movedDates, onMove, moving,
 }: {
   rows: BillRow[];
@@ -637,7 +637,11 @@ function BillTable({
   error: unknown;
   onPay: (bill: BillRow) => void;
   emptyMessage: string;
+  /** Adds the Patient column — a diagnostic or referral invoice is unreadable
+   *  without knowing whose test it was. Blank for vendor and utility bills. */
   showPatient?: boolean;
+  /** The referral cards bill the patient, so the vendor column is "Billed To". */
+  billedToPatient?: boolean;
   /** Selection for the move-to-daily-allocation flow, shared across the page. */
   selectedIds: Set<string>;
   onToggleRow: (id: string) => void;
@@ -694,7 +698,7 @@ function BillTable({
             <TableHead>Bill No</TableHead>
             <TableHead>Bill Date</TableHead>
             {showPatient && <TableHead>Patient</TableHead>}
-            <TableHead>{showPatient ? 'Billed To' : 'Vendor / Consultant / Staff'}</TableHead>
+            <TableHead>{billedToPatient ? 'Billed To' : 'Vendor / Consultant / Staff'}</TableHead>
             <TableHead>Expense Category</TableHead>
             <TableHead className="text-right">Amount</TableHead>
             <TableHead className="text-right">Paid</TableHead>
@@ -870,6 +874,7 @@ function ReferralSection({ patientType, onPay, selection }: {
           error={query.error}
           onPay={onPay}
           showPatient
+          billedToPatient
           emptyMessage={`No ${patientType} referral invoices found${date ? ` for ${new Date(date).toLocaleDateString('en-IN')}` : ''}.`}
           {...selection}
         />
@@ -1096,6 +1101,7 @@ export default function ExpenseBills() {
             isLoading={registerQuery.isLoading || company.isLoading}
             error={registerQuery.error ?? (company.isError ? company.error : null)}
             onPay={setPaying}
+            showPatient
             emptyMessage="No expense bills match this search."
             {...selection}
           />
