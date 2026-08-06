@@ -27,6 +27,9 @@ export interface OutstandingBill {
   paid: number;
   outstanding: number;
   documentUrl: string | null;
+  partyLedgerId: string | null;
+  partyQrUrl: string | null;
+  paymentProofUrl: string | null;
 }
 
 const BUCKET = "uploads";
@@ -197,6 +200,9 @@ export function useOutstandingBills(limit = 25) {
         paid: Number(r.paid) || 0,
         outstanding: Number(r.outstanding) || 0,
         documentUrl: r.document_url,
+        partyLedgerId: r.party_ledger_id ?? null,
+        partyQrUrl: r.party_qr_url ?? null,
+        paymentProofUrl: r.payment_proof_url ?? null,
       }));
     },
     enabled: Boolean(companyId),

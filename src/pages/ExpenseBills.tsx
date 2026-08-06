@@ -13,8 +13,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { toast } from 'sonner';
 import { openStoredDocument } from '@/lib/openStoredDocument';
 import {
-  Banknote, CalendarClock, FileText, Filter, Loader2, Paperclip, Plus, Receipt, Search, Users, X,
+  Banknote, CalendarClock, FileText, Filter, Loader2, Paperclip, Plus, QrCode, Receipt, Search,
+  Upload, Users, X,
 } from 'lucide-react';
+import { saveLedgerQr, savePaymentProof } from '@/lib/expense-bills/paymentEvidence';
 import { LedgerAutocomplete, type LedgerAccountOption } from '@/components/accounting/LedgerAutocomplete';
 import { useCashBankLedgers } from '@/hooks/useCashBankLedgers';
 import {
@@ -64,6 +66,9 @@ interface BillRow {
   patientName: string | null;
   patientType: string | null;
   revenueEntryId: string | null;
+  partyLedgerId: string | null;
+  partyQrUrl: string | null;
+  paymentProofUrl: string | null;
 }
 
 type PaymentStatus = 'unpaid' | 'partial' | 'paid';
@@ -96,6 +101,9 @@ const mapRow = (r: any): BillRow => ({
   patientName: r.patient_name ?? null,
   patientType: r.patient_type ?? null,
   revenueEntryId: r.revenue_entry_id ?? null,
+  partyLedgerId: r.party_ledger_id ?? null,
+  partyQrUrl: r.party_qr_url ?? null,
+  paymentProofUrl: r.payment_proof_url ?? null,
 });
 
 interface RegisterFilters {
@@ -626,6 +634,146 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
   );
 }
 
+// ── Pay evidence: the payee's QR to scan, the confirmation to upload ────
+
+/**
+ * One cell per bill. The QR comes from the party's LEDGER, so whoever pays
+ * scans the same code every time and never retypes a UPI id; the screenshot
+ * goes back onto the bill as proof the transfer happened.
+ */
+function PayEvidenceCell({ bill }: { bill: BillRow }) {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const [qrOpen, setQrOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const proofInput = useRef<HTMLInputElement>(null);
+  const qrInput = useRef<HTMLInputElement>(null);
+
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['expense-bill-register'] });
+    queryClient.invalidateQueries({ queryKey: ['expense-bill-referral'] });
+  };
+
+  const onProof = async (file?: File) => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      await savePaymentProof(bill.id, file);
+      toast.success(`Payment proof saved against ${bill.billNumber}.`);
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not save the proof');
+    } finally {
+      setBusy(false);
+      if (proofInput.current) proofInput.current.value = '';
+    }
+  };
+
+  const onQr = async (file?: File) => {
+    if (!file || !bill.partyLedgerId) return;
+    setBusy(true);
+    try {
+      await saveLedgerQr(bill.partyLedgerId, file, user?.email || null);
+      toast.success(`QR saved for ${bill.party}.`);
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not save the QR');
+    } finally {
+      setBusy(false);
+      if (qrInput.current) qrInput.current.value = '';
+    }
+  };
+
+  return (
+    <span className="inline-flex flex-col items-start gap-1">
+      {bill.partyQrUrl ? (
+        <button
+          type="button"
+          onClick={() => setQrOpen(true)}
+          className="inline-flex items-center gap-1 text-primary hover:underline"
+        >
+          <QrCode className="h-3.5 w-3.5" /> Scan QR
+        </button>
+      ) : (
+        <button
+          type="button"
+          disabled={!bill.partyLedgerId || busy}
+          onClick={() => qrInput.current?.click()}
+          className="inline-flex items-center gap-1 text-muted-foreground hover:underline disabled:opacity-50"
+          title={`No QR held for ${bill.party} — upload the payee's code`}
+        >
+          <QrCode className="h-3.5 w-3.5" /> Add QR
+        </button>
+      )}
+
+      {bill.paymentProofUrl ? (
+        <a
+          href={bill.paymentProofUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-emerald-700 hover:underline"
+        >
+          <FileText className="h-3.5 w-3.5" /> Proof
+        </a>
+      ) : (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => proofInput.current?.click()}
+          className="inline-flex items-center gap-1 text-muted-foreground hover:underline disabled:opacity-50"
+          title="Upload the PhonePe / UPI confirmation for this bill"
+        >
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+          Upload proof
+        </button>
+      )}
+
+      <input
+        ref={proofInput}
+        type="file"
+        accept="image/*,application/pdf"
+        className="hidden"
+        onChange={(e) => void onProof(e.target.files?.[0])}
+      />
+      <input
+        ref={qrInput}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => void onQr(e.target.files?.[0])}
+      />
+
+      <Dialog open={qrOpen} onOpenChange={setQrOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Pay {bill.party}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {bill.partyQrUrl && (
+              <img
+                src={bill.partyQrUrl}
+                alt={`Payment QR for ${bill.party}`}
+                className="mx-auto w-full max-w-[260px] rounded-md border"
+              />
+            )}
+            <p className="text-center text-sm text-muted-foreground">
+              {bill.billNumber} · outstanding ₹{rupees(bill.outstanding)}
+            </p>
+            <div className="flex justify-between gap-2">
+              <Button variant="outline" size="sm" disabled={busy} onClick={() => qrInput.current?.click()}>
+                Replace QR
+              </Button>
+              <Button size="sm" disabled={busy} onClick={() => proofInput.current?.click()}>
+                <Upload className="mr-1 h-4 w-4" /> Upload proof
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </span>
+  );
+}
+
 // ── Shared bill table ───────────────────────────────────────────────────
 
 function BillTable({
@@ -707,6 +855,7 @@ function BillTable({
             <TableHead>RM</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Invoice</TableHead>
+            <TableHead>Pay evidence</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -768,6 +917,9 @@ function BillTable({
                       </a>
                     )}
                   </span>
+                </TableCell>
+                <TableCell>
+                  <PayEvidenceCell bill={b} />
                 </TableCell>
                 <TableCell className="text-right">
                   {status !== 'paid' ? (

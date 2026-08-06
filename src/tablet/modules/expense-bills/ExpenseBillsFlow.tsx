@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { toast } from "sonner";
-import { Camera, FileText, Loader2, Paperclip, Plus, X } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Camera, FileText, Loader2, Paperclip, Plus, QrCode, Upload, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
+import { saveLedgerQr, savePaymentProof } from "@/lib/expense-bills/paymentEvidence";
 import { openStoredDocument } from "@/lib/openStoredDocument";
 import {
   Select,
@@ -59,6 +62,136 @@ const EXPENSE_CATEGORIES: Array<{
   },
   { value: "other", label: "Other", ledgerName: null },
 ];
+
+/**
+ * The payee's QR to scan and the confirmation to upload, on the bill itself.
+ * The QR is held against the party's LEDGER, so it is the same code the
+ * desktop register shows and the same one every future bill for that party
+ * will use. Stops propagation throughout: the card behind opens the payment
+ * sheet, and scanning or uploading must not start a payment.
+ */
+function PayEvidenceRow({ bill }: { bill: OutstandingBill }) {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const [showQr, setShowQr] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const proofInput = useRef<HTMLInputElement>(null);
+  const qrInput = useRef<HTMLInputElement>(null);
+
+  const refresh = () =>
+    queryClient.invalidateQueries({ queryKey: ["expense-bills-outstanding"] });
+
+  const onProof = async (file?: File) => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      await savePaymentProof(bill.id, file);
+      toast.success(`Payment proof saved against ${bill.billNumber}.`);
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save the proof");
+    } finally {
+      setBusy(false);
+      if (proofInput.current) proofInput.current.value = "";
+    }
+  };
+
+  const onQr = async (file?: File) => {
+    if (!file || !bill.partyLedgerId) return;
+    setBusy(true);
+    try {
+      await saveLedgerQr(bill.partyLedgerId, file, user?.email || null);
+      toast.success(`QR saved for ${bill.party}.`);
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save the QR");
+    } finally {
+      setBusy(false);
+      if (qrInput.current) qrInput.current.value = "";
+    }
+  };
+
+  const stop = (e: MouseEvent<HTMLDivElement>) => e.stopPropagation();
+
+  return (
+    <div onClick={stop} className="space-y-2 border-t pt-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <TabletButton
+          variant="outline"
+          size="sm"
+          disabled={busy || (!bill.partyQrUrl && !bill.partyLedgerId)}
+          onClick={() => (bill.partyQrUrl ? setShowQr((v) => !v) : qrInput.current?.click())}
+        >
+          <QrCode className="mr-1 h-4 w-4" />
+          {bill.partyQrUrl ? (showQr ? "Hide QR" : "Scan QR") : "Add QR"}
+        </TabletButton>
+
+        {bill.paymentProofUrl ? (
+          <a
+            href={bill.paymentProofUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1 text-sm font-medium text-emerald-700"
+          >
+            <FileText className="h-4 w-4" />
+            Proof uploaded
+          </a>
+        ) : (
+          <TabletButton
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => proofInput.current?.click()}
+          >
+            {busy ? (
+              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="mr-1 h-4 w-4" />
+            )}
+            Upload proof
+          </TabletButton>
+        )}
+      </div>
+
+      {showQr && bill.partyQrUrl && (
+        <div className="space-y-2">
+          <img
+            src={bill.partyQrUrl}
+            alt={`Payment QR for ${bill.party}`}
+            className="mx-auto w-full max-w-[240px] rounded-md border"
+          />
+          <p className="text-center text-xs text-muted-foreground">
+            {bill.party} · {rupees(bill.outstanding)} outstanding
+          </p>
+          <TabletButton
+            variant="outline"
+            size="sm"
+            className="w-full"
+            disabled={busy}
+            onClick={() => qrInput.current?.click()}
+          >
+            Replace QR
+          </TabletButton>
+        </div>
+      )}
+
+      <input
+        ref={proofInput}
+        type="file"
+        accept="image/*,application/pdf"
+        className="hidden"
+        onChange={(e) => void onProof(e.target.files?.[0])}
+      />
+      <input
+        ref={qrInput}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => void onQr(e.target.files?.[0])}
+      />
+    </div>
+  );
+}
 
 function OutstandingList({ onPay }: { onPay: (bill: OutstandingBill) => void }) {
   const { data: bills = [], isLoading } = useOutstandingBills();
@@ -133,6 +266,8 @@ function OutstandingList({ onPay }: { onPay: (bill: OutstandingBill) => void }) 
               </button>
             )}
           </div>
+
+          <PayEvidenceRow bill={b} />
         </TabletCard>
       ))}
     </div>
