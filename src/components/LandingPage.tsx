@@ -10,10 +10,11 @@ const LandingPage = ({ onGetStarted, onLoginClick }: LandingPageProps) => {
   return (
     <div className="min-h-screen bg-white">
       {/* Navigation Bar */}
-      <nav className="absolute top-0 w-full z-10 p-6">
+      <nav className="absolute inset-x-0 top-0 z-50 pointer-events-auto px-6 pb-6 pt-[calc(1.5rem+env(safe-area-inset-top))]">
         <div className="flex justify-between items-center">
           <div className="text-2xl font-bold text-blue-900">ADAMRIT</div>
-          <Button 
+          <Button
+            type="button"
             onClick={() => window.location.href = '/login'}
             variant="outline"
             size="sm"
