@@ -13,8 +13,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { toast } from 'sonner';
 import { openStoredDocument } from '@/lib/openStoredDocument';
 import {
-  Banknote, CalendarClock, FileText, Filter, Loader2, Paperclip, Plus, QrCode, Receipt, Search,
-  Upload, Users, X,
+  Banknote, CalendarClock, Camera, FileText, Filter, Loader2, Paperclip, Plus, QrCode, Receipt,
+  Search, Upload, Users, X,
 } from 'lucide-react';
 import { saveLedgerQr, savePaymentProof } from '@/lib/expense-bills/paymentEvidence';
 import { LedgerAutocomplete, type LedgerAccountOption } from '@/components/accounting/LedgerAutocomplete';
@@ -647,6 +647,7 @@ function PayEvidenceCell({ bill }: { bill: BillRow }) {
   const [qrOpen, setQrOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const proofInput = useRef<HTMLInputElement>(null);
+  const cameraInput = useRef<HTMLInputElement>(null);
   const qrInput = useRef<HTMLInputElement>(null);
 
   const refresh = () => {
@@ -716,22 +717,44 @@ function PayEvidenceCell({ bill }: { bill: BillRow }) {
           <FileText className="h-3.5 w-3.5" /> Proof
         </a>
       ) : (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => proofInput.current?.click()}
-          className="inline-flex items-center gap-1 text-muted-foreground hover:underline disabled:opacity-50"
-          title="Upload the PhonePe / UPI confirmation for this bill"
-        >
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-          Upload proof
-        </button>
+        <span className="inline-flex items-center gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => proofInput.current?.click()}
+            className="inline-flex items-center gap-1 text-muted-foreground hover:underline disabled:opacity-50"
+            title="Upload the PhonePe / UPI confirmation for this bill"
+          >
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+            Upload proof
+          </button>
+          {/* Same destination, camera straight away — on a phone or tablet
+              the confirmation is on the screen you are holding. */}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => cameraInput.current?.click()}
+            className="inline-flex items-center gap-1 text-muted-foreground hover:underline disabled:opacity-50"
+            title="Photograph the payment confirmation"
+            aria-label="Photograph the payment confirmation"
+          >
+            <Camera className="h-3.5 w-3.5" />
+          </button>
+        </span>
       )}
 
       <input
         ref={proofInput}
         type="file"
         accept="image/*,application/pdf"
+        className="hidden"
+        onChange={(e) => void onProof(e.target.files?.[0])}
+      />
+      <input
+        ref={cameraInput}
+        type="file"
+        accept="image/*"
+        capture="environment"
         className="hidden"
         onChange={(e) => void onProof(e.target.files?.[0])}
       />

@@ -30,6 +30,11 @@ export interface OutstandingBill {
   partyLedgerId: string | null;
   partyQrUrl: string | null;
   paymentProofUrl: string | null;
+  patientName: string | null;
+  patientType: string | null;
+  pointOfContact: string | null;
+  relationshipManager: string | null;
+  signedVoucherUrl: string | null;
 }
 
 const BUCKET = "uploads";
@@ -203,6 +208,11 @@ export function useOutstandingBills(limit = 25) {
         partyLedgerId: r.party_ledger_id ?? null,
         partyQrUrl: r.party_qr_url ?? null,
         paymentProofUrl: r.payment_proof_url ?? null,
+        patientName: r.patient_name ?? null,
+        patientType: r.patient_type ?? null,
+        pointOfContact: r.point_of_contact ?? null,
+        relationshipManager: r.relationship_manager ?? null,
+        signedVoucherUrl: r.signed_voucher_url ?? null,
       }));
     },
     enabled: Boolean(companyId),

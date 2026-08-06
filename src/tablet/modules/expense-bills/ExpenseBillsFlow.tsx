@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { saveLedgerQr, savePaymentProof } from "@/lib/expense-bills/paymentEvidence";
 import { openStoredDocument } from "@/lib/openStoredDocument";
+import { shortDate } from "@/tablet/lib/format";
 import {
   Select,
   SelectContent,
@@ -35,6 +36,18 @@ const rupees = (n: number) =>
   n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+// Same three states the desktop register shows, worked out the same way.
+type PaymentStatus = "unpaid" | "partial" | "paid";
+
+const statusOf = (b: OutstandingBill): PaymentStatus =>
+  b.outstanding <= 0.005 ? "paid" : b.paid > 0.005 ? "partial" : "unpaid";
+
+const STATUS_STYLE: Record<PaymentStatus, string> = {
+  unpaid: "bg-red-100 text-red-700",
+  partial: "bg-amber-100 text-amber-700",
+  paid: "bg-emerald-100 text-emerald-700",
+};
 
 type ExpenseCategory =
   | "rent"
@@ -76,6 +89,7 @@ function PayEvidenceRow({ bill }: { bill: OutstandingBill }) {
   const [showQr, setShowQr] = useState(false);
   const [busy, setBusy] = useState(false);
   const proofInput = useRef<HTMLInputElement>(null);
+  const cameraInput = useRef<HTMLInputElement>(null);
   const qrInput = useRef<HTMLInputElement>(null);
 
   const refresh = () =>
@@ -137,19 +151,32 @@ function PayEvidenceRow({ bill }: { bill: OutstandingBill }) {
             Proof uploaded
           </a>
         ) : (
-          <TabletButton
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            onClick={() => proofInput.current?.click()}
-          >
-            {busy ? (
-              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-            ) : (
-              <Upload className="mr-1 h-4 w-4" />
-            )}
-            Upload proof
-          </TabletButton>
+          <>
+            <TabletButton
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => proofInput.current?.click()}
+            >
+              {busy ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : (
+                <Upload className="mr-1 h-4 w-4" />
+              )}
+              Upload proof
+            </TabletButton>
+            {/* Same destination, camera straight away — on a phone the
+                confirmation is on the screen you are holding. */}
+            <TabletButton
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => cameraInput.current?.click()}
+              aria-label="Photograph the payment confirmation"
+            >
+              <Camera className="h-4 w-4" />
+            </TabletButton>
+          </>
         )}
       </div>
 
@@ -179,6 +206,14 @@ function PayEvidenceRow({ bill }: { bill: OutstandingBill }) {
         ref={proofInput}
         type="file"
         accept="image/*,application/pdf"
+        className="hidden"
+        onChange={(e) => void onProof(e.target.files?.[0])}
+      />
+      <input
+        ref={cameraInput}
+        type="file"
+        accept="image/*"
+        capture="environment"
         className="hidden"
         onChange={(e) => void onProof(e.target.files?.[0])}
       />
@@ -227,8 +262,14 @@ function OutstandingList({ onPay }: { onPay: (bill: OutstandingBill) => void }) 
             <div className="min-w-0 flex-1">
               <h3 className="truncate text-base font-semibold">{b.party}</h3>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                {b.billNumber} · {b.expenseHead}
+                {b.billNumber} · {shortDate(b.billDate)} · {b.expenseHead}
               </p>
+              {b.patientName && (
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                  Patient: {b.patientName}
+                  {b.patientType ? ` (${b.patientType})` : ""}
+                </p>
+              )}
             </div>
             <div className="shrink-0 text-right">
               <div
@@ -239,11 +280,26 @@ function OutstandingList({ onPay }: { onPay: (bill: OutstandingBill) => void }) 
               >
                 {rupees(b.outstanding)}
               </div>
+              <span
+                className={cn(
+                  "mt-0.5 inline-block rounded px-2 py-0.5 text-[10px] font-medium uppercase",
+                  STATUS_STYLE[statusOf(b)],
+                )}
+              >
+                {statusOf(b)}
+              </span>
               <p className="text-[11px] text-muted-foreground">
                 {b.outstanding > 0.005 ? "tap to pay" : "settled"}
               </p>
             </div>
           </div>
+
+          {(b.pointOfContact || b.relationshipManager) && (
+            <div className="flex flex-wrap gap-x-4 text-xs text-muted-foreground">
+              {b.pointOfContact && <span>POC: {b.pointOfContact}</span>}
+              {b.relationshipManager && <span>RM: {b.relationshipManager}</span>}
+            </div>
+          )}
 
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>
@@ -264,6 +320,19 @@ function OutstandingList({ onPay }: { onPay: (bill: OutstandingBill) => void }) 
                 <Paperclip className="h-3.5 w-3.5" />
                 Invoice
               </button>
+            )}
+            {b.signedVoucherUrl && (
+              <a
+                href={b.signedVoucherUrl}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                title="Payment voucher signed by the receiver of the cash"
+                className="flex items-center gap-1 font-medium text-emerald-700"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                Signed PV
+              </a>
             )}
           </div>
 
