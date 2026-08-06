@@ -862,7 +862,7 @@ function BillTable({
                 if ((event.target as HTMLElement).closest('button, a, input, select, [role="checkbox"]')) return;
                 if (status !== 'paid' && !movedInfo) onToggleRow(b.id);
               }}
-              className={`rounded-xl border p-4 shadow-sm ${status !== 'paid' && !movedInfo ? 'cursor-pointer' : ''} ${selectedIds.has(b.id) ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/40' : 'bg-white dark:bg-card'}`}
+              className={`rounded-xl border p-4 shadow-sm ${status !== 'paid' && !movedInfo ? 'cursor-pointer' : ''} ${selectedIds.has(b.id) ? 'border-emerald-300 bg-emerald-50 text-slate-900 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-slate-100' : 'bg-white dark:bg-card'}`}
               aria-selected={selectedIds.has(b.id)}
             >
               <div className="flex items-start justify-between gap-3">
@@ -943,7 +943,7 @@ function BillTable({
                   if (status !== 'paid' && !movedInfo) onToggleRow(b.id);
                 }}
                 className={selectedIds.has(b.id)
-                  ? 'cursor-pointer bg-emerald-50 text-foreground hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50'
+                  ? 'cursor-pointer bg-emerald-50 text-slate-900 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-slate-100 dark:hover:bg-emerald-900/50'
                   : status !== 'paid' && !movedInfo ? 'cursor-pointer hover:bg-muted/50' : 'hover:bg-muted/50'}
               >
                 <TableCell>
