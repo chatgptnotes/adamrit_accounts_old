@@ -12,7 +12,6 @@ import {
   Search,
   UserRound,
 } from "lucide-react";
-import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
@@ -417,17 +416,13 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 export default function DialysisFlow() {
-  const { hospitalConfig } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const [period, setPeriod] = useState<DialysisPeriod>("today");
   const [searchTerm, setSearchTerm] = useState("");
-  // Which hospital's dialysis list — defaults to the login, switchable like
-  // every other tile.
-  const [listHospital, setListHospital] = useState<string>(
-    String(hospitalConfig.name).toLowerCase().includes("ayush") ? "ayushman" : "hope",
-  );
+  // Dialysis happens only at Hope — every login sees Hope's list.
+  const listHospital = "hope";
 
   const todayVisits = useQuery({
     queryKey: ["tablet-dialysis-today", listHospital, period, searchTerm.trim().toLowerCase()],
@@ -534,20 +529,6 @@ export default function DialysisFlow() {
       }
     >
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-2">
-          {(["hope", "ayushman"] as const).map((h) => (
-            <TabletButton
-              key={h}
-              type="button"
-              size="sm"
-              variant={listHospital === h ? "default" : "outline"}
-              onClick={() => setListHospital(h)}
-              className="min-h-12 px-2 text-sm"
-            >
-              {h === "hope" ? "Hope Hospital" : "Ayushman Hospital"}
-            </TabletButton>
-          ))}
-        </div>
         <div className="grid grid-cols-3 gap-2" role="tablist" aria-label="Dialysis date range">
           {(Object.keys(periodLabels) as DialysisPeriod[]).map((option) => (
             <TabletButton
