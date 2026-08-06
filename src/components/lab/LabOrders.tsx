@@ -1547,13 +1547,15 @@ const LabOrders = () => {
 
           }
 
-          // AUTO-FILL PANEL DEFAULTS: for any sub-test / nested sub-test that has a configured
-          // default value (text_value) in the panel but no saved result yet, pre-fill it AND
-          // auto-save it into the order — so the panel's configured info flows into the report even
-          // when the technician never touches the field. Never overwrite an already-saved value.
+          // Snapshot persisted values before adding configured defaults. Defaults
+          // are reviewable but are not saved until the technician uses Save.
+          const persistedFormData = { ...loadedFormData };
+
+          // Auto-fill configured panel defaults for review. They are persisted only
+          // when the technician explicitly uses Save.
           // (Defaults are stored in lab_test_config.nested_sub_tests with test_type=null, so they are
           // keyed off text_value here rather than test_type.)
-          const defaultsToAutoSave: Array<{ key: string; value: string }> = [];
+          let hasUnsavedDefaults = false;
           selectedTestsForEntry.forEach(testRow => {
             const subTests = testSubTests[testRow.test_name] || [];
             subTests.forEach((subTest: any) => {
@@ -1570,27 +1572,27 @@ const LabOrders = () => {
                 is_abnormal: false,
                 result_status: 'Preliminary'
               };
-              defaultsToAutoSave.push({ key, value: defaultVal });
+              hasUnsavedDefaults = true;
             });
           });
 
           if (Object.keys(loadedFormData).length > 0) {
-            // FIXED: Replace state instead of merge to prevent old values from persisting
+            // Replace state instead of merging so values from a previous patient do not persist.
             setLabResultsForm(loadedFormData);
-            setSavedLabResults(loadedFormData);
-            setIsFormSaved(true);
             if (existingResults && existingResults.length > 0) {
+              setSavedLabResults(persistedFormData);
+              setIsFormSaved(!hasUnsavedDefaults);
               toast({
                 title: "Loaded Existing Results",
-                description: `Found and loaded ${Object.keys(loadedFormData).length} existing test results.`,
+                description: hasUnsavedDefaults
+                  ? 'Loaded saved results and configured defaults. Use Save to persist the defaults.'
+                  : `Found and loaded ${Object.keys(persistedFormData).length} existing test results.`,
                 variant: "default"
               });
+            } else {
+              setSavedLabResults({});
+              setIsFormSaved(false);
             }
-          }
-
-          // Persist the freshly pre-filled defaults to the order (silent per-field inserts).
-          for (const d of defaultsToAutoSave) {
-            await autoSaveField(d.key, d.value);
           }
           // ========== END SIMPLIFIED LOADING ==========
         } catch (error) {
@@ -1703,29 +1705,23 @@ const LabOrders = () => {
     }
   });
 
-  // Lab Results Save Mutation - Store in visit_labs table
+  // Lab Results Save Mutation - the Save button is the only persistence action.
   const saveLabResultsMutation = useMutation({
     mutationFn: async (resultsData: any[]) => {
-      console.log('🔍 Starting lab results save process...', resultsData);
-      const results = [];
+      const results: any[] = [];
+      const completedVisitLabIds = new Set<string>();
 
       for (const result of resultsData) {
-        console.log('📝 Processing result:', result);
-
         try {
-          // Use the original test row data from selectedTestsForEntry to get visit and patient info
-          const originalTestRow = selectedTestsForEntry.find(t =>
-            t.id === result.order_id ||
-            t.order_id === result.order_id
-          );
+          // visit_lab_id identifies one ordered test. order_id is the visit UUID and
+          // is shared by every test in that visit, so it must never be used to
+          // resolve the parent test here.
+          const originalTestRow = selectedTestsForEntry.find(t => t.id === result.visit_lab_id);
 
           if (!originalTestRow) {
-            console.error('❌ Could not find original test row for ID:', result.order_id);
-            throw new Error(`Could not find original test row for ID: ${result.order_id}`);
+            throw new Error(`Could not find the selected lab order for ${result.test_name || 'this result'}`);
           }
 
-
-          // Keep the database UUID separate from the display visit_id (for example IH25...).
           let visitId = isUuid(originalTestRow.visit_uuid)
             ? originalTestRow.visit_uuid
             : isUuid(originalTestRow.order_id)
@@ -1736,141 +1732,63 @@ const LabOrders = () => {
             ? originalTestRow.visit_id
             : originalTestRow.visit_id_text;
 
-
-          // If we don't have a visit UUID, try the human-readable visit_id field.
           if (!visitId && visitIdText) {
-            // Look up visit by visit_id text
             const { data: visitData, error: visitError } = await supabase
               .from('visits')
               .select('id, patient_id')
               .eq('visit_id', visitIdText)
               .maybeSingle();
 
+            if (visitError) throw visitError;
             if (visitData) {
               visitId = visitData.id;
               patientId = visitData.patient_id;
-            } else {
             }
           }
 
-          // If we still don't have visit/patient info, we can still save with just the test name
-          if (!visitId || !patientId) {
-          }
-
-          // Simplify: Just create a simple record to store the observed value
-
-          // Skip complex lab entry lookup for now - just save the data directly
-
-          // Create and save to lab_results table
-
-
-          // Skip table creation - try direct insert to lab_results table
-
-          // Use the exact schema columns - main_test_name should be the parent test, test_name should be the sub-test
-
-          // Match the actual lab_results table schema with all fields
           const labResultsData = {
-            // Main test identification
             main_test_name: originalTestRow.test_name || 'Unknown Test',
             test_name: result.test_name || 'Unknown Sub-Test',
-
-            // Test details
             test_category: result.test_category || 'GENERAL',
             result_value: result.result_value || '',
             result_unit: result.result_unit || '',
             reference_range: result.reference_range || '',
-            comments: result.comments ? `${result.comments} [Entry at: ${new Date().toLocaleString()}]` : `Entry at: ${new Date().toLocaleString()}`,
+            comments: result.comments || '',
             is_abnormal: result.is_abnormal || false,
             result_status: authenticatedResult ? 'Final' : 'Preliminary',
-
-            // Staff information
             technician_name: result.technician_name || '',
             pathologist_name: result.pathologist_name || '',
             authenticated_result: authenticatedResult || false,
-
-            // Patient information
             patient_name: originalTestRow.patient_name || 'Unknown Patient',
             patient_age: originalTestRow.patient_age || null,
             patient_gender: originalTestRow.patient_gender || 'Unknown',
-
-            // Foreign keys for proper data linking (use UUID fields)
-            visit_lab_id: result.visit_lab_id || originalTestRow.id,  // Direct visit_labs ID from resultsData, fallback to originalTestRow
-            visit_id: originalTestRow.visit_uuid || originalTestRow.order_id || null,
+            visit_lab_id: originalTestRow.id,
+            visit_id: visitId,
             lab_id: originalTestRow.lab_uuid || originalTestRow.test_id || null
           };
 
-          // Remove any undefined values to prevent schema errors
-          Object.keys(labResultsData).forEach(key => {
-            if (labResultsData[key] === undefined) {
-              delete labResultsData[key];
-            }
-          });
-
-          console.log('🔍 DEBUG: Original test row:', originalTestRow);
-          console.log('🔍 DEBUG: Result object:', result);
-          console.log('🔍 DEBUG: Data to insert into lab_results:', labResultsData);
-          console.log('🔍 DEBUG: Authentication status:', authenticatedResult);
-          console.log('🔍 DEBUG: Visit ID:', visitId);
-
-          // Try saving with error handling to see what's missing
-          const { data: finalResult, error: labResultsError } = await supabase
+          // Keep one current result per ordered test/sub-test. Historical duplicate
+          // rows are left untouched; future saves update the newest matching row.
+          const { data: existingResults, error: existingResultsError } = await supabase
             .from('lab_results')
-            .insert(labResultsData)
-            .select()
-            .single();
+            .select('id')
+            .eq('visit_lab_id', originalTestRow.id)
+            .eq('test_name', labResultsData.test_name)
+            .order('created_at', { ascending: false })
+            .limit(1);
+          if (existingResultsError) throw existingResultsError;
 
-          // If it fails, try with minimal data
-          if (labResultsError) {
-            console.error('Primary error details:', labResultsError);
-            const minimalData = {
-              main_test_name: originalTestRow.test_name || 'Test',
-              test_name: result.test_name || 'Test Result',
-              test_category: result.test_category || 'GENERAL',
-              result_value: result.result_value || '',
-              result_unit: result.result_unit || '',
-              reference_range: result.reference_range || '',
-              comments: result.comments || '',
-              is_abnormal: false,
-              result_status: 'Preliminary',
-              technician_name: '',
-              pathologist_name: '',
-              authenticated_result: false,
-              patient_name: originalTestRow.patient_name || 'Unknown Patient',
-              patient_age: originalTestRow.patient_age || null,
-              patient_gender: originalTestRow.patient_gender || 'Unknown',
-              // Foreign keys for proper data linking (use UUID fields)
-              visit_lab_id: result.visit_lab_id || originalTestRow.id,  // Direct visit_labs ID
-              visit_id: originalTestRow.visit_uuid || originalTestRow.order_id || null,
-              lab_id: originalTestRow.lab_uuid || originalTestRow.test_id || null
-            };
+          const saveQuery = existingResults?.[0]?.id
+            ? supabase.from('lab_results').update(labResultsData).eq('id', existingResults[0].id)
+            : supabase.from('lab_results').insert(labResultsData);
+          const { data: finalResult, error: labResultsError } = await saveQuery.select().single();
+          if (labResultsError) throw labResultsError;
+          completedVisitLabIds.add(originalTestRow.id);
 
-            const { data: minimalResult, error: minimalError } = await supabase
-              .from('lab_results')
-              .insert(minimalData)
-              .select()
-              .single();
-
-            if (minimalError) {
-              console.error('Even minimal insert failed:', minimalError);
-            } else {
-              return minimalResult;
-            }
-          }
-
-          if (labResultsError) {
-            console.error('Error saving to lab_results:', labResultsError);
-            throw new Error(`Failed to save to lab_results table: ${labResultsError.message || labResultsError.code}`);
-          }
-
-          console.log('📊 Saved data:', finalResult);
-
-          // Add patient and visit info to result for print usage
-          // Get complete patient data from the fetched patient info
           let currentPatientData = null;
           let currentVisitData = null;
 
           if (patientId) {
-            console.log('🔍 Fetching enhanced patient data for patient_id:', patientId);
             const { data: patientData, error: currentPatientError } = await supabase
               .from('patients')
               .select('id, patients_id, name, age, gender, phone')
@@ -1878,15 +1796,13 @@ const LabOrders = () => {
               .single();
 
             if (currentPatientError) {
-              console.error('❌ Error fetching patient data:', currentPatientError);
+              console.error('Could not load patient data for the lab report:', currentPatientError);
             } else {
               currentPatientData = patientData;
             }
           }
 
-          // Get visit data for additional info. Query visits.id only with a UUID.
           if (visitId) {
-            console.log('🔍 Fetching enhanced visit data for visit_id:', visitId);
             const { data: visitData, error: currentVisitError } = await supabase
               .from('visits')
               .select('id, visit_id, appointment_with, reason_for_visit')
@@ -1894,7 +1810,7 @@ const LabOrders = () => {
               .maybeSingle();
 
             if (currentVisitError) {
-              console.error('❌ Error fetching visit data:', currentVisitError);
+              console.error('Could not load visit data for the lab report:', currentVisitError);
             } else {
               currentVisitData = visitData;
             }
@@ -1913,18 +1829,23 @@ const LabOrders = () => {
             clinical_history: currentVisitData?.reason_for_visit || 'Not specified'
           };
 
-          console.log('📋 Final result with patient info:', resultWithPatientInfo);
-
           results.push(resultWithPatientInfo);
-          console.log('🎉 Result processed successfully!');
-
         } catch (error) {
-          console.error('💥 Error processing result:', error);
-          throw error; // Re-throw to trigger onError
+          console.error(`Failed to save lab result ${result.test_name || ''}:`, error);
+          throw new Error(`${result.test_name || 'Lab result'}: ${error instanceof Error ? error.message : 'save failed'}`);
         }
       }
 
-      console.log('🚀 All results processed successfully:', results);
+      const completedDate = new Date().toISOString();
+      await Promise.all(
+        [...completedVisitLabIds].map(async (visitLabId) => {
+          const { error } = await supabase
+            .from('visit_labs')
+            .update({ status: 'completed', completed_date: completedDate })
+            .eq('id', visitLabId);
+          if (error) throw error;
+        })
+      );
       return results;
     },
     onSuccess: (results) => {
@@ -2034,7 +1955,7 @@ const LabOrders = () => {
       console.error('Save lab results error:', error);
       toast({
         title: "Error",
-        description: "Failed to save lab results. Please try again.",
+        description: `Failed to save lab results: ${error instanceof Error ? error.message : 'Please try again.'}`,
         variant: "destructive"
       });
     }
@@ -3477,95 +3398,6 @@ const LabOrders = () => {
 
     await saveLabResultsMutation.mutateAsync(validResults);
     return true;
-  };
-
-  // Tracks the last value auto-saved per field, to avoid duplicate inserts on repeated blurs.
-  const lastAutoSavedRef = useRef<Record<string, string>>({});
-
-  // Auto-save a single field's value to lab_results the moment the user leaves the field (on blur).
-  // Mirrors the row mapping used by saveLabResultsMutation, but inserts ONLY the one edited field and
-  // stays silent (no toast, no query invalidation) so it can fire on every field exit without UI churn.
-  // lab_results is insert-only and loadExistingLabResults dedupes on read (latest row per test_name wins),
-  // so re-inserting a changed value is consistent with the existing manual-save behaviour.
-  const autoSaveField = async (fieldKey: string, rawValue: string) => {
-    const value = (rawValue ?? '').trim();
-    if (!value) return;
-
-    // Skip if this exact value is already persisted (loaded from DB or previously auto-saved).
-    const alreadySaved = lastAutoSavedRef.current[fieldKey] ?? savedLabResults[fieldKey]?.result_value;
-    if (alreadySaved === value) {
-      lastAutoSavedRef.current[fieldKey] = value;
-      return;
-    }
-
-    const formData = labResultsForm[fieldKey] || {};
-
-    // Resolve which test row + (optional) sub-test this field belongs to.
-    // Main test key === testRow.id; sub-test key === `${testRow.id}_subtest_${subTest.id}`.
-    let testRow = selectedTestsForEntry.find(t => t.id === fieldKey);
-    let testName = '';
-    let unit = '';
-
-    if (testRow) {
-      testName = testRow.test_name;
-      unit = formData.result_unit && formData.result_unit.toLowerCase() !== 'unit' ? formData.result_unit : '';
-    } else {
-      const sepIdx = fieldKey.indexOf('_subtest_');
-      if (sepIdx === -1) return;
-      const parentId = fieldKey.substring(0, sepIdx);
-      testRow = selectedTestsForEntry.find(t => t.id === parentId);
-      if (!testRow) return;
-      const subTests = testSubTests[testRow.test_name] || [];
-      const subTestObj = subTests.find(st => `${testRow!.id}_subtest_${st.id}` === fieldKey);
-      if (!subTestObj) return;
-      testName = subTestObj.name;
-      unit = formData.result_unit || (subTestObj.unit && subTestObj.unit.toLowerCase() !== 'unit' ? subTestObj.unit : '');
-    }
-
-    const referenceRange = calculatedRanges[fieldKey] || formData.reference_range || '';
-
-    try {
-      const { error } = await supabase.from('lab_results').insert({
-        main_test_name: testRow.test_name || 'Unknown Test',
-        test_name: testName || 'Unknown Sub-Test',
-        test_category: testRow.test_category || 'GENERAL',
-        result_value: value,
-        result_unit: unit,
-        reference_range: referenceRange,
-        comments: formData.comments || '',
-        is_abnormal: formData.is_abnormal || false,
-        result_status: authenticatedResult ? 'Final' : 'Preliminary',
-        authenticated_result: authenticatedResult || false,
-        patient_name: testRow.patient_name || 'Unknown Patient',
-        patient_age: testRow.patient_age || null,
-        patient_gender: testRow.patient_gender || 'Unknown',
-        visit_lab_id: testRow.id,
-        visit_id: testRow.visit_uuid || testRow.order_id || null,
-        lab_id: testRow.lab_uuid || testRow.test_id || null,
-      });
-
-      if (error) {
-        console.error('⚠️ Auto-save failed for', fieldKey, error);
-        return;
-      }
-
-      lastAutoSavedRef.current[fieldKey] = value;
-
-      // Reflect the saved value locally so print data stays ready and the order row shows a saved tick.
-      setSavedLabResults(prev => ({
-        ...prev,
-        [fieldKey]: {
-          ...formData,
-          result_value: value,
-          result_status: authenticatedResult ? 'Final' : 'Preliminary',
-          saved_at: new Date().toISOString(),
-          authenticated: authenticatedResult,
-        },
-      }));
-      setTestsWithSavedResults(prev => [...new Set([...prev, testRow!.id])]);
-    } catch (err) {
-      console.error('⚠️ Auto-save error for', fieldKey, err);
-    }
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -5989,7 +5821,6 @@ const LabOrders = () => {
                                       placeholder="Enter value"
                                       value={displayValue}
                                       onChange={(e) => handleLabResultChange(mainTestKey, 'result_value', e.target.value)}
-                                      onBlur={(e) => autoSaveField(mainTestKey, e.target.value)}
                                       data-observed-value="true"
                                       onKeyDown={(e) => {
                                         const currentInputIndex = Array.from(
@@ -6115,7 +5946,6 @@ const LabOrders = () => {
                                   placeholder="Enter text value"
                                   value={subTestDisplayValue || subTest.text_value || ''}
                                   onChange={(e) => handleLabResultChange(subTestKey, 'result_value', e.target.value)}
-                                  onBlur={(e) => autoSaveField(subTestKey, e.target.value || subTest.text_value || '')}
                                 />
                                 {isFormSaved && subTestFormData.result_value && (
                                   <span className="text-green-600 text-sm">✓</span>
@@ -6167,7 +5997,6 @@ const LabOrders = () => {
                                       placeholder="Enter value"
                                       value={subTestDisplayValue}
                                       onChange={(e) => handleLabResultChange(subTestKey, 'result_value', e.target.value)}
-                                      onBlur={(e) => autoSaveField(subTestKey, e.target.value)}
                                       data-observed-value="true"
                                       onKeyDown={(e) => {
                                         const currentInputIndex = Array.from(
@@ -6349,13 +6178,13 @@ const LabOrders = () => {
                     variant="outline"
                     className="px-8"
                     onClick={async () => {
-                      // Save first, only open preview if save is successful
-                      const saveSuccess = await handleSaveLabResults();
+                      // A saved report can be previewed directly; otherwise save once first.
+                      const saveSuccess = isFormSaved || await handleSaveLabResults();
                       if (saveSuccess) {
                         handlePreviewAndPrint(selectedTestsForEntry);
                       }
                     }}
-                    disabled={selectedTestsForEntry.length === 0}
+                    disabled={selectedTestsForEntry.length === 0 || saveLabResultsMutation.isPending}
                     title="Save and print lab report"
                   >
                     Preview & Print
