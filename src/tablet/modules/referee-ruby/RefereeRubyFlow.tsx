@@ -279,7 +279,7 @@ function VisitCard({
   );
 }
 
-const ALLOWED_ROLES = ["superadmin", "super_admin"];
+const ALLOWED_ROLES = ["superadmin", "super_admin", "ca"];
 
 /** Referee - Ruby: OPDs + recent admissions with the referee, feedback comments & uploads. */
 export default function RefereeRubyFlow() {

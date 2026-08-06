@@ -272,7 +272,7 @@ export const OpdPatientTable = ({ patients, refetch, isMarketingManager = false,
     'marketingmanager@hope.com',
     'marketingmanager@ayushman.com'
   ];
-  const canSeeReferralColumn = user?.role === 'superadmin' || ALLOWED_REFERRAL_COLUMN_EMAILS.includes(user?.email?.toLowerCase() || '');
+  const canSeeReferralColumn = user?.role === 'superadmin' || user?.role === 'ca' || ALLOWED_REFERRAL_COLUMN_EMAILS.includes(user?.email?.toLowerCase() || '');
 
   const [selectedPatientForVisit, setSelectedPatientForVisit] = useState<Patient | null>(null);
   const [isVisitFormOpen, setIsVisitFormOpen] = useState(false);

@@ -9,8 +9,9 @@ import { useMasterCounts } from '@/hooks/useMasterCounts';
 import { groupForTitle } from './sidebarGroups';
 import { useAccountingRights } from '@/components/accounting/tally/rights';
 import { useTileAccess } from '@/hooks/useTileAccess';
+import { isSuperAdminRole } from '@/lib/roles';
 
-const ADMIN_ROLES = ['superadmin', 'super_admin', 'admin'];
+const ADMIN_ROLES = ['superadmin', 'super_admin', 'ca', 'admin'];
 
 const SIDEBAR_TILE_MAP: Record<string, string> = {
   'Users': 's-users',
@@ -58,7 +59,7 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
   const { canSeeTile } = useTileAccess();
   const userRole = (user?.role || '').toLowerCase().trim();
   const masterCounts = useMasterCounts(
-    !!user && ['superadmin', 'super_admin', 'admin'].includes(userRole),
+    !!user && ['superadmin', 'super_admin', 'ca', 'admin'].includes(userRole),
   );
   const {
     diagnosesCount = 0,
@@ -80,7 +81,7 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
   } = props;
 
   return useMemo(() => {
-    const isSuperAdmin = userRole === 'superadmin' || userRole === 'super_admin';
+    const isSuperAdmin = isSuperAdminRole(userRole);
 
     const filtered = menuItems
       .filter(item => {
@@ -105,7 +106,7 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
 
         // Who sees which tablet tile first is an administrator's call.
         if (item.url === "/tile-configuration") {
-          if (!['superadmin', 'super_admin', 'admin'].includes(user?.role || '')) {
+          if (!['superadmin', 'super_admin', 'ca', 'admin'].includes(user?.role || '')) {
             return false;
           }
         }
@@ -117,7 +118,7 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
         // Hide Director Dashboard for non-authorized users
         if (item.title === "Director Dashboard") {
           const DIRECTOR_EMAILS = ['cmd@hopehospital.com', 'finance@hopehospital.com'];
-          const DIRECTOR_ROLES = ['superadmin', 'super_admin', 'front_office', 'billing'];
+          const DIRECTOR_ROLES = ['superadmin', 'super_admin', 'ca', 'front_office', 'billing'];
           const userEmail = user?.email?.toLowerCase() || '';
           const userRole = user?.role || '';
           if (!DIRECTOR_EMAILS.includes(userEmail) && !DIRECTOR_ROLES.includes(userRole)) {
@@ -135,7 +136,7 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
           const userEmail = user?.email?.toLowerCase() || '';
           const userRole = user?.role;
           // Lab Master is open to the admin role too; the other masters stay superadmin-only
-          const allowedRoles = item.title === "Lab Master" ? ['superadmin', 'admin'] : ['superadmin'];
+          const allowedRoles = item.title === "Lab Master" ? ['superadmin', 'super_admin', 'ca', 'admin'] : ['superadmin', 'super_admin', 'ca'];
           if (!allowedRoles.includes(userRole || '') && !MASTER_ADMIN_EMAILS.includes(userEmail)) {
             return false;
           }

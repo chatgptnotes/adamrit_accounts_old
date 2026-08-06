@@ -27,7 +27,7 @@ const DialysisDashboard = () => {
   const { canSeeTile } = useTileAccess();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const isMarketingManager = user?.role === 'marketing_manager' || user?.role === 'superadmin';
+  const isMarketingManager = user?.role === 'marketing_manager' || user?.role === 'superadmin' || user?.role === 'ca';
 
   // Patient selected for a new dialysis visit (from roster or lookup)
   const [selectedPatient, setSelectedPatient] = useState<{ id: string; name: string; patients_id?: string } | null>(null);

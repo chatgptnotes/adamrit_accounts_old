@@ -16,6 +16,7 @@ export interface TileAccessRule {
 
 export const ALL_ROLES = [
   "superadmin",
+  "ca",
   "admin",
   "doctor",
   "nurse",
@@ -137,13 +138,13 @@ export const TILE_ACCESS_RULES: TileAccessRule[] = [
   { id: "l-meetings", label: "Meetings This Month", group: "location" },
 
   // ── Sidebar Menus (key items) ──────────────────────────────────────
-  { id: "s-users", label: "Users", group: "sidebar", roles: ["superadmin", "super_admin"] },
-  { id: "s-user-management", label: "User Management", group: "sidebar", roles: ["superadmin", "super_admin"] },
+  { id: "s-users", label: "Users", group: "sidebar", roles: ["superadmin", "super_admin", "ca"] },
+  { id: "s-user-management", label: "User Management", group: "sidebar", roles: ["superadmin", "super_admin", "ca"] },
   { id: "s-payment-allocation", label: "Payment Allocation", group: "sidebar" },
   { id: "s-director-dashboard", label: "Director Dashboard", group: "sidebar" },
-  { id: "s-lab-master", label: "Lab Master", group: "sidebar", roles: ["superadmin", "admin"] },
-  { id: "s-radiology-master", label: "Radiology Master", group: "sidebar", roles: ["superadmin"] },
-  { id: "s-surgery", label: "Surgery", group: "sidebar", roles: ["superadmin"] },
+  { id: "s-lab-master", label: "Lab Master", group: "sidebar", roles: ["superadmin", "super_admin", "ca", "admin"] },
+  { id: "s-radiology-master", label: "Radiology Master", group: "sidebar", roles: ["superadmin", "super_admin", "ca"] },
+  { id: "s-surgery", label: "Surgery", group: "sidebar", roles: ["superadmin", "super_admin", "ca"] },
   { id: "s-accounting", label: "Accounting", group: "sidebar" },
   { id: "s-referral-register", label: "Referral Register", group: "sidebar" },
   { id: "s-marketing-dashboard", label: "Marketing Dashboard", group: "sidebar" },

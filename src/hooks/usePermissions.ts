@@ -5,6 +5,7 @@
 
 import { useAuth } from '@/contexts/AuthContext';
 import { canEditMasters, canDeleteMasters, canManageUsers, canDeleteRecords, hasPermission, Permission } from '@/lib/permissions';
+import { isSuperAdminRole } from '@/lib/roles';
 
 interface PermissionChecks {
   canEditMasters: boolean;
@@ -18,7 +19,7 @@ export const usePermissions = (): PermissionChecks => {
   const { user } = useAuth();
   const userRole = user?.role;
   const normalizedRole = (userRole || '').toLowerCase().trim();
-  const isSuperAdmin = normalizedRole === 'superadmin' || normalizedRole === 'super_admin';
+  const isSuperAdmin = isSuperAdminRole(normalizedRole);
 
   return {
     // SuperAdmin always has all permissions

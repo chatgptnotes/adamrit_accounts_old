@@ -7,6 +7,7 @@ import { logActivity } from "@/lib/activity-logger";
 import { useCompanies } from "@/hooks/useCompanies";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTileAccess } from "@/hooks/useTileAccess";
+import { isSuperAdminRole } from "@/lib/roles";
 import {
   ALL_ROLES,
   ALL_TILE_GROUPS,
@@ -122,6 +123,7 @@ interface CsvRow {
 /** Human-readable labels for roles */
 const ROLE_LABELS: Record<string, string> = {
   superadmin: "Super Admin",
+  ca: "CA",
   admin: "Admin",
   doctor: "Doctor",
   nurse: "Nurse",
@@ -228,8 +230,6 @@ const ROLE_ACCESS_MAP: Record<string, string[]> = {
   ],
 };
 
-const isSuperAdminRole = (role?: string | null) => role === "superadmin" || role === "super_admin";
-
 /** Default blank form state for adding a new user */
 const EMPTY_FORM: UserFormData = {
   full_name: "",
@@ -282,7 +282,7 @@ const UserManagement: React.FC = () => {
   const { toast } = useToast();
   const { data: companies = [] } = useCompanies();
   const { user } = useAuth();
-  const isSuperAdmin = user?.role === "superadmin" || user?.role === "super_admin";
+  const isSuperAdmin = isSuperAdminRole(user?.role);
   const { getAllRules, setTileRoles, resetToDefaults } = useTileAccess();
 
   // ---- Data state ----

@@ -87,7 +87,7 @@ const BillApprovals = () => {
   const [pharmacyRejectionReason, setPharmacyRejectionReason] = useState('');
   const [discountSubTab, setDiscountSubTab] = useState<'visit' | 'pharmacy'>('pharmacy');
 
-  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'super_admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'super_admin' || user?.role === 'ca';
 
   // Fetch pending bills
   const { data: pendingBills = [], isLoading } = useQuery({

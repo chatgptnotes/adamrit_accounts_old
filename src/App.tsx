@@ -24,6 +24,7 @@ import { HospitalType, getHospitalConfig } from "@/types/hospital";
 import { Tablet } from "lucide-react";
 import { shouldUseTabletEdition, setOverride } from "@/lib/device-class";
 import { isChunkLoadError, reloadOnceForChunkError } from "@/lib/chunkReload";
+import { isSuperAdminRole } from "@/lib/roles";
 
 // Touch (tablet) edition — rendered on the same URL for tablet/phone devices.
 const TabletApp = lazy(() => import("@/tablet/TabletApp"));
@@ -34,8 +35,7 @@ const DIRECTOR_EMAILS = ['cmd@hopehospital.com', 'finance@hopehospital.com'];
 const getRoleDefaultRoute = (role: string, email?: string): string => {
   if (
     (email && DIRECTOR_EMAILS.includes(email.toLowerCase())) ||
-    role === 'superadmin' ||
-    role === 'super_admin'
+    isSuperAdminRole(role)
   ) {
     return '/director-dashboard';
   }
@@ -73,6 +73,7 @@ const getRoleDefaultRoute = (role: string, email?: string): string => {
       return '/patient-dashboard';
     case 'superadmin':
     case 'super_admin':
+    case 'ca':
       return '/bill-approvals';
     case 'admin':
     default:
@@ -272,7 +273,7 @@ const AppContent = () => {
   // requests fire on the login/landing page and starve the login `User` lookup.
   const counts = useCounts(isAuthenticated);
   const userRole = user?.role?.toLowerCase().trim() || '';
-  const canSeePharmacy = ['superadmin', 'super_admin', 'admin', 'pharmacy', 'pharmacist'].includes(userRole);
+  const canSeePharmacy = ['superadmin', 'super_admin', 'ca', 'admin', 'pharmacy', 'pharmacist'].includes(userRole);
   const pendingPrescriptionsCount = usePendingPrescriptionCount(isAuthenticated && canSeePharmacy);
   const [selectedHospitalType, setSelectedHospitalType] = React.useState<HospitalType | null>(() => {
     const saved = localStorage.getItem('hmis_selected_hospital');

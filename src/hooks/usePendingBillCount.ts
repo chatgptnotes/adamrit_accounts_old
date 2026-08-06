@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 
 export const usePendingBillCount = () => {
   const { user } = useAuth();
-  const isAdminUser = user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'super_admin';
+  const isAdminUser = user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'super_admin' || user?.role === 'ca';
 
   const { data: count = 0 } = useQuery({
     queryKey: ['pending-bill-count'],

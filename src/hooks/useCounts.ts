@@ -59,7 +59,7 @@ export const usePatientsCount = (enabled: boolean = true) => {
 export const useCounts = (enabled: boolean = true) => {
   const { hospitalConfig, user } = useAuth();
   const role = user?.role?.toLowerCase().trim() || '';
-  const isAdmin = ['superadmin', 'super_admin', 'admin'].includes(role);
+  const isAdmin = ['superadmin', 'super_admin', 'ca', 'admin'].includes(role);
   const canSeePatients = isAdmin || ['doctor', 'consultant', 'nurse', 'receptionist', 'reception', 'front_office'].includes(role);
   const canSeeLab = isAdmin || ['lab', 'lab_technician'].includes(role);
   const canSeeRadiology = isAdmin || ['radiology', 'radiology_tech'].includes(role);

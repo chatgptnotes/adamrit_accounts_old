@@ -5,7 +5,7 @@ const REFERRAL_REGISTER_EMAILS = new Set([
   'ganeshsharnagat47@gmail.com',
 ]);
 
-const REFERRAL_REGISTER_ROLES = new Set(['superadmin', 'super_admin']);
+const REFERRAL_REGISTER_ROLES = new Set(['superadmin', 'super_admin', 'ca']);
 
 export function canAccessReferralRegister(user?: { email?: string | null; role?: string | null } | null) {
   const email = (user?.email || '').toLowerCase().trim();

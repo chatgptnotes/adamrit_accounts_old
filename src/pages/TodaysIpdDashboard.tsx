@@ -319,7 +319,7 @@ const TodaysIpdDashboard = () => {
   const navigate = useNavigate();
   
   // Check if current user is a marketing manager
-  const isMarketingManager = user?.role === 'marketing_manager' || user?.role === 'superadmin';
+  const isMarketingManager = user?.role === 'marketing_manager' || user?.role === 'superadmin' || user?.role === 'ca';
 
   // Receptionists get the Actions column (view/edit/comments/upload/revoke),
   // but NOT the destructive delete ("Mark Visit Inactive"), which stays admin-only.
@@ -333,7 +333,7 @@ const TodaysIpdDashboard = () => {
     'marketingmanager@hope.com',
     'marketingmanager@ayushman.com'
   ];
-  const canSeeReferralColumn = user?.role === 'superadmin' || ALLOWED_REFERRAL_COLUMN_EMAILS.includes(user?.email?.toLowerCase() || '');
+  const canSeeReferralColumn = user?.role === 'superadmin' || user?.role === 'ca' || ALLOWED_REFERRAL_COLUMN_EMAILS.includes(user?.email?.toLowerCase() || '');
 
   const [searchParams, setSearchParams] = useSearchParams();
 

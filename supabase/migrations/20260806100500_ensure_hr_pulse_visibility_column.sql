@@ -1,8 +1,6 @@
--- Separate HR Pulse access control for User Management.
---
--- Full HR Pulse visibility is a per-user flag, but only superadmin-class
--- accounts are eligible for it. Everyone else stays self-scoped.
-
+-- User Management writes this flag for every new or edited user. Keep this
+-- migration idempotent so databases that missed the original HR migration
+-- can be repaired safely.
 ALTER TABLE public."User"
   ADD COLUMN IF NOT EXISTS hr_pulse_can_view_all BOOLEAN NOT NULL DEFAULT false;
 

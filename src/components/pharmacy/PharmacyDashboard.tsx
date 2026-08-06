@@ -67,7 +67,7 @@ const PharmacyDashboard: React.FC = () => {
 
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'super_admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'super_admin' || user?.role === 'ca';
 
   const { data: pendingPharmacyDiscounts = [], refetch: refetchPendingDiscounts } = useQuery({
     queryKey: ['pending-pharmacy-discount-approvals', 'dashboard'],

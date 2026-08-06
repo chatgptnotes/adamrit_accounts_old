@@ -20,7 +20,7 @@ import {
 } from "./useRefereeViji";
 
 const CATEGORY = "referee_viji" as const;
-const ALLOWED_ROLES = ["superadmin", "super_admin"];
+const ALLOWED_ROLES = ["superadmin", "super_admin", "ca"];
 
 function ReviewImages({ patientId }: { patientId: string | null }) {
   const { data = [], isLoading } = useQuery({

@@ -23,7 +23,7 @@ const TodaysOpd = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   
   // Check if current user is a marketing manager or superadmin
-  const isMarketingManager = user?.role === 'marketing_manager' || user?.role === 'superadmin';
+  const isMarketingManager = user?.role === 'marketing_manager' || user?.role === 'superadmin' || user?.role === 'ca';
 
   // State for referral report preview modal
   const [isReferralReportOpen, setIsReferralReportOpen] = useState(false);

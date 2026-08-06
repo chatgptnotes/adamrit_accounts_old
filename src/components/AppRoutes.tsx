@@ -7,6 +7,7 @@ import { setOverride } from "@/lib/device-class";
 import { MlPinGate } from "@/components/MlPinGate";
 import ProtectedFinalBillRoute from "@/components/invoice/ProtectedFinalBillRoute";
 import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
+import { isSuperAdminRole } from "@/lib/roles";
 
 // Import critical pages synchronously
 import LandingPage from "../pages/LandingPage";
@@ -212,7 +213,7 @@ const DirectorRoute = ({ children }: { children?: ReactNode }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const DIRECTOR_EMAILS = ['cmd@hopehospital.com', 'finance@hopehospital.com'];
-  const DIRECTOR_ROLES = ['superadmin', 'super_admin', 'front_office', 'billing'];
+  const DIRECTOR_ROLES = ['superadmin', 'super_admin', 'ca', 'front_office', 'billing'];
   const userRole = (user as { role?: string }).role ?? '';
   const userEmail = user?.email?.toLowerCase() || '';
   const normalizedRole = userRole.toLowerCase().trim();
@@ -256,7 +257,7 @@ const SuperAdminRoute = ({ children }: SuperAdminRouteProps) => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const userRole = ((user as { role?: string }).role ?? '').toLowerCase().trim();
-  const canAccess = userRole === 'superadmin' || userRole === 'super_admin';
+  const canAccess = isSuperAdminRole(userRole);
 
   useEffect(() => {
     if (!canAccess) {

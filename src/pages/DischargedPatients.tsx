@@ -418,14 +418,14 @@ const DischargedPatients = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   
   // Check if current user is a marketing manager or superadmin
-  const isMarketingManager = user?.role === 'marketing_manager' || user?.role === 'superadmin';
+  const isMarketingManager = user?.role === 'marketing_manager' || user?.role === 'superadmin' || user?.role === 'ca';
 
   // Allowed emails to see Referral Doctor/Relationship Manager column
   const ALLOWED_REFERRAL_COLUMN_EMAILS = [
     'marketingmanager@hope.com',
     'marketingmanager@ayushman.com'
   ];
-  const canSeeReferralColumn = user?.role === 'superadmin' || ALLOWED_REFERRAL_COLUMN_EMAILS.includes(user?.email?.toLowerCase() || '');
+  const canSeeReferralColumn = user?.role === 'superadmin' || user?.role === 'ca' || ALLOWED_REFERRAL_COLUMN_EMAILS.includes(user?.email?.toLowerCase() || '');
 
   // URL-persisted state
   const searchTerm = searchParams.get('search') || '';

@@ -4,6 +4,7 @@ import { HospitalType, getHospitalConfig } from '@/types/hospital';
 import { supabase } from '@/integrations/supabase/client';
 import { hashPassword, validateEmail, sanitizeInput, signupRateLimiter } from '@/utils/auth';
 import { logActivity } from '@/lib/activity-logger';
+import { isSuperAdminRole } from '@/lib/roles';
 
 // Separate anon client for User table lookups — not affected by OAuth session RLS
 const supabaseAnon = createClient(
@@ -17,7 +18,7 @@ interface User {
   employeeId?: string | null;
   email: string;
   username: string;
-  role: 'superadmin' | 'super_admin' | 'admin' | 'doctor' | 'nurse' | 'user' | 'marketing_manager' | 'receptionist' | 'lab_technician' | 'pharmacy' | 'pharmacist' | 'radiology' | 'radiology_tech' | 'ot_tech' | 'cath_lab_tech' | 'billing' | 'housekeeping' | 'security' | 'driver' | 'physiotherapist' | 'lab' | 'reception' | 'maintenance' | 'hr' | 'quality' | 'consultant' | 'front_office';
+  role: 'superadmin' | 'super_admin' | 'ca' | 'admin' | 'doctor' | 'nurse' | 'user' | 'marketing_manager' | 'receptionist' | 'lab_technician' | 'pharmacy' | 'pharmacist' | 'radiology' | 'radiology_tech' | 'ot_tech' | 'cath_lab_tech' | 'billing' | 'housekeeping' | 'security' | 'driver' | 'physiotherapist' | 'lab' | 'reception' | 'maintenance' | 'hr' | 'quality' | 'consultant' | 'front_office';
   hospitalType: HospitalType;
 }
 
@@ -353,8 +354,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     logout,
     isAuthenticated: !!user,
     isAuthLoading,
-    isSuperAdmin: user?.role === 'superadmin' || user?.role === 'super_admin',
-    isAdmin: user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'super_admin',
+    isSuperAdmin: isSuperAdminRole(user?.role),
+    isAdmin: user?.role === 'admin' || isSuperAdminRole(user?.role),
     hospitalType: user?.hospitalType || null,
     hospitalConfig,
     showLanding,

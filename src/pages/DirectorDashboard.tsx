@@ -41,7 +41,7 @@ import {
 } from '@/hooks/usePaymentDeadlines';
 
 const DIRECTOR_EMAILS = ['cmd@hopehospital.com', 'finance@hopehospital.com'];
-const DIRECTOR_ROLES = ['superadmin', 'super_admin', 'front_office', 'billing'];
+const DIRECTOR_ROLES = ['superadmin', 'super_admin', 'ca', 'front_office', 'billing'];
 
 const canAccessDirector = (user: { email?: string; role?: string } | null | undefined): boolean => {
   if (!user) return false;

@@ -31,7 +31,7 @@ import BulkPaymentReceiptForm from '@/components/corporate-bulk-payment/BulkPaym
 
 const CorporateBulkPayments: React.FC = () => {
   const { hospitalConfig, user } = useAuth();
-  const isSuperAdmin = user?.role === 'superadmin' || user?.role === 'super_admin';
+  const isSuperAdmin = user?.role === 'superadmin' || user?.role === 'super_admin' || user?.role === 'ca';
   const { corporateOptions } = useCorporateData();
   const deleteMutation = useDeleteCorporateBulkPayment();
 
