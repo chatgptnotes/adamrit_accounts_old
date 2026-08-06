@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -59,10 +59,12 @@ interface AddPurchaseOrderProps {
 }
 
 const AddPurchaseOrder: React.FC<AddPurchaseOrderProps> = ({ onBack }) => {
+  const draftStorageKey = 'pharmacy_purchase_order_draft';
   const { toast } = useToast();
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(true);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const isDraftHydrated = useRef(false);
 
   // Form state
   const [poNumber, setPoNumber] = useState('');
@@ -109,21 +111,42 @@ const AddPurchaseOrder: React.FC<AddPurchaseOrderProps> = ({ onBack }) => {
       try {
         setIsLoading(true);
 
-        // Generate PO number
-        const generatedPO = await PurchaseOrderService.generatePONumber();
+        const savedDraft = localStorage.getItem(draftStorageKey);
+        let draft: Partial<{
+          poNumber: string;
+          orderDate: string;
+          orderFor: string;
+          supplierId: string;
+          lineItems: PurchaseOrderItem[];
+        }> = {};
+
+        if (savedDraft) {
+          try {
+            draft = JSON.parse(savedDraft);
+          } catch (error) {
+            console.error('Error reading purchase order draft:', error);
+            localStorage.removeItem(draftStorageKey);
+          }
+        }
+
+        // Restore the in-progress PO, or initialize a new one.
+        const generatedPO = draft.poNumber || await PurchaseOrderService.generatePONumber();
         setPoNumber(generatedPO);
 
-        // Set current date/time as default
         const now = new Date();
         const localDateTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
           .toISOString()
           .slice(0, 16);
-        setOrderDate(localDateTime);
+        setOrderDate(draft.orderDate || localDateTime);
+        setOrderFor(draft.orderFor || '');
+        setSupplierId(draft.supplierId || '');
+        setLineItems(Array.isArray(draft.lineItems) ? draft.lineItems : []);
 
         // Fetch suppliers
         const suppliersData = await SupplierService.getAll();
         setSuppliers(suppliersData);
 
+        isDraftHydrated.current = true;
         setIsLoading(false);
       } catch (error) {
         console.error('Error initializing form:', error);
@@ -138,6 +161,19 @@ const AddPurchaseOrder: React.FC<AddPurchaseOrderProps> = ({ onBack }) => {
 
     initializeForm();
   }, [toast]);
+
+  // Keep the in-progress PO available if the page is refreshed before submission.
+  useEffect(() => {
+    if (!isDraftHydrated.current) return;
+
+    localStorage.setItem(draftStorageKey, JSON.stringify({
+      poNumber,
+      orderDate,
+      orderFor,
+      supplierId,
+      lineItems,
+    }));
+  }, [poNumber, orderDate, orderFor, supplierId, lineItems]);
 
   // Search medicines when user types
   useEffect(() => {
@@ -351,6 +387,8 @@ const AddPurchaseOrder: React.FC<AddPurchaseOrderProps> = ({ onBack }) => {
         title: 'Success',
         description: `Purchase Order ${poNumber} created successfully with ${lineItems.length} items! Medicine inventory has been updated.`,
       });
+
+      localStorage.removeItem(draftStorageKey);
 
       // Clear form or navigate back to list
       setTimeout(() => {
