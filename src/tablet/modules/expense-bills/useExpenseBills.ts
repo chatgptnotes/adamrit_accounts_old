@@ -180,19 +180,47 @@ export function useCashBankLedgers() {
   });
 }
 
-/** Recently recorded bills and what is still owed on each. */
-export function useOutstandingBills(limit = 25) {
+/** PostgREST or() filters break on these characters. */
+const sanitizeSearch = (value: string) => value.replace(/[%,()]/g, " ").trim();
+
+/**
+ * Recently recorded bills and what is still owed on each.
+ *
+ * With a search term the window widens past the recent slice, because the
+ * point of searching is to reach an invoice raised days ago. Matches patient,
+ * party (the vendor or diagnostic centre), bill number, narration — and the
+ * amount, when the term is a number.
+ */
+export function useOutstandingBills(limit = 25, search = "") {
   const { data: companyId } = useExpenseBillCompanyId();
+  const term = sanitizeSearch(search);
   return useQuery({
-    queryKey: ["expense-bills-outstanding", companyId, limit],
+    queryKey: ["expense-bills-outstanding", companyId, limit, term],
     queryFn: async (): Promise<OutstandingBill[]> => {
       if (!companyId) return [];
-      const { data, error } = await supabase
+      let query = supabase
         .from("v_expense_bills_outstanding" as any)
         .select("*")
         .eq("company_id", companyId)
         .order("bill_date", { ascending: false })
-        .limit(limit);
+        .limit(term ? 200 : limit);
+      if (term) {
+        const filters = [
+          `patient_name.ilike.%${term}%`,
+          `party.ilike.%${term}%`,
+          `bill_number.ilike.%${term}%`,
+          `expense_head.ilike.%${term}%`,
+          `narration.ilike.%${term}%`,
+        ];
+        // "2000" should find the two-thousand-rupee invoice, not just text
+        // that happens to contain those digits.
+        const amount = Number(term.replace(/[^0-9.]/g, ""));
+        if (Number.isFinite(amount) && amount > 0 && /^[0-9.,]+$/.test(term)) {
+          filters.push(`billed.eq.${amount}`);
+        }
+        query = query.or(filters.join(","));
+      }
+      const { data, error } = await query;
       if (error) throw error;
       return (data ?? []).map((r: any) => ({
         id: r.id,

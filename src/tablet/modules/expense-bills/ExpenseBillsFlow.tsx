@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
-import { Camera, FileText, Loader2, Paperclip, Plus, QrCode, Upload, X } from "lucide-react";
+import { useDebounce } from "use-debounce";
+import { Camera, FileText, Loader2, Paperclip, Plus, QrCode, Search, Upload, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { saveLedgerQr, savePaymentProof } from "@/lib/expense-bills/paymentEvidence";
@@ -229,27 +230,68 @@ function PayEvidenceRow({ bill }: { bill: OutstandingBill }) {
 }
 
 function OutstandingList({ onPay }: { onPay: (bill: OutstandingBill) => void }) {
-  const { data: bills = [], isLoading } = useOutstandingBills();
+  // Without a term the tile shows the recent slice; searching widens the
+  // window so an invoice raised days ago is reachable without scrolling.
+  const [search, setSearch] = useState("");
+  const [debouncedSearch] = useDebounce(search, 250);
+  const { data: bills = [], isLoading } = useOutstandingBills(25, debouncedSearch);
+  const searching = debouncedSearch.trim().length > 0;
+
+  const searchBar = (
+    <div className="relative">
+      <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+      <TabletInput
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search patient, centre / vendor, bill no or amount…"
+        className="pl-10"
+      />
+      {search && (
+        <button
+          type="button"
+          aria-label="Clear search"
+          onClick={() => setSearch("")}
+          className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      )}
+    </div>
+  );
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
-        <Loader2 className="h-5 w-5 animate-spin" />
-        Loading bills
+      <div className="space-y-3">
+        {searchBar}
+        <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          Loading bills
+        </div>
       </div>
     );
   }
 
   if (bills.length === 0) {
     return (
-      <TabletCard variant="flat" className="py-10 text-center text-muted-foreground">
-        No invoices recorded yet.
-      </TabletCard>
+      <div className="space-y-3">
+        {searchBar}
+        <TabletCard variant="flat" className="py-10 text-center text-muted-foreground">
+          {searching
+            ? `No invoice matches "${debouncedSearch.trim()}".`
+            : "No invoices recorded yet."}
+        </TabletCard>
+      </div>
     );
   }
 
   return (
     <div className="space-y-3">
+      {searchBar}
+      {searching && (
+        <p className="text-xs text-muted-foreground">
+          {bills.length} invoice{bills.length === 1 ? "" : "s"} matching “{debouncedSearch.trim()}”
+        </p>
+      )}
       {bills.map((b) => (
         <TabletCard
           key={b.id}
