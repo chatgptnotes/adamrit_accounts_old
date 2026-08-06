@@ -272,6 +272,10 @@ const Index = () => {
       const matchingPatients = patientArray.filter((patient: any) => {
         return [
           patient.name?.toLowerCase().includes(searchLower),
+          patient.patients_id?.toLowerCase().includes(searchLower),
+          patient.insurance_person_no?.toLowerCase().includes(searchLower),
+          patient.visitId?.toLowerCase().includes(searchLower),
+          patient.visitIdDisplay?.toLowerCase().includes(searchLower),
           patient.primaryDiagnosis?.toLowerCase().includes(searchLower),
           patient.surgeon?.toLowerCase().includes(searchLower),
           patient.consultant?.toLowerCase().includes(searchLower),

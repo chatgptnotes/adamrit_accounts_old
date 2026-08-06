@@ -179,12 +179,14 @@ const DialysisDashboard = () => {
   // Dedupe roster by patient, keeping the date-by-date billing status.
   const rosterPatients = useMemo(() => {
     const byPatient = new Map<string, {
+      patientId: string;
       patient: any;
       lastVisitDate: string | null;
       sittings: number;
     }>();
     rosterVisits.forEach((visit: any) => {
       if (!visit.patient_id || !visit.patients) return;
+      const patient = Array.isArray(visit.patients) ? visit.patients[0] : visit.patients;
       const existing = byPatient.get(visit.patient_id);
       if (existing) {
         existing.sittings += 1;
@@ -193,7 +195,8 @@ const DialysisDashboard = () => {
         }
       } else {
         byPatient.set(visit.patient_id, {
-          patient: visit.patients,
+          patientId: visit.patient_id,
+          patient,
           lastVisitDate: visit.visit_date || null,
           sittings: 1,
         });
@@ -201,7 +204,10 @@ const DialysisDashboard = () => {
     });
     return Array.from(byPatient.values())
       .map((entry) => {
-        const patientSessions = billedSessions.filter((session) => session.patientId === entry.patient.id);
+        const patientSessions = billedSessions.filter((session) =>
+          session.patientId === entry.patientId ||
+          (!!entry.patient.patients_id && session.patientsId === entry.patient.patients_id)
+        );
         const unbilled = patientSessions.filter((session) => !session.billed).length;
         return { ...entry, unbilled, hasUnbilledDates: unbilled > 0 };
       })
@@ -338,7 +344,7 @@ const DialysisDashboard = () => {
               <p className="font-semibold">
                 {billDuePatients.length > 0
                   ? `Billing reminder — ${billDuePatients.length} patient${billDuePatients.length > 1 ? 's' : ''} has 3 or more unbilled dialysis dates`
-                  : 'No completed 6-sitting cycles pending billing'}
+                  : 'No completed 6-billing cycles pending billing'}
               </p>
               <p className="text-sm text-muted-foreground">
                 Each dialysis date can be billed separately.

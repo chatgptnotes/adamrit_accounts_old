@@ -74,7 +74,8 @@ export const SearchAndControls: React.FC<SearchAndControlsProps> = ({
               <TooltipTrigger asChild>
                 <div className="relative">
                   <Input
-                    placeholder="Search patients, diagnoses, doctors..."
+                    placeholder="Search name, UHID, visit ID, diagnosis or doctor..."
+                    aria-label="Search patients and clinical records"
                     value={searchTerm}
                     onChange={handleSearchChange}
                     className="pl-10 pr-8"

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
@@ -8,17 +9,29 @@ import { TabletWatermark } from "@/tablet/components/TabletWatermark";
 import { useRecentlyDischargedVisits } from "@/tablet/hooks/useVisitLists";
 import { useDialysisTracker } from "@/tablet/hooks/useDialysisTracker";
 import { useAssignedTiles } from "@/tablet/hooks/useAssignedTiles";
+import { DIALYSIS_SESSION_BILLING_QUERY_KEY, loadDialysisBillableSessions } from "@/lib/dialysisSessionBilling";
 
 /** Home dashboard — gradient-iconed module tiles, role-filtered, with quick search. */
 export function TabletHome() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, hospitalConfig } = useAuth();
   const [query, setQuery] = useState("");
   const modules = modulesForUser(user ?? undefined);
   // Recently-discharged intimation for the billing desk, badged on their tile.
   const billing = useRecentlyDischargedVisits();
   // Dialysis patients due a bill or a 30-day lab report, badged on their tile.
   const dialysis = useDialysisTracker();
+  // A hard billing alert is shown on Shashank's tile once three dialysis dates
+  // are unbilled across the hospital. Its badge is the number of dates left.
+  const dialysisBilling = useQuery({
+    queryKey: [DIALYSIS_SESSION_BILLING_QUERY_KEY, "home", hospitalConfig.name],
+    queryFn: () => loadDialysisBillableSessions(hospitalConfig.name),
+    staleTime: 30_000,
+  });
+  const dialysisBillingAlertCount = useMemo(
+    () => (dialysisBilling.data ?? []).filter((session) => !session.billed).length,
+    [dialysisBilling.data],
+  );
   // Tiles this person was mapped to in the Tile Configuration master. They are
   // lifted to the top of the grid; nothing is hidden if the set is empty.
   const { assigned } = useAssignedTiles();
@@ -27,6 +40,7 @@ export function TabletHome() {
   const badgeFor = (moduleId: string) => {
     if (moduleId === "documents") return billing.count;
     if (moduleId === "dialysis") return dialysis.actionCount;
+    if (moduleId === "panel-payment-received" && dialysisBillingAlertCount >= 3) return dialysisBillingAlertCount;
     return 0;
   };
 
@@ -58,6 +72,7 @@ export function TabletHome() {
   const renderTile = (m: (typeof modules)[number]) => {
     const Icon = m.icon;
     const badge = badgeFor(m.id);
+    const isDialysisBillingAlert = m.id === "panel-payment-received" && badge > 0;
     return (
       <button
         key={m.id}
@@ -66,7 +81,13 @@ export function TabletHome() {
         className="tablet-tile tablet-glass relative flex min-h-[148px] flex-col gap-2 rounded-2xl p-4 text-left sm:min-h-[156px] sm:p-5"
       >
         {badge > 0 ? (
-          <span className="absolute right-3 top-3 inline-flex min-w-[1.75rem] items-center justify-center rounded-full bg-destructive px-2 py-1 text-sm font-bold text-destructive-foreground shadow">
+          <span
+            title={isDialysisBillingAlert ? `${badge} dialysis billing date${badge === 1 ? "" : "s"} pending` : `${badge} pending item${badge === 1 ? "" : "s"}`}
+            className={cn(
+              "absolute right-3 top-3 inline-flex min-w-[1.75rem] items-center justify-center rounded-full bg-destructive px-2 py-1 text-sm font-bold text-destructive-foreground shadow",
+              isDialysisBillingAlert && "animate-pulse ring-2 ring-destructive/30 ring-offset-2 ring-offset-background",
+            )}
+          >
             {badge}
           </span>
         ) : null}

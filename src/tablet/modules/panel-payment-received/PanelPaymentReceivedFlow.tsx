@@ -127,15 +127,20 @@ function DialysisDateDocuments({ session }: { session: DialysisBillableSession }
   const documents = useQuery({
     queryKey: ["dialysis-billing-documents", session.id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const buildQuery = () => supabase
         .from("file_uploads")
         .select("id, file_name, file_url, category, created_at")
         .eq("patient_id", session.patientId)
         .in("category", ["dialysis", "lab_investigation", "clinic_notes", "monitor_chart", "radiology_investigation"])
-        .or(`notes.eq.dialysis_visit:${session.id},notes.eq.clinic_notes:${session.patientId}`)
         .order("created_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as any[];
+      const exact = await buildQuery().or(`notes.eq.dialysis_visit:${session.id},notes.eq.clinic_notes:${session.patientId}`);
+      if (exact.error) throw exact.error;
+      // Older dialysis uploads predate visit markers. Match the Dialysis screen
+      // by showing the patient's available document categories as a fallback.
+      if ((exact.data ?? []).length > 0) return exact.data as any[];
+      const fallback = await buildQuery();
+      if (fallback.error) throw fallback.error;
+      return (fallback.data ?? []) as any[];
     },
   });
 
@@ -166,6 +171,8 @@ function DialysisPendingBills({ onBack }: { onBack: () => void }) {
   const { user, hospitalConfig } = useAuth();
   const qc = useQueryClient();
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [expandedPatientId, setExpandedPatientId] = useState<string | null>(null);
+  const [justBilledIds, setJustBilledIds] = useState<Set<string>>(() => new Set());
   const sessions = useQuery({
     queryKey: [DIALYSIS_SESSION_BILLING_QUERY_KEY, hospitalConfig.name],
     queryFn: () => loadDialysisBillableSessions(hospitalConfig.name),
@@ -173,18 +180,19 @@ function DialysisPendingBills({ onBack }: { onBack: () => void }) {
   const pending = useMemo(() => {
     const byPatient = new Map<string, DialysisBillableSession[]>();
     for (const session of sessions.data ?? []) {
-      if (session.billed) continue;
+      if (session.billed || justBilledIds.has(session.id)) continue;
       const rows = byPatient.get(session.patientId) ?? [];
       rows.push(session);
       byPatient.set(session.patientId, rows);
     }
     return Array.from(byPatient.values()).sort((a, b) => b.length - a.length);
-  }, [sessions.data]);
+  }, [sessions.data, justBilledIds]);
 
   const markDone = async (session: DialysisBillableSession) => {
     setSavingId(session.id);
     try {
       await markDialysisSessionBilled(hospitalConfig.name, session, user?.email ?? user?.username ?? "tablet");
+      setJustBilledIds((current) => new Set(current).add(session.id));
       toast.success(`${session.patientName}'s dialysis date marked billed.`);
       await qc.invalidateQueries({ queryKey: [DIALYSIS_SESSION_BILLING_QUERY_KEY] });
     } catch (error: any) {
@@ -206,8 +214,16 @@ function DialysisPendingBills({ onBack }: { onBack: () => void }) {
       ) : pending.map((patientSessions) => {
         const patient = patientSessions[0];
         return <TabletCard key={patient.patientId} variant="flat" className="space-y-3">
-          <div><p className="text-base font-bold">{patient.patientName}</p><p className="text-xs text-muted-foreground">{patient.patientsId || "No patient ID"} · {patientSessions.length} dates pending</p></div>
-          {patientSessions.map((session) => <div key={session.id} className="space-y-2 rounded-xl border p-3">
+          <button
+            type="button"
+            onClick={() => setExpandedPatientId((current) => current === patient.patientId ? null : patient.patientId)}
+            className="w-full text-left"
+            aria-expanded={expandedPatientId === patient.patientId}
+          >
+            <p className="text-base font-bold">{patient.patientName}</p>
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><span>{patient.patientsId || "No patient ID"} · {patientSessions.length} dates pending</span><span className="h-2.5 w-2.5 rounded-full bg-red-500" aria-label="Billing pending" /><span>Tap to {expandedPatientId === patient.patientId ? "hide" : "view"} documents</span></p>
+          </button>
+          {expandedPatientId === patient.patientId && patientSessions.map((session) => <div key={session.id} className="space-y-2 rounded-xl border p-3">
             <div className="flex items-center justify-between gap-3"><div><p className="font-semibold">{new Date(`${session.visitDate}T00:00:00`).toLocaleDateString("en-IN")}</p><p className="text-xs text-muted-foreground">{session.visitCode || "No visit ID"}</p></div><span className="flex items-center gap-1 text-xs font-bold text-red-600"><span className="h-2.5 w-2.5 rounded-full bg-red-500" />Pending</span></div>
             <DialysisDateDocuments session={session} />
             <TabletButton className="w-full" disabled={savingId === session.id} onClick={() => void markDone(session)}>{savingId === session.id ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CheckCircle2 className="mr-2 h-5 w-5" />}Mark Billed Done</TabletButton>
