@@ -72,7 +72,7 @@ export const TABLET_MODULES: TabletModule[] = [
   },
   {
     id: "register",
-    label: "Register Patient Disha",
+    label: "Register Patient Diksha",
     description: "New patient & visit",
     icon: UserPlus,
     accent: "text-emerald-600",

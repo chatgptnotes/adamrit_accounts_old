@@ -60,7 +60,7 @@ export const TILE_ACCESS_RULES: TileAccessRule[] = [
   // ── Tablet Home Tiles (18) ──────────────────────────────────────────
   { id: "t-director", label: "Director Dashboard", group: "tablet" },
   { id: "t-hr-pulse", label: "HR Pulse", group: "tablet" },
-  { id: "t-register", label: "Register Patient Disha", group: "tablet" },
+  { id: "t-register", label: "Register Patient Diksha", group: "tablet" },
   { id: "t-occupancy", label: "Bed Occupancy", group: "tablet" },
   { id: "t-icu-admission", label: "ICU Admission", group: "tablet" },
   { id: "t-patient-profile", label: "Patient Profile Sonali", group: "tablet" },
