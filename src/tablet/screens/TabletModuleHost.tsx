@@ -42,8 +42,11 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
     () => import("@/tablet/modules/accounting-vouchers/TabletVoucherFlow"),
   ),
   // Past bills sit behind the office PIN — the gate, not the flow, decides.
+  // The tile renders the desktop Expense Bill page itself, so the register,
+  // its filters, the referral sections and Move to Daily Allocation are the
+  // same screen in both editions rather than two that drift apart.
   "expense-bills": lazy(() =>
-    import("@/tablet/modules/expense-bills/ExpenseBillsFlow").then((m) => ({
+    import("@/tablet/modules/expense-bills/ExpenseBillsMirror").then((m) => ({
       default: () => (
         <MlPinGate>
           <m.default />
