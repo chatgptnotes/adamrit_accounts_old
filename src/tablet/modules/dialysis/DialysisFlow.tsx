@@ -77,6 +77,7 @@ type DialysisVisit = {
   id: string;
   visit_id: string | null;
   visit_date: string;
+  created_at: string | null;
   status: string | null;
   patient_id: string;
   patient: PatientShape;
@@ -101,7 +102,7 @@ async function loadVisits(hospitalName: string, patientId?: string): Promise<Dia
   let query = supabase
     .from("visits")
     .select(
-      "id, visit_id, visit_date, status, patient_id, patients!inner(id, name, patients_id, phone, hospital_name)",
+      "id, visit_id, visit_date, created_at, status, patient_id, patients!inner(id, name, patients_id, phone, hospital_name)",
     )
     .eq("patient_type", "Dialysis")
     .eq("patients.hospital_name", hospitalName)
@@ -136,6 +137,7 @@ async function loadVisits(hospitalName: string, patientId?: string): Promise<Dia
     id: visit.id,
     visit_id: visit.visit_id,
     visit_date: visit.visit_date,
+    created_at: visit.created_at,
     status: visit.status,
     patient_id: visit.patient_id,
     patient: visit.patients,
@@ -421,20 +423,35 @@ export default function DialysisFlow() {
   const [refreshing, setRefreshing] = useState(false);
   const [period, setPeriod] = useState<DialysisPeriod>("today");
   const [searchTerm, setSearchTerm] = useState("");
+  // Which hospital's dialysis list — defaults to the login, switchable like
+  // every other tile.
+  const [listHospital, setListHospital] = useState<string>(
+    String(hospitalConfig.name).toLowerCase().includes("ayush") ? "ayushman" : "hope",
+  );
 
   const todayVisits = useQuery({
-    queryKey: ["tablet-dialysis-today", hospitalConfig.name, period, searchTerm.trim().toLowerCase()],
+    queryKey: ["tablet-dialysis-today", listHospital, period, searchTerm.trim().toLowerCase()],
     queryFn: async () => {
-      const visits = await loadVisits(hospitalConfig.name);
+      const visits = await loadVisits(listHospital);
       const range = periodRange(period);
       const normalizedSearch = searchTerm.trim().toLowerCase();
+      // "Today" is a rolling 24 hours on when the VISIT WAS MADE, so the
+      // staff uploading session images always see the visit they need,
+      // whichever calendar day the registration crossed.
+      const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const periodRows = normalizedSearch
         ? visits.filter((row) =>
             [row.patient.name, row.patient.patients_id, row.patient.phone, row.visit_id]
               .filter(Boolean)
               .some((value) => String(value).toLowerCase().includes(normalizedSearch)),
           )
-        : visits.filter((row) => row.visit_date >= range.start && row.visit_date <= range.end);
+        : period === "today"
+          ? visits.filter((row) =>
+              row.created_at
+                ? row.created_at >= last24h
+                : row.visit_date >= last24h.slice(0, 10),
+            )
+          : visits.filter((row) => row.visit_date >= range.start && row.visit_date <= range.end);
       const unique = new Map<string, DialysisVisit>();
       for (const row of periodRows) {
         if (!unique.has(row.patient_id)) unique.set(row.patient_id, row);
@@ -446,10 +463,10 @@ export default function DialysisFlow() {
 
   const [expandedPatientId, setExpandedPatientId] = useState<string | null>(null);
   const history = useQuery({
-    queryKey: ["tablet-dialysis-history", expandedPatientId, hospitalConfig.name],
+    queryKey: ["tablet-dialysis-history", expandedPatientId, listHospital],
     enabled: !!expandedPatientId,
     queryFn: async () => {
-      const rows = await loadVisits(hospitalConfig.name, expandedPatientId || undefined);
+      const rows = await loadVisits(listHospital, expandedPatientId || undefined);
       return rows
         .filter((row) => row.patient_id === expandedPatientId)
         .sort((a, b) => b.visit_date.localeCompare(a.visit_date))
@@ -517,6 +534,20 @@ export default function DialysisFlow() {
       }
     >
       <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-2">
+          {(["hope", "ayushman"] as const).map((h) => (
+            <TabletButton
+              key={h}
+              type="button"
+              size="sm"
+              variant={listHospital === h ? "default" : "outline"}
+              onClick={() => setListHospital(h)}
+              className="min-h-12 px-2 text-sm"
+            >
+              {h === "hope" ? "Hope Hospital" : "Ayushman Hospital"}
+            </TabletButton>
+          ))}
+        </div>
         <div className="grid grid-cols-3 gap-2" role="tablist" aria-label="Dialysis date range">
           {(Object.keys(periodLabels) as DialysisPeriod[]).map((option) => (
             <TabletButton
