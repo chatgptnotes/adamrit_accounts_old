@@ -893,7 +893,7 @@ function BillTable({
               </div>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                 <PayEvidenceCell bill={b} />
-                {status !== 'paid' && <div className="flex gap-2"><Button size="sm" variant="outline" className="h-9 gap-1" onClick={() => onPay(b)}><Banknote className="h-3.5 w-3.5" />Pay</Button>{!movedInfo && <Button size="sm" variant="outline" className="h-9 gap-1" disabled={moving} onClick={() => onMove([b.id])}><CalendarClock className="h-3.5 w-3.5" />Move</Button>}</div>}
+                {status !== 'paid' && <div className="flex gap-2"><Button size="sm" variant="outline" className="h-9 gap-1 bg-white text-slate-900 hover:bg-slate-100 hover:text-slate-900 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-100" onClick={() => onPay(b)}><Banknote className="h-3.5 w-3.5" />Pay</Button>{!movedInfo && <Button size="sm" variant="outline" className="h-9 gap-1 bg-white text-slate-900 hover:bg-slate-100 hover:text-slate-900 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-100" disabled={moving} onClick={() => onMove([b.id])}><CalendarClock className="h-3.5 w-3.5" />Move</Button>}</div>}
               </div>
             </article>
           );
@@ -1005,14 +1005,14 @@ function BillTable({
                 <TableCell className="text-right">
                   {status !== 'paid' ? (
                     <span className="inline-flex gap-1">
-                      <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" onClick={() => onPay(b)}>
+                      <Button size="sm" variant="outline" className="h-7 gap-1 bg-white px-2 text-xs text-slate-900 hover:bg-slate-100 hover:text-slate-900 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-100" onClick={() => onPay(b)}>
                         <Banknote className="h-3.5 w-3.5" /> Pay
                       </Button>
                       {!movedInfo && (
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-7 gap-1 px-2 text-xs"
+                          className="h-7 gap-1 bg-white px-2 text-xs text-slate-900 hover:bg-slate-100 hover:text-slate-900 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                           disabled={moving}
                           title="Move this invoice to today's Daily Payment Allocation"
                           onClick={() => onMove([b.id])}
