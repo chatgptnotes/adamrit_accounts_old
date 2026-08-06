@@ -66,7 +66,7 @@ export function TabletPatientPicker({
     showNoResults,
     search,
     hasCriteria,
-  } = usePatientLookup(hospital);
+  } = usePatientLookup(hospital, { autoSearch: true });
   const [field, setField] = useState<FieldKey>("name");
 
   const updateField = (key: FieldKey, value: string) => {

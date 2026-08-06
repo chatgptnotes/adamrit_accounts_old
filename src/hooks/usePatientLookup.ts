@@ -1,15 +1,25 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useDebounce } from 'use-debounce';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Patient, SearchCriteria } from '@/components/PatientLookup/types/patientLookup';
+
+/** Two letters is enough to start listing matches. */
+const AUTO_SEARCH_MIN_CHARS = 2;
 
 /**
  * Shared patient-search logic. Extracted verbatim from PatientLookupDialog so
  * the desktop dialog and the tablet patient picker run one query path.
  * The query is hospital-scoped (`hospital_name`) and kept in the query key.
+ *
+ * With `autoSearch`, typing runs the search itself once the term reaches two
+ * characters — the button stays, but nobody has to reach for it.
  */
-export function usePatientLookup(hospitalNameOverride?: string) {
+export function usePatientLookup(
+  hospitalNameOverride?: string,
+  options?: { autoSearch?: boolean },
+) {
   const { hospitalConfig } = useAuth();
   const hospitalName = hospitalNameOverride || hospitalConfig.name;
   const [criteria, setCriteria] = useState<SearchCriteria>({
@@ -19,17 +29,31 @@ export function usePatientLookup(hospitalNameOverride?: string) {
     aadhaar: '',
   });
   const [hasSearched, setHasSearched] = useState(false);
+  const [debouncedCriteria] = useDebounce(criteria, 250);
+
+  const autoTerm =
+    debouncedCriteria.mobile ||
+    debouncedCriteria.name ||
+    debouncedCriteria.patientId ||
+    debouncedCriteria.aadhaar ||
+    '';
+  const autoEnabled = !!options?.autoSearch && autoTerm.trim().length >= AUTO_SEARCH_MIN_CHARS;
+
+  useEffect(() => {
+    if (autoEnabled) setHasSearched(true);
+  }, [autoEnabled, autoTerm]);
 
   const { data: patients = [], isLoading, refetch } = useQuery({
     queryKey: [
       'patient-lookup',
-      criteria.mobile,
-      criteria.name,
-      criteria.patientId,
-      criteria.aadhaar,
+      debouncedCriteria.mobile,
+      debouncedCriteria.name,
+      debouncedCriteria.patientId,
+      debouncedCriteria.aadhaar,
       hospitalName,
     ],
     queryFn: async (): Promise<Patient[]> => {
+      const criteria = debouncedCriteria;
       if (!criteria.mobile && !criteria.name && !criteria.patientId && !criteria.aadhaar) {
         return [];
       }
@@ -69,7 +93,8 @@ export function usePatientLookup(hospitalNameOverride?: string) {
 
       return (data || []) as Patient[];
     },
-    enabled: false, // triggered manually via search()
+    // Runs itself while typing when autoSearch is on; otherwise search() only.
+    enabled: autoEnabled,
   });
 
   const search = useCallback(() => {
@@ -78,8 +103,15 @@ export function usePatientLookup(hospitalNameOverride?: string) {
   }, [refetch]);
 
   const hasCriteria = !!(criteria.mobile || criteria.name || criteria.patientId || criteria.aadhaar);
+  // While the debounce is still settling the results belong to the previous
+  // keystroke, so "no results" would be answering a question not yet asked.
+  const settled =
+    criteria.mobile === debouncedCriteria.mobile &&
+    criteria.name === debouncedCriteria.name &&
+    criteria.patientId === debouncedCriteria.patientId &&
+    criteria.aadhaar === debouncedCriteria.aadhaar;
   const showNoResults =
-    hasSearched && patients.length === 0 && !isLoading && hasCriteria;
+    hasSearched && patients.length === 0 && !isLoading && hasCriteria && settled;
 
   return {
     criteria,
