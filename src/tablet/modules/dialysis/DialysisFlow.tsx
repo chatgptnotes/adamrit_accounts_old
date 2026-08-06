@@ -580,11 +580,15 @@ export default function DialysisFlow() {
 
         <div className="grid grid-cols-2 gap-3">
           <TabletCard variant="flat" className="py-3">
-            <p className="text-xs text-muted-foreground">Registered · {selectedPeriodLabel}</p>
+            <p className="text-xs text-muted-foreground">
+              Registered · {period === "today" ? "last 24 hrs" : selectedPeriodLabel}
+            </p>
             <p className="mt-1 text-2xl font-bold">{todayVisits.isLoading ? "…" : visiblePatients.length}</p>
           </TabletCard>
           <TabletCard variant="flat" className="py-3">
-            <p className="text-xs text-muted-foreground">Completed · {selectedPeriodLabel}</p>
+            <p className="text-xs text-muted-foreground">
+              Completed · {period === "today" ? "last 24 hrs" : selectedPeriodLabel}
+            </p>
             <p className="mt-1 text-2xl font-bold text-emerald-700">
               {todayVisits.isLoading ? "…" : visiblePatients.filter((row) => isCompleted(row.status)).length}
             </p>
