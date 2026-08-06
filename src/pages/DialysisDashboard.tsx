@@ -11,11 +11,9 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { Printer, Search, ClipboardList, Download, UserPlus, IndianRupee } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
-import { patientKey, fetchBilledCycles, markCyclesBilled, CYCLES_PER_BILL, type DialysisTrackerRow } from '@/lib/nephroplus/dialysisTracker';
+import { Printer, Search, ClipboardList, Download, UserPlus, IndianRupee, Circle } from 'lucide-react';
+import { DIALYSIS_SESSION_BILLING_QUERY_KEY, loadDialysisBillableSessions, pendingDialysisPatients } from '@/lib/dialysisSessionBilling';
 import { OpdStatisticsCards } from '@/components/opd/OpdStatisticsCards';
-import { OpdPatientTable } from '@/components/opd/OpdPatientTable';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
 import { DateRange } from 'react-day-picker';
 import { format } from 'date-fns';
@@ -23,18 +21,14 @@ import { VisitRegistrationForm } from '@/components/VisitRegistrationForm';
 import { PatientLookup } from '@/components/PatientLookup';
 
 const DialysisDashboard = () => {
-  const { hospitalConfig, user } = useAuth();
+  const { hospitalConfig } = useAuth();
   const { canSeeTile } = useTileAccess();
   const [searchParams, setSearchParams] = useSearchParams();
-
-  const isMarketingManager = user?.role === 'marketing_manager' || user?.role === 'superadmin' || user?.role === 'ca';
 
   // Patient selected for a new dialysis visit (from roster or lookup)
   const [selectedPatient, setSelectedPatient] = useState<{ id: string; name: string; patients_id?: string } | null>(null);
   const [isPatientLookupOpen, setIsPatientLookupOpen] = useState(false);
   const [isBillDueOpen, setIsBillDueOpen] = useState(false);
-  const [markingKey, setMarkingKey] = useState<string | null>(null);
-  const { toast } = useToast();
 
   // URL-persisted state
   const searchTerm = searchParams.get('search') || '';
@@ -174,15 +168,15 @@ const DialysisDashboard = () => {
     staleTime: 30000,
   });
 
-  // How many sittings each patient has already been billed for (bill = every 6 sittings)
-  const { data: billedCyclesMap, refetch: refetchBilled } = useQuery({
-    queryKey: ['dialysis-billed-cycles', hospitalConfig?.name],
-    queryFn: () => fetchBilledCycles(hospitalConfig.name),
+  // Billing is completed per dialysis visit date.
+  const { data: billedSessions = [] } = useQuery({
+    queryKey: [DIALYSIS_SESSION_BILLING_QUERY_KEY, hospitalConfig?.name],
+    queryFn: () => loadDialysisBillableSessions(hospitalConfig.name),
     enabled: !!hospitalConfig?.name,
     staleTime: 30000,
   });
 
-  // Dedupe roster by patient, keeping last visit date, sitting count and billing status
+  // Dedupe roster by patient, keeping the date-by-date billing status.
   const rosterPatients = useMemo(() => {
     const byPatient = new Map<string, {
       patient: any;
@@ -207,48 +201,18 @@ const DialysisDashboard = () => {
     });
     return Array.from(byPatient.values())
       .map((entry) => {
-        const key = patientKey({
-          patientsId: entry.patient.patients_id ?? null,
-          patientName: entry.patient.name || '',
-        });
-        const billed = billedCyclesMap?.get(key) ?? 0;
-        const unbilled = Math.max(0, entry.sittings - billed);
-        return { ...entry, key, billed, unbilled, billDue: unbilled >= CYCLES_PER_BILL };
+        const patientSessions = billedSessions.filter((session) => session.patientId === entry.patient.id);
+        const unbilled = patientSessions.filter((session) => !session.billed).length;
+        return { ...entry, unbilled, hasUnbilledDates: unbilled > 0 };
       })
       .sort((a, b) => (b.lastVisitDate || '').localeCompare(a.lastVisitDate || ''));
-  }, [rosterVisits, billedCyclesMap]);
+  }, [rosterVisits, billedSessions]);
 
-  // Patients who have completed a full cycle of 6 unbilled sittings
+  // A reminder appears once a patient has three unbilled dialysis dates.
   const billDuePatients = useMemo(
-    () => rosterPatients.filter((row) => row.billDue),
-    [rosterPatients]
+    () => pendingDialysisPatients(billedSessions),
+    [billedSessions]
   );
-
-  const handleMarkBilled = async (row: typeof rosterPatients[number]) => {
-    const cyclesToBill = Math.floor(row.unbilled / CYCLES_PER_BILL) * CYCLES_PER_BILL;
-    setMarkingKey(row.key);
-    try {
-      await markCyclesBilled(
-        hospitalConfig.name,
-        { key: row.key, patientName: row.patient.name || '' } as DialysisTrackerRow,
-        row.billed + cyclesToBill
-      );
-      await refetchBilled();
-      toast({
-        title: 'Marked as billed',
-        description: `${row.patient.name}: ${cyclesToBill} dialysis sittings marked as billed. Counting restarts for the next cycle.`,
-      });
-    } catch (error) {
-      console.error('Error marking dialysis sittings billed:', error);
-      toast({
-        title: 'Error',
-        description: 'Could not mark sittings as billed. Please try again.',
-        variant: 'destructive',
-      });
-    } finally {
-      setMarkingKey(null);
-    }
-  };
 
   const handleNewDialysisVisit = (patient: { id: string; name: string; patients_id?: string }) => {
     setSelectedPatient({ id: patient.id, name: patient.name, patients_id: patient.patients_id });
@@ -362,7 +326,7 @@ const DialysisDashboard = () => {
         <OpdStatisticsCards statistics={statistics} canSeeTile={canSeeTile} totalLabel="Total Dialysis Today" />
       </div>
 
-      {/* Payment due after every 6 sittings */}
+      {/* Early billing reminder after three unbilled dialysis dates */}
       <Card
         className={`print:hidden ${billDuePatients.length > 0 ? 'border-red-300 bg-red-50 cursor-pointer hover:bg-red-100' : ''}`}
         onClick={() => billDuePatients.length > 0 && setIsBillDueOpen(true)}
@@ -373,11 +337,11 @@ const DialysisDashboard = () => {
             <div>
               <p className="font-semibold">
                 {billDuePatients.length > 0
-                  ? `Payment Due — ${billDuePatients.length} patient${billDuePatients.length > 1 ? 's' : ''} completed ${CYCLES_PER_BILL} dialysis sittings`
-                  : `No completed ${CYCLES_PER_BILL}-sitting cycles pending billing`}
+                  ? `Billing reminder — ${billDuePatients.length} patient${billDuePatients.length > 1 ? 's' : ''} has 3 or more unbilled dialysis dates`
+                  : 'No completed 6-sitting cycles pending billing'}
               </p>
               <p className="text-sm text-muted-foreground">
-                Dialysis is billed after every {CYCLES_PER_BILL} sittings.
+                Each dialysis date can be billed separately.
                 {billDuePatients.length > 0 && ' Click to see the list.'}
               </p>
             </div>
@@ -388,11 +352,11 @@ const DialysisDashboard = () => {
         </CardContent>
       </Card>
 
-      {/* List of patients who completed the 6-dialysis cycle */}
+      {/* Pending per-date dialysis billing list */}
       <Dialog open={isBillDueOpen} onOpenChange={setIsBillDueOpen}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Patients who completed {CYCLES_PER_BILL} dialysis sittings — payment due</DialogTitle>
+            <DialogTitle>Patients with 3 or more unbilled dialysis dates</DialogTitle>
           </DialogHeader>
           {billDuePatients.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
@@ -405,39 +369,21 @@ const DialysisDashboard = () => {
                   <TableRow className="bg-gray-50">
                     <TableHead>Patient Name</TableHead>
                     <TableHead>Patient ID</TableHead>
-                    <TableHead>Phone</TableHead>
-                    <TableHead>Total Sittings</TableHead>
-                    <TableHead>Unbilled</TableHead>
-                    <TableHead>Last Dialysis</TableHead>
-                    <TableHead>Action</TableHead>
+                    <TableHead>Unbilled Dates</TableHead>
+                    <TableHead>Latest Dialysis</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {billDuePatients.map((row) => (
-                    <TableRow key={row.key}>
-                      <TableCell className="font-medium">{row.patient.name || '-'}</TableCell>
-                      <TableCell>{row.patient.patients_id || '-'}</TableCell>
-                      <TableCell>{row.patient.phone || '-'}</TableCell>
-                      <TableCell className="text-center">{row.sittings}</TableCell>
-                      <TableCell className="text-center">
-                        <Badge variant="destructive">{row.unbilled}</Badge>
-                      </TableCell>
-                      <TableCell>{row.lastVisitDate ? format(new Date(row.lastVisitDate), 'dd/MM/yyyy') : '-'}</TableCell>
-                      <TableCell>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={markingKey === row.key}
-                          onClick={() => handleMarkBilled(row)}
-                          className="text-xs h-8"
-                        >
-                          {markingKey === row.key
-                            ? 'Saving...'
-                            : `Mark ${Math.floor(row.unbilled / CYCLES_PER_BILL) * CYCLES_PER_BILL} billed`}
-                        </Button>
-                      </TableCell>
+                  {billDuePatients.map((sessions) => {
+                    const patient = sessions[0];
+                    return (
+                    <TableRow key={patient.patientId}>
+                      <TableCell className="font-medium">{patient.patientName}</TableCell>
+                      <TableCell>{patient.patientsId || '-'}</TableCell>
+                      <TableCell className="text-center"><Badge variant="destructive">{sessions.length}</Badge></TableCell>
+                      <TableCell>{format(new Date(patient.visitDate), 'dd/MM/yyyy')}</TableCell>
                     </TableRow>
-                  ))}
+                  )})}
                 </TableBody>
               </Table>
             </div>
@@ -456,12 +402,39 @@ const DialysisDashboard = () => {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
             </div>
           ) : (
-            <OpdPatientTable
-              patients={filteredPatients}
-              refetch={refetch}
-              isMarketingManager={isMarketingManager}
-              emptyMessage="No dialysis patients found for today"
-            />
+            filteredPatients.length === 0 ? (
+              <div className="py-8 text-center text-muted-foreground">No dialysis patients found for today</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-gray-50">
+                      <TableHead>Visit ID</TableHead>
+                      <TableHead>Patient Name</TableHead>
+                      <TableHead>Gender/Age</TableHead>
+                      <TableHead>Doctor</TableHead>
+                      <TableHead>Dialysis Date</TableHead>
+                      <TableHead className="text-center">Billed</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredPatients.map((patient: any) => {
+                      const billed = billedSessions.find((session) => session.id === patient.id)?.billed ?? false;
+                      return (
+                        <TableRow key={patient.id}>
+                          <TableCell className="font-mono text-sm text-blue-600">{patient.visit_id || '-'}</TableCell>
+                          <TableCell><p className="font-medium">{patient.patients?.name || '-'}</p><p className="text-xs text-muted-foreground">{patient.patients?.patients_id || ''}</p></TableCell>
+                          <TableCell>{patient.patients?.gender || '-'} / {patient.patients?.age ?? '-'}</TableCell>
+                          <TableCell>{patient.appointment_with || '-'}</TableCell>
+                          <TableCell>{patient.visit_date ? format(new Date(patient.visit_date), 'dd/MM/yyyy') : '-'}</TableCell>
+                          <TableCell className="text-center"><span title={billed ? 'Billed done' : 'Billing pending'} className={`inline-block h-3 w-3 rounded-full ${billed ? 'bg-emerald-500' : 'bg-red-500'}`} /></TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )
           )}
         </CardContent>
       </Card>
@@ -495,12 +468,12 @@ const DialysisDashboard = () => {
                     <TableHead>Corporate</TableHead>
                     <TableHead>Last Dialysis</TableHead>
                     <TableHead>Total Sittings</TableHead>
-                    <TableHead>{CYCLES_PER_BILL}-Sitting Cycle</TableHead>
+                    <TableHead>Billed</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rosterPatients.map(({ patient, lastVisitDate, sittings, unbilled, billDue }) => (
+                  {rosterPatients.map(({ patient, lastVisitDate, sittings, unbilled, hasUnbilledDates }) => (
                     <TableRow key={patient.id}>
                       <TableCell className="font-medium">{patient.name || '-'}</TableCell>
                       <TableCell>{patient.patients_id || '-'}</TableCell>
@@ -510,13 +483,10 @@ const DialysisDashboard = () => {
                       <TableCell>{lastVisitDate ? format(new Date(lastVisitDate), 'dd/MM/yyyy') : '-'}</TableCell>
                       <TableCell className="text-center">{sittings}</TableCell>
                       <TableCell>
-                        {billDue ? (
-                          <Badge variant="destructive">Bill due</Badge>
-                        ) : (
-                          <span className="text-sm text-muted-foreground">
-                            {CYCLES_PER_BILL - (unbilled % CYCLES_PER_BILL)} more
-                          </span>
-                        )}
+                        <span className="inline-flex items-center gap-2 text-sm font-medium" title={hasUnbilledDates ? `${unbilled} dialysis date${unbilled === 1 ? '' : 's'} pending billing` : 'All dialysis dates billed'}>
+                          <Circle className={`h-3 w-3 fill-current ${hasUnbilledDates ? 'text-red-500' : 'text-emerald-500'}`} />
+                          {hasUnbilledDates ? `${unbilled} pending` : 'Done'}
+                        </span>
                       </TableCell>
                       <TableCell>
                         <Button

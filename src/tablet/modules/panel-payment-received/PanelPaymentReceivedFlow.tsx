@@ -2,13 +2,14 @@ import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebounce } from "use-debounce";
 import { toast } from "sonner";
-import { Banknote, FileImage, Loader2, Paperclip, Search, X } from "lucide-react";
+import { Banknote, Bell, CheckCircle2, ChevronLeft, Download, FileImage, FileText, Loader2, Paperclip, Search, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletInput, TabletLabel } from "@/tablet/ui/TabletInput";
+import { DIALYSIS_BILLING_REMINDER_SESSIONS, DIALYSIS_SESSION_BILLING_QUERY_KEY, loadDialysisBillableSessions, markDialysisSessionBilled, pendingDialysisPatients, type DialysisBillableSession } from "@/lib/dialysisSessionBilling";
 
 /**
  * Shashank Payment Received — corporate / panel / Yojana money as it lands.
@@ -122,9 +123,105 @@ function useReceipts(visitCode: string | null) {
   });
 }
 
+function DialysisDateDocuments({ session }: { session: DialysisBillableSession }) {
+  const documents = useQuery({
+    queryKey: ["dialysis-billing-documents", session.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("file_uploads")
+        .select("id, file_name, file_url, category, created_at")
+        .eq("patient_id", session.patientId)
+        .in("category", ["dialysis", "lab_investigation", "clinic_notes", "monitor_chart", "radiology_investigation"])
+        .or(`notes.eq.dialysis_visit:${session.id},notes.eq.clinic_notes:${session.patientId}`)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
+  if (documents.isLoading) return <p className="text-xs text-muted-foreground">Loading documents…</p>;
+  if (documents.isError) return <p className="text-xs text-red-600">Documents could not be loaded.</p>;
+  if ((documents.data ?? []).length === 0) return <p className="text-xs text-muted-foreground">No documents uploaded for this dialysis date.</p>;
+
+  return (
+    <div className="space-y-1">
+      {(documents.data ?? []).map((doc) => (
+        <a
+          key={doc.id}
+          href={doc.file_url}
+          download={doc.file_name || "dialysis-document"}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-xs font-medium text-primary"
+        >
+          <span className="flex min-w-0 items-center gap-2"><FileText className="h-4 w-4 shrink-0" /><span className="truncate">{doc.file_name || doc.category}</span></span>
+          <Download className="h-4 w-4 shrink-0" />
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function DialysisPendingBills({ onBack }: { onBack: () => void }) {
+  const { user, hospitalConfig } = useAuth();
+  const qc = useQueryClient();
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const sessions = useQuery({
+    queryKey: [DIALYSIS_SESSION_BILLING_QUERY_KEY, hospitalConfig.name],
+    queryFn: () => loadDialysisBillableSessions(hospitalConfig.name),
+  });
+  const pending = useMemo(() => {
+    const byPatient = new Map<string, DialysisBillableSession[]>();
+    for (const session of sessions.data ?? []) {
+      if (session.billed) continue;
+      const rows = byPatient.get(session.patientId) ?? [];
+      rows.push(session);
+      byPatient.set(session.patientId, rows);
+    }
+    return Array.from(byPatient.values()).sort((a, b) => b.length - a.length);
+  }, [sessions.data]);
+
+  const markDone = async (session: DialysisBillableSession) => {
+    setSavingId(session.id);
+    try {
+      await markDialysisSessionBilled(hospitalConfig.name, session, user?.email ?? user?.username ?? "tablet");
+      toast.success(`${session.patientName}'s dialysis date marked billed.`);
+      await qc.invalidateQueries({ queryKey: [DIALYSIS_SESSION_BILLING_QUERY_KEY] });
+    } catch (error: any) {
+      toast.error(error?.message || "Could not mark this dialysis date billed.");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-4 p-4 sm:p-6">
+      <TabletButton variant="outline" onClick={onBack}><ChevronLeft className="mr-2 h-5 w-5" />Back to payments</TabletButton>
+      <TabletCard variant="flat" className="border-amber-200 bg-amber-50">
+        <p className="text-base font-bold text-amber-950">Dialysis pending bills</p>
+        <p className="mt-1 text-sm text-amber-900">The notification starts after {DIALYSIS_BILLING_REMINDER_SESSIONS} unbilled dates. Each date is billed separately.</p>
+      </TabletCard>
+      {sessions.isLoading ? <div className="flex justify-center py-10 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div> : pending.length === 0 ? (
+        <TabletCard variant="flat" className="py-8 text-center text-sm text-muted-foreground">No dialysis dates are pending billing.</TabletCard>
+      ) : pending.map((patientSessions) => {
+        const patient = patientSessions[0];
+        return <TabletCard key={patient.patientId} variant="flat" className="space-y-3">
+          <div><p className="text-base font-bold">{patient.patientName}</p><p className="text-xs text-muted-foreground">{patient.patientsId || "No patient ID"} · {patientSessions.length} dates pending</p></div>
+          {patientSessions.map((session) => <div key={session.id} className="space-y-2 rounded-xl border p-3">
+            <div className="flex items-center justify-between gap-3"><div><p className="font-semibold">{new Date(`${session.visitDate}T00:00:00`).toLocaleDateString("en-IN")}</p><p className="text-xs text-muted-foreground">{session.visitCode || "No visit ID"}</p></div><span className="flex items-center gap-1 text-xs font-bold text-red-600"><span className="h-2.5 w-2.5 rounded-full bg-red-500" />Pending</span></div>
+            <DialysisDateDocuments session={session} />
+            <TabletButton className="w-full" disabled={savingId === session.id} onClick={() => void markDone(session)}>{savingId === session.id ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CheckCircle2 className="mr-2 h-5 w-5" />}Mark Billed Done</TabletButton>
+          </div>)}
+        </TabletCard>;
+      })}
+    </div>
+  );
+}
+
 export default function PanelPaymentReceivedFlow() {
   const { user, hospitalConfig } = useAuth();
   const qc = useQueryClient();
+  const [showDialysisBills, setShowDialysisBills] = useState(false);
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch] = useDebounce(searchInput, 300);
   const [visit, setVisit] = useState<PanelVisit | null>(null);
@@ -141,6 +238,11 @@ export default function PanelPaymentReceivedFlow() {
 
   const amountValue = useMemo(() => Number(amount.replace(/,/g, "")) || 0, [amount]);
   const canSave = Boolean(visit) && amountValue > 0 && !saving;
+  const dialysisBills = useQuery({
+    queryKey: [DIALYSIS_SESSION_BILLING_QUERY_KEY, hospitalConfig.name],
+    queryFn: () => loadDialysisBillableSessions(hospitalConfig.name),
+  });
+  const dialysisReminderCount = pendingDialysisPatients(dialysisBills.data ?? []).length;
 
   const reset = () => {
     setAmount("");
@@ -196,7 +298,12 @@ export default function PanelPaymentReceivedFlow() {
       heading="Shashank Payment Received"
       subheading="Record corporate / panel / Yojana payments against the patient the day they arrive, with the portal screenshot."
     >
+      {showDialysisBills ? <DialysisPendingBills onBack={() => setShowDialysisBills(false)} /> : (
       <div className="space-y-4 p-4 sm:p-6">
+        <TabletButton variant="outline" className="w-full justify-between" onClick={() => setShowDialysisBills(true)}>
+          <span className="flex items-center"><Bell className="mr-2 h-5 w-5" />Dialysis pending bills</span>
+          {dialysisReminderCount > 0 ? <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">{dialysisReminderCount}</span> : <span className="text-xs text-muted-foreground">None</span>}
+        </TabletButton>
         {!visit ? (
           <>
             <div className="relative">
@@ -383,6 +490,7 @@ export default function PanelPaymentReceivedFlow() {
           )}
         </div>
       </div>
+      )}
     </FlowScaffold>
   );
 }
