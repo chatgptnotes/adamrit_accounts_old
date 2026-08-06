@@ -805,6 +805,13 @@ export async function addRmoDutyApproval(input: {
   shift?: string | null
   /** The RMO's ledger from the master — pre-fills the bill's party side. */
   partyAccountId?: string | null
+  /**
+   * The company and expense head, resolved by the caller from the RMO's own
+   * ledger. Without them the bill lands in Approvals as "needs details" and
+   * cannot be approved until an accountant fills both in by hand.
+   */
+  companyId?: string | null
+  expenseAccountId?: string | null
   hospital?: string | null
   createdBy?: string | null
 }): Promise<{ created: boolean }> {
@@ -834,6 +841,8 @@ export async function addRmoDutyApproval(input: {
     reference_no: reference,
     amount: input.amount,
     party_account_id: input.partyAccountId || null,
+    company_id: input.companyId || null,
+    expense_account_id: input.expenseAccountId || null,
     duty_shift: input.shift || null,
     narration: `RMO duty ${input.dutyDate}${input.shift ? ` ${input.shift}` : ''}${input.hospital ? ` (${input.hospital})` : ''}`,
     created_by: input.createdBy || 'ot-rmo-duty',

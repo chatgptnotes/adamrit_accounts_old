@@ -11,6 +11,7 @@ import {
   listRmoDutyApprovals,
   updateApprovalDetails,
 } from "@/lib/approval-queue-service";
+import { RMO_DUTY_EXPENSE_LEDGER, resolveRmoDutyPosting } from "@/lib/rmo/dutyLedgers";
 import { printSpecialistInvoice } from "@/lib/printSpecialistInvoice";
 import { fetchActiveAccounts } from "@/lib/fetchAccounts";
 import { useCompanies } from "@/hooks/useCompanies";
@@ -210,12 +211,28 @@ export default function RmoDutyFlow() {
     }
     setSavingDuty(true);
     try {
+      // The company and expense head come from the RMO's own ledger, so the
+      // duty arrives in Approvals ready to approve instead of waiting on an
+      // accountant to fill them in.
+      const posting = await resolveRmoDutyPosting(selectedRmo.ledger_account_id);
+      if (!posting) {
+        toast({
+          title: "Ledger not ready",
+          description:
+            `${selectedRmo.name}'s ledger has no company, or that company has no "${RMO_DUTY_EXPENSE_LEDGER}" head. ` +
+            "Fix it in the chart of accounts, then record the duty.",
+          variant: "destructive",
+        });
+        return;
+      }
       const { created } = await addRmoDutyApproval({
         rmoName: selectedRmo.name,
         dutyDate,
         amount,
         shift,
         partyAccountId: selectedRmo.ledger_account_id,
+        companyId: posting.companyId,
+        expenseAccountId: posting.expenseAccountId,
         hospital: hospitalConfig.name,
         createdBy: user?.id ?? null,
       });
