@@ -109,7 +109,7 @@ const AppHeaderRow: React.FC = () => {
       <button
         type="button"
         onClick={() => { setOverride('tablet'); window.location.assign('/'); }}
-        className="relative top-5 ml-auto mr-2 flex items-center gap-1 text-xs text-gray-500 transition-transform hover:text-gray-800 sm:top-0"
+        className="relative z-50 ml-auto mr-2 mt-5 flex min-h-10 items-center gap-1 rounded-md bg-white/80 px-3 py-2 text-xs text-gray-600 shadow-sm transition-colors hover:bg-white hover:text-gray-800 sm:mt-0 sm:min-h-0 sm:rounded-none sm:bg-transparent sm:px-0 sm:py-0 sm:shadow-none"
       >
         <Tablet className="h-4 w-4" /> Tablet view
       </button>
