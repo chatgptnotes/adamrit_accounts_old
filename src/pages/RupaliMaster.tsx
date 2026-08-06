@@ -34,6 +34,12 @@ interface ChargeRule {
   is_active: boolean;
 }
 
+interface CategoryStandard {
+  category: string;
+  amount: number;
+  is_locked: boolean;
+}
+
 interface DoctorOption {
   id: string;
   name: string;
@@ -88,12 +94,35 @@ export default function RupaliMaster() {
     return map;
   }, [doctors]);
 
+  // Category standards apply to every doctor. A locked one is the only amount
+  // the category admits — a DB trigger refuses any other, here and in the tile.
+  const { data: standards = [] } = useQuery({
+    queryKey: ['rupali-category-standards'],
+    queryFn: async (): Promise<CategoryStandard[]> => {
+      const { data, error } = await (supabase as any)
+        .from('rupali_category_defaults')
+        .select('category, amount, is_locked');
+      if (error) return [];
+      return (data || []) as CategoryStandard[];
+    },
+  });
+  const lockedStandard = (category: string) => {
+    const row = standards.find((s) => s.category === category);
+    return row?.is_locked ? Number(row.amount) : null;
+  };
+  const lockedForForm = lockedStandard(form.category);
+
   const addRule = useMutation({
     mutationFn: async () => {
       const doctor = doctorByKey.get(form.doctorKey);
-      const amount = parseFloat(form.amount);
+      const amount = lockedForForm !== null ? lockedForForm : parseFloat(form.amount);
       if (!doctor) throw new Error('Select the doctor');
       if (!Number.isFinite(amount) || amount < 0) throw new Error('Enter a valid amount');
+      if (lockedForForm !== null && amount !== lockedForForm) {
+        throw new Error(
+          `The standard ${form.category} charge is ₹${lockedForForm.toLocaleString('en-IN')} — every doctor is paid the same.`,
+        );
+      }
       const { error } = await (supabase as any).from('rupali_charge_rules').insert({
         category: form.category,
         doctor_id: doctor.id,
@@ -148,6 +177,21 @@ export default function RupaliMaster() {
           purpose.
         </p>
       </div>
+
+      {standards.filter((s) => s.is_locked).map((s) => (
+        <div
+          key={s.category}
+          className="rounded-md border border-primary/30 bg-primary/5 px-4 py-3 text-sm"
+        >
+          <span className="font-semibold">
+            Standard {s.category} visit charge: ₹{Number(s.amount).toLocaleString('en-IN')}
+          </span>
+          <span className="text-muted-foreground">
+            {' '}— every doctor called for {s.category === 'IPD' ? 'an' : 'a'} {s.category} visit
+            is paid the same. No rule or register entry can carry another amount.
+          </span>
+        </div>
+      ))}
 
       <Card>
         <CardHeader>
@@ -236,9 +280,11 @@ export default function RupaliMaster() {
             <Input
               type="number"
               inputMode="decimal"
-              value={form.amount}
+              value={lockedForForm !== null ? String(lockedForForm) : form.amount}
               onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
               placeholder="0.00"
+              readOnly={lockedForForm !== null}
+              className={lockedForForm !== null ? 'bg-muted' : undefined}
             />
           </div>
           <Button onClick={() => addRule.mutate()} disabled={addRule.isPending}>

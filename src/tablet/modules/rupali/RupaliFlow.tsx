@@ -89,6 +89,24 @@ export default function RupaliFlow() {
     },
   });
 
+  // The standard for the category itself — applies to any doctor, including
+  // ones added after the standard was set. A locked standard is the only
+  // amount the category admits (a DB trigger refuses anything else).
+  const { data: categoryStandard = null } = useQuery({
+    queryKey: ["rupali-category-standard", category],
+    enabled: !!category,
+    queryFn: async (): Promise<{ amount: number; is_locked: boolean } | null> => {
+      const { data, error } = await (supabase as any)
+        .from("rupali_category_defaults")
+        .select("amount, is_locked")
+        .eq("category", category)
+        .maybeSingle();
+      if (error) return null; // standard not migrated yet — flow still works
+      return data ? { amount: Number(data.amount), is_locked: !!data.is_locked } : null;
+    },
+  });
+  const lockedAmount = categoryStandard?.is_locked ? categoryStandard.amount : null;
+
   const purposes = useMemo(
     () =>
       doctor
@@ -103,16 +121,26 @@ export default function RupaliFlow() {
   // applied straight away. Several charges (procedures / patient categories)
   // show as one-tap cards; none configured opens manual entry.
   useEffect(() => {
+    if (step !== 4) return;
+    // A locked category standard wins over everything: same amount for every
+    // doctor, no manual entry.
+    if (lockedAmount !== null) {
+      setEditingAmount(false);
+      setAmount((prev) => (prev === String(lockedAmount) ? prev : String(lockedAmount)));
+      return;
+    }
     // Never clobber an amount the user has already started typing (slow rule
     // load opened manual entry first).
-    if (step === 4 && !rule && purposes.length === 1 && !editingAmount && !amount) {
+    if (!rule && purposes.length === 1 && !editingAmount && !amount) {
       setRule(purposes[0]);
       setAmount(String(purposes[0].amount));
     }
-    if (step === 4 && purposes.length === 0 && !editingAmount && !amount) {
-      setEditingAmount(true);
+    if (purposes.length === 0 && !editingAmount && !amount) {
+      // Fall back to an unlocked category standard before asking for a number.
+      if (categoryStandard) setAmount(String(categoryStandard.amount));
+      else setEditingAmount(true);
     }
-  }, [step, rule, purposes, editingAmount, amount]);
+  }, [step, rule, purposes, editingAmount, amount, lockedAmount, categoryStandard]);
 
   const purpose = rule?.purpose_reason || category || "";
 
@@ -354,7 +382,7 @@ export default function RupaliFlow() {
                 ₹{parseFloat(amount || "0").toLocaleString("en-IN")}
               </span>
             )}
-            {!editingAmount && (
+            {!editingAmount && lockedAmount === null && (
               <button
                 type="button"
                 className="flex items-center gap-1 text-sm font-medium text-primary"
@@ -364,7 +392,12 @@ export default function RupaliFlow() {
               </button>
             )}
           </div>
-          {rule ? (
+          {lockedAmount !== null ? (
+            <p className="mt-1 text-sm text-muted-foreground">
+              Standard {category} visit charge — ₹{lockedAmount.toLocaleString("en-IN")} for
+              every doctor. Not overridable.
+            </p>
+          ) : rule ? (
             <p className="mt-1 text-sm text-muted-foreground">
               {rule.purpose_reason} — standard charge for {doctor?.name} ({category}).
             </p>
