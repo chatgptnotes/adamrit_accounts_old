@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -856,7 +856,15 @@ function BillTable({
           const status = statusOf(b);
           const movedInfo = movedDates[b.id];
           return (
-            <article key={b.id} className={`rounded-xl border p-4 shadow-sm ${selectedIds.has(b.id) ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/40' : 'bg-white dark:bg-card'}`}>
+            <article
+              key={b.id}
+              onClick={(event) => {
+                if ((event.target as HTMLElement).closest('button, a, input, select, [role="checkbox"]')) return;
+                if (status !== 'paid' && !movedInfo) onToggleRow(b.id);
+              }}
+              className={`rounded-xl border p-4 shadow-sm ${status !== 'paid' && !movedInfo ? 'cursor-pointer' : ''} ${selectedIds.has(b.id) ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/40' : 'bg-white dark:bg-card'}`}
+              aria-selected={selectedIds.has(b.id)}
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate font-semibold">{b.party}</p>
@@ -930,9 +938,13 @@ function BillTable({
             return (
               <TableRow
                 key={b.id}
+                onClick={(event) => {
+                  if ((event.target as HTMLElement).closest('button, a, input, select, [role="checkbox"]')) return;
+                  if (status !== 'paid' && !movedInfo) onToggleRow(b.id);
+                }}
                 className={selectedIds.has(b.id)
-                  ? 'bg-emerald-50 text-foreground hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50'
-                  : 'hover:bg-muted/50'}
+                  ? 'cursor-pointer bg-emerald-50 text-foreground hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50'
+                  : status !== 'paid' && !movedInfo ? 'cursor-pointer hover:bg-muted/50' : 'hover:bg-muted/50'}
               >
                 <TableCell>
                   {status === 'paid' ? (
@@ -1117,16 +1129,24 @@ export default function ExpenseBills() {
   const [showFilters, setShowFilters] = useState(false);
   const [paying, setPaying] = useState<BillRow | null>(null);
   const [recording, setRecording] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<Set<string>>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('expense-bills-selected-ids') || '[]');
+      return new Set(Array.isArray(saved) ? saved.filter((id): id is string => typeof id === 'string') : []);
+    } catch {
+      return new Set();
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('expense-bills-selected-ids', JSON.stringify([...selected]));
+  }, [selected]);
 
   const registerQuery = useExpenseBillRegister(company.data, applied);
   const movedQuery = useMovedToAllocation();
 
-  // Changing the register filters clears the selection — a bulk move must
-  // never include invoices the new filter has hidden from view.
   const applyFilters = (filters: RegisterFilters) => {
     setApplied(filters);
-    setSelected(new Set());
   };
 
   const toggleRow = (id: string) =>
@@ -1151,7 +1171,7 @@ export default function ExpenseBills() {
   // whole batch; everything that succeeded stays moved.
   const moveMutation = useMutation({
     mutationFn: async (ids: string[]) => {
-      const moved: Array<{ billNumber: string; amount: number; hospital: string | null }> = [];
+      const moved: Array<{ id: string; billNumber: string; amount: number; hospital: string | null }> = [];
       const failed: string[] = [];
       for (const id of ids) {
         const { data, error } = await (supabase as any).rpc('move_expense_bill_to_daily_allocation', {
@@ -1161,6 +1181,7 @@ export default function ExpenseBills() {
         });
         if (error) failed.push(error.message);
         else moved.push({
+          id,
           billNumber: data.bill_number,
           amount: Number(data.amount) || 0,
           hospital: data.hospital ?? null,
@@ -1170,7 +1191,11 @@ export default function ExpenseBills() {
     },
     onSuccess: ({ moved, failed }) => {
       invalidateBills(queryClient);
-      setSelected(new Set());
+      setSelected((current) => {
+        const next = new Set(current);
+        moved.forEach((bill) => next.delete(bill.id));
+        return next;
+      });
       if (moved.length) {
         const total = moved.reduce((s, m) => s + m.amount, 0);
         const hospitals = [...new Set(moved.map((m) => hospitalLabel(m.hospital)))];
@@ -1228,6 +1253,21 @@ export default function ExpenseBills() {
           </Button>
         </div>
       </div>
+
+      {selected.size > 0 && (
+        <div className="sticky bottom-20 z-20 flex items-center justify-between gap-3 rounded-xl border border-emerald-300 bg-emerald-50/95 p-3 shadow-lg backdrop-blur sm:static sm:rounded-lg sm:shadow-none">
+          <span className="text-sm font-semibold text-emerald-950">{selected.size} bill{selected.size === 1 ? '' : 's'} selected</span>
+          <Button
+            size="sm"
+            className="gap-1"
+            disabled={moveMutation.isPending}
+            onClick={() => moveMutation.mutate([...selected])}
+          >
+            {moveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
+            Move to Daily Allocation
+          </Button>
+        </div>
+      )}
 
       <Card>
         <CardContent className="space-y-3 pt-6">
