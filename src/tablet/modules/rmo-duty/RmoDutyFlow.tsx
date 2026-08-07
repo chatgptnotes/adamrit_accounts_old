@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Loader2, Moon, Search, Sun, Sunset } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -54,6 +55,9 @@ interface RmoOption {
  * counts each RMO's duties per shift and totals what they earned.
  */
 export default function RmoDutyFlow() {
+  const { moduleId } = useParams();
+  const isJavedRoster = moduleId === "rmo-duty-javed";
+  const roster = isJavedRoster ? "javed" : "gaurav";
   const { user, hospitalConfig } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -110,8 +114,8 @@ export default function RmoDutyFlow() {
       const { voucherNumber } = await approveAndPostJV(bill.id, user?.email || undefined);
       toast({ title: "Invoice approved", description: `JV ${voucherNumber} posted for ${bill.party_name}.` });
       await Promise.all([
-        qc.invalidateQueries({ queryKey: ["rmo-duty-report", reportMonth] }),
-        qc.invalidateQueries({ queryKey: ["rmo-duty-entries"] }),
+        qc.invalidateQueries({ queryKey: ["rmo-duty-report", roster, reportMonth] }),
+        qc.invalidateQueries({ queryKey: ["rmo-duty-entries", roster] }),
       ]);
     } catch (error) {
       toast({ title: "Could not approve", description: error instanceof Error ? error.message : "Try again.", variant: "destructive" });
@@ -122,7 +126,7 @@ export default function RmoDutyFlow() {
 
   // Both masters; only RMOs whose accounting ledger is mapped are offered.
   const rmos = useQuery({
-    queryKey: ["rmo-duty-master"],
+    queryKey: ["rmo-duty-master", roster],
     staleTime: 5 * 60_000,
     queryFn: async (): Promise<RmoOption[]> => {
       const columns =
@@ -131,33 +135,39 @@ export default function RmoDutyFlow() {
       // most of the roster — 1 of 18 at Hope, none at Ayushman — so a duty
       // could not even be searched for, let alone recorded. Unmapped RMOs are
       // listed and their ledger is mapped from here.
-      const [hope, ayushman] = await Promise.all([
+      const ayushman = (supabase as any).from("ayushman_rmos").select(columns).order("name");
+      if (isJavedRoster) {
+        const result = await ayushman;
+        if (result.error) throw result.error;
+        return (result.data || []).map((r: any) => ({ ...r, source: "Ayushman" as const }));
+      }
+      const [hope, ayushmanResult] = await Promise.all([
         (supabase as any).from("hope_rmos").select(columns).order("name"),
-        (supabase as any).from("ayushman_rmos").select(columns).order("name"),
+        ayushman,
       ]);
       if (hope.error) throw hope.error;
-      if (ayushman.error) throw ayushman.error;
+      if (ayushmanResult.error) throw ayushmanResult.error;
       return [
         ...(hope.data || []).map((r: any) => ({ ...r, source: "Hope" as const })),
-        ...(ayushman.data || []).map((r: any) => ({ ...r, source: "Ayushman" as const })),
+        ...(ayushmanResult.data || []).map((r: any) => ({ ...r, source: "Ayushman" as const })),
       ];
     },
   });
 
   const entries = useQuery({
-    queryKey: ["rmo-duty-entries", dutyDate],
-    queryFn: () => listRmoDutyApprovals(dutyDate),
+    queryKey: ["rmo-duty-entries", roster, dutyDate],
+    queryFn: () => listRmoDutyApprovals(dutyDate, roster),
   });
 
   // The month's duty bills, straight off the approval queue by reference.
   const report = useQuery({
-    queryKey: ["rmo-duty-report", reportMonth],
+    queryKey: ["rmo-duty-report", roster, reportMonth],
     enabled: view === "report",
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("approval_queue")
         .select("id, party_name, amount, duty_shift, reference_no, status, is_paid, invoice_no, company_id, expense_account_id, party_account_id, jv_voucher_id")
-        .like("reference_no", `RMO-DUTY-${reportMonth}%`)
+        .like("reference_no", `${isJavedRoster ? "RMO-DUTY-JAVED-" : "RMO-DUTY-"}${reportMonth}%`)
         .neq("status", "REJECTED")
         .order("reference_no");
       if (error) throw error;
@@ -211,7 +221,7 @@ export default function RmoDutyFlow() {
       return;
     }
     setSelectedRmo({ ...rmo, ledger_account_id: accountId });
-    await qc.invalidateQueries({ queryKey: ["rmo-duty-master"] });
+    await qc.invalidateQueries({ queryKey: ["rmo-duty-master", roster] });
     toast({ title: "Ledger mapped", description: `${rmo.name} is ready for duty entries.` });
   };
 
@@ -258,8 +268,9 @@ export default function RmoDutyFlow() {
         partyAccountId: selectedRmo.ledger_account_id,
         companyId: posting.companyId,
         expenseAccountId: posting.expenseAccountId,
-        hospital: hospitalConfig.name,
+        hospital: isJavedRoster ? "Ayushman Nagpur Hospital" : hospitalConfig.name,
         createdBy: user?.id ?? null,
+        roster,
       });
       toast(
         created
@@ -268,7 +279,7 @@ export default function RmoDutyFlow() {
       );
       setSelectedRmo(null);
       setRmoSearch("");
-      await qc.invalidateQueries({ queryKey: ["rmo-duty-entries", dutyDate] });
+      await qc.invalidateQueries({ queryKey: ["rmo-duty-entries", roster, dutyDate] });
     } catch (error) {
       toast({
         title: "Could not record the duty",
@@ -299,8 +310,10 @@ export default function RmoDutyFlow() {
 
   return (
     <FlowScaffold
-      heading="RMO Duty - Gaurav"
-      subheading="Record who did which shift — the payable comes from the shift rates on the RMO master."
+      heading={isJavedRoster ? "JAVED RMO DUTY" : "RMO Duty - Gaurav"}
+      subheading={isJavedRoster
+        ? "Ayushman Nagpur Hospital · record Ayushman RMO shifts."
+        : "Record who did which shift — the payable comes from the shift rates on the RMO master."}
       actions={
         <>
           <TabletButton
@@ -338,7 +351,7 @@ export default function RmoDutyFlow() {
                 setSelectedRmo(null);
                 setRmoSearch(e.target.value);
               }}
-              placeholder="Search every RMO — Hope and Ayushman"
+              placeholder={isJavedRoster ? "Search Ayushman RMO" : "Search every RMO — Hope and Ayushman"}
               className="pl-11"
             />
             {suggestions.length > 0 ? (
@@ -413,7 +426,7 @@ export default function RmoDutyFlow() {
 
           {!rmos.isLoading && (rmos.data || []).length === 0 ? (
             <p className="mt-3 text-sm text-amber-700">
-              No RMO has an accounting ledger mapped yet — map them on Masters → Hope RMOs / Ayushman RMOs.
+              No RMO has been added yet — add them on Masters → {isJavedRoster ? "Ayushman RMOs" : "Hope RMOs / Ayushman RMOs"}.
             </p>
           ) : null}
 

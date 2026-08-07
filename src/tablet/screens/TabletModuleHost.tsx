@@ -100,6 +100,9 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   "rmo-duty-gaurav": lazy(
     () => import("@/tablet/modules/rmo-duty/RmoDutyFlow"),
   ),
+  "rmo-duty-javed": lazy(
+    () => import("@/tablet/modules/rmo-duty/RmoDutyFlow"),
+  ),
   "ot-photos-sarvesh": lazy(
     () => import("@/tablet/modules/ot-schedule/OtScheduleFlow"),
   ),

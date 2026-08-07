@@ -392,6 +392,14 @@ export const TABLET_MODULES: TabletModule[] = [
     tint: "from-indigo-400 to-violet-600",
   },
   {
+    id: "rmo-duty-javed",
+    label: "JAVED RMO DUTY",
+    description: "Ayushman RMO shifts & monthly report",
+    icon: CalendarClock,
+    accent: "text-red-700",
+    tint: "from-red-400 to-rose-600",
+  },
+  {
     id: "panel-payment-received",
     label: "Shashank Payment Received",
     description: "Record corporate / panel / Yojana payments as they arrive",

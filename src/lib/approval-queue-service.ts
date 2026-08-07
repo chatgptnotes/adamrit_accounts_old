@@ -795,6 +795,7 @@ export async function setOtDoctorAmount(
 // ------------------------------------------------------------------
 
 const RMO_DUTY_PREFIX = 'RMO-DUTY-'
+const JAVED_RMO_DUTY_PREFIX = 'RMO-DUTY-JAVED-'
 
 export async function addRmoDutyApproval(input: {
   rmoName: string
@@ -814,11 +815,14 @@ export async function addRmoDutyApproval(input: {
   expenseAccountId?: string | null
   hospital?: string | null
   createdBy?: string | null
+  /** Separate roster namespace for the Ayushman-only Javed tile. */
+  roster?: 'gaurav' | 'javed'
 }): Promise<{ created: boolean }> {
   const name = input.rmoName.trim()
   if (!name) throw new Error('Pick the RMO who did the duty')
   if (!input.amount || input.amount <= 0) throw new Error('Duty amount must be more than zero')
-  const reference = `${RMO_DUTY_PREFIX}${input.dutyDate}`
+  const referencePrefix = input.roster === 'javed' ? JAVED_RMO_DUTY_PREFIX : RMO_DUTY_PREFIX
+  const reference = `${referencePrefix}${input.dutyDate}`
 
   // One duty payment per RMO per day — a re-tap must not queue a second bill.
   // REJECTED rows do not count: a rejected duty entry must not block the
@@ -854,7 +858,10 @@ export async function addRmoDutyApproval(input: {
   return { created: true }
 }
 
-export async function listRmoDutyApprovals(dutyDate: string): Promise<Array<{
+export async function listRmoDutyApprovals(
+  dutyDate: string,
+  roster: 'gaurav' | 'javed' = 'gaurav',
+): Promise<Array<{
   id: string
   party_name: string
   amount: number
@@ -863,7 +870,7 @@ export async function listRmoDutyApprovals(dutyDate: string): Promise<Array<{
 }>> {
   const { data, error } = await approvalQueue()
     .select('id, party_name, amount, status, duty_shift')
-    .eq('reference_no', `${RMO_DUTY_PREFIX}${dutyDate}`)
+    .eq('reference_no', `${roster === 'javed' ? JAVED_RMO_DUTY_PREFIX : RMO_DUTY_PREFIX}${dutyDate}`)
     .neq('status', 'REJECTED')
     .order('party_name')
   if (error) throw new Error(error.message || 'Failed to load the duty list')
