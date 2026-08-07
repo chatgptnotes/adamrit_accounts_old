@@ -51,6 +51,10 @@ interface VendorBill {
 
 const MODES = ["CASH", "UPI", "NEFT", "CHEQUE"] as const;
 
+// High enough for every posted GRN today (438) with room to grow; if it is
+// ever reached the count line says so rather than quietly dropping the rest.
+const BILL_LIMIT = 1000;
+
 export default function PharmacyVendorLalitFlow() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -62,6 +66,7 @@ export default function PharmacyVendorLalitFlow() {
   const [vendorQr, setVendorQr] = useState<string | null>(null);
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  const totalPostedRef = useRef(0);
   const proofInput = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
   const qrInput = useRef<HTMLInputElement>(null);
@@ -70,16 +75,20 @@ export default function PharmacyVendorLalitFlow() {
     queryKey: ["lalit-vendor-bills"],
     staleTime: 30_000,
     queryFn: async (): Promise<VendorBill[]> => {
-      const { data: grns, error } = await (supabase as any)
+      // Every posted GRN, not a slice of them: at 300 the list silently hid
+      // 138 bills and still reported "300 of 300 still to pay".
+      const { data: grns, error, count } = await (supabase as any)
         .from("goods_received_notes")
         .select(
           "id, grn_number, grn_date, invoice_number, invoice_amount, total_amount, supplier_id, " +
             "paid_at, paid_amount, payment_mode, payment_voucher_no, payment_proof_url",
+          { count: "exact" },
         )
         .eq("status", "POSTED")
         .order("grn_date", { ascending: false })
-        .limit(300);
+        .limit(BILL_LIMIT);
       if (error) throw error;
+      totalPostedRef.current = count ?? (grns ?? []).length;
 
       const supplierIds = [...new Set((grns || []).map((g: any) => g.supplier_id).filter(Boolean))];
       const { data: suppliers } = supplierIds.length
@@ -230,6 +239,9 @@ export default function PharmacyVendorLalitFlow() {
         {visible.length > 0 && (
           <p className="text-sm text-muted-foreground">
             {unpaidCount} of {visible.length} bill{visible.length === 1 ? "" : "s"} still to pay.
+            {totalPostedRef.current > bills.length && (
+              <> Showing the {bills.length} most recent of {totalPostedRef.current} posted GRNs.</>
+            )}
           </p>
         )}
 
@@ -255,6 +267,13 @@ export default function PharmacyVendorLalitFlow() {
                       .filter(Boolean)
                       .join(" · ")}
                   </p>
+                  {/* A GRN dated in the future is a typo at entry, and it
+                      sorts above everything until someone corrects it. */}
+                  {bill.grnDate > new Date().toISOString().slice(0, 10) && (
+                    <p className="mt-0.5 text-xs text-amber-700">
+                      Dated in the future — check the GRN date
+                    </p>
+                  )}
                 </div>
                 <div className="shrink-0 text-right">
                   <p className="text-base font-semibold">₹{Number(bill.amount).toLocaleString("en-IN")}</p>
