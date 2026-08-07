@@ -260,6 +260,13 @@ export interface NewExpenseBill {
   /** Optional, captured on the desktop form for searching later. */
   pointOfContact?: string;
   relationshipManager?: string;
+  /** Which patient and procedure the bill is for, and the office's dates. */
+  patientId?: string;
+  patientName?: string;
+  surgeryName?: string;
+  dateOfProcedure?: string | null;
+  dateOfReceivingBill?: string | null;
+  dateOfPayment?: string | null;
 }
 
 /**
@@ -306,6 +313,12 @@ export function useRecordExpenseBill() {
           // migration that adds these columns has been applied.
           ...(bill.pointOfContact?.trim() ? { point_of_contact: bill.pointOfContact.trim() } : {}),
           ...(bill.relationshipManager?.trim() ? { relationship_manager: bill.relationshipManager.trim() } : {}),
+          ...(bill.patientId?.trim() ? { patient_id: bill.patientId.trim() } : {}),
+          ...(bill.patientName?.trim() ? { patient_name: bill.patientName.trim() } : {}),
+          ...(bill.surgeryName?.trim() ? { surgery_name: bill.surgeryName.trim() } : {}),
+          ...(bill.dateOfProcedure ? { date_of_procedure: bill.dateOfProcedure } : {}),
+          ...(bill.dateOfReceivingBill ? { date_of_receiving_bill: bill.dateOfReceivingBill } : {}),
+          ...(bill.dateOfPayment ? { date_of_payment: bill.dateOfPayment } : {}),
           document_path: documentPath,
           document_url: documentUrl,
           created_by: user?.email ?? "tablet",
