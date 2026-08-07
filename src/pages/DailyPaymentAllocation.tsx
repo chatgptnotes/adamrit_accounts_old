@@ -2316,7 +2316,9 @@ ${sectionsHtml}
         {/* Monthly Obligation — month-level amounts, accrual JVs (Dr expense / Cr party),
             remaining balance reduced by the daily Pay clicks above */}
         <TabsContent value="monthly-obligation" className="mt-4">
-          {selectedHospital === 'all' ? <PickHospitalNote /> : <MonthlyObligationTab hospital={selectedHospital} />}
+          {/* Merged view included: All Hospitals reports both, and only the
+              JV button narrows to one. */}
+          <MonthlyObligationTab hospital={selectedHospital} />
         </TabsContent>
 
         {/* TAB 5: Daily Allocation — editable today's expenses sheet (database-backed, carries forward) */}

@@ -168,9 +168,14 @@ export const MonthlyObligationTab: React.FC<{ hospital: string }> = ({ hospital 
           </Button>
           <span className="ml-2 font-semibold">{monthLabel(month)}</span>
         </div>
+        {/* A JV belongs to one hospital, so the merged view reports but does
+            not post — pick Hope or Ayushman to create them. */}
         <Button
           className="bg-purple-600 hover:bg-purple-700"
-          disabled={pendingParties.length === 0}
+          disabled={pendingParties.length === 0 || hospital === 'all'}
+          title={hospital === 'all'
+            ? 'Pick Hope or Ayushman to create JVs — each one belongs to a single hospital'
+            : undefined}
           onClick={() => setConfirmOpen(true)}
         >
           <FileText className="h-4 w-4 mr-2" />
@@ -199,7 +204,7 @@ export const MonthlyObligationTab: React.FC<{ hospital: string }> = ({ hospital 
           {sections.length === 0 && (
             <TableRow>
               <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                No active obligations for {hospital}.
+                No active obligations for {hospital === 'all' ? 'either hospital' : hospital}.
               </TableCell>
             </TableRow>
           )}

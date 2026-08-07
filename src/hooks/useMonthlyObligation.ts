@@ -28,7 +28,8 @@ export const useMonthlyPaidTotals = (hospital: string, month: string) =>
       const { data, error } = await (supabase as any)
         .from('daily_payment_schedule')
         .select('obligation_id, paid_amount')
-        .eq('hospital_name', hospital)
+        // 'all' is the merged owner's view, same as the obligations behind it.
+        .in('hospital_name', hospital === 'all' ? ['hope', 'ayushman'] : [hospital])
         .gte('schedule_date', monthStartDate(month))
         .lte('schedule_date', monthEndDate(month))
         .gt('paid_amount', 0);
@@ -48,7 +49,7 @@ export const useMonthlyObligationJvs = (hospital: string, month: string) =>
       const { data, error } = await (supabase as any)
         .from('monthly_obligation_jvs')
         .select('id, obligation_id, month, voucher_id, amount, vouchers(voucher_number)')
-        .eq('hospital_name', hospital)
+        .in('hospital_name', hospital === 'all' ? ['hope', 'ayushman'] : [hospital])
         .eq('month', monthStartDate(month));
       if (error) throw error;
       const byObligation = new Map<string, MonthlyJvRow>();
