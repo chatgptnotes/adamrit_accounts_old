@@ -25,6 +25,7 @@ import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useDebounce } from 'use-debounce';
 import { isUuid as isUuidString } from '@/utils/visitId';
+import { publishGeneratedPatientReport } from '@/lib/generatedPatientReports';
 
 // Budget for the all-dates Category/Service search: newest rows first, so this
 // covers recent orders while preventing a broad term from paging the whole table.
@@ -1940,6 +1941,10 @@ const LabOrders = () => {
             lines: summaryLines,
           },
         ],
+      }).catch((reportError) => {
+        // The lab result is already persisted. Report publication is supplemental
+        // and must never prevent saving or opening the print preview.
+        console.error('Failed to publish generated lab report:', reportError);
       });
       // DON'T reset form immediately - keep it visible with saved data
       // setLabResultsForm({});
