@@ -445,13 +445,38 @@ function PayBillDialog({ bill, onClose }: { bill: BillRow | null; onClose: () =>
 
 // ── Record-invoice dialog (same flow as the tablet form) ────────────────
 
-const EXPENSE_CATEGORIES: Array<{ value: string; label: string; ledgerName: string | null }> = [
-  { value: 'rent', label: 'Rent', ledgerName: 'Rent' },
-  { value: 'implant', label: 'Implant', ledgerName: 'Implant Purchase' },
-  { value: 'salary', label: 'Salary', ledgerName: 'Staff Salary' },
-  { value: 'consultant', label: 'Consultant Payment', ledgerName: 'Consultancy Fees' },
-  { value: 'other', label: 'Other', ledgerName: null },
-];
+/**
+ * Invoice categories are the groups the accounts team keeps under
+ * Masters -> Group -> Sundry Creditors, read live: create one there and it
+ * appears here, rename it and the name follows, remove it and it stops being
+ * offered. Pharmacy vendors are left out — they have their own master, and
+ * offering them twice is how two vendor lists start to disagree.
+ */
+function useInvoiceCategories() {
+  return useQuery({
+    queryKey: ['expense-bill-invoice-categories'],
+    staleTime: 60_000,
+    queryFn: async (): Promise<Array<{ id: string; name: string }>> => {
+      const { data: parent, error: parentError } = await supabase
+        .from('ledger_groups' as any)
+        .select('id')
+        .ilike('name', 'Sundry Creditors')
+        .maybeSingle();
+      if (parentError) throw parentError;
+      if (!(parent as any)?.id) return [];
+
+      const { data, error } = await supabase
+        .from('ledger_groups' as any)
+        .select('id, name')
+        .eq('parent_group_id', (parent as any).id)
+        .order('name');
+      if (error) throw error;
+      return ((data ?? []) as any[])
+        .filter((g) => !/pharmac/i.test(g.name || ''))
+        .map((g) => ({ id: g.id as string, name: g.name as string }));
+    },
+  });
+}
 
 function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -459,7 +484,9 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
   const record = useRecordExpenseBill();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const [category, setCategory] = useState('');
+  const [category, setCategory] = useState<{ id: string; name: string } | null>(null);
+  const [categorySearch, setCategorySearch] = useState('');
+  const categoryOptions = useInvoiceCategories();
   const [party, setParty] = useState<LedgerAccountOption | null>(null);
   const [head, setHead] = useState<LedgerAccountOption | null>(null);
   const [billNumber, setBillNumber] = useState('');
@@ -514,13 +541,15 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
     },
   });
 
-  const mappedName = EXPENSE_CATEGORIES.find((c) => c.value === category)?.ledgerName ?? null;
+  // A group named like an expense ledger (Rent, Consultant…) still suggests it;
+  // one that matches nothing simply leaves the head for the user to pick.
+  const mappedName = category?.name ?? null;
   const mappedHead = useExpenseLedgerByName(!head ? mappedName : null);
   // Suggest the category's ledger ONCE per category pick — otherwise clearing
   // the suggestion re-applies it instantly from the query cache.
   const suggestedFor = useRef<string | null>(null);
-  if (!head && mappedHead.data && category && category !== 'other' && suggestedFor.current !== category) {
-    suggestedFor.current = category;
+  if (!head && mappedHead.data && category && suggestedFor.current !== category.id) {
+    suggestedFor.current = category.id;
     setHead({
       id: mappedHead.data.id,
       account_code: mappedHead.data.code,
@@ -536,7 +565,7 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
     && !!file && billNumber.trim().length > 0 && amountValue > 0 && !record.isPending;
 
   const reset = () => {
-    setCategory(''); setParty(null); setHead(null); setBillNumber('');
+    setCategory(null); setCategorySearch(''); setParty(null); setHead(null); setBillNumber('');
     setBillDate(todayIso()); setDueDate(''); setAmount(''); setPoc(''); setRm('');
     setNarration(''); setFile(null);
     setPatient(null); setPatientSearch(''); setSurgeryName('');
@@ -558,6 +587,7 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
         partyLedgerId: party.id, expenseLedgerId: head.id,
         companyId: company.data, amount: amountValue, narration, file,
         pointOfContact: poc, relationshipManager: rm,
+        categoryGroupId: category?.id ?? null, categoryGroupName: category?.name ?? null,
         patientId: patient?.id, patientName: patient?.name,
         surgeryName,
         dateOfProcedure: dateOfProcedure || null,
@@ -589,19 +619,46 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
             </p>
           )}
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Invoice category</Label>
-              <Select
-                value={category || undefined}
-                onValueChange={(v) => { setHead(null); setCategory(v); }}
-              >
-                <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
-                <SelectContent>
-                  {EXPENSE_CATEGORIES.map((c) => (
-                    <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="relative">
+              <Label htmlFor="eb-category">Invoice category</Label>
+              <Input
+                id="eb-category"
+                value={category ? category.name : categorySearch}
+                placeholder={
+                  categoryOptions.isLoading
+                    ? 'Loading categories…'
+                    : 'Search groups under Sundry Creditors…'
+                }
+                autoComplete="off"
+                onChange={(e) => { setCategory(null); setHead(null); setCategorySearch(e.target.value); }}
+              />
+              {!category && (() => {
+                const term = categorySearch.trim().toLowerCase();
+                const matches = (categoryOptions.data ?? []).filter(
+                  (c) => !term || c.name.toLowerCase().includes(term),
+                );
+                if (matches.length === 0) {
+                  return categoryOptions.data && categoryOptions.data.length > 0 ? null : (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      No groups under Sundry Creditors yet — create them in Masters &rarr; Group.
+                    </p>
+                  );
+                }
+                return (
+                  <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-md border bg-background shadow">
+                    {matches.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className="block w-full px-3 py-2 text-left hover:bg-muted"
+                        onClick={() => { setCategory(c); setCategorySearch(''); }}
+                      >
+                        {c.name}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
             <div>
               <Label htmlFor="eb-number">Invoice number</Label>
