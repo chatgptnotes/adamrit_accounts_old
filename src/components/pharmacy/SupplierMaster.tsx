@@ -47,6 +47,11 @@ import {
   Pencil
 } from 'lucide-react';
 import { ManufacturerService, ManufacturerCompany } from '@/lib/manufacturer-service';
+import {
+  searchSupplierLedgers,
+  fetchLedgerById,
+  type SupplierLedgerOption,
+} from '@/lib/pharmacy/supplierLedgers';
 import { SupplierService, Supplier } from '@/lib/supplier-service';
 import { useToast } from '@/hooks/use-toast';
 
@@ -82,7 +87,16 @@ const SupplierMaster: React.FC<SupplierMasterProps> = ({ activeTab: propActiveTa
     credit_day: 0,
     bank_or_branch: '',
     mobile: '',
+    ledger_account_id: null,
   });
+
+  // The accounting ledger this supplier posts to, and what the user is typing
+  // to find it. Every supplier must have one: the GRN credits it and Lalit's
+  // tile debits it, so an unmapped supplier lands in Other Creditors instead.
+  const [ledger, setLedger] = useState<SupplierLedgerOption | null>(null);
+  const [ledgerSearch, setLedgerSearch] = useState('');
+  const [ledgerOptions, setLedgerOptions] = useState<SupplierLedgerOption[]>([]);
+  const [ledgerOpen, setLedgerOpen] = useState(false);
 
   // Manufacturer state
   const [manufacturers, setManufacturers] = useState<ManufacturerCompany[]>([]);
@@ -185,6 +199,18 @@ const SupplierMaster: React.FC<SupplierMasterProps> = ({ activeTab: propActiveTa
     }
   };
 
+  // Ledger search — runs while the picker is open, on what has been typed.
+  useEffect(() => {
+    if (!showDialog) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      searchSupplierLedgers(ledgerSearch)
+        .then((options) => { if (!cancelled) setLedgerOptions(options); })
+        .catch(() => { if (!cancelled) setLedgerOptions([]); });
+    }, 200);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [ledgerSearch, showDialog]);
+
   // Supplier CRUD handlers
   const handleAddOrUpdateSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -193,6 +219,16 @@ const SupplierMaster: React.FC<SupplierMasterProps> = ({ activeTab: propActiveTa
       toast({
         title: 'Error',
         description: 'Please fill in all required fields',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!supplierForm.ledger_account_id) {
+      toast({
+        title: 'Pick an accounting ledger',
+        description:
+          'Every supplier posts to a creditor ledger — goods received credit it and payments debit it.',
         variant: 'destructive',
       });
       return;
@@ -230,6 +266,10 @@ const SupplierMaster: React.FC<SupplierMasterProps> = ({ activeTab: propActiveTa
   const handleEditSupplier = (supplier: Supplier) => {
     setEditingSupplier(supplier);
     setSupplierForm(supplier);
+    setLedgerSearch('');
+    setLedgerOpen(false);
+    setLedger(null);
+    void fetchLedgerById(supplier.ledger_account_id).then(setLedger).catch(() => setLedger(null));
     setShowDialog(true);
   };
 
@@ -275,7 +315,11 @@ const SupplierMaster: React.FC<SupplierMasterProps> = ({ activeTab: propActiveTa
       credit_day: 0,
       bank_or_branch: '',
       mobile: '',
+      ledger_account_id: null,
     });
+    setLedger(null);
+    setLedgerSearch('');
+    setLedgerOpen(false);
   };
 
   const handleAddOrUpdateManufacturer = async (e: React.FormEvent) => {
@@ -412,6 +456,7 @@ const SupplierMaster: React.FC<SupplierMasterProps> = ({ activeTab: propActiveTa
                     <th className="px-4 py-2 border">GST No.</th>
                     <th className="px-4 py-2 border">S.Tax No.</th>
                     <th className="px-4 py-2 border">Phone</th>
+                    <th className="px-4 py-2 border">Ledger</th>
                     <th className="px-4 py-2 border">Edit</th>
                     <th className="px-4 py-2 border">Delete</th>
                   </tr>
@@ -419,7 +464,7 @@ const SupplierMaster: React.FC<SupplierMasterProps> = ({ activeTab: propActiveTa
                 <tbody>
                   {filteredSuppliers.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
+                      <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
                         {supplierSearch ? 'No suppliers found matching your search.' : 'No suppliers found. Add one using the Add Supplier button.'}
                       </td>
                     </tr>
@@ -432,6 +477,15 @@ const SupplierMaster: React.FC<SupplierMasterProps> = ({ activeTab: propActiveTa
                         <td className="px-4 py-2 border">{s.cst}</td>
                         <td className="px-4 py-2 border">{s.s_tax_no}</td>
                         <td className="px-4 py-2 border">{s.phone}</td>
+                        <td className="px-4 py-2 border text-center">
+                          {s.ledger_account_id ? (
+                            <span className="text-green-700">Mapped</span>
+                          ) : (
+                            <span className="text-red-600" title="Goods received from this supplier land in Other Creditors">
+                              Not mapped
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-2 border text-center">
                           <button
                             onClick={() => handleEditSupplier(s)}
@@ -634,6 +688,61 @@ const SupplierMaster: React.FC<SupplierMasterProps> = ({ activeTab: propActiveTa
                     <option value="General">General</option>
                   </select>
                 </label>
+                {/* The creditor ledger this supplier posts to. Goods received
+                    credit it; paying the vendor debits it. */}
+                <div className="flex items-start gap-2">
+                  <span className="w-32 pt-1">Accounting Ledger<span className="text-red-500">*</span></span>
+                  <div className="relative flex-1">
+                    <input
+                      className="border rounded px-2 py-1 w-full"
+                      value={ledger ? ledger.name : ledgerSearch}
+                      placeholder="Search ledgers in the accounting module…"
+                      autoComplete="off"
+                      disabled={isLoading}
+                      onFocus={() => setLedgerOpen(true)}
+                      onChange={(e) => {
+                        setLedger(null);
+                        setSupplierForm({ ...supplierForm, ledger_account_id: null });
+                        setLedgerSearch(e.target.value);
+                        setLedgerOpen(true);
+                      }}
+                    />
+                    {ledger && (
+                      <p className="mt-1 text-xs text-green-700">
+                        Mapped to {ledger.name}{ledger.code ? ` (${ledger.code})` : ''}
+                      </p>
+                    )}
+                    {ledgerOpen && !ledger && (
+                      <div className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded border bg-white shadow">
+                        {ledgerOptions.length === 0 ? (
+                          <p className="px-3 py-2 text-sm text-gray-500">
+                            No creditor ledger matches — create it in the accounting module first.
+                          </p>
+                        ) : (
+                          ledgerOptions.map((option) => (
+                            <button
+                              key={option.id}
+                              type="button"
+                              className="block w-full px-3 py-2 text-left text-sm hover:bg-blue-50"
+                              onClick={() => {
+                                setLedger(option);
+                                setSupplierForm({ ...supplierForm, ledger_account_id: option.id });
+                                setLedgerSearch('');
+                                setLedgerOpen(false);
+                              }}
+                            >
+                              {option.name}
+                              {option.code && <span className="ml-2 text-xs text-gray-500">{option.code}</span>}
+                              {!option.companyName && (
+                                <span className="ml-2 text-xs text-amber-700">central</span>
+                              )}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
               {/* Right column */}
               <div className="flex flex-col gap-3">
