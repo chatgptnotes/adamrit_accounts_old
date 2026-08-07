@@ -146,11 +146,24 @@ function getLocationBadgeClass(location: string): string {
 
 // ─── Data fetching ─────────────────────────────────────────────────────────────
 
+// Only the columns this screen reads. `select('*')` pulled notes, symptoms,
+// diagnosis and vital_signs too — notes alone averages 1 KB a row and nothing
+// here renders it, which was over half the prescription payload.
+const PRESCRIPTION_COLUMNS =
+  'id, prescription_number, patient_id, doctor_name, prescription_date, status, source, ' +
+  'hospital_name, patient_location, prescription_image_url, prescription_image_type, ' +
+  'drug_interaction_report, drug_interaction_signature, drug_interaction_checked_at';
+
+const PRESCRIPTION_ITEM_COLUMNS =
+  'id, prescription_id, medicine_id, medicine_name, quantity_prescribed, quantity_dispensed, ' +
+  'dosage_frequency, dosage_timing, duration_days, special_instructions, unit_price, ' +
+  'total_price, batch_numbers, is_substituted, substitute_reason, generic_name, brand_name';
+
 async function fetchPrescriptions(): Promise<Prescription[]> {
   // Fetch prescriptions
   const { data: prescriptions, error } = await (supabase as any)
     .from('prescriptions')
-    .select('*')
+    .select(PRESCRIPTION_COLUMNS)
     .order('prescription_date', { ascending: false });
 
   if (error) throw error;
@@ -161,27 +174,36 @@ async function fetchPrescriptions(): Promise<Prescription[]> {
   // prescriptions — a single query silently dropped the overflow (sorted
   // oldest-first), so the newest ward prescriptions came back with 0 items.
   // Chunk the id list (keeps the URL sane) and page through each chunk.
+  // The chunks run together — six sequential round-trips was the slowest part
+  // of opening this tab. Smaller chunks keep each one inside a single page.
   const prescriptionIds = prescriptions.map((p: any) => p.id);
-  const items: any[] = [];
-  const ID_CHUNK = 300;
+  const ID_CHUNK = 60;
   const PAGE = 1000;
+  const chunks: string[][] = [];
   for (let c = 0; c < prescriptionIds.length; c += ID_CHUNK) {
-    const idChunk = prescriptionIds.slice(c, c + ID_CHUNK);
-    let from = 0;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const { data: page, error: itemsError } = await (supabase as any)
-        .from('prescription_items')
-        .select('*')
-        .in('prescription_id', idChunk)
-        .range(from, from + PAGE - 1);
-      if (itemsError) throw itemsError;
-      if (!page || page.length === 0) break;
-      items.push(...page);
-      if (page.length < PAGE) break;
-      from += PAGE;
-    }
+    chunks.push(prescriptionIds.slice(c, c + ID_CHUNK));
   }
+  const chunkResults = await Promise.all(
+    chunks.map(async (idChunk) => {
+      const rows: any[] = [];
+      let from = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { data: page, error: itemsError } = await (supabase as any)
+          .from('prescription_items')
+          .select(PRESCRIPTION_ITEM_COLUMNS)
+          .in('prescription_id', idChunk)
+          .range(from, from + PAGE - 1);
+        if (itemsError) throw itemsError;
+        if (!page || page.length === 0) break;
+        rows.push(...page);
+        if (page.length < PAGE) break;
+        from += PAGE;
+      }
+      return rows;
+    }),
+  );
+  const items: any[] = chunkResults.flat();
 
   // Fetch patient names
   const patientIds = [...new Set(prescriptions.map((p: any) => p.patient_id).filter(Boolean))];
@@ -196,39 +218,11 @@ async function fetchPrescriptions(): Promise<Prescription[]> {
     }
   }
 
-  // Fetch medicine MRP — two strategies:
-  // 1. By medicine_id (for items that have it)
-  // 2. By medicine_name text match (camera-upload prescriptions have medicine_id=null)
-  const medicineIds = [...new Set((items || []).map((i: any) => i.medicine_id).filter(Boolean))];
-  // key → { name, mrp }
-  let medicineById: Record<string, { name: string; mrp: number | null }> = {};
-  if (medicineIds.length > 0) {
-    const { data: medicines } = await (supabase as any)
-      .from('medicines')
-      .select('id, medicine_name, mrp')
-      .in('id', medicineIds);
-    if (medicines) {
-      medicineById = Object.fromEntries(
-        medicines.map((m: any) => [m.id, { name: m.medicine_name, mrp: m.mrp ?? null }])
-      );
-    }
-  }
-
-  // For items without medicine_id, look up by name
-  const itemsWithoutId = (items || []).filter((i: any) => !i.medicine_id && i.medicine_name);
-  const freeTextNames = [...new Set(itemsWithoutId.map((i: any) => (i.medicine_name as string).trim()))];
-  let medicineByName: Record<string, number | null> = {}; // lowercase name → mrp
-  if (freeTextNames.length > 0) {
-    const { data: namedMeds } = await (supabase as any)
-      .from('medicines')
-      .select('medicine_name, mrp')
-      .in('medicine_name', freeTextNames);
-    if (namedMeds) {
-      for (const m of namedMeds) {
-        medicineByName[m.medicine_name.toLowerCase()] = m.mrp ?? null;
-      }
-    }
-  }
+  // MRP was looked up here from a `medicines` table that does not exist in this
+  // database (the master is `medicine_master`, which carries no mrp column), so
+  // both queries 404'd, their errors were never checked, and medicine_mrp came
+  // back null on every row regardless. Two dead round-trips removed; the real
+  // MRP source is medicine_batch_inventory, resolved at dispense time below.
 
   // Fetch earliest expiry per batch_number (data populated at dispense time)
   const allBatchNumbers = [
@@ -259,10 +253,7 @@ async function fetchPrescriptions(): Promise<Prescription[]> {
   for (const item of items || []) {
     const key = item.prescription_id;
     if (!itemsByPrescription[key]) itemsByPrescription[key] = [];
-    const medMeta = item.medicine_id ? medicineById[item.medicine_id] : null;
-    const resolvedName = item.medicine_name || medMeta?.name || 'Unknown Medicine';
-    // MRP: from id-lookup → name-lookup → null
-    const resolvedMrp = medMeta?.mrp ?? medicineByName[(item.medicine_name || '').toLowerCase()] ?? null;
+    const resolvedName = item.medicine_name || 'Unknown Medicine';
     const earliestExpiry = (item.batch_numbers || []).reduce(
       (min: string | null, bn: string) => {
         const e = batchExpiry[bn];
@@ -275,7 +266,7 @@ async function fetchPrescriptions(): Promise<Prescription[]> {
     itemsByPrescription[key].push({
       ...item,
       medicine_name: resolvedName.toUpperCase(),
-      medicine_mrp: resolvedMrp,
+      medicine_mrp: null,
       earliest_expiry: earliestExpiry,
     });
   }
