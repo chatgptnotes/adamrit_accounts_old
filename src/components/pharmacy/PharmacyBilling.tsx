@@ -148,6 +148,11 @@ const PharmacyBilling: React.FC = () => {
   const [proofUrl, setProofUrl] = useState<string | null>(null);
   const [pendingProof, setPendingProof] = useState<File | null>(null);
   const [isSavingProof, setIsSavingProof] = useState(false);
+  // Invoices raised but never settled — a bill can be generated and the
+  // patient walk away, and until now nothing could pick that bill back up.
+  const [unpaidInvoices, setUnpaidInvoices] = useState<any[]>([]);
+  const [settlingId, setSettlingId] = useState<number | null>(null);
+  const [busyInvoiceId, setBusyInvoiceId] = useState<number | null>(null);
   const proofInputRef = useRef<HTMLInputElement>(null);
   const proofCameraRef = useRef<HTMLInputElement>(null);
   const qrInputRef = useRef<HTMLInputElement>(null);
@@ -791,6 +796,67 @@ const PharmacyBilling: React.FC = () => {
     }
   };
 
+  const loadUnpaidInvoices = async () => {
+    let query = supabase
+      .from('pharmacy_sales')
+      .select('sale_id, bill_number, patient_name, total_amount, sale_date, payment_method')
+      .eq('payment_status', 'PENDING')
+      .neq('status', 'cancelled')
+      .gt('total_amount', 0)
+      .order('sale_date', { ascending: false })
+      .limit(20);
+    if (hospitalConfig?.name) query = query.eq('hospital_name', hospitalConfig.name);
+    const { data } = await query;
+    setUnpaidInvoices(data || []);
+  };
+
+  useEffect(() => {
+    void loadUnpaidInvoices();
+  }, [hospitalConfig?.name]);
+
+  /** Money arrived later: mark the bill paid and the database posts the receipt. */
+  const settleInvoice = async (saleId: number, method: string) => {
+    setBusyInvoiceId(saleId);
+    try {
+      const { error } = await supabase
+        .from('pharmacy_sales')
+        .update({ payment_method: method, payment_status: 'COMPLETED' })
+        .eq('sale_id', saleId);
+      if (error) throw new Error(error.message);
+      const receipt = await fetchPharmacySaleVoucher(saleId, 'REC').catch(() => null);
+      toast.success(receipt ? `Settled — receipt ${receipt} posted.` : 'Settled.');
+      setSettlingId(null);
+      await loadUnpaidInvoices();
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not settle this invoice');
+    } finally {
+      setBusyInvoiceId(null);
+    }
+  };
+
+  /** The sale never happened: withdraw the bill and its journal. */
+  const cancelInvoice = async (saleId: number, billNumber: string) => {
+    if (!window.confirm(`Withdraw invoice ${billNumber}? Its journal is cancelled too.`)) return;
+    setBusyInvoiceId(saleId);
+    try {
+      const { data, error } = await (supabase as any).rpc('cancel_pharmacy_sale_invoice', {
+        p_sale_id: saleId,
+        p_user: user?.email || user?.username || null,
+      });
+      if (error) throw new Error(error.message);
+      if (data?.cancelled) {
+        toast.success(`Invoice ${data.bill_number} withdrawn — journal ${data.journal} cancelled.`);
+      } else {
+        toast.error(data?.reason || 'Could not cancel this invoice');
+      }
+      await loadUnpaidInvoices();
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not cancel this invoice');
+    } finally {
+      setBusyInvoiceId(null);
+    }
+  };
+
   const processSale = async () => {
     if (cart.length === 0) {
       alert('Cart is empty');
@@ -983,6 +1049,7 @@ const PharmacyBilling: React.FC = () => {
       );
     }
 
+    void loadUnpaidInvoices();
     clearCart();
   };
 
@@ -1239,6 +1306,87 @@ const PharmacyBilling: React.FC = () => {
         }
       `}</style>
       <div className="space-y-6">
+        {/* Invoices raised but not yet paid. Settling one posts its receipt;
+            withdrawing one cancels the bill and its journal. Stock is not
+            touched either way — the medicines only move when a sale is
+            completed from the cart. */}
+        {unpaidInvoices.length > 0 && (
+          <Card className="border-amber-300 bg-amber-50/60">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base text-amber-900">
+                Unpaid invoices ({unpaidInvoices.length})
+              </CardTitle>
+              <p className="text-xs text-amber-800">
+                Generated but never completed. Settle when the money comes in, or withdraw the
+                bill if the sale did not happen. Medicines are not deducted from stock by either.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {unpaidInvoices.map((inv) => (
+                <div
+                  key={inv.sale_id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-white px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">
+                      {inv.patient_name || 'Walk-in'}{' '}
+                      <span className="font-normal text-muted-foreground">
+                        · ₹{Number(inv.total_amount).toLocaleString('en-IN')}
+                      </span>
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {inv.bill_number}
+                      {inv.sale_date ? ` · ${new Date(inv.sale_date).toLocaleDateString('en-IN')}` : ''}
+                    </p>
+                  </div>
+
+                  {settlingId === inv.sale_id ? (
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="mr-1 text-xs text-muted-foreground">Paid by</span>
+                      {['CASH', 'CARD', 'UPI'].map((method) => (
+                        <Button
+                          key={method}
+                          size="sm"
+                          variant="outline"
+                          disabled={busyInvoiceId === inv.sale_id}
+                          onClick={() => void settleInvoice(inv.sale_id, method)}
+                        >
+                          {method}
+                        </Button>
+                      ))}
+                      <Button size="sm" variant="ghost" onClick={() => setSettlingId(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        disabled={busyInvoiceId === inv.sale_id}
+                        onClick={() => setSettlingId(inv.sale_id)}
+                      >
+                        {busyInvoiceId === inv.sale_id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          'Settle'
+                        )}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busyInvoiceId === inv.sale_id}
+                        onClick={() => void cancelInvoice(inv.sale_id, inv.bill_number)}
+                      >
+                        Withdraw
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
         {/* Header */}
         <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
