@@ -17,11 +17,13 @@ import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletInput, TabletLabel } from "@/tablet/ui/TabletInput";
 import { shortDate } from "@/tablet/lib/format";
-import { fetchLedgerQr, saveLedgerQr } from "@/lib/expense-bills/paymentEvidence";
 import {
-  uploadVoucherAttachments,
-  VOUCHER_PAYMENT_PROOF_CATEGORY,
-} from "@/lib/voucher-attachments";
+  VENDOR_PAYMENT_MODES,
+  fetchVendorQr,
+  saveVendorQr,
+  payGrnBill,
+  saveGrnPaymentProof,
+} from "@/lib/pharmacy/vendorPayments";
 
 // DATA SOURCE: goods_received_notes (POSTED) + suppliers + the purchase
 // voucher the GRN raised -> post_grn_vendor_payment().
@@ -49,8 +51,6 @@ interface VendorBill {
   purchaseVoucher: string | null;
 }
 
-const MODES = ["CASH", "UPI", "NEFT", "CHEQUE"] as const;
-
 // High enough for every posted GRN today (438) with room to grow; if it is
 // ever reached the count line says so rather than quietly dropping the rest.
 const BILL_LIMIT = 1000;
@@ -61,7 +61,7 @@ export default function PharmacyVendorLalitFlow() {
   const [search, setSearch] = useState("");
   const [paying, setPaying] = useState<VendorBill | null>(null);
   const [amount, setAmount] = useState("");
-  const [mode, setMode] = useState<(typeof MODES)[number]>("CASH");
+  const [mode, setMode] = useState<(typeof VENDOR_PAYMENT_MODES)[number]>("CASH");
   const [reference, setReference] = useState("");
   const [vendorQr, setVendorQr] = useState<string | null>(null);
   const [proofFile, setProofFile] = useState<File | null>(null);
@@ -153,21 +153,14 @@ export default function PharmacyVendorLalitFlow() {
     setReference("");
     setProofFile(null);
     setVendorQr(null);
-    if (bill.supplierLedgerId) {
-      try {
-        const qr = await fetchLedgerQr(bill.supplierLedgerId);
-        setVendorQr(qr?.qrUrl ?? null);
-      } catch {
-        setVendorQr(null);
-      }
-    }
+    setVendorQr(await fetchVendorQr(bill.supplierLedgerId));
   };
 
   const onVendorQr = async (file?: File) => {
     if (!file || !paying?.supplierLedgerId) return;
     setBusy(true);
     try {
-      const url = await saveLedgerQr(paying.supplierLedgerId, file, user?.email || null);
+      const url = await saveVendorQr(paying.supplierLedgerId, file, user?.email || null);
       setVendorQr(url);
       toast.success(`QR saved for ${paying.supplierName}.`);
     } catch (e) {
@@ -184,31 +177,18 @@ export default function PharmacyVendorLalitFlow() {
       const value = Number(amount);
       if (!Number.isFinite(value) || value <= 0) throw new Error("Enter the amount paid");
 
-      const { data, error } = await (supabase as any).rpc("post_grn_vendor_payment", {
-        p_grn_id: paying.id,
-        p_mode: mode,
-        p_amount: value,
-        p_reference: reference || null,
-        p_user: user?.email || user?.id || null,
+      const result = await payGrnBill({
+        grnId: paying.id,
+        mode,
+        amount: value,
+        reference,
+        user: user?.email || user?.id || null,
       });
-      if (error) throw new Error(error.message);
-      if (!data?.posted) {
-        throw new Error(data?.reason || `Already paid — voucher ${data?.voucher_number}`);
-      }
+      if (!result.posted) throw new Error(result.reason || "Could not record the payment");
 
       // Evidence goes on the bill it paid.
-      if (proofFile) {
-        const [uploaded] = await uploadVoucherAttachments([proofFile], VOUCHER_PAYMENT_PROOF_CATEGORY);
-        const { error: proofError } = await (supabase as any)
-          .from("goods_received_notes")
-          .update({
-            payment_proof_path: uploaded.storagePath,
-            payment_proof_url: uploaded.fileUrl,
-          })
-          .eq("id", paying.id);
-        if (proofError) throw new Error(proofError.message);
-      }
-      return data.voucher_number as string;
+      if (proofFile) await saveGrnPaymentProof(paying.id, proofFile);
+      return result.voucherNumber as string;
     },
     onSuccess: (voucherNumber) => {
       toast.success(`Paid ${paying?.supplierName} — payment voucher ${voucherNumber} posted.`);
@@ -364,7 +344,7 @@ export default function PharmacyVendorLalitFlow() {
                     <div>
                       <TabletLabel>Paid by</TabletLabel>
                       <div className="grid grid-cols-4 gap-2">
-                        {MODES.map((m) => (
+                        {VENDOR_PAYMENT_MODES.map((m) => (
                           <TabletButton
                             key={m}
                             size="sm"

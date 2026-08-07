@@ -6,3 +6,24 @@
   [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m1120[22m[2m[0m ms[22m
 
   [32m➜[39m  [1mLocal[22m:   [36mhttps://127.0.0.1:[1m8080[22m/[39m
+[2m6:16:21 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/components/MonthlyObligationTab.tsx[22m
+[2m6:16:21 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/components/pharmacy/PharmacyBilling.tsx[22m
+[2m6:16:21 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/hooks/useDailyPaymentAllocation.ts[22m
+[2m6:16:22 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/components/MonthlyObligationTab.tsx[22m
+[2m6:16:22 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/components/pharmacy/PharmacyBilling.tsx[22m
+[2m6:16:22 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/components/pharmacy/SupplierMaster.tsx[22m
+[2m6:16:22 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/tablet/config/modules.ts[22m
+[2m6:16:22 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/hooks/useDailyPaymentAllocation.ts[22m
+[2m6:16:22 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/hooks/useMonthlyObligation.ts[22m
+[2m6:16:22 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/tablet/modules/expense-bills/useExpenseBills.ts[22m
+[2m6:16:22 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/tablet/modules/pharmacy-vendor-lalit/PharmacyVendorLalitFlow.tsx[22m
+[2m6:16:22 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/tablet/screens/TabletModuleHost.tsx[22m
+[2m6:16:22 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/lib/supplier-service.ts[22m
+[2m6:16:22 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/lib/supplier-service.ts[22m
+[2m6:16:22 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/tablet/config/modules.ts[22m
+[2m6:16:22 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/tablet/modules/expense-bills/useExpenseBills.ts[22m
+[2m6:16:22 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/tablet/modules/pharmacy-vendor-lalit/PharmacyVendorLalitFlow.tsx[22m
+[2m6:16:22 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/tablet/screens/TabletModuleHost.tsx[22m
+[2m6:18:57 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/components/pharmacy/PurchaseOrders.tsx[22m
+[2m6:18:57 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/tablet/modules/pharmacy-vendor-lalit/PharmacyVendorLalitFlow.tsx[22m
+[2m6:18:58 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/components/pharmacy/PurchaseOrders.tsx[22m
