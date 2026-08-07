@@ -17,7 +17,7 @@ import {
   Wallet, Building2, IndianRupee, TrendingUp, TrendingDown,
   Clock, CheckCircle, AlertTriangle, Plus, Edit2, ToggleLeft,
   ToggleRight, Banknote, Calendar, RefreshCw, Save, PenLine,
-  GripVertical, X, SkipForward, Users, Upload, ExternalLink, FileSpreadsheet, Printer, Eye, Search, Link as LinkIcon
+  GripVertical, X, SkipForward, Undo2, Users, Upload, ExternalLink, FileSpreadsheet, Printer, Eye, Search, Link as LinkIcon
 } from 'lucide-react';
 import {
   DndContext,
@@ -172,6 +172,9 @@ interface SortableScheduleRowProps {
   onSkipConfirm: () => void;
   onSkipCancel: () => void;
   onSkip: () => void;
+  /** Only for rows that came from an expense invoice. */
+  onRevertAllocation: () => void;
+  reverting: boolean;
 }
 
 /** Tabs that work per hospital ask the merged view to narrow down first. */
@@ -189,6 +192,7 @@ const SortableScheduleRow = ({
   onStartEdit, onSaveEdit, onCancelEdit, onEditAmountChange, onEditNotesChange,
   onEditPartyChange, onEditCompanyChange, onEditLedgerChange, onEditLedgerSearchChange,
   onPay, onSkipConfirm, onSkipCancel, onSkip, showHospital,
+  onRevertAllocation, reverting,
 }: SortableScheduleRowProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: entry.id });
   const { data: editLedgers = [] } = useAccountingLedgerSearch(editLedgerSearch, editCompanyId || null);
@@ -364,6 +368,19 @@ const SortableScheduleRow = ({
               {entry.status !== 'paid' && entry.status !== 'skipped' && (
                 <Button size="sm" variant="ghost" onClick={onSkipConfirm} title="Skip for today">
                   <SkipForward className="h-3.5 w-3.5 text-orange-500" />
+                </Button>
+              )}
+              {/* Rows that came from an expense invoice can go back to the
+                  register — the database refuses once anything is paid. */}
+              {entry.expense_bill_id && entry.status !== 'paid' && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={reverting}
+                  onClick={onRevertAllocation}
+                  title="Take this invoice back off the allocation"
+                >
+                  <Undo2 className="h-3.5 w-3.5 text-amber-600" />
                 </Button>
               )}
             </>
@@ -1040,6 +1057,31 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
       </div>
     );
   }
+
+  // Send an invoice row back to the Expense Bill register. The database
+  // refuses once anything has been paid and says why.
+  const [revertingId, setRevertingId] = useState<string | null>(null);
+  const handleRevertAllocation = async (entry: ScheduleEntry) => {
+    if (!entry.expense_bill_id) return;
+    setRevertingId(entry.id);
+    try {
+      const { data, error } = await (supabase as any).rpc('revert_expense_bill_allocation', {
+        p_bill_id: entry.expense_bill_id,
+        p_user: user?.email ?? null,
+      });
+      if (error) throw new Error(error.message);
+      if (data?.reverted) {
+        toast.success(`Invoice ${data.bill_number} taken off the allocation — it is back on the Expense Bill register.`);
+        void refetch();
+      } else {
+        toast.error(data?.reason || 'Could not revert this allocation');
+      }
+    } catch (e: any) {
+      toast.error(e?.message || 'Could not revert this allocation');
+    } finally {
+      setRevertingId(null);
+    }
+  };
 
   const handlePay = (entry: ScheduleEntry) => {
     const remaining = entry.daily_amount + entry.carryforward_amount - entry.paid_amount;
@@ -1982,6 +2024,8 @@ ${sectionsHtml}
                                   onSkipConfirm={() => setSkipConfirmId(entry.id)}
                                   onSkipCancel={() => setSkipConfirmId(null)}
                                   onSkip={() => handleSkipEntry(entry.id)}
+                                  onRevertAllocation={() => handleRevertAllocation(entry)}
+                                  reverting={revertingId === entry.id}
                                 />
                               );
                             })}
@@ -2272,7 +2316,9 @@ ${sectionsHtml}
         {/* Monthly Obligation — month-level amounts, accrual JVs (Dr expense / Cr party),
             remaining balance reduced by the daily Pay clicks above */}
         <TabsContent value="monthly-obligation" className="mt-4">
-          {selectedHospital === 'all' ? <PickHospitalNote /> : <MonthlyObligationTab hospital={selectedHospital} />}
+          {/* Merged view included: All Hospitals reports both, and only the
+              JV button narrows to one. */}
+          <MonthlyObligationTab hospital={selectedHospital} />
         </TabsContent>
 
         {/* TAB 5: Daily Allocation — editable today's expenses sheet (database-backed, carries forward) */}

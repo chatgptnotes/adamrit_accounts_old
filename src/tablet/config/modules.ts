@@ -34,6 +34,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { canCreateAccountingVouchers } from "@/lib/accounting-access";
+import { OFFICE_TILE_IDS, canSeeOfficeTiles } from "@/lib/officeTileAccess";
 
 export interface TabletModule {
   /** URL segment under /t/ and lookup key. */
@@ -591,6 +592,11 @@ export function modulesForUser(
   // full tile-access filtering here when the tablet role matrix is finalized.
   return TABLET_MODULES.filter((module) => {
     if (module.hiddenFromHome) return false;
+    // Accounts (Tilak) and Expense Bills open the books: named office staff
+    // and the two super admins only, whatever role they carry.
+    if ((OFFICE_TILE_IDS as readonly string[]).includes(module.id) && !canSeeOfficeTiles(user)) {
+      return false;
+    }
     if (module.accountingOnly && !canCreateAccountingVouchers(user)) return false;
     if (module.roles && module.roles.length > 0) {
       return !!user?.role && module.roles.includes(user.role);

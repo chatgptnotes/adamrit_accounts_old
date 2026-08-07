@@ -51,6 +51,10 @@ interface VendorBill {
 
 const MODES = ["CASH", "UPI", "NEFT", "CHEQUE"] as const;
 
+// High enough for every posted GRN today (438) with room to grow; if it is
+// ever reached the count line says so rather than quietly dropping the rest.
+const BILL_LIMIT = 1000;
+
 export default function PharmacyVendorLalitFlow() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -62,6 +66,7 @@ export default function PharmacyVendorLalitFlow() {
   const [vendorQr, setVendorQr] = useState<string | null>(null);
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  const totalPostedRef = useRef(0);
   const proofInput = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
   const qrInput = useRef<HTMLInputElement>(null);
@@ -70,16 +75,20 @@ export default function PharmacyVendorLalitFlow() {
     queryKey: ["lalit-vendor-bills"],
     staleTime: 30_000,
     queryFn: async (): Promise<VendorBill[]> => {
-      const { data: grns, error } = await (supabase as any)
+      // Every posted GRN, not a slice of them: at 300 the list silently hid
+      // 138 bills and still reported "300 of 300 still to pay".
+      const { data: grns, error, count } = await (supabase as any)
         .from("goods_received_notes")
         .select(
           "id, grn_number, grn_date, invoice_number, invoice_amount, total_amount, supplier_id, " +
             "paid_at, paid_amount, payment_mode, payment_voucher_no, payment_proof_url",
+          { count: "exact" },
         )
         .eq("status", "POSTED")
         .order("grn_date", { ascending: false })
-        .limit(300);
+        .limit(BILL_LIMIT);
       if (error) throw error;
+      totalPostedRef.current = count ?? (grns ?? []).length;
 
       const supplierIds = [...new Set((grns || []).map((g: any) => g.supplier_id).filter(Boolean))];
       const { data: suppliers } = supplierIds.length
@@ -230,6 +239,9 @@ export default function PharmacyVendorLalitFlow() {
         {visible.length > 0 && (
           <p className="text-sm text-muted-foreground">
             {unpaidCount} of {visible.length} bill{visible.length === 1 ? "" : "s"} still to pay.
+            {totalPostedRef.current > bills.length && (
+              <> Showing the {bills.length} most recent of {totalPostedRef.current} posted GRNs.</>
+            )}
           </p>
         )}
 
@@ -255,6 +267,13 @@ export default function PharmacyVendorLalitFlow() {
                       .filter(Boolean)
                       .join(" · ")}
                   </p>
+                  {/* A GRN dated in the future is a typo at entry, and it
+                      sorts above everything until someone corrects it. */}
+                  {bill.grnDate > new Date().toISOString().slice(0, 10) && (
+                    <p className="mt-0.5 text-xs text-amber-700">
+                      Dated in the future — check the GRN date
+                    </p>
+                  )}
                 </div>
                 <div className="shrink-0 text-right">
                   <p className="text-base font-semibold">₹{Number(bill.amount).toLocaleString("en-IN")}</p>
@@ -287,6 +306,123 @@ export default function PharmacyVendorLalitFlow() {
                     </a>
                   )}
                 </div>
+              ) : paying?.id === bill.id ? (
+                /* The pay panel opens inside the row it belongs to: a centred
+                   overlay put the form nowhere near the bill being paid. */
+                <div className="rounded-lg border border-primary/40 bg-muted/30 p-3">
+                  <div className="rounded-md border p-3 text-center">
+                    {vendorQr ? (
+                      <>
+                        <p className="mb-2 text-xs text-muted-foreground">Scan to pay {paying.supplierName}</p>
+                        <img
+                          src={vendorQr}
+                          alt={`Payment QR for ${paying.supplierName}`}
+                          className="mx-auto max-h-56 object-contain"
+                        />
+                        <TabletButton
+                          variant="outline"
+                          size="sm"
+                          className="mt-2"
+                          disabled={busy || !paying.supplierLedgerId}
+                          onClick={() => qrInput.current?.click()}
+                        >
+                          Replace QR
+                        </TabletButton>
+                      </>
+                    ) : (
+                      <>
+                        <QrCode className="mx-auto h-8 w-8 text-muted-foreground" />
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          {paying.supplierLedgerId
+                            ? "No QR held for this vendor yet."
+                            : "This vendor has no ledger mapped, so no QR can be stored against it."}
+                        </p>
+                        <TabletButton
+                          variant="outline"
+                          size="sm"
+                          className="mt-2"
+                          disabled={busy || !paying.supplierLedgerId}
+                          onClick={() => qrInput.current?.click()}
+                        >
+                          <Upload className="mr-1 h-4 w-4" /> Upload vendor QR
+                        </TabletButton>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="mt-3 space-y-3">
+                    <div>
+                      <TabletLabel>Amount paid</TabletLabel>
+                      <TabletInput
+                        type="number"
+                        inputMode="decimal"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <TabletLabel>Paid by</TabletLabel>
+                      <div className="grid grid-cols-4 gap-2">
+                        {MODES.map((m) => (
+                          <TabletButton
+                            key={m}
+                            size="sm"
+                            variant={mode === m ? "default" : "outline"}
+                            onClick={() => setMode(m)}
+                          >
+                            {m}
+                          </TabletButton>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <TabletLabel>Reference (optional)</TabletLabel>
+                      <TabletInput
+                        value={reference}
+                        onChange={(e) => setReference(e.target.value)}
+                        placeholder="UTR / cheque number"
+                      />
+                    </div>
+
+                    <div className="rounded-md border p-3">
+                      <p className="mb-2 text-xs text-muted-foreground">Payment confirmation</p>
+                      <div className="flex items-center gap-2">
+                        <TabletButton variant="outline" size="sm" onClick={() => proofInput.current?.click()}>
+                          <Upload className="mr-1 h-4 w-4" /> Upload
+                        </TabletButton>
+                        <TabletButton
+                          variant="outline"
+                          size="sm"
+                          onClick={() => cameraInput.current?.click()}
+                          title="Photograph the confirmation"
+                          aria-label="Photograph the confirmation"
+                        >
+                          <Camera className="h-4 w-4" />
+                        </TabletButton>
+                        {proofFile && (
+                          <span className="text-xs text-emerald-700">{proofFile.name}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex justify-end gap-2">
+                    <TabletButton variant="outline" onClick={() => setPaying(null)} disabled={pay.isPending}>
+                      Cancel
+                    </TabletButton>
+                    <TabletButton onClick={() => pay.mutate()} disabled={pay.isPending}>
+                      {pay.isPending ? (
+                        <>
+                          <Loader2 className="mr-1 h-4 w-4 animate-spin" /> Posting…
+                        </>
+                      ) : (
+                        "Record payment"
+                      )}
+                    </TabletButton>
+                  </div>
+                </div>
               ) : (
                 <TabletButton size="sm" onClick={() => void openPayment(bill)}>
                   <QrCode className="mr-1 h-4 w-4" /> Pay vendor
@@ -296,132 +432,6 @@ export default function PharmacyVendorLalitFlow() {
           ))
         )}
       </div>
-
-      {/* Pay: the vendor's QR to scan, the confirmation to attach */}
-      {paying && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
-          <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-xl bg-background p-4 shadow-xl">
-            <h3 className="text-lg font-semibold">Pay {paying.supplierName}</h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {paying.grnNumber}
-              {paying.invoiceNumber ? ` · Invoice ${paying.invoiceNumber}` : ""}
-            </p>
-
-            <div className="mt-3 rounded-md border p-3 text-center">
-              {vendorQr ? (
-                <>
-                  <p className="mb-2 text-xs text-muted-foreground">Scan to pay {paying.supplierName}</p>
-                  <img
-                    src={vendorQr}
-                    alt={`Payment QR for ${paying.supplierName}`}
-                    className="mx-auto max-h-56 object-contain"
-                  />
-                  <TabletButton
-                    variant="outline"
-                    size="sm"
-                    className="mt-2"
-                    disabled={busy || !paying.supplierLedgerId}
-                    onClick={() => qrInput.current?.click()}
-                  >
-                    Replace QR
-                  </TabletButton>
-                </>
-              ) : (
-                <>
-                  <QrCode className="mx-auto h-8 w-8 text-muted-foreground" />
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {paying.supplierLedgerId
-                      ? "No QR held for this vendor yet."
-                      : "This vendor has no ledger mapped, so no QR can be stored against it."}
-                  </p>
-                  <TabletButton
-                    variant="outline"
-                    size="sm"
-                    className="mt-2"
-                    disabled={busy || !paying.supplierLedgerId}
-                    onClick={() => qrInput.current?.click()}
-                  >
-                    <Upload className="mr-1 h-4 w-4" /> Upload vendor QR
-                  </TabletButton>
-                </>
-              )}
-            </div>
-
-            <div className="mt-3 space-y-3">
-              <div>
-                <TabletLabel>Amount paid</TabletLabel>
-                <TabletInput
-                  type="number"
-                  inputMode="decimal"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <TabletLabel>Paid by</TabletLabel>
-                <div className="grid grid-cols-4 gap-2">
-                  {MODES.map((m) => (
-                    <TabletButton
-                      key={m}
-                      size="sm"
-                      variant={mode === m ? "default" : "outline"}
-                      onClick={() => setMode(m)}
-                    >
-                      {m}
-                    </TabletButton>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <TabletLabel>Reference (optional)</TabletLabel>
-                <TabletInput
-                  value={reference}
-                  onChange={(e) => setReference(e.target.value)}
-                  placeholder="UTR / cheque number"
-                />
-              </div>
-
-              <div className="rounded-md border p-3">
-                <p className="mb-2 text-xs text-muted-foreground">Payment confirmation</p>
-                <div className="flex items-center gap-2">
-                  <TabletButton variant="outline" size="sm" onClick={() => proofInput.current?.click()}>
-                    <Upload className="mr-1 h-4 w-4" /> Upload
-                  </TabletButton>
-                  <TabletButton
-                    variant="outline"
-                    size="sm"
-                    onClick={() => cameraInput.current?.click()}
-                    title="Photograph the confirmation"
-                    aria-label="Photograph the confirmation"
-                  >
-                    <Camera className="h-4 w-4" />
-                  </TabletButton>
-                  {proofFile && (
-                    <span className="text-xs text-emerald-700">{proofFile.name}</span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 flex justify-end gap-2">
-              <TabletButton variant="outline" onClick={() => setPaying(null)} disabled={pay.isPending}>
-                Cancel
-              </TabletButton>
-              <TabletButton onClick={() => pay.mutate()} disabled={pay.isPending}>
-                {pay.isPending ? (
-                  <>
-                    <Loader2 className="mr-1 h-4 w-4 animate-spin" /> Posting…
-                  </>
-                ) : (
-                  "Record payment"
-                )}
-              </TabletButton>
-            </div>
-          </div>
-        </div>
-      )}
 
       <input
         ref={proofInput}

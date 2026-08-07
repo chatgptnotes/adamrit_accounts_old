@@ -14,7 +14,7 @@ import { toast } from 'sonner';
 import { openStoredDocument } from '@/lib/openStoredDocument';
 import {
   Banknote, CalendarClock, Camera, FileText, Filter, Loader2, Paperclip, Plus, QrCode, Receipt,
-  Search, Upload, Users, X,
+  Search, Undo2, Upload, Users, X,
 } from 'lucide-react';
 import { saveLedgerQr, savePaymentProof } from '@/lib/expense-bills/paymentEvidence';
 import { LedgerAutocomplete, type LedgerAccountOption } from '@/components/accounting/LedgerAutocomplete';
@@ -36,6 +36,18 @@ const rupees = (n: number) =>
   n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
+
+/** The office pays two months after it receives the bill. */
+const twoMonthsAfter = (iso: string) => {
+  if (!iso) return '';
+  const date = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return '';
+  const day = date.getDate();
+  date.setMonth(date.getMonth() + 2);
+  // 31 Dec + 2 months must not roll into March.
+  if (date.getDate() !== day) date.setDate(0);
+  return date.toISOString().slice(0, 10);
+};
 
 /** PostgREST or() filters break on these characters. */
 const sanitize = (s: string) => s.replace(/[%,()]/g, ' ').trim();
@@ -433,13 +445,38 @@ function PayBillDialog({ bill, onClose }: { bill: BillRow | null; onClose: () =>
 
 // ── Record-invoice dialog (same flow as the tablet form) ────────────────
 
-const EXPENSE_CATEGORIES: Array<{ value: string; label: string; ledgerName: string | null }> = [
-  { value: 'rent', label: 'Rent', ledgerName: 'Rent' },
-  { value: 'implant', label: 'Implant', ledgerName: 'Implant Purchase' },
-  { value: 'salary', label: 'Salary', ledgerName: 'Staff Salary' },
-  { value: 'consultant', label: 'Consultant Payment', ledgerName: 'Consultancy Fees' },
-  { value: 'other', label: 'Other', ledgerName: null },
-];
+/**
+ * Invoice categories are the groups the accounts team keeps under
+ * Masters -> Group -> Sundry Creditors, read live: create one there and it
+ * appears here, rename it and the name follows, remove it and it stops being
+ * offered. Pharmacy vendors are left out — they have their own master, and
+ * offering them twice is how two vendor lists start to disagree.
+ */
+function useInvoiceCategories() {
+  return useQuery({
+    queryKey: ['expense-bill-invoice-categories'],
+    staleTime: 60_000,
+    queryFn: async (): Promise<Array<{ id: string; name: string }>> => {
+      const { data: parent, error: parentError } = await supabase
+        .from('ledger_groups' as any)
+        .select('id')
+        .ilike('name', 'Sundry Creditors')
+        .maybeSingle();
+      if (parentError) throw parentError;
+      if (!(parent as any)?.id) return [];
+
+      const { data, error } = await supabase
+        .from('ledger_groups' as any)
+        .select('id, name')
+        .eq('parent_group_id', (parent as any).id)
+        .order('name');
+      if (error) throw error;
+      return ((data ?? []) as any[])
+        .filter((g) => !/pharmac/i.test(g.name || ''))
+        .map((g) => ({ id: g.id as string, name: g.name as string }));
+    },
+  });
+}
 
 function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -447,7 +484,9 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
   const record = useRecordExpenseBill();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const [category, setCategory] = useState('');
+  const [category, setCategory] = useState<{ id: string; name: string } | null>(null);
+  const [categorySearch, setCategorySearch] = useState('');
+  const categoryOptions = useInvoiceCategories();
   const [party, setParty] = useState<LedgerAccountOption | null>(null);
   const [head, setHead] = useState<LedgerAccountOption | null>(null);
   const [billNumber, setBillNumber] = useState('');
@@ -458,14 +497,59 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
   const [rm, setRm] = useState('');
   const [narration, setNarration] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  // Which patient and procedure this bill is for, and the office's dates.
+  const [patient, setPatient] = useState<{ id: string; name: string } | null>(null);
+  const [patientSearch, setPatientSearch] = useState('');
+  const [surgeryName, setSurgeryName] = useState('');
+  const [dateOfProcedure, setDateOfProcedure] = useState('');
+  const [dateOfReceivingBill, setDateOfReceivingBill] = useState('');
+  const [dateOfPayment, setDateOfPayment] = useState('');
+  // Bills are settled two months after the office receives them, so the date
+  // fills itself in — and stays editable for the ones that do not follow it.
+  const paymentDateTouched = useRef(false);
 
-  const mappedName = EXPENSE_CATEGORIES.find((c) => c.value === category)?.ledgerName ?? null;
+  // Patients and procedures to pick from — both search in the database so the
+  // list is the real master, not a snapshot in the page.
+  const patientOptions = useQuery({
+    queryKey: ['expense-bill-patient-search', patientSearch],
+    enabled: patientSearch.trim().length >= 2,
+    queryFn: async () => {
+      const term = patientSearch.trim();
+      const { data, error } = await supabase
+        .from('patients')
+        .select('patients_id, name')
+        .or(`name.ilike.%${term}%,patients_id.ilike.%${term}%`)
+        .limit(10);
+      if (error) throw error;
+      return (data ?? []).map((r: any) => ({ id: r.patients_id, name: r.name }));
+    },
+  });
+
+  const surgeryOptions = useQuery({
+    queryKey: ['expense-bill-surgery-search', surgeryName],
+    enabled: surgeryName.trim().length >= 2,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('surgery_fee_master' as any)
+        .select('procedure_name')
+        .eq('is_active', true)
+        .ilike('procedure_name', `%${surgeryName.trim()}%`)
+        .order('procedure_name')
+        .limit(10);
+      if (error) throw error;
+      return (data ?? []).map((r: any) => r.procedure_name as string);
+    },
+  });
+
+  // A group named like an expense ledger (Rent, Consultant…) still suggests it;
+  // one that matches nothing simply leaves the head for the user to pick.
+  const mappedName = category?.name ?? null;
   const mappedHead = useExpenseLedgerByName(!head ? mappedName : null);
   // Suggest the category's ledger ONCE per category pick — otherwise clearing
   // the suggestion re-applies it instantly from the query cache.
   const suggestedFor = useRef<string | null>(null);
-  if (!head && mappedHead.data && category && category !== 'other' && suggestedFor.current !== category) {
-    suggestedFor.current = category;
+  if (!head && mappedHead.data && category && suggestedFor.current !== category.id) {
+    suggestedFor.current = category.id;
     setHead({
       id: mappedHead.data.id,
       account_code: mappedHead.data.code,
@@ -481,10 +565,18 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
     && !!file && billNumber.trim().length > 0 && amountValue > 0 && !record.isPending;
 
   const reset = () => {
-    setCategory(''); setParty(null); setHead(null); setBillNumber('');
+    setCategory(null); setCategorySearch(''); setParty(null); setHead(null); setBillNumber('');
     setBillDate(todayIso()); setDueDate(''); setAmount(''); setPoc(''); setRm('');
     setNarration(''); setFile(null);
+    setPatient(null); setPatientSearch(''); setSurgeryName('');
+    setDateOfProcedure(''); setDateOfReceivingBill(''); setDateOfPayment('');
+    paymentDateTouched.current = false;
     suggestedFor.current = null;
+  };
+
+  const onReceivingDateChange = (value: string) => {
+    setDateOfReceivingBill(value);
+    if (!paymentDateTouched.current) setDateOfPayment(twoMonthsAfter(value));
   };
 
   const save = () => {
@@ -495,6 +587,12 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
         partyLedgerId: party.id, expenseLedgerId: head.id,
         companyId: company.data, amount: amountValue, narration, file,
         pointOfContact: poc, relationshipManager: rm,
+        categoryGroupId: category?.id ?? null, categoryGroupName: category?.name ?? null,
+        patientId: patient?.id, patientName: patient?.name,
+        surgeryName,
+        dateOfProcedure: dateOfProcedure || null,
+        dateOfReceivingBill: dateOfReceivingBill || null,
+        dateOfPayment: dateOfPayment || null,
       },
       {
         onSuccess: () => {
@@ -521,19 +619,46 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
             </p>
           )}
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Invoice category</Label>
-              <Select
-                value={category || undefined}
-                onValueChange={(v) => { setHead(null); setCategory(v); }}
-              >
-                <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
-                <SelectContent>
-                  {EXPENSE_CATEGORIES.map((c) => (
-                    <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="relative">
+              <Label htmlFor="eb-category">Invoice category</Label>
+              <Input
+                id="eb-category"
+                value={category ? category.name : categorySearch}
+                placeholder={
+                  categoryOptions.isLoading
+                    ? 'Loading categories…'
+                    : 'Search groups under Sundry Creditors…'
+                }
+                autoComplete="off"
+                onChange={(e) => { setCategory(null); setHead(null); setCategorySearch(e.target.value); }}
+              />
+              {!category && (() => {
+                const term = categorySearch.trim().toLowerCase();
+                const matches = (categoryOptions.data ?? []).filter(
+                  (c) => !term || c.name.toLowerCase().includes(term),
+                );
+                if (matches.length === 0) {
+                  return categoryOptions.data && categoryOptions.data.length > 0 ? null : (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      No groups under Sundry Creditors yet — create them in Masters &rarr; Group.
+                    </p>
+                  );
+                }
+                return (
+                  <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-md border bg-background shadow">
+                    {matches.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className="block w-full px-3 py-2 text-left hover:bg-muted"
+                        onClick={() => { setCategory(c); setCategorySearch(''); }}
+                      >
+                        {c.name}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
             <div>
               <Label htmlFor="eb-number">Invoice number</Label>
@@ -577,6 +702,78 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
             <div>
               <Label htmlFor="eb-due">Due date</Label>
               <Input id="eb-due" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+            </div>
+          </div>
+
+          {/* Which patient and which procedure this invoice is for */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="relative">
+              <Label htmlFor="eb-patient">Patient ledger (optional)</Label>
+              <Input
+                id="eb-patient"
+                value={patient ? `${patient.name} (${patient.id})` : patientSearch}
+                placeholder="Search patient by name or ID…"
+                onChange={(e) => { setPatient(null); setPatientSearch(e.target.value); }}
+                autoComplete="off"
+              />
+              {!patient && patientSearch.trim().length >= 2 && (patientOptions.data?.length ?? 0) > 0 && (
+                <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-md border bg-background shadow">
+                  {patientOptions.data!.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className="block w-full px-3 py-2 text-left hover:bg-muted"
+                      onClick={() => { setPatient(p); setPatientSearch(''); }}
+                    >
+                      {p.name} <span className="text-xs text-muted-foreground">({p.id})</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="relative">
+              <Label htmlFor="eb-surgery">Surgery name (optional)</Label>
+              <Input
+                id="eb-surgery"
+                value={surgeryName}
+                placeholder="Search the surgery master…"
+                onChange={(e) => setSurgeryName(e.target.value)}
+                autoComplete="off"
+              />
+              {surgeryName.trim().length >= 2 && (surgeryOptions.data?.length ?? 0) > 0
+                && !surgeryOptions.data!.some((n) => n === surgeryName) && (
+                <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-md border bg-background shadow">
+                  {surgeryOptions.data!.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      className="block w-full px-3 py-2 text-left hover:bg-muted"
+                      onClick={() => setSurgeryName(name)}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <Label htmlFor="eb-procedure-date">Date of procedure</Label>
+              <Input id="eb-procedure-date" type="date" value={dateOfProcedure}
+                onChange={(e) => setDateOfProcedure(e.target.value)} />
+            </div>
+            <div>
+              <Label htmlFor="eb-received-date">Date of receiving bill</Label>
+              <Input id="eb-received-date" type="date" value={dateOfReceivingBill}
+                onChange={(e) => onReceivingDateChange(e.target.value)} />
+            </div>
+            <div>
+              <Label htmlFor="eb-payment-date">Date of payment</Label>
+              <Input id="eb-payment-date" type="date" value={dateOfPayment}
+                onChange={(e) => { paymentDateTouched.current = true; setDateOfPayment(e.target.value); }} />
+              <p className="mt-1 text-xs text-muted-foreground">Two months after the bill was received.</p>
             </div>
           </div>
 
@@ -801,7 +998,7 @@ function PayEvidenceCell({ bill }: { bill: BillRow }) {
 
 function BillTable({
   rows, isLoading, error, onPay, emptyMessage, showPatient, billedToPatient,
-  selectedIds, onToggleRow, onToggleAll, movedDates, onMove, moving,
+  selectedIds, onToggleRow, onToggleAll, movedDates, onMove, moving, onRevert, reverting,
 }: {
   rows: BillRow[];
   isLoading: boolean;
@@ -821,6 +1018,8 @@ function BillTable({
   movedDates: Record<string, MovedInfo>;
   onMove: (ids: string[]) => void;
   moving: boolean;
+  onRevert: (id: string) => void;
+  reverting: boolean;
 }) {
   if (isLoading) {
     return (
@@ -893,7 +1092,7 @@ function BillTable({
               </div>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                 <PayEvidenceCell bill={b} />
-                {status !== 'paid' && <div className="flex gap-2"><Button size="sm" variant="outline" className="h-9 gap-1 bg-white text-slate-900 hover:bg-slate-100 hover:text-slate-900 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-100" onClick={() => onPay(b)}><Banknote className="h-3.5 w-3.5" />Pay</Button>{!movedInfo && <Button size="sm" variant="outline" className="h-9 gap-1 bg-white text-slate-900 hover:bg-slate-100 hover:text-slate-900 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-100" disabled={moving} onClick={() => onMove([b.id])}><CalendarClock className="h-3.5 w-3.5" />Move</Button>}</div>}
+                {status !== 'paid' && <div className="flex gap-2"><Button size="sm" variant="outline" className="h-9 gap-1 bg-white text-slate-900 hover:bg-slate-100 hover:text-slate-900 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-100" onClick={() => onPay(b)}><Banknote className="h-3.5 w-3.5" />Pay</Button>{!movedInfo && <Button size="sm" variant="outline" className="h-9 gap-1 bg-white text-slate-900 hover:bg-slate-100 hover:text-slate-900 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-100" disabled={moving} onClick={() => onMove([b.id])}><CalendarClock className="h-3.5 w-3.5" />Move</Button>}{movedInfo && <Button size="sm" variant="outline" className="h-9 gap-1 bg-white text-amber-800 hover:bg-amber-50 hover:text-amber-900" disabled={reverting} onClick={() => onRevert(b.id)}><Undo2 className="h-3.5 w-3.5" />Revert Allocation</Button>}</div>}
               </div>
             </article>
           );
@@ -1020,6 +1219,18 @@ function BillTable({
                           <CalendarClock className="h-3.5 w-3.5" /> Move
                         </Button>
                       )}
+                      {movedInfo && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 gap-1 bg-white px-2 text-xs text-amber-800 hover:bg-amber-50 hover:text-amber-900"
+                          disabled={reverting}
+                          title="Take this invoice back off the Daily Payment Allocation"
+                          onClick={() => onRevert(b.id)}
+                        >
+                          <Undo2 className="h-3.5 w-3.5" /> Revert Allocation
+                        </Button>
+                      )}
                     </span>
                   ) : (
                     <span className="text-xs text-emerald-700">settled</span>
@@ -1044,6 +1255,8 @@ interface SelectionProps {
   movedDates: Record<string, MovedInfo>;
   onMove: (ids: string[]) => void;
   moving: boolean;
+  onRevert: (id: string) => void;
+  reverting: boolean;
 }
 
 function ReferralSection({ patientType, onPay, selection }: {
@@ -1169,6 +1382,28 @@ export default function ExpenseBills() {
 
   // One invoice at a time, so a failure names its bill instead of sinking the
   // whole batch; everything that succeeded stays moved.
+  // Undo a move. The database refuses once anything has been paid, and says
+  // so — the row does not vanish quietly.
+  const revertMutation = useMutation({
+    mutationFn: async (billId: string) => {
+      const { data, error } = await (supabase as any).rpc('revert_expense_bill_allocation', {
+        p_bill_id: billId,
+        p_user: user?.email ?? user?.username ?? null,
+      });
+      if (error) throw new Error(error.message);
+      return data as { reverted: boolean; reason?: string; bill_number?: string; paid?: boolean };
+    },
+    onSuccess: (result) => {
+      invalidateBills(queryClient);
+      if (result.reverted) {
+        toast.success(`Invoice ${result.bill_number} taken off the allocation — it is back on the register.`);
+      } else {
+        toast.error(result.reason || 'Could not revert this allocation');
+      }
+    },
+    onError: (e: any) => toast.error(e?.message || 'Could not revert this allocation'),
+  });
+
   const moveMutation = useMutation({
     mutationFn: async (ids: string[]) => {
       const moved: Array<{ id: string; billNumber: string; amount: number; hospital: string | null }> = [];
@@ -1219,6 +1454,8 @@ export default function ExpenseBills() {
     movedDates: movedQuery.data ?? {},
     onMove: (ids) => moveMutation.mutate(ids),
     moving: moveMutation.isPending,
+    onRevert: (id) => revertMutation.mutate(id),
+    reverting: revertMutation.isPending,
   };
 
   const activeFilterCount = useMemo(

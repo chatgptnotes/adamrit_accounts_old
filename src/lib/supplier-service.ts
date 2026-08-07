@@ -17,6 +17,8 @@ export interface Supplier {
   credit_day?: number;
   bank_or_branch?: string;
   mobile?: string;
+  /** Creditor ledger this supplier posts to — GRNs credit it, payments debit it. */
+  ledger_account_id?: string | null;
   created_at?: string;
   updated_at?: string;
 }

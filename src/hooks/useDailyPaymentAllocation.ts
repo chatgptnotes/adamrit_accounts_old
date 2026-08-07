@@ -46,6 +46,8 @@ export interface ScheduleEntry {
   accounting_company_id: string | null;
   debit_account_id: string | null;
   credit_account_id: string | null;
+  /** Set when the row came from an expense invoice via Move to Daily Allocation. */
+  expense_bill_id?: string | null;
 }
 
 export interface BankAccount {

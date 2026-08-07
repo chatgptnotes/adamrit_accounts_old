@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { getModule } from "@/tablet/config/modules";
 import { useAuth } from "@/contexts/AuthContext";
 import { canCreateAccountingVouchers } from "@/lib/accounting-access";
+import { OFFICE_TILE_IDS, canSeeOfficeTiles } from "@/lib/officeTileAccess";
 import { MlPinGate } from "@/components/MlPinGate";
 
 /** Lazy module-flow registry, keyed by the module id from config/modules.ts. */
@@ -157,6 +158,11 @@ export function TabletModuleHost() {
     return <Navigate to="/" replace />;
   }
   if (mod.accountingOnly && !canCreateAccountingVouchers(user)) {
+    return <Navigate to="/" replace />;
+  }
+  // Hidden from the grid is not enough for the two money tiles — a typed URL
+  // must not reach them either.
+  if ((OFFICE_TILE_IDS as readonly string[]).includes(mod.id) && !canSeeOfficeTiles(user)) {
     return <Navigate to="/" replace />;
   }
 
