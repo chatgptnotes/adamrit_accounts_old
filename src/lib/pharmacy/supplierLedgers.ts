@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+import { insertLedgerAccount } from '@/lib/ledgerMasters';
 
 // The creditor ledgers a pharmacy supplier may be mapped to.
 //
@@ -74,5 +75,63 @@ export async function fetchLedgerById(id: string | null | undefined): Promise<Su
     name: data.account_name,
     code: data.account_code ?? null,
     companyName: null,
+  };
+}
+
+/**
+ * Create a creditor ledger for a supplier that has none yet.
+ *
+ * Filed under Hope Pharmacy -> Sundry Creditors with a zero opening balance,
+ * through the same helper the Tally Ledger Creation screen uses — so a ledger
+ * made here is indistinguishable from one made in the accounting module, code
+ * generation and all. A name that already exists is returned rather than
+ * duplicated: two ledgers for one vendor is the problem, not the fix.
+ */
+export async function createSupplierLedger(name: string): Promise<SupplierLedgerOption> {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('Give the ledger a name');
+
+  const { data: company } = await (supabase as any)
+    .from('companies')
+    .select('id, company_name')
+    .eq('company_key', PHARMACY_COMPANY_KEY)
+    .maybeSingle();
+  if (!company?.id) throw new Error('The Hope Pharmacy company is missing — cannot file a ledger under it');
+
+  const { data: existing } = await (supabase as any)
+    .from('chart_of_accounts')
+    .select('id, account_name, account_code')
+    .eq('company_id', company.id)
+    .ilike('account_name', trimmed)
+    .maybeSingle();
+  if (existing?.id) {
+    return {
+      id: existing.id,
+      name: existing.account_name,
+      code: existing.account_code ?? null,
+      companyName: company.company_name ?? null,
+    };
+  }
+
+  const { data: group } = await (supabase as any)
+    .from('ledger_groups')
+    .select('id')
+    .ilike('name', 'Sundry Creditors')
+    .maybeSingle();
+
+  const created = await insertLedgerAccount(supabase as any, {
+    companyId: company.id,
+    name: trimmed,
+    accountType: 'CURRENT_LIABILITIES',
+    groupName: 'Sundry Creditors',
+    ledgerGroupId: group?.id ?? null,
+    extras: { opening_balance: 0, opening_balance_type: 'CR' },
+  });
+
+  return {
+    id: created.id,
+    name: created.account_name,
+    code: created.account_code ?? null,
+    companyName: company.company_name ?? null,
   };
 }

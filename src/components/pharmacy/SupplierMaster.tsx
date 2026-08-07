@@ -50,6 +50,7 @@ import { ManufacturerService, ManufacturerCompany } from '@/lib/manufacturer-ser
 import {
   searchSupplierLedgers,
   fetchLedgerById,
+  createSupplierLedger,
   type SupplierLedgerOption,
 } from '@/lib/pharmacy/supplierLedgers';
 import { SupplierService, Supplier } from '@/lib/supplier-service';
@@ -97,6 +98,7 @@ const SupplierMaster: React.FC<SupplierMasterProps> = ({ activeTab: propActiveTa
   const [ledgerSearch, setLedgerSearch] = useState('');
   const [ledgerOptions, setLedgerOptions] = useState<SupplierLedgerOption[]>([]);
   const [ledgerOpen, setLedgerOpen] = useState(false);
+  const [creatingLedger, setCreatingLedger] = useState(false);
 
   // Manufacturer state
   const [manufacturers, setManufacturers] = useState<ManufacturerCompany[]>([]);
@@ -210,6 +212,33 @@ const SupplierMaster: React.FC<SupplierMasterProps> = ({ activeTab: propActiveTa
     }, 200);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [ledgerSearch, showDialog]);
+
+  // No ledger for this vendor yet: make one under Hope Pharmacy -> Sundry
+  // Creditors and map it, without leaving the form.
+  const handleCreateLedger = async (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed || creatingLedger) return;
+    setCreatingLedger(true);
+    try {
+      const created = await createSupplierLedger(trimmed);
+      setLedger(created);
+      setSupplierForm((form) => ({ ...form, ledger_account_id: created.id }));
+      setLedgerSearch('');
+      setLedgerOpen(false);
+      toast({
+        title: 'Ledger created',
+        description: `${created.name} is now a creditor ledger in Hope Pharmacy.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Could not create the ledger',
+        description: error?.message || 'Try creating it in the accounting module instead.',
+        variant: 'destructive',
+      });
+    } finally {
+      setCreatingLedger(false);
+    }
+  };
 
   // Supplier CRUD handlers
   const handleAddOrUpdateSupplier = async (e: React.FormEvent) => {
@@ -714,30 +743,45 @@ const SupplierMaster: React.FC<SupplierMasterProps> = ({ activeTab: propActiveTa
                     )}
                     {ledgerOpen && !ledger && (
                       <div className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded border bg-white shadow">
-                        {ledgerOptions.length === 0 ? (
+                        {ledgerOptions.length === 0 && !ledgerSearch.trim() && (
                           <p className="px-3 py-2 text-sm text-gray-500">
-                            No creditor ledger matches — create it in the accounting module first.
+                            Type to search the ledgers configured in accounting.
                           </p>
-                        ) : (
-                          ledgerOptions.map((option) => (
-                            <button
-                              key={option.id}
-                              type="button"
-                              className="block w-full px-3 py-2 text-left text-sm hover:bg-blue-50"
-                              onClick={() => {
-                                setLedger(option);
-                                setSupplierForm({ ...supplierForm, ledger_account_id: option.id });
-                                setLedgerSearch('');
-                                setLedgerOpen(false);
-                              }}
-                            >
-                              {option.name}
-                              {option.code && <span className="ml-2 text-xs text-gray-500">{option.code}</span>}
-                              {!option.companyName && (
-                                <span className="ml-2 text-xs text-amber-700">central</span>
-                              )}
-                            </button>
-                          ))
+                        )}
+                        {ledgerOptions.map((option) => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            className="block w-full px-3 py-2 text-left text-sm hover:bg-blue-50"
+                            onClick={() => {
+                              setLedger(option);
+                              setSupplierForm({ ...supplierForm, ledger_account_id: option.id });
+                              setLedgerSearch('');
+                              setLedgerOpen(false);
+                            }}
+                          >
+                            {option.name}
+                            {option.code && <span className="ml-2 text-xs text-gray-500">{option.code}</span>}
+                            {!option.companyName && (
+                              <span className="ml-2 text-xs text-amber-700">central</span>
+                            )}
+                          </button>
+                        ))}
+                        {/* Nothing suitable? Make it here rather than sending
+                            the user to another screen and back. */}
+                        {ledgerSearch.trim() && !ledgerOptions.some(
+                          (o) => o.name.trim().toLowerCase() === ledgerSearch.trim().toLowerCase(),
+                        ) && (
+                          <button
+                            type="button"
+                            disabled={creatingLedger}
+                            className="block w-full border-t px-3 py-2 text-left text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-60"
+                            onClick={() => void handleCreateLedger(ledgerSearch)}
+                          >
+                            {creatingLedger
+                              ? 'Creating…'
+                              : `+ Create ledger "${ledgerSearch.trim()}" under Hope Pharmacy → Sundry Creditors`}
+                          </button>
                         )}
                       </div>
                     )}
