@@ -16741,6 +16741,8 @@ export type Database = {
           visits_file_status_check: string | null
           ward_allotted: string | null
           yojana_registration_id: string | null
+          dialysis_partner: string | null
+
         }
         Insert: {
           additional_approvals?: string | null
@@ -16838,6 +16840,8 @@ export type Database = {
           visits_file_status_check?: string | null
           ward_allotted?: string | null
           yojana_registration_id?: string | null
+          dialysis_partner: string | null
+
         }
         Update: {
           additional_approvals?: string | null
@@ -16935,6 +16939,8 @@ export type Database = {
           visits_file_status_check?: string | null
           ward_allotted?: string | null
           yojana_registration_id?: string | null
+          dialysis_partner: string | null
+
         }
         Relationships: [
           {

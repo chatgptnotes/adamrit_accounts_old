@@ -55,6 +55,8 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
   
   const [formData, setFormData] = useState({
     visitType: initialVisitType,
+    dialysisPartner: '',
+
     appointmentWith: '',
     reasonForVisit: '',
     relationWithEmployee: '',
@@ -152,6 +154,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
 
       const populatedData = {
         visitType: existingVisit.visit_type || 'Follow-up',
+        dialysisPartner: existingVisit.dialysis_partner || '',
         appointmentWith: existingVisit.appointment_with || 'Dr. Unknown',
         reasonForVisit: existingVisit.reason_for_visit || '',
         relationWithEmployee: existingVisit.relation_with_employee || 'Self',
@@ -316,6 +319,9 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
     // Validate required fields with more detailed error messaging
     const missingFields = [];
     if (!formData.visitType || formData.visitType.trim() === '') missingFields.push('Visit Type');
+    if (formData.visitType.toLowerCase() === 'dialysis' && !formData.dialysisPartner) {
+      missingFields.push('Dialysis Partner');
+    }
 
     // For edit mode, be more lenient with appointment_with validation
     if (!editMode && (!formData.appointmentWith || formData.appointmentWith.trim() === '')) {
@@ -413,6 +419,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
         console.log('Update data:', {
           visit_date: format(visitDate, 'yyyy-MM-dd'),
           visit_type: formData.visitType,
+          dialysis_partner: formData.visitType.toLowerCase() === 'dialysis' ? formData.dialysisPartner : null,
           appointment_with: formData.appointmentWith,
           reason_for_visit: formData.reasonForVisit,
           relation_with_employee: formData.relationWithEmployee || null,
@@ -430,6 +437,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
           .update({
             visit_date: format(visitDate, 'yyyy-MM-dd'),
             visit_type: formData.visitType,
+            dialysis_partner: formData.visitType.toLowerCase() === 'dialysis' ? formData.dialysisPartner : null,
             appointment_with: formData.appointmentWith,
             reason_for_visit: formData.reasonForVisit,
             relation_with_employee: formData.relationWithEmployee || null,
@@ -536,6 +544,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
             patient_id: patient.id,
             visit_date: format(visitDate, 'yyyy-MM-dd'),
             visit_type: formData.visitType,
+            dialysis_partner: formData.visitType.toLowerCase() === 'dialysis' ? formData.dialysisPartner : null,
             appointment_with: formData.appointmentWith,
             reason_for_visit: formData.reasonForVisit,
             relation_with_employee: formData.relationWithEmployee || null,
@@ -760,7 +769,9 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
 
   const handleCancel = () => {
     setFormData({
-      visitType: initialVisitType,
+    visitType: initialVisitType,
+    dialysisPartner: '',
+
       appointmentWith: '',
       reasonForVisit: '',
       relationWithEmployee: '',

@@ -16,6 +16,7 @@ interface VisitDetailsSectionProps {
   setVisitDate: (date: Date) => void;
   formData: {
     visitType: string;
+    dialysisPartner?: string;
     appointmentWith: string;
     reasonForVisit: string;
     relationWithEmployee: string;
@@ -420,6 +421,18 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
             </SelectContent>
           </Select>
         </div>
+
+        {formData.visitType.toLowerCase() === 'dialysis' && (
+          <div className="space-y-2">
+            <Label htmlFor="dialysisPartner" className="text-sm font-medium">
+              Dialysis Partner <span className="text-red-500">*</span>
+            </Label>
+            <Select value={formData.dialysisPartner || ''} onValueChange={(value) => handleInputChange('dialysisPartner', value)}>
+              <SelectTrigger><SelectValue placeholder="Select Dialysis Partner" /></SelectTrigger>
+              <SelectContent><SelectItem value="NephroPlus">NephroPlus</SelectItem></SelectContent>
+            </Select>
+          </div>
+        )}
 
         {/* Billing Category Override - only for Yojna/corporate patients */}
         {patientCorporate && patientCorporate.toLowerCase().trim() !== 'private' && (
