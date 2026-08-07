@@ -50,6 +50,16 @@ interface DocRow {
   notes: string | null;
 }
 
+function isImageUpload(doc: DocRow): boolean {
+  if ((doc.file_type || '').toLowerCase().startsWith('image/')) return true;
+  // Some older profile uploads have a missing/generic MIME type. The file is
+  // still a radiology image because it is stored in the radiology category;
+  // use its filename/URL as a safe fallback rather than hiding it.
+  return /\.(avif|bmp|gif|jpe?g|png|tiff?|webp)(?:[?#].*)?$/i.test(
+    `${doc.file_name} ${doc.file_url}`,
+  );
+}
+
 async function urlToBase64(url: string): Promise<{ base64: string; mimeType: string }> {
   const response = await fetch(url);
   if (!response.ok) throw new Error('Could not read the image file');
@@ -84,13 +94,24 @@ export function RadiologyImageReportDialog({
   const [approving, setApproving] = useState(false);
 
   const { data: docs = [], isLoading } = useQuery({
-    queryKey: ['radiology-patient-images', target?.patientUuid],
-    enabled: !!target?.patientUuid,
+    queryKey: ['radiology-patient-images', target?.patientUuid, target?.visitId],
+    enabled: !!target?.patientUuid || !!target?.visitId,
     queryFn: async (): Promise<DocRow[]> => {
+      let patientUuid = target?.patientUuid || null;
+      if (!patientUuid && target?.visitId) {
+        const { data: visit, error: visitError } = await supabase
+          .from('visits')
+          .select('patient_id')
+          .eq('id', target.visitId)
+          .maybeSingle();
+        if (visitError) throw visitError;
+        patientUuid = visit?.patient_id || null;
+      }
+      if (!patientUuid) return [];
       const { data, error } = await supabase
         .from('file_uploads')
         .select('id, file_name, file_url, file_type, created_at, notes')
-        .eq('patient_id', target!.patientUuid!)
+        .eq('patient_id', patientUuid)
         .eq('category', RADIOLOGY_CATEGORY)
         .order('created_at', { ascending: false });
       if (error) throw error;
@@ -100,7 +121,7 @@ export function RadiologyImageReportDialog({
 
   // Reports filed here are not scans; keep them out of the image strip.
   const images = useMemo(
-    () => docs.filter((d) => d.notes !== REPORT_NOTE && (d.file_type || '').startsWith('image/')),
+    () => docs.filter((d) => d.notes !== REPORT_NOTE && isImageUpload(d)),
     [docs],
   );
   const reports = useMemo(() => docs.filter((d) => d.notes === REPORT_NOTE), [docs]);

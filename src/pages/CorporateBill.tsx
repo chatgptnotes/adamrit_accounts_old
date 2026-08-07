@@ -21,6 +21,9 @@ const CorporateBill = () => {
   const [surgeryDate, setSurgeryDate] = useState('');
   const [implantName, setImplantName] = useState('');
   const [actualVisitId, setActualVisitId] = useState('');
+  const [billSaved, setBillSaved] = useState(false);
+  const [billStatus, setBillStatus] = useState('');
+  const [submittingToPortal, setSubmittingToPortal] = useState(false);
   const [mainBillOpen, setMainBillOpen] = useState(true);
   const [implantBillOpen, setImplantBillOpen] = useState(true);
   const [implantStickerOpen, setImplantStickerOpen] = useState(true);
@@ -87,6 +90,8 @@ const CorporateBill = () => {
 
       if (savedBill && savedBill.length > 0) {
         const bill = savedBill[0];
+        setBillSaved(true);
+        setBillStatus(bill.status || 'saved');
         if (bill.items && Array.isArray(bill.items) && bill.items.length > 0) {
           setRows(bill.items.map((item: any) => ({
             item: item.item || '',
@@ -165,9 +170,39 @@ const CorporateBill = () => {
         ({ error } = await supabase.from('yojna_bills').insert(payload));
       }
       if (error) throw error;
+      setBillSaved(true);
+      setBillStatus('saved');
       alert('Yojna Bill saved successfully!');
     } catch (err: any) {
       alert('Error saving: ' + err.message);
+    }
+  };
+
+  const handleSubmittedToPortal = async () => {
+    if (!billSaved) {
+      alert('Please click Save to Database before marking the bill as submitted to the portal.');
+      return;
+    }
+
+    try {
+      setSubmittingToPortal(true);
+      const { data: updatedBills, error } = await supabase
+        .from('yojna_bills')
+        .update({ status: 'submitted_to_portal' })
+        .eq('visit_id', visitId)
+        .select('id');
+
+      if (error) throw error;
+      if (!updatedBills || updatedBills.length === 0) {
+        throw new Error('The bill was not found in the database. Save it first, then try again.');
+      }
+
+      setBillStatus('submitted_to_portal');
+      alert('Yojna Bill submitted to portal successfully!');
+    } catch (err: any) {
+      alert('Error submitting to portal: ' + (err?.message || 'Please try again.'));
+    } finally {
+      setSubmittingToPortal(false);
     }
   };
 
@@ -179,6 +214,18 @@ const CorporateBill = () => {
       <div className="print:hidden mb-4 flex gap-3 items-center bg-gray-800 text-white p-3 rounded-lg flex-wrap">
         <button onClick={() => window.print()} className="px-4 py-2 bg-green-500 rounded font-bold hover:bg-green-600">Print</button>
         <button onClick={handleSave} className="px-4 py-2 bg-blue-500 rounded font-bold hover:bg-blue-600">Save to Database</button>
+        <button
+          onClick={handleSubmittedToPortal}
+          disabled={!billSaved || submittingToPortal || billStatus === 'submitted_to_portal'}
+          className={`px-4 py-2 rounded font-bold ${
+            billStatus === 'submitted_to_portal'
+              ? 'bg-emerald-600 text-white cursor-default'
+              : 'bg-indigo-500 hover:bg-indigo-600 text-white disabled:bg-gray-500 disabled:cursor-not-allowed'
+          }`}
+          title={!billSaved ? 'Save the Yojna Bill first' : 'Mark this completed bill as submitted to the government portal'}
+        >
+          {submittingToPortal ? 'Submitting...' : billStatus === 'submitted_to_portal' ? 'Submitted to Portal ✓' : 'Submitted to Portal'}
+        </button>
         <button onClick={() => window.history.back()} className="px-4 py-2 bg-red-500 rounded font-bold hover:bg-red-600">Back</button>
         <span className="text-sm text-gray-300 ml-2">All fields are editable</span>
       </div>

@@ -96,6 +96,7 @@ const EnhancedRadiologyOrders: React.FC<EnhancedRadiologyOrdersProps> = ({ onBac
             patient_id,
             patient_type,
             patients:patient_id (
+              id,
               name,
               age,
               gender,
@@ -181,7 +182,10 @@ const EnhancedRadiologyOrders: React.FC<EnhancedRadiologyOrdersProps> = ({ onBac
             visitId: item.visit_id,
             // Carried on every row (not only the group header) so View Image
             // can find the patient's uploads from whichever order was clicked.
-            patientUuid: item.visits?.patient_id || null,
+            // Prefer the visit's patient FK, with the joined patient row as a
+            // fallback. Older rows can have one nested value missing even
+            // though the order and patient are both valid.
+            patientUuid: item.visits?.patient_id || item.visits?.patients?.id || null,
             patientDisplayName: patient?.name || 'Unknown Patient',
             patientCode: patient?.patients_id || null,
             patientAge: patient?.age ?? null,
@@ -443,7 +447,7 @@ const EnhancedRadiologyOrders: React.FC<EnhancedRadiologyOrdersProps> = ({ onBac
                   <TableHead className="w-20">Status</TableHead>
                   <TableHead className="min-w-[150px]">Order Date</TableHead>
                   <TableHead className="w-32">Enter Rad Result</TableHead>
-                  <TableHead className="w-32">View DICOM Image</TableHead>
+                  <TableHead className="w-32">View Image</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -593,4 +597,4 @@ const EnhancedRadiologyOrders: React.FC<EnhancedRadiologyOrdersProps> = ({ onBac
   );
 };
 
-export default EnhancedRadiologyOrders; 
+export default EnhancedRadiologyOrders;
