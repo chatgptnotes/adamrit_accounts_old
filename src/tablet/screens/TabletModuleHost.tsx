@@ -75,6 +75,10 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   "pharmacy-dues-abhishek": lazy(() => import("@/tablet/modules/pharmacy-dues-abhishek/PharmacyDuesAbhishekFlow")),
   // Renders the desktop billing screen itself, so the cart, Generate Invoice,
   // the QR and Complete Sale behave identically in both editions.
+  "reconciliation-tilak": lazy(() => import("@/tablet/modules/reconciliation-tilak/ReconciliationTilakFlow")),
+  "phonepe-nisha": lazy(() => import("@/tablet/modules/phonepe-upload/PhonePeNisha")),
+  "phonepe-azhar": lazy(() => import("@/tablet/modules/phonepe-upload/PhonePeAzhar")),
+  "phonepe-akshay": lazy(() => import("@/tablet/modules/phonepe-upload/PhonePeAkshay")),
   "death-file-pallavi": lazy(() => import("@/tablet/modules/death-file-pallavi/DeathFilePallaviFlow")),
   "pharmacy-billing-abhishek": lazy(() => import("@/tablet/modules/pharmacy-billing/PharmacyBillingMirror")),
   "pharmacy-vendor-lalit": lazy(() => import("@/tablet/modules/pharmacy-vendor-lalit/PharmacyVendorLalitFlow")),
