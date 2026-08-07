@@ -14,7 +14,7 @@ import { toast } from 'sonner';
 import { openStoredDocument } from '@/lib/openStoredDocument';
 import {
   Banknote, CalendarClock, Camera, FileText, Filter, Loader2, Paperclip, Plus, QrCode, Receipt,
-  Search, Upload, Users, X,
+  Search, Undo2, Upload, Users, X,
 } from 'lucide-react';
 import { saveLedgerQr, savePaymentProof } from '@/lib/expense-bills/paymentEvidence';
 import { LedgerAutocomplete, type LedgerAccountOption } from '@/components/accounting/LedgerAutocomplete';
@@ -998,7 +998,7 @@ function PayEvidenceCell({ bill }: { bill: BillRow }) {
 
 function BillTable({
   rows, isLoading, error, onPay, emptyMessage, showPatient, billedToPatient,
-  selectedIds, onToggleRow, onToggleAll, movedDates, onMove, moving,
+  selectedIds, onToggleRow, onToggleAll, movedDates, onMove, moving, onRevert, reverting,
 }: {
   rows: BillRow[];
   isLoading: boolean;
@@ -1018,6 +1018,8 @@ function BillTable({
   movedDates: Record<string, MovedInfo>;
   onMove: (ids: string[]) => void;
   moving: boolean;
+  onRevert: (id: string) => void;
+  reverting: boolean;
 }) {
   if (isLoading) {
     return (
@@ -1090,7 +1092,7 @@ function BillTable({
               </div>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                 <PayEvidenceCell bill={b} />
-                {status !== 'paid' && <div className="flex gap-2"><Button size="sm" variant="outline" className="h-9 gap-1 bg-white text-slate-900 hover:bg-slate-100 hover:text-slate-900 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-100" onClick={() => onPay(b)}><Banknote className="h-3.5 w-3.5" />Pay</Button>{!movedInfo && <Button size="sm" variant="outline" className="h-9 gap-1 bg-white text-slate-900 hover:bg-slate-100 hover:text-slate-900 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-100" disabled={moving} onClick={() => onMove([b.id])}><CalendarClock className="h-3.5 w-3.5" />Move</Button>}</div>}
+                {status !== 'paid' && <div className="flex gap-2"><Button size="sm" variant="outline" className="h-9 gap-1 bg-white text-slate-900 hover:bg-slate-100 hover:text-slate-900 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-100" onClick={() => onPay(b)}><Banknote className="h-3.5 w-3.5" />Pay</Button>{!movedInfo && <Button size="sm" variant="outline" className="h-9 gap-1 bg-white text-slate-900 hover:bg-slate-100 hover:text-slate-900 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-100" disabled={moving} onClick={() => onMove([b.id])}><CalendarClock className="h-3.5 w-3.5" />Move</Button>}{movedInfo && <Button size="sm" variant="outline" className="h-9 gap-1 bg-white text-amber-800 hover:bg-amber-50 hover:text-amber-900" disabled={reverting} onClick={() => onRevert(b.id)}><Undo2 className="h-3.5 w-3.5" />Revert Allocation</Button>}</div>}
               </div>
             </article>
           );
@@ -1217,6 +1219,18 @@ function BillTable({
                           <CalendarClock className="h-3.5 w-3.5" /> Move
                         </Button>
                       )}
+                      {movedInfo && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 gap-1 bg-white px-2 text-xs text-amber-800 hover:bg-amber-50 hover:text-amber-900"
+                          disabled={reverting}
+                          title="Take this invoice back off the Daily Payment Allocation"
+                          onClick={() => onRevert(b.id)}
+                        >
+                          <Undo2 className="h-3.5 w-3.5" /> Revert Allocation
+                        </Button>
+                      )}
                     </span>
                   ) : (
                     <span className="text-xs text-emerald-700">settled</span>
@@ -1241,6 +1255,8 @@ interface SelectionProps {
   movedDates: Record<string, MovedInfo>;
   onMove: (ids: string[]) => void;
   moving: boolean;
+  onRevert: (id: string) => void;
+  reverting: boolean;
 }
 
 function ReferralSection({ patientType, onPay, selection }: {
@@ -1366,6 +1382,28 @@ export default function ExpenseBills() {
 
   // One invoice at a time, so a failure names its bill instead of sinking the
   // whole batch; everything that succeeded stays moved.
+  // Undo a move. The database refuses once anything has been paid, and says
+  // so — the row does not vanish quietly.
+  const revertMutation = useMutation({
+    mutationFn: async (billId: string) => {
+      const { data, error } = await (supabase as any).rpc('revert_expense_bill_allocation', {
+        p_bill_id: billId,
+        p_user: user?.email ?? user?.username ?? null,
+      });
+      if (error) throw new Error(error.message);
+      return data as { reverted: boolean; reason?: string; bill_number?: string; paid?: boolean };
+    },
+    onSuccess: (result) => {
+      invalidateBills(queryClient);
+      if (result.reverted) {
+        toast.success(`Invoice ${result.bill_number} taken off the allocation — it is back on the register.`);
+      } else {
+        toast.error(result.reason || 'Could not revert this allocation');
+      }
+    },
+    onError: (e: any) => toast.error(e?.message || 'Could not revert this allocation'),
+  });
+
   const moveMutation = useMutation({
     mutationFn: async (ids: string[]) => {
       const moved: Array<{ id: string; billNumber: string; amount: number; hospital: string | null }> = [];
@@ -1416,6 +1454,8 @@ export default function ExpenseBills() {
     movedDates: movedQuery.data ?? {},
     onMove: (ids) => moveMutation.mutate(ids),
     moving: moveMutation.isPending,
+    onRevert: (id) => revertMutation.mutate(id),
+    reverting: revertMutation.isPending,
   };
 
   const activeFilterCount = useMemo(
