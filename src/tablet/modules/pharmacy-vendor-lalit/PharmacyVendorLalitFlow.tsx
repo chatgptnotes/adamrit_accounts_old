@@ -306,6 +306,123 @@ export default function PharmacyVendorLalitFlow() {
                     </a>
                   )}
                 </div>
+              ) : paying?.id === bill.id ? (
+                /* The pay panel opens inside the row it belongs to: a centred
+                   overlay put the form nowhere near the bill being paid. */
+                <div className="rounded-lg border border-primary/40 bg-muted/30 p-3">
+                  <div className="rounded-md border p-3 text-center">
+                    {vendorQr ? (
+                      <>
+                        <p className="mb-2 text-xs text-muted-foreground">Scan to pay {paying.supplierName}</p>
+                        <img
+                          src={vendorQr}
+                          alt={`Payment QR for ${paying.supplierName}`}
+                          className="mx-auto max-h-56 object-contain"
+                        />
+                        <TabletButton
+                          variant="outline"
+                          size="sm"
+                          className="mt-2"
+                          disabled={busy || !paying.supplierLedgerId}
+                          onClick={() => qrInput.current?.click()}
+                        >
+                          Replace QR
+                        </TabletButton>
+                      </>
+                    ) : (
+                      <>
+                        <QrCode className="mx-auto h-8 w-8 text-muted-foreground" />
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          {paying.supplierLedgerId
+                            ? "No QR held for this vendor yet."
+                            : "This vendor has no ledger mapped, so no QR can be stored against it."}
+                        </p>
+                        <TabletButton
+                          variant="outline"
+                          size="sm"
+                          className="mt-2"
+                          disabled={busy || !paying.supplierLedgerId}
+                          onClick={() => qrInput.current?.click()}
+                        >
+                          <Upload className="mr-1 h-4 w-4" /> Upload vendor QR
+                        </TabletButton>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="mt-3 space-y-3">
+                    <div>
+                      <TabletLabel>Amount paid</TabletLabel>
+                      <TabletInput
+                        type="number"
+                        inputMode="decimal"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <TabletLabel>Paid by</TabletLabel>
+                      <div className="grid grid-cols-4 gap-2">
+                        {MODES.map((m) => (
+                          <TabletButton
+                            key={m}
+                            size="sm"
+                            variant={mode === m ? "default" : "outline"}
+                            onClick={() => setMode(m)}
+                          >
+                            {m}
+                          </TabletButton>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <TabletLabel>Reference (optional)</TabletLabel>
+                      <TabletInput
+                        value={reference}
+                        onChange={(e) => setReference(e.target.value)}
+                        placeholder="UTR / cheque number"
+                      />
+                    </div>
+
+                    <div className="rounded-md border p-3">
+                      <p className="mb-2 text-xs text-muted-foreground">Payment confirmation</p>
+                      <div className="flex items-center gap-2">
+                        <TabletButton variant="outline" size="sm" onClick={() => proofInput.current?.click()}>
+                          <Upload className="mr-1 h-4 w-4" /> Upload
+                        </TabletButton>
+                        <TabletButton
+                          variant="outline"
+                          size="sm"
+                          onClick={() => cameraInput.current?.click()}
+                          title="Photograph the confirmation"
+                          aria-label="Photograph the confirmation"
+                        >
+                          <Camera className="h-4 w-4" />
+                        </TabletButton>
+                        {proofFile && (
+                          <span className="text-xs text-emerald-700">{proofFile.name}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex justify-end gap-2">
+                    <TabletButton variant="outline" onClick={() => setPaying(null)} disabled={pay.isPending}>
+                      Cancel
+                    </TabletButton>
+                    <TabletButton onClick={() => pay.mutate()} disabled={pay.isPending}>
+                      {pay.isPending ? (
+                        <>
+                          <Loader2 className="mr-1 h-4 w-4 animate-spin" /> Posting…
+                        </>
+                      ) : (
+                        "Record payment"
+                      )}
+                    </TabletButton>
+                  </div>
+                </div>
               ) : (
                 <TabletButton size="sm" onClick={() => void openPayment(bill)}>
                   <QrCode className="mr-1 h-4 w-4" /> Pay vendor
@@ -315,132 +432,6 @@ export default function PharmacyVendorLalitFlow() {
           ))
         )}
       </div>
-
-      {/* Pay: the vendor's QR to scan, the confirmation to attach */}
-      {paying && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
-          <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-xl bg-background p-4 shadow-xl">
-            <h3 className="text-lg font-semibold">Pay {paying.supplierName}</h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {paying.grnNumber}
-              {paying.invoiceNumber ? ` · Invoice ${paying.invoiceNumber}` : ""}
-            </p>
-
-            <div className="mt-3 rounded-md border p-3 text-center">
-              {vendorQr ? (
-                <>
-                  <p className="mb-2 text-xs text-muted-foreground">Scan to pay {paying.supplierName}</p>
-                  <img
-                    src={vendorQr}
-                    alt={`Payment QR for ${paying.supplierName}`}
-                    className="mx-auto max-h-56 object-contain"
-                  />
-                  <TabletButton
-                    variant="outline"
-                    size="sm"
-                    className="mt-2"
-                    disabled={busy || !paying.supplierLedgerId}
-                    onClick={() => qrInput.current?.click()}
-                  >
-                    Replace QR
-                  </TabletButton>
-                </>
-              ) : (
-                <>
-                  <QrCode className="mx-auto h-8 w-8 text-muted-foreground" />
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {paying.supplierLedgerId
-                      ? "No QR held for this vendor yet."
-                      : "This vendor has no ledger mapped, so no QR can be stored against it."}
-                  </p>
-                  <TabletButton
-                    variant="outline"
-                    size="sm"
-                    className="mt-2"
-                    disabled={busy || !paying.supplierLedgerId}
-                    onClick={() => qrInput.current?.click()}
-                  >
-                    <Upload className="mr-1 h-4 w-4" /> Upload vendor QR
-                  </TabletButton>
-                </>
-              )}
-            </div>
-
-            <div className="mt-3 space-y-3">
-              <div>
-                <TabletLabel>Amount paid</TabletLabel>
-                <TabletInput
-                  type="number"
-                  inputMode="decimal"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <TabletLabel>Paid by</TabletLabel>
-                <div className="grid grid-cols-4 gap-2">
-                  {MODES.map((m) => (
-                    <TabletButton
-                      key={m}
-                      size="sm"
-                      variant={mode === m ? "default" : "outline"}
-                      onClick={() => setMode(m)}
-                    >
-                      {m}
-                    </TabletButton>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <TabletLabel>Reference (optional)</TabletLabel>
-                <TabletInput
-                  value={reference}
-                  onChange={(e) => setReference(e.target.value)}
-                  placeholder="UTR / cheque number"
-                />
-              </div>
-
-              <div className="rounded-md border p-3">
-                <p className="mb-2 text-xs text-muted-foreground">Payment confirmation</p>
-                <div className="flex items-center gap-2">
-                  <TabletButton variant="outline" size="sm" onClick={() => proofInput.current?.click()}>
-                    <Upload className="mr-1 h-4 w-4" /> Upload
-                  </TabletButton>
-                  <TabletButton
-                    variant="outline"
-                    size="sm"
-                    onClick={() => cameraInput.current?.click()}
-                    title="Photograph the confirmation"
-                    aria-label="Photograph the confirmation"
-                  >
-                    <Camera className="h-4 w-4" />
-                  </TabletButton>
-                  {proofFile && (
-                    <span className="text-xs text-emerald-700">{proofFile.name}</span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 flex justify-end gap-2">
-              <TabletButton variant="outline" onClick={() => setPaying(null)} disabled={pay.isPending}>
-                Cancel
-              </TabletButton>
-              <TabletButton onClick={() => pay.mutate()} disabled={pay.isPending}>
-                {pay.isPending ? (
-                  <>
-                    <Loader2 className="mr-1 h-4 w-4 animate-spin" /> Posting…
-                  </>
-                ) : (
-                  "Record payment"
-                )}
-              </TabletButton>
-            </div>
-          </div>
-        </div>
-      )}
 
       <input
         ref={proofInput}
