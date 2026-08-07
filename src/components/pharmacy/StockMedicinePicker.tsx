@@ -124,6 +124,14 @@ const StockMedicinePicker: React.FC<StockMedicinePickerProps> = ({ onSelect }) =
 
   const ready = debouncedQuery.replace(/[%,()]/g, ' ').trim().length >= 2;
 
+  const handleSelect = (medicine: SelectedMedicine) => {
+    onSelect(medicine);
+    // The selection is displayed by the parent dialog. Collapse the result list
+    // so its confirmation controls stay within reach on smaller tablet screens.
+    setQuery('');
+    setResults([]);
+  };
+
   return (
     <Command shouldFilter={false} className="border rounded-md">
       <CommandInput
@@ -150,7 +158,7 @@ const StockMedicinePicker: React.FC<StockMedicinePickerProps> = ({ onSelect }) =
             <CommandItem
               key={r.medicineMasterId}
               value={r.medicineMasterId}
-              onSelect={() => onSelect(r)}
+              onSelect={() => handleSelect(r)}
               className={`flex flex-col items-start gap-1 ${out ? 'opacity-60' : ''}`}
             >
               <div className="flex w-full items-center justify-between gap-2">

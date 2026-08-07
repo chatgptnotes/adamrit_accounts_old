@@ -1554,13 +1554,13 @@ const DetailModal: React.FC<DetailModalProps> = ({ prescription, onClose }) => {
 
       {/* Change-medicine dialog */}
       <Dialog open={!!changeItem} onOpenChange={(o) => { if (!o) closeChangeDialog(); }}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-hidden p-0 flex flex-col">
+          <DialogHeader className="px-6 pt-6">
             <DialogTitle>
               Change medicine{changeItem ? ` — ${changeItem.medicine_name}` : ''}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4 space-y-3">
             <StockMedicinePicker onSelect={setSelectedMedicine} />
             {selectedMedicine && (
               <div className="text-sm bg-green-50 border border-green-200 rounded p-2">
@@ -1578,14 +1578,14 @@ const DetailModal: React.FC<DetailModalProps> = ({ prescription, onClose }) => {
                 placeholder="e.g. Prescribed medicine out of stock"
               />
             </div>
-            <div className="flex justify-end gap-2">
+          </div>
+          <div className="flex shrink-0 justify-end gap-2 border-t bg-background px-6 py-4">
               <Button variant="outline" onClick={closeChangeDialog}>
                 Cancel
               </Button>
               <Button onClick={handleConfirmChange} disabled={!selectedMedicine || isSaving}>
                 {isSaving ? 'Saving…' : 'Confirm change'}
               </Button>
-            </div>
           </div>
         </DialogContent>
       </Dialog>
