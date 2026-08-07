@@ -852,12 +852,14 @@ const PharmacyBilling: React.FC = () => {
     // when it is marked paid.
     let response: { success: boolean; sale_id?: number; error?: string };
     if (invoiceSaleId) {
+      // Only the two fields the settlement changes. updated_by is a uuid
+      // column and an email address in it fails the whole update — which is
+      // what stopped Complete Sale after an invoice had been generated.
       const { error: settleError } = await supabase
         .from('pharmacy_sales')
         .update({
           payment_method: paymentMethod,
           payment_status: settledStatus,
-          updated_by: user?.email || user?.username || undefined,
         })
         .eq('sale_id', invoiceSaleId);
       response = settleError
