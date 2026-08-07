@@ -11,13 +11,26 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { FileText, Plus, Loader2, Eye, Edit, Trash2, Search, Lock, X } from 'lucide-react';
+import {
+  FileText, Plus, Loader2, Eye, Edit, Trash2, Search, Lock, X,
+  QrCode, Upload, Camera, Banknote, CheckCircle2,
+} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { PurchaseOrderService, PurchaseOrder } from '@/lib/purchase-order-service';
 import { SupplierService, Supplier } from '@/lib/supplier-service';
 import { GRNService } from '@/lib/grn-service';
 import { GoodsReceivedNote } from '@/types/pharmacy';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  VENDOR_PAYMENT_MODES,
+  fetchVendorQr,
+  saveVendorQr,
+  payGrnBill,
+  saveGrnPaymentProof,
+  fetchSupplierLedgerId,
+  type VendorPaymentMode,
+} from '@/lib/pharmacy/vendorPayments';
 
 interface PurchaseOrdersProps {
   onAddClick?: () => void;
@@ -54,6 +67,7 @@ interface PurchaseOrderItem {
 const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({ onAddClick, onEditClick }) => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user } = useAuth();
 
   // State
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderWithSupplier[]>([]);
@@ -62,6 +76,19 @@ const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({ onAddClick, onEditClick
   const [isLoading, setIsLoading] = useState(true);
   const [postedGRNs, setPostedGRNs] = useState<Set<string>>(new Set()); // Track POs with POSTED GRNs
   const [grnDatesMap, setGrnDatesMap] = useState<Map<string, string>>(new Map()); // Track GRN dates by PO ID
+  // The GRN behind each PO, so its bill can be paid from this row.
+  const [grnByPo, setGrnByPo] = useState<Map<string, any>>(new Map());
+  const [payingGrn, setPayingGrn] = useState<any | null>(null);
+  const [payAmount, setPayAmount] = useState('');
+  const [payMode, setPayMode] = useState<VendorPaymentMode>('CASH');
+  const [payReference, setPayReference] = useState('');
+  const [vendorQr, setVendorQr] = useState<string | null>(null);
+  const [vendorLedgerId, setVendorLedgerId] = useState<string | null>(null);
+  const [payProof, setPayProof] = useState<File | null>(null);
+  const [isPaying, setIsPaying] = useState(false);
+  const payProofInput = React.useRef<HTMLInputElement>(null);
+  const payCameraInput = React.useRef<HTMLInputElement>(null);
+  const vendorQrInput = React.useRef<HTMLInputElement>(null);
 
   // View modal state
   const [viewModalOpen, setViewModalOpen] = useState(false);
@@ -112,9 +139,13 @@ const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({ onAddClick, onEditClick
       // Track which POs have POSTED GRNs and GRN dates
       const postedSet = new Set<string>();
       const grnDates = new Map<string, string>();
+      const grnMap = new Map<string, any>();
       grnsData.forEach(grn => {
         if (grn.status === 'POSTED' && grn.purchase_order_id) {
           postedSet.add(grn.purchase_order_id);
+        }
+        if (grn.purchase_order_id) {
+          grnMap.set(grn.purchase_order_id, grn);
         }
         if (grn.purchase_order_id && grn.grn_date) {
           grnDates.set(grn.purchase_order_id, grn.grn_date);
@@ -125,6 +156,7 @@ const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({ onAddClick, onEditClick
       setSuppliers(suppliersData);
       setPostedGRNs(postedSet);
       setGrnDatesMap(grnDates);
+      setGrnByPo(grnMap);
     } catch (error) {
       console.error('Error fetching purchase orders:', error);
       toast({
@@ -192,6 +224,58 @@ const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({ onAddClick, onEditClick
       onEditClick(orderId);
     } else {
       navigate(`/pharmacy/purchase-orders/edit/${orderId}`);
+    }
+  };
+
+  // Paying the vendor's bill from the PO row. The bill is the GRN: receiving
+  // the goods booked what is owed, this posts the money going out.
+  const openVendorPayment = async (grn: any) => {
+    setPayingGrn(grn);
+    setPayAmount(String(grn.invoice_amount ?? grn.total_amount ?? ''));
+    setPayMode('CASH');
+    setPayReference('');
+    setPayProof(null);
+    setVendorQr(null);
+    const ledgerId = await fetchSupplierLedgerId(grn.supplier_id);
+    setVendorLedgerId(ledgerId);
+    setVendorQr(await fetchVendorQr(ledgerId));
+  };
+
+  const handleVendorQrUpload = async (file?: File) => {
+    if (!file || !vendorLedgerId) return;
+    try {
+      setVendorQr(await saveVendorQr(vendorLedgerId, file, user?.email || null));
+      toast({ title: 'QR saved', description: 'Whoever pays this vendor next scans the same code.' });
+    } catch (error: any) {
+      toast({ title: 'Could not save the QR', description: error?.message, variant: 'destructive' });
+    } finally {
+      if (vendorQrInput.current) vendorQrInput.current.value = '';
+    }
+  };
+
+  const recordVendorPayment = async () => {
+    if (!payingGrn) return;
+    setIsPaying(true);
+    try {
+      const result = await payGrnBill({
+        grnId: payingGrn.id,
+        mode: payMode,
+        amount: Number(payAmount),
+        reference: payReference,
+        user: user?.email || null,
+      });
+      if (!result.posted) throw new Error(result.reason || 'Could not record the payment');
+      if (payProof) await saveGrnPaymentProof(payingGrn.id, payProof);
+      toast({
+        title: 'Payment recorded',
+        description: `Payment voucher ${result.voucherNumber} posted.`,
+      });
+      setPayingGrn(null);
+      await fetchData();
+    } catch (error: any) {
+      toast({ title: 'Could not record the payment', description: error?.message, variant: 'destructive' });
+    } finally {
+      setIsPaying(false);
     }
   };
 
@@ -380,6 +464,9 @@ const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({ onAddClick, onEditClick
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                     Goods Received Date
                   </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Vendor Payment
+                  </th>
                   <th className="px-6 py-4 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">
                     Actions
                   </th>
@@ -388,7 +475,7 @@ const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({ onAddClick, onEditClick
               <tbody className="bg-white divide-y divide-gray-200">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={9} className="px-6 py-12 text-center">
+                    <td colSpan={10} className="px-6 py-12 text-center">
                       <div className="flex items-center justify-center gap-3">
                         <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
                         <span className="text-gray-600">Loading purchase orders...</span>
@@ -397,7 +484,7 @@ const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({ onAddClick, onEditClick
                   </tr>
                 ) : currentOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-6 py-12 text-center">
+                    <td colSpan={10} className="px-6 py-12 text-center">
                       <div className="text-gray-500">
                         <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300" />
                         <p className="font-medium">
@@ -459,6 +546,44 @@ const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({ onAddClick, onEditClick
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                         {grnDatesMap.get(order.id) ? formatDate(grnDatesMap.get(order.id)!) : '-'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        {(() => {
+                          const grn = grnByPo.get(order.id);
+                          if (!grn || grn.status !== 'POSTED') {
+                            return <span className="text-gray-400">—</span>;
+                          }
+                          if (grn.paid_at) {
+                            return (
+                              <span className="inline-flex flex-col gap-0.5">
+                                <span className="inline-flex items-center gap-1 text-green-700">
+                                  <CheckCircle2 className="h-3.5 w-3.5" />
+                                  {grn.payment_mode} · {grn.payment_voucher_no}
+                                </span>
+                                {grn.payment_proof_url && (
+                                  <a
+                                    href={grn.payment_proof_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-xs text-blue-600 hover:underline"
+                                  >
+                                    Confirmation
+                                  </a>
+                                )}
+                              </span>
+                            );
+                          }
+                          return (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1"
+                              onClick={() => void openVendorPayment(grn)}
+                            >
+                              <Banknote className="h-3.5 w-3.5" /> Pay vendor
+                            </Button>
+                          );
+                        })()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-center">
                         <div className="flex items-center justify-center gap-2">
@@ -793,6 +918,143 @@ const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({ onAddClick, onEditClick
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Pay the vendor: their QR to scan, the confirmation to attach */}
+      <Dialog open={!!payingGrn} onOpenChange={(open) => { if (!open) setPayingGrn(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Pay vendor</DialogTitle>
+            <DialogDescription>
+              {payingGrn?.grn_number}
+              {payingGrn?.invoice_number ? ` · Invoice ${payingGrn.invoice_number}` : ''}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="rounded-md border p-3 text-center">
+              {vendorQr ? (
+                <>
+                  <p className="mb-2 text-xs text-gray-500">Scan to pay this vendor</p>
+                  <img src={vendorQr} alt="Vendor payment QR" className="mx-auto max-h-52 object-contain" />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-2"
+                    disabled={!vendorLedgerId}
+                    onClick={() => vendorQrInput.current?.click()}
+                  >
+                    Replace QR
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <QrCode className="mx-auto h-8 w-8 text-gray-400" />
+                  <p className="mt-2 text-sm text-gray-500">
+                    {vendorLedgerId
+                      ? 'No QR held for this vendor yet.'
+                      : 'This vendor has no ledger mapped, so no QR can be stored against it.'}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    disabled={!vendorLedgerId}
+                    onClick={() => vendorQrInput.current?.click()}
+                  >
+                    <Upload className="mr-1 h-4 w-4" /> Upload vendor QR
+                  </Button>
+                </>
+              )}
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Amount paid</label>
+              <Input
+                inputMode="decimal"
+                value={payAmount}
+                onChange={(e) => setPayAmount(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Paid by</label>
+              <div className="mt-1 grid grid-cols-4 gap-2">
+                {VENDOR_PAYMENT_MODES.map((m) => (
+                  <Button
+                    key={m}
+                    size="sm"
+                    variant={payMode === m ? 'default' : 'outline'}
+                    onClick={() => setPayMode(m)}
+                  >
+                    {m}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Reference (optional)</label>
+              <Input
+                value={payReference}
+                placeholder="UTR / cheque number"
+                onChange={(e) => setPayReference(e.target.value)}
+              />
+            </div>
+
+            <div className="rounded-md border p-3">
+              <p className="mb-2 text-xs text-gray-500">Payment confirmation</p>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => payProofInput.current?.click()}>
+                  <Upload className="mr-1 h-4 w-4" /> Upload
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => payCameraInput.current?.click()}
+                  title="Photograph the confirmation"
+                  aria-label="Photograph the confirmation"
+                >
+                  <Camera className="h-4 w-4" />
+                </Button>
+                {payProof && <span className="text-xs text-green-700">{payProof.name}</span>}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="outline" onClick={() => setPayingGrn(null)} disabled={isPaying}>
+                Cancel
+              </Button>
+              <Button onClick={() => void recordVendorPayment()} disabled={isPaying}>
+                {isPaying ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+                Record payment
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <input
+        ref={payProofInput}
+        type="file"
+        accept="image/*,application/pdf"
+        className="hidden"
+        onChange={(e) => setPayProof(e.target.files?.[0] ?? null)}
+      />
+      <input
+        ref={payCameraInput}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => setPayProof(e.target.files?.[0] ?? null)}
+      />
+      <input
+        ref={vendorQrInput}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => void handleVendorQrUpload(e.target.files?.[0])}
+      />
     </div>
   );
 };
