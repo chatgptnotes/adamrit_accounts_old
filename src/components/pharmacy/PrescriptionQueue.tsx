@@ -91,6 +91,7 @@ interface Prescription {
   drug_interaction_signature?: string | null;
   drug_interaction_checked_at?: string | null;
   patient_location?: string | null;
+  item_count?: number; // list only — the rows themselves load when a modal opens
   prescription_items: PrescriptionItem[];
 }
 
@@ -159,6 +160,10 @@ const PRESCRIPTION_ITEM_COLUMNS =
   'dosage_frequency, dosage_timing, duration_days, special_instructions, unit_price, ' +
   'total_price, batch_numbers, is_substituted, substitute_reason, generic_name, brand_name';
 
+// The list itself only needs a count in the Items column — the medicine rows
+// are for the View and Dispense modals, and loading all of them up front was
+// megabytes of traffic before a single row could render. The list fetches
+// counts; fetchPrescriptionItems() loads one prescription's rows when it opens.
 async function fetchPrescriptions(): Promise<Prescription[]> {
   // Fetch prescriptions
   const { data: prescriptions, error } = await (supabase as any)
@@ -169,41 +174,33 @@ async function fetchPrescriptions(): Promise<Prescription[]> {
   if (error) throw error;
   if (!prescriptions || prescriptions.length === 0) return [];
 
-  // Fetch prescription items for all prescriptions. PostgREST caps every
-  // response at 1000 rows, and there are more than 1000 items across all
-  // prescriptions — a single query silently dropped the overflow (sorted
-  // oldest-first), so the newest ward prescriptions came back with 0 items.
-  // Chunk the id list (keeps the URL sane) and page through each chunk.
-  // The chunks run together — six sequential round-trips was the slowest part
-  // of opening this tab. Smaller chunks keep each one inside a single page.
-  const prescriptionIds = prescriptions.map((p: any) => p.id);
-  const ID_CHUNK = 60;
+  // Item counts. PostgREST caps every response at 1000 rows and there are more
+  // than 1000 items across all prescriptions — a single query silently dropped
+  // the overflow (sorted oldest-first), so the newest ward prescriptions came
+  // back with 0 items. One narrow column only, and the first page reports the
+  // true total so the rest go out together instead of one after another.
   const PAGE = 1000;
-  const chunks: string[][] = [];
-  for (let c = 0; c < prescriptionIds.length; c += ID_CHUNK) {
-    chunks.push(prescriptionIds.slice(c, c + ID_CHUNK));
-  }
-  const chunkResults = await Promise.all(
-    chunks.map(async (idChunk) => {
-      const rows: any[] = [];
-      let from = 0;
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const { data: page, error: itemsError } = await (supabase as any)
-          .from('prescription_items')
-          .select(PRESCRIPTION_ITEM_COLUMNS)
-          .in('prescription_id', idChunk)
-          .range(from, from + PAGE - 1);
-        if (itemsError) throw itemsError;
-        if (!page || page.length === 0) break;
-        rows.push(...page);
-        if (page.length < PAGE) break;
-        from += PAGE;
-      }
-      return rows;
-    }),
+  const { data: firstPage, count, error: itemsError } = await (supabase as any)
+    .from('prescription_items')
+    .select('prescription_id', { count: 'exact' })
+    .range(0, PAGE - 1);
+  if (itemsError) throw itemsError;
+  const rest = await Promise.all(
+    Array.from({ length: Math.max(0, Math.ceil((count || 0) / PAGE) - 1) }, (_, i) =>
+      (supabase as any)
+        .from('prescription_items')
+        .select('prescription_id')
+        .range((i + 1) * PAGE, (i + 2) * PAGE - 1)
+        .then(({ data, error }: any) => {
+          if (error) throw error;
+          return data || [];
+        }),
+    ),
   );
-  const items: any[] = chunkResults.flat();
+  const itemCounts: Record<string, number> = {};
+  for (const row of [...(firstPage || []), ...rest.flat()]) {
+    itemCounts[row.prescription_id] = (itemCounts[row.prescription_id] || 0) + 1;
+  }
 
   // Fetch patient names
   const patientIds = [...new Set(prescriptions.map((p: any) => p.patient_id).filter(Boolean))];
@@ -218,43 +215,93 @@ async function fetchPrescriptions(): Promise<Prescription[]> {
     }
   }
 
-  // MRP was looked up here from a `medicines` table that does not exist in this
-  // database (the master is `medicine_master`, which carries no mrp column), so
-  // both queries 404'd, their errors were never checked, and medicine_mrp came
-  // back null on every row regardless. Two dead round-trips removed; the real
-  // MRP source is medicine_batch_inventory, resolved at dispense time below.
+  return prescriptions.map((p: any) => ({
+    ...p,
+    patient_name: p.patient_id ? patientMap[p.patient_id] || 'Unknown Patient' : 'Unknown Patient',
+    item_count: itemCounts[p.id] || 0,
+    prescription_items: [],
+  }));
+}
 
-  // Fetch earliest expiry per batch_number (data populated at dispense time)
+// One prescription's medicine rows, with the two joins the modals need:
+// earliest expiry per dispensed batch, and current MRP per medicine.
+//
+// MRP used to be read from a `medicines` table that does not exist in this
+// database — the master is `medicine_master`, which carries no mrp column, so
+// those queries 404'd unchecked and medicine_mrp was null on every row. Price
+// lives on the batches, so resolve name → medicine_master → the FEFO batch,
+// which is the batch the dispense itself will draw from.
+async function fetchPrescriptionItems(prescriptionId: string): Promise<PrescriptionItem[]> {
+  const { data: items, error } = await (supabase as any)
+    .from('prescription_items')
+    .select(PRESCRIPTION_ITEM_COLUMNS)
+    .eq('prescription_id', prescriptionId);
+  if (error) throw error;
+  if (!items || items.length === 0) return [];
+
+  // Earliest expiry per batch_number (data populated at dispense time)
   const allBatchNumbers = [
     ...new Set(
-      (items || []).flatMap((i: any) =>
-        Array.isArray(i.batch_numbers) ? i.batch_numbers : []
-      )
+      items.flatMap((i: any) => (Array.isArray(i.batch_numbers) ? i.batch_numbers : []))
     ),
   ].filter(Boolean) as string[];
-  let batchExpiry: Record<string, string> = {};
+  const batchExpiry: Record<string, string> = {};
   if (allBatchNumbers.length > 0) {
     const { data: batches } = await (supabase as any)
       .from('medicine_batch_inventory')
       .select('batch_number, expiry_date')
       .in('batch_number', allBatchNumbers);
-    if (batches) {
-      for (const b of batches) {
-        const cur = batchExpiry[b.batch_number];
-        if (!cur || (b.expiry_date && b.expiry_date < cur)) {
-          batchExpiry[b.batch_number] = b.expiry_date;
-        }
+    for (const b of batches || []) {
+      const cur = batchExpiry[b.batch_number];
+      if (!cur || (b.expiry_date && b.expiry_date < cur)) {
+        batchExpiry[b.batch_number] = b.expiry_date;
       }
     }
   }
 
-  // Join items onto prescriptions
-  const itemsByPrescription: Record<string, PrescriptionItem[]> = {};
-  for (const item of items || []) {
-    const key = item.prescription_id;
-    if (!itemsByPrescription[key]) itemsByPrescription[key] = [];
-    const resolvedName = item.medicine_name || 'Unknown Medicine';
-    const earliestExpiry = (item.batch_numbers || []).reduce(
+  // Current MRP per medicine name, from the earliest-expiring in-stock batch.
+  const distinctNames = [
+    ...new Set(items.map((i: any) => (i.medicine_name || '').trim()).filter(Boolean)),
+  ] as string[];
+  const mrpByName: Record<string, number | null> = {};
+  if (distinctNames.length > 0) {
+    const nameToId: Record<string, string> = {};
+    await Promise.all(
+      distinctNames.map(async (name) => {
+        const { data } = await (supabase as any)
+          .from('medicine_master')
+          .select('id')
+          .eq('is_deleted', false)
+          .ilike('medicine_name', name)
+          .limit(1);
+        if (data && data[0]) nameToId[name.toLowerCase()] = data[0].id;
+      })
+    );
+    const ids = [...new Set(Object.values(nameToId))];
+    if (ids.length > 0) {
+      const { data: batches } = await (supabase as any)
+        .from('medicine_batch_inventory')
+        .select('medicine_id, mrp, expiry_date')
+        .in('medicine_id', ids)
+        .eq('is_active', true)
+        .eq('is_expired', false)
+        .gt('current_stock', 0)
+        .order('expiry_date', { ascending: true }); // FEFO — same batch dispense picks
+      const mrpById: Record<string, number> = {};
+      for (const b of batches || []) {
+        if (mrpById[b.medicine_id] === undefined && b.mrp) mrpById[b.medicine_id] = b.mrp;
+      }
+      for (const [lowerName, id] of Object.entries(nameToId)) {
+        mrpByName[lowerName] = mrpById[id] ?? null;
+      }
+    }
+  }
+
+  return items.map((item: any) => ({
+    ...item,
+    medicine_name: (item.medicine_name || 'Unknown Medicine').toUpperCase(),
+    medicine_mrp: mrpByName[(item.medicine_name || '').trim().toLowerCase()] ?? null,
+    earliest_expiry: (item.batch_numbers || []).reduce(
       (min: string | null, bn: string) => {
         const e = batchExpiry[bn];
         if (!e) return min;
@@ -262,21 +309,42 @@ async function fetchPrescriptions(): Promise<Prescription[]> {
         return min;
       },
       null as string | null
-    );
-    itemsByPrescription[key].push({
-      ...item,
-      medicine_name: resolvedName.toUpperCase(),
-      medicine_mrp: null,
-      earliest_expiry: earliestExpiry,
-    });
-  }
-
-  return prescriptions.map((p: any) => ({
-    ...p,
-    patient_name: p.patient_id ? patientMap[p.patient_id] || 'Unknown Patient' : 'Unknown Patient',
-    prescription_items: itemsByPrescription[p.id] || [],
+    ),
   }));
 }
+
+/**
+ * Loads a prescription's medicine rows, then renders the modal with them
+ * attached — so View and Dispense see exactly the shape they saw when the list
+ * carried every item itself.
+ */
+const WithPrescriptionItems: React.FC<{
+  prescription: Prescription;
+  children: (prescription: Prescription) => React.ReactNode;
+}> = ({ prescription, children }) => {
+  const { data: items, isLoading, isError } = useQuery<PrescriptionItem[]>({
+    queryKey: ['prescription-items', prescription.id],
+    queryFn: () => fetchPrescriptionItems(prescription.id),
+    staleTime: 30000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
+        <RefreshCw className="h-4 w-4 animate-spin" />
+        <span>Loading medicines…</span>
+      </div>
+    );
+  }
+  if (isError) {
+    return (
+      <div className="py-10 text-center text-red-600">
+        Could not load the medicines for this prescription.
+      </div>
+    );
+  }
+  return <>{children({ ...prescription, prescription_items: items || [] })}</>;
+};
 
 // ─── Dispense Modal ────────────────────────────────────────────────────────────
 
@@ -407,6 +475,7 @@ const DispenseModal: React.FC<DispenseModalProps> = ({ prescription, onClose, ho
           variant: 'destructive',
         });
         queryClient.invalidateQueries({ queryKey: ['prescription-queue'] });
+        queryClient.invalidateQueries({ queryKey: ['prescription-items'] });
         onClose();
         return;
       }
@@ -570,6 +639,7 @@ const DispenseModal: React.FC<DispenseModalProps> = ({ prescription, onClose, ho
 
       // Refresh the prescription list
       queryClient.invalidateQueries({ queryKey: ['prescription-queue'] });
+      queryClient.invalidateQueries({ queryKey: ['prescription-items'] });
       onClose();
     } catch (err: any) {
       toast({
@@ -1064,6 +1134,7 @@ const DetailModal: React.FC<DetailModalProps> = ({ prescription, onClose }) => {
       );
       setStockMap((prev) => ({ ...prev, [changeItem.id]: selectedMedicine.totalStock }));
       queryClient.invalidateQueries({ queryKey: ['prescription-queue'] });
+      queryClient.invalidateQueries({ queryKey: ['prescription-items'] });
 
       toast(
         selectedMedicine.totalStock <= 0
@@ -1115,6 +1186,7 @@ const DetailModal: React.FC<DetailModalProps> = ({ prescription, onClose }) => {
         if (error) throw error;
       }
       queryClient.invalidateQueries({ queryKey: ['prescription-queue'] });
+      queryClient.invalidateQueries({ queryKey: ['prescription-items'] });
       toast({ title: 'Changes saved', description: `${dirtyItemIds.size} item(s) updated.` });
       setDirtyItemIds(new Set());
     } catch (err: any) {
@@ -1771,7 +1843,7 @@ const PrescriptionQueue: React.FC<PrescriptionQueueProps> = ({ autoOpenPrescript
                           <div className="flex items-center justify-center gap-1">
                             <Pill className="h-3 w-3 text-muted-foreground" />
                             <span className="text-sm">
-                              {prescription.prescription_items.length}
+                              {prescription.item_count ?? prescription.prescription_items.length}
                             </span>
                           </div>
                         </TableCell>
@@ -1820,10 +1892,14 @@ const PrescriptionQueue: React.FC<PrescriptionQueueProps> = ({ autoOpenPrescript
             </DialogTitle>
           </DialogHeader>
           {viewPrescription && (
-            <DetailModal
-              prescription={viewPrescription}
-              onClose={() => setViewPrescription(null)}
-            />
+            <WithPrescriptionItems prescription={viewPrescription}>
+              {(loaded) => (
+                <DetailModal
+                  prescription={loaded}
+                  onClose={() => setViewPrescription(null)}
+                />
+              )}
+            </WithPrescriptionItems>
           )}
         </DialogContent>
       </Dialog>
@@ -1837,11 +1913,15 @@ const PrescriptionQueue: React.FC<PrescriptionQueueProps> = ({ autoOpenPrescript
             </DialogTitle>
           </DialogHeader>
           {dispensePrescription && (
-            <DispenseModal
-              prescription={dispensePrescription}
-              onClose={() => setDispensePrescription(null)}
-              hospitalName={hospitalType || 'hope'}
-            />
+            <WithPrescriptionItems prescription={dispensePrescription}>
+              {(loaded) => (
+                <DispenseModal
+                  prescription={loaded}
+                  onClose={() => setDispensePrescription(null)}
+                  hospitalName={hospitalType || 'hope'}
+                />
+              )}
+            </WithPrescriptionItems>
           )}
         </DialogContent>
       </Dialog>
