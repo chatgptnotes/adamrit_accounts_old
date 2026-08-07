@@ -17,6 +17,7 @@ import {
   type TabletVisit,
 } from "@/tablet/hooks/useVisitLists";
 import { shortDate } from "@/tablet/lib/format";
+import { DeathFileChecklist } from "@/components/patient/DeathFileChecklist";
 
 export default function DocumentsFlow() {
   const [selected, setSelected] = useState<TabletVisit | null>(null);
@@ -354,6 +355,13 @@ function DocumentsViewer({
             </p>
           </div>
         </TabletCard>
+
+        {/* Renders only when this visit ended in a death. */}
+        <DeathFileChecklist
+          patientId={visit.patientUuid || ""}
+          patientName={visit.patientName}
+          visitId={visit.visitId}
+        />
 
         <BillDocumentsSection
           patientId={visit.patientUuid || ""}

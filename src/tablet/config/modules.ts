@@ -241,6 +241,14 @@ export const TABLET_MODULES: TabletModule[] = [
     tint: "from-amber-500 to-yellow-700",
   },
   {
+    id: "death-file-pallavi",
+    label: "Death File - Pallavi",
+    description: "Death certificate, death summary and body handover photo",
+    icon: ClipboardList,
+    accent: "text-slate-700",
+    tint: "from-slate-500 to-gray-700",
+  },
+  {
     id: "pharmacy-billing-abhishek",
     label: "Pharmacy Billing - Abhishek",
     description: "Bill the patient, generate the invoice, take payment by QR",
