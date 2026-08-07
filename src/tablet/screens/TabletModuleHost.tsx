@@ -75,6 +75,7 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   // Renders the desktop billing screen itself, so the cart, Generate Invoice,
   // the QR and Complete Sale behave identically in both editions.
   "pharmacy-billing-abhishek": lazy(() => import("@/tablet/modules/pharmacy-billing/PharmacyBillingMirror")),
+  "pharmacy-vendor-lalit": lazy(() => import("@/tablet/modules/pharmacy-vendor-lalit/PharmacyVendorLalitFlow")),
   "bank-cash": lazy(() => import("@/tablet/modules/bank-cash/BankCashFlow")),
   "implant-calculation": lazy(() => import("@/tablet/modules/implant-calculation/ImplantCalculationFlow")),
   "incoming-referrals": lazy(() => import("@/tablet/modules/incoming-referrals/IncomingReferralsFlow")),

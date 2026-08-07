@@ -248,6 +248,14 @@ export const TABLET_MODULES: TabletModule[] = [
     tint: "from-emerald-500 to-green-700",
   },
   {
+    id: "pharmacy-vendor-lalit",
+    label: "Pharmacy Vendors - Lalit",
+    description: "Vendor bills from GRNs — scan the QR, pay, attach the proof",
+    icon: Package,
+    accent: "text-orange-700",
+    tint: "from-orange-500 to-amber-700",
+  },
+  {
     id: "pharmacy-dues-abhishek",
     label: "Supplier Dues - Abhishek",
     description: "Outstanding supplier invoices, pay full or part in cash",
