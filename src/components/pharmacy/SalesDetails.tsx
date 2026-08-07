@@ -77,6 +77,10 @@ export const SalesDetails: React.FC = () => {
   const [patientName, setPatientName] = useState('');
   const [allEncounter, setAllEncounter] = useState(false);
   const [date, setDate] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('ALL');
+  const [paymentStatus, setPaymentStatus] = useState('ALL');
+  const [saleTypeFilter, setSaleTypeFilter] = useState('ALL');
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { hospitalConfig } = useAuth();
@@ -150,6 +154,48 @@ export const SalesDetails: React.FC = () => {
     setShowDropdown(false);
   };
 
+  // Payment mode / status / type / date-range filters, applied in the database
+  // so they cover every bill and not just the ones already on screen.
+  const applyBillFilters = (query: any) => {
+    if (paymentMethod !== 'ALL') query = query.eq('payment_method', paymentMethod);
+    if (paymentStatus !== 'ALL') {
+      if (paymentStatus === 'CANCELLED') query = query.eq('status', 'cancelled');
+      else query = query.eq('payment_status', paymentStatus).neq('status', 'cancelled');
+    }
+    if (saleTypeFilter !== 'ALL') query = query.eq('sale_type', saleTypeFilter);
+
+    if (date || dateTo) {
+      if (date) {
+        const start = new Date(date);
+        start.setHours(0, 0, 0, 0);
+        query = query.gte('sale_date', start.toISOString());
+      }
+      const end = new Date(dateTo || date);
+      end.setHours(23, 59, 59, 999);
+      query = query.lte('sale_date', end.toISOString());
+    }
+    return query;
+  };
+
+  const clearFilters = () => {
+    setBillNo('');
+    setPatientName('');
+    setDate('');
+    setDateTo('');
+    setPaymentMethod('ALL');
+    setPaymentStatus('ALL');
+    setSaleTypeFilter('ALL');
+  };
+
+  const activeFilterCount =
+    (billNo.trim() ? 1 : 0) +
+    (patientName.trim() ? 1 : 0) +
+    (date ? 1 : 0) +
+    (dateTo ? 1 : 0) +
+    (paymentMethod !== 'ALL' ? 1 : 0) +
+    (paymentStatus !== 'ALL' ? 1 : 0) +
+    (saleTypeFilter !== 'ALL' ? 1 : 0);
+
   // Fetch all sales on component mount and group by patient
   useEffect(() => {
     const fetchAllSales = async () => {
@@ -178,13 +224,7 @@ export const SalesDetails: React.FC = () => {
         }
       }
 
-      if (date) {
-        const startDate = new Date(date);
-        startDate.setHours(0, 0, 0, 0);
-        const endDate = new Date(date);
-        endDate.setHours(23, 59, 59, 999);
-        query = query.gte('sale_date', startDate.toISOString()).lte('sale_date', endDate.toISOString());
-      }
+      query = applyBillFilters(query);
 
       const { data, error, count } = await query;
 
@@ -248,7 +288,7 @@ export const SalesDetails: React.FC = () => {
       }
     };
     fetchAllSales();
-  }, [hospitalConfig?.name, billNo, patientName, date]);
+  }, [hospitalConfig?.name, billNo, patientName, date, dateTo, paymentMethod, paymentStatus, saleTypeFilter]);
 
   // Auto-open sidebar when returning from Edit Sale Bill with saleId in URL
   useEffect(() => {
@@ -285,13 +325,7 @@ export const SalesDetails: React.FC = () => {
       query = query.eq('sale_id', parseInt(billNo.trim()));
     }
 
-    if (date) {
-      const startDate = new Date(date);
-      startDate.setHours(0, 0, 0, 0);
-      const endDate = new Date(date);
-      endDate.setHours(23, 59, 59, 999);
-      query = query.gte('sale_date', startDate.toISOString()).lte('sale_date', endDate.toISOString());
-    }
+    query = applyBillFilters(query);
 
     const { data, error } = await query.order('sale_date', { ascending: false });
 
@@ -1668,9 +1702,9 @@ export const SalesDetails: React.FC = () => {
                 </div>
               </div>
 
-              {/* Date */}
+              {/* Date range */}
               <div className="min-w-[150px]">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">From date</label>
                 <div className="relative">
                   <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
@@ -1680,6 +1714,67 @@ export const SalesDetails: React.FC = () => {
                     onChange={e => setDate(e.target.value)}
                   />
                 </div>
+              </div>
+
+              <div className="min-w-[150px]">
+                <label className="block text-sm font-medium text-gray-700 mb-1">To date</label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    type="date"
+                    className="pl-9"
+                    value={dateTo}
+                    onChange={e => setDateTo(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Payment mode */}
+              <div className="min-w-[150px]">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Payment mode</label>
+                <select
+                  value={paymentMethod}
+                  onChange={e => setPaymentMethod(e.target.value)}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="ALL">All modes</option>
+                  <option value="CASH">Cash</option>
+                  <option value="UPI">UPI</option>
+                  <option value="CARD">Card</option>
+                  <option value="ONLINE">Online</option>
+                  <option value="CREDIT">Credit (unpaid)</option>
+                </select>
+              </div>
+
+              {/* Payment status */}
+              <div className="min-w-[170px]">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <select
+                  value={paymentStatus}
+                  onChange={e => setPaymentStatus(e.target.value)}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="ALL">All statuses</option>
+                  <option value="COMPLETED">Completed</option>
+                  <option value="PENDING">Pending</option>
+                  <option value="PENDING_DISCOUNT_APPROVAL">Awaiting discount approval</option>
+                  <option value="REFUNDED">Refunded</option>
+                  <option value="CANCELLED">Cancelled</option>
+                </select>
+              </div>
+
+              {/* Sale type */}
+              <div className="min-w-[150px]">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Sale type</label>
+                <select
+                  value={saleTypeFilter}
+                  onChange={e => setSaleTypeFilter(e.target.value)}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="ALL">All types</option>
+                  <option value="PRESCRIPTION">Prescription</option>
+                  <option value="other">Counter / direct</option>
+                </select>
               </div>
 
               {/* All Encounter Checkbox */}
@@ -1698,6 +1793,12 @@ export const SalesDetails: React.FC = () => {
                 <Search className="h-4 w-4 mr-2" />
                 Search
               </Button>
+
+              {activeFilterCount > 0 && (
+                <Button variant="outline" onClick={clearFilters}>
+                  Clear filters ({activeFilterCount})
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
