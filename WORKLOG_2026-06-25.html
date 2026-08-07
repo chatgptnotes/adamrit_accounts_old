@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>Work Log – 25 June 2026</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; color: #1a1a2e; background: #fff; padding: 40px; max-width: 860px; margin: auto; }
+  h1 { font-size: 22px; font-weight: 700; color: #1a1a2e; border-bottom: 3px solid #4f46e5; padding-bottom: 10px; margin-bottom: 6px; }
+  .meta { font-size: 12px; color: #666; margin-bottom: 28px; }
+  h2 { font-size: 15px; font-weight: 700; color: #4f46e5; margin: 24px 0 10px; display: flex; align-items: center; gap: 8px; }
+  h2 .badge { background: #4f46e5; color: #fff; font-size: 10px; padding: 2px 8px; border-radius: 20px; font-weight: 600; }
+  h3 { font-size: 13px; font-weight: 600; color: #374151; margin: 14px 0 6px; }
+  ul { list-style: none; padding-left: 14px; }
+  ul li { padding: 3px 0; position: relative; }
+  ul li::before { content: "▸"; position: absolute; left: -14px; color: #4f46e5; }
+  .file { display: inline-block; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 4px; padding: 1px 7px; font-family: monospace; font-size: 11px; color: #374151; }
+  .tag { display: inline-block; padding: 2px 9px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-right: 4px; }
+  .tag-icu  { background: #fee2e2; color: #b91c1c; }
+  .tag-ward { background: #dbeafe; color: #1d4ed8; }
+  .tag-room { background: #dcfce7; color: #15803d; }
+  .tag-ot   { background: #ffedd5; color: #c2410c; }
+  .tag-new  { background: #ede9fe; color: #6d28d9; }
+  .tag-fix  { background: #d1fae5; color: #065f46; }
+  .section { border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px 20px; margin-bottom: 16px; }
+  .commit { background: #f9fafb; border-left: 3px solid #4f46e5; padding: 8px 12px; border-radius: 4px; margin-top: 10px; font-family: monospace; font-size: 11px; color: #374151; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+  th { background: #f3f4f6; text-align: left; padding: 7px 10px; border-bottom: 2px solid #e5e7eb; color: #374151; font-weight: 600; }
+  td { padding: 6px 10px; border-bottom: 1px solid #f3f4f6; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .footer { margin-top: 32px; font-size: 11px; color: #9ca3af; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 14px; }
+  @media print {
+    body { padding: 20px; }
+    .section { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Work Log — Adamrit Hospital App</h1>
+<div class="meta">Date: 25 June 2026 &nbsp;|&nbsp; Developer: Sonam &nbsp;|&nbsp; Project: adamrit.com</div>
+
+<!-- FEATURE 1 -->
+<div class="section">
+  <h2><span class="badge">FEATURE</span> Patient Location Tag — Treatment Sheet → Pharmacy</h2>
+  <p style="color:#555; margin-bottom:12px;">Doctors can now tag where a patient is located (ICU / Ward / Room / OT) directly from the Treatment Sheet on the tablet. This information flows to the pharmacy so staff know where to deliver medicines.</p>
+
+  <h3>Location Tags</h3>
+  <div style="margin:8px 0;">
+    <span class="tag tag-icu">ICU</span>
+    <span class="tag tag-ward">Ward</span>
+    <span class="tag tag-room">Room</span>
+    <span class="tag tag-ot">OT</span>
+  </div>
+
+  <h3>What was built</h3>
+  <ul>
+    <li>4 pill-buttons (ICU / Ward / Room / OT) added to Treatment Sheet above active medicines</li>
+    <li>Selection persists in localStorage per visit — survives page refresh</li>
+    <li>Location flows through medicine approval → ward bridge → pharmacy prescription</li>
+    <li>Pharmacy notification bell shows colored location badge on each card</li>
+    <li>Pharmacy prescription list shows new <strong>Location</strong> column</li>
+    <li>Prescription detail modal shows Location field next to Patient name</li>
+  </ul>
+
+  <h3>Files Modified</h3>
+  <table>
+    <tr><th>File</th><th>Change</th></tr>
+    <tr><td><span class="file">supabase/migrations/20260625000000_prescriptions_patient_location.sql</span></td><td>New column <code>patient_location</code> on prescriptions table</td></tr>
+    <tr><td><span class="file">src/tablet/modules/doctor-notes/TreatmentSheet.tsx</span></td><td>4-pill location selector UI + localStorage state</td></tr>
+    <tr><td><span class="file">src/hooks/useMedicalDataMutations.ts</span></td><td>Thread patientLocation through approve/resend mutations</td></tr>
+    <tr><td><span class="file">src/lib/ward-prescription-bridge.ts</span></td><td>Save patient_location when creating/updating prescription</td></tr>
+    <tr><td><span class="file">src/hooks/usePendingPrescriptions.ts</span></td><td>Fetch patient_location field + add to interface</td></tr>
+    <tr><td><span class="file">src/components/pharmacy/PrescriptionNotificationBell.tsx</span></td><td>Colored badge in bell notification cards</td></tr>
+    <tr><td><span class="file">src/components/pharmacy/PrescriptionQueue.tsx</span></td><td>Location column in list + Location field in detail modal</td></tr>
+  </table>
+
+  <div class="commit">git commit: feat(pharmacy): patient location tag ICU/Ward/Room/OT from treatment sheet &nbsp;|&nbsp; 483f8d0</div>
+</div>
+
+<!-- FEATURE 2 -->
+<div class="section">
+  <h2><span class="badge">FIX</span> PWA Auto-Reload on New Deployment</h2>
+  <p style="color:#555; margin-bottom:12px;">Mobile users could not see new features after a deploy because they cannot hard-refresh a PWA. The app was stuck running old JS bundles even after a new version was live.</p>
+
+  <h3>Root Cause</h3>
+  <ul>
+    <li>Service worker had <code>autoUpdate + skipWaiting + clientsClaim</code> — new SW activated silently</li>
+    <li>But the page kept running old cached JS bundles until user manually refreshed</li>
+    <li>Mobile PWA users have no way to hard-refresh</li>
+  </ul>
+
+  <h3>Fix Applied</h3>
+  <ul>
+    <li>Added <code>controllerchange</code> listener on <code>navigator.serviceWorker</code> in <span class="file">src/App.tsx</span></li>
+    <li>When new SW takes control → shows "Updating to latest version…" toast</li>
+    <li>Page auto-reloads after 800ms with new code</li>
+    <li>Double-reload guard prevents firing twice</li>
+  </ul>
+
+  <h3>Result</h3>
+  <ul>
+    <li>All future deploys will automatically update on every user's phone/tablet</li>
+    <li>No hard refresh required — ever</li>
+  </ul>
+
+  <div class="commit">git commit: fix(pwa): auto-reload page when new service worker activates &nbsp;|&nbsp; 0df395c</div>
+</div>
+
+<!-- GIT SUMMARY -->
+<div class="section">
+  <h2><span class="badge">GIT</span> Commits Pushed Today</h2>
+  <table>
+    <tr><th>Hash</th><th>Type</th><th>Description</th></tr>
+    <tr><td><span class="file">483f8d0</span></td><td><span class="tag tag-new">feat</span></td><td>Patient location tag ICU/Ward/Room/OT — treatment sheet → pharmacy</td></tr>
+    <tr><td><span class="file">0df395c</span></td><td><span class="tag tag-fix">fix</span></td><td>PWA auto-reload when new service worker activates</td></tr>
+  </table>
+</div>
+
+<div class="footer">Generated: 25 June 2026 &nbsp;|&nbsp; Adamrit Hospital Management System &nbsp;|&nbsp; adamrit.com</div>
+
+</body>
+</html>

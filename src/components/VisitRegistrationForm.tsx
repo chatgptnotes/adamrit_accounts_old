@@ -45,7 +45,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
     : initialPatientType === 'IPD'
       ? 'patient-admission'
       : initialPatientType === 'Dialysis'
-        ? 'routine-checkup'
+        ? 'dialysis'
         : 'consultation';
   const [visitDate, setVisitDate] = useState<Date>(new Date());
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -55,7 +55,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
   
   const [formData, setFormData] = useState({
     visitType: initialVisitType,
-    dialysisPartner: '',
+    dialysisPartner: initialPatientType === 'Dialysis' ? 'NephroPlus' : '',
 
     appointmentWith: '',
     reasonForVisit: '',
@@ -770,7 +770,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
   const handleCancel = () => {
     setFormData({
     visitType: initialVisitType,
-    dialysisPartner: '',
+    dialysisPartner: initialPatientType === 'Dialysis' ? 'NephroPlus' : '',
 
       appointmentWith: '',
       reasonForVisit: '',

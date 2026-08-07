@@ -60,11 +60,21 @@ export function governmentReceivable(charge: Pick<DialysisCharge, 'amount' | 'ca
   return charge.category === 'Private' ? 0 : charge.amount;
 }
 
+function isDialysisVisit(visit: Record<string, unknown>): boolean {
+  return String(visit.patient_type ?? '').toLowerCase() === 'dialysis'
+    || String(visit.visit_type ?? '').toLowerCase() === 'dialysis';
+}
+
+function isNephroPlusVisit(visit: Record<string, unknown>): boolean {
+  const partner = String(visit.dialysis_partner ?? '').trim().toLowerCase();
+  return !partner || partner === 'nephroplus';
+}
+
 /** Pull billed dialysis charges, manual records, and reception-created visits. */
 export async function fetchDialysisCharges(hospitalName = 'hope'): Promise<DialysisCharge[]> {
   const { data, error } = await supabase
     .from('visit_clinical_services')
-    .select('amount, quantity, clinical_services!inner(service_name), visits!inner(id, visit_date, visit_type, dialysis_partner, patients(id, name, patients_id, corporate))')
+    .select('amount, quantity, clinical_services!inner(service_name), visits!inner(id, visit_date, visit_type, patient_type, dialysis_partner, patients!inner(id, name, patients_id, corporate, hospital_name))')
     .ilike('clinical_services.service_name', '%dialy%')
     .eq('visits.patients.hospital_name', hospitalName)
     .limit(5000);
@@ -76,8 +86,8 @@ export async function fetchDialysisCharges(hospitalName = 'hope'): Promise<Dialy
       const patient = (visit.patients ?? {}) as Record<string, unknown>;
       const visitDate = (visit.visit_date as string) ?? '';
       if (!visitDate) return null;
-      if (String(visit.visit_type ?? '').toLowerCase() !== 'dialysis') return null;
-      if (String(visit.dialysis_partner ?? '').toLowerCase() !== 'nephroplus') return null;
+      if (!isDialysisVisit(visit)) return null;
+      if (!isNephroPlusVisit(visit)) return null;
       const category = normalizeDialysisCategory(patient.corporate);
       const sessions = Number(row.quantity) || 1;
       return {
@@ -123,9 +133,8 @@ export async function fetchDialysisCharges(hospitalName = 'hope'): Promise<Dialy
 
   const { data: visitData, error: visitError } = await supabase
     .from('visits')
-    .select('id, visit_date, visit_type, dialysis_partner, patients(id, name, patients_id, corporate)')
-    .eq('visit_type', 'dialysis')
-    .ilike('dialysis_partner', 'NephroPlus')
+    .select('id, visit_date, visit_type, patient_type, dialysis_partner, patients!inner(id, name, patients_id, corporate, hospital_name)')
+    .eq('patients.hospital_name', hospitalName)
     .limit(5000);
   if (visitError) throw visitError;
 
@@ -133,6 +142,7 @@ export async function fetchDialysisCharges(hospitalName = 'hope'): Promise<Dialy
   const registrationCharges = ((visitData ?? []) as Record<string, unknown>[])
     .map((row) => {
       if (billedVisitIds.has(row.id as string)) return null;
+      if (!isDialysisVisit(row) || !isNephroPlusVisit(row)) return null;
       const patient = (row.patients ?? {}) as Record<string, unknown>;
       const visitDate = (row.visit_date as string) ?? '';
       if (!visitDate) return null;
