@@ -24,6 +24,7 @@ import {
   Receipt,
   ReceiptIndianRupee,
   ScanLine,
+  ShoppingCart,
   Stethoscope,
   UserPlus,
   UserCheck,
@@ -237,6 +238,14 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: Banknote,
     accent: "text-amber-700",
     tint: "from-amber-500 to-yellow-700",
+  },
+  {
+    id: "pharmacy-billing-abhishek",
+    label: "Pharmacy Billing - Abhishek",
+    description: "Bill the patient, generate the invoice, take payment by QR",
+    icon: ShoppingCart,
+    accent: "text-emerald-700",
+    tint: "from-emerald-500 to-green-700",
   },
   {
     id: "pharmacy-dues-abhishek",
