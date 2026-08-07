@@ -1,5 +1,5 @@
 // Pharmacy Billing and Dispensing Component
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { pushPharmacySaleToTally } from '@/lib/tally-auto-push';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -43,13 +43,23 @@ import {
   Clock,
   Package,
   Users,
-  Calendar
+  Calendar,
+  QrCode,
+  Camera,
+  Upload,
+  Loader2
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useDebounce } from 'use-debounce';
 import { useAuth } from '@/contexts/AuthContext';
 import { savePharmacySale, SaleData } from '@/lib/pharmacy-billing-service';
 import { toast } from 'sonner';
+import {
+  fetchPharmacyReceivingQr,
+  savePharmacyReceivingQr,
+  savePharmacySalePaymentProof,
+  fetchPharmacySaleVoucher,
+} from '@/lib/pharmacy/paymentEvidence';
 
 interface CartItem {
   id: string;
@@ -124,6 +134,23 @@ const PharmacyBilling: React.FC = () => {
   const [pendingApprovalDbSaleId, setPendingApprovalDbSaleId] = useState<number | null>(null);
   const [saleDate, setSaleDate] = useState(new Date().toISOString().split('T')[0]); // YYYY-MM-DD
   const [isOtSurgical, setIsOtSurgical] = useState(false);
+
+  // Invoice-before-payment: Generate Invoice saves the bill unpaid and the
+  // database posts its JV; Complete Sale then settles the same bill and the
+  // database posts the receipt. Nothing here writes a voucher directly.
+  const [invoiceSaleId, setInvoiceSaleId] = useState<number | null>(null);
+  const [invoiceBillNumber, setInvoiceBillNumber] = useState('');
+  const [invoiceVoucher, setInvoiceVoucher] = useState<string | null>(null);
+  const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
+
+  // The pharmacy's own QR (patient scans it) and the confirmation that comes back.
+  const [receivingQrUrl, setReceivingQrUrl] = useState<string | null>(null);
+  const [proofUrl, setProofUrl] = useState<string | null>(null);
+  const [pendingProof, setPendingProof] = useState<File | null>(null);
+  const [isSavingProof, setIsSavingProof] = useState(false);
+  const proofInputRef = useRef<HTMLInputElement>(null);
+  const proofCameraRef = useRef<HTMLInputElement>(null);
+  const qrInputRef = useRef<HTMLInputElement>(null);
   
   const [patientSearchResults, setPatientSearchResults] = useState<any[]>([]);
   const [isSearchingPatient, setIsSearchingPatient] = useState(false);
@@ -606,6 +633,11 @@ const PharmacyBilling: React.FC = () => {
     setPaymentReference('');
     setVisitId('');
     setIsOtSurgical(false);
+    setInvoiceSaleId(null);
+    setInvoiceBillNumber('');
+    setInvoiceVoucher(null);
+    setProofUrl(null);
+    setPendingProof(null);
   };
 
   const calculateTotals = () => {
@@ -630,6 +662,135 @@ const PharmacyBilling: React.FC = () => {
     return data[0].id;
   };
 
+  // The pharmacy's receiving QR, loaded once — the patient scans this to pay.
+  useEffect(() => {
+    fetchPharmacyReceivingQr()
+      .then((qr) => setReceivingQrUrl(qr?.qrUrl ?? null))
+      .catch(() => setReceivingQrUrl(null));
+  }, []);
+
+  const buildSaleData = (billNumber: string, totals: ReturnType<typeof calculateTotals>, paymentStatus: string): SaleData => ({
+    sale_type: saleType,
+    patient_id: patientInfo.id || undefined,
+    visit_id: visitId || undefined,
+    patient_name: patientInfo.name || undefined,
+    prescription_number: prescriptionId || undefined,
+    hospital_name: hospitalConfig?.name || undefined,
+    bill_number: billNumber,
+    sale_date: patientInfo.corporate ? new Date(saleDate + 'T12:00:00').toISOString() : undefined,
+    subtotal: totals.subtotal,
+    discount: totals.totalDiscount,
+    discount_percentage: discountPercentage,
+    tax_gst: totals.totalTax,
+    tax_percentage: 0,
+    total_amount: totals.totalAmount,
+    payment_method: paymentMethod,
+    payment_status: paymentStatus as SaleData['payment_status'],
+    is_ot_surgical: isOtSurgical,
+    created_by: user?.email || user?.username || undefined,
+    items: cart.map(item => ({
+      medicine_id: item.medicine_id,
+      medicine_name: item.medicine_name,
+      generic_name: item.generic_name,
+      batch_number: item.batch_number || 'N/A',
+      expiry_date: item.expiry_date,
+      quantity: item.quantity,
+      pack_size: 1,
+      loose_quantity: 0,
+      unit_price: item.unit_price,
+      mrp: item.unit_price,
+      discount_percentage: item.discount_percentage,
+      discount_amount: item.discount_amount,
+      tax_percentage: item.tax_percentage,
+      tax_amount: item.tax_amount,
+      total_amount: item.total_amount,
+      manufacturer: undefined,
+      dosage_form: item.dosage_form,
+      strength: item.strength,
+      is_implant: false,
+    })),
+  });
+
+  /**
+   * Generate Invoice — the bill exists and is owed, but nothing has been paid.
+   * Saving it fires the database trigger that posts the JV (Dr Pharmacy
+   * Debtors, Cr Medicine Sales). Stock still moves at Complete Sale.
+   */
+  const generateInvoice = async () => {
+    if (cart.length === 0) {
+      toast.error('Add medicines to the cart first');
+      return;
+    }
+    if (!visitId) {
+      toast.error('Enter the Visit ID before generating the invoice');
+      return;
+    }
+    setIsGeneratingInvoice(true);
+    try {
+      const totals = calculateTotals();
+      const billNumber = `BILL${Date.now()}`;
+      const response = await savePharmacySale(buildSaleData(billNumber, totals, 'PENDING'));
+      if (!response.success || !response.sale_id) {
+        throw new Error(response.error || 'Could not save the invoice');
+      }
+      setInvoiceSaleId(response.sale_id);
+      setInvoiceBillNumber(billNumber);
+
+      if (pendingProof) {
+        await savePharmacySalePaymentProof(response.sale_id, pendingProof, user?.email || null);
+        setPendingProof(null);
+      }
+
+      const voucher = await fetchPharmacySaleVoucher(response.sale_id, 'INV');
+      setInvoiceVoucher(voucher);
+      toast.success(
+        voucher
+          ? `Invoice ${billNumber} generated — journal ${voucher} posted.`
+          : `Invoice ${billNumber} generated.`,
+      );
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not generate the invoice');
+    } finally {
+      setIsGeneratingInvoice(false);
+    }
+  };
+
+  /** The bank / UPI confirmation. Held until the bill exists, then attached. */
+  const onProofSelected = async (file?: File) => {
+    if (!file) return;
+    const saleId = invoiceSaleId;
+    if (!saleId) {
+      setPendingProof(file);
+      toast.info('Confirmation held — it will be attached when the invoice is generated.');
+      return;
+    }
+    setIsSavingProof(true);
+    try {
+      const url = await savePharmacySalePaymentProof(saleId, file, user?.email || null);
+      setProofUrl(url);
+      toast.success('Payment confirmation saved against this bill.');
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not save the confirmation');
+    } finally {
+      setIsSavingProof(false);
+      if (proofInputRef.current) proofInputRef.current.value = '';
+      if (proofCameraRef.current) proofCameraRef.current.value = '';
+    }
+  };
+
+  const onReceivingQrSelected = async (file?: File) => {
+    if (!file) return;
+    try {
+      const url = await savePharmacyReceivingQr(file, user?.email || null);
+      setReceivingQrUrl(url);
+      toast.success('Pharmacy QR saved — patients can scan it from now on.');
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not save the QR');
+    } finally {
+      if (qrInputRef.current) qrInputRef.current.value = '';
+    }
+  };
+
   const processSale = async () => {
     if (cart.length === 0) {
       alert('Cart is empty');
@@ -650,7 +811,9 @@ const PharmacyBilling: React.FC = () => {
     // Simulate payment processing
     await new Promise(resolve => setTimeout(resolve, 2000));
     const totals = calculateTotals();
-    const billNumber = `BILL${Date.now()}`;
+    // An invoice raised earlier IS this bill — settle that row rather than
+    // writing a second one, so the JV and the receipt share a bill number.
+    const billNumber = invoiceBillNumber || `BILL${Date.now()}`;
     const sale: Sale = {
       id: Date.now().toString(),
       bill_number: billNumber,
@@ -680,58 +843,29 @@ const PharmacyBilling: React.FC = () => {
 
     // Save to pharmacy_sales and pharmacy_sale_items tables
 
-    const saleData: SaleData = {
-      sale_type: saleType,
-      patient_id: patientInfo.id || undefined,  // Send as string
-      visit_id: visitId || undefined,            // Send as string
-      patient_name: patientInfo.name || undefined,
-      prescription_number: prescriptionId || undefined,
-      hospital_name: hospitalConfig?.name || undefined, // Add hospital name
-      bill_number: billNumber, // Save bill number to database
-      sale_date: patientInfo.corporate ? new Date(saleDate + 'T12:00:00').toISOString() : undefined,
-      subtotal: totals.subtotal,
-      discount: totals.totalDiscount,
-      discount_percentage: discountPercentage,
-      tax_gst: totals.totalTax,
-      tax_percentage: 0,
-      total_amount: totals.totalAmount,
-      payment_method: paymentMethod,
-      payment_status: (totals.totalDiscount > 0 && !isAdmin) ? 'PENDING_DISCOUNT_APPROVAL' : 'COMPLETED',
-      is_ot_surgical: isOtSurgical,
-      created_by: user?.email || user?.username || undefined,
-      items: cart.map(item => {
-        console.log('🔍 Cart item being mapped:', {
-          medicine_id: item.medicine_id,
-          medicine_name: item.medicine_name,
-          generic_name: item.generic_name
-        });
-        return {
-          medicine_id: item.medicine_id,
-          medicine_name: item.medicine_name, // Changed from medication_name to medicine_name
-          generic_name: item.generic_name,
-          batch_number: item.batch_number || 'N/A',
-          expiry_date: item.expiry_date,
-          quantity: item.quantity,
-          pack_size: 1,
-          loose_quantity: 0,
-          unit_price: item.unit_price,
-          mrp: item.unit_price,
-          discount_percentage: item.discount_percentage,
-          discount_amount: item.discount_amount,
-          tax_percentage: item.tax_percentage,
-          tax_amount: item.tax_amount,
-          total_amount: item.total_amount,
-          manufacturer: undefined,
-          dosage_form: item.dosage_form,
-          strength: item.strength,
-          is_implant: false
-        };
-      })
-    };
+    const settledStatus = (totals.totalDiscount > 0 && !isAdmin)
+      ? 'PENDING_DISCOUNT_APPROVAL'
+      : 'COMPLETED';
 
-
-    const response = await savePharmacySale(saleData);
-
+    // Insert, or settle the invoice that was already generated. Either way the
+    // database posts the vouchers: the JV when the bill appears, the receipt
+    // when it is marked paid.
+    let response: { success: boolean; sale_id?: number; error?: string };
+    if (invoiceSaleId) {
+      const { error: settleError } = await supabase
+        .from('pharmacy_sales')
+        .update({
+          payment_method: paymentMethod,
+          payment_status: settledStatus,
+          updated_by: user?.email || user?.username || undefined,
+        })
+        .eq('sale_id', invoiceSaleId);
+      response = settleError
+        ? { success: false, error: settleError.message }
+        : { success: true, sale_id: invoiceSaleId };
+    } else {
+      response = await savePharmacySale(buildSaleData(billNumber, totals, settledStatus));
+    }
 
     if (!response.success) {
       console.error('❌ Error saving to pharmacy_sales:', response.error);
@@ -822,16 +956,32 @@ const PharmacyBilling: React.FC = () => {
       }
     }
 
+    // The confirmation screenshot belongs to the bill it paid.
+    if (pendingProof && response.sale_id) {
+      try {
+        await savePharmacySalePaymentProof(response.sale_id, pendingProof, user?.email || null);
+      } catch (error: any) {
+        toast.error(`Sale saved, but the confirmation did not attach: ${error?.message || error}`);
+      }
+    }
+
     setCompletedSale(sale);
     setIsProcessingPayment(false);
-    clearCart();
 
     if (totals.totalDiscount > 0 && !isAdmin) {
       setPendingApprovalDbSaleId(response.sale_id);
       toast.info('Bill submitted for admin discount approval. You will be notified when approved.');
     } else {
-      toast.success('Sale completed successfully!');
+      // The receipt is posted by the database; report the number it issued.
+      const receipt = response.sale_id
+        ? await fetchPharmacySaleVoucher(response.sale_id, 'REC').catch(() => null)
+        : null;
+      toast.success(
+        receipt ? `Sale completed — receipt ${receipt} posted.` : 'Sale completed successfully!',
+      );
     }
+
+    clearCart();
   };
 
   const filteredMedicines = searchResults.filter(medicine =>
@@ -1757,13 +1907,152 @@ const PharmacyBilling: React.FC = () => {
                   onChange={(e) => setPaymentReference(e.target.value)}
                 />
               )}
+
+              {/* The pharmacy's own QR — the patient scans this to pay. */}
+              {paymentMethod !== 'CASH' && paymentMethod !== 'CREDIT' && (
+                <div className="rounded-md border p-3 text-center">
+                  {receivingQrUrl ? (
+                    <>
+                      <p className="text-xs text-gray-500 mb-2">Show this to the patient to scan</p>
+                      <img
+                        src={receivingQrUrl}
+                        alt="Pharmacy payment QR"
+                        className="mx-auto max-h-56 object-contain"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="mt-2"
+                        onClick={() => qrInputRef.current?.click()}
+                      >
+                        Replace QR
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <QrCode className="mx-auto h-8 w-8 text-gray-400" />
+                      <p className="mt-2 text-sm text-gray-500">
+                        No pharmacy QR uploaded yet.
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-2"
+                        onClick={() => qrInputRef.current?.click()}
+                      >
+                        <Upload className="h-4 w-4 mr-2" /> Upload pharmacy QR
+                      </Button>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* The confirmation that comes back from the bank / UPI app. */}
+              {paymentMethod !== 'CASH' && (
+                <div className="rounded-md border p-3">
+                  <p className="text-xs text-gray-500 mb-2">Payment confirmation</p>
+                  {proofUrl ? (
+                    <a
+                      href={proofUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-sm text-emerald-700 hover:underline"
+                    >
+                      <FileText className="h-4 w-4" /> Confirmation attached
+                    </a>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={isSavingProof}
+                        onClick={() => proofInputRef.current?.click()}
+                      >
+                        {isSavingProof
+                          ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          : <Upload className="h-4 w-4 mr-2" />}
+                        Upload
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={isSavingProof}
+                        onClick={() => proofCameraRef.current?.click()}
+                        title="Photograph the confirmation"
+                        aria-label="Photograph the confirmation"
+                      >
+                        <Camera className="h-4 w-4" />
+                      </Button>
+                      {pendingProof && (
+                        <span className="self-center text-xs text-amber-700">
+                          Held — attaches with the invoice
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <input
+                ref={proofInputRef}
+                type="file"
+                accept="image/*,application/pdf"
+                className="hidden"
+                onChange={(e) => void onProofSelected(e.target.files?.[0])}
+              />
+              <input
+                ref={proofCameraRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={(e) => void onProofSelected(e.target.files?.[0])}
+              />
+              <input
+                ref={qrInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => void onReceivingQrSelected(e.target.files?.[0])}
+              />
             </CardContent>
           </Card>
 
           {/* Process Payment */}
           <Card>
-            <CardContent className="pt-6">
-              <Button 
+            <CardContent className="pt-6 space-y-3">
+              {/* Invoice first: the bill is owed and its journal is posted,
+                  before any money changes hands. */}
+              {invoiceSaleId ? (
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                  <strong>Invoice {invoiceBillNumber}</strong> generated
+                  {invoiceVoucher ? <> — journal <strong>{invoiceVoucher}</strong> posted.</> : '.'}
+                  <div className="text-xs mt-0.5">
+                    Complete the sale to record the payment and post the receipt.
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  variant="outline"
+                  className="w-full h-12 text-base"
+                  onClick={generateInvoice}
+                  disabled={cart.length === 0 || isGeneratingInvoice || isProcessingPayment}
+                >
+                  {isGeneratingInvoice ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Generating invoice...
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="h-4 w-4 mr-2" />
+                      Generate Invoice - ₹{totals.totalAmount}
+                    </>
+                  )}
+                </Button>
+              )}
+
+              <Button
                 className="w-full h-12 text-lg"
                 onClick={processSale}
                 disabled={cart.length === 0 || isProcessingPayment}
