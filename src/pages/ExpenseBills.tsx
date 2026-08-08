@@ -1019,12 +1019,33 @@ function PayEvidenceCell({ bill }: { bill: BillRow }) {
               <p className="text-center text-sm text-muted-foreground">
                 {bill.party} · ₹{rupees(bill.billed)}
               </p>
-              <div className="flex justify-end">
+              {/* The wrong screenshot goes up often enough that replacing it
+                  has to be possible from the same place it is checked. */}
+              <div className="flex items-center justify-between gap-2">
                 <Button variant="outline" size="sm" asChild>
                   <a href={bill.paymentProofUrl} target="_blank" rel="noreferrer">
                     Open full size
                   </a>
                 </Button>
+                <span className="inline-flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => cameraInput.current?.click()}
+                    aria-label="Photograph the payment confirmation again"
+                  >
+                    <Camera className="h-4 w-4" />
+                  </Button>
+                  <Button size="sm" disabled={busy} onClick={() => proofInput.current?.click()}>
+                    {busy ? (
+                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="mr-1 h-4 w-4" />
+                    )}
+                    Replace proof
+                  </Button>
+                </span>
               </div>
             </div>
           )}

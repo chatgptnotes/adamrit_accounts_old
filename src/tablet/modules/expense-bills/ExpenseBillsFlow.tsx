@@ -207,19 +207,48 @@ function PayEvidenceRow({ bill }: { bill: OutstandingBill }) {
       {/* The confirmation opens on the card itself, the same way the QR does —
           nobody has to leave the list to check a payment went through. */}
       {showProof && bill.paymentProofUrl && (
-        bill.paymentProofUrl.split("?")[0].toLowerCase().endsWith(".pdf") ? (
-          <iframe
-            src={bill.paymentProofUrl}
-            title={`Payment proof for ${bill.billNumber}`}
-            className="h-[50vh] w-full rounded-md border"
-          />
-        ) : (
-          <img
-            src={bill.paymentProofUrl}
-            alt={`Payment proof for ${bill.billNumber}`}
-            className="mx-auto w-full rounded-md border"
-          />
-        )
+        <div className="space-y-2">
+          {bill.paymentProofUrl.split("?")[0].toLowerCase().endsWith(".pdf") ? (
+            <iframe
+              src={bill.paymentProofUrl}
+              title={`Payment proof for ${bill.billNumber}`}
+              className="h-[50vh] w-full rounded-md border"
+            />
+          ) : (
+            <img
+              src={bill.paymentProofUrl}
+              alt={`Payment proof for ${bill.billNumber}`}
+              className="mx-auto w-full rounded-md border"
+            />
+          )}
+          {/* The wrong screenshot goes up often enough that replacing it has
+              to be possible from the same place it is checked. */}
+          <div className="flex gap-2">
+            <TabletButton
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              disabled={busy}
+              onClick={() => proofInput.current?.click()}
+            >
+              {busy ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : (
+                <Upload className="mr-1 h-4 w-4" />
+              )}
+              Replace proof
+            </TabletButton>
+            <TabletButton
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => cameraInput.current?.click()}
+              aria-label="Photograph the payment confirmation again"
+            >
+              <Camera className="h-4 w-4" />
+            </TabletButton>
+          </div>
+        </div>
       )}
 
       <input
