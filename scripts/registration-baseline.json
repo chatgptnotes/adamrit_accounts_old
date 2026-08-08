@@ -1,8 +1,8 @@
 {
-  "src/components/VisitRegistrationForm.tsx": "6fb2aa050266db6ca80d646a86e8fdcdf3d6484c621dd56a4ae4301952d3aeb9",
+  "src/components/VisitRegistrationForm.tsx": "96f444da4dfa98cd5d7c28817d9ebfd3508fc8382fc82aca1bc5603a858cf6a7",
   "src/components/visit/VisitDetailsSection.tsx": "1ada6c91e71b814be0508d24bef8fa1e97b63824d806a86ca1ce1b68a048c68e",
   "src/components/visit/VisitFormActions.tsx": "1bd1a79f3d0877ada74cf4c73f358ea4cc3d785a58349851edc8efddc5669ecd",
-  "src/components/PatientRegistrationForm/usePatientRegistration.ts": "3df648fa87b2050233e214ad323af5d04db238428078b851cdbb54c362122916",
+  "src/components/PatientRegistrationForm/usePatientRegistration.ts": "9fa26aeecea76cd9010d6db1093ae80a9e61b8e20dbcd135c9e67aab390747b5",
   "src/components/PatientRegistrationForm/PatientInfoSection.tsx": "ef09c81c65065b3a6497f5e19645a3969b129eafa8a3ff12324bbd583bcb4dd9",
   "src/components/PatientRegistrationForm/SimilarPatientsPrompt.tsx": "d03474d051388f72c5317133500769f89c14caed0b3c4335b6cb191979574ae8",
   "src/components/PatientRegistrationForm.tsx": "7290fc0579202868c743d33c1a2d503e7285ed49ca6ae6b1c9ff55a6b9dc1442",

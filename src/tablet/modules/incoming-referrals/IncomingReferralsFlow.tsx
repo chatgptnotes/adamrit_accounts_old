@@ -3,14 +3,15 @@ import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
-  Check, ChevronLeft, FileText, Link2, Loader2, Megaphone, Paperclip,
-  Plus, Upload, UserPlus,
+  AlertTriangle, Check, ChevronLeft, FileText, Link2, Loader2, Megaphone, Paperclip,
+  Plus, Search, Upload, UserPlus, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import type { Patient } from "@/components/PatientLookup/types/patientLookup";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletPatientPicker } from "@/tablet/components/TabletPatientPicker";
 import { TabletButton } from "@/tablet/ui/TabletButton";
@@ -35,10 +36,25 @@ interface Announcement {
   documents: ReferralDoc[];
   status: "ANNOUNCED" | "LINKED" | "CANCELLED";
   announced_by: string | null;
+  patient_id: string | null;
+  patient_uhid: string | null;
+  patient_mobile: string | null;
   linked_visit_id: string | null;
   linked_by: string | null;
   created_at: string;
 }
+
+/** The blocking "already announced" popup. `canOverride` only for a name-only clash. */
+interface BlockedAlert {
+  message: string;
+  canOverride: boolean;
+}
+
+/** nisha@gmail.com reads back as "Nisha" — the same shape the list already uses. */
+const displayName = (account: string | null) => {
+  const handle = (account || "").split("@")[0];
+  return handle ? handle.charAt(0).toUpperCase() + handle.slice(1) : "another user";
+};
 
 const DOC_CATEGORIES = ["Aadhaar", "Referral slip", "Discharge summary", "Other"] as const;
 
@@ -77,11 +93,26 @@ export default function IncomingReferralsFlow() {
   const [searchHospital, setSearchHospital] = useState<"hope" | "ayushman">(
     hospitalType === "ayushman" ? "ayushman" : "hope",
   );
-  const [form, setForm] = useState({ patientName: "", comingFrom: "", refereeInitials: "" });
+  const [form, setForm] = useState({
+    patientName: "", comingFrom: "", refereeInitials: "", patientMobile: "",
+  });
   const [isDirect, setIsDirect] = useState(false);
   const [docs, setDocs] = useState<ReferralDoc[]>([]);
   const [uploadingCategory, setUploadingCategory] = useState<string | null>(null);
+  // Set only when the announcer recognises a returning patient and picks them
+  // from the search — that is the one moment a real UHID exists before arrival.
+  const [pickedPatient, setPickedPatient] = useState<Patient | null>(null);
+  const [searchingPatient, setSearchingPatient] = useState(false);
+  const [blocked, setBlocked] = useState<BlockedAlert | null>(null);
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const resetForm = () => {
+    setForm({ patientName: "", comingFrom: "", refereeInitials: "", patientMobile: "" });
+    setIsDirect(false);
+    setDocs([]);
+    setPickedPatient(null);
+    setSearchingPatient(false);
+  };
 
   const { data: announcements = [], isLoading } = useQuery({
     queryKey: ["incoming-referrals"],
@@ -91,7 +122,7 @@ export default function IncomingReferralsFlow() {
       const since = new Date(Date.now() - WINDOW_HOURS * 60 * 60 * 1000).toISOString();
       const { data, error } = await (supabase as any)
         .from("incoming_referrals")
-        .select("id, patient_name, coming_from, referee_initials, is_direct, documents, status, announced_by, linked_visit_id, linked_by, created_at")
+        .select("id, patient_name, coming_from, referee_initials, is_direct, documents, status, announced_by, patient_id, patient_uhid, patient_mobile, linked_visit_id, linked_by, created_at")
         .neq("status", "CANCELLED")
         .or(`created_at.gte.${since},status.eq.ANNOUNCED`)
         .order("created_at", { ascending: false })
@@ -102,18 +133,27 @@ export default function IncomingReferralsFlow() {
   });
 
   const announce = useMutation({
-    mutationFn: async () => {
+    // `force` only ever comes from the "different person" button on a
+    // name-only clash; an id or mobile clash is refused whatever it says.
+    mutationFn: async (force: boolean = false) => {
       if (!form.patientName.trim()) throw new Error("Enter the patient's name");
       if (!isDirect && !form.refereeInitials.trim()) throw new Error("Enter the referee's initials");
-      const { error } = await (supabase as any).from("incoming_referrals").insert({
-        patient_name: form.patientName.trim(),
-        coming_from: form.comingFrom.trim() || null,
-        referee_initials: isDirect ? null : form.refereeInitials.trim(),
-        is_direct: isDirect,
-        documents: docs,
-        announced_by: user?.email || user?.id || null,
+      // The duplicate check and the insert must be one step: RLS on this table
+      // is fully permissive, so a check made here alone loses the race between
+      // two tablets announcing the same patient at the same moment.
+      const { error } = await (supabase as any).rpc("announce_incoming_referral", {
+        p_patient_name: form.patientName.trim(),
+        p_coming_from: form.comingFrom.trim() || null,
+        p_referee_initials: isDirect ? null : form.refereeInitials.trim(),
+        p_is_direct: isDirect,
+        p_documents: docs,
+        p_announced_by: user?.email || user?.id || null,
+        p_patient_id: pickedPatient?.id ?? null,
+        p_patient_uhid: pickedPatient?.patients_id ?? null,
+        p_patient_mobile: form.patientMobile.trim() || null,
+        p_force_name: force,
       });
-      if (error) throw new Error(error.message);
+      if (error) throw error;
     },
     onSuccess: () => {
       toast.success(
@@ -121,17 +161,48 @@ export default function IncomingReferralsFlow() {
           ? `Announced — ${form.patientName.trim()} is a direct walk-in.`
           : `Announced — ${form.patientName.trim()} is on the way.`,
       );
-      setForm({ patientName: "", comingFrom: "", refereeInitials: "" });
-      setIsDirect(false);
-      setDocs([]);
+      resetForm();
       setMode("list");
       queryClient.invalidateQueries({ queryKey: ["incoming-referrals"] });
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not announce"),
+    onError: (e: any) => {
+      const message = e?.message || "Could not announce";
+      if (message.includes("ALREADY_ANNOUNCED_NAME:")) {
+        setBlocked({ message: message.split("ALREADY_ANNOUNCED_NAME: ")[1], canOverride: true });
+      } else if (message.includes("ALREADY_ANNOUNCED:")) {
+        setBlocked({ message: message.split("ALREADY_ANNOUNCED: ")[1], canOverride: false });
+      } else if (e?.code === "23505") {
+        // The backstop index caught a simultaneous announce.
+        setBlocked({
+          message: "This patient was just announced by someone else and cannot be registered again.",
+          canOverride: false,
+        });
+      } else {
+        toast.error(message);
+      }
+    },
   });
 
   const link = useMutation({
     mutationFn: async ({ announcement, patient }: { announcement: Announcement; patient: Patient }) => {
+      // Without this the announce guard is dodged by announcing under a
+      // different spelling and then linking to the same registration. One
+      // patient, one live incoming referral — enforced at both ends.
+      const { data: claimed } = await (supabase as any)
+        .from("incoming_referrals")
+        .select("id, announced_by, referee_initials")
+        .neq("status", "CANCELLED")
+        .neq("id", announcement.id)
+        .or(`patient_id.eq.${patient.id},linked_patient_id.eq.${patient.id}`)
+        .limit(1);
+      if (claimed?.length) {
+        const owner = displayName(claimed[0].announced_by);
+        const referee = claimed[0].referee_initials ? ` (referee ${claimed[0].referee_initials})` : "";
+        throw new Error(
+          `ALREADY_ANNOUNCED: This patient is already registered by ${owner}${referee} and cannot be registered again.`,
+        );
+      }
+
       // The registered patient's latest visit, so the claim points at the
       // actual OPD/IPD registration.
       const { data: visits } = await (supabase as any)
@@ -180,7 +251,14 @@ export default function IncomingReferralsFlow() {
       setLinkFor(null);
       queryClient.invalidateQueries({ queryKey: ["incoming-referrals"] });
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not link"),
+    onError: (e) => {
+      const message = e instanceof Error ? e.message : "Could not link";
+      if (message.includes("ALREADY_ANNOUNCED:")) {
+        setBlocked({ message: message.split("ALREADY_ANNOUNCED: ")[1], canOverride: false });
+      } else {
+        toast.error(message);
+      }
+    },
   });
 
   const attachDoc = async (category: string, files: FileList | null) => {
@@ -198,6 +276,74 @@ export default function IncomingReferralsFlow() {
       if (input) input.value = "";
     }
   };
+
+  // The block popup. Rendered in every branch so it survives whichever screen
+  // raised it, and OK only dismisses it — the form underneath keeps its data
+  // and nothing was written.
+  const blockedDialog = (
+    <Dialog open={!!blocked} onOpenChange={(open) => (open ? null : setBlocked(null))}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-destructive">
+            <AlertTriangle className="h-6 w-6 shrink-0" />
+            Patient Already Registered
+          </DialogTitle>
+        </DialogHeader>
+        <p className="text-base leading-relaxed">{blocked?.message}</p>
+        <div className="space-y-2">
+          <TabletButton className="w-full" onClick={() => setBlocked(null)}>
+            OK
+          </TabletButton>
+          {blocked?.canOverride && (
+            <TabletButton
+              variant="outline"
+              size="default"
+              className="min-h-[44px] w-full text-sm text-muted-foreground"
+              disabled={announce.isPending}
+              onClick={() => {
+                setBlocked(null);
+                announce.mutate(true);
+              }}
+            >
+              This is a different person — announce anyway
+            </TabletButton>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
+  // ---- Existing-patient search: gives the announcement a real UHID ----
+  if (searchingPatient) {
+    return (
+      <FlowScaffold
+        heading="Find the patient"
+        subheading="Only for someone who has been treated here before — it gives the announcement a UHID"
+        actions={
+          <TabletButton variant="outline" onClick={() => setSearchingPatient(false)}>
+            <ChevronLeft className="mr-1 h-5 w-5" /> Back
+          </TabletButton>
+        }
+      >
+        <TabletPatientPicker
+          heading="Registered patient"
+          hint="Search by name, patient ID or mobile number"
+          hospital={searchHospital}
+          onHospitalChange={setSearchHospital}
+          onSelect={(patient) => {
+            setPickedPatient(patient);
+            setForm((f) => ({
+              ...f,
+              patientName: patient.name,
+              patientMobile: f.patientMobile || patient.phone || "",
+            }));
+            setSearchingPatient(false);
+          }}
+        />
+        {blockedDialog}
+      </FlowScaffold>
+    );
+  }
 
   // ---- Link overlay: pick the registered patient ----
   if (linkFor) {
@@ -218,6 +364,7 @@ export default function IncomingReferralsFlow() {
           onHospitalChange={setSearchHospital}
           onSelect={(patient) => link.mutate({ announcement: linkFor, patient })}
         />
+        {blockedDialog}
       </FlowScaffold>
     );
   }
@@ -236,7 +383,7 @@ export default function IncomingReferralsFlow() {
             <TabletButton
               className="flex-1"
               disabled={announce.isPending}
-              onClick={() => announce.mutate()}
+              onClick={() => announce.mutate(false)}
             >
               <Megaphone className="mr-2 h-5 w-5" />
               {announce.isPending ? "Announcing…" : "Announce"}
@@ -265,12 +412,53 @@ export default function IncomingReferralsFlow() {
             </div>
           </div>
           <div>
+            <TabletLabel>Treated here before?</TabletLabel>
+            {pickedPatient ? (
+              <div className="mt-2 flex items-center gap-2 rounded-xl border-2 border-primary/40 bg-primary/5 px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold">{pickedPatient.name}</p>
+                  <p className="font-mono text-xs tracking-wider text-muted-foreground">
+                    {pickedPatient.patients_id || "no patient ID"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Clear the linked patient"
+                  className="shrink-0 rounded-full p-2 text-muted-foreground"
+                  onClick={() => setPickedPatient(null)}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              <TabletButton
+                variant="outline"
+                className="mt-2 w-full"
+                onClick={() => setSearchingPatient(true)}
+              >
+                <Search className="mr-2 h-5 w-5" /> Search existing patient
+              </TabletButton>
+            )}
+            <p className="mt-1 text-xs text-muted-foreground">
+              Optional — attaches the patient's UHID so nobody can announce them twice.
+            </p>
+          </div>
+          <div>
             <TabletLabel>Patient name</TabletLabel>
             <TabletInput
               value={form.patientName}
               onChange={(e) => setForm((f) => ({ ...f, patientName: e.target.value }))}
               placeholder={isDirect ? "As given at the front desk" : "As told by the referee"}
               autoFocus
+            />
+          </div>
+          <div>
+            <TabletLabel>Mobile number</TabletLabel>
+            <TabletInput
+              value={form.patientMobile}
+              onChange={(e) => setForm((f) => ({ ...f, patientMobile: e.target.value }))}
+              placeholder="10-digit mobile"
+              inputMode="numeric"
             />
           </div>
           <div>
@@ -344,6 +532,7 @@ export default function IncomingReferralsFlow() {
             )}
           </div>
         </div>
+        {blockedDialog}
       </FlowScaffold>
     );
   }
@@ -357,7 +546,7 @@ export default function IncomingReferralsFlow() {
         <TabletButton
           className="w-full"
           onClick={() => {
-            setIsDirect(false);
+            resetForm();
             setMode("announce");
           }}
         >
@@ -382,6 +571,8 @@ export default function IncomingReferralsFlow() {
                 <div className="min-w-0">
                   <p className="truncate text-lg font-semibold">{item.patient_name}</p>
                   <p className="text-sm text-muted-foreground">
+                    {item.patient_uhid ? `${item.patient_uhid} · ` : ""}
+                    {item.patient_mobile ? `${item.patient_mobile} · ` : ""}
                     {item.coming_from ? `From ${item.coming_from} · ` : ""}
                     {item.is_direct ? "Walk-in" : `Referee ${item.referee_initials}`} ·{" "}
                     {format(new Date(item.created_at), "dd MMM, HH:mm")}
@@ -452,6 +643,7 @@ export default function IncomingReferralsFlow() {
           ))}
         </div>
       )}
+      {blockedDialog}
     </FlowScaffold>
   );
 }

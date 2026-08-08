@@ -34,7 +34,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { canCreateAccountingVouchers } from "@/lib/accounting-access";
-import { OFFICE_TILE_IDS, canSeeOfficeTiles } from "@/lib/officeTileAccess";
+import { OFFICE_TILE_IDS, canSeeOfficeTiles, canSeePaymentVoucher } from "@/lib/officeTileAccess";
 
 export interface TabletModule {
   /** URL segment under /t/ and lookup key. */
@@ -659,6 +659,9 @@ export function modulesForUser(
     // then turned away by their role.
     if ((OFFICE_TILE_IDS as readonly string[]).includes(module.id)) {
       return canSeeOfficeTiles(user);
+    }
+    if (module.id === "payment-voucher") {
+      return canSeePaymentVoucher(user);
     }
     if (module.accountingOnly && !canCreateAccountingVouchers(user)) return false;
     if (module.roles && module.roles.length > 0) {

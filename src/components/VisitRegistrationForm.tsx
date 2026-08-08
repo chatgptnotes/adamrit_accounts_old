@@ -25,6 +25,7 @@ interface VisitRegistrationFormProps {
     id: string;
     name: string;
     patients_id?: string;
+    is_direct?: boolean;
   };
   existingVisit?: any;  // Optional existing visit data for editing
   editMode?: boolean;   // Flag to indicate edit mode
@@ -76,11 +77,31 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
   });
 
   const [patientCorporate, setPatientCorporate] = useState('');
+  const [isDirectPatient, setIsDirectPatient] = useState(Boolean(patient.is_direct));
   const [registrationDocuments, setRegistrationDocuments] = useState<RegistrationDocumentSelection[]>([]);
   const { data: uploadedRegistrationDocuments = [] } = usePatientDocs(
     patient.id,
     REGISTRATION_DOCUMENT_CATEGORY,
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await (supabase as any)
+        .from('patients')
+        .select('is_direct')
+        .eq('id', patient.id)
+        .maybeSingle();
+      if (!cancelled) setIsDirectPatient(Boolean(data?.is_direct));
+    })();
+    return () => { cancelled = true; };
+  }, [patient.id]);
+
+  useEffect(() => {
+    if (!isDirectPatient) return;
+    setFormData((previous) => ({ ...previous, referringDoctor: '' }));
+    setSelectedIds((previous) => ({ ...previous, referringDoctorId: '' }));
+  }, [isDirectPatient]);
 
   useEffect(() => {
     const requiredDocuments = getCorporateRegistrationDocuments(patientCorporate);
@@ -270,6 +291,11 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
 
     // Handle referring doctor ID mapping
     if (field === 'referringDoctor') {
+      if (isDirectPatient) {
+        setFormData(prev => ({ ...prev, referringDoctor: '' }));
+        setSelectedIds(prev => ({ ...prev, referringDoctorId: '' }));
+        return;
+      }
       // Find the referee by name to get the ID
       const findRefereeId = async () => {
         if (value && value !== 'none') {
@@ -336,7 +362,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
     if (!formData.claimId || formData.claimId.trim() === '') missingFields.push('Claim Id');
     if (!formData.thumbRegistrationNo || formData.thumbRegistrationNo.trim() === '') missingFields.push('Thumb Registration No.');
     if (!formData.treatmentType || formData.treatmentType.trim() === '') missingFields.push('Treatment Type');
-    if (!formData.referringDoctor || formData.referringDoctor.trim() === '' || formData.referringDoctor === 'none') missingFields.push('Referring Doctor');
+    if (!isDirectPatient && (!formData.referringDoctor || formData.referringDoctor.trim() === '' || formData.referringDoctor === 'none')) missingFields.push('Referring Doctor');
     if (!formData.relationshipManager || formData.relationshipManager.trim() === '' || formData.relationshipManager === 'none') missingFields.push('Relationship Manager');
 
     // A Yojana patient without their registration ID cannot be matched to the
@@ -443,7 +469,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
             relation_with_employee: formData.relationWithEmployee || null,
             status: formData.status || 'scheduled',
             patient_type: formData.patientType,
-            referring_doctor_id: selectedIds.referringDoctorId || null,
+            referring_doctor_id: isDirectPatient ? null : (selectedIds.referringDoctorId || null),
             relationship_manager_id: selectedIds.relationshipManagerId || null,
             claim_id: formData.claimId || null,
             card_no: formData.cardNo || null,
@@ -550,7 +576,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
             relation_with_employee: formData.relationWithEmployee || null,
             status: formData.status || 'scheduled',
             patient_type: formData.patientType,
-            referring_doctor_id: selectedIds.referringDoctorId || null,
+            referring_doctor_id: isDirectPatient ? null : (selectedIds.referringDoctorId || null),
             relationship_manager_id: selectedIds.relationshipManagerId || null,
             claim_id: formData.claimId,
           card_no: formData.cardNo || null,

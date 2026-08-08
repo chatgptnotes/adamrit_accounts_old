@@ -17,6 +17,7 @@ import {
   Search, Undo2, Upload, Users, X,
 } from 'lucide-react';
 import { saveLedgerQr, savePaymentProof } from '@/lib/expense-bills/paymentEvidence';
+import { extractInvoiceFromImage, fileToBase64 } from '@/lib/accounting-ai';
 import { LedgerAutocomplete, type LedgerAccountOption } from '@/components/accounting/LedgerAutocomplete';
 import { useCashBankLedgers } from '@/hooks/useCashBankLedgers';
 import {
@@ -500,6 +501,7 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
   const [rm, setRm] = useState('');
   const [narration, setNarration] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [isReadingInvoice, setIsReadingInvoice] = useState(false);
   // Which patient and procedure this bill is for, and the office's dates.
   const [patient, setPatient] = useState<{ id: string; name: string } | null>(null);
   const [patientSearch, setPatientSearch] = useState('');
@@ -565,16 +567,79 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
   const amountValue = Number(amount.replace(/,/g, '')) || 0;
   const canSave =
     !!company.data && !!category && !!party && !!head && party.id !== head.id
-    && !!file && billNumber.trim().length > 0 && amountValue > 0 && !record.isPending;
+    && !!file && !isReadingInvoice
+    && billNumber.trim().length > 0 && amountValue > 0 && !record.isPending;
 
   const reset = () => {
     setCategory(null); setCategorySearch(''); setParty(null); setHead(null); setBillNumber('');
     setBillDate(todayIso()); setDueDate(''); setAmount(''); setPoc(''); setRm('');
-    setNarration(''); setFile(null);
+    setNarration(''); setFile(null); setIsReadingInvoice(false);
     setPatient(null); setPatientSearch(''); setSurgeryName('');
     setDateOfProcedure(''); setDateOfReceivingBill(''); setDateOfPayment('');
     paymentDateTouched.current = false;
     suggestedFor.current = null;
+  };
+
+  /**
+   * The invoice is attached BEFORE the accounting fields are typed, so the bill
+   * itself can fill them in. Anything the user has already entered is left
+   * alone — re-attaching a better scan must never overwrite a typed value.
+   */
+  const attachInvoice = async (nextFile: File | null) => {
+    if (!nextFile) return;
+    setFile(nextFile);
+    setIsReadingInvoice(true);
+    try {
+      const { base64, mimeType } = await fileToBase64(nextFile);
+      const extracted = await extractInvoiceFromImage(base64, mimeType);
+      if (!extracted) {
+        toast.error('Could not read the invoice. You can complete the fields manually.');
+        return;
+      }
+
+      if (!billNumber.trim() && extracted.bill_number) setBillNumber(extracted.bill_number);
+      if (!amount.trim() && extracted.amount != null) setAmount(String(extracted.amount));
+      if (extracted.bill_date && /^\d{4}-\d{2}-\d{2}$/.test(extracted.bill_date)) {
+        setBillDate(extracted.bill_date);
+      }
+      if (!narration.trim() && extracted.description) setNarration(extracted.description);
+
+      // Match the seller printed on the invoice to an existing accounting ledger.
+      // Never create a ledger from OCR text; the user picks it manually when the
+      // vendor is not already configured.
+      if (extracted.party_name && company.data && !party) {
+        const { data: rows } = await (supabase as any)
+          .from('chart_of_accounts')
+          .select('id, account_code, account_name, account_group')
+          .eq('is_active', true)
+          .or(`company_id.eq.${company.data},company_id.is.null`)
+          .ilike('account_name', `%${extracted.party_name.trim()}%`)
+          .limit(10);
+        const normalized = extracted.party_name.trim().toLowerCase();
+        const row =
+          (rows || []).find(
+            (item: any) => String(item.account_name || '').trim().toLowerCase() === normalized,
+          ) || rows?.[0];
+        if (row) {
+          setParty({
+            id: row.id,
+            account_code: row.account_code,
+            account_name: row.account_name,
+            account_group: row.account_group ?? null,
+            company_id: null,
+          });
+        } else {
+          toast.info(`Invoice seller “${extracted.party_name}” is not in the ledger. Select it manually.`);
+        }
+      }
+
+      toast.success('Invoice read — review the populated fields before recording.');
+    } catch (error) {
+      console.error('Invoice OCR failed:', error);
+      toast.error('Invoice reading failed. You can complete the fields manually.');
+    } finally {
+      setIsReadingInvoice(false);
+    }
   };
 
   const onReceivingDateChange = (value: string) => {
@@ -621,6 +686,44 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
               The accounting company could not be loaded. Close and try again.
             </p>
           )}
+          {/* Evidence first: upload the invoice before entering any accounting
+              fields so the bill itself can populate the rest of this form. */}
+          <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
+            <div>
+              <Label>Invoice bill (upload first)</Label>
+              <p className="text-xs text-muted-foreground">
+                Add the invoice photo or PDF. Adamrit will read the seller, invoice number,
+                date, amount and description.
+              </p>
+            </div>
+            {file ? (
+              <div className="flex items-center gap-3 rounded-lg border bg-background p-3">
+                <FileText className="h-5 w-5 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                {isReadingInvoice && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+                <button type="button" onClick={() => setFile(null)} aria-label="Remove the attached invoice"
+                  className="shrink-0 rounded-full p-1 hover:bg-muted">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              <Button variant="outline" type="button" onClick={() => fileRef.current?.click()}>
+                <Paperclip className="mr-2 h-4 w-4" /> Attach photo or PDF
+              </Button>
+            )}
+            {isReadingInvoice && <p className="text-xs text-primary">Reading invoice details…</p>}
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*,application/pdf"
+              hidden
+              onChange={(e) => {
+                void attachInvoice(e.target.files?.[0] ?? null);
+                e.currentTarget.value = '';
+              }}
+            />
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="relative">
               <Label htmlFor="eb-category">Invoice category</Label>
@@ -797,30 +900,6 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
               placeholder="Anything worth recording" onChange={(e) => setNarration(e.target.value)} />
           </div>
 
-          <div>
-            <Label>Approved invoice (required)</Label>
-            {file ? (
-              <div className="flex items-center gap-3 rounded-lg border p-3">
-                <FileText className="h-5 w-5 shrink-0 text-primary" />
-                <span className="min-w-0 flex-1 truncate">{file.name}</span>
-                <button type="button" onClick={() => setFile(null)} aria-label="Remove the attached invoice"
-                  className="shrink-0 rounded-full p-1 hover:bg-muted">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            ) : (
-              <Button variant="outline" type="button" onClick={() => fileRef.current?.click()}>
-                <Paperclip className="mr-2 h-4 w-4" /> Attach photo or PDF
-              </Button>
-            )}
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*,application/pdf"
-              hidden
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            />
-          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => { reset(); onClose(); }}>Cancel</Button>

@@ -57,7 +57,7 @@ export const getSessionUser = (req: VercelRequest, secret: string): AppSessionUs
   const token = parseCookies(req)[SESSION_COOKIE];
   if (!token) return null;
 
-  const data = verifyToken<{ sub: string; email: string; role: string; hospitalType: string; exp: number }>(token, secret);
+  const data = verifyToken<{ type?: string; sub: string; email: string; role: string; hospitalType: string; exp: number }>(token, secret);
   if (data?.type !== 'hmis-session' || !data.sub || !data.email) return null;
   return {
     id: String(data.sub),

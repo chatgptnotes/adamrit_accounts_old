@@ -46,6 +46,8 @@ import {
   useAllocationSaveStatus,
   useSaveAllocation,
   useSavedAllocations,
+  accountBelongsTo,
+  ALL_HOSPITALS,
   isDailyAllocationExecution,
   DAILY_ALLOCATION_SOURCE_PREFIX,
   getDailyAllocationNarration,
@@ -177,13 +179,9 @@ interface SortableScheduleRowProps {
   reverting: boolean;
 }
 
-/** Tabs that work per hospital ask the merged view to narrow down first. */
-const PickHospitalNote = () => (
-  <div className="rounded-lg border border-dashed bg-slate-50 py-10 text-center text-sm text-muted-foreground">
-    This tab works one hospital at a time — pick <b>Hope Hospital</b> or <b>Ayushman Hospital</b> in
-    the dropdown at the top right to use it.
-  </div>
-);
+/** How a row's hospital reads on screen and on every printout. */
+const hospitalRowLabel = (hospitalName: string | null | undefined) =>
+  (hospitalName || '').includes('ayush') ? 'Ayushman' : 'Hope';
 
 const SortableScheduleRow = ({
   entry, idx, isEditing, editAmount, editNotes, skipConfirmId,
@@ -219,7 +217,7 @@ const SortableScheduleRow = ({
               <span className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase align-middle ${
                 (entry.hospital_name || '').includes('ayush') ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
               }`}>
-                {(entry.hospital_name || '').includes('ayush') ? 'Ayushman' : 'Hope'}
+                {hospitalRowLabel(entry.hospital_name)}
               </span>
             )}
           </div>
@@ -753,12 +751,27 @@ const DailyPaymentAllocation = () => {
   const totalDue = activeSchedule.reduce((s, e) => s + (e.daily_amount + e.carryforward_amount), 0);
   const totalPaid = activeSchedule.reduce((s, e) => s + e.paid_amount, 0);
 
-  // Sum ALL entered actual balances from ALL hospitals (cash + banks) + expected IPD collections
-  const totalBankAndCash = funds.accounts
+  // Money counts towards the hospital that owns it. The merged view takes
+  // everything; a single hospital takes its own accounts plus the company both
+  // hospitals share, and only its own expected IPD collection. Counting all of
+  // it under every selection made Hope alone look like it held Ayushman's cash.
+  const visibleFundAccounts = useMemo(
+    () => funds.accounts.filter(a => accountBelongsTo(a.hospital, selectedHospital)),
+    [funds.accounts, selectedHospital],
+  );
+  const showAyushmanCollection = selectedHospital === 'all' || selectedHospital === 'ayushman';
+  const showHopeCollection = selectedHospital === 'all' || selectedHospital === 'hope';
+  const expectedCollections =
+    (showAyushmanCollection ? expectedAyushman : 0)
+    + (showHopeCollection ? expectedHope : 0);
+  const fundsScopeLabel = selectedHospital === 'all'
+    ? 'All Hospitals'
+    : `${selectedHospital.charAt(0).toUpperCase()}${selectedHospital.slice(1)}`;
+
+  const totalBankAndCash = visibleFundAccounts
     .filter(a => a.actual_balance !== null)
     .reduce((s, a) => s + a.actual_balance, 0)
-    + expectedAyushman
-    + expectedHope;
+    + expectedCollections;
   const totalAvailable = totalBankAndCash;
   const surplus = totalAvailable - totalDue;
   const coveragePercent = totalDue > 0 ? Math.min(Math.round((totalAvailable / totalDue) * 100), 100) : 100;
@@ -766,34 +779,62 @@ const DailyPaymentAllocation = () => {
   // Print handlers
   const printAvailableFunds = () => {
     const headers = ['Account Name', 'Type', 'Hospital', 'As per Ledger', 'Actual Balance'];
-    const rows = funds.accounts.map(a => [
+    const rows = visibleFundAccounts.map(a => [
       a.name, a.type, a.hospital,
       formatINR(a.ledger_balance),
       a.actual_balance !== null ? formatINR(a.actual_balance) : '—',
     ]);
-    rows.push(['TOTAL (All Hospitals - All Cash + Banks)', '', '', formatINR(funds.totalLedger), formatINR(totalBankAndCash)]);
+    rows.push([
+      `TOTAL (${fundsScopeLabel} - All Cash + Banks)`, '', '',
+      formatINR(visibleFundAccounts.reduce((s, a) => s + a.ledger_balance, 0)),
+      formatINR(totalBankAndCash),
+    ]);
     printTable('Available Funds', headers, rows, selectedDate);
   };
 
   const printTodayAllocation = () => {
-    const headers = ['#', 'Party', 'Daily Amount', 'Carry Forward', 'Total Due', 'Paid', 'Aging', 'Status'];
+    const merged = selectedHospital === 'all';
+    const headers = merged
+      ? ['#', 'Party', 'Hospital', 'Daily Amount', 'Carry Forward', 'Total Due', 'Paid', 'Aging', 'Status']
+      : ['#', 'Party', 'Daily Amount', 'Carry Forward', 'Total Due', 'Paid', 'Aging', 'Status'];
     const active = sortedSchedule.filter(e => e.status !== 'skipped');
-    const rows = active.map((e, i) => [
+    const line = (e: ScheduleEntry, i: number) => [
       String(i + 1), e.party_name,
+      ...(merged ? [hospitalRowLabel(e.hospital_name)] : []),
       formatINR(e.daily_amount), formatINR(e.carryforward_amount),
       formatINR(e.daily_amount + e.carryforward_amount),
       e.paid_amount > 0 ? formatINR(e.paid_amount) : '-',
       `${e.days_overdue}d`, e.status,
-    ]);
-    rows.push(['', 'TOTAL',
-      formatINR(active.reduce((s, e) => s + e.daily_amount, 0)),
-      formatINR(active.reduce((s, e) => s + e.carryforward_amount, 0)),
-      formatINR(totalDue), formatINR(totalPaid), '', '',
-    ]);
-    printTable("Today's Payment Allocation", headers, rows, selectedDate);
+    ];
+    const totalLine = (label: string, entries: ScheduleEntry[]) => [
+      '', label,
+      ...(merged ? [''] : []),
+      formatINR(entries.reduce((s, e) => s + e.daily_amount, 0)),
+      formatINR(entries.reduce((s, e) => s + e.carryforward_amount, 0)),
+      formatINR(entries.reduce((s, e) => s + e.daily_amount + e.carryforward_amount, 0)),
+      formatINR(entries.reduce((s, e) => s + e.paid_amount, 0)), '', '',
+    ];
+
+    const rows = active.map(line);
+    // The merged printout must say which hospital each row and subtotal belongs
+    // to — otherwise a circulated report is two books added into one number.
+    if (merged) {
+      for (const hospital of ALL_HOSPITALS) {
+        const forHospital = active.filter(e => e.hospital_name === hospital);
+        if (forHospital.length > 0) {
+          rows.push(totalLine(`${hospitalRowLabel(hospital)} subtotal`, forHospital));
+        }
+      }
+    }
+    rows.push(totalLine('TOTAL', active));
+    printTable(
+      merged ? "Today's Payment Allocation — All Hospitals" : "Today's Payment Allocation",
+      headers, rows, selectedDate,
+    );
   };
 
   const printDetailedAllocation = () => {
+    const merged = selectedHospital === 'all';
     const active = sortedSchedule.filter(e => e.status !== 'skipped');
     const dateLabel = new Date(selectedDate).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -802,7 +843,39 @@ const DailyPaymentAllocation = () => {
     let serial = 0;
     let grandDaily = 0, grandCarry = 0, grandDue = 0, grandPaid = 0;
 
-    for (const entry of active) {
+    // The merged report is sectioned by hospital, each with its own subtotal, so
+    // the reader sees both books and the consolidated figure at once. Grouping
+    // the rows up front lets the sections be emitted as the hospital changes.
+    const ordered = merged
+      ? ALL_HOSPITALS.flatMap(hospital => active.filter(e => e.hospital_name === hospital))
+      : active;
+
+    const subtotalRow = (label: string, entries: ScheduleEntry[]) => `<tr style="background:#eef3f8;font-weight:700">
+      <td style="border:1px solid #ccc;padding:5px 10px;font-size:12px"></td>
+      <td style="border:1px solid #ccc;padding:5px 10px;font-size:12px">${label}</td>
+      <td style="border:1px solid #ccc;padding:5px 10px;font-size:12px;text-align:right">${formatINR(entries.reduce((s, e) => s + e.daily_amount, 0))}</td>
+      <td style="border:1px solid #ccc;padding:5px 10px;font-size:12px;text-align:right">${formatINR(entries.reduce((s, e) => s + e.carryforward_amount, 0))}</td>
+      <td style="border:1px solid #ccc;padding:5px 10px;font-size:12px;text-align:right">${formatINR(entries.reduce((s, e) => s + e.daily_amount + e.carryforward_amount, 0))}</td>
+      <td style="border:1px solid #ccc;padding:5px 10px;font-size:12px;text-align:right">${formatINR(entries.reduce((s, e) => s + e.paid_amount, 0))}</td>
+      <td style="border:1px solid #ccc;padding:5px 10px;font-size:12px"></td>
+      <td style="border:1px solid #ccc;padding:5px 10px;font-size:12px"></td>
+    </tr>`;
+    const sectionHeaderRow = (label: string) =>
+      `<tr><td colspan="8" style="border:1px solid #ccc;padding:6px 10px;background:#dbe7f3;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em">${label} Hospital</td></tr>`;
+
+    let section: string | null = null;
+    for (const entry of ordered) {
+      // Close the previous hospital's section and open the next one.
+      if (merged && entry.hospital_name !== section) {
+        if (section !== null) {
+          bodyHtml += subtotalRow(
+            `${hospitalRowLabel(section)} subtotal`,
+            ordered.filter(e => e.hospital_name === section),
+          );
+        }
+        section = entry.hospital_name;
+        bodyHtml += sectionHeaderRow(hospitalRowLabel(section));
+      }
       serial++;
       const totalDueEntry = entry.daily_amount + entry.carryforward_amount;
       grandDaily += entry.daily_amount;
@@ -840,6 +913,13 @@ const DailyPaymentAllocation = () => {
         }
       }
     }
+    // The last hospital's section is still open once the rows run out.
+    if (merged && section !== null) {
+      bodyHtml += subtotalRow(
+        `${hospitalRowLabel(section)} subtotal`,
+        ordered.filter(e => e.hospital_name === section),
+      );
+    }
 
     // Totals row
     bodyHtml += `<tr style="background:#f0f0f0;font-weight:700">
@@ -864,7 +944,7 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
 @media print{body{padding:10px}.summary{break-inside:avoid}}
 </style>
 </head><body>
-<h2>Detailed Payment Allocation — ${selectedHospital === 'all' ? 'All Hospitals' : selectedHospital.charAt(0).toUpperCase() + selectedHospital.slice(1)}</h2>
+<h2>Detailed Payment Allocation — ${fundsScopeLabel}</h2>
 <p class="meta">${dateLabel}</p>
 <div class="summary">
   <div>Total Due: <span>${formatINR(grandDue)}</span></div>
@@ -1500,24 +1580,42 @@ ${sectionsHtml}
     setIsSyncingRMOs(false);
   };
 
-  // Save/finalize day's allocation
+  // Save/finalize day's allocation.
+  //
+  // A day's record is still kept per hospital. From the merged view the figures
+  // are split back out by the row's own hospital and written as one record each,
+  // so saving from All Hospitals stores the same numbers the single views would
+  // — no hospital's total lands in the other's book, and nothing is counted twice.
   const handleSaveDay = (status: 'saved' | 'finalized' | 'revised') => {
-    if (selectedHospital === 'all') {
-      toast.error("Pick Hope or Ayushman in the hospital dropdown to save the day — a day's record is kept per hospital.");
-      return;
+    const targets = selectedHospital === 'all' ? [...ALL_HOSPITALS] : [selectedHospital];
+    for (const target of targets) {
+      const entries = selectedHospital === 'all'
+        ? activeSchedule.filter(e => e.hospital_name === target)
+        : activeSchedule;
+      const dueForTarget = entries.reduce((s, e) => s + e.daily_amount + e.carryforward_amount, 0);
+      const paidForTarget = entries.reduce((s, e) => s + e.paid_amount, 0);
+      // Funds are held per company, so each hospital's record carries its own
+      // share of the money rather than a repeated consolidated figure.
+      const availableForTarget = selectedHospital === 'all'
+        ? funds.accounts
+          .filter(a => accountBelongsTo(a.hospital, target) && a.actual_balance !== null)
+          .reduce((s, a) => s + a.actual_balance, 0)
+          + (target === 'ayushman' ? expectedAyushman : expectedHope)
+        : totalAvailable;
+
+      saveAllocation.mutate({
+        save_date: selectedDate,
+        hospital_name: target,
+        total_due: dueForTarget,
+        total_paid: paidForTarget,
+        total_available: availableForTarget,
+        surplus: availableForTarget - dueForTarget,
+        schedule_count: entries.length,
+        notes: saveNotes || undefined,
+        saved_by: user?.email || undefined,
+        status,
+      });
     }
-    saveAllocation.mutate({
-      save_date: selectedDate,
-      hospital_name: selectedHospital,
-      total_due: totalDue,
-      total_paid: totalPaid,
-      total_available: totalAvailable,
-      surplus,
-      schedule_count: activeSchedule.length,
-      notes: saveNotes || undefined,
-      saved_by: user?.email || undefined,
-      status,
-    });
     setSaveConfirmOpen(false);
     setSaveNotes('');
   };
@@ -1698,14 +1796,14 @@ ${sectionsHtml}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {funds.accounts.length === 0 ? (
+              {visibleFundAccounts.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center py-6 text-muted-foreground">
                     No bank/cash accounts found. Sync Tally or add accounts manually.
                   </TableCell>
                 </TableRow>
               ) : (
-                funds.accounts.map((acc) => {
+                visibleFundAccounts.map((acc) => {
                   const isEditing = !!editingBalances[acc.id];
                   return (
                     <TableRow key={acc.id}>
@@ -1722,7 +1820,9 @@ ${sectionsHtml}
                           {acc.type}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-center capitalize">{acc.hospital}</TableCell>
+                      <TableCell className="text-center capitalize">
+                        {acc.hospital === 'both' ? 'Hope + Ayushman' : acc.hospital}
+                      </TableCell>
                       <TableCell className="text-right font-mono text-gray-600">
                         {formatINR(acc.ledger_balance)}
                       </TableCell>
@@ -1773,7 +1873,8 @@ ${sectionsHtml}
                   );
                 })
               )}
-              {/* Expected IPD Collections */}
+              {/* Expected IPD Collections — only the selected hospital's own */}
+              {showAyushmanCollection && (
               <TableRow className="bg-blue-50">
                 <TableCell colSpan={3} className="font-medium text-blue-800">
                   Expected Collection IPD Ayushman
@@ -1789,6 +1890,8 @@ ${sectionsHtml}
                 </TableCell>
                 <TableCell colSpan={2} />
               </TableRow>
+              )}
+              {showHopeCollection && (
               <TableRow className="bg-blue-50">
                 <TableCell colSpan={3} className="font-medium text-blue-800">
                   Expected Collection IPD Hope
@@ -1804,13 +1907,14 @@ ${sectionsHtml}
                 </TableCell>
                 <TableCell colSpan={2} />
               </TableRow>
+              )}
               {/* Totals */}
               <TableRow className="bg-green-50 font-bold border-t-2 border-green-200">
                 <TableCell colSpan={3} className="text-green-800">
-                  TOTAL (All Hospitals - All Cash + Banks)
+                  TOTAL ({fundsScopeLabel} - All Cash + Banks)
                 </TableCell>
                 <TableCell className="text-right font-mono text-gray-600">
-                  {formatINR(funds.accounts.reduce((s, a) => s + a.ledger_balance, 0))}
+                  {formatINR(visibleFundAccounts.reduce((s, a) => s + a.ledger_balance, 0))}
                 </TableCell>
                 <TableCell className="text-right font-mono text-green-800 text-base">{formatINR(totalBankAndCash)}</TableCell>
                 <TableCell colSpan={2}></TableCell>
@@ -1827,9 +1931,9 @@ ${sectionsHtml}
             <div className="text-sm text-muted-foreground mb-1">Total Available (Actual + Expected IPD)</div>
             <p className="text-2xl font-bold text-green-700">{formatINR(totalAvailable)}</p>
             <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
-              <div>Actual (All Accounts): <span className="font-medium">{formatINR(funds.accounts.filter(a => a.actual_balance !== null).reduce((s,a)=>s+a.actual_balance,0))}</span></div>
-              <div>Expected IPD Ayushman: <span className="font-medium">{formatINR(expectedAyushman)}</span></div>
-              <div>Expected IPD Hope: <span className="font-medium">{formatINR(expectedHope)}</span></div>
+              <div>Actual ({fundsScopeLabel}): <span className="font-medium">{formatINR(visibleFundAccounts.filter(a => a.actual_balance !== null).reduce((s,a)=>s+a.actual_balance,0))}</span></div>
+              {showAyushmanCollection && <div>Expected IPD Ayushman: <span className="font-medium">{formatINR(expectedAyushman)}</span></div>}
+              {showHopeCollection && <div>Expected IPD Hope: <span className="font-medium">{formatINR(expectedHope)}</span></div>}
             </div>
           </CardContent>
         </Card>
@@ -1870,7 +1974,7 @@ ${sectionsHtml}
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-2 md:grid-cols-9">
+        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
           <TabsTrigger value="allocation">
             Today's Allocation
             {displaySchedule.filter(s => s.status === 'pending').length > 0 && (
@@ -2323,16 +2427,28 @@ ${sectionsHtml}
 
         {/* TAB 5: Daily Allocation — editable today's expenses sheet (database-backed, carries forward) */}
         <TabsContent value="daily-allocation" className="mt-4">
-          {selectedHospital === 'all' ? <PickHospitalNote /> : (
-          <DailyAllocationSheet
-            hospital={selectedHospital}
-            onSent={({ date }) => {
-              setSelectedDate(date);
-              setActiveTab('allocation');
-              void refetch();
-            }}
-          />
-          )}
+          {/* The sheet autosaves against one hospital_type, so the merged view
+              stacks both hospitals' sheets rather than fusing them into one
+              editable grid — each keeps its own row set and its own save. */}
+          <div className="space-y-8">
+            {(selectedHospital === 'all' ? [...ALL_HOSPITALS] : [selectedHospital]).map((hospital) => (
+              <div key={hospital}>
+                {selectedHospital === 'all' && (
+                  <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                    {hospitalRowLabel(hospital)} Hospital
+                  </h3>
+                )}
+                <DailyAllocationSheet
+                  hospital={hospital}
+                  onSent={({ date }) => {
+                    setSelectedDate(date);
+                    setActiveTab('allocation');
+                    void refetch();
+                  }}
+                />
+              </div>
+            ))}
+          </div>
         </TabsContent>
       
         {/* All payments in one place: the RMO duty invoices, the salary
@@ -2364,7 +2480,12 @@ ${sectionsHtml}
           </DialogHeader>
           <div className="space-y-4">
             <div className="text-sm text-muted-foreground">
-              Save allocation for <strong>{new Date(selectedDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</strong> — <strong className="capitalize">{selectedHospital}</strong>
+              Save allocation for <strong>{new Date(selectedDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</strong> — <strong>{fundsScopeLabel}</strong>
+              {selectedHospital === 'all' && (
+                <span className="mt-1 block text-xs">
+                  Saved as one record per hospital, each with its own totals.
+                </span>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3 p-3 bg-gray-50 rounded-lg">
               <div>

@@ -54,7 +54,7 @@ export interface BankAccount {
   id: string; // tally ledger id or manual id
   name: string;
   type: 'bank' | 'cash';
-  hospital: string; // hope / ayushman
+  hospital: string; // hope / ayushman / both (a company shared by the two)
   ledger_balance: number; // from Tally
   actual_balance: number | null; // manually entered
   notes: string;
@@ -70,6 +70,15 @@ export interface FundSummary {
 
 /** The two real hospitals — 'all' is the merged owner's view over both. */
 export const ALL_HOSPITALS = ['hope', 'ayushman'] as const;
+
+/**
+ * Does a fund account count towards the selected hospital's money?
+ *
+ * 'all' takes everything. A single hospital takes its own accounts plus the
+ * accounts of the company both hospitals share — but never the other one's.
+ */
+export const accountBelongsTo = (accountHospital: string, selected: string) =>
+  selected === 'all' || accountHospital === selected || accountHospital === 'both';
 
 // Generate today's schedule by calling the RPC ('all' generates both).
 const generateSchedule = async (date: string, hospital: string) => {
@@ -429,19 +438,33 @@ export const useFundAccounts = (date: string) => {
         }));
 
         for (const { config, ledgers } of ledgerResults) {
+          // "Drm Hope Hospital Pvt Ltd & Ayushman Hospital" names both, so it
+          // must be tested before either single name — its banks belong to Hope
+          // AND Ayushman, and counting it under Hope alone understates Ayushman.
           const companyLower = (config.company_name || '').toLowerCase();
+          const namesHope = companyLower.includes('hope');
+          const namesAyushman = companyLower.includes('ayushman') || companyLower.includes('aishman');
           let hospital = 'other';
-          if (companyLower.includes('hope')) hospital = 'hope';
-          else if (companyLower.includes('ayushman') || companyLower.includes('aishman')) hospital = 'ayushman';
+          if (namesHope && namesAyushman) hospital = 'both';
+          else if (namesHope) hospital = 'hope';
+          else if (namesAyushman) hospital = 'ayushman';
 
           if (ledgers) {
             for (const l of ledgers) {
               // Skip hidden/inactive ledgers
               if (l.is_hidden) continue;
 
-              // Prevent duplicate accounts if multiple tally_config rows map to same company
-              const alreadyExists = accounts.some(a => a.name.toLowerCase() === l.name.toLowerCase());
-              if (alreadyExists) continue;
+              // Prevent duplicate accounts if multiple tally_config rows map to same company.
+              // A name both hospitals use (plain "Cash") is kept as one row, but it
+              // belongs to both — otherwise which hospital owns it would come down
+              // to the order the configs happen to be iterated in.
+              const existing = accounts.find(a => a.name.toLowerCase() === l.name.toLowerCase());
+              if (existing) {
+                if (existing.hospital !== hospital && hospital !== 'other' && existing.hospital !== 'other') {
+                  existing.hospital = 'both';
+                }
+                continue;
+              }
 
               const pg = (l.parent_group || '').toLowerCase();
               const type = pg.includes('cash') ? 'cash' as const : 'bank' as const;
@@ -806,23 +829,34 @@ export interface SavedAllocation {
 export const useAllocationSaveStatus = (date: string, hospital: string) => {
   const query = useQuery({
     queryKey: ['allocation-save-status', date, hospital],
-    queryFn: async (): Promise<SavedAllocation | null> => {
-      const { data, error } = await (supabase as any)
+    queryFn: async (): Promise<SavedAllocation[]> => {
+      // A day is still saved one row per hospital. The merged view reads both
+      // rows and only calls the day saved once neither hospital is outstanding.
+      let saveQuery = (supabase as any)
         .from('daily_allocation_saves')
         .select('*')
-        .eq('save_date', date)
-        .eq('hospital_name', hospital)
-        .maybeSingle();
+        .eq('save_date', date);
+      saveQuery = hospital === 'all'
+        ? saveQuery.in('hospital_name', [...ALL_HOSPITALS])
+        : saveQuery.eq('hospital_name', hospital);
+      const { data, error } = await saveQuery;
       if (error) throw error;
-      return data as SavedAllocation | null;
+      return (data || []) as SavedAllocation[];
     },
-    // A day is saved per hospital — the merged view has no single save row.
-    enabled: !!date && !!hospital && hospital !== 'all',
+    enabled: !!date && !!hospital,
   });
 
+  const saves = query.data || [];
+  const expected = hospital === 'all' ? ALL_HOSPITALS.length : 1;
+
   return {
-    isSaved: !!query.data,
-    save: query.data,
+    isSaved: saves.length >= expected,
+    /** The merged view reports the hospital saved first; single views have one. */
+    save: saves[0] ?? null,
+    /** Which hospitals still have no save row — drives the merged view's wording. */
+    unsavedHospitals: hospital === 'all'
+      ? ALL_HOSPITALS.filter((h) => !saves.some((s) => s.hospital_name === h))
+      : [],
     isLoading: query.isLoading,
   };
 };
