@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
 
-type DeliveryPartner = 'Porter' | 'DTDC';
+type DeliveryPartner = 'Shadowfax' | 'DTDC';
 type OrderStatus = 'Preparing' | 'Out for delivery' | 'Delivered';
 
 interface OnlineOrder {
@@ -46,8 +46,8 @@ const sampleOrders: OnlineOrder[] = [
     placedAt: '08 Aug 2026, 12:48 PM',
     amount: 684,
     payment: 'Paid online',
-    partner: 'Porter',
-    trackingId: 'PTR-DEL-1048',
+    partner: 'Shadowfax',
+    trackingId: 'SFX-DEL-1048',
     status: 'Out for delivery',
     eta: 'Today, 3:30–4:00 PM',
     medicines: [
@@ -94,8 +94,8 @@ const OnlineOrderTracking: React.FC<Props> = ({ open, onOpenChange }) => {
   );
   const selectedOrder = orders.find((order) => order.id === selectedOrderId) || orders[0];
 
-  const trackingUrl = selectedOrder?.partner === 'Porter'
-    ? `https://porter.in/track/${selectedOrder.trackingId}`
+  const trackingUrl = selectedOrder?.partner === 'Shadowfax'
+    ? `https://tracker.shadowfax.in/track/${selectedOrder.trackingId}`
     : `https://www.dtdc.in/tracking/tracking_results.asp?strCnno=${selectedOrder?.trackingId}`;
 
   return (
@@ -107,13 +107,13 @@ const OnlineOrderTracking: React.FC<Props> = ({ open, onOpenChange }) => {
             Online medicine orders
             <Badge variant="secondary">{sampleOrders.length} orders</Badge>
           </DialogTitle>
-          <p className="text-sm text-muted-foreground">Track every in-city Porter delivery and other-state DTDC shipment.</p>
+          <p className="text-sm text-muted-foreground">Track every in-city Shadowfax delivery and other-state DTDC shipment.</p>
         </DialogHeader>
 
         <div className="grid min-h-0 grid-cols-1 md:grid-cols-[300px_1fr]">
           <aside className="min-h-0 overflow-y-auto border-r bg-slate-50/70 p-4">
             <div className="mb-4 flex gap-2">
-              {(['all', 'Porter', 'DTDC'] as const).map((value) => (
+              {(['all', 'Shadowfax', 'DTDC'] as const).map((value) => (
                 <Button
                   key={value}
                   size="sm"
@@ -135,7 +135,7 @@ const OnlineOrderTracking: React.FC<Props> = ({ open, onOpenChange }) => {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <span className="font-semibold text-sm">{order.id}</span>
-                    <Badge className={order.partner === 'Porter' ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100' : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-100'}>{order.partner}</Badge>
+                    <Badge className={order.partner === 'Shadowfax' ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100' : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-100'}>{order.partner}</Badge>
                   </div>
                   <p className="mt-2 text-sm text-slate-700">{order.patient}</p>
                   <p className="text-xs text-muted-foreground">{order.city}, {order.state}</p>
@@ -175,7 +175,7 @@ const OnlineOrderTracking: React.FC<Props> = ({ open, onOpenChange }) => {
               </div>
 
               <div className="mt-6 rounded-xl border p-4"><h3 className="flex items-center gap-2 font-semibold"><Pill className="h-4 w-4 text-blue-600" />Medicine details</h3><div className="mt-3 divide-y">{selectedOrder.medicines.map((medicine) => <div key={medicine.name} className="flex items-center justify-between py-3 text-sm"><span>{medicine.name} <span className="text-muted-foreground">× {medicine.quantity}</span></span><span className="font-medium">₹{(medicine.price * medicine.quantity).toLocaleString('en-IN')}</span></div>)}</div><Separator /><div className="flex justify-between pt-3 font-semibold"><span>Order total</span><span>₹{selectedOrder.amount.toLocaleString('en-IN')}</span></div></div>
-              <div className="mt-4 flex items-center gap-2 rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-800"><PackageCheck className="h-4 w-4 shrink-0" />{selectedOrder.partner === 'Porter' ? 'In-city delivery is being handled by Porter.' : 'This other-state order is being shipped through DTDC.'}<ArrowRight className="ml-auto h-4 w-4" /></div>
+              <div className="mt-4 flex items-center gap-2 rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-800"><PackageCheck className="h-4 w-4 shrink-0" />{selectedOrder.partner === 'Shadowfax' ? 'In-city delivery is being handled by Shadowfax.' : 'This other-state order is being shipped through DTDC.'}<ArrowRight className="ml-auto h-4 w-4" /></div>
             </section>
           ) : <div className="flex items-center justify-center p-10 text-muted-foreground">No orders in this filter.</div>}
         </div>
