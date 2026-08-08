@@ -171,7 +171,8 @@ export function useRefereeFeedbackActions() {
       patientId: args.patientId,
       patientName: args.patientName,
       category: "referee_feedback",
-      uploadedBy: user?.email || user?.username || null,
+      // file_uploads.uploaded_by is a uuid column — an email is rejected.
+      uploadedBy: user?.id ?? null,
     });
     await qc.invalidateQueries({ queryKey: ["referee-feedback-docs", args.patientId] });
   };
