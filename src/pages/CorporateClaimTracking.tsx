@@ -1,163 +1,85 @@
-import { useMemo, useState, type ChangeEvent } from 'react';
-import { AlertCircle, CheckCircle2, FileSpreadsheet, ShieldCheck, Upload } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
+import { AlertCircle, CheckCircle2, FileSpreadsheet, RefreshCw, Search, ShieldCheck, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { parseCorporateClaimFile, type CorporateClaimParsedFile } from '@/lib/corporateClaimTracking';
+import { Textarea } from '@/components/ui/textarea';
+import { corporateClaimFileFingerprint, parseCorporateClaimFile, schemeForProgramId, type CorporateClaimFileType, type CorporateClaimParsedFile } from '@/lib/corporateClaimTracking';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
-const labelForFileType: Record<CorporateClaimParsedFile['fileType'], string> = {
-  under_treatment: 'Under Treatment', claims_to_be_submitted: 'Claims To Be Submitted',
-  claims_sent_to_bank: 'Claims Sent To Bank', pending_with_payer: 'Pending With Payer',
-  claims_approved_from_bank: 'Claims Approved From Bank', claims_rejected: 'Claims Rejected', unknown: 'Unknown layout',
-};
+type Scheme = 'PMJAY' | 'MJPJAY';
+type Claim = Record<string, any>;
+type ClaimStage = 'all' | 'under_treatment' | 'claims_to_be_submitted' | 'claims_sent_to_bank' | 'pending_with_payer' | 'payment_initiated' | 'payment_accomplished' | 'rejected';
+type Workspace = 'claims' | 'payments' | 'queries' | 'review';
 
-const STAGE_ORDER: CorporateClaimParsedFile['fileType'][] = [
-  'under_treatment', 'claims_to_be_submitted', 'claims_sent_to_bank',
-  'pending_with_payer', 'claims_approved_from_bank', 'claims_rejected',
-];
+const labelForFileType: Record<CorporateClaimFileType, string> = { under_treatment: 'Under Treatment', claims_to_be_submitted: 'Claims To Be Submitted', claims_sent_to_bank: 'Claims Sent To Bank', pending_with_payer: 'Pending With Payer', claims_approved_from_bank: 'Approved From Bank', claims_rejected: 'Claims Rejected', unknown: 'Unknown layout' };
+const stageLabel: Record<Exclude<ClaimStage, 'all'>, string> = { under_treatment: 'Under Treatment', claims_to_be_submitted: 'To Be Submitted', claims_sent_to_bank: 'Sent To Bank', pending_with_payer: 'Pending With Payer', payment_initiated: 'Payment Initiated', payment_accomplished: 'Payment Accomplished', rejected: 'Rejected' };
+const stageOrder: Exclude<ClaimStage, 'all'>[] = ['under_treatment', 'claims_to_be_submitted', 'claims_sent_to_bank', 'pending_with_payer', 'payment_initiated', 'payment_accomplished', 'rejected'];
+const money = (value: unknown) => value === null || value === undefined || value === '' ? '—' : new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(value) || 0);
+const canWork = (role?: string | null) => ['superadmin', 'super_admin', 'ca', 'admin', 'billing'].includes((role || '').toLowerCase());
 
-function ImportPreview({ schemeCode }: { schemeCode: 'PMJAY' | 'MJPJAY' }) {
+function PortalImport({ schemeCode, onImported, onPreview }: { schemeCode: Scheme; onImported: () => void; onPreview: (files: CorporateClaimParsedFile[]) => void }) {
   const { hospitalType } = useAuth();
   const [files, setFiles] = useState<CorporateClaimParsedFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [activeStage, setActiveStage] = useState<CorporateClaimParsedFile['fileType'] | 'all'>('all');
-  const [search, setSearch] = useState('');
-  const summary = useMemo(() => ({
-    rows: files.reduce((total, file) => total + file.rows.length, 0),
-    valid: files.reduce((total, file) => total + file.rows.filter((row) => row.issues.length === 0).length, 0),
-    invalid: files.reduce((total, file) => total + file.rows.filter((row) => row.issues.length > 0).length, 0),
-  }), [files]);
-  const previewRows = useMemo(() => files.flatMap((file) => file.rows.map((row) => ({
-    fileName: file.fileName,
-    fileType: file.fileType,
-    row,
-  }))), [files]);
-  const stageCounts = useMemo(() => Object.fromEntries(STAGE_ORDER.map((stage) => [
-    stage,
-    previewRows.filter((item) => item.fileType === stage).length,
-  ])), [previewRows]);
-  const visibleRows = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return previewRows.filter(({ fileType, row }) => {
-      if (activeStage !== 'all' && fileType !== activeStage) return false;
-      if (!query) return true;
-      return [row.originalValues['Beneficiary Name'], row.originalValues['Registration ID'], row.originalValues['Program ID'], row.originalValues.UTR, row.originalValues['Case Status']]
-        .some((value) => String(value || '').toLowerCase().includes(query));
-    });
-  }, [activeStage, previewRows, search]);
-  const formatAmount = (value: string | number | null | undefined) => {
-    if (value === null || value === undefined || value === '') return '—';
-    const amount = Number(value);
-    return Number.isFinite(amount) ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount) : String(value);
-  };
-
   const onFiles = async (event: ChangeEvent<HTMLInputElement>) => {
-    const selected = Array.from(event.target.files || []);
-    if (!selected.length) return;
+    const selected = Array.from(event.target.files || []); if (!selected.length) return;
     setLoading(true);
     try {
       const parsed = await Promise.all(selected.map(parseCorporateClaimFile));
-      setFiles(parsed);
-      if (parsed.some((file) => file.fatalErrors.length)) toast.error('Some files need correction before they can be imported.');
+      const wrongScheme = parsed.flatMap((file) => file.rows).filter((row) => schemeForProgramId(row.originalValues['Program ID']) !== schemeCode && schemeForProgramId(row.originalValues['Program ID']) !== 'UNRESOLVED');
+      setFiles(parsed); onPreview(parsed);
+      if (wrongScheme.length) toast.error(`${wrongScheme.length} row(s) belong to the other scheme and will not be mixed into ${schemeCode}.`);
+      else if (parsed.some((file) => file.fatalErrors.length)) toast.error('Some files need correction before they can be imported.');
       else toast.success(`${parsed.length} file(s) validated locally.`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'The selected files could not be read.');
-    } finally { setLoading(false); }
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'The selected files could not be read.'); }
+    finally { setLoading(false); event.target.value = ''; }
   };
-
   const importSnapshot = async () => {
-    if (files.some((file) => file.fatalErrors.length) || !files.length) return;
+    if (!files.length || files.some((file) => file.fatalErrors.length)) return;
     setImporting(true);
     try {
-      const { data, error } = await supabase.functions.invoke('corporate-claim-import', {
-        body: { hospitalName: hospitalType || 'hope', schemeCode, sourceKind: 'system_initial_import', files },
-      });
+      const contentFingerprints = await Promise.all(files.map(corporateClaimFileFingerprint));
+      const { data, error } = await supabase.functions.invoke('corporate-claim-import', { body: { hospitalName: hospitalType || 'hope', schemeCode, sourceKind: 'portal', files, contentFingerprints } });
       if (error) throw error;
-      toast.success(`Import completed: ${data.validRows} valid row(s), ${data.invalidRows} needing review.`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'The controlled import could not be completed.');
-    } finally { setImporting(false); }
+      const skipped = Number(data?.duplicateFiles || 0);
+      toast.success(skipped ? `${skipped} already-imported file(s) skipped. Existing records are shown.` : `Import completed: ${data?.validRows || 0} valid row(s).`);
+      setFiles([]); onImported();
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'The controlled import could not be completed.'); }
+    finally { setImporting(false); }
   };
-
-  return <div className="space-y-5">
-    <Card className="border-indigo-200 bg-indigo-50/40">
-      <CardHeader>
-        <div className="flex items-start gap-3">
-          <ShieldCheck className="mt-0.5 h-5 w-5 text-indigo-700" />
-          <div>
-            <CardTitle className="text-base">Phase 1 protected import</CardTitle>
-            <CardDescription className="mt-1 text-indigo-950/70">
-              Files are validated against the new claim-tracking format. This module never updates existing patients, visits, bills, payments, or portal imports.
-            </CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <Input type="file" accept=".csv,.xls,.xlsx" multiple onChange={onFiles} disabled={loading} />
-        <p className="text-xs text-muted-foreground">Select one file or the complete six-file portal snapshot. Recognized files are caret-delimited CSV, XLS, or XLSX.</p>
-      </CardContent>
-    </Card>
-
-    {files.length > 0 && <>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Portal rows</p><p className="text-2xl font-bold">{summary.rows}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Valid rows</p><p className="text-2xl font-bold text-emerald-700">{summary.valid}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Rows needing review</p><p className="text-2xl font-bold text-amber-700">{summary.invalid}</p></CardContent></Card>
-      </div>
-      <div className="space-y-3">
-        {files.map((file) => <Card key={file.fileName}>
-          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-            <div className="flex min-w-0 items-center gap-3"><FileSpreadsheet className="h-5 w-5 shrink-0 text-indigo-600" /><div className="min-w-0"><p className="truncate font-medium">{file.fileName}</p><p className="text-xs text-muted-foreground">{file.reportDate || 'Report date not detected'} · {file.rows.length} portal rows</p></div></div>
-            <div className="flex flex-wrap gap-2"><Badge variant="outline">{labelForFileType[file.fileType]}</Badge>{file.fatalErrors.length ? <Badge variant="destructive"><AlertCircle className="mr-1 h-3 w-3" />Needs correction</Badge> : <Badge className="bg-emerald-600"><CheckCircle2 className="mr-1 h-3 w-3" />Validated</Badge>}</div>
-            {file.fatalErrors.length > 0 && <p className="w-full text-xs text-destructive">{file.fatalErrors.join(' ')}</p>}
-          </CardContent>
-        </Card>)}
-      </div>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Portal patient and claim data</CardTitle>
-          <CardDescription>Choose a portal stage below. A patient can appear more than once when the portal lists the claim in multiple files.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            <Button variant={activeStage === 'all' ? 'default' : 'outline'} className="h-auto justify-between py-3" onClick={() => setActiveStage('all')}><span>All Records</span><span>{previewRows.length}</span></Button>
-            {STAGE_ORDER.map((stage) => <Button key={stage} variant={activeStage === stage ? 'default' : 'outline'} className="h-auto justify-between py-3 text-left" onClick={() => setActiveStage(stage)}><span>{labelForFileType[stage]}</span><span>{stageCounts[stage]}</span></Button>)}
-          </div>
-          <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search patient name, Registration ID, Program ID, UTR, or status" />
-          <p className="text-sm text-muted-foreground">Showing {visibleRows.length} row(s){activeStage === 'all' ? ' from all portal files' : ` from ${labelForFileType[activeStage]}`}.</p>
-          <div className="max-h-[560px] overflow-auto rounded-md border">
-            <Table>
-              <TableHeader className="sticky top-0 bg-background"><TableRow><TableHead>Patient</TableHead><TableHead>Registration ID</TableHead><TableHead>Program ID</TableHead><TableHead>Portal stage</TableHead><TableHead className="text-right">Claim</TableHead><TableHead className="text-right">Approved</TableHead><TableHead className="text-right">Paid</TableHead><TableHead>UTR</TableHead><TableHead>Result</TableHead></TableRow></TableHeader>
-              <TableBody>{visibleRows.map(({ fileName, fileType, row }) => <TableRow key={`${fileName}-${row.rowNumber}`}>
-                <TableCell className="min-w-[190px] font-medium">{row.originalValues['Beneficiary Name'] || '—'}<p className="mt-0.5 text-xs text-muted-foreground">{fileName}</p></TableCell>
-                <TableCell>{row.originalValues['Registration ID'] || '—'}</TableCell>
-                <TableCell>{row.originalValues['Program ID'] || '—'}</TableCell>
-                <TableCell><Badge variant="outline">{labelForFileType[fileType]}{row.originalValues['Case Status'] ? ` · ${row.originalValues['Case Status']}` : ''}</Badge></TableCell>
-                <TableCell className="text-right">{formatAmount(row.normalizedValues.claim_amount)}</TableCell>
-                <TableCell className="text-right">{formatAmount(row.normalizedValues.approved_amount)}</TableCell>
-                <TableCell className="text-right">{formatAmount(row.normalizedValues.paid_amount)}</TableCell>
-                <TableCell>{row.originalValues.UTR || '—'}</TableCell>
-                <TableCell>{row.issues.length ? <Badge variant="destructive">Review</Badge> : <Badge className="bg-emerald-600">Valid</Badge>}</TableCell>
-              </TableRow>)}{visibleRows.length === 0 && <TableRow><TableCell colSpan={9} className="py-10 text-center text-muted-foreground">No portal rows match this stage and search.</TableCell></TableRow>}</TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
-      <Card className="border-dashed"><CardContent className="flex items-center justify-between gap-4 p-4"><p className="text-sm text-muted-foreground">Validated {schemeCode} rows are sent only to the controlled tracking-import service. It can write only the new tracking tables.</p><Button onClick={importSnapshot} disabled={importing || files.some((file) => file.fatalErrors.length)}><Upload className="mr-2 h-4 w-4" />{importing ? 'Importing…' : 'Import validated snapshot'}</Button></CardContent></Card>
-    </>}
-  </div>;
+  return <Card className="border-indigo-200 bg-indigo-50/40"><CardHeader><div className="flex gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 text-indigo-700" /><div><CardTitle className="text-base">Protected portal import</CardTitle><CardDescription>Duplicate content is skipped. This import writes only the new claim-tracking tables.</CardDescription></div></div></CardHeader><CardContent className="space-y-3"><Input type="file" accept=".csv,.xls,.xlsx" multiple onChange={onFiles} disabled={loading || importing} /><p className="text-xs text-muted-foreground">Use the {schemeCode} portal files. `PJ…` Program IDs are PMJAY, `MJ…` are MJPJAY; other IDs are placed in Review.</p>{files.length > 0 && <div className="space-y-2">{files.map((file) => <div key={file.fileName} className="flex flex-wrap items-center justify-between gap-2 rounded border bg-background p-2 text-sm"><span className="flex items-center gap-2"><FileSpreadsheet className="h-4 w-4 text-indigo-600" />{file.fileName} · {file.rows.length} rows</span><Badge variant={file.fatalErrors.length ? 'destructive' : 'outline'}>{file.fatalErrors.length ? file.fatalErrors[0] : labelForFileType[file.fileType]}</Badge></div>)}<Button onClick={importSnapshot} disabled={importing || files.some((file) => file.fatalErrors.length)}><Upload className="mr-2 h-4 w-4" />{importing ? 'Importing…' : 'Import validated snapshot'}</Button></div>}</CardContent></Card>;
 }
 
-export default function CorporateClaimTracking() {
-  return <div className="min-h-screen bg-slate-50"><div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
-    <header><p className="text-xs font-semibold uppercase tracking-widest text-indigo-600">Government claims</p><h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">Corporate Claim Tracking</h1><p className="mt-2 max-w-3xl text-sm text-slate-600">Separate, auditable PMJAY and MJPJAY claim tracking. Phase 1 validates portal data without touching existing HMIS records.</p></header>
-    <Tabs defaultValue="PMJAY"><TabsList><TabsTrigger value="PMJAY">PMJAY</TabsTrigger><TabsTrigger value="MJPJAY">MJPJAY</TabsTrigger></TabsList><TabsContent value="PMJAY" className="mt-5"><ImportPreview schemeCode="PMJAY" /></TabsContent><TabsContent value="MJPJAY" className="mt-5"><ImportPreview schemeCode="MJPJAY" /></TabsContent></Tabs>
-  </div></div>;
+function ClaimDetails({ claim, onClose, onChanged, editable }: { claim: Claim | null; onClose: () => void; onChanged: () => void; editable: boolean }) {
+  const [history, setHistory] = useState<Claim[]>([]); const [payments, setPayments] = useState<Claim[]>([]); const [queries, setQueries] = useState<Claim[]>([]); const [review, setReview] = useState<Claim[]>([]); const [note, setNote] = useState('');
+  useEffect(() => { if (!claim?.id) return; Promise.all([
+    supabase.from('corporate_claim_status_history').select('*').eq('claim_id', claim.id).order('created_at', { ascending: false }),
+    supabase.from('corporate_claim_payment_transactions').select('*').eq('claim_id', claim.id).order('created_at', { ascending: false }),
+    supabase.from('corporate_claim_queries').select('*').eq('claim_id', claim.id).order('created_at', { ascending: false }),
+    supabase.from('corporate_claim_review_items').select('*').eq('claim_id', claim.id).order('created_at', { ascending: false }),
+  ]).then(([a, b, c, d]) => { setHistory((a.data || []) as Claim[]); setPayments((b.data || []) as Claim[]); setQueries((c.data || []) as Claim[]); setReview((d.data || []) as Claim[]); }); }, [claim?.id]);
+  const resolve = async (reviewItem?: Claim) => { if (!claim) return; try { const { error } = await supabase.functions.invoke('corporate-claim-workflow', { body: { action: reviewItem ? 'resolve_review' : 'add_query_note', claimId: claim.id, reviewItemId: reviewItem?.id, note } }); if (error) throw error; toast.success('Claim tracking record updated.'); setNote(''); onChanged(); } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not update claim tracking.'); } };
+  return <Dialog open={Boolean(claim)} onOpenChange={(open) => !open && onClose()}><DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto"><DialogHeader><DialogTitle>{claim?.beneficiary_name || 'Claim details'}</DialogTitle><DialogDescription>{claim?.government_registration_id || 'No Registration ID'} · {claim?.government_program_id || 'No Program ID'}</DialogDescription></DialogHeader>{claim && <div className="grid gap-3 text-sm sm:grid-cols-3"><Card><CardContent className="p-3">Stage: <b>{stageLabel[claim.current_stage as Exclude<ClaimStage, 'all'>] || claim.current_stage}</b></CardContent></Card><Card><CardContent className="p-3">Claimed: <b>{money(claim.claimed_amount)}</b><br />Approved: <b>{money(claim.approved_amount)}</b></CardContent></Card><Card><CardContent className="p-3">Paid: <b>{money(claim.paid_amount)}</b><br />Payment: <b>{claim.payment_state}</b></CardContent></Card></div>}<section><h3 className="mb-2 font-semibold">Portal stage history</h3>{history.length ? history.map((row) => <p key={row.id} className="border-b py-2 text-sm">{row.effective_report_date || row.created_at}: {row.prior_stage || 'New'} → <b>{row.new_stage}</b> {row.raw_source_status ? `(${row.raw_source_status})` : ''}</p>) : <p className="text-sm text-muted-foreground">No saved history yet.</p>}</section><section><h3 className="mb-2 font-semibold">Payments</h3>{payments.length ? payments.map((row) => <p key={row.id} className="border-b py-2 text-sm">{money(row.paid_amount)} · UTR {row.utr || '—'} · {row.payment_date || 'No date'} · TDS {money(row.tds_amount)} · RF {money(row.rf_amount)}</p>) : <p className="text-sm text-muted-foreground">No portal payment record.</p>}</section><section><h3 className="mb-2 font-semibold">Queries and review</h3>{queries.map((row) => <p key={row.id} className="border-b py-2 text-sm">{row.workflow_state}: {row.original_remark || row.hospital_action || 'No remark'}</p>)}{review.map((row) => <div key={row.id} className="flex items-center justify-between border-b py-2 text-sm"><span>{row.review_type} · {row.status}</span>{editable && row.status === 'open' && <Button size="sm" variant="outline" onClick={() => resolve(row)}>Resolve review</Button>}</div>)}{editable && <div className="mt-3 flex gap-2"><Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add query/review follow-up note" /><Button onClick={() => resolve()} disabled={!note.trim()}>Save note</Button></div>}</section></DialogContent></Dialog>;
 }
+
+function Operations({ schemeCode }: { schemeCode: Scheme }) {
+  const { hospitalType, user } = useAuth(); const [claims, setClaims] = useState<Claim[]>([]); const [previewFiles, setPreviewFiles] = useState<CorporateClaimParsedFile[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [workspace, setWorkspace] = useState<Workspace>('claims'); const [stage, setStage] = useState<ClaimStage>('all'); const [search, setSearch] = useState(''); const [selected, setSelected] = useState<Claim | null>(null);
+  const refresh = useCallback(async () => { setLoading(true); setError(''); const { data, error: queryError } = await supabase.from('corporate_claims').select('*').eq('hospital_name', hospitalType || 'hope').eq('scheme_code', schemeCode).order('updated_at', { ascending: false }); if (queryError) setError('Saved tracking data is not available yet. Apply the new tracking migration only to your local/test Supabase database, then refresh.'); else setClaims((data || []) as Claim[]); setLoading(false); }, [hospitalType, schemeCode]);
+  useEffect(() => { refresh(); }, [refresh]);
+  const previewClaims = useMemo(() => previewFiles.flatMap((file) => file.rows.map((row) => ({ id: `preview-${file.fileName}-${row.rowNumber}`, beneficiary_name: row.originalValues['Beneficiary Name'], government_registration_id: row.originalValues['Registration ID'], government_program_id: row.originalValues['Program ID'], current_stage: file.fileType === 'claims_approved_from_bank' ? (String(row.originalValues['Case Status']).toLowerCase().includes('accomplished') ? 'payment_accomplished' : 'payment_initiated') : file.fileType === 'claims_rejected' ? 'rejected' : file.fileType, claimed_amount: row.normalizedValues.claim_amount, approved_amount: row.normalizedValues.approved_amount, paid_amount: row.normalizedValues.paid_amount, payment_state: row.normalizedValues.paid_amount ? 'received' : 'not_due', match_state: row.issues.length ? 'unmatched' : 'preview', raw_government_status: row.originalValues['Case Status'] }))), [previewFiles]);
+  const displayClaims = claims.length ? claims : previewClaims;
+  const filtered = useMemo(() => displayClaims.filter((claim) => { if (stage !== 'all' && claim.current_stage !== stage) return false; const q = search.trim().toLowerCase(); return !q || [claim.beneficiary_name, claim.government_registration_id, claim.government_program_id, claim.raw_government_status].some((v) => String(v || '').toLowerCase().includes(q)); }), [displayClaims, stage, search]);
+  const rows = workspace === 'payments' ? filtered.filter((claim) => ['payment_initiated', 'payment_accomplished'].includes(claim.current_stage)) : workspace === 'queries' ? filtered.filter((claim) => claim.query_state !== 'none' || claim.current_stage === 'rejected') : workspace === 'review' ? filtered.filter((claim) => claim.match_state !== 'matched' && claim.match_state !== 'manual_match') : filtered;
+  const metrics = stageOrder.map((item) => ({ stage: item, count: displayClaims.filter((claim) => claim.current_stage === item).length }));
+  return <div className="space-y-5"><PortalImport schemeCode={schemeCode} onImported={refresh} onPreview={setPreviewFiles} /><div className="flex flex-wrap items-center justify-between gap-2"><div className="flex flex-wrap gap-2">{(['claims', 'payments', 'queries', 'review'] as Workspace[]).map((item) => <Button key={item} size="sm" variant={workspace === item ? 'default' : 'outline'} onClick={() => setWorkspace(item)}>{item === 'claims' ? 'Claims' : item === 'payments' ? 'Payments' : item === 'queries' ? 'Queries & Rejections' : 'Review worklist'}</Button>)}</div><Button size="sm" variant="outline" onClick={refresh}><RefreshCw className="mr-2 h-4 w-4" />Refresh</Button></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Card className={stage === 'all' ? 'border-indigo-500' : ''} onClick={() => setStage('all')}><CardContent className="cursor-pointer p-4"><p className="text-xs text-muted-foreground">All claims</p><p className="text-2xl font-bold">{displayClaims.length}</p></CardContent></Card>{metrics.map(({ stage: item, count }) => <Card key={item} className={stage === item ? 'border-indigo-500' : ''} onClick={() => setStage(item)}><CardContent className="cursor-pointer p-4"><p className="text-xs text-muted-foreground">{stageLabel[item]}</p><p className="text-2xl font-bold">{count}</p></CardContent></Card>)}<Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Paid total</p><p className="text-2xl font-bold text-emerald-700">{money(displayClaims.reduce((sum, claim) => sum + Number(claim.paid_amount || 0), 0))}</p></CardContent></Card><Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Needs review</p><p className="text-2xl font-bold text-amber-700">{displayClaims.filter((claim) => !['matched', 'manual_match'].includes(claim.match_state)).length}</p></CardContent></Card></div><Card><CardHeader><CardTitle className="text-base">{workspace === 'claims' ? 'Claim worklist' : workspace === 'payments' ? 'Payment worklist' : workspace === 'queries' ? 'Query and rejection worklist' : 'Unmatched and unresolved worklist'}</CardTitle><CardDescription>{claims.length ? 'Saved tracking data. Click a patient for details.' : 'Local portal preview — patient data appears immediately after files are selected.'}</CardDescription></CardHeader><CardContent className="space-y-3"><div className="relative"><Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search patient, Registration ID, Program ID, or portal status" /></div>{error && !previewClaims.length && <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"><AlertCircle className="mr-2 inline h-4 w-4" />{error}</div>}<div className="max-h-[560px] overflow-auto rounded border"><Table><TableHeader className="sticky top-0 bg-background"><TableRow><TableHead>Patient</TableHead><TableHead>Registration / Program ID</TableHead><TableHead>Stage</TableHead><TableHead>Claim / Approved / Paid</TableHead><TableHead>Payment</TableHead><TableHead>Match</TableHead></TableRow></TableHeader><TableBody>{loading && !previewClaims.length ? <TableRow><TableCell colSpan={6} className="py-10 text-center">Loading saved tracking data…</TableCell></TableRow> : rows.map((claim) => <TableRow key={claim.id} className="cursor-pointer" onClick={() => setSelected(claim)}><TableCell className="font-medium">{claim.beneficiary_name || '—'}</TableCell><TableCell>{claim.government_registration_id || '—'}<p className="text-xs text-muted-foreground">{claim.government_program_id || '—'}</p></TableCell><TableCell><Badge variant="outline">{stageLabel[claim.current_stage as Exclude<ClaimStage, 'all'>] || claim.current_stage}</Badge></TableCell><TableCell>{money(claim.claimed_amount)} / {money(claim.approved_amount)} / {money(claim.paid_amount)}</TableCell><TableCell>{claim.payment_state}</TableCell><TableCell><Badge variant={['matched', 'manual_match'].includes(claim.match_state) ? 'default' : 'secondary'}>{claim.match_state}</Badge></TableCell></TableRow>)}{!loading && !rows.length && <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">No {schemeCode} records match this view.</TableCell></TableRow>}</TableBody></Table></div></CardContent></Card><ClaimDetails claim={selected} onClose={() => setSelected(null)} onChanged={refresh} editable={canWork(user?.role)} /></div>;
+}
+
+export default function CorporateClaimTracking() { return <div className="min-h-screen bg-slate-50"><div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6"><header><p className="text-xs font-semibold uppercase tracking-widest text-indigo-600">Government claims</p><h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">Corporate Claim Tracking</h1><p className="mt-2 max-w-3xl text-sm text-slate-600">Separate, auditable PMJAY and MJPJAY claim tracking. Existing HMIS patients, visits, bills, payments, and portal imports are never updated here.</p></header><Tabs defaultValue="PMJAY"><TabsList><TabsTrigger value="PMJAY">PMJAY</TabsTrigger><TabsTrigger value="MJPJAY">MJPJAY</TabsTrigger></TabsList><TabsContent value="PMJAY" className="mt-5"><Operations schemeCode="PMJAY" /></TabsContent><TabsContent value="MJPJAY" className="mt-5"><Operations schemeCode="MJPJAY" /></TabsContent></Tabs></div></div>; }

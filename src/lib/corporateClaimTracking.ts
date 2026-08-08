@@ -46,6 +46,21 @@ const headerKey = (value: unknown) => clean(value).toLowerCase();
 export const normalizeIdentifier = (value: unknown) => clean(value).toUpperCase().replace(/[^A-Z0-9]/g, '');
 export const normalizeName = (value: unknown) => clean(value).toUpperCase().replace(/[^A-Z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
 
+/** Portal IDs are classified only by their normalized prefix.  Never guess. */
+export function schemeForProgramId(value: unknown): 'PMJAY' | 'MJPJAY' | 'UNRESOLVED' {
+  const programId = normalizeIdentifier(value);
+  if (programId.startsWith('PJ')) return 'PMJAY';
+  if (programId.startsWith('MJ')) return 'MJPJAY';
+  return 'UNRESOLVED';
+}
+
+/** Stable content identity deliberately excludes a file name, so renamed copies are duplicates. */
+export async function corporateClaimFileFingerprint(file: CorporateClaimParsedFile): Promise<string> {
+  const content = JSON.stringify({ type: file.fileType, reportDate: file.reportDate, headers: file.headers, rows: file.rows.map((row) => row.originalValues) });
+  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(content)));
+  return Array.from(bytes).map((item) => item.toString(16).padStart(2, '0')).join('');
+}
+
 export function parseClaimAmount(value: unknown): number | null {
   const cleaned = clean(value).replace(/,/g, '').replace(/[^0-9.-]/g, '');
   if (!cleaned) return null;

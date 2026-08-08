@@ -19,6 +19,7 @@ type Tab = 'dashboard' | 'import' | 'patients' | 'reports' | 'management';
 
 type SchemeRecord = {
   id: string;
+  import_id: string;
   patient_name: string;
   uhid: string | null;
   registration_id: string | null;
@@ -34,6 +35,13 @@ type SchemeRecord = {
   match_method: string | null;
   match_confidence: string;
   processing_error: string | null;
+};
+
+type DashboardSummary = {
+  total_patients: number;
+  admitted_patients: number;
+  discharged_patients: number;
+  claim_query_patients: number;
 };
 
 const headerAliases: Record<string, string[]> = {
@@ -135,6 +143,7 @@ export default function CorporateSchemeModule() {
   const schemeName = SCHEMES[normalizedScheme] || schemeCode.toUpperCase();
   const [tab, setTab] = useState<Tab>('dashboard');
   const [records, setRecords] = useState<SchemeRecord[]>([]);
+  const [summary, setSummary] = useState<DashboardSummary>({ total_patients: 0, admitted_patients: 0, discharged_patients: 0, claim_query_patients: 0 });
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [search, setSearch] = useState('');
@@ -145,10 +154,36 @@ export default function CorporateSchemeModule() {
 
   const loadRecords = async () => {
     setLoading(true);
-    const { data, error } = await db.from('corporate_scheme_records').select('*').eq('scheme_code', schemeName).order('imported_at', { ascending: false }).limit(1000);
-    if (error) toast.error(`Could not load ${schemeName} records: ${error.message}`);
-    else setRecords(data || []);
+    const { data: activeImport, error: importError } = await db
+      .from('corporate_scheme_imports')
+      .select('id')
+      .eq('scheme_code', schemeName)
+      .eq('is_active', true)
+      .maybeSingle();
+    if (importError) toast.error(`Could not load ${schemeName} records: ${importError.message}`);
+    else if (!activeImport) setRecords([]);
+    else {
+      const { data, error } = await db.from('corporate_scheme_records').select('*').eq('import_id', activeImport.id).order('imported_at', { ascending: false }).limit(1000);
+      if (error) toast.error(`Could not load ${schemeName} records: ${error.message}`);
+      else setRecords(data || []);
+    }
     setLoading(false);
+  };
+
+  const loadDashboardSummary = async () => {
+    const { data, error } = await db.rpc('get_corporate_scheme_dashboard_summary', { p_scheme_code: schemeName });
+    if (error) {
+      toast.error(`Could not load ${schemeName} dashboard: ${error.message}`);
+      setSummary({ total_patients: 0, admitted_patients: 0, discharged_patients: 0, claim_query_patients: 0 });
+      return;
+    }
+    const result = Array.isArray(data) ? data[0] : data;
+    setSummary({
+      total_patients: Number(result?.total_patients || 0),
+      admitted_patients: Number(result?.admitted_patients || 0),
+      discharged_patients: Number(result?.discharged_patients || 0),
+      claim_query_patients: Number(result?.claim_query_patients || 0),
+    });
   };
 
   const loadSchemeConfig = async () => {
@@ -157,7 +192,20 @@ export default function CorporateSchemeModule() {
     if (Array.isArray(saved) && saved.length) setCategories(saved);
   };
 
-  useEffect(() => { loadRecords(); loadSchemeConfig(); }, [schemeName]);
+  useEffect(() => { loadRecords(); loadDashboardSummary(); loadSchemeConfig(); }, [schemeName]);
+
+  useEffect(() => {
+    const refreshDashboard = () => {
+      void loadRecords();
+      void loadDashboardSummary();
+    };
+    const channel = db
+      .channel(`corporate-scheme-dashboard-${schemeName}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'corporate_scheme_records', filter: `scheme_code=eq.${schemeName}` }, refreshDashboard)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'corporate_scheme_imports', filter: `scheme_code=eq.${schemeName}` }, refreshDashboard)
+      .subscribe();
+    return () => { db.removeChannel(channel); };
+  }, [schemeName]);
 
   const filtered = useMemo(() => records.filter((record) => {
     const needle = search.toLowerCase();
@@ -165,8 +213,6 @@ export default function CorporateSchemeModule() {
       (status === 'all' || record.status === status) && (category === 'all' || record.category === category);
   }), [records, search, status, category]);
   const categoryOptions = useMemo(() => [...new Set([...categories, ...records.map((record) => record.category)])], [categories, records]);
-  const metrics = useMemo(() => ({ total: records.length, pending: records.filter((record) => record.status === 'pending').length, processed: records.filter((record) => record.match_confidence === 'matched').length, unmatched: records.filter((record) => record.match_confidence !== 'matched').length }), [records]);
-
   const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -206,13 +252,22 @@ export default function CorporateSchemeModule() {
         payload.push({ scheme_code: schemeName, record_key: recordKey, source_file_name: file.name, source_row_number: headerRowIndex + index + 2, imported_by: currentUser(), external_id: externalId || null, registration_id: registrationId || null, uhid: uhid || null, patient_name: patientName, admission_date: toDate(rawValueFor(row, headerAliases.admissionDate)), discharge_date: toDate(rawValueFor(row, headerAliases.dischargeDate)), category: classify(valueFor(row, headerAliases.category), row), status: valueFor(row, headerAliases.status).toLowerCase() || 'pending', matched_patient_id: match.patientId, matched_visit_id: match.visitId, match_method: match.method, match_confidence: match.confidence, processing_error: match.confidence === 'error' ? match.method : null, raw_data: row, updated_at: new Date().toISOString() });
       }
       if (!payload.length) throw new Error('No valid patient rows were found. Add a Patient Name column and try again.');
+      const { data: importBatch, error: importError } = await db
+        .from('corporate_scheme_imports')
+        .insert({ scheme_code: schemeName, source_file_name: file.name, imported_by: currentUser(), status: 'processing' })
+        .select('id')
+        .single();
+      if (importError || !importBatch) throw importError || new Error('Could not create an import batch.');
+      payload.forEach((record) => { record.import_id = importBatch.id; });
       for (let start = 0; start < payload.length; start += 100) {
         const { error } = await db.from('corporate_scheme_records').upsert(payload.slice(start, start + 100), { onConflict: 'scheme_code,record_key' });
         if (error) throw error;
       }
+      const { error: activationError } = await db.rpc('activate_corporate_scheme_import', { p_import_id: importBatch.id });
+      if (activationError) throw activationError;
       toast.success(`${payload.length} ${schemeName} rows processed${invalid ? `; ${invalid} row(s) skipped` : ''}${duplicates ? `; ${duplicates} duplicate row(s) skipped` : ''}.`);
-      await loadRecords();
-      setTab('patients');
+      await Promise.all([loadRecords(), loadDashboardSummary()]);
+      setTab('dashboard');
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Import failed.'); }
     finally { setUploading(false); }
   };
@@ -234,7 +289,7 @@ export default function CorporateSchemeModule() {
   return <div className="min-h-screen bg-slate-50 p-4 md:p-6"><div className="mx-auto max-w-7xl space-y-5">
     <header className="flex flex-col gap-3 rounded-2xl border bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3"><span className="rounded-xl bg-blue-100 p-3 text-blue-700"><Building2 /></span><div><p className="text-xs font-semibold uppercase tracking-wider text-blue-600">Corporate scheme</p><h1 className="text-2xl font-bold text-slate-900">{schemeName}</h1><p className="text-sm text-slate-500">Records, dashboard, imports, reports, and settings for {schemeName} only.</p></div></div><label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"><Upload className="h-4 w-4" />{uploading ? 'Processing…' : `Import ${schemeName} Excel`}<input className="hidden" type="file" accept=".xlsx,.xls,.csv" disabled={uploading} onChange={handleUpload} /></label></header>
     <nav className="flex flex-wrap gap-2">{(['dashboard', 'import', 'patients', 'reports', 'management'] as Tab[]).map((item) => <button key={item} onClick={() => setTab(item)} className={`rounded-lg px-3 py-2 text-sm font-medium capitalize ${tab === item ? 'bg-blue-600 text-white' : 'bg-white text-slate-700 ring-1 ring-slate-200'}`}>{item}</button>)}</nav>
-    {tab === 'dashboard' && <><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[["Total patients", metrics.total], ["Pending", metrics.pending], ["Matched & linked", metrics.processed], ["Needs review", metrics.unmatched]].map(([label, value]) => <div key={String(label)} className="rounded-xl border bg-white p-5"><p className="text-sm text-slate-500">{label}</p><p className="mt-2 text-3xl font-bold text-slate-900">{value}</p></div>)}</div><section className="rounded-xl border bg-white p-5"><h2 className="font-bold text-slate-900">Category summary</h2><div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{categoryOptions.map((item) => <div key={item} className="rounded-lg bg-slate-50 p-3 text-sm"><span className="text-slate-600">{item}</span><strong className="float-right text-slate-900">{records.filter((record) => record.category === item).length}</strong></div>)}</div></section></>}
+    {tab === 'dashboard' && <><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[["Total Patients", summary.total_patients], ["Admitted Patients", summary.admitted_patients], ["Discharged Patients", summary.discharged_patients], ["Claim Query Patients", summary.claim_query_patients]].map(([label, value]) => <div key={String(label)} className="rounded-xl border bg-white p-5"><p className="text-sm text-slate-500">{label}</p><p className="mt-2 text-3xl font-bold text-slate-900">{value}</p></div>)}</div><section className="rounded-xl border bg-white p-5"><h2 className="font-bold text-slate-900">Category summary</h2><div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{categoryOptions.map((item) => <div key={item} className="rounded-lg bg-slate-50 p-3 text-sm"><span className="text-slate-600">{item}</span><strong className="float-right text-slate-900">{records.filter((record) => record.category === item).length}</strong></div>)}</div></section></>}
     {tab === 'import' && <section className="rounded-xl border bg-white p-6"><FileSpreadsheet className="mb-3 h-8 w-8 text-green-600" /><h2 className="text-xl font-bold text-slate-900">Import {schemeName} patient records</h2><p className="mt-2 max-w-3xl text-sm text-slate-600">Upload Excel or CSV. The system recognises common Patient Name, UHID, Registration ID, admission, category, and status columns. Every accepted row is saved in the new shared corporate record table with the {schemeName} scheme label. Existing HMIS patient and visit records are only read to create a link; they are never changed.</p><label className="mt-5 inline-flex cursor-pointer items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white"><Upload className="h-4 w-4" />{uploading ? 'Processing…' : 'Choose file'}<input className="hidden" type="file" accept=".xlsx,.xls,.csv" disabled={uploading} onChange={handleUpload} /></label></section>}
     {(tab === 'patients' || tab === 'reports') && <section className="rounded-xl border bg-white p-5"><div className="mb-4 flex flex-col gap-3 md:flex-row"><div className="relative flex-1"><Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" /><input className="w-full rounded-lg border py-2 pl-9 pr-3 text-sm" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search patient, UHID, registration ID…" /></div><select className="rounded-lg border px-3 py-2 text-sm" value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">All statuses</option>{[...new Set(records.map((record) => record.status))].map((item) => <option key={item}>{item}</option>)}</select><select className="rounded-lg border px-3 py-2 text-sm" value={category} onChange={(event) => setCategory(event.target.value)}><option value="all">All categories</option>{categoryOptions.map((item) => <option key={item}>{item}</option>)}</select><button onClick={exportRecords} className="inline-flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium"><Download className="h-4 w-4" />Export</button></div>{tab === 'reports' && <p className="mb-3 text-sm text-slate-600">This report is limited to {schemeName}; {filtered.length} matching record(s) are ready for export.</p>}<div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="border-b bg-slate-50 text-slate-600"><tr>{['Patient', 'UHID / Registration', 'Category', 'Status', 'Patient link', 'Source'].map((item) => <th key={item} className="px-3 py-3 font-semibold">{item}</th>)}</tr></thead><tbody>{loading ? <tr><td colSpan={6} className="p-8 text-center text-slate-500">Loading…</td></tr> : filtered.length ? filtered.map((record) => <tr key={record.id} className="border-b"><td className="px-3 py-3 font-medium text-slate-900">{record.patient_name}</td><td className="px-3 py-3 text-slate-600">{record.uhid || record.registration_id || record.external_id || '—'}</td><td className="px-3 py-3">{record.category}</td><td className="px-3 py-3 capitalize">{record.status}</td><td className="px-3 py-3 capitalize">{record.match_confidence === 'matched' ? 'Linked only' : record.match_confidence}</td><td className="px-3 py-3 text-slate-600">{record.source_file_name || '—'}</td></tr>) : <tr><td colSpan={6} className="p-8 text-center text-slate-500">No {schemeName} records found.</td></tr>}</tbody></table></div></section>}
     {tab === 'management' && <section className="rounded-xl border bg-white p-6"><h2 className="text-xl font-bold text-slate-900">{schemeName} management</h2><p className="mt-2 text-sm text-slate-600">Categories are configuration for this scheme only. They do not change PMJAY or any other corporate scheme.</p><div className="mt-5 flex flex-wrap gap-2">{categories.map((item) => <span key={item} className="rounded-full bg-blue-50 px-3 py-1 text-sm text-blue-800">{item}</span>)}</div><div className="mt-5 flex max-w-md gap-2"><input className="flex-1 rounded-lg border px-3 py-2 text-sm" value={newCategory} onChange={(event) => setNewCategory(event.target.value)} placeholder="Add category" /><button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white" onClick={saveCategories}>Save</button></div></section>}
