@@ -324,9 +324,17 @@ export const TABLET_MODULES: TabletModule[] = [
     tint: "from-rose-500 to-orange-700",
   },
   {
+    id: "discharged-rm-cuts",
+    label: "Discharged RM Cuts - Azhar",
+    description: "Patients discharged in the last 48 hours — cut, approve and pay",
+    icon: ClipboardCheck,
+    accent: "text-rose-700",
+    tint: "from-rose-500 to-pink-700",
+  },
+  {
     id: "incoming-referrals",
     label: "Incoming Referrals - Suraj Arpit",
-    description: "Announce a referred patient before arrival, link on registration",
+    description: "Announce a referred or direct patient before arrival, link on registration",
     icon: Megaphone,
     accent: "text-orange-700",
     tint: "from-orange-500 to-amber-700",

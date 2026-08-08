@@ -294,8 +294,9 @@ export default function RegisterPatientFlow() {
 
       // Dedup pre-check: block a second record for the same Aadhaar in this
       // hospital. The DB partial unique index is the hard backstop. Skipped
-      // when reusing, because that record is the one being kept.
-      const { data: existing } = reuse ? { data: null } : await supabase
+      // when reusing, because that record is the one being kept, and when no
+      // Aadhaar was given — blank is stored as NULL and never collides.
+      const { data: existing } = reuse || !aadhaarNumber ? { data: null } : await supabase
         .from("patients")
         .select("patients_id, name")
         .eq("hospital_name", hospitalConfig.name)
@@ -324,7 +325,9 @@ export default function RegisterPatientFlow() {
           email: orNull(patient.email),
           identity_type: orNull(patient.identityType),
           aadhar_passport: orNull(patient.aadharPassport),
-          aadhaar_number: aadhaarNumber,
+          // NULL, never '' — the partial unique index skips NULLs, so two
+          // patients registered without an Aadhaar do not collide.
+          aadhaar_number: aadhaarNumber || null,
           corporate: patient.corporate || null,
           insurance_person_no: orNull(patient.insuranceNo),
           quarter_plot_no: orNull(patient.quarterPlotNo),
@@ -433,7 +436,9 @@ export default function RegisterPatientFlow() {
     !!patient.age &&
     !!patient.phone.trim() &&
     !!patient.address.trim() &&
-    isValidAadhaar(patient.aadhaarNumber) &&
+    // Aadhaar is optional — patients arrive without their card. A number that
+    // has been started must still be complete, so the dedupe index stays true.
+    (!patient.aadhaarNumber || isValidAadhaar(patient.aadhaarNumber)) &&
     !!patient.corporate &&
     !!patient.emgName.trim() &&
     !!patient.emgMobile.trim() &&
@@ -662,14 +667,14 @@ export default function RegisterPatientFlow() {
                   ))}
                 </select>
               </Field>
-              <Field label="Aadhaar number *">
+              <Field label="Aadhaar number">
                 <TabletInput
                   inputMode="numeric"
                   value={patient.aadhaarNumber}
                   onChange={(e) =>
                     setP("aadhaarNumber", e.target.value.replace(/\D/g, "").slice(0, 12))
                   }
-                  placeholder="12-digit Aadhaar number"
+                  placeholder="12 digits, or leave blank"
                   maxLength={12}
                 />
               </Field>

@@ -15,6 +15,7 @@ import { ActionButtons } from '@/components/dashboard/ActionButtons';
 import { PatientsTable } from '@/components/dashboard/PatientsTable';
 import { PatientWorkflowVisual } from '@/components/dashboard/PatientWorkflowVisual';
 import { DeletePatientDialog } from '@/components/dashboard/DeletePatientDialog';
+import { IncomingReferralsNotice } from '@/components/registration/IncomingReferralsNotice';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 
@@ -282,10 +283,13 @@ const PatientDashboardInner = () => {
 
         <NavigationTabs activeTab="Patients" />
 
-        <ActionButtons 
+        <ActionButtons
           onNewPatientClick={() => setIsRegistrationFormOpen(true)}
           onPatientLookupClick={() => setIsPatientLookupOpen(true)}
         />
+
+        {/* Checked before registering: was this arrival already announced? */}
+        <IncomingReferralsNotice />
 
         <PatientWorkflowVisual />
 

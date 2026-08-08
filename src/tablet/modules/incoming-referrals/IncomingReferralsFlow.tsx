@@ -30,7 +30,8 @@ interface Announcement {
   id: string;
   patient_name: string;
   coming_from: string | null;
-  referee_initials: string;
+  referee_initials: string | null;
+  is_direct: boolean;
   documents: ReferralDoc[];
   status: "ANNOUNCED" | "LINKED" | "CANCELLED";
   announced_by: string | null;
@@ -42,6 +43,9 @@ interface Announcement {
 const DOC_CATEGORIES = ["Aadhaar", "Referral slip", "Discharge summary", "Other"] as const;
 
 const BUCKET = "uploads";
+
+/** The front office works off the last two days of arrivals. */
+const WINDOW_HOURS = 48;
 
 async function uploadReferralDoc(file: File, category: string): Promise<ReferralDoc> {
   if (file.size > 12 * 1024 * 1024) throw new Error(`${file.name}: file must be 12 MB or smaller`);
@@ -74,6 +78,7 @@ export default function IncomingReferralsFlow() {
     hospitalType === "ayushman" ? "ayushman" : "hope",
   );
   const [form, setForm] = useState({ patientName: "", comingFrom: "", refereeInitials: "" });
+  const [isDirect, setIsDirect] = useState(false);
   const [docs, setDocs] = useState<ReferralDoc[]>([]);
   const [uploadingCategory, setUploadingCategory] = useState<string | null>(null);
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -81,10 +86,14 @@ export default function IncomingReferralsFlow() {
   const { data: announcements = [], isLoading } = useQuery({
     queryKey: ["incoming-referrals"],
     queryFn: async (): Promise<Announcement[]> => {
+      // The last 48 hours, plus every still-awaited announcement however old —
+      // an unlinked claim must never fall off the list unnoticed.
+      const since = new Date(Date.now() - WINDOW_HOURS * 60 * 60 * 1000).toISOString();
       const { data, error } = await (supabase as any)
         .from("incoming_referrals")
-        .select("id, patient_name, coming_from, referee_initials, documents, status, announced_by, linked_visit_id, linked_by, created_at")
+        .select("id, patient_name, coming_from, referee_initials, is_direct, documents, status, announced_by, linked_visit_id, linked_by, created_at")
         .neq("status", "CANCELLED")
+        .or(`created_at.gte.${since},status.eq.ANNOUNCED`)
         .order("created_at", { ascending: false })
         .limit(100);
       if (error) throw error;
@@ -95,19 +104,25 @@ export default function IncomingReferralsFlow() {
   const announce = useMutation({
     mutationFn: async () => {
       if (!form.patientName.trim()) throw new Error("Enter the patient's name");
-      if (!form.refereeInitials.trim()) throw new Error("Enter the referee's initials");
+      if (!isDirect && !form.refereeInitials.trim()) throw new Error("Enter the referee's initials");
       const { error } = await (supabase as any).from("incoming_referrals").insert({
         patient_name: form.patientName.trim(),
         coming_from: form.comingFrom.trim() || null,
-        referee_initials: form.refereeInitials.trim(),
+        referee_initials: isDirect ? null : form.refereeInitials.trim(),
+        is_direct: isDirect,
         documents: docs,
         announced_by: user?.email || user?.id || null,
       });
       if (error) throw new Error(error.message);
     },
     onSuccess: () => {
-      toast.success(`Announced — ${form.patientName.trim()} is on the way.`);
+      toast.success(
+        isDirect
+          ? `Announced — ${form.patientName.trim()} is a direct walk-in.`
+          : `Announced — ${form.patientName.trim()} is on the way.`,
+      );
       setForm({ patientName: "", comingFrom: "", refereeInitials: "" });
+      setIsDirect(false);
       setDocs([]);
       setMode("list");
       queryClient.invalidateQueries({ queryKey: ["incoming-referrals"] });
@@ -139,10 +154,29 @@ export default function IncomingReferralsFlow() {
         .select("id");
       if (error) throw new Error(error.message);
       if (!data?.length) throw new Error("This announcement was already linked by someone else.");
-      return patient;
+
+      // A walk-in announcement marks the patient direct, the same flag
+      // Rupali's Direct Patient tile sets — so no referee can be attached to
+      // them later. Reversible from that tile if it was announced wrongly.
+      if (announcement.is_direct) {
+        const { error: directError } = await (supabase as any)
+          .from("patients")
+          .update({
+            is_direct: true,
+            direct_marked_by: user?.email || user?.id || null,
+            direct_marked_at: new Date().toISOString(),
+          })
+          .eq("id", patient.id);
+        if (directError) throw new Error(directError.message);
+      }
+      return { patient, wasDirect: announcement.is_direct };
     },
-    onSuccess: (patient) => {
-      toast.success(`Linked to ${patient.name}'s registration.`);
+    onSuccess: ({ patient, wasDirect }) => {
+      toast.success(
+        wasDirect
+          ? `Linked — ${patient.name} is marked a direct patient.`
+          : `Linked to ${patient.name}'s registration.`,
+      );
       setLinkFor(null);
       queryClient.invalidateQueries({ queryKey: ["incoming-referrals"] });
     },
@@ -192,7 +226,7 @@ export default function IncomingReferralsFlow() {
   if (mode === "announce") {
     return (
       <FlowScaffold
-        heading="Announce incoming referral"
+        heading="Announce incoming patient"
         subheading="Everyone sees this the moment it is saved — the claim is yours"
         actions={
           <div className="flex w-full gap-3">
@@ -212,11 +246,30 @@ export default function IncomingReferralsFlow() {
       >
         <div className="space-y-4">
           <div>
+            <TabletLabel>Who is coming?</TabletLabel>
+            <div className="mt-2 grid gap-3 sm:grid-cols-2">
+              <TabletButton
+                variant={isDirect ? "outline" : "default"}
+                className="min-h-[64px]"
+                onClick={() => setIsDirect(false)}
+              >
+                Referred — a referee sent them
+              </TabletButton>
+              <TabletButton
+                variant={isDirect ? "default" : "outline"}
+                className="min-h-[64px]"
+                onClick={() => setIsDirect(true)}
+              >
+                Direct — walk-in, no referee
+              </TabletButton>
+            </div>
+          </div>
+          <div>
             <TabletLabel>Patient name</TabletLabel>
             <TabletInput
               value={form.patientName}
               onChange={(e) => setForm((f) => ({ ...f, patientName: e.target.value }))}
-              placeholder="As told by the referee"
+              placeholder={isDirect ? "As given at the front desk" : "As told by the referee"}
               autoFocus
             />
           </div>
@@ -228,14 +281,16 @@ export default function IncomingReferralsFlow() {
               placeholder="e.g. Bhandara"
             />
           </div>
-          <div>
-            <TabletLabel>Referee initials</TabletLabel>
-            <TabletInput
-              value={form.refereeInitials}
-              onChange={(e) => setForm((f) => ({ ...f, refereeInitials: e.target.value }))}
-              placeholder="e.g. RKS"
-            />
-          </div>
+          {!isDirect && (
+            <div>
+              <TabletLabel>Referee initials</TabletLabel>
+              <TabletInput
+                value={form.refereeInitials}
+                onChange={(e) => setForm((f) => ({ ...f, refereeInitials: e.target.value }))}
+                placeholder="e.g. RKS"
+              />
+            </div>
+          )}
           <div>
             <TabletLabel>Documents</TabletLabel>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
@@ -297,9 +352,15 @@ export default function IncomingReferralsFlow() {
   return (
     <FlowScaffold
       heading="Incoming Referrals"
-      subheading="Announced arrivals — link each one when the patient is registered"
+      subheading="Announced in the last 48 hours — link each one when the patient is registered"
       actions={
-        <TabletButton className="w-full" onClick={() => setMode("announce")}>
+        <TabletButton
+          className="w-full"
+          onClick={() => {
+            setIsDirect(false);
+            setMode("announce");
+          }}
+        >
           <Plus className="mr-2 h-5 w-5" /> Announce incoming patient
         </TabletButton>
       }
@@ -310,7 +371,8 @@ export default function IncomingReferralsFlow() {
         </p>
       ) : announcements.length === 0 ? (
         <p className="py-8 text-center text-muted-foreground">
-          Nothing announced yet. When a referee sends a patient, announce them here first.
+          Nothing announced in the last 48 hours. Announce every arrival here first — referred
+          or direct.
         </p>
       ) : (
         <div className="grid gap-2">
@@ -321,21 +383,28 @@ export default function IncomingReferralsFlow() {
                   <p className="truncate text-lg font-semibold">{item.patient_name}</p>
                   <p className="text-sm text-muted-foreground">
                     {item.coming_from ? `From ${item.coming_from} · ` : ""}
-                    Referee {item.referee_initials} ·{" "}
+                    {item.is_direct ? "Walk-in" : `Referee ${item.referee_initials}`} ·{" "}
                     {format(new Date(item.created_at), "dd MMM, HH:mm")}
                     {item.announced_by ? ` · by ${item.announced_by.split("@")[0]}` : ""}
                   </p>
                 </div>
-                <span
-                  className={cn(
-                    "shrink-0 rounded-full px-3 py-1 text-xs font-semibold",
-                    item.status === "LINKED"
-                      ? "bg-emerald-100 text-emerald-800"
-                      : "bg-amber-100 text-amber-800",
+                <div className="flex shrink-0 items-center gap-2">
+                  {item.is_direct && (
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                      Direct
+                    </span>
                   )}
-                >
-                  {item.status === "LINKED" ? "Linked" : "Awaited"}
-                </span>
+                  <span
+                    className={cn(
+                      "rounded-full px-3 py-1 text-xs font-semibold",
+                      item.status === "LINKED"
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-amber-100 text-amber-800",
+                    )}
+                  >
+                    {item.status === "LINKED" ? "Linked" : "Awaited"}
+                  </span>
+                </div>
               </div>
 
               {item.documents?.length > 0 && (

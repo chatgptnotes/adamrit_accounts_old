@@ -10,14 +10,16 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
-import { Camera, CheckCircle2, Edit2, Eye, EyeOff, FileCheck2, Loader2, Lock, Paperclip, Plus, Printer, RotateCcw, Trash2, Users, Save } from 'lucide-react';
+import { Banknote, Camera, CheckCircle2, Edit2, Eye, EyeOff, FileCheck2, Loader2, Lock, Paperclip, Plus, Printer, RotateCcw, Trash2, Users, Save } from 'lucide-react';
 import { LedgerAutocomplete, type LedgerAccountOption } from '@/components/accounting/LedgerAutocomplete';
 import { approveReferralRow } from '@/lib/referral-invoice-service';
+import { PayReferralBillDialog } from '@/components/PayReferralBillDialog';
 
 interface VisitRow {
   id: string;
   visit_id: string;
   visit_date: string;
+  discharge_date: string | null;
   appointment_with: string | null;
   package_amount: string | null;
   patient_type: string | null;
@@ -179,6 +181,12 @@ interface DisplayRow {
   key: string;
   visitId: string | null;
   overrideId: string | null;
+  /**
+   * The day this row belongs to — its discharge or visit date, or the entry
+   * date it was already saved under. Over a date range each row must be filed
+   * on its own day, not on whatever day the report happens to end on.
+   */
+  entryDate: string;
   patient_name: string;
   department: string;
   rm_name: string;
@@ -246,6 +254,18 @@ const getErrorMessage = (error: unknown): string => {
 
 const todayIso = (): string => new Date().toISOString().slice(0, 10);
 
+const isoDaysAgo = (days: number): string =>
+  new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+/** Which visits column decides that a patient belongs on the report. */
+type DateBasis = 'visit' | 'discharge';
+
+// Both visit_date and discharge_date are plain DATE columns. Comparing them
+// against an IST-bounded timestamp does not narrow the day — Postgres casts
+// the timestamp back down to its UTC date, which silently drags in the
+// previous day. Plain YYYY-MM-DD on both sides is what actually works.
+const asDay = (value: string | null | undefined): string => (value ? value.slice(0, 10) : '');
+
 const formatINR = (n: number): string => n.toLocaleString('en-IN');
 
 const toNumber = (v: unknown): number => {
@@ -271,14 +291,32 @@ const isDirect = (rm: string | null | undefined): boolean => {
 export function DailyRevenueReportSection({
   defaultPatientType = 'OPD',
   title = 'Daily Revenue Report — Patient List & RM Cuts',
+  dateBasis = 'visit',
+  rangeDays = 0,
+  enablePay = false,
 }: {
   /** Which patient list this section opens on — the Director Dashboard mounts one OPD and one IPD copy. */
   defaultPatientType?: PatientTypeFilter;
   title?: string;
+  /**
+   * Which date decides that a patient belongs on this report. The Director's
+   * copies list the day's registrations; Azhar's tile lists discharges, which
+   * is when the cut is actually settled.
+   */
+  dateBasis?: DateBasis;
+  /** 0 keeps the single-day picker. Any other value opens on that many days ending today. */
+  rangeDays?: number;
+  /** Show a Pay button on invoiced rows instead of sending the user to the Expense Bill page. */
+  enablePay?: boolean;
 } = {}) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const [reportDate, setReportDate] = useState<string>(todayIso());
+  const isRangeReport = rangeDays > 0;
+  const [fromDate, setFromDate] = useState<string>(
+    isRangeReport ? isoDaysAgo(rangeDays - 1) : todayIso(),
+  );
+  const [toDate, setToDate] = useState<string>(todayIso());
+  const [payingRow, setPayingRow] = useState<DisplayRow | null>(null);
   const [editingCutId, setEditingCutId] = useState<string | null>(null);
   const [editingRateId, setEditingRateId] = useState<string | null>(null);
   const [draftCut, setDraftCut] = useState<string>('');
@@ -342,14 +380,15 @@ export function DailyRevenueReportSection({
 
   // Director sees patients from BOTH hospitals on one screen — no hospital_name filter.
   const visitsQuery = useQuery({
-    queryKey: ['dailyRevenueVisits', reportDate],
+    queryKey: ['dailyRevenueVisits', dateBasis, fromDate, toDate],
     queryFn: async (): Promise<VisitRow[]> => {
-      const { data, error } = await supabase
+      const query = supabase
         .from('visits')
         .select(`
           id,
           visit_id,
           visit_date,
+          discharge_date,
           appointment_with,
           package_amount,
           patient_type,
@@ -360,8 +399,14 @@ export function DailyRevenueReportSection({
               position,
               relationship_managers ( id, name, code, commission_percent, ledger_account_id )
             )
-        `)
-        .eq('visit_date', reportDate)
+        `);
+      // A bounded range on discharge_date is deliberate: the column carries
+      // junk far-future values (5202-07-28), which an open-ended filter would
+      // pull onto the report.
+      const column = dateBasis === 'discharge' ? 'discharge_date' : 'visit_date';
+      const { data, error } = await query
+        .gte(column, fromDate)
+        .lte(column, toDate)
         .order('created_at', { ascending: true });
       if (error) throw error;
       return (data ?? []) as unknown as VisitRow[];
@@ -437,12 +482,13 @@ export function DailyRevenueReportSection({
 
   // Director sees overrides from BOTH hospitals on one screen.
   const overridesQuery = useQuery({
-    queryKey: ['dailyRevenueOverrides', reportDate],
+    queryKey: ['dailyRevenueOverrides', fromDate, toDate],
     queryFn: async (): Promise<OverrideRow[]> => {
       const { data, error } = await supabase
         .from('daily_revenue_entries' as never)
         .select('*')
-        .eq('entry_date', reportDate)
+        .gte('entry_date', fromDate)
+        .lte('entry_date', toDate)
         .order('created_at', { ascending: true });
       if (error) throw error;
       return (data ?? []) as unknown as OverrideRow[];
@@ -517,21 +563,24 @@ export function DailyRevenueReportSection({
 
   // Approval is date-specific: after approval, that day's report becomes a
   // read-only record. A separate table is used because a report can contain
-  // visits that do not have a saved override row yet.
+  // visits that do not have a saved override row yet. A multi-day view has no
+  // single day to lock, so the lock is simply not offered there.
+  const isSingleDay = fromDate === toDate;
   const approvalQuery = useQuery({
-    queryKey: ['dailyRevenueApproval', reportDate],
+    queryKey: ['dailyRevenueApproval', toDate],
+    enabled: isSingleDay,
     queryFn: async (): Promise<{ approved_at: string; approved_by_email: string | null } | null> => {
       const { data, error } = await supabase
         .from('daily_revenue_report_approvals' as never)
         .select('approved_at, approved_by_email')
-        .eq('entry_date', reportDate)
+        .eq('entry_date', toDate)
         .maybeSingle();
       if (error) throw error;
       return data as unknown as { approved_at: string; approved_by_email: string | null } | null;
     },
   });
 
-  const isApproved = Boolean(approvalQuery.data?.approved_at);
+  const isApproved = isSingleDay && Boolean(approvalQuery.data?.approved_at);
 
   const rows: DisplayRow[] = useMemo(() => {
     const visits = visitsQuery.data ?? [];
@@ -606,10 +655,14 @@ export function DailyRevenueReportSection({
           : rm ? [{ id: rm.id, name: rm.name, ledgerId: (rm as any).ledger_account_id ?? null, position: 1, amount: totalCut }] : [];
       const totalPaise = Math.round(totalCut * 100);
       const rms = managerSources.map((m, index) => ({ ...m, amount: persisted.length ? m.amount : (Math.floor(totalPaise / managerSources.length) + (index < totalPaise % managerSources.length ? 1 : 0)) / 100 }));
+      // A saved row keeps the day it was filed under; an unsaved one takes the
+      // day it is being read by, so a range never re-dates anybody.
+      const basisDate = asDay(dateBasis === 'discharge' ? v.discharge_date : v.visit_date);
       return {
         key: `visit-${v.id}`,
         visitId: v.id,
         overrideId: o?.id ?? null,
+        entryDate: o?.entry_date ?? basisDate ?? toDate,
         patient_name: v.patients?.name ?? '—',
         department: v.appointment_with ?? '',
         rm_name: rmName,
@@ -643,6 +696,7 @@ export function DailyRevenueReportSection({
           key: `manual-${o.id}`,
           visitId: null,
           overrideId: o.id,
+          entryDate: o.entry_date,
           patient_name: o.patient_name,
           department: o.department ?? '',
           rm_name: rmName,
@@ -678,12 +732,36 @@ export function DailyRevenueReportSection({
       all = all.filter((r) => !r.isHidden);
     }
     return all;
-  }, [visitsQuery.data, overridesQuery.data, allocationsQuery.data, advanceQuery.data, finalPayQuery.data, rmMasterQuery.data, onlyWithRm, patientTypeFilter, showHidden]);
+  }, [visitsQuery.data, overridesQuery.data, allocationsQuery.data, advanceQuery.data, finalPayQuery.data, rmMasterQuery.data, onlyWithRm, patientTypeFilter, showHidden, dateBasis, toDate]);
 
   const totals = useMemo(
     () => rows.reduce((acc, r) => ({ cost: acc.cost + r.cost, cut: acc.cut + r.cut }), { cost: 0, cut: 0 }),
     [rows],
   );
+
+  // What is still owed on each raised invoice, so a row that has been paid
+  // stops offering Pay. Only fetched where Pay is offered at all.
+  const billIds: string[] = useMemo(
+    () => Array.from(new Set(rows.map((r) => r.expenseBillId).filter(Boolean) as string[])),
+    [rows],
+  );
+  const billOutstandingQuery = useQuery({
+    queryKey: ['dailyRevenueBillOutstanding', billIds.join(',')],
+    enabled: enablePay && billIds.length > 0,
+    queryFn: async (): Promise<Record<string, number>> => {
+      const { data, error } = await (supabase as any)
+        .from('v_expense_bills_outstanding')
+        .select('id, outstanding')
+        .in('id', billIds);
+      if (error) throw error;
+      const map: Record<string, number> = {};
+      for (const bill of (data ?? []) as Array<{ id: string; outstanding: number | string }>) {
+        map[bill.id] = toNumber(bill.outstanding);
+      }
+      return map;
+    },
+  });
+  const outstandingByBill = billOutstandingQuery.data ?? {};
 
   // Group rows by category to mirror the handwritten ledger sections.
   // Render order matches the physical sheets: Main → Direct → Manual / Other.
@@ -711,6 +789,7 @@ export function DailyRevenueReportSection({
     queryClient.invalidateQueries({ queryKey: ['dailyRevenueApproval'] });
     queryClient.invalidateQueries({ queryKey: ['dailyRevenueRmMaster'] });
     queryClient.invalidateQueries({ queryKey: ['dailyRevenueRmAllocations'] });
+    queryClient.invalidateQueries({ queryKey: ['dailyRevenueBillOutstanding'] });
   };
 
   const saveCutMutation = useMutation({
@@ -760,7 +839,7 @@ export function DailyRevenueReportSection({
       } else {
         const { data, error } = await supabase.from('daily_revenue_entries' as never).insert([
           {
-            entry_date: reportDate,
+            entry_date: row.entryDate,
             visit_id: row.visitId,
             patient_name: row.patient_name,
             department: row.department || null,
@@ -796,7 +875,9 @@ export function DailyRevenueReportSection({
       if (isNaN(cut) || cut < 0) throw new Error('Cut must be ≥ 0');
       const { error } = await supabase.from('daily_revenue_entries' as never).insert([
         {
-          entry_date: reportDate,
+          // A manual entry belongs to the day the report is looking at; over a
+          // range that is the last day shown.
+          entry_date: toDate,
           patient_name: data.patient_name.trim(),
           department: data.department.trim() || null,
           rm_name: data.rm_name.trim() || null,
@@ -895,7 +976,7 @@ export function DailyRevenueReportSection({
         const { error: entryError } = await supabase
           .from('daily_revenue_entries' as never)
           .insert([{
-            entry_date: reportDate,
+            entry_date: row.entryDate,
             visit_id: row.visitId,
             patient_name: row.patient_name,
             department: row.department || null,
@@ -935,7 +1016,7 @@ export function DailyRevenueReportSection({
       const { error } = await supabase
         .from('daily_revenue_entries' as never)
         .insert([{
-          entry_date: reportDate,
+          entry_date: row.entryDate,
           visit_id: row.visitId,
           patient_name: row.patient_name,
           department: row.department || null,
@@ -971,7 +1052,7 @@ export function DailyRevenueReportSection({
     const { data, error } = await supabase
       .from('daily_revenue_entries' as never)
       .insert([{
-        entry_date: reportDate,
+        entry_date: row.entryDate,
         visit_id: row.visitId,
         patient_name: row.patient_name,
         department: row.department || null,
@@ -1027,7 +1108,7 @@ export function DailyRevenueReportSection({
         rmName: row.rms.length ? row.rms.map((rm) => rm.name).join(', ') : row.rm_name,
         hospital: row.hospital || hospitalType || 'hope',
         amount: row.cut,
-        entryDate: reportDate,
+        entryDate: row.entryDate,
         createdBy: user?.email ?? user?.username,
       });
     },
@@ -1049,6 +1130,7 @@ export function DailyRevenueReportSection({
   const approveMutation = useMutation({
     mutationFn: async () => {
       if (isApproved) return;
+      if (!isSingleDay) throw new Error('Pick a single date before locking the day');
 
       // Locking the day no longer pays anything — each row is approved (and
       // later paid from the Expense Bill page) on its own. The lock simply
@@ -1064,7 +1146,7 @@ export function DailyRevenueReportSection({
       const { data: existing, error: existingError } = await supabase
         .from('daily_revenue_report_approvals' as never)
         .select('entry_date')
-        .eq('entry_date', reportDate)
+        .eq('entry_date', toDate)
         .maybeSingle();
       if (existingError) throw existingError;
       if (existing) return paidSummary;
@@ -1072,7 +1154,7 @@ export function DailyRevenueReportSection({
       const { error } = await supabase
         .from('daily_revenue_report_approvals' as never)
         .insert({
-          entry_date: reportDate,
+          entry_date: toDate,
           approved_at: new Date().toISOString(),
           approved_by_email: user?.email ?? null,
         } as never);
@@ -1181,9 +1263,11 @@ export function DailyRevenueReportSection({
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
     const fmt = (n: number): string => n.toLocaleString('en-IN');
-    const prettyDate = new Date(reportDate).toLocaleDateString('en-IN', {
+    const longDate = (day: string): string => new Date(day).toLocaleDateString('en-IN', {
       weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
     });
+    const prettyDate = isSingleDay ? longDate(toDate) : `${longDate(fromDate)} to ${longDate(toDate)}`;
+    const dateLabel = isSingleDay ? toDate : `${fromDate} to ${toDate}`;
     // Bucket rows by hospital so each hospital prints on its own page.
     // Preserve first-seen hospital order from groupedRows for stable output.
     const hospitalOrder: string[] = [];
@@ -1324,7 +1408,7 @@ export function DailyRevenueReportSection({
           </table>
           <div class="hospital-footer">
             <span>${theme.displayName}</span>
-            <span>Daily Revenue Report · ${esc(reportDate)}</span>
+            <span>Daily Revenue Report · ${esc(dateLabel)}</span>
           </div>
         </section>`;
     }).join('');
@@ -1332,7 +1416,7 @@ export function DailyRevenueReportSection({
     const html = `<!doctype html>
 <html><head>
 <meta charset="utf-8" />
-<title>Daily Revenue Report — ${esc(reportDate)}</title>
+<title>Daily Revenue Report — ${esc(dateLabel)}</title>
 <style>
   * { box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; color: #111; margin: 24px; }
@@ -1472,14 +1556,40 @@ export function DailyRevenueReportSection({
             />
             Show hidden
           </label>
-          <Label htmlFor="daily_report_date" className="text-sm">Date</Label>
-          <Input
-            id="daily_report_date"
-            type="date"
-            value={reportDate}
-            onChange={(e) => setReportDate(e.target.value)}
-            className="w-44"
-          />
+          {isRangeReport ? (
+            <>
+              <Label htmlFor="daily_report_from" className="text-sm">From</Label>
+              <Input
+                id="daily_report_from"
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="w-40"
+              />
+              <Label htmlFor="daily_report_to" className="text-sm">To</Label>
+              <Input
+                id="daily_report_to"
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="w-40"
+              />
+            </>
+          ) : (
+            <>
+              <Label htmlFor="daily_report_date" className="text-sm">Date</Label>
+              <Input
+                id="daily_report_date"
+                type="date"
+                value={toDate}
+                onChange={(e) => {
+                  setFromDate(e.target.value);
+                  setToDate(e.target.value);
+                }}
+                className="w-44"
+              />
+            </>
+          )}
           <Button variant="outline" size="sm" className="gap-2" onClick={handlePrint}>
             <Printer className="h-4 w-4" /> Print
           </Button>
@@ -1496,8 +1606,13 @@ export function DailyRevenueReportSection({
           <FileCheck2 className="h-4 w-4 text-gray-500" />
           <span className="text-xs text-gray-600">
             Approve on a row raises that patient's M.L. Enterprises implant invoice and posts
-            the journals in both companies' books. The bill is paid later from the Expense Bill page.
-            Lock Day freezes the sheet once every row is settled.
+            the journals in both companies' books.{' '}
+            {enablePay
+              ? 'Pay then settles that invoice from cash or bank, exactly as the Expense Bill page does.'
+              : 'The bill is paid later from the Expense Bill page.'}{' '}
+            {isSingleDay
+              ? 'Lock Day freezes the sheet once every row is settled.'
+              : 'Pick a single date to lock a day’s sheet.'}
           </span>
         </div>
       </CardHeader>
@@ -1514,8 +1629,14 @@ export function DailyRevenueReportSection({
         ) : rows.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
             <Users className="h-12 w-12 mx-auto mb-2 opacity-30" />
-            <p>No visits on {new Date(reportDate).toLocaleDateString('en-IN')}.</p>
-            <p className="text-sm">Use "Add Manual" for entries not already shown in this day’s visit list.</p>
+            <p>
+              {dateBasis === 'discharge' ? 'No discharges' : 'No visits'}{' '}
+              {isSingleDay
+                ? `on ${new Date(toDate).toLocaleDateString('en-IN')}`
+                : `between ${new Date(fromDate).toLocaleDateString('en-IN')} and ${new Date(toDate).toLocaleDateString('en-IN')}`}
+              .
+            </p>
+            <p className="text-sm">Use "Add Manual" for entries not already shown in this list.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -1716,7 +1837,7 @@ export function DailyRevenueReportSection({
                               )}
                             </TableCell>
                             <TableCell className="print:hidden">
-                              <CalcSheetCell rowKey={r.key} reportDate={reportDate} uploadedBy={user?.email || null} />
+                              <CalcSheetCell rowKey={r.key} reportDate={r.entryDate} uploadedBy={user?.email || null} />
                               {r.approvalId ? (
                                 // Already paid. Name the vouchers, because the
                                 // point of the button was to get them into the
@@ -1732,13 +1853,30 @@ export function DailyRevenueReportSection({
                                   </span>
                                 </span>
                               ) : r.expenseBillId ? (
-                                <span className="inline-flex flex-col">
+                                <span className="inline-flex flex-col items-start gap-1">
                                   <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
                                     <FileCheck2 className="h-3.5 w-3.5" /> Invoiced
                                   </span>
-                                  <span className="text-[10px] text-gray-500">
-                                    pay from Expense Bill page
-                                  </span>
+                                  {enablePay ? (
+                                    outstandingByBill[r.expenseBillId] === 0 ? (
+                                      <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
+                                        <CheckCircle2 className="h-3.5 w-3.5" /> Paid
+                                      </span>
+                                    ) : (
+                                      <Button
+                                        size="sm"
+                                        className="h-7 gap-1 bg-emerald-600 px-2 text-xs hover:bg-emerald-700"
+                                        title={`Pay ${r.patient_name}'s referral invoice`}
+                                        onClick={() => setPayingRow(r)}
+                                      >
+                                        <Banknote className="h-3.5 w-3.5" /> Pay
+                                      </Button>
+                                    )
+                                  ) : (
+                                    <span className="text-[10px] text-gray-500">
+                                      pay from Expense Bill page
+                                    </span>
+                                  )}
                                 </span>
                               ) : !isOwed(r) ? (
                                 <span className="text-xs text-gray-400">—</span>
@@ -1836,22 +1974,26 @@ export function DailyRevenueReportSection({
                     {pendingApproveCount === 0 && rows.some((r) => r.approvalId || r.expenseBillId) && 'all approved'}
                   </TableCell>
                   <TableCell className="print:hidden text-right">
-                    <Button
-                      size="sm"
-                      onClick={() => approveMutation.mutate()}
-                      disabled={isApproved || approveMutation.isPending}
-                      className="gap-1 bg-emerald-600 hover:bg-emerald-700"
-                      title={
-                        pendingApproveCount > 0
-                          ? `${pendingApproveCount} cut(s) are still un-approved — locking freezes them as they are`
-                          : 'Freezes this day’s sheet as the record'
-                      }
-                    >
-                      {approveMutation.isPending
-                        ? <Loader2 className="h-4 w-4 animate-spin" />
-                        : <Lock className="h-4 w-4" />}
-                      {isApproved ? 'Locked' : approveMutation.isPending ? 'Locking...' : 'Lock Day'}
-                    </Button>
+                    {/* A lock freezes one day's sheet, so it is only offered
+                        when the report is showing exactly one day. */}
+                    {isSingleDay && (
+                      <Button
+                        size="sm"
+                        onClick={() => approveMutation.mutate()}
+                        disabled={isApproved || approveMutation.isPending}
+                        className="gap-1 bg-emerald-600 hover:bg-emerald-700"
+                        title={
+                          pendingApproveCount > 0
+                            ? `${pendingApproveCount} cut(s) are still un-approved — locking freezes them as they are`
+                            : 'Freezes this day’s sheet as the record'
+                        }
+                      >
+                        {approveMutation.isPending
+                          ? <Loader2 className="h-4 w-4 animate-spin" />
+                          : <Lock className="h-4 w-4" />}
+                        {isApproved ? 'Locked' : approveMutation.isPending ? 'Locking...' : 'Lock Day'}
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               </TableBody>
@@ -2026,9 +2168,22 @@ export function DailyRevenueReportSection({
       {/* Patient details dialog */}
       <PatientDetailsDialog
         row={detailsRow}
-        reportDate={reportDate}
+        reportDate={detailsRow?.entryDate ?? toDate}
         onClose={() => setDetailsRow(null)}
       />
+
+      {/* Pay an already-invoiced cut without leaving the report */}
+      {payingRow?.expenseBillId && (
+        <PayReferralBillDialog
+          expenseBillId={payingRow.expenseBillId}
+          patientName={payingRow.patient_name}
+          onClose={() => setPayingRow(null)}
+          onPaid={() => {
+            setPayingRow(null);
+            invalidate();
+          }}
+        />
+      )}
 
       {/* Delete confirmation */}
       <Dialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>

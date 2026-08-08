@@ -6,5 +6,5 @@
   "src/components/PatientRegistrationForm/PatientInfoSection.tsx": "ef09c81c65065b3a6497f5e19645a3969b129eafa8a3ff12324bbd583bcb4dd9",
   "src/components/PatientRegistrationForm/SimilarPatientsPrompt.tsx": "d03474d051388f72c5317133500769f89c14caed0b3c4335b6cb191979574ae8",
   "src/components/PatientRegistrationForm.tsx": "760f4e7275f846952dcc82cdfc92a04c09446b2cf83fa6475404ad0a9f26983f",
-  "src/tablet/modules/register/RegisterPatientFlow.tsx": "6508280cdbd3d194ba95ea33c5a70161387ea82b7df877c6e92f47b351eb7db4"
+  "src/tablet/modules/register/RegisterPatientFlow.tsx": "225a48b68ced751a7ad77eecadfc64c6402de18116a44009a562ef2e8f4ad81e"
 }
