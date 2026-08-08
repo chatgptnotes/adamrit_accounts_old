@@ -113,7 +113,6 @@ const AddPurchaseOrder: React.FC<AddPurchaseOrderProps> = ({ onBack }) => {
 
         const savedDraft = localStorage.getItem(draftStorageKey);
         let draft: Partial<{
-          poNumber: string;
           orderDate: string;
           orderFor: string;
           supplierId: string;
@@ -129,9 +128,10 @@ const AddPurchaseOrder: React.FC<AddPurchaseOrderProps> = ({ onBack }) => {
           }
         }
 
-        // Restore the in-progress PO, or initialize a new one.
-        const generatedPO = draft.poNumber || await PurchaseOrderService.generatePONumber();
-        setPoNumber(generatedPO);
+        // Always take a fresh PO number. Restoring it from the draft would keep
+        // re-submitting a number another user may already have used, and
+        // po_number is unique, so every retry would fail.
+        setPoNumber(await PurchaseOrderService.generatePONumber());
 
         const now = new Date();
         const localDateTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
@@ -167,13 +167,12 @@ const AddPurchaseOrder: React.FC<AddPurchaseOrderProps> = ({ onBack }) => {
     if (!isDraftHydrated.current) return;
 
     localStorage.setItem(draftStorageKey, JSON.stringify({
-      poNumber,
       orderDate,
       orderFor,
       supplierId,
       lineItems,
     }));
-  }, [poNumber, orderDate, orderFor, supplierId, lineItems]);
+  }, [orderDate, orderFor, supplierId, lineItems]);
 
   // Search medicines when user types
   useEffect(() => {
@@ -383,9 +382,13 @@ const AddPurchaseOrder: React.FC<AddPurchaseOrderProps> = ({ onBack }) => {
       // Save purchase order with items and update inventory
       const result = await PurchaseOrderService.createWithItems(poData, lineItems);
 
+      // The service may have moved to the next free number if this one was taken.
+      const savedPoNumber = result.po.po_number;
+      setPoNumber(savedPoNumber);
+
       toast({
         title: 'Success',
-        description: `Purchase Order ${poNumber} created successfully with ${lineItems.length} items! Medicine inventory has been updated.`,
+        description: `Purchase Order ${savedPoNumber} created successfully with ${lineItems.length} items! Medicine inventory has been updated.`,
       });
 
       localStorage.removeItem(draftStorageKey);
@@ -402,9 +405,12 @@ const AddPurchaseOrder: React.FC<AddPurchaseOrderProps> = ({ onBack }) => {
       }, 1500);
     } catch (error) {
       console.error('Error creating purchase order:', error);
+      const reason = (error as { message?: string })?.message;
       toast({
         title: 'Error',
-        description: 'Failed to create purchase order. Please try again.',
+        description: reason
+          ? `Failed to create purchase order: ${reason}`
+          : 'Failed to create purchase order. Please try again.',
         variant: 'destructive',
       });
     }

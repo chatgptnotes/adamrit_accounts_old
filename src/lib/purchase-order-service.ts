@@ -347,25 +347,49 @@ export class PurchaseOrderService {
     }>
   ): Promise<{ po: PurchaseOrder; items: any[] }> {
     try {
-      // 1. Create purchase order header
-      const { data: poResult, error: poError } = await supabaseClient
-        .from('purchase_orders')
-        .insert([{
-          po_number: poData.po_number,
-          order_date: poData.order_date,
-          order_for: poData.order_for,
-          supplier_id: poData.supplier_id,
-          status: 'Pending',
-          subtotal: poData.subtotal,
-          tax_amount: poData.tax_amount,
-          total_amount: poData.total_amount,
-        }])
-        .select()
-        .single();
+      // 1. Create purchase order header.
+      // po_number is generated when the form opens, so another user can claim
+      // the same number before this one is saved. On a unique violation take
+      // the next free number and retry instead of failing the whole PO.
+      let poNumber = poData.po_number;
+      let poResult: PurchaseOrder | null = null;
 
-      if (poError) {
-        console.error('Error creating purchase order:', poError);
-        throw poError;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const { data, error: poError } = await supabaseClient
+          .from('purchase_orders')
+          .insert([{
+            po_number: poNumber,
+            order_date: poData.order_date,
+            order_for: poData.order_for,
+            supplier_id: poData.supplier_id,
+            status: 'Pending',
+            subtotal: poData.subtotal,
+            tax_amount: poData.tax_amount,
+            total_amount: poData.total_amount,
+          }])
+          .select()
+          .single();
+
+        if (!poError) {
+          poResult = data;
+          break;
+        }
+
+        if (poError.code !== '23505' || attempt === 4) {
+          console.error('Error creating purchase order:', poError);
+          throw poError;
+        }
+
+        const regenerated = await PurchaseOrderService.generatePONumber();
+        // A stale read would hand back the number that just collided; step past
+        // it so every retry moves forward.
+        poNumber = regenerated === poNumber
+          ? poNumber.replace(/(\d+)$/, (seq) => String(parseInt(seq, 10) + 1))
+          : regenerated;
+      }
+
+      if (!poResult) {
+        throw new Error('Could not allocate a free purchase order number.');
       }
 
       // 2. Create purchase order items
