@@ -63,6 +63,7 @@ export const PatientInfoSection: React.FC<PatientInfoSectionProps> = ({
     Array<{ id: string; name: string; code: string | null }>
   >([]);
   const [isLoadingRMs, setIsLoadingRMs] = React.useState(false);
+  const [rmError, setRmError] = React.useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -76,8 +77,10 @@ export const PatientInfoSection: React.FC<PatientInfoSectionProps> = ({
       if (error) {
         console.error('Error fetching relationship managers:', error);
         setRelationshipManagers([]);
+        setRmError(true);
       } else {
         setRelationshipManagers(data || []);
+        setRmError(false);
       }
       setIsLoadingRMs(false);
     };
@@ -87,143 +90,43 @@ export const PatientInfoSection: React.FC<PatientInfoSectionProps> = ({
     };
   }, []);
 
-  // Typeable RM field — displays the RM name, but stores the code on
-  // formData.relationshipManager (same shape the rest of the app expects).
-  const [rmTypedName, setRmTypedName] = React.useState<string>('');
-  const [rmSaving, setRmSaving] = React.useState<boolean>(false);
+  // RM picker options. Searchable by "Name (code)", but once chosen the trigger
+  // shows just the name. Selection-only — new RMs are created on the Masters
+  // page, never from this form.
+  const rmOptions = React.useMemo<SearchableSelectOption[]>(() => {
+    const opts: SearchableSelectOption[] = [
+      { value: 'Direct', label: 'Direct — No RM', selectedLabel: 'Direct' },
+    ];
+    for (const m of relationshipManagers) {
+      opts.push({
+        value: m.code || m.name,
+        label: m.code ? `${m.name} (${m.code})` : m.name,
+        selectedLabel: m.name,
+      });
+    }
+    return opts;
+  }, [relationshipManagers]);
 
-  // Keep the visible text in sync with whatever formData currently has
-  // (so external resets / edit-mode loads display the right thing).
-  React.useEffect(() => {
-    const val = formData.relationshipManager;
-    if (!val) {
-      setRmTypedName('');
-      return;
-    }
-    if (val === 'Direct') {
-      setRmTypedName('Direct');
-      return;
-    }
-    // val is either a code (preferred) or a name. Resolve to the name.
-    const byCode = relationshipManagers.find((m) => m.code === val);
-    if (byCode) {
-      setRmTypedName(byCode.name);
-      return;
-    }
+  // formData holds the code (preferred) or, on older records, the bare name.
+  // Normalize to whichever option value represents it so the trigger still
+  // shows the right RM; keep an unmatched value visible rather than blanking it.
+  const rmValue = React.useMemo(() => {
+    const val = formData.relationshipManager?.trim() ?? '';
+    if (!val || val === 'Direct') return val;
+    if (rmOptions.some((o) => o.value === val)) return val;
     const byName = relationshipManagers.find(
-      (m) => m.name.trim().toLowerCase() === val.trim().toLowerCase(),
+      (m) => m.name.trim().toLowerCase() === val.toLowerCase(),
     );
-    setRmTypedName(byName ? byName.name : val);
-  }, [formData.relationshipManager, relationshipManagers]);
+    return byName ? byName.code || byName.name : val;
+  }, [formData.relationshipManager, rmOptions, relationshipManagers]);
 
-  // Resolve the typed value: blank → cleared, "Direct" → Direct, existing
-  // master entry → that entry's code, otherwise INSERT a new master row and
-  // use the newly-generated code. Run on blur and on Enter. Idempotent —
-  // re-blurring on an unchanged value is a no-op.
-  const resolveRmTyped = async (typedRaw: string) => {
-    const trimmed = typedRaw.trim();
-    const currentVal = formData.relationshipManager ?? '';
-
-    // Empty input → mark as Direct (cleared).
-    if (!trimmed) {
-      if (currentVal !== '') onInputChange('relationshipManager', '');
-      return;
-    }
-
-    // Explicit Direct.
-    if (trimmed.toLowerCase() === 'direct') {
-      if (currentVal !== 'Direct') onInputChange('relationshipManager', 'Direct');
-      setRmTypedName('Direct');
-      return;
-    }
-
-    // Try existing master entry (case-insensitive).
-    const match = relationshipManagers.find(
-      (m) => m.name.trim().toLowerCase() === trimmed.toLowerCase(),
-    );
-    if (match) {
-      const codeOrName = match.code || match.name;
-      // Idempotence: nothing to do if formData already holds this exact RM.
-      if (currentVal === codeOrName) {
-        // Just normalize the visible text to the canonical name.
-        if (rmTypedName !== match.name) setRmTypedName(match.name);
-        return;
-      }
-      onInputChange('relationshipManager', codeOrName);
-      setRmTypedName(match.name);
-      return;
-    }
-
-    // Not in local cache — could mean (a) truly new, or (b) added by another
-    // session since we loaded. Try a live re-check before inserting.
-    setRmSaving(true);
-    try {
-      const { data: existing } = await supabase
-        .from('relationship_managers')
-        .select('id, name, code')
-        .ilike('name', trimmed)
-        .limit(1);
-      if (existing && existing.length > 0) {
-        const row = existing[0] as { id: string; name: string; code: string | null };
-        const codeOrName = row.code || row.name;
-        onInputChange('relationshipManager', codeOrName);
-        setRmTypedName(row.name);
-        // Backfill local cache so the next blur is a fast path.
-        setRelationshipManagers((prev) =>
-          prev.some((m) => m.id === row.id)
-            ? prev
-            : [...prev, { id: row.id, name: row.name, code: row.code }],
-        );
-        return;
-      }
-
-      // Truly new → INSERT.
-      const { data: inserted, error } = await supabase
-        .from('relationship_managers')
-        .insert([{ name: trimmed }])
-        .select('id, name, code')
-        .single();
-      if (error) {
-        // Likely a race (case-insensitive unique index collision). Recover by
-        // re-fetching that exact name and using the existing row.
-        const { data: refetched } = await supabase
-          .from('relationship_managers')
-          .select('id, name, code')
-          .ilike('name', trimmed)
-          .limit(1);
-        if (refetched && refetched.length > 0) {
-          const row = refetched[0] as { id: string; name: string; code: string | null };
-          const codeOrName = row.code || row.name;
-          onInputChange('relationshipManager', codeOrName);
-          setRmTypedName(row.name);
-          setRelationshipManagers((prev) =>
-            prev.some((m) => m.id === row.id)
-              ? prev
-              : [...prev, { id: row.id, name: row.name, code: row.code }],
-          );
-          return;
-        }
-        throw error;
-      }
-      const row = inserted as { id: string; name: string; code: string | null };
-      const codeOrName = row.code || row.name;
-      onInputChange('relationshipManager', codeOrName);
-      setRmTypedName(row.name);
-      setRelationshipManagers((prev) => [
-        ...prev,
-        { id: row.id, name: row.name, code: row.code },
-      ]);
-    } catch (err) {
-      console.error('Failed to resolve RM:', err);
-      alert(`Could not add new RM "${trimmed}". ${err instanceof Error ? err.message : ''}`);
-      // Revert visible text to the prior saved value so we don't store stray text.
-      const prior = formData.relationshipManager;
-      const byCode = prior ? relationshipManagers.find((m) => m.code === prior) : null;
-      setRmTypedName(byCode?.name ?? (prior ?? ''));
-    } finally {
-      setRmSaving(false);
-    }
-  };
+  const rmOptionsWithCurrent = React.useMemo<SearchableSelectOption[]>(
+    () =>
+      rmValue && !rmOptions.some((o) => o.value === rmValue)
+        ? [...rmOptions, { value: rmValue, label: rmValue }]
+        : rmOptions,
+    [rmOptions, rmValue],
+  );
 
   // Fetch corporate options dynamically from database
   const { corporateOptions, loading: corporateLoading, error: corporateError, refetch: refetchCorporate } = useCorporateData();
@@ -613,41 +516,25 @@ export const PatientInfoSection: React.FC<PatientInfoSectionProps> = ({
           />
         </div>
 
-        {/* Relationship Manager — typeable: pick an existing RM, "Direct" for
-            walk-ins, or type a brand-new name to auto-add it to the master. */}
+        {/* Relationship Manager — pick an existing RM or "Direct" for walk-ins.
+            Selection only: new RMs are added on the Masters page. */}
         <div className="space-y-2">
           <Label htmlFor="relationshipManager" className="text-sm font-medium">
             Relationship Manager
           </Label>
-          <Input
-            id="relationshipManager"
-            type="text"
-            list="patient-reg-rm-datalist"
-            value={rmTypedName}
-            onChange={(e) => setRmTypedName(e.target.value)}
-            onBlur={(e) => resolveRmTyped(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                resolveRmTyped(rmTypedName);
-                (e.currentTarget as HTMLInputElement).blur();
-              }
-            }}
-            placeholder={
-              isLoadingRMs
-                ? 'Loading…'
-                : rmSaving
-                  ? 'Adding new RM…'
-                  : 'Type RM name, "Direct", or a new name to auto-add'
+          <SearchableSelect
+            options={rmOptionsWithCurrent}
+            value={rmValue}
+            onValueChange={(v) => onInputChange('relationshipManager', v)}
+            placeholder={isLoadingRMs ? 'Loading…' : 'Select Relationship Manager'}
+            searchPlaceholder="Search by name or code…"
+            emptyText={
+              rmError
+                ? 'Could not load relationship managers.'
+                : 'No matching relationship manager.'
             }
-            disabled={isLoadingRMs || rmSaving}
+            disabled={isLoadingRMs}
           />
-          <datalist id="patient-reg-rm-datalist">
-            <option value="Direct">No RM</option>
-            {relationshipManagers.map((m) => (
-              <option key={m.id} value={m.name}>{m.code || 'New'}</option>
-            ))}
-          </datalist>
           {formData.relationshipManager && formData.relationshipManager !== 'Direct' && (
             <p className="text-xs text-gray-500">
               Stored as code: <span className="font-mono">{formData.relationshipManager}</span>
