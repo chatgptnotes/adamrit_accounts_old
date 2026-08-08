@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
 import { Banknote, Camera, CheckCircle2, Edit2, Eye, EyeOff, FileCheck2, Loader2, Lock, Paperclip, Plus, Printer, RotateCcw, Trash2, Users, Save } from 'lucide-react';
@@ -324,6 +325,7 @@ export function DailyRevenueReportSection({
   const [draftRmIds, setDraftRmIds] = useState<string[]>([]);
   const [draftRmPercent, setDraftRmPercent] = useState<string>('');
   const [isManualDialogOpen, setIsManualDialogOpen] = useState(false);
+  const [isLockConfirmOpen, setIsLockConfirmOpen] = useState(false);
   const [manualEditId, setManualEditId] = useState<string | null>(null);
   const [manualForm, setManualForm] = useState<ManualFormData>(initialManual);
   const [selectedManualPatientId, setSelectedManualPatientId] = useState<string | null>(null);
@@ -1093,14 +1095,19 @@ export function DailyRevenueReportSection({
     !row.approvalId && !row.expenseBillId && !row.isHidden && !isDirect(row.rm_name) && row.cut > 0;
 
   /** Cuts on this report still waiting for their per-row Approve. */
-  const pendingApproveCount = rows.filter(isOwed).length;
+  const pendingApproveRows = rows.filter(isOwed);
+  const pendingApproveCount = pendingApproveRows.length;
+  const pendingApproveTotal = pendingApproveRows.reduce((sum, r) => sum + r.cut, 0);
 
   // Per-row Approve: raises the M.L. Enterprises invoice for this one patient
   // and posts both companies' journals. Nothing is paid — the bill lands
   // outstanding on the Expense Bill page.
+  //
+  // Deliberately allowed on a locked day. The lock freezes the sheet's figures,
+  // not the invoicing: a day locked while cuts were still pending used to
+  // strand them with no way to ever raise their bill.
   const approveRowMutation = useMutation({
     mutationFn: async (row: DisplayRow) => {
-      if (isApproved) throw new Error('This report has already been approved and is locked');
       const entryId = await ensureEntryRow(row);
       return approveReferralRow({
         entryId,
@@ -1137,7 +1144,7 @@ export function DailyRevenueReportSection({
       // freezes the sheet as the day's record.
       let paidSummary = '';
       if (pendingApproveCount > 0) {
-        paidSummary = ` ${pendingApproveCount} cut(s) are still un-approved — they can no longer be edited.`;
+        paidSummary = ` ${pendingApproveCount} cut(s) are still un-approved — their figures can no longer be edited, but you can still approve them.`;
       }
 
       // Do not use upsert here. Some existing deployments have the approval
@@ -1611,7 +1618,7 @@ export function DailyRevenueReportSection({
               ? 'Pay then settles that invoice from cash or bank, exactly as the Expense Bill page does.'
               : 'The bill is paid later from the Expense Bill page.'}{' '}
             {isSingleDay
-              ? 'Lock Day freezes the sheet once every row is settled.'
+              ? 'Lock Day freezes this sheet’s figures — pending invoices can still be raised afterwards.'
               : 'Pick a single date to lock a day’s sheet.'}
           </span>
         </div>
@@ -1885,7 +1892,7 @@ export function DailyRevenueReportSection({
                                   size="sm"
                                   variant="outline"
                                   className="h-7 gap-1 px-2 text-xs"
-                                  disabled={isApproved || approvingKey !== null}
+                                  disabled={approvingKey !== null}
                                   title={`Raise the M.L. Enterprises invoice for ${r.patient_name} and post the journals`}
                                   onClick={() => { setApprovingKey(r.key); approveRowMutation.mutate(r); }}
                                 >
@@ -1979,12 +1986,15 @@ export function DailyRevenueReportSection({
                     {isSingleDay && (
                       <Button
                         size="sm"
-                        onClick={() => approveMutation.mutate()}
+                        onClick={() => {
+                          if (pendingApproveCount > 0) setIsLockConfirmOpen(true);
+                          else approveMutation.mutate();
+                        }}
                         disabled={isApproved || approveMutation.isPending}
                         className="gap-1 bg-emerald-600 hover:bg-emerald-700"
                         title={
                           pendingApproveCount > 0
-                            ? `${pendingApproveCount} cut(s) are still un-approved — locking freezes them as they are`
+                            ? `${pendingApproveCount} cut(s) are still un-approved — locking freezes their figures, but they can still be approved`
                             : 'Freezes this day’s sheet as the record'
                         }
                       >
@@ -2009,6 +2019,30 @@ export function DailyRevenueReportSection({
           </div>
         )}
       </CardContent>
+
+      {/* Locking with cuts still un-invoiced is allowed, but it is almost
+          always a mistake, so it has to be confirmed. */}
+      <AlertDialog open={isLockConfirmOpen} onOpenChange={setIsLockConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Lock the day with {pendingApproveCount} cut(s) un-approved?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingApproveCount} cut(s) totalling Rs {formatINR(pendingApproveTotal)} have no
+              M.L. Enterprises invoice yet. Locking freezes this sheet's figures — you can still
+              approve those rows afterwards, but their cost, cut and RM can no longer be edited.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-emerald-600 hover:bg-emerald-700"
+              onClick={() => approveMutation.mutate()}
+            >
+              Lock Day
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Manual Add/Edit Dialog */}
       <Dialog open={isManualDialogOpen} onOpenChange={(open) => {
