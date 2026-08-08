@@ -162,12 +162,14 @@ export function TabletModuleHost() {
   if (!mod || !Flow) {
     return <Navigate to="/" replace />;
   }
-  if (mod.accountingOnly && !canCreateAccountingVouchers(user)) {
+  // The office list is the whole test for the two money tiles, overriding
+  // accountingOnly the same way the grid does; a typed URL must not reach
+  // them for anyone else.
+  const isOfficeTile = (OFFICE_TILE_IDS as readonly string[]).includes(mod.id);
+  if (isOfficeTile && !canSeeOfficeTiles(user)) {
     return <Navigate to="/" replace />;
   }
-  // Hidden from the grid is not enough for the two money tiles — a typed URL
-  // must not reach them either.
-  if ((OFFICE_TILE_IDS as readonly string[]).includes(mod.id) && !canSeeOfficeTiles(user)) {
+  if (!isOfficeTile && mod.accountingOnly && !canCreateAccountingVouchers(user)) {
     return <Navigate to="/" replace />;
   }
 

@@ -636,10 +636,12 @@ export function modulesForUser(
   // full tile-access filtering here when the tablet role matrix is finalized.
   return TABLET_MODULES.filter((module) => {
     if (module.hiddenFromHome) return false;
-    // Accounts (Tilak) and Expense Bills open the books: named office staff
-    // and the two super admins only, whatever role they carry.
-    if ((OFFICE_TILE_IDS as readonly string[]).includes(module.id) && !canSeeOfficeTiles(user)) {
-      return false;
+    // Accounts (Tilak) and Expense Bills open the books, so the office list is
+    // the whole test for them — it must also override accountingOnly, or
+    // Diksha (receptionist) and Lalit (pharmacist) are admitted by name and
+    // then turned away by their role.
+    if ((OFFICE_TILE_IDS as readonly string[]).includes(module.id)) {
+      return canSeeOfficeTiles(user);
     }
     if (module.accountingOnly && !canCreateAccountingVouchers(user)) return false;
     if (module.roles && module.roles.length > 0) {
