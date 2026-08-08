@@ -69,7 +69,15 @@ export async function uploadVoucherAttachments(
 
 export async function discardVoucherAttachments(attachments: VoucherAttachment[]): Promise<void> {
   const stagedPaths = attachments.filter((item) => !item.id).map((item) => item.storagePath);
-  if (stagedPaths.length) await supabase.storage.from(BUCKET).remove(stagedPaths);
+  await removeStoredFiles(stagedPaths);
+}
+
+/** For a file that is already stored and only its path is known - the proof a
+ *  replacement has just displaced, say. */
+export async function removeStoredFiles(paths: string[]): Promise<void> {
+  if (!paths.length) return;
+  const { error } = await supabase.storage.from(BUCKET).remove(paths);
+  if (error) throw new Error(error.message);
 }
 
 const UUID_RE =

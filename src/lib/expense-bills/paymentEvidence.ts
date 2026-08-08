@@ -2,6 +2,7 @@ import { supabase } from '@/integrations/supabase/client';
 import {
   uploadVoucherAttachments,
   discardVoucherAttachments,
+  removeStoredFiles,
   VOUCHER_PAYMENT_PROOF_CATEGORY,
 } from '@/lib/voucher-attachments';
 
@@ -72,7 +73,19 @@ export async function savePaymentProof(billId: string, file: File): Promise<stri
       p_url: uploaded.fileUrl,
     });
     if (error) throw new Error(error.message);
-    if (!data) throw new Error('The proof was uploaded but not attached to the bill.');
+    if (!data?.bill_id) throw new Error('The proof was uploaded but not attached to the bill.');
+
+    // The screenshot this one replaced is now unreachable — nothing points at
+    // it and nothing ever will. Deleting it is housekeeping, not part of the
+    // save: the bill already carries the new proof, so a bucket that refuses
+    // the delete must not turn a good replacement into a failure.
+    if (data.previous_path) {
+      try {
+        await removeStoredFiles([data.previous_path as string]);
+      } catch (e) {
+        console.warn('Could not delete the replaced payment proof', data.previous_path, e);
+      }
+    }
     return uploaded.fileUrl;
   } catch (error) {
     await discardVoucherAttachments([uploaded]);
