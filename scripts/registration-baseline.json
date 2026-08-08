@@ -3,7 +3,7 @@
   "src/components/visit/VisitDetailsSection.tsx": "1ada6c91e71b814be0508d24bef8fa1e97b63824d806a86ca1ce1b68a048c68e",
   "src/components/visit/VisitFormActions.tsx": "1bd1a79f3d0877ada74cf4c73f358ea4cc3d785a58349851edc8efddc5669ecd",
   "src/components/PatientRegistrationForm/usePatientRegistration.ts": "9fa26aeecea76cd9010d6db1093ae80a9e61b8e20dbcd135c9e67aab390747b5",
-  "src/components/PatientRegistrationForm/PatientInfoSection.tsx": "ef09c81c65065b3a6497f5e19645a3969b129eafa8a3ff12324bbd583bcb4dd9",
+  "src/components/PatientRegistrationForm/PatientInfoSection.tsx": "e7599ccd1f92e6b48551f61e57f5b7ade60b3064cbc95ede62a4adc0c4c083b6",
   "src/components/PatientRegistrationForm/SimilarPatientsPrompt.tsx": "d03474d051388f72c5317133500769f89c14caed0b3c4335b6cb191979574ae8",
   "src/components/PatientRegistrationForm.tsx": "7290fc0579202868c743d33c1a2d503e7285ed49ca6ae6b1c9ff55a6b9dc1442",
   "src/tablet/modules/register/RegisterPatientFlow.tsx": "df7c5d35597b28d6a009309fb60bc63e4ca976ffac7195387e362d0aea17de7c"
