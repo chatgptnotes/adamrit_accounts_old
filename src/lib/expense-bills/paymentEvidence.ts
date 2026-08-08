@@ -64,11 +64,15 @@ export async function saveLedgerQr(
 export async function savePaymentProof(billId: string, file: File): Promise<string> {
   const [uploaded] = await uploadVoucherAttachments([file], VOUCHER_PAYMENT_PROOF_CATEGORY);
   try {
-    const { error } = await (supabase as any)
-      .from('expense_bills')
-      .update({ payment_proof_path: uploaded.storagePath, payment_proof_url: uploaded.fileUrl })
-      .eq('id', billId);
+    // Through the RPC: expense_bills carries no UPDATE policy, so a direct
+    // write from the browser silently matched nothing and the proof was lost.
+    const { data, error } = await (supabase as any).rpc('save_expense_bill_payment_proof', {
+      p_bill_id: billId,
+      p_path: uploaded.storagePath,
+      p_url: uploaded.fileUrl,
+    });
     if (error) throw new Error(error.message);
+    if (!data) throw new Error('The proof was uploaded but not attached to the bill.');
     return uploaded.fileUrl;
   } catch (error) {
     await discardVoucherAttachments([uploaded]);
