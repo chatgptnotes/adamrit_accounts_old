@@ -133,6 +133,7 @@ const BillAgingStatementClassic = lazy(() => import("../pages/BillAgingStatement
 const ExpectedPaymentDateReport = lazy(() => import("../pages/ExpectedPaymentDateReport"));
 const GovernmentPortalReportImport = lazy(() => import("../pages/GovernmentPortalReportImport"));
 const CorporateSchemeModule = lazy(() => import("../pages/CorporateSchemeModule"));
+const CorporateClaimTracking = lazy(() => import("../pages/CorporateClaimTracking"));
 const Marketing = lazy(() => import("../pages/Marketing"));
 const RelationshipManager = lazy(() => import("../pages/RelationshipManager"));
 const ITTransactionRegister = lazy(() => import("../pages/ITTransactionRegister"));
@@ -363,6 +364,7 @@ export const AppRoutes = () => {
         <Route path="/ledger-statement" element={<Suspense fallback={<PageLoader />}><LedgerStatement /></Suspense>} />
         <Route path="/corporate" element={<Suspense fallback={<PageLoader />}><Corporate /></Suspense>} />
         <Route path="/corporate-schemes/:schemeCode" element={<Suspense fallback={<PageLoader />}><CorporateSchemeModule /></Suspense>} />
+        <Route path="/corporate-claim-tracking" element={<Suspense fallback={<PageLoader />}><CorporateClaimTracking /></Suspense>} />
         <Route path="/yojna-bill/:visitId" element={<Suspense fallback={<PageLoader />}><CorporateBill /></Suspense>} />
         <Route path="/corporate-bulk-payments" element={<Suspense fallback={<PageLoader />}><CorporateBulkPayments /></Suspense>} />
         <Route path="/pharmacy/goods-received-note" element={<Suspense fallback={<PageLoader />}><Pharmacy /></Suspense>} />

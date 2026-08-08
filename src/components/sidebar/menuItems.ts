@@ -208,6 +208,11 @@ export const menuItems: MenuItemDef[] = [
     icon: FileText,
   },
   {
+    title: "Corporate Claim Tracking",
+    url: "/corporate-claim-tracking",
+    icon: ShieldCheck,
+  },
+  {
     title: "Bill Approvals",
     url: "/bill-approvals",
     icon: ClipboardCheck,

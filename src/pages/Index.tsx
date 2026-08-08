@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { DateRange } from 'react-day-picker';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
@@ -24,6 +24,7 @@ import { useTileAccess } from '@/hooks/useTileAccess';
 import { QuickCaptureCard } from '@/components/CameraUpload';
 
 const Index = () => {
+  const navigate = useNavigate();
   const { hospitalConfig } = useAuth();
   const { canSeeTile } = useTileAccess();
   const [searchTerm, setSearchTerm] = useState('');
@@ -395,6 +396,9 @@ const Index = () => {
           <h1 className="text-4xl font-bold text-primary mb-4">
             Hospital Management Dashboard
           </h1>
+          <Button className="mt-4" variant="outline" onClick={() => navigate('/corporate-claim-tracking')}>
+            Corporate Claim Tracking
+          </Button>
           <p className="text-lg text-muted-foreground">
             All patients — IPD, OPD, ESIC, Corporate, Private and Panel
           </p>

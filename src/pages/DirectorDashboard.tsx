@@ -294,6 +294,7 @@ export default function DirectorDashboard() {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Director Dashboard</h1>
         <div className="flex items-center gap-4">
+          <Button variant="outline" className="gap-2" onClick={() => navigate('/corporate-claim-tracking')}><FileSpreadsheet className="h-4 w-4 text-indigo-600" />Corporate Claim Tracking</Button>
           <Button variant="outline" className="gap-2" onClick={() => { const el = document.getElementById('daily-revenue-report'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}><Users className="h-4 w-4 text-emerald-600" />Daily Revenue Report</Button>
           <Button variant="outline" className="gap-2" onClick={handleOpenFilesDialog}><FolderOpen className="h-4 w-4 text-blue-600" />Director's Files</Button>
           <input ref={actionItemsFileInputRef} type="file" accept={OFFICE_ACCEPT_ATTR} className="hidden" onChange={handleUploadActionItems} />
