@@ -23,7 +23,9 @@ export const PatientRegistrationForm: React.FC<PatientRegistrationFormProps> = (
     handleRegistrationDocumentSelect,
     handleRegistrationDocumentRemove,
     handleSubmit,
-    handleCancel
+    handleCancel,
+    similarPatients,
+    setSimilarPatients,
   } = usePatientRegistration(onClose);
 
   return (
@@ -37,6 +39,8 @@ export const PatientRegistrationForm: React.FC<PatientRegistrationFormProps> = (
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <PatientInfoSection 
+            similarPatients={similarPatients}
+            onSimilarPatientsChange={setSimilarPatients}
             formData={formData}
             dateOfBirth={dateOfBirth}
             registrationDocuments={registrationDocuments}

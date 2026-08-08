@@ -7,6 +7,10 @@ import { SearchableSelect, SearchableSelectOption } from '@/components/ui/search
 import { EnhancedDatePicker } from '@/components/ui/enhanced-date-picker';
 import { Eye, Upload, X, Loader2 } from 'lucide-react';
 import { PatientFormData, RegistrationDocumentSelection } from './types';
+import {
+  SimilarPatientsPrompt,
+  type SimilarPatientsState,
+} from './SimilarPatientsPrompt';
 import { useCorporateData } from '@/hooks/useCorporateData';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -19,6 +23,9 @@ interface PatientInfoSectionProps {
   onPatientPhotoSelect: (file: File | null) => void;
   onRegistrationDocumentSelect: (label: string, file: File | null) => void;
   onRegistrationDocumentRemove: (label: string) => void;
+  /** Duplicate-name guard: what is on screen, and what the user decided. */
+  similarPatients?: SimilarPatientsState;
+  onSimilarPatientsChange?: (state: SimilarPatientsState) => void;
 }
 
 export const PatientInfoSection: React.FC<PatientInfoSectionProps> = ({
@@ -30,6 +37,8 @@ export const PatientInfoSection: React.FC<PatientInfoSectionProps> = ({
   onPatientPhotoSelect,
   onRegistrationDocumentSelect,
   onRegistrationDocumentRemove,
+  similarPatients,
+  onSimilarPatientsChange,
 }) => {
   const corporateKey = formData.corporate.trim().toLowerCase();
   const isEsicCorporate = corporateKey.includes('esic');
@@ -273,6 +282,15 @@ export const PatientInfoSection: React.FC<PatientInfoSectionProps> = ({
             className="w-full"
             required
           />
+          {/* A patient who has been here before must not be registered twice. */}
+          {similarPatients && onSimilarPatientsChange && (
+            <SimilarPatientsPrompt
+              typedName={formData.patientName}
+              hospitalName={formData.hospitalName}
+              value={similarPatients}
+              onChange={onSimilarPatientsChange}
+            />
+          )}
         </div>
 
         {/* Corporate */}

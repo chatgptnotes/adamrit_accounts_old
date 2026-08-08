@@ -32,6 +32,8 @@ const TARGETS = [
   'src/components/visit/VisitFormActions.tsx',
   'src/components/PatientRegistrationForm/usePatientRegistration.ts',
   'src/components/PatientRegistrationForm/PatientInfoSection.tsx',
+  'src/components/PatientRegistrationForm/SimilarPatientsPrompt.tsx',
+  'src/components/PatientRegistrationForm.tsx',
   'src/tablet/modules/register/RegisterPatientFlow.tsx',
 ];
 

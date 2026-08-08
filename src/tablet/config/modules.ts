@@ -52,6 +52,8 @@ export interface TabletModule {
   accountingOnly?: boolean;
   /** Hide from the tablet home grid while still allowing direct navigation. */
   hiddenFromHome?: boolean;
+  /** Extra words the home search matches — the people who also work the tile. */
+  keywords?: string[];
 }
 
 /** All tablet modules, including child flows that should not appear on the home grid. */
@@ -429,6 +431,8 @@ export const TABLET_MODULES: TabletModule[] = [
     id: "dialysis-front-office",
     label: "Dialysis Front Office - Diksha",
     description: "Thumb impression first, then print the slip",
+    // Lalit and Nisha work this desk too, so their names find it.
+    keywords: ["Lalit", "Nisha"],
     icon: ScanLine,
     accent: "text-violet-700",
     tint: "from-violet-400 to-purple-600",

@@ -91,7 +91,8 @@ export function TabletHome() {
       (m) =>
         m.label.toLowerCase().includes(q) ||
         m.description.toLowerCase().includes(q) ||
-        m.id.toLowerCase().includes(q),
+        m.id.toLowerCase().includes(q) ||
+        (m.keywords || []).some((k) => k.toLowerCase().includes(q)),
     );
   }, [modules, query]);
 

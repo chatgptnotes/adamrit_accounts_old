@@ -4,6 +4,11 @@ import { useState } from 'react';
 import { PatientFormData } from './types';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import {
+  EMPTY_SIMILAR_STATE,
+  similarPatientsBlockSubmit,
+  type SimilarPatientsState,
+} from './SimilarPatientsPrompt';
 import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { generatePatientId } from '@/utils/patientIdGenerator';
@@ -21,6 +26,10 @@ export const usePatientRegistration = (onClose: () => void) => {
   const [dateOfBirth, setDateOfBirth] = useState<Date>();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
+  // Duplicate-name guard. The form cannot be submitted while patients of the
+  // same name are on screen and the user has neither picked one nor said this
+  // is somebody else.
+  const [similarPatients, setSimilarPatients] = useState<SimilarPatientsState>(EMPTY_SIMILAR_STATE);
   const queryClient = useQueryClient();
   const { hospitalConfig } = useAuth();
   
@@ -168,12 +177,33 @@ export const usePatientRegistration = (onClose: () => void) => {
     
     if (!validateForm()) return;
 
+    if (similarPatientsBlockSubmit(similarPatients)) {
+      toast({
+        title: 'This name is already registered',
+        description:
+          'Pick the existing patient so the visit joins their history, or tick "This is a different person" to register a new record.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsSubmitting(true);
 
     // Reuse an already-registered patient when the submitted details match one,
     // so repeat visitors (e.g. recurring dialysis patients) keep a single record
     // and their sittings are counted together instead of splitting across duplicates.
     const findExistingPatient = async (): Promise<any | null> => {
+      // The user picked a patient off the duplicate-name list: that record is
+      // the answer, no guessing from phone or Aadhaar needed.
+      if (similarPatients.chosen) {
+        const { data } = await supabase
+          .from('patients')
+          .select('*')
+          .eq('id', similarPatients.chosen.id)
+          .limit(1);
+        if (data && data.length > 0) return data[0];
+      }
+
       const aadhaarDigits = (formData.aadharId || '').replace(/\D/g, '');
       if (aadhaarDigits) {
         const { data } = await supabase
@@ -411,6 +441,8 @@ export const usePatientRegistration = (onClose: () => void) => {
     handleRegistrationDocumentSelect,
     handleRegistrationDocumentRemove,
     handleSubmit,
-    handleCancel
+    handleCancel,
+    similarPatients,
+    setSimilarPatients
   };
 };
