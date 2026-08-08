@@ -13,9 +13,11 @@ const Users = () => {
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['users'],
     queryFn: async () => {
+      // Explicit columns, not '*': anon only holds column-level SELECT on the
+      // non-secret columns of "User", so a star select is rejected outright.
       const { data, error } = await supabase
         .from('User')
-        .select('*')
+        .select('id, email, full_name, role, hospital_type, department, is_active, created_at')
         .order('email');
       
       if (error) {

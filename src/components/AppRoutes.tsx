@@ -40,9 +40,7 @@ const DirectorMatrixDailyEntries = lazy(() => import("../pages/DirectorMatrixDai
 
 // Import authentication pages
 import LoginPage from "./LoginPage";
-import SignupPage from "./SignupPage";
 import TestSignup from "./TestSignup";
-import SimpleSignup from "./SimpleSignup";
 
 // Lazy load Advanced Statement Report
 const AdvancedStatementReport = lazy(() => import("../pages/AdvancedStatementReport"));
@@ -292,8 +290,6 @@ export const AppRoutes = () => {
           }
         />
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/signup" element={<SignupPage />} />
-        <Route path="/signup-simple" element={<SimpleSignup />} />
         <Route path="/test" element={<TestSignup />} />
         <Route path="/patient-dashboard" element={<PatientDashboard />} />
         <Route path="/patient-overview" element={<PatientOverview />} />

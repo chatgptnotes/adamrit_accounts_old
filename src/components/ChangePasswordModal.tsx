@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
-import { hashPassword, validatePassword } from '@/utils/auth';
+import { validatePassword } from '@/utils/auth';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,20 +39,23 @@ const ChangePasswordModal = () => {
 
     setSaving(true);
     try {
-      const hashedPassword = await hashPassword(newPassword);
+      // Hashed and written server-side. This used to be an anon-key UPDATE
+      // filtered on a browser-supplied id, which could set anyone's password.
+      const response = await fetch('/api/auth-session', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPassword }),
+      });
+      const payload = await response.json().catch(() => ({}));
 
-      const { error: updateError } = await supabase
-        .from('User')
-        .update({
-          password: hashedPassword,
-          must_change_password: false,
-          password_changed_at: new Date().toISOString(),
-        })
-        .eq('id', user.id);
-
-      if (updateError) {
-        setError('Failed to update password. Please try again.');
-        console.error('Password update error:', updateError);
+      if (!response.ok || !payload?.ok) {
+        setError(
+          payload?.error === 'not_authenticated'
+            ? 'Your session has expired. Please log in again.'
+            : 'Failed to update password. Please try again.',
+        );
+        console.error('Password update error:', payload?.error);
         return;
       }
 

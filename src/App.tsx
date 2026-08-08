@@ -324,7 +324,7 @@ const AppContent = () => {
 
   // Check if current path is an auth route that should bypass guards
   const currentPath = window.location.pathname;
-  const authRoutes = ['/login', '/signup', '/signup-full'];
+  const authRoutes = ['/login'];
   const isAuthRoute = authRoutes.includes(currentPath);
 
   // Redirect authenticated users away from auth routes (no full page reload)

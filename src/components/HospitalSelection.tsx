@@ -96,23 +96,17 @@ const HospitalSelection = ({ onHospitalSelect, onBackToHome }: HospitalSelection
 
         <div className="mt-10 text-center space-y-4">
           <div className="flex items-center justify-center gap-4">
-            <Button 
-              variant="outline" 
-              onClick={() => window.location.href = '/signup'}
-              className="px-6 py-2 border-blue-300 text-blue-600 hover:bg-blue-50"
-            >
-              📝 Create New Account
-            </Button>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => window.location.href = '/login'}
               className="px-6 py-2 border-green-300 text-green-600 hover:bg-green-50"
             >
               🔑 Database Login
             </Button>
           </div>
-          
+
           <p className="text-gray-500 text-sm">
+            Accounts are created by your administrator in User Management.
             Need help selecting your hospital? Contact your system administrator.
           </p>
         </div>

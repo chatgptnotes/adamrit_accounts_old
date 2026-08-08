@@ -2,7 +2,6 @@ import { createContext, useContext, useState, useEffect, useMemo, useCallback, R
 import { createClient } from '@supabase/supabase-js';
 import { HospitalType, getHospitalConfig } from '@/types/hospital';
 import { supabase } from '@/integrations/supabase/client';
-import { hashPassword, validateEmail, sanitizeInput, signupRateLimiter } from '@/utils/auth';
 import { logActivity } from '@/lib/activity-logger';
 import { isSuperAdminRole } from '@/lib/roles';
 
@@ -26,7 +25,6 @@ interface AuthContextType {
   user: User | null;
   login: (credentials: { email: string; password: string; hospitalType?: HospitalType }) => Promise<boolean>;
   loginWithGoogle: () => Promise<void>;
-  signup: (userData: { email: string; password: string; role: string; hospitalType: HospitalType }) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   isAuthenticated: boolean;
   isAuthLoading: boolean;
@@ -119,7 +117,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       window.history.replaceState(null, '', window.location.pathname);
     }
 
-    (supabase as any).from('User').update({ last_login_at: new Date().toISOString() }).eq('id', data.id).then(() => {});
+    // last_login_at is stamped server-side by /api/auth-session for every login
+    // method, so the browser no longer writes to "User" here.
     logActivity('user_login', { email: appUser.email, role: appUser.role, hospital: appUser.hospitalType, method: 'google' });
   };
 
@@ -234,7 +233,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       const appUser: User = body.user;
       setUser(appUser);
       localStorage.setItem('hmis_user', JSON.stringify(appUser));
-      (supabase as any).from('User').update({ last_login_at: new Date().toISOString() }).eq('id', appUser.id).then(() => {});
+      // last_login_at is stamped server-side by /api/auth-session.
       logActivity('user_login', { email: appUser.email, role: appUser.role, hospital: appUser.hospitalType });
       return true;
     } catch (error) {
@@ -256,66 +255,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   }, []);
 
-  // Signup functionality
-  const signup = async (userData: { email: string; password: string; role: string; hospitalType: HospitalType }): Promise<{ success: boolean; error?: string }> => {
-    try {
-      // Rate limiting check
-      const clientIP = 'default'; // In production, get actual client IP
-      if (!signupRateLimiter.isAllowed(clientIP)) {
-        const remainingTime = Math.ceil(signupRateLimiter.getRemainingTime(clientIP) / 1000 / 60);
-        return { success: false, error: `Too many signup attempts. Please try again in ${remainingTime} minutes.` };
-      }
-
-      // Validate email
-      const emailValidation = validateEmail(userData.email);
-      if (!emailValidation.isValid) {
-        return { success: false, error: emailValidation.error };
-      }
-
-      // Sanitize inputs
-      const sanitizedEmail = sanitizeInput(userData.email.toLowerCase());
-      const sanitizedRole = sanitizeInput(userData.role);
-
-      // Check if user already exists
-      const { data: existingUser } = await supabase
-        .from('User')
-        .select('id')
-        .eq('email', sanitizedEmail)
-        .single();
-
-      if (existingUser) {
-        return { success: false, error: 'Email already exists. Please use a different email.' };
-      }
-
-      // Hash password
-      const hashedPassword = await hashPassword(userData.password);
-
-      // Insert new user
-      const { error } = await supabase
-        .from('User')
-        .insert([
-          {
-            email: sanitizedEmail,
-            password: hashedPassword,
-            role: sanitizedRole,
-            hospital_type: userData.hospitalType
-          }
-        ]);
-
-      if (error) {
-        console.error('Signup error:', error);
-        if (error.code === '23505') { // Unique constraint violation
-          return { success: false, error: 'Email already exists. Please use a different email.' };
-        }
-        return { success: false, error: error.message || 'Failed to create account' };
-      }
-
-      return { success: true };
-    } catch (error) {
-      console.error('Signup failed:', error);
-      return { success: false, error: 'An unexpected error occurred. Please try again.' };
-    }
-  };
 
   const logout = useCallback(async () => {
     setUser(null);
@@ -350,7 +289,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     user,
     login,
     loginWithGoogle,
-    signup,
     logout,
     isAuthenticated: !!user,
     isAuthLoading,
