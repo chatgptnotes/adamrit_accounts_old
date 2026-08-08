@@ -32,7 +32,8 @@ export function FeedbackUploadPanel({ patientId, patientName }: FeedbackUploadPa
         patientId,
         patientName,
         caption,
-        uploadedBy: user?.email ?? null,
+        // file_uploads.uploaded_by is a uuid column — the email is rejected.
+        uploadedBy: user?.id ?? null,
       });
       toast.success(`${files.length} file(s) uploaded.`);
       setCaption("");

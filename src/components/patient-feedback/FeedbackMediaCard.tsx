@@ -77,10 +77,7 @@ export function FeedbackMediaCard({ item, showPatientName }: FeedbackMediaCardPr
           ) : (
             <p className="text-sm italic text-muted-foreground">No caption</p>
           )}
-          <p className="text-[11px] text-muted-foreground">
-            {stamp || "—"}
-            {item.uploadedBy ? ` · ${item.uploadedBy}` : ""}
-          </p>
+          <p className="text-[11px] text-muted-foreground">{stamp || "—"}</p>
         </div>
       </div>
 
@@ -113,10 +110,7 @@ export function FeedbackMediaCard({ item, showPatientName }: FeedbackMediaCardPr
               </p>
             ) : null}
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs text-muted-foreground">
-                {stamp || "—"}
-                {item.uploadedBy ? ` · ${item.uploadedBy}` : ""}
-              </span>
+              <span className="text-xs text-muted-foreground">{stamp || "—"}</span>
               <Button variant="outline" size="sm" asChild>
                 <a href={item.fileUrl} target="_blank" rel="noreferrer">
                   Open full size
