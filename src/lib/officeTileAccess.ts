@@ -54,6 +54,15 @@ const OFFICE_TILE_EMAILS = new Set([
 /** Tiles this list governs. */
 export const OFFICE_TILE_IDS = ['accounts-tilak', 'expense-bills'] as const;
 
+/** Payment Voucher is also a front-office duty for Diksha. */
+export function canSeePaymentVoucher(
+  user?: { email?: string | null; role?: string | null } | null,
+): boolean {
+  const role = (user?.role || '').toLowerCase().trim();
+  if (MANAGEMENT_ROLES.has(role)) return true;
+  return (user?.email || '').toLowerCase().trim() === 'diksha@gmail.com';
+}
+
 export function canSeeOfficeTiles(
   user?: { email?: string | null; role?: string | null } | null,
 ): boolean {
