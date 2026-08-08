@@ -33,13 +33,31 @@ export interface SimilarPatientsState {
   chosen: SimilarPatient | null;
   /** The user has stated this is somebody else. */
   declaredDifferent: boolean;
+  /** Write the freshly typed phone / address onto the chosen record. */
+  updateContact: boolean;
 }
 
 export const EMPTY_SIMILAR_STATE: SimilarPatientsState = {
   matches: [],
   chosen: null,
   declaredDifferent: false,
+  updateContact: false,
 };
+
+/** What the typed details would change on the chosen record, if anything. */
+export function contactChanges(
+  chosen: SimilarPatient | null,
+  typedPhone?: string,
+  typedAddress?: string,
+): { phone?: string; address?: string } {
+  if (!chosen) return {};
+  const changes: { phone?: string; address?: string } = {};
+  const phone = (typedPhone || '').trim();
+  const address = (typedAddress || '').trim();
+  if (phone && phone !== (chosen.phone || '').trim()) changes.phone = phone;
+  if (address && address !== (chosen.address || '').trim()) changes.address = address;
+  return changes;
+}
 
 /** True when the form must not be submitted yet. */
 export function similarPatientsBlockSubmit(state: SimilarPatientsState): boolean {
@@ -63,11 +81,16 @@ function namesLookAlike(typed: string, candidate: string): boolean {
 
 export function SimilarPatientsPrompt({
   typedName,
+  typedPhone,
+  typedAddress,
   hospitalName,
   value,
   onChange,
 }: {
   typedName: string;
+  /** Offered as an update to the chosen record when they differ from it. */
+  typedPhone?: string;
+  typedAddress?: string;
   hospitalName?: string | null;
   value: SimilarPatientsState;
   onChange: (state: SimilarPatientsState) => void;
@@ -110,6 +133,7 @@ export function SimilarPatientsPrompt({
       matches,
       chosen: chosenStillValid ? value.chosen : null,
       declaredDifferent: matches.length > 0 ? value.declaredDifferent : false,
+      updateContact: chosenStillValid ? value.updateContact : false,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(matches.map((m) => m.id))]);
@@ -133,6 +157,8 @@ export function SimilarPatientsPrompt({
   }
 
   if (value.chosen) {
+    const changes = contactChanges(value.chosen, typedPhone, typedAddress);
+    const changed = Object.keys(changes);
     return (
       <div className="mt-2 rounded-md border border-emerald-300 bg-emerald-50 p-2 text-sm">
         <p className="flex items-center gap-1 font-medium text-emerald-900">
@@ -140,10 +166,37 @@ export function SimilarPatientsPrompt({
           Registering against {value.chosen.name}
           {value.chosen.patients_id ? ` (${value.chosen.patients_id})` : ''}
         </p>
+
+        {/* Their file keeps what it has unless this is ticked — a hurried
+            entry should not quietly overwrite a good number. */}
+        {changed.length > 0 && (
+          <label className="mt-1.5 flex items-start gap-2 text-xs text-emerald-900">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-3.5 w-3.5"
+              checked={value.updateContact}
+              onChange={(e) => onChange({ ...value, updateContact: e.target.checked })}
+            />
+            <span>
+              Also update their{' '}
+              {changed.map((field) => (
+                <span key={field} className="font-medium">
+                  {field === 'phone' ? 'phone' : 'address'}
+                  {field === 'phone' && changes.phone
+                    ? ` (${value.chosen?.phone || 'none'} → ${changes.phone})`
+                    : ''}
+                  {field === 'address' && changes.address ? ' to the one typed here' : ''}
+                  {changed.indexOf(field) < changed.length - 1 ? ' and ' : ''}
+                </span>
+              ))}
+            </span>
+          </label>
+        )}
+
         <button
           type="button"
           className="mt-1 text-xs text-emerald-800 underline"
-          onClick={() => onChange({ ...value, chosen: null })}
+          onClick={() => onChange({ ...value, chosen: null, updateContact: false })}
         >
           Pick someone else
         </button>
@@ -168,7 +221,7 @@ export function SimilarPatientsPrompt({
             key={m.id}
             type="button"
             className="flex w-full items-center justify-between gap-2 rounded border bg-white px-2 py-1.5 text-left hover:bg-blue-50"
-            onClick={() => onChange({ ...value, chosen: m, declaredDifferent: false })}
+            onClick={() => onChange({ ...value, chosen: m, declaredDifferent: false, updateContact: false })}
           >
             <span className="min-w-0">
               <span className="block truncate text-sm font-medium">{m.name}</span>

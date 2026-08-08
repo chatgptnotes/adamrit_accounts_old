@@ -6,6 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import {
   EMPTY_SIMILAR_STATE,
+  contactChanges,
   similarPatientsBlockSubmit,
   type SimilarPatientsState,
 } from './SimilarPatientsPrompt';
@@ -196,6 +197,13 @@ export const usePatientRegistration = (onClose: () => void) => {
       // The user picked a patient off the duplicate-name list: that record is
       // the answer, no guessing from phone or Aadhaar needed.
       if (similarPatients.chosen) {
+        // Their file keeps what it has unless the user asked to refresh it.
+        const changes = similarPatients.updateContact
+          ? contactChanges(similarPatients.chosen, formData.phone, formData.address)
+          : {};
+        if (Object.keys(changes).length > 0) {
+          await supabase.from('patients').update(changes).eq('id', similarPatients.chosen.id);
+        }
         const { data } = await supabase
           .from('patients')
           .select('*')

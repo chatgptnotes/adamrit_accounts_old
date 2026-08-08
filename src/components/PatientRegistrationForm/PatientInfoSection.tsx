@@ -286,6 +286,8 @@ export const PatientInfoSection: React.FC<PatientInfoSectionProps> = ({
           {similarPatients && onSimilarPatientsChange && (
             <SimilarPatientsPrompt
               typedName={formData.patientName}
+              typedPhone={formData.phone}
+              typedAddress={formData.address}
               hospitalName={formData.hospitalName}
               value={similarPatients}
               onChange={onSimilarPatientsChange}

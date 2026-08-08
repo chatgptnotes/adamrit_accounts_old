@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   SimilarPatientsPrompt,
   similarPatientsBlockSubmit,
+  contactChanges,
   EMPTY_SIMILAR_STATE,
   type SimilarPatientsState,
 } from "@/components/PatientRegistrationForm/SimilarPatientsPrompt";
@@ -282,6 +283,13 @@ export default function RegisterPatientFlow() {
         : null;
       if (similar.chosen && !reuse) {
         throw new Error("That patient could not be opened — pick again.");
+      }
+      // Their file keeps what it has unless the user asked to refresh it.
+      if (reuse && similar.updateContact) {
+        const changes = contactChanges(similar.chosen, patient.phone, patient.address);
+        if (Object.keys(changes).length > 0) {
+          await supabase.from("patients").update(changes).eq("id", (reuse as any).id);
+        }
       }
 
       // Dedup pre-check: block a second record for the same Aadhaar in this
@@ -574,6 +582,8 @@ export default function RegisterPatientFlow() {
                 />
                 <SimilarPatientsPrompt
                   typedName={patient.name}
+                  typedPhone={patient.phone}
+                  typedAddress={patient.address}
                   hospitalName={hospitalConfig.name}
                   value={similar}
                   onChange={setSimilar}
