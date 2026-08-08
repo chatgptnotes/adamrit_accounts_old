@@ -257,6 +257,8 @@ export const usePatientRegistration = (
           const patientData = {
             patients_id: customPatientId,
             name: formData.patientName,
+            is_direct: initialRelationshipManager === 'Direct',
+            direct_marked_at: initialRelationshipManager === 'Direct' ? new Date().toISOString() : null,
             insurance_person_no: isEsicCorporate ? formData.insurancePersonNo : null,
             corporate: formData.corporate,
             age: formData.age ? parseInt(formData.age) : null,
@@ -325,6 +327,16 @@ export const usePatientRegistration = (
       const { newPatient, customPatientId } = existingPatient
         ? { newPatient: existingPatient, customPatientId: existingPatient.patients_id }
         : await createPatientWithRetry();
+
+      // Set this before the subsequent visit-registration screen can submit.
+      // The database correctly blocks referee links for direct patients, so a
+      // delayed callback from the referral dialog must not create a race.
+      if (initialRelationshipManager === 'Direct') {
+        await supabase.from('patients').update({
+          is_direct: true,
+          direct_marked_at: new Date().toISOString(),
+        }).eq('id', newPatient.id);
+      }
 
       if (!existingPatient) {
         // Log patient creation activity
