@@ -5,6 +5,7 @@ import { Search, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { modulesForUser } from "@/tablet/config/modules";
+import { UnbilledPaymentAlert } from "@/components/UnbilledPaymentAlert";
 import { TabletWatermark } from "@/tablet/components/TabletWatermark";
 import { useRecentlyDischargedVisits } from "@/tablet/hooks/useVisitLists";
 import { useDialysisTracker } from "@/tablet/hooks/useDialysisTracker";
@@ -163,6 +164,8 @@ export function TabletHome() {
 
   return (
     <div className="relative isolate h-full">
+      {/* Raised once a day to management: money that left with no bill. */}
+      <UnbilledPaymentAlert />
       <TabletWatermark />
       <div className="tablet-no-scrollbar h-full overflow-y-auto p-4 sm:p-6 lg:p-8">
         {/* Centring guard rail — caps width so the dashboard never

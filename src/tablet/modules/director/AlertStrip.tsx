@@ -1,5 +1,7 @@
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, ClipboardCheck, Wallet } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { AlertTriangle, ClipboardCheck, ShieldAlert, Wallet } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { inr, todayISO } from "@/tablet/lib/format";
 import {
@@ -61,6 +63,24 @@ export function AlertStrip({ pendingApprovals, hospital }: Props) {
   const today = todayISO();
 
   const { schedule } = useDailyPaymentSchedule(today, hospital);
+
+  // Money that left a phone or a bank with no bill behind it. The rule is that
+  // a payment needs a bill, so this chip is red the moment there is one.
+  const unbilled = useQuery({
+    queryKey: ["director-unbilled-payments"],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from("v_recon_alerts")
+        .select("amount")
+        .limit(500);
+      const rows = data || [];
+      return {
+        count: rows.length,
+        value: rows.reduce((sum: number, r: any) => sum + Number(r.amount || 0), 0),
+      };
+    },
+  });
   const { funds } = useFundAccounts(today);
 
   const overdueRows = schedule.filter((s) => s.days_overdue > 0 && s.status !== "paid");
@@ -99,6 +119,19 @@ export function AlertStrip({ pendingApprovals, hospital }: Props) {
                 : "green"
         }
         onClick={() => navigate("/bill-approvals")}
+      />
+      <Chip
+        icon={ShieldAlert}
+        label="Payments with no bill"
+        value={
+          unbilled.data?.count
+            ? `${unbilled.data.count} · ${inr(unbilled.data.value)}`
+            : unbilled.isLoading
+              ? "—"
+              : "None"
+        }
+        tone={unbilled.data?.count ? "red" : "green"}
+        onClick={() => navigate("/t/reconciliation-tilak")}
       />
       <Chip
         icon={Wallet}
