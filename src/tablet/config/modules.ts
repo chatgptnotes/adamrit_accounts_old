@@ -596,6 +596,15 @@ export const TABLET_MODULES: TabletModule[] = [
     roles: ["superadmin", "super_admin"],
   },
   {
+    id: "patient-feedback",
+    label: "Patient Feedback",
+    description: "Photo & video feedback from patients",
+    icon: MessageCircle,
+    accent: "text-fuchsia-700",
+    tint: "from-fuchsia-400 to-purple-600",
+    keywords: ["testimonial", "video", "photo", "review"],
+  },
+  {
     // Drill list behind every Director Dashboard tile. Which metric it shows comes
     // from ?metric=, so the flow renders its own heading rather than relying on this
     // label.

@@ -35,7 +35,8 @@ export type PatientDocCategory =
   | "discharge_thumb_confirmation"
   | "payment_proof"
   | "referee_feedback"
-  | "referee_viji";
+  | "referee_viji"
+  | "patient_feedback";
 
 export interface PatientDoc {
   id: string;

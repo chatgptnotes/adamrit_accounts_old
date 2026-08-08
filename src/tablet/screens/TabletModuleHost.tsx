@@ -146,6 +146,9 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   "referee-viji": lazy(
     () => import("@/tablet/modules/referee-viji/RefereeVijiFlow"),
   ),
+  "patient-feedback": lazy(
+    () => import("@/tablet/modules/patient-feedback/PatientFeedbackFlow"),
+  ),
 };
 
 /**

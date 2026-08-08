@@ -75,6 +75,7 @@ export const GROUP_BY_TITLE: Record<string, string> = {
   // Marketing & Outreach
   'Marketing': 'Marketing & Outreach',
   'Marketing Field Tracker': 'Marketing & Outreach',
+  'Patient Feedback': 'Marketing & Outreach',
   'B2B Partners': 'Marketing & Outreach',
   'Telephony Dashboard': 'Marketing & Outreach',
   'Conference Call': 'Marketing & Outreach',

@@ -57,6 +57,7 @@ const PmjayMjpjayPackageUsageReport = lazy(() => import("../pages/PmjayMjpjayPac
 // Lazy load heavy feature pages
 const Accounting = lazy(() => import("../pages/Accounting"));
 const ExpenseBillsPage = lazy(() => import("../pages/ExpenseBills"));
+const PatientFeedbackPage = lazy(() => import("../pages/PatientFeedback"));
 const CashBook = lazy(() => import("../pages/CashBook"));
 const PatientLedger = lazy(() => import("../pages/PatientLedger"));
 const DayBook = lazy(() => import("../pages/DayBook"));
@@ -355,6 +356,7 @@ export const AppRoutes = () => {
         <Route path="/pmjay-mjpjay-master" element={<Suspense fallback={<PageLoader />}><PmjayMjpjayMaster /></Suspense>} />
         <Route path="/accounting" element={<Suspense fallback={<PageLoader />}><Accounting /></Suspense>} />
         <Route path="/expense-bill" element={<Suspense fallback={<PageLoader />}><MlPinGate><ExpenseBillsPage /></MlPinGate></Suspense>} />
+        <Route path="/patient-feedback" element={<Suspense fallback={<PageLoader />}><PatientFeedbackPage /></Suspense>} />
         <Route path="/cash-book" element={<Suspense fallback={<PageLoader />}><CashBook /></Suspense>} />
         <Route path="/patient-ledger" element={<Suspense fallback={<PageLoader />}><PatientLedger /></Suspense>} />
         <Route path="/day-book" element={<Suspense fallback={<PageLoader />}><DayBook /></Suspense>} />

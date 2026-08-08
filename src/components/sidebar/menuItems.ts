@@ -258,6 +258,11 @@ export const menuItems: MenuItemDef[] = [
     icon: Footprints,
   },
   {
+    title: "Patient Feedback",
+    url: "/patient-feedback",
+    icon: MessageSquare,
+  },
+  {
     title: "Appointments",
     url: "/appointments",
     icon: Calendar,
