@@ -6,6 +6,7 @@ import { Camera, FileText, Loader2, Paperclip, Plus, QrCode, Search, Upload, X }
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { saveLedgerQr, savePaymentProof } from "@/lib/expense-bills/paymentEvidence";
+import { extractInvoiceFromImage, fileToBase64 } from "@/lib/accounting-ai";
 import { openStoredDocument } from "@/lib/openStoredDocument";
 import { shortDate } from "@/tablet/lib/format";
 import {
@@ -445,6 +446,7 @@ export default function ExpenseBillsFlow() {
   const [amount, setAmount] = useState("");
   const [narration, setNarration] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [isReadingInvoice, setIsReadingInvoice] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const pendingPrefillRef = useRef<ExpenseCategory | null>(null);
@@ -475,6 +477,7 @@ export default function ExpenseBillsFlow() {
     !!head &&
     party.id !== head.id &&
     !!file &&
+    !isReadingInvoice &&
     billNumber.trim().length > 0 &&
     amountValue > 0 &&
     !record.isPending;
@@ -489,6 +492,61 @@ export default function ExpenseBillsFlow() {
     setAmount("");
     setNarration("");
     setFile(null);
+    setIsReadingInvoice(false);
+  };
+
+  const attachInvoice = async (nextFile: File | null) => {
+    if (!nextFile) return;
+    setFile(nextFile);
+    setIsReadingInvoice(true);
+    try {
+      const { base64, mimeType } = await fileToBase64(nextFile);
+      const extracted = await extractInvoiceFromImage(base64, mimeType);
+      if (!extracted) {
+        toast.error("Could not read the invoice. You can complete the fields manually.");
+        return;
+      }
+
+      if (extracted.bill_number) setBillNumber(extracted.bill_number);
+      if (extracted.amount != null) setAmount(String(extracted.amount));
+      if (extracted.bill_date && /^\\d{4}-\\d{2}-\\d{2}$/.test(extracted.bill_date)) {
+        setBillDate(extracted.bill_date);
+      }
+      if (extracted.description) setNarration(extracted.description);
+
+      // Match the seller printed on the invoice to an existing accounting
+      // ledger. Never create a ledger from OCR text; the user must choose it
+      // manually if the vendor is not already configured.
+      if (extracted.party_name && company.data) {
+        const { data: rows } = await (supabase as any)
+          .from("chart_of_accounts")
+          .select("id, account_code, account_name, account_type, account_group")
+          .eq("is_active", true)
+          .or(`company_id.eq.${company.data},company_id.is.null`)
+          .ilike("account_name", `%${extracted.party_name.trim()}%`)
+          .limit(10);
+        const normalized = extracted.party_name.trim().toLowerCase();
+        const row = (rows || []).find((item: any) => String(item.account_name || "").trim().toLowerCase() === normalized) || rows?.[0];
+        if (row) {
+          setParty({
+            id: row.id,
+            code: row.account_code,
+            name: row.account_name,
+            type: row.account_type,
+            group: row.account_group,
+          });
+        } else {
+          toast.info(`Invoice seller “${extracted.party_name}” is not in the ledger. Select it manually.`);
+        }
+      }
+
+      toast.success("Invoice read — review the populated fields before recording.");
+    } catch (error) {
+      console.error("Invoice OCR failed:", error);
+      toast.error("Invoice reading failed. You can complete the fields manually.");
+    } finally {
+      setIsReadingInvoice(false);
+    }
   };
 
   const save = () => {
@@ -550,6 +608,59 @@ export default function ExpenseBillsFlow() {
             The accounting company could not be loaded. Close this screen and try again.
           </TabletCard>
         )}
+
+        {/* Evidence first: upload the invoice before entering any accounting
+            fields so OCR can populate the rest of this form. */}
+        <TabletCard variant="flat" className="space-y-3 border-primary/30 bg-primary/5">
+          <div>
+            <TabletLabel>Invoice bill (upload first)</TabletLabel>
+            <p className="text-xs text-muted-foreground">
+              Add the invoice photo or PDF. Adamrit will read the seller, invoice number, date, amount and description.
+            </p>
+          </div>
+          {file ? (
+            <div className="flex items-center gap-3 rounded-xl border bg-background p-3">
+              <FileText className="h-6 w-6 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1 truncate text-sm">{file.name}</span>
+              {isReadingInvoice ? <Loader2 className="h-5 w-5 animate-spin text-primary" /> : null}
+              <button
+                type="button"
+                onClick={() => setFile(null)}
+                className="shrink-0 rounded-full p-2 active:bg-muted"
+                aria-label="Remove the attached invoice"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <TabletButton variant="outline" onClick={() => setCameraOpen(true)}>
+                <Camera className="mr-2 h-5 w-5" />
+                Photo
+              </TabletButton>
+              <TabletButton variant="outline" onClick={() => fileRef.current?.click()}>
+                <Paperclip className="mr-2 h-5 w-5" />
+                File / PDF
+              </TabletButton>
+            </div>
+          )}
+          {isReadingInvoice ? <p className="text-xs text-primary">Reading invoice details…</p> : null}
+          <InvoiceCamera
+            open={cameraOpen}
+            onClose={() => setCameraOpen(false)}
+            onCapture={(captured) => void attachInvoice(captured)}
+          />
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*,application/pdf"
+            hidden
+            onChange={(e) => {
+              void attachInvoice(e.target.files?.[0] ?? null);
+              e.currentTarget.value = "";
+            }}
+          />
+        </TabletCard>
 
         <div className="flex justify-end">
           <div className="w-full max-w-xs">
@@ -667,52 +778,6 @@ export default function ExpenseBillsFlow() {
           />
         </div>
 
-        {/* The approved invoice, kept as evidence against the entry. */}
-        <div>
-          <TabletLabel>Approved invoice (required)</TabletLabel>
-          {file ? (
-            <TabletCard variant="flat" className="flex items-center gap-3">
-              <FileText className="h-6 w-6 shrink-0 text-primary" />
-              <span className="min-w-0 flex-1 truncate text-sm">{file.name}</span>
-              <button
-                type="button"
-                onClick={() => setFile(null)}
-                className="shrink-0 rounded-full p-2 active:bg-muted"
-                aria-label="Remove the attached invoice"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </TabletCard>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              <TabletButton variant="outline" onClick={() => setCameraOpen(true)}>
-                <Camera className="mr-2 h-5 w-5" />
-                Photo
-              </TabletButton>
-              <TabletButton variant="outline" onClick={() => fileRef.current?.click()}>
-                <Paperclip className="mr-2 h-5 w-5" />
-                File
-              </TabletButton>
-            </div>
-          )}
-          <InvoiceCamera
-            open={cameraOpen}
-            onClose={() => setCameraOpen(false)}
-            onCapture={setFile}
-          />
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*,application/pdf"
-            hidden
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          />
-          {!file && (
-            <p className="mt-1.5 text-xs text-muted-foreground">
-              Attach a photo or PDF before recording the invoice.
-            </p>
-          )}
-        </div>
         </>
         )}
       </div>
