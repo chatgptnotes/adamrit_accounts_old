@@ -18,6 +18,7 @@ import {
   Plus,
   Scan
 } from 'lucide-react';
+import { Truck } from 'lucide-react';
 
 // Import pharmacy components (we'll create these)
 import MedicineInventory from './MedicineInventory';
@@ -40,6 +41,7 @@ import LowStockMedicines from './LowStockMedicines';
 import PrescriptionQueue from './PrescriptionQueue';
 import PartnerOrders from './PartnerOrders';
 import PrescriptionNotificationBell from './PrescriptionNotificationBell';
+import OnlineOrderTracking from './OnlineOrderTracking';
 import { usePendingPrescriptions } from '@/hooks/usePendingPrescriptions';
 import { useAuth } from '@/contexts/AuthContext';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -64,6 +66,7 @@ const PharmacyDashboard: React.FC = () => {
   const [pharmacyRejectionReason, setPharmacyRejectionReason] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [approvalListDialogOpen, setApprovalListDialogOpen] = useState(false);
+  const [onlineOrdersOpen, setOnlineOrdersOpen] = useState(false);
 
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -268,6 +271,15 @@ const PharmacyDashboard: React.FC = () => {
               setAutoOpenPrescriptionId(id);
             }}
           />
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 border-blue-200 text-blue-700 hover:bg-blue-50"
+            onClick={() => setOnlineOrdersOpen(true)}
+          >
+            <Truck className="h-4 w-4" />
+            <span className="hidden sm:inline">Online Orders</span>
+          </Button>
           <div className="flex items-center gap-2">
             <Calendar className="h-4 w-4" />
             <span className="text-sm text-muted-foreground">
@@ -756,6 +768,8 @@ const PharmacyDashboard: React.FC = () => {
           </TabsContent>
         )}
       </Tabs>
+
+      <OnlineOrderTracking open={onlineOrdersOpen} onOpenChange={setOnlineOrdersOpen} />
 
       {/* Approval List Dialog */}
       <Dialog open={approvalListDialogOpen} onOpenChange={setApprovalListDialogOpen}>
