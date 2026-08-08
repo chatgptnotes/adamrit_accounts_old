@@ -1902,7 +1902,7 @@ const CathLab: React.FC = () => {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
           <TabsTrigger value="dashboard" className="flex items-center gap-1">
             <Activity className="h-4 w-4" />
             <span className="hidden sm:inline">Dashboard</span>

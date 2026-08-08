@@ -484,15 +484,6 @@ const HistoCytologyEntryForm: React.FC<HistoCytologyEntryFormProps> = ({
     }
   };
 
-  // Calculate grid columns based on number of tabs
-  const getGridCols = () => {
-    const count = dynamicTabs.length;
-    if (count <= 4) return 'grid-cols-4';
-    if (count <= 6) return 'grid-cols-6';
-    if (count <= 8) return 'grid-cols-8';
-    return 'grid-cols-10';
-  };
-
   if (isLoading) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -550,7 +541,7 @@ const HistoCytologyEntryForm: React.FC<HistoCytologyEntryFormProps> = ({
       {/* Tabs with CKEditor */}
       {dynamicTabs.length > 0 && (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className={`grid ${getGridCols()} h-auto`}>
+          <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
             {dynamicTabs.map(tab => (
               <TabsTrigger
                 key={tab.id}

@@ -217,7 +217,7 @@ const MarketingDashboard: React.FC = () => {
 
       {/* Tabs */}
       <Tabs value={selectedTab} onValueChange={setSelectedTab} className="space-y-3">
-        <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-4' : 'grid-cols-3'} bg-blue-50 rounded-md`}>
+        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-blue-50 rounded-md">
           <TabsTrigger value="visits">Visit</TabsTrigger>
           <TabsTrigger value="camps">Marketing Camps</TabsTrigger>
           <TabsTrigger value="doctors">Doctor</TabsTrigger>

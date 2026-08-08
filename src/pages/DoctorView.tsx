@@ -175,7 +175,7 @@ const DoctorView = () => {
             <Card className="shadow-lg">
               <CardContent className="pt-6">
                 <Tabs defaultValue="labs" className="w-full">
-                  <TabsList className="grid w-full grid-cols-4 mb-6">
+                  <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 mb-6">
                     <TabsTrigger value="labs" className="flex items-center gap-2">
                       <span>📊</span>
                       <span className="hidden sm:inline">Labs</span>

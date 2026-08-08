@@ -53,8 +53,7 @@ const StoreRequisition: React.FC = () => {
       </div>
 
       <Tabs value={selectedTab} onValueChange={setSelectedTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-12 bg-blue-50 rounded-md">
-          <div className="flex flex-row items-center gap-x-4 w-full">
+        <TabsList className="flex h-auto w-full flex-wrap items-center justify-start gap-x-4 gap-y-1 bg-blue-50 rounded-md">
             <div
               className="relative flex items-center group"
               onMouseEnter={() => setRequisitionDropdownOpen(true)}
@@ -139,7 +138,6 @@ const StoreRequisition: React.FC = () => {
                 </div>
               )}
             </div>
-          </div>
         </TabsList>
 
         <TabsContent value="add-order" className="space-y-6">

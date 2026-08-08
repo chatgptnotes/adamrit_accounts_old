@@ -290,8 +290,7 @@ const PharmacyDashboard: React.FC = () => {
       </div>
 
       <Tabs value={selectedTab} onValueChange={setSelectedTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-12 bg-blue-50 rounded-md">
-          <div className="flex flex-row items-center gap-x-4 w-full">
+        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-blue-50 rounded-md">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="items">Items</TabsTrigger>
           <TabsTrigger value="direct-sale">Direct Sale</TabsTrigger>
@@ -299,7 +298,7 @@ const PharmacyDashboard: React.FC = () => {
           <TabsTrigger value="view_sales">View Sales</TabsTrigger>
           <TabsTrigger value="return-sales">Return Sales</TabsTrigger>
           <TabsTrigger value="credit-payments">Credit Payments</TabsTrigger>
-            <TabsTrigger value="stock-mgmt">Stock Mgmt</TabsTrigger>
+          <TabsTrigger value="stock-mgmt">Stock Mgmt</TabsTrigger>
           <TabsTrigger value="manufacturer">Manufacturer</TabsTrigger>
           <TabsTrigger value="supplier">Supplier</TabsTrigger>
           <TabsTrigger value="purchase-order">Purchase Order</TabsTrigger>
@@ -314,7 +313,6 @@ const PharmacyDashboard: React.FC = () => {
               )}
             </TabsTrigger>
           )}
-          </div>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">

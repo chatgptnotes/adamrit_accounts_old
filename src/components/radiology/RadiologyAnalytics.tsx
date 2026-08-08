@@ -200,7 +200,7 @@ const RadiologyAnalytics: React.FC = () => {
       </Card>
 
       <Tabs value={selectedMetric} onValueChange={setSelectedMetric} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
           <TabsTrigger value="productivity">Productivity</TabsTrigger>
           <TabsTrigger value="quality">Quality</TabsTrigger>
           <TabsTrigger value="financial">Financial</TabsTrigger>

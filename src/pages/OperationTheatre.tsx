@@ -891,7 +891,7 @@ const OperationTheatre: React.FC = () => {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1">
-        <TabsList className="grid w-full grid-cols-5 mb-4">
+        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 mb-4">
           <TabsTrigger value="schedule" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <Calendar className="h-4 w-4" />
             <span className="hidden sm:inline">Schedule</span>

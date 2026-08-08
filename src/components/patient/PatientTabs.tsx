@@ -16,7 +16,7 @@ interface PatientTabsProps {
 const PatientTabs = ({ patient, visitId }: PatientTabsProps) => {
   return (
     <Tabs defaultValue="investigations" className="space-y-4 no-print">
-      <TabsList className="grid w-full grid-cols-6">
+      <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
         <TabsTrigger value="investigations">Investigations</TabsTrigger>
         <TabsTrigger value="trends">Lab Trends</TabsTrigger>
         <TabsTrigger value="medications">Medications</TabsTrigger>
