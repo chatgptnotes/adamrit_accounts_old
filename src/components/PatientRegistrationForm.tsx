@@ -10,7 +10,9 @@ import { PatientRegistrationFormProps } from './PatientRegistrationForm/types';
 
 export const PatientRegistrationForm: React.FC<PatientRegistrationFormProps> = ({
   isOpen,
-  onClose
+  onClose,
+  selectedReferral = null,
+  onRegistrationComplete,
 }) => {
   const {
     formData,
@@ -26,7 +28,11 @@ export const PatientRegistrationForm: React.FC<PatientRegistrationFormProps> = (
     handleCancel,
     similarPatients,
     setSimilarPatients,
-  } = usePatientRegistration(onClose);
+  } = usePatientRegistration(
+    onClose,
+    selectedReferral?.is_direct ? 'Direct' : selectedReferral?.referee_initials || undefined,
+    onRegistrationComplete,
+  );
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>

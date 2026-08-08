@@ -16,6 +16,7 @@ import { PatientsTable } from '@/components/dashboard/PatientsTable';
 import { PatientWorkflowVisual } from '@/components/dashboard/PatientWorkflowVisual';
 import { DeletePatientDialog } from '@/components/dashboard/DeletePatientDialog';
 import { IncomingReferralsNotice } from '@/components/registration/IncomingReferralsNotice';
+import { ReferralSelectionDialog, type RegistrationReferral } from '@/components/registration/ReferralSelectionDialog';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 
@@ -62,7 +63,7 @@ class PatientDashboardErrorBoundary extends React.Component<
 }
 
 const PatientDashboardInner = () => {
-  const { hospitalConfig } = useAuth();
+  const { hospitalConfig, user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // URL-persisted state
@@ -89,6 +90,8 @@ const PatientDashboardInner = () => {
 
   // Non-persisted state
   const [isRegistrationFormOpen, setIsRegistrationFormOpen] = useState(false);
+  const [isReferralSelectionOpen, setIsReferralSelectionOpen] = useState(false);
+  const [selectedReferral, setSelectedReferral] = useState<RegistrationReferral | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isVisitFormOpen, setIsVisitFormOpen] = useState(false);
   const [isPatientDetailsOpen, setIsPatientDetailsOpen] = useState(false);
@@ -284,7 +287,7 @@ const PatientDashboardInner = () => {
         <NavigationTabs activeTab="Patients" />
 
         <ActionButtons
-          onNewPatientClick={() => setIsRegistrationFormOpen(true)}
+          onNewPatientClick={() => setIsReferralSelectionOpen(true)}
           onPatientLookupClick={() => setIsPatientLookupOpen(true)}
         />
 
@@ -345,7 +348,44 @@ const PatientDashboardInner = () => {
 
         <PatientRegistrationForm
           isOpen={isRegistrationFormOpen}
-          onClose={() => setIsRegistrationFormOpen(false)}
+          selectedReferral={selectedReferral}
+          onClose={() => {
+            setIsRegistrationFormOpen(false);
+            setSelectedReferral(null);
+          }}
+          onRegistrationComplete={async (patientId) => {
+            if (!selectedReferral) return;
+            if (selectedReferral.id === 'direct-walk-in') {
+              await (supabase as any)
+                .from('patients')
+                .update({
+                  is_direct: true,
+                  direct_marked_by: user?.email || user?.id || null,
+                  direct_marked_at: new Date().toISOString(),
+                })
+                .eq('id', patientId);
+              return;
+            }
+            await (supabase as any)
+              .from('incoming_referrals')
+              .update({
+                status: 'LINKED',
+                linked_patient_id: patientId,
+                linked_by: user?.email || user?.id || null,
+                linked_at: new Date().toISOString(),
+              })
+              .eq('id', selectedReferral.id)
+              .eq('status', 'ANNOUNCED');
+          }}
+        />
+
+        <ReferralSelectionDialog
+          open={isReferralSelectionOpen}
+          onOpenChange={setIsReferralSelectionOpen}
+          onSelect={(referral) => {
+            setSelectedReferral(referral);
+            setIsRegistrationFormOpen(true);
+          }}
         />
 
         <EditPatientRegistrationDialog

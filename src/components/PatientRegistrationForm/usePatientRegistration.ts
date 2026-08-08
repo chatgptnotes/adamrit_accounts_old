@@ -1,6 +1,6 @@
 
 // @ts-nocheck
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PatientFormData } from './types';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -23,7 +23,11 @@ import {
 } from '@/lib/registrationDocuments';
 import { RegistrationDocumentSelection } from './types';
 
-export const usePatientRegistration = (onClose: () => void) => {
+export const usePatientRegistration = (
+  onClose: () => void,
+  initialRelationshipManager?: string,
+  onRegistrationComplete?: (patientId: string) => void,
+) => {
   const [dateOfBirth, setDateOfBirth] = useState<Date>();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
@@ -52,7 +56,7 @@ export const usePatientRegistration = (onClose: () => void) => {
     quarterPlotNo: '',
     ward: '',
     panchayat: '',
-    relationshipManager: '',
+    relationshipManager: initialRelationshipManager || '',
     pinCode: '',
     state: '',
     cityTown: '',
@@ -74,6 +78,12 @@ export const usePatientRegistration = (onClose: () => void) => {
 
   const normalizedCorporate = formData.corporate.trim().toLowerCase();
   const isEsicCorporate = normalizedCorporate.includes('esic');
+
+  useEffect(() => {
+    if (initialRelationshipManager !== undefined && !formData.relationshipManager) {
+      setFormData((prev) => ({ ...prev, relationshipManager: initialRelationshipManager }));
+    }
+  }, [initialRelationshipManager, formData.relationshipManager]);
 
   const syncRegistrationDocuments = (corporate: string, existing: RegistrationDocumentSelection[]) => {
     const requiredDocuments = getCorporateRegistrationDocuments(corporate);
@@ -111,7 +121,7 @@ export const usePatientRegistration = (onClose: () => void) => {
       quarterPlotNo: '',
       ward: '',
       panchayat: '',
-      relationshipManager: '',
+      relationshipManager: initialRelationshipManager || '',
       pinCode: '',
       state: '',
       cityTown: '',
@@ -418,6 +428,8 @@ export const usePatientRegistration = (onClose: () => void) => {
       queryClient.invalidateQueries({ queryKey: ['patients', hospitalConfig.name] });
       queryClient.invalidateQueries({ queryKey: ['patient-data'] });
       queryClient.invalidateQueries({ queryKey: ['spreadsheet-data'] });
+
+      onRegistrationComplete?.(newPatient.id);
 
       resetForm();
       onClose();

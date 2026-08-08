@@ -23,9 +23,10 @@ import { TabletConfirm } from "@/tablet/components/TabletConfirm";
 import { DictationTextarea } from "@/tablet/components/DictationTextarea";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletInput, TabletLabel } from "@/tablet/ui/TabletInput";
+import type { RegistrationReferral } from "@/components/registration/ReferralSelectionDialog";
 
 type PatientType = "OPD" | "IPD" | "Emergency";
-type Step = "patient" | "visit" | "ward" | "review";
+type Step = "referral" | "patient" | "visit" | "ward" | "review";
 
 const PATIENT_TYPES: PatientType[] = ["OPD", "IPD", "Emergency"];
 const VISIT_TYPES = [
@@ -177,7 +178,7 @@ function Field({
 export default function RegisterPatientFlow() {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { hospitalConfig, hospitalType } = useAuth();
+  const { hospitalConfig, hospitalType, user } = useAuth();
   const { corporateOptions } = useCorporateData();
 
   const [patient, setPatient] = useState<PatientForm>(EMPTY_PATIENT);
@@ -186,7 +187,8 @@ export default function RegisterPatientFlow() {
   const [visit, setVisit] = useState<VisitForm>(EMPTY_VISIT);
   const [wardId, setWardId] = useState("");
   const [room, setRoom] = useState("");
-  const [step, setStep] = useState<Step>("patient");
+  const [step, setStep] = useState<Step>("referral");
+  const [selectedReferral, setSelectedReferral] = useState<RegistrationReferral | null>(null);
 
   const setP = (k: keyof PatientForm, v: string) =>
     setPatient((f) => ({ ...f, [k]: v }));
@@ -195,10 +197,27 @@ export default function RegisterPatientFlow() {
 
   const isAdmit = visit.patientType === "IPD" || visit.patientType === "Emergency";
   const steps: Step[] = useMemo(
-    () => ["patient", "visit", ...(isAdmit ? (["ward"] as Step[]) : []), "review"],
+    () => ["referral", "patient", "visit", ...(isAdmit ? (["ward"] as Step[]) : []), "review"],
     [isAdmit],
   );
   const stepIndex = steps.indexOf(step);
+
+  const referrals = useQuery({
+    queryKey: ["tablet-registration-referrals"],
+    enabled: step === "referral",
+    queryFn: async (): Promise<RegistrationReferral[]> => {
+      const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+      const { data, error } = await (supabase as any)
+        .from("incoming_referrals")
+        .select("id, patient_name, coming_from, referee_initials, is_direct, status, announced_by, created_at")
+        .eq("status", "ANNOUNCED")
+        .gte("created_at", since)
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      return (data || []) as RegistrationReferral[];
+    },
+  });
 
   // --- reference data -------------------------------------------------------
   const doctors = useQuery({
@@ -265,6 +284,7 @@ export default function RegisterPatientFlow() {
   // --- submit ---------------------------------------------------------------
   const register = useMutation({
     mutationFn: async () => {
+      if (!selectedReferral) throw new Error("Select a referral or Direct before registering.");
       const hType = hospitalType || "hope";
       const now = new Date();
       const orNull = (s: string) => (s.trim() ? s.trim() : null);
@@ -392,6 +412,33 @@ export default function RegisterPatientFlow() {
         .single();
       if (vErr) throw new Error(`Visit could not be saved: ${vErr.message}`);
 
+      if (selectedReferral.id !== "direct-walk-in") {
+        const { data: linked, error: linkError } = await (supabase as any)
+          .from("incoming_referrals")
+          .update({
+            status: "LINKED",
+            linked_patient_id: patientRow.id,
+            linked_visit_id: visitRow.visit_id,
+            linked_by: user?.email || user?.id || null,
+            linked_at: new Date().toISOString(),
+          })
+          .eq("id", selectedReferral.id)
+          .eq("status", "ANNOUNCED")
+          .select("id");
+        if (linkError) throw new Error(`Referral could not be linked: ${linkError.message}`);
+        if (!linked?.length) throw new Error("This referral was already linked by another registration.");
+      } else {
+        const { error: directError } = await (supabase as any)
+          .from("patients")
+          .update({
+            is_direct: true,
+            direct_marked_by: user?.email || user?.id || null,
+            direct_marked_at: new Date().toISOString(),
+          })
+          .eq("id", patientRow.id);
+        if (directError) throw new Error(`Direct status could not be saved: ${directError.message}`);
+      }
+
       // 3) INSERT legacy patient_data mirror — best effort (desktop also does
       //    not fail registration if this errors).
       try {
@@ -425,6 +472,8 @@ export default function RegisterPatientFlow() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tablet-admitted-visits"] });
       qc.invalidateQueries({ queryKey: ["tablet-occupancy"] });
+      setSelectedReferral(null);
+      setStep("referral");
     },
   });
 
@@ -469,7 +518,8 @@ export default function RegisterPatientFlow() {
             setVisit(EMPTY_VISIT);
             setWardId("");
             setRoom("");
-            setStep("patient");
+            setSelectedReferral(null);
+            setStep("referral");
             register.reset();
           },
         }}
@@ -483,6 +533,7 @@ export default function RegisterPatientFlow() {
   const goBack = () => setStep(steps[Math.max(stepIndex - 1, 0)]);
 
   const headings: Record<Step, [string, string]> = {
+    referral: ["Choose referral", "Select an announcement or Direct before registration"],
     patient: ["Patient details", "Who is being registered?"],
     visit: ["Visit details", "Type of visit and doctor"],
     ward: ["Ward & bed", "Assign an admission bed"],
@@ -524,6 +575,49 @@ export default function RegisterPatientFlow() {
       )}
     </div>
   );
+
+  if (step === "referral") {
+    const direct: RegistrationReferral = {
+      id: "direct-walk-in",
+      patient_name: "Direct / Walk-in patient",
+      coming_from: null,
+      referee_initials: null,
+      is_direct: true,
+      status: "ANNOUNCED",
+      announced_by: null,
+      created_at: new Date().toISOString(),
+    };
+    return (
+      <FlowScaffold heading={headings.referral[0]} subheading={headings.referral[1]}>
+        <div className="mx-auto w-full max-w-4xl space-y-4">
+          <p className="text-sm text-muted-foreground">Announcements from the last 48 hours</p>
+          {referrals.isLoading ? <p className="py-8 text-center text-muted-foreground">Loading announcements…</p> : null}
+          {referrals.isError ? <p className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">Could not load referrals. Try again.</p> : null}
+          <div className="grid gap-3 md:grid-cols-2">
+            {[...(referrals.data || []), direct].map((referral) => (
+              <TabletButton
+                key={referral.id}
+                variant="outline"
+                className="h-auto min-h-24 justify-start text-left"
+                onClick={() => {
+                  setSelectedReferral(referral);
+                  setP("relationshipManager", referral.is_direct ? "Direct" : referral.referee_initials || "");
+                  setStep("patient");
+                }}
+              >
+                <span>
+                  <strong className="block">{referral.patient_name}</strong>
+                  <span className="text-sm opacity-75">
+                    {referral.is_direct ? "Walk-in — no referral cut" : `Referee ${referral.referee_initials || "—"}${referral.coming_from ? ` · From ${referral.coming_from}` : ""}`}
+                  </span>
+                </span>
+              </TabletButton>
+            ))}
+          </div>
+        </div>
+      </FlowScaffold>
+    );
+  }
 
   const reviewRows: [string, string][] = [
     ["Name", patient.name],

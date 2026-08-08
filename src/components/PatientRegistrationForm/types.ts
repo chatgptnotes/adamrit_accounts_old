@@ -37,6 +37,12 @@ export interface PatientFormData {
 export interface PatientRegistrationFormProps {
   isOpen: boolean;
   onClose: () => void;
+  selectedReferral?: {
+    id: string;
+    is_direct: boolean;
+    referee_initials?: string | null;
+  } | null;
+  onRegistrationComplete?: (patientId: string) => void;
 }
 
 export interface RegistrationDocumentSelection {
