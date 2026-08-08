@@ -4,6 +4,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  SimilarPatientsPrompt,
+  similarPatientsBlockSubmit,
+  EMPTY_SIMILAR_STATE,
+  type SimilarPatientsState,
+} from "@/components/PatientRegistrationForm/SimilarPatientsPrompt";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCorporateData } from "@/hooks/useCorporateData";
 import { generatePatientId } from "@/utils/patientIdGenerator";
@@ -174,6 +180,8 @@ export default function RegisterPatientFlow() {
   const { corporateOptions } = useCorporateData();
 
   const [patient, setPatient] = useState<PatientForm>(EMPTY_PATIENT);
+  // Duplicate-name guard: the same prompt the website registration uses.
+  const [similar, setSimilar] = useState<SimilarPatientsState>(EMPTY_SIMILAR_STATE);
   const [visit, setVisit] = useState<VisitForm>(EMPTY_VISIT);
   const [wardId, setWardId] = useState("");
   const [room, setRoom] = useState("");
@@ -261,9 +269,25 @@ export default function RegisterPatientFlow() {
       const orNull = (s: string) => (s.trim() ? s.trim() : null);
       const aadhaarNumber = normalizeAadhaar(patient.aadhaarNumber);
 
+      // The user picked a patient already on file: the visit is registered
+      // against that record and no second patient is created.
+      const reuse = similar.chosen
+        ? (
+            await supabase
+              .from("patients")
+              .select("id, patients_id, name")
+              .eq("id", similar.chosen.id)
+              .maybeSingle()
+          ).data
+        : null;
+      if (similar.chosen && !reuse) {
+        throw new Error("That patient could not be opened — pick again.");
+      }
+
       // Dedup pre-check: block a second record for the same Aadhaar in this
-      // hospital. The DB partial unique index is the hard backstop.
-      const { data: existing } = await supabase
+      // hospital. The DB partial unique index is the hard backstop. Skipped
+      // when reusing, because that record is the one being kept.
+      const { data: existing } = reuse ? { data: null } : await supabase
         .from("patients")
         .select("patients_id, name")
         .eq("hospital_name", hospitalConfig.name)
@@ -275,9 +299,11 @@ export default function RegisterPatientFlow() {
         );
       }
 
-      // 1) INSERT new patient — full website field set.
-      const patientsId = await generatePatientId(hType, now);
-      const { data: patientRow, error: pErr } = await supabase
+      // 1) INSERT new patient — full website field set. Not when reusing.
+      const patientsId = reuse ? (reuse as any).patients_id : await generatePatientId(hType, now);
+      const { data: insertedRow, error: pErr } = reuse
+        ? { data: null, error: null }
+        : await supabase
         .from("patients")
         .insert({
           name: patient.name.trim(),
@@ -321,6 +347,12 @@ export default function RegisterPatientFlow() {
         }
         throw new Error(`Patient could not be saved: ${pErr.message}`);
       }
+      // Whether it was reused or created, everything below works off this row.
+      const patientRow = (reuse ?? insertedRow) as {
+        id: string;
+        patients_id: string;
+        name?: string;
+      };
 
       // 2) INSERT new visit
       const visitId = await generateVisitId(now);
@@ -353,7 +385,7 @@ export default function RegisterPatientFlow() {
       //    not fail registration if this errors).
       try {
         await supabase.from("patient_data").insert({
-          patient_name: patient.name.trim(),
+          patient_name: patientRow.name?.trim() || patient.name.trim(),
           patient_id: patientRow.patients_id,
           mrn: visitRow.visit_id,
           age: patient.age || "",
@@ -387,6 +419,7 @@ export default function RegisterPatientFlow() {
 
   // --- validation -----------------------------------------------------------
   const patientValid =
+    !similarPatientsBlockSubmit(similar) &&
     patient.name.trim().length > 1 &&
     !!patient.gender &&
     !!patient.age &&
@@ -538,6 +571,12 @@ export default function RegisterPatientFlow() {
                   value={patient.name}
                   onChange={(e) => setP("name", e.target.value)}
                   placeholder="Patient name"
+                />
+                <SimilarPatientsPrompt
+                  typedName={patient.name}
+                  hospitalName={hospitalConfig.name}
+                  value={similar}
+                  onChange={setSimilar}
                 />
               </Field>
               <Field label="Age *">
