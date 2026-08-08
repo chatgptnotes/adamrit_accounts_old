@@ -1974,7 +1974,7 @@ ${sectionsHtml}
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-2 md:grid-cols-9">
+        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
           <TabsTrigger value="allocation">
             Today's Allocation
             {displaySchedule.filter(s => s.status === 'pending').length > 0 && (
