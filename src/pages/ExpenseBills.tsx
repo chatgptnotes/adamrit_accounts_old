@@ -37,6 +37,9 @@ const rupees = (n: number) =>
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
+/** A proof can be a photo or a PDF statement; they preview differently. */
+const isPdf = (url: string) => url.split('?')[0].toLowerCase().endsWith('.pdf');
+
 /** The office pays two months after it receives the bill. */
 const twoMonthsAfter = (iso: string) => {
   if (!iso) return '';
@@ -842,6 +845,7 @@ function PayEvidenceCell({ bill }: { bill: BillRow }) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [qrOpen, setQrOpen] = useState(false);
+  const [proofOpen, setProofOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const proofInput = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
@@ -905,14 +909,13 @@ function PayEvidenceCell({ bill }: { bill: BillRow }) {
       )}
 
       {bill.paymentProofUrl ? (
-        <a
-          href={bill.paymentProofUrl}
-          target="_blank"
-          rel="noreferrer"
+        <button
+          type="button"
+          onClick={() => setProofOpen(true)}
           className="inline-flex items-center gap-1 text-emerald-700 hover:underline"
         >
           <FileText className="h-3.5 w-3.5" /> Proof
-        </a>
+        </button>
       ) : (
         <span className="inline-flex items-center gap-2">
           <button
@@ -988,6 +991,43 @@ function PayEvidenceCell({ bill }: { bill: BillRow }) {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* The confirmation opens over the register, so whoever is checking a
+          row never loses their place in it. */}
+      <Dialog open={proofOpen} onOpenChange={setProofOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Payment proof · {bill.billNumber}</DialogTitle>
+          </DialogHeader>
+          {bill.paymentProofUrl && (
+            <div className="space-y-3">
+              {isPdf(bill.paymentProofUrl) ? (
+                <iframe
+                  src={bill.paymentProofUrl}
+                  title={`Payment proof for ${bill.billNumber}`}
+                  className="h-[60vh] w-full rounded-md border"
+                />
+              ) : (
+                <img
+                  src={bill.paymentProofUrl}
+                  alt={`Payment proof for ${bill.billNumber}`}
+                  className="mx-auto max-h-[60vh] w-auto rounded-md border"
+                />
+              )}
+              <p className="text-center text-sm text-muted-foreground">
+                {bill.party} · ₹{rupees(bill.billed)}
+              </p>
+              <div className="flex justify-end">
+                <Button variant="outline" size="sm" asChild>
+                  <a href={bill.paymentProofUrl} target="_blank" rel="noreferrer">
+                    Open full size
+                  </a>
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </span>

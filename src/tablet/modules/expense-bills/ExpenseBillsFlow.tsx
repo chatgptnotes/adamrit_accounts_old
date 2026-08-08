@@ -88,6 +88,7 @@ function PayEvidenceRow({ bill }: { bill: OutstandingBill }) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [showQr, setShowQr] = useState(false);
+  const [showProof, setShowProof] = useState(false);
   const [busy, setBusy] = useState(false);
   const proofInput = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
@@ -142,15 +143,15 @@ function PayEvidenceRow({ bill }: { bill: OutstandingBill }) {
         </TabletButton>
 
         {bill.paymentProofUrl ? (
-          <a
-            href={bill.paymentProofUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-1 text-sm font-medium text-emerald-700"
+          <TabletButton
+            variant="outline"
+            size="sm"
+            onClick={() => setShowProof((v) => !v)}
+            className="text-emerald-700"
           >
-            <FileText className="h-4 w-4" />
-            Proof uploaded
-          </a>
+            <FileText className="mr-1 h-4 w-4" />
+            {showProof ? "Hide proof" : "Proof uploaded"}
+          </TabletButton>
         ) : (
           <>
             <TabletButton
@@ -201,6 +202,24 @@ function PayEvidenceRow({ bill }: { bill: OutstandingBill }) {
             Replace QR
           </TabletButton>
         </div>
+      )}
+
+      {/* The confirmation opens on the card itself, the same way the QR does —
+          nobody has to leave the list to check a payment went through. */}
+      {showProof && bill.paymentProofUrl && (
+        bill.paymentProofUrl.split("?")[0].toLowerCase().endsWith(".pdf") ? (
+          <iframe
+            src={bill.paymentProofUrl}
+            title={`Payment proof for ${bill.billNumber}`}
+            className="h-[50vh] w-full rounded-md border"
+          />
+        ) : (
+          <img
+            src={bill.paymentProofUrl}
+            alt={`Payment proof for ${bill.billNumber}`}
+            className="mx-auto w-full rounded-md border"
+          />
+        )
       )}
 
       <input
