@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useAuth } from '@/contexts/AuthContext';
 import { HospitalType } from '@/types/hospital';
+import ForgotPasswordDialog from '@/components/ForgotPasswordDialog';
 import { Eye, EyeOff } from 'lucide-react';
 
 interface LoginPageProps {
@@ -23,6 +24,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ hospitalType }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
 
   const { login } = useAuth();
 
@@ -126,9 +128,23 @@ const LoginPage: React.FC<LoginPageProps> = ({ hospitalType }) => {
             >
               {isLoading ? 'Signing In...' : 'Sign In'}
             </Button>
+
+            <button
+              type="button"
+              onClick={() => setShowForgotPassword(true)}
+              className="w-full text-center text-sm text-blue-600 hover:text-blue-800 hover:underline"
+            >
+              Forgot password?
+            </button>
           </form>
         </CardContent>
       </Card>
+
+      <ForgotPasswordDialog
+        open={showForgotPassword}
+        onClose={() => setShowForgotPassword(false)}
+        initialEmail={userId.includes('@') ? userId : ''}
+      />
     </div>
   );
 };
