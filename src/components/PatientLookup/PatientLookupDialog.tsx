@@ -10,6 +10,9 @@ import { NoResultsSection } from './NoResultsSection';
 import { PatientRegistrationForm } from '@/components/PatientRegistrationForm';
 import { PatientLookupProps, Patient } from './types/patientLookup';
 import { usePatientLookup } from '@/hooks/usePatientLookup';
+import { ReferralSelectionDialog, type RegistrationReferral } from '@/components/registration/ReferralSelectionDialog';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 
 export const PatientLookupDialog: React.FC<PatientLookupProps> = ({
   isOpen,
@@ -18,7 +21,10 @@ export const PatientLookupDialog: React.FC<PatientLookupProps> = ({
   onNewPatientRegistration
 }) => {
   const [showRegistrationForm, setShowRegistrationForm] = useState(false);
+  const [showReferralSelection, setShowReferralSelection] = useState(false);
+  const [selectedReferral, setSelectedReferral] = useState<RegistrationReferral | null>(null);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   // Shared search logic — same query path as the tablet patient picker.
   const {
@@ -61,7 +67,7 @@ export const PatientLookupDialog: React.FC<PatientLookupProps> = ({
   };
 
   const handleNewPatientRegistration = () => {
-    setShowRegistrationForm(true);
+    setShowReferralSelection(true);
   };
 
   const handleRegistrationClose = () => {
@@ -78,9 +84,48 @@ export const PatientLookupDialog: React.FC<PatientLookupProps> = ({
 
   if (showRegistrationForm) {
     return (
-      <PatientRegistrationForm
-        isOpen={true}
-        onClose={handleRegistrationClose}
+      <>
+        <PatientRegistrationForm
+          isOpen={true}
+          selectedReferral={selectedReferral}
+          onClose={handleRegistrationClose}
+          onRegistrationComplete={async (patientId) => {
+            if (!selectedReferral) return;
+            if (selectedReferral.id === 'direct-walk-in') {
+              await (supabase as any).from('patients').update({
+                is_direct: true,
+                direct_marked_by: user?.email || user?.id || null,
+                direct_marked_at: new Date().toISOString(),
+              }).eq('id', patientId);
+            } else {
+              await (supabase as any).from('incoming_referrals').update({
+                status: 'LINKED',
+                linked_patient_id: patientId,
+                linked_by: user?.email || user?.id || null,
+                linked_at: new Date().toISOString(),
+              }).eq('id', selectedReferral.id).eq('status', 'ANNOUNCED');
+            }
+          }}
+        />
+      </>
+    );
+  }
+
+  if (showReferralSelection) {
+    return (
+      <ReferralSelectionDialog
+        open
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowReferralSelection(false);
+            onClose();
+          }
+        }}
+        onSelect={(referral) => {
+          setSelectedReferral(referral);
+          setShowReferralSelection(false);
+          setShowRegistrationForm(true);
+        }}
       />
     );
   }

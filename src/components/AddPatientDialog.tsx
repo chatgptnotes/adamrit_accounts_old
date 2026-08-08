@@ -9,6 +9,8 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { useQuery } from '@tanstack/react-query';
+import { ReferralSelectionDialog, type RegistrationReferral } from '@/components/registration/ReferralSelectionDialog';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface AddPatientDialogProps {
   isOpen: boolean;
@@ -22,8 +24,10 @@ export const AddPatientDialog: React.FC<AddPatientDialogProps> = ({
   diagnoses = []
 }) => {
   const { toast } = useToast();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedReferral, setSelectedReferral] = useState<RegistrationReferral | null>(null);
 
   const [formData, setFormData] = useState({
     patientName: '',
@@ -108,6 +112,31 @@ export const AddPatientDialog: React.FC<AddPatientDialogProps> = ({
 
       if (error) throw error;
 
+      const patientId = data?.[0]?.id;
+      if (patientId && selectedReferral) {
+        if (selectedReferral.id === 'direct-walk-in') {
+          await (supabase as any)
+            .from('patients')
+            .update({
+              is_direct: true,
+              direct_marked_by: user?.email || user?.id || null,
+              direct_marked_at: new Date().toISOString(),
+            })
+            .eq('id', patientId);
+        } else {
+          await (supabase as any)
+            .from('incoming_referrals')
+            .update({
+              status: 'LINKED',
+              linked_patient_id: patientId,
+              linked_by: user?.email || user?.id || null,
+              linked_at: new Date().toISOString(),
+            })
+            .eq('id', selectedReferral.id)
+            .eq('status', 'ANNOUNCED');
+        }
+      }
+
       toast({
         title: "Success",
         description: "Patient registered successfully!"
@@ -128,6 +157,7 @@ export const AddPatientDialog: React.FC<AddPatientDialogProps> = ({
         marketedBy: '',
         referralSource: ''
       });
+      setSelectedReferral(null);
       onClose();
 
     } catch (error: any) {
@@ -143,7 +173,15 @@ export const AddPatientDialog: React.FC<AddPatientDialogProps> = ({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <>
+    <ReferralSelectionDialog
+      open={isOpen && !selectedReferral}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      onSelect={(referral) => setSelectedReferral(referral)}
+    />
+    <Dialog open={isOpen && !!selectedReferral} onOpenChange={() => { setSelectedReferral(null); onClose(); }}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add New Patient</DialogTitle>
@@ -326,5 +364,6 @@ export const AddPatientDialog: React.FC<AddPatientDialogProps> = ({
         </form>
       </DialogContent>
     </Dialog>
+    </>
   );
 };

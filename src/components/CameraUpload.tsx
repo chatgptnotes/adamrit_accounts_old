@@ -46,6 +46,7 @@ import { captureInAppPhoto, reapplyGeotagToBlob } from '@/lib/captureInAppPhoto'
 import { captureGeolocation, geoToDbFields, googleMapsUrl, type GeoCapture } from '@/lib/geotag';
 import { stampGeotagOnImage } from '@/lib/geotagImage';
 import { GeotagStatus } from '@/components/GeotagStatus';
+import { ReferralSelectionDialog, type RegistrationReferral } from '@/components/registration/ReferralSelectionDialog';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -203,7 +204,7 @@ const CameraUpload: React.FC<CameraUploadProps> = ({
   onOpenChange,
 }) => {
   const { toast } = useToast();
-  const { hospitalConfig } = useAuth();
+  const { hospitalConfig, user } = useAuth();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
@@ -259,6 +260,8 @@ const CameraUpload: React.FC<CameraUploadProps> = ({
   const [opdExtracted, setOpdExtracted] = useState<OpdExtractedData | null>(null);
   const [showOpdModal, setShowOpdModal] = useState(false);
   const [savingOpd, setSavingOpd] = useState(false);
+  const [showOpdReferralSelection, setShowOpdReferralSelection] = useState(false);
+  const [selectedOpdReferral, setSelectedOpdReferral] = useState<RegistrationReferral | null>(null);
 
   // Recent uploads state
   const [recentUploads, setRecentUploads] = useState<FileUploadRecord[]>([]);
@@ -1072,8 +1075,13 @@ Rules:
   }, [toast]);
 
   /** Save OPD extracted data: find/create patient, create OPD visit, navigate to profile */
-  const handleSaveOpdSummary = useCallback(async () => {
+  const handleSaveOpdSummary = useCallback(async (referralOverride?: RegistrationReferral) => {
     if (!opdExtracted) return;
+    const referral = referralOverride || selectedOpdReferral;
+    if (!prescriptionPatient?.id && !referral) {
+      setShowOpdReferralSelection(true);
+      return;
+    }
     setSavingOpd(true);
 
     try {
@@ -1118,6 +1126,23 @@ Rules:
             return;
           }
           patientId = newPatient.id;
+        }
+      }
+
+      if (patientId && !prescriptionPatient?.id && referral) {
+        if (referral.id === 'direct-walk-in') {
+          await (supabase as any).from('patients').update({
+            is_direct: true,
+            direct_marked_by: user?.email || user?.id || null,
+            direct_marked_at: new Date().toISOString(),
+          }).eq('id', patientId);
+        } else {
+          await (supabase as any).from('incoming_referrals').update({
+            status: 'LINKED',
+            linked_patient_id: patientId,
+            linked_by: user?.email || user?.id || null,
+            linked_at: new Date().toISOString(),
+          }).eq('id', referral.id).eq('status', 'ANNOUNCED');
         }
       }
 
@@ -1211,7 +1236,7 @@ Rules:
     } finally {
       setSavingOpd(false);
     }
-  }, [opdExtracted, prescriptionPatient, toast, navigate, onOpenChange]);
+  }, [opdExtracted, prescriptionPatient, selectedOpdReferral, toast, navigate, onOpenChange, user]);
 
   // -------------------------------------------------------------------------
   // Upload logic
@@ -2418,6 +2443,15 @@ Rules:
           setOpdExtracted(null);
         }
       }}>
+        <ReferralSelectionDialog
+          open={showOpdReferralSelection}
+          onOpenChange={setShowOpdReferralSelection}
+          onSelect={(referral) => {
+            setSelectedOpdReferral(referral);
+            setShowOpdReferralSelection(false);
+            void handleSaveOpdSummary(referral);
+          }}
+        />
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

@@ -14,6 +14,7 @@ import { captureGeolocation, geoToDbFields, type GeoCapture } from '@/lib/geotag
 import { geotagJpegFile } from '@/lib/embedGeotagExif';
 import { stampGeotagOnImage } from '@/lib/geotagImage';
 import { GeotagStatus } from '@/components/GeotagStatus';
+import { ReferralSelectionDialog, type RegistrationReferral } from '@/components/registration/ReferralSelectionDialog';
 
 interface Patient {
   id: string;
@@ -61,6 +62,8 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
 
   const [cameraActive, setCameraActive]     = useState(false);
   const [showQuickRegister, setShowQuickRegister] = useState(false);
+  const [showReferralSelection, setShowReferralSelection] = useState(false);
+  const [selectedReferral, setSelectedReferral] = useState<RegistrationReferral | null>(null);
   const [registering, setRegistering]       = useState(false);
   const [quickForm, setQuickForm]           = useState({ name: '', age: '', dob: '', gender: '', phone: '' });
   const [previewImage, setPreviewImage]     = useState<string | null>(null);
@@ -68,7 +71,7 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
   const [scanStep, setScanStep]             = useState<null | 'front' | 'back' | 'done'>(null);
 
   const { toast }          = useToast();
-  const { hospitalConfig } = useAuth();
+  const { hospitalConfig, user } = useAuth();
   const debounceRef        = useRef<ReturnType<typeof setTimeout> | null>(null);
   const desktopFileRef     = useRef<HTMLInputElement>(null);
   const mobileFileRef      = useRef<HTMLInputElement>(null);
@@ -350,10 +353,26 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
         .single();
       if (error) throw error;
 
+      if (selectedReferral?.id === 'direct-walk-in') {
+        await (supabase as any).from('patients').update({
+          is_direct: true,
+          direct_marked_by: user?.email || user?.id || null,
+          direct_marked_at: new Date().toISOString(),
+        }).eq('id', data.id);
+      } else if (selectedReferral) {
+        await (supabase as any).from('incoming_referrals').update({
+          status: 'LINKED',
+          linked_patient_id: data.id,
+          linked_by: user?.email || user?.id || null,
+          linked_at: new Date().toISOString(),
+        }).eq('id', selectedReferral.id).eq('status', 'ANNOUNCED');
+      }
+
       await uploadAadhaarImages(patientId);
 
       toast({ title: 'Patient registered!', description: `ID: ${patientId}` });
       setSelectedPatient(data as Patient);
+      setSelectedReferral(null);
     } catch (err: any) {
       toast({ title: 'Registration failed', description: err.message, variant: 'destructive' });
     } finally {
@@ -378,6 +397,7 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
     if (backPreview)  URL.revokeObjectURL(backPreview);
     setFrontPreview(null); setBackPreview(null);
     setShowQuickRegister(false); setScanningSlot(null);
+    setShowReferralSelection(false); setSelectedReferral(null);
     setPreviewImage(null); setScanStep(null);
   };
 
@@ -385,6 +405,23 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
 
   if (selectedPatient) {
     return <VisitRegistrationForm isOpen={true} onClose={handleClose} patient={selectedPatient} defaultPatientType="Emergency" />;
+  }
+
+  if (showReferralSelection) {
+    return (
+      <ReferralSelectionDialog
+        open
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setShowReferralSelection(false);
+        }}
+        onSelect={(referral) => {
+          setSelectedReferral(referral);
+          setQuickForm((f) => ({ ...f, name: f.name || search }));
+          setShowReferralSelection(false);
+          setShowQuickRegister(true);
+        }}
+      />
+    );
   }
 
   const merged    = mergeScanned(frontData, backData);
@@ -534,7 +571,7 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
               <div className="text-center space-y-3 py-2">
                 <p className="text-sm text-muted-foreground">No patients found for "{search}"</p>
                 <Button className="gap-2 w-full"
-                  onClick={() => { setQuickForm((f) => ({ ...f, name: f.name || search })); setShowQuickRegister(true); }}>
+                  onClick={() => { setQuickForm((f) => ({ ...f, name: f.name || search })); setShowReferralSelection(true); }}>
                   <UserPlus className="h-4 w-4" /> Register New Patient
                 </Button>
               </div>
