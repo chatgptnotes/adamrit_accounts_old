@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { NoChargeBadge } from "@/components/NoChargeBadge";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, Repeat, Search } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -212,6 +213,10 @@ function PharmacyDispense({
         </TabletButton>
       }
     >
+      {/* Set on the Vasooli (Gaurav) tile — the cost was already collected as
+          a package, or this patient must not be billed at all. */}
+      <NoChargeBadge patientId={visit.patientUuid} detailed className="mb-3" />
+
       {queue.isLoading ? (
         <div className="flex justify-center py-10">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />

@@ -25,6 +25,9 @@ import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import { uploadPatientDocs } from "@/tablet/hooks/usePatientDocs";
 import { inr } from "@/tablet/lib/format";
+import { NoChargeBadge } from "@/components/NoChargeBadge";
+import { useNoChargeFlags } from "@/lib/noChargeFlag";
+import { NoChargeCard } from "./NoChargeCard";
 import {
   CORRECTION_COMMENT_STATUS,
   EXTRA_PACKAGE_STATUS,
@@ -381,6 +384,11 @@ export default function PaymentCollectionGauravFlow() {
     return filteredRows.find((row) => row.visitUuid === selectedVisitUuid) || filteredRows[0] || null;
   }, [filteredRows, selectedVisitUuid]);
 
+  // One query for the whole list rather than one per row. Asked against every
+  // loaded row, not just the filtered ones, so typing in the search box does
+  // not refetch.
+  const { data: noChargeFlags = {} } = useNoChargeFlags(rows.map((row) => row.patientUuid));
+
   const totals = useMemo(() => ({
     patients: filteredRows.length,
     approved: filteredRows.reduce((sum, row) => sum + row.totalApprovedAmount, 0),
@@ -455,6 +463,7 @@ export default function PaymentCollectionGauravFlow() {
                     <PatientListItem
                       key={row.visitUuid}
                       row={row}
+                      noCharge={Boolean(row.patientUuid && noChargeFlags[row.patientUuid])}
                       selected={selected?.visitUuid === row.visitUuid}
                       onSelect={() => setSelectedVisitUuid(row.visitUuid)}
                     />
@@ -641,6 +650,7 @@ function PatientCollectionDetail({ row, onBack }: { row: CollectionRow; onBack: 
               <span className={cn("rounded-full border px-3 py-1 text-sm font-semibold", meta.className)}>
                 {meta.label}
               </span>
+              <NoChargeBadge patientId={row.patientUuid} />
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
               {row.uhid} · {row.mobile} · {row.registrationId}
@@ -688,6 +698,8 @@ function PatientCollectionDetail({ row, onBack }: { row: CollectionRow; onBack: 
         <Metric label="Patient Received" value={inr(row.totalReceivedAmount)} tone="emerald" />
         <Metric label="Balance Pending" value={inr(row.balancePending)} tone="red" />
       </div>
+
+      <NoChargeCard patientId={row.patientUuid} patientName={row.patientName} />
 
       <TabletCard variant="flat" className="space-y-3">
         <div className="flex items-center gap-2">
@@ -899,10 +911,13 @@ function PaymentHistory({ row }: { row: CollectionRow }) {
 
 function PatientListItem({
   row,
+  noCharge,
   selected,
   onSelect,
 }: {
   row: CollectionRow;
+  /** Resolved by the list in one query, not per row. */
+  noCharge: boolean;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -922,6 +937,11 @@ function PatientListItem({
         <div className="min-w-0">
           <p className="truncate text-base font-bold">{row.patientName}</p>
           <p className="text-sm text-muted-foreground">{row.mobile}</p>
+          {noCharge ? (
+            <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-xs font-bold text-red-700">
+              Do not charge
+            </span>
+          ) : null}
         </div>
         <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold", meta.className)}>
           {meta.label}

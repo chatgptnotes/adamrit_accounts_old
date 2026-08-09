@@ -1,5 +1,6 @@
 // Pharmacy Billing and Dispensing Component
 import React, { useState, useEffect, useRef } from 'react';
+import { NoChargeBadgeByUhid } from '@/components/NoChargeBadge';
 import { pushPharmacySaleToTally } from '@/lib/tally-auto-push';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -1418,6 +1419,14 @@ const PharmacyBilling: React.FC = () => {
               <CardTitle>Sale Information</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Set on the Vasooli (Gaurav) tile. The whole cost was already
+                  collected as a package, or the patient must not be billed —
+                  either way, do not raise a pharmacy charge. */}
+              <NoChargeBadgeByUhid
+                uhid={patientInfo.id}
+                hospitalName={hospitalConfig?.name}
+                detailed
+              />
               <div className="grid grid-cols-4 gap-4">
                 <div>
                   <label className="text-sm font-medium">Patient Name / ID</label>
