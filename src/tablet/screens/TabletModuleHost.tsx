@@ -5,7 +5,6 @@ import { getModule } from "@/tablet/config/modules";
 import { useAuth } from "@/contexts/AuthContext";
 import { canCreateAccountingVouchers } from "@/lib/accounting-access";
 import { OFFICE_TILE_IDS, canSeeOfficeTiles } from "@/lib/officeTileAccess";
-import { MlPinGate } from "@/components/MlPinGate";
 
 /** Lazy module-flow registry, keyed by the module id from config/modules.ts. */
 const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
@@ -42,18 +41,12 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   "journal-voucher": lazy(
     () => import("@/tablet/modules/accounting-vouchers/TabletVoucherFlow"),
   ),
-  // Past bills sit behind the office PIN — the gate, not the flow, decides.
   // The tile renders the desktop Expense Bill page itself, so the register,
   // its filters, the referral sections and Move to Daily Allocation are the
-  // same screen in both editions rather than two that drift apart.
-  "expense-bills": lazy(() =>
-    import("@/tablet/modules/expense-bills/ExpenseBillsMirror").then((m) => ({
-      default: () => (
-        <MlPinGate>
-          <m.default />
-        </MlPinGate>
-      ),
-    })),
+  // same screen in both editions rather than two that drift apart. No office
+  // PIN here — it matched the desktop route, which no longer has one either.
+  "expense-bills": lazy(
+    () => import("@/tablet/modules/expense-bills/ExpenseBillsMirror"),
   ),
   "panel-payment-received": lazy(
     () => import("@/tablet/modules/panel-payment-received/PanelPaymentReceivedFlow"),

@@ -352,7 +352,9 @@ export const AppRoutes = () => {
         <Route path="/ayushman-rmos" element={<Suspense fallback={<PageLoader />}><AyushmanRMOs /></Suspense>} />
         <Route path="/pmjay-mjpjay-master" element={<Suspense fallback={<PageLoader />}><PmjayMjpjayMaster /></Suspense>} />
         <Route path="/accounting" element={<Suspense fallback={<PageLoader />}><Accounting /></Suspense>} />
-        <Route path="/expense-bill" element={<Suspense fallback={<PageLoader />}><MlPinGate><ExpenseBillsPage /></MlPinGate></Suspense>} />
+        {/* No PIN on Expense Bill — the people who record and pay invoices work
+            here all day. Past bills (/old-bills, /view-bill) stay behind it. */}
+        <Route path="/expense-bill" element={<Suspense fallback={<PageLoader />}><ExpenseBillsPage /></Suspense>} />
         <Route path="/patient-feedback" element={<Suspense fallback={<PageLoader />}><PatientFeedbackPage /></Suspense>} />
         <Route path="/cash-book" element={<Suspense fallback={<PageLoader />}><CashBook /></Suspense>} />
         <Route path="/patient-ledger" element={<Suspense fallback={<PageLoader />}><PatientLedger /></Suspense>} />
