@@ -8,7 +8,9 @@ import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletInput } from "@/tablet/ui/TabletInput";
 import { shortDate } from "@/tablet/lib/format";
-import { normalizeAadhaar } from "@/utils/aadhaar";
+import { normalizeAadhaar, isValidAadhaar } from "@/utils/aadhaar";
+import { useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { ClinicNotesTab } from "@/tablet/modules/patient-profile/ClinicNotesTab";
 import { PatientDocsTab } from "@/tablet/modules/patient-profile/PatientDocsTab";
@@ -38,6 +40,120 @@ function Field({ label, value }: { label: string; value: string | null }) {
     <div>
       <dt className="text-sm font-medium text-muted-foreground">{label}</dt>
       <dd className="whitespace-pre-wrap">{value || "—"}</dd>
+    </div>
+  );
+}
+
+/** Printed on the card in groups of four — shown the same way, so the number
+ *  can be checked against the document without counting digits. */
+const groupAadhaar = (value: string): string =>
+  normalizeAadhaar(value).replace(/(\d{4})(?=\d)/g, "$1 ");
+
+/**
+ * Aadhaar, with a way to put it right from here.
+ *
+ * Patients registered before the number was asked for have none on record,
+ * and the profile is where somebody notices. Making them wait for the next
+ * visit to fix it is how a gap stays open for years.
+ */
+function AadhaarField({
+  patient,
+  onSaved,
+}: {
+  patient: TabletPatient;
+  onSaved: (aadhaarNumber: string) => void;
+}) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const startEditing = () => {
+    setDraft(normalizeAadhaar(patient.aadhaarNumber || ""));
+    setError(null);
+    setEditing(true);
+  };
+
+  const save = async () => {
+    if (!isValidAadhaar(draft)) {
+      setError("Enter all 12 digits.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const aadhaarNumber = normalizeAadhaar(draft);
+    const { error: saveError } = await (supabase as any)
+      .from("patients")
+      .update({ aadhaar_number: aadhaarNumber })
+      .eq("id", patient.id);
+    setSaving(false);
+    if (saveError) {
+      // The uniqueness index is the only thing standing between one person
+      // and two patient files, so say plainly which case this is.
+      setError(
+        String(saveError.message || "").includes("aadhaar")
+          ? "Already registered to another patient."
+          : saveError.message || "Could not save.",
+      );
+      return;
+    }
+    qc.invalidateQueries({ queryKey: ["tablet-patient-search"] });
+    onSaved(aadhaarNumber);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="col-span-2">
+        <dt className="text-sm font-medium text-muted-foreground">Aadhaar</dt>
+        <dd className="mt-1 space-y-2">
+          <TabletInput
+            inputMode="numeric"
+            maxLength={12}
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value.replace(/\D/g, "").slice(0, 12))}
+            placeholder="12 digits"
+          />
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          <div className="flex gap-2">
+            <TabletButton
+              variant="outline"
+              className="flex-1"
+              onClick={() => setEditing(false)}
+              disabled={saving}
+            >
+              Cancel
+            </TabletButton>
+            <TabletButton
+              className="flex-1"
+              onClick={save}
+              disabled={saving || !isValidAadhaar(draft)}
+            >
+              {saving ? "Saving…" : "Save"}
+            </TabletButton>
+          </div>
+        </dd>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <dt className="text-sm font-medium text-muted-foreground">Aadhaar</dt>
+      <dd className="flex items-center gap-2">
+        <span className={cn(!patient.aadhaarNumber && "text-muted-foreground")}>
+          {patient.aadhaarNumber ? groupAadhaar(patient.aadhaarNumber) : "Not on record"}
+        </span>
+        <button
+          type="button"
+          onClick={startEditing}
+          className="text-sm font-semibold text-primary underline-offset-2 hover:underline"
+        >
+          {patient.aadhaarNumber ? "Edit" : "Add"}
+        </button>
+      </dd>
     </div>
   );
 }
@@ -195,14 +311,12 @@ export default function PatientProfileFlow() {
                 label="Date of Birth"
                 value={shortDate(selected.dateOfBirth)}
               />
-              {/* Grouped 4-4-4 the way it is printed on the card, so it can
-                  be read against the document without counting digits. */}
-              <Field
-                label="Aadhaar"
-                value={
-                  selected.aadhaarNumber
-                    ? normalizeAadhaar(selected.aadhaarNumber).replace(/(\d{4})(?=\d)/g, "$1 ")
-                    : "Not on record"
+              <AadhaarField
+                patient={selected}
+                onSaved={(aadhaarNumber) =>
+                  setSelected((current) =>
+                    current ? { ...current, aadhaarNumber } : current,
+                  )
                 }
               />
               <Field label="Blood Group" value={selected.bloodGroup} />
