@@ -51,7 +51,7 @@ const rupees = (n: number) => `₹${Number(n || 0).toLocaleString("en-IN")}`;
  * cash voucher — is uploaded onto that voucher.
  */
 export default function AkshayPayoutsFlow() {
-  const { user, isSuperAdmin } = useAuth();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
@@ -159,7 +159,6 @@ export default function AkshayPayoutsFlow() {
 
   const approve = useMutation({
     mutationFn: async () => {
-      if (!isSuperAdmin) throw new Error("Only a super admin can approve a payout");
       if (selected.size === 0) throw new Error("Select the services first");
       const { error } = await (supabase as any).from("doctor_payout_approvals").insert({
         doctor_name: doctor,
@@ -463,13 +462,13 @@ export default function AkshayPayoutsFlow() {
               <ChevronLeft className="mr-1 h-5 w-5" /> Back
             </TabletButton>
             {/* Approval gates payment: the total covering several patients is
-                agreed by name before anyone opens the QR. */}
+                agreed by name before anyone opens the QR. Whoever is making the
+                payment approves it themselves — the record still stamps who. */}
             {selected.size > 0 && !approval ? (
               <TabletButton
                 className="flex-1"
-                disabled={!isSuperAdmin || approve.isPending}
+                disabled={approve.isPending}
                 onClick={() => approve.mutate()}
-                title={isSuperAdmin ? undefined : "A super admin approves the total"}
               >
                 {approve.isPending ? (
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" />
@@ -516,15 +515,10 @@ export default function AkshayPayoutsFlow() {
                   {selected.size === 1 ? "" : "s"} approved by {approval.approved_by} on{" "}
                   {new Date(approval.approved_at).toLocaleString("en-IN")}.
                 </>
-              ) : isSuperAdmin ? (
+              ) : (
                 <>
                   Approve {rupees(total)} before paying — one total across the{" "}
                   {selected.size} service{selected.size === 1 ? "" : "s"} ticked below.
-                </>
-              ) : (
-                <>
-                  Waiting for a super admin to approve {rupees(total)}. Payment stays locked
-                  until then.
                 </>
               )}
             </div>
