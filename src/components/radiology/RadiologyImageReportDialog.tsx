@@ -201,6 +201,15 @@ export function RadiologyImageReportDialog({
 
       // 2. The letterhead PDF, filed beside the image it was read from.
       if (target.patientUuid) {
+        // The dialog is opened from a worklist that carries no contact
+        // details, so the number is read here. A failed lookup costs the
+        // report a phone number, never the report itself.
+        const { data: patientRow } = await (supabase as any)
+          .from('patients')
+          .select('phone')
+          .eq('id', target.patientUuid)
+          .maybeSingle();
+
         const blob = await buildArshiyaSummaryPdfBlob({
           summaryText: reportText,
           withLogo: true,
@@ -209,6 +218,7 @@ export function RadiologyImageReportDialog({
           patientId: target.patientCode,
           visitNumber: target.visitId,
           registrationId: null,
+          mobileNumber: patientRow?.phone ?? null,
           portalUrl: `${window.location.origin}/patient-portal`,
           signatory: { name: user?.email || 'Reporting Radiologist' },
         });
