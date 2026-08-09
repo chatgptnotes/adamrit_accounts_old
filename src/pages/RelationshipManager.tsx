@@ -16,6 +16,12 @@ import { useAuth } from '@/contexts/AuthContext';
 import { logActivity, getDeviceInfo } from '@/lib/activity-logger';
 import { canAccessReferralRegister } from '@/lib/referralRegisterAccess';
 import { LedgerAutocomplete, type LedgerAccountOption } from '@/components/accounting/LedgerAutocomplete';
+import { useMarketingLiaisons } from '@/lib/marketingLiaisons';
+
+// A Select cannot hold an empty string as a value, so "nobody" needs a token.
+const NO_LIAISON = '__none__';
+const liaisonValue = (value?: string) =>
+  !value || value === NO_LIAISON ? null : value;
 
 interface RelationshipManagerType {
   id: string;
@@ -25,6 +31,7 @@ interface RelationshipManagerType {
   is_hidden?: boolean;
   ledger_account_id?: string | null;
   company_id?: string | null;
+  liaison_user_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -41,6 +48,7 @@ const RelationshipManager = () => {
   const [dialogLedger, setDialogLedger] = useState<LedgerAccountOption | null>(null);
   const [newLedgerName, setNewLedgerName] = useState('');
   const { toast } = useToast();
+  const liaisons = useMarketingLiaisons();
   const queryClient = useQueryClient();
   const { canEditMasters } = usePermissions();
   const { user } = useAuth();
@@ -309,6 +317,7 @@ const RelationshipManager = () => {
       contact_no: formData.contact_no || undefined,
       ledger_account_id: dialogLedger.id,
       company_id: dialogLedger.company_id,
+      liaison_user_id: liaisonValue(formData.liaison_user_id),
     });
     setDialogLedger(null);
   };
@@ -334,6 +343,7 @@ const RelationshipManager = () => {
           contact_no: formData.contact_no,
           ledger_account_id: dialogLedger?.id ?? null,
           company_id: dialogLedger?.company_id ?? null,
+          liaison_user_id: liaisonValue(formData.liaison_user_id),
         }
       });
     }
@@ -553,7 +563,19 @@ const RelationshipManager = () => {
         </div>
       ),
     },
-    { key: 'contact_no', label: 'Contact No', type: 'text' as const }
+    { key: 'contact_no', label: 'Contact No', type: 'text' as const },
+    {
+      // Every RM is liaisoned by someone on the marketing side. The Daily
+      // Revenue Report shows this name beside the cut, so a query about a
+      // payment has a person attached to it.
+      key: 'liaison_user_id',
+      label: 'Marketing liaison',
+      type: 'select' as const,
+      options: [
+        { value: NO_LIAISON, label: 'Not assigned' },
+        ...liaisons.map((l) => ({ value: l.id, label: l.name })),
+      ],
+    },
   ];
 
   return (
@@ -769,7 +791,8 @@ const RelationshipManager = () => {
           title="Edit Relationship Manager"
           fields={fields}
           initialData={selectedManager ? {
-            contact_no: selectedManager.contact_no || ''
+            contact_no: selectedManager.contact_no || '',
+            liaison_user_id: selectedManager.liaison_user_id || NO_LIAISON
           } : undefined}
         />
       </div>

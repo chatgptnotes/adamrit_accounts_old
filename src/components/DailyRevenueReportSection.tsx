@@ -425,16 +425,52 @@ export function DailyRevenueReportSection({
   // RM master list — used by the inline RM picker on each row.
   const rmMasterQuery = useQuery({
     queryKey: ['dailyRevenueRmMaster'],
-    queryFn: async (): Promise<Array<{ id: string; name: string; code: string | null; commission_percent: number | null; ledger_account_id: string | null }>> => {
+    queryFn: async (): Promise<Array<{ id: string; name: string; code: string | null; commission_percent: number | null; ledger_account_id: string | null; liaison_user_id: string | null }>> => {
       const { data, error } = await supabase
         .from('relationship_managers' as never)
-        .select('id, name, code, commission_percent, ledger_account_id')
+        .select('id, name, code, commission_percent, ledger_account_id, liaison_user_id')
         .order('name', { ascending: true });
       if (error) throw error;
-      return (data ?? []) as unknown as Array<{ id: string; name: string; code: string | null; commission_percent: number | null; ledger_account_id: string | null }>;
+      return (data ?? []) as unknown as Array<{ id: string; name: string; code: string | null; commission_percent: number | null; ledger_account_id: string | null; liaison_user_id: string | null }>;
     },
     staleTime: 5 * 60 * 1000, // 5 min — master list rarely changes
   });
+
+  // Who on the marketing side liaisons each RM. Resolved by RM id where the
+  // row has one, and by name otherwise — a manual row carries only the typed
+  // name, and that is exactly the row someone rings up about.
+  const liaisonNames = useMarketingLiaisonNames();
+  const liaisonByRmId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const manager of rmMasterQuery.data ?? []) {
+      const name = manager.liaison_user_id ? liaisonNames[manager.liaison_user_id] : null;
+      if (name) map.set(manager.id, name);
+    }
+    return map;
+  }, [rmMasterQuery.data, liaisonNames]);
+  const liaisonByRmName = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const manager of rmMasterQuery.data ?? []) {
+      const name = manager.liaison_user_id ? liaisonNames[manager.liaison_user_id] : null;
+      if (name) map.set(manager.name.trim().toLowerCase(), name);
+    }
+    return map;
+  }, [rmMasterQuery.data, liaisonNames]);
+
+  /** The liaison(s) behind a row's RMs, deduped — a row can carry three RMs. */
+  const liaisonsForRow = (row: { rms: RmAllocation[]; rmId: string | null; rm_name: string }) => {
+    const managers = row.rms.length
+      ? row.rms
+      : [{ id: row.rmId || '', name: row.rm_name } as RmAllocation];
+    const names = new Set<string>();
+    for (const manager of managers) {
+      const hit =
+        (manager.id && liaisonByRmId.get(manager.id)) ||
+        liaisonByRmName.get((manager.name || '').trim().toLowerCase());
+      if (hit) names.add(hit);
+    }
+    return [...names].join(', ');
+  };
 
   const advanceQuery = useQuery({
     queryKey: ['dailyRevenueAdvance', visitIds.join(',')],
@@ -1361,6 +1397,7 @@ export function DailyRevenueReportSection({
                 <td>${esc(r.patient_name)} ${typeBadge}</td>
                 <td>${esc(r.department || '—')}</td>
                 <td>${rmDisplay}</td>
+                <td>${esc(liaisonsForRow(r) || '—')}</td>
                 <td class="right">${r.rmPercent}%</td>
                 <td class="right">${fmt(r.cost)}</td>
                 <td class="right">${fmt(r.cut)}</td>
@@ -1368,11 +1405,11 @@ export function DailyRevenueReportSection({
           }).join('');
           return `
             <tr class="section">
-              <td colspan="7">${esc(label)}</td>
+              <td colspan="8">${esc(label)}</td>
             </tr>
             ${rowsHtml}
             <tr class="subtotal">
-              <td colspan="5" class="right">${esc(label)} Sub-total</td>
+              <td colspan="6" class="right">${esc(label)} Sub-total</td>
               <td class="right">Rs ${fmt(subtotal.cost)}</td>
               <td class="right">Rs ${fmt(subtotal.cut)}</td>
             </tr>`;
@@ -1399,6 +1436,7 @@ export function DailyRevenueReportSection({
                 <th>Patient Name</th>
                 <th>Department</th>
                 <th>RM Manager</th>
+                <th>Marketing Liaison</th>
                 <th class="right">RM %</th>
                 <th class="right">Cost (Rs)</th>
                 <th class="right">Cut (Rs)</th>
@@ -1407,7 +1445,7 @@ export function DailyRevenueReportSection({
             <tbody>
               ${categoriesHtml}
               <tr class="hospital-total">
-                <td colspan="5" class="right">${theme.displayName} Total</td>
+                <td colspan="6" class="right">${theme.displayName} Total</td>
                 <td class="right">Rs ${fmt(hospitalTotals.cost)}</td>
                 <td class="right">Rs ${fmt(hospitalTotals.cut)}</td>
               </tr>
@@ -1655,6 +1693,7 @@ export function DailyRevenueReportSection({
                   <TableHead>Hospital</TableHead>
                   <TableHead>Department</TableHead>
                   <TableHead>RM Manager</TableHead>
+                  <TableHead>Marketing Liaison</TableHead>
                   <TableHead className="text-right">RM %</TableHead>
                   <TableHead className="text-right">Cost (Rs)</TableHead>
                   <TableHead className="text-right">Cut (Rs)</TableHead>
@@ -1669,7 +1708,7 @@ export function DailyRevenueReportSection({
                     <React.Fragment key={`group-${group.category}`}>
                       <TableRow key={`header-${group.category}`}>
                         <TableCell
-                          colSpan={10}
+                          colSpan={11}
                           className="bg-emerald-50 text-emerald-700 text-xs font-semibold uppercase tracking-wide"
                         >
                           {group.label}
@@ -1745,6 +1784,9 @@ export function DailyRevenueReportSection({
                                   ))}
                                 </div>
                               )}
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap text-xs">
+                              {liaisonsForRow(r) || <span className="text-gray-400">—</span>}
                             </TableCell>
                             <TableCell className="text-right">
                               {editingRate ? (
@@ -1961,7 +2003,7 @@ export function DailyRevenueReportSection({
                         );
                       })}
                       <TableRow key={`subtotal-${group.category}`} className="bg-gray-50 italic">
-                        <TableCell colSpan={6} className="text-right">
+                        <TableCell colSpan={7} className="text-right">
                           {group.label} Sub-total
                         </TableCell>
                         <TableCell className="text-right">Rs {formatINR(group.subtotal.cost)}</TableCell>
@@ -1973,7 +2015,7 @@ export function DailyRevenueReportSection({
                   ));
                 })()}
                 <TableRow className="bg-gray-100 font-bold border-t-2">
-                  <TableCell colSpan={6} className="text-right">Grand Total</TableCell>
+                  <TableCell colSpan={7} className="text-right">Grand Total</TableCell>
                   <TableCell className="text-right">Rs {formatINR(totals.cost)}</TableCell>
                   <TableCell className="text-right">Rs {formatINR(totals.cut)}</TableCell>
                   <TableCell className="print:hidden text-right text-xs text-gray-600">
