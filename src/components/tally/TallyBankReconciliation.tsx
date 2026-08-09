@@ -4,7 +4,7 @@ import { supabase } from '@/integrations/supabase/client'
 import { toast } from 'sonner'
 import {
   Scale, Upload, Loader2, ChevronDown, CheckCircle, XCircle,
-  AlertTriangle, Link, Unlink, X, Plus, Trash2
+  AlertTriangle, Link, Unlink, X, Plus, Trash2, Landmark
 } from 'lucide-react'
 
 function formatCurrency(val) {

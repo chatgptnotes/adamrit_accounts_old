@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Search, UserCog, Trash2, Edit, Download, Upload } from 'lucide-react';
 import { AddItemDialog } from '@/components/AddItemDialog';
+import { doctorLedgerFormField } from '@/components/DoctorLedgerField';
 import { useToast } from '@/hooks/use-toast';
 import { usePermissions } from '@/hooks/usePermissions';
 import { toast as sonnerToast } from 'sonner';

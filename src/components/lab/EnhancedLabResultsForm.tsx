@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, FileUp, Save, Eye, Printer, Download, ArrowLeft, Plus, List } from 'lucide-react';
-import { useLabTestConfig, TestResult } from '@/hooks/useLabTestConfig';
+import { useLabTestConfig, TestResult, SubTest } from '@/hooks/useLabTestConfig';
 import { WhatsAppReportButton } from './WhatsAppReportButton';
 
 interface Patient {
