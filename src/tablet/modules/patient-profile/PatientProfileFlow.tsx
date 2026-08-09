@@ -172,7 +172,7 @@ function PatientList({ onSelect }: { onSelect: (p: TabletPatient) => void }) {
           <TabletInput
             value={term}
             onChange={(e) => setTerm(e.target.value)}
-            placeholder="Search by name, patient ID or phone"
+            placeholder="Search by name, patient ID, phone or Aadhaar"
             className="pl-11"
           />
         </div>

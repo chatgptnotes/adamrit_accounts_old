@@ -65,9 +65,18 @@ export function usePatientSearch(term: string) {
       if (t) {
         // Escape %/, so they aren't treated as ilike wildcards / or-separators.
         const safe = t.replace(/[%,]/g, "");
-        q = q.or(
-          `name.ilike.%${safe}%,patients_id.ilike.%${safe}%,phone.ilike.%${safe}%`,
-        );
+        const clauses = [
+          `name.ilike.%${safe}%`,
+          `patients_id.ilike.%${safe}%`,
+          `phone.ilike.%${safe}%`,
+        ];
+        // Aadhaar is stored as bare digits but read off a card printed in
+        // groups of four, so match on the digits alone — someone typing
+        // "1234 5678 9012" means the same number. Four digits is the floor:
+        // shorter than that and every patient matches on the last block.
+        const digits = t.replace(/\D/g, "");
+        if (digits.length >= 4) clauses.push(`aadhaar_number.ilike.%${digits}%`);
+        q = q.or(clauses.join(","));
       }
       const { data, error } = await q;
       if (error) throw error;
