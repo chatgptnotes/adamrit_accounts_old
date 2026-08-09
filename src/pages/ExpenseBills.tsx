@@ -20,6 +20,7 @@ import { saveLedgerQr, savePaymentProof } from '@/lib/expense-bills/paymentEvide
 import { extractInvoiceFromImage, fileToBase64 } from '@/lib/accounting-ai';
 import { LedgerAutocomplete, type LedgerAccountOption } from '@/components/accounting/LedgerAutocomplete';
 import { RmoPaymentsTab } from '@/components/RmoPaymentsTab';
+import { RupaliConsultantPayments } from '@/components/RupaliConsultantPayments';
 import { useCashBankLedgers } from '@/hooks/useCashBankLedgers';
 import {
   useExpenseBillCompanyId,
@@ -1769,6 +1770,8 @@ export default function ExpenseBills() {
           <RmoPaymentsTab companyId={company.data ?? null} />
         </CardContent>
       </Card>
+
+      <RupaliConsultantPayments companyId={company.data ?? null} />
 
       <PayBillDialog bill={paying} onClose={() => setPaying(null)} />
       <RecordBillDialog open={recording} onClose={() => setRecording(false)} />
