@@ -1,11 +1,19 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Banknote, Loader2, QrCode } from 'lucide-react';
+import { Banknote, Check, Loader2, QrCode, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAccountingCashBankLedgers } from '@/hooks/usePaymentObligations';
+import {
+  VOUCHER_PAYMENT_PROOF_CATEGORY,
+  linkVoucherAttachments,
+  uploadVoucherAttachments,
+} from '@/lib/voucher-attachments';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 // DATA SOURCE: rupali_visit_logs (the services Rupali recorded, each with the
 //   JV it already raised) -> pay_doctor_services (one payment voucher per
@@ -34,8 +42,16 @@ interface VisitLog {
 
 interface PaymentResult {
   companyName: string;
+  voucherId: string;
   voucherNumber: string;
   amount: number;
+}
+
+/** What was just paid, kept on screen so the proof can be attached to it. */
+interface LastPayment {
+  doctor: string;
+  payments: PaymentResult[];
+  total: number;
 }
 
 const rupees = (n: number) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
@@ -47,8 +63,15 @@ const istDate = (iso: string) =>
 export function RupaliConsultantPayments({ companyId }: { companyId: string | null }) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const proofRef = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [payingDoctor, setPayingDoctor] = useState<string | null>(null);
+  const [payFromId, setPayFromId] = useState('');
+  const [lastPayment, setLastPayment] = useState<LastPayment | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadedCount, setUploadedCount] = useState(0);
+
+  const { data: payFromLedgers = [] } = useAccountingCashBankLedgers(companyId);
 
   const { data: logs = [], isLoading, error } = useQuery({
     queryKey: ['rupali-consultant-payments', companyId],
@@ -114,6 +137,9 @@ export function RupaliConsultantPayments({ companyId }: { companyId: string | nu
         p_log_ids: ids,
         p_payment_mode: mode,
         p_paid_by: user?.email || user?.id || null,
+        // Empty means the RPC picks the company's cash or bank ledger itself,
+        // which is what the Akshay tile has always done.
+        p_credit_account_id: payFromId || null,
       });
       if (rpcError) throw new Error(rpcError.message);
       const payments = ((data as any)?.payments || []) as PaymentResult[];
@@ -123,6 +149,8 @@ export function RupaliConsultantPayments({ companyId }: { companyId: string | nu
           .map((p) => p.voucherNumber)
           .join(', ')}.`,
       );
+      setLastPayment({ doctor: group.name, payments, total });
+      setUploadedCount(0);
       setSelected(new Set());
       queryClient.invalidateQueries({ queryKey: ['rupali-consultant-payments'] });
       queryClient.invalidateQueries({ queryKey: ['akshay-services'] });
@@ -130,6 +158,30 @@ export function RupaliConsultantPayments({ companyId }: { companyId: string | nu
       toast.error(err?.message || 'Payment failed');
     } finally {
       setPayingDoctor(null);
+    }
+  };
+
+  /** The screenshot or signed voucher goes onto every voucher the payment
+   *  produced — usually one, two only when the services spanned two companies. */
+  const uploadProof = async (files: FileList | null) => {
+    if (!files?.length || !lastPayment) return;
+    setUploading(true);
+    try {
+      const uploaded = await uploadVoucherAttachments(Array.from(files), VOUCHER_PAYMENT_PROOF_CATEGORY);
+      for (const payment of lastPayment.payments) {
+        await linkVoucherAttachments(
+          payment.voucherId,
+          uploaded.map((item) => ({ ...item, id: undefined })),
+          user?.id || null,
+        );
+      }
+      setUploadedCount((n) => n + files.length);
+      toast.success('Payment proof attached to the voucher.');
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not upload the proof');
+    } finally {
+      setUploading(false);
+      if (proofRef.current) proofRef.current.value = '';
     }
   };
 
@@ -142,11 +194,57 @@ export function RupaliConsultantPayments({ companyId }: { companyId: string | nu
         </CardTitle>
         <p className="text-sm text-muted-foreground">
           Services recorded on the Rupali tile. The JV crediting the doctor is already posted — tick
-          the services and pay by QR or cash, one voucher per doctor. The same services can still be
-          paid from the Akshay Payouts tile, where the payment proof is uploaded.
+          the services and pay by QR or cash, one voucher per doctor, then attach the screenshot or
+          the signed cash voucher. The same services can still be paid from the Akshay Payouts tile.
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
+        <div className="max-w-md space-y-2">
+          <Label>Pay from (cash / bank)</Label>
+          <Select value={payFromId || 'auto'} onValueChange={(v) => setPayFromId(v === 'auto' ? '' : v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">Automatic — the company's cash or bank</SelectItem>
+              {payFromLedgers.map((ledger: any) => (
+                <SelectItem key={ledger.id} value={ledger.id}>{ledger.account_name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {lastPayment && (
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm">
+            <span className="text-emerald-950">
+              Paid {rupees(lastPayment.total)} to {lastPayment.doctor} —{' '}
+              {lastPayment.payments.map((p) => p.voucherNumber).join(', ')}.
+            </span>
+            <input
+              ref={proofRef}
+              type="file"
+              accept="image/*,application/pdf"
+              multiple
+              className="hidden"
+              onChange={(e) => void uploadProof(e.target.files)}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              className="ml-auto gap-1"
+              disabled={uploading}
+              onClick={() => proofRef.current?.click()}
+            >
+              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              Attach payment proof
+            </Button>
+            {uploadedCount > 0 && (
+              <span className="flex items-center gap-1 font-semibold text-emerald-700">
+                <Check className="h-4 w-4" />
+                {uploadedCount} attached
+              </span>
+            )}
+          </div>
+        )}
+
         {error ? (
           <p className="py-6 text-center text-sm text-destructive">
             {(error as any)?.message || 'Could not load the consultant visits.'}
