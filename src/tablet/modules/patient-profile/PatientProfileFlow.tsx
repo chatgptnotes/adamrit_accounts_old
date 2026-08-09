@@ -8,6 +8,7 @@ import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletInput } from "@/tablet/ui/TabletInput";
 import { shortDate } from "@/tablet/lib/format";
+import { normalizeAadhaar } from "@/utils/aadhaar";
 import { cn } from "@/lib/utils";
 import { ClinicNotesTab } from "@/tablet/modules/patient-profile/ClinicNotesTab";
 import { PatientDocsTab } from "@/tablet/modules/patient-profile/PatientDocsTab";
@@ -193,6 +194,16 @@ export default function PatientProfileFlow() {
               <Field
                 label="Date of Birth"
                 value={shortDate(selected.dateOfBirth)}
+              />
+              {/* Grouped 4-4-4 the way it is printed on the card, so it can
+                  be read against the document without counting digits. */}
+              <Field
+                label="Aadhaar"
+                value={
+                  selected.aadhaarNumber
+                    ? normalizeAadhaar(selected.aadhaarNumber).replace(/(\d{4})(?=\d)/g, "$1 ")
+                    : "Not on record"
+                }
               />
               <Field label="Blood Group" value={selected.bloodGroup} />
               <Field label="Phone" value={selected.phone} />

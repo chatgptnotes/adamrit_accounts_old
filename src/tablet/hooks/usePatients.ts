@@ -18,6 +18,7 @@ export interface TabletPatient {
   registeredAt: string | null;
   /** patients.corporate — the panel, used to resolve mandatory documents. */
   corporate: string | null;
+  aadhaarNumber: string | null;
 }
 
 function mapPatient(p: any): TabletPatient {
@@ -36,11 +37,12 @@ function mapPatient(p: any): TabletPatient {
     state: p.state ?? null,
     registeredAt: p.created_at ?? null,
     corporate: p.corporate ?? null,
+    aadhaarNumber: p.aadhaar_number ?? null,
   };
 }
 
 const SELECT =
-  "id, patients_id, name, age, gender, phone, email, address, blood_group, date_of_birth, city_town, state, created_at, corporate";
+  "id, patients_id, name, age, gender, phone, email, address, blood_group, date_of_birth, city_town, state, created_at, corporate, aadhaar_number";
 
 /**
  * Every patient registered under the active hospital — old and new, all visit
