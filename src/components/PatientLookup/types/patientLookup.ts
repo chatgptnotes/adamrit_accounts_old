@@ -15,6 +15,7 @@ export interface Patient {
   address?: string;
   corporate?: string;
   email?: string;
+  aadhaar_number?: string | null;
 }
 
 export interface PatientLookupProps {

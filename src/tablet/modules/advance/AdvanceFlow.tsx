@@ -508,7 +508,7 @@ export default function AdvanceFlow() {
       let query = supabase
         .from("visits")
         .select(
-          "id, visit_id, admission_date, discharge_date, is_discharged, status, yojana_registration_id, package_code, package_name, patient_id, planned_discharge_date, discharge_billing_staff, arshiya_discharge_summary, bill_paid, appointment_with, patients!inner(id, name, patients_id, phone, age, gender, corporate, hospital_name)",
+          "id, visit_id, admission_date, discharge_date, is_discharged, status, yojana_registration_id, package_code, package_name, patient_id, planned_discharge_date, discharge_billing_staff, arshiya_discharge_summary, bill_paid, appointment_with, patients!inner(id, name, patients_id, phone, age, gender, corporate, hospital_name, aadhaar_number)",
         )
         .eq("patient_type", "IPD")
         .not("admission_date", "is", null)
@@ -773,6 +773,7 @@ export default function AdvanceFlow() {
         patientId: row.patient.patients_id,
         visitNumber: row.visitNumber,
         registrationId: row.registrationId,
+        aadhaarNumber: row.patient.aadhaar_number,
         portalUrl: `${window.location.origin}/patient-portal`,
         signatory: await loadSummarySignatory(row.consultant),
       });
@@ -1616,6 +1617,9 @@ ${JSON.stringify(sourceContext, null, 2)}`,
       patientId: patient?.patients_id,
       visitNumber: visit.data?.visit_id,
       registrationId: registrationIdInput || visit.data?.yojana_registration_id,
+      // Both documents this builds — discharge and death — identify the
+      // patient to a panel or a registrar, so the number belongs on them.
+      aadhaarNumber: patient?.aadhaar_number,
       portalUrl: `${window.location.origin}/patient-portal`,
       signatory: await loadSummarySignatory(visit.data?.appointment_with),
     });
