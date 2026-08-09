@@ -17,6 +17,7 @@ import {
 } from '@/lib/registrationDocuments';
 import { uploadPatientDocs, usePatientDocs } from '@/tablet/hooks/usePatientDocs';
 import { isYojanaPanel } from '@/lib/yojanaPanel';
+import { normalizeAadhaar, isValidAadhaar } from '@/utils/aadhaar';
 
 interface VisitRegistrationFormProps {
   isOpen: boolean;
@@ -74,6 +75,7 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
     roomAllotted: '',
     diagnosisId: '',
     billingCategoryOverride: '',
+    aadhaarNumber: '',
   });
 
   const [patientCorporate, setPatientCorporate] = useState('');
@@ -216,15 +218,23 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
     })();
   }, [editMode, existingVisit]);
 
-  // Fetch patient's corporate/yojna category (billing override).
+  // Fetch patient's corporate/yojna category (billing override) and the
+  // Aadhaar already on file, so the number is only ever typed once.
   useEffect(() => {
     const fetchPatientCorporate = async () => {
       const { data } = await (supabase as any)
         .from('patients')
-        .select('corporate')
+        .select('corporate, aadhaar_number')
         .eq('id', patient.id)
         .maybeSingle();
       if (data?.corporate) setPatientCorporate(data.corporate);
+      if (data?.aadhaar_number) {
+        setFormData((previous) =>
+          previous.aadhaarNumber
+            ? previous
+            : { ...previous, aadhaarNumber: normalizeAadhaar(String(data.aadhaar_number)) },
+        );
+      }
     };
     fetchPatientCorporate();
   }, [patient.id]);
@@ -378,10 +388,26 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
     const isAdmissionVisit = formData.patientType === 'IPD'
       || formData.patientType === 'IPD (Inpatient)'
       || formData.patientType === 'Emergency';
+    const isEmergencyVisit = formData.patientType === 'Emergency'
+      || ['emergency', 'casualty'].includes(formData.visitType.trim().toLowerCase());
     if (isAdmissionVisit
         && isYojanaPanel(billingCategory)
         && (!formData.yojanaRegistrationId || formData.yojanaRegistrationId.trim() === '')) {
       missingFields.push('Yojana Registration ID');
+    }
+
+    // Aadhaar is compulsory on every visit — it is the one identifier that
+    // ties a patient to their government records and stops duplicate files.
+    //
+    // Except in an emergency: a casualty patient arrives unconscious or
+    // without their card, and refusing to register them would be worse than
+    // a missing number. It can be added later from the patient record.
+    if (!isEmergencyVisit && !isValidAadhaar(formData.aadhaarNumber)) {
+      missingFields.push(
+        normalizeAadhaar(formData.aadhaarNumber)
+          ? 'Aadhaar Number (must be 12 digits)'
+          : 'Aadhaar Number',
+      );
     }
 
     // Validate ward and room only for IPD/Emergency patients
@@ -430,6 +456,30 @@ export const VisitRegistrationForm: React.FC<VisitRegistrationFormProps> = ({
     setIsSubmitting(true);
 
     try {
+      // The Aadhaar belongs to the patient, not the visit — save it back onto
+      // the patient record so it is asked for once and then simply shown.
+      // A number already registered to somebody else stops the save: it means
+      // the wrong patient file is open, and letting it through would tie two
+      // people to one identity.
+      const aadhaarToSave = normalizeAadhaar(formData.aadhaarNumber);
+      if (aadhaarToSave) {
+        const { error: aadhaarError } = await (supabase as any)
+          .from('patients')
+          .update({ aadhaar_number: aadhaarToSave })
+          .eq('id', patient.id);
+        if (aadhaarError) {
+          const duplicate = String(aadhaarError.message || '').includes('aadhaar');
+          toast({
+            title: "Error",
+            description: duplicate
+              ? 'This Aadhaar number is already registered to another patient.'
+              : `Failed to save Aadhaar number: ${aadhaarError.message}`,
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+
       if (editMode && existingVisit?.visit_id) {
         // Update existing visit
         // For IPD/Emergency patients, set admission_date if not already set

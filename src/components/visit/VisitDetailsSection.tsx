@@ -33,6 +33,7 @@ interface VisitDetailsSectionProps {
     treatmentType?: string;
     diagnosisId?: string;
     billingCategoryOverride?: string;
+    aadhaarNumber?: string;
   };
   handleInputChange: (field: string, value: string) => void;
   relationshipManagerIds: string[];
@@ -63,6 +64,8 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
   onRegistrationDocumentRemove,
 }) => {
   const { hospitalConfig } = useAuth();
+  const isEmergencyVisit = formData.patientType === 'Emergency'
+    || ['emergency', 'casualty'].includes((formData.visitType || '').trim().toLowerCase());
   const { diagnoses, isLoading: isLoadingDiagnoses, addDiagnosisAsync } = useDiagnoses();
   const [doctors, setDoctors] = useState<Array<{ id: string; name: string; specialty: string | null; is_active?: boolean | null }>>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -733,6 +736,30 @@ export const VisitDetailsSection: React.FC<VisitDetailsSectionProps> = ({
             searchPlaceholder="Search managers..."
             emptyText="No manager found."
           />
+        </div>
+
+        {/* Aadhaar number — held on the patient, asked for here so a visit is
+            never registered against an unidentified patient. Emergency
+            arrivals are exempt: the card can follow, the treatment cannot. */}
+        <div className="space-y-2">
+          <Label htmlFor="aadhaarNumber" className="text-sm font-medium">
+            Aadhaar Number{' '}
+            {isEmergencyVisit
+              ? <span className="text-xs font-normal text-muted-foreground">(optional in an emergency)</span>
+              : <span className="text-red-500">*</span>}
+          </Label>
+          <Input
+            id="aadhaarNumber"
+            inputMode="numeric"
+            placeholder="12 digits"
+            value={formData.aadhaarNumber || ''}
+            onChange={(e) =>
+              handleInputChange('aadhaarNumber', e.target.value.replace(/\D/g, '').slice(0, 12))
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            Saved on the patient's record — asked once, then shown on every later visit.
+          </p>
         </div>
 
         {/* Claim Id */}

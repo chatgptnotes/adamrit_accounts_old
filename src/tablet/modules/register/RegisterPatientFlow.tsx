@@ -485,14 +485,23 @@ export default function RegisterPatientFlow() {
     !!patient.age &&
     !!patient.phone.trim() &&
     !!patient.address.trim() &&
-    // Aadhaar is optional — patients arrive without their card. A number that
-    // has been started must still be complete, so the dedupe index stays true.
+    // Whatever has been typed must be a complete number, so the dedupe index
+    // stays true. Whether it may be left blank is settled on the visit step,
+    // where the emergency exemption is known.
     (!patient.aadhaarNumber || isValidAadhaar(patient.aadhaarNumber)) &&
     !!patient.corporate &&
     !!patient.emgName.trim() &&
     !!patient.emgMobile.trim() &&
     (!isEsic(patient.corporate) || !!patient.insuranceNo.trim());
+  // Emergency arrivals come without a card, and often without the patient
+  // able to give the number — the treatment cannot wait on it.
+  const isEmergencyVisit =
+    visit.patientType === "Emergency" ||
+    ["emergency", "casualty"].includes(visit.visitType.trim().toLowerCase());
+  const aadhaarRequiredAndMissing =
+    !isEmergencyVisit && !isValidAadhaar(patient.aadhaarNumber);
   const visitValid =
+    !aadhaarRequiredAndMissing &&
     !!visit.patientType &&
     !!visit.visitType &&
     !!visit.doctor &&
@@ -761,16 +770,19 @@ export default function RegisterPatientFlow() {
                   ))}
                 </select>
               </Field>
-              <Field label="Aadhaar number">
+              <Field label="Aadhaar number *">
                 <TabletInput
                   inputMode="numeric"
                   value={patient.aadhaarNumber}
                   onChange={(e) =>
                     setP("aadhaarNumber", e.target.value.replace(/\D/g, "").slice(0, 12))
                   }
-                  placeholder="12 digits, or leave blank"
+                  placeholder="12 digits"
                   maxLength={12}
                 />
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Required, except for an emergency arrival.
+                </p>
               </Field>
               <Field label="ID number (Aadhar / Passport)">
                 <TabletInput
@@ -967,6 +979,14 @@ export default function RegisterPatientFlow() {
 
       {step === "visit" && (
         <div className={cn(envelopeClass, "space-y-4")}>
+          {/* Said out loud, because otherwise Next simply stops working and
+              the reason is a step behind. */}
+          {aadhaarRequiredAndMissing ? (
+            <p className="rounded-xl bg-destructive/10 p-3 text-base font-medium text-destructive">
+              Aadhaar number is missing — go Back and enter it. Only an
+              Emergency patient may be registered without one.
+            </p>
+          ) : null}
           <div>
             <TabletLabel>Patient type *</TabletLabel>
             <div className="grid grid-cols-3 gap-2">
