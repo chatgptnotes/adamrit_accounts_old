@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAccountingCashBankLedgers } from '@/hooks/usePaymentObligations';
+import { fileToBase64, verifyPaymentProof } from '@/lib/accounting-ai';
 import {
   VOUCHER_PAYMENT_PROOF_CATEGORY,
   linkVoucherAttachments,
@@ -50,6 +51,7 @@ interface PaymentResult {
 /** What was just paid, kept on screen so the proof can be attached to it. */
 interface LastPayment {
   doctor: string;
+  mode: 'QR' | 'CASH';
   payments: PaymentResult[];
   total: number;
 }
@@ -149,7 +151,7 @@ export function RupaliConsultantPayments({ companyId }: { companyId: string | nu
           .map((p) => p.voucherNumber)
           .join(', ')}.`,
       );
-      setLastPayment({ doctor: group.name, payments, total });
+      setLastPayment({ doctor: group.name, mode, payments, total });
       setUploadedCount(0);
       setSelected(new Set());
       queryClient.invalidateQueries({ queryKey: ['rupali-consultant-payments'] });
@@ -176,7 +178,28 @@ export function RupaliConsultantPayments({ companyId }: { companyId: string | nu
         );
       }
       setUploadedCount((n) => n + files.length);
-      toast.success('Payment proof attached to the voucher.');
+      toast.success(
+        lastPayment.mode === 'CASH' ? 'Signed voucher attached.' : 'Payment screenshot attached.',
+      );
+
+      // AI check: does the screenshot actually show this payment? Only for a QR
+      // image — a signed cash voucher carries no amount to read. The upload has
+      // already succeeded by this point, so a failed check warns and never
+      // undoes the attachment.
+      if (lastPayment.mode === 'QR' && files[0].type.startsWith('image/')) {
+        const { base64, mimeType } = await fileToBase64(files[0]);
+        const verdict = await verifyPaymentProof(base64, mimeType, lastPayment.total, lastPayment.doctor);
+        if (verdict && !verdict.matches) {
+          toast.warning(
+            `AI check: screenshot shows ${
+              verdict.amount_seen != null ? rupees(verdict.amount_seen) : 'no clear amount'
+            }, voucher is ${rupees(lastPayment.total)}. ${verdict.note}`,
+            { duration: 12000 },
+          );
+        } else if (verdict?.matches) {
+          toast.success('AI check: screenshot matches the voucher amount.');
+        }
+      }
     } catch (err: any) {
       toast.error(err?.message || 'Could not upload the proof');
     } finally {
