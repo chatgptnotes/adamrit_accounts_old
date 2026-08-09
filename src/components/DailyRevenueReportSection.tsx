@@ -21,6 +21,8 @@ interface VisitRow {
   visit_id: string;
   visit_date: string;
   discharge_date: string | null;
+  is_discharged: boolean | null;
+  status: string | null;
   appointment_with: string | null;
   package_amount: string | null;
   patient_type: string | null;
@@ -253,7 +255,10 @@ const getErrorMessage = (error: unknown): string => {
   return 'An unexpected error occurred';
 };
 
-const todayIso = (): string => new Date().toISOString().slice(0, 10);
+// IST, not UTC: before 05:30 IST a UTC date is still on yesterday, which would
+// hand the report the wrong "today" every morning.
+const todayIso = (): string =>
+  new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
 const isoDaysAgo = (days: number): string =>
   new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -266,6 +271,35 @@ type DateBasis = 'visit' | 'discharge';
 // the timestamp back down to its UTC date, which silently drags in the
 // previous day. Plain YYYY-MM-DD on both sides is what actually works.
 const asDay = (value: string | null | undefined): string => (value ? value.slice(0, 10) : '');
+
+/**
+ * Has this visit finished?
+ *
+ * IPD answers for itself: discharge is recorded, on all three of
+ * is_discharged, discharge_date and status. OPD does not — of the OPD visits
+ * on the books, effectively none carry a discharge marker, because an OPD
+ * consultation has no discharge event to record. Requiring one there would
+ * empty the OPD report rather than filter it.
+ *
+ * So OPD is judged by its day instead: a consultation dated before today is
+ * over. One dated today is still in progress and stays off the report until
+ * tomorrow, unless somebody has explicitly closed it.
+ */
+const visitHasEnded = (visit: {
+  patient_type: string | null;
+  is_discharged: boolean | null;
+  status: string | null;
+  discharge_date: string | null;
+  visit_date: string;
+}): boolean => {
+  const closed =
+    visit.is_discharged === true ||
+    Boolean(visit.discharge_date) ||
+    String(visit.status || '').trim().toLowerCase() === 'discharged';
+  if (closed) return true;
+  if (String(visit.patient_type || '').toUpperCase() === 'IPD') return false;
+  return asDay(visit.visit_date) < todayIso();
+};
 
 const formatINR = (n: number): string => n.toLocaleString('en-IN');
 
@@ -391,6 +425,8 @@ export function DailyRevenueReportSection({
           visit_id,
           visit_date,
           discharge_date,
+          is_discharged,
+          status,
           appointment_with,
           package_amount,
           patient_type,
@@ -641,7 +677,15 @@ export function DailyRevenueReportSection({
       (rmMasterQuery.data ?? []).map((rm) => [rm.name.trim().toLowerCase(), rm]),
     );
 
-    const visitRows: DisplayRow[] = visits.map((v) => {
+    // Only visits that are over. An IPD patient still in a bed, or today's OPD
+    // consultation, is not yet a revenue line — the cut is settled once the
+    // visit has ended. A row already saved on this report stays regardless:
+    // somebody has worked it, and it must not vanish underneath them.
+    const endedVisits = visits.filter(
+      (v) => visitHasEnded(v) || overrideByVisit.has(v.id),
+    );
+
+    const visitRows: DisplayRow[] = endedVisits.map((v) => {
       const o = overrideByVisit.get(v.id);
 
       // Priority: manual override > advance > bill prep > final pay > visits.package_amount.
