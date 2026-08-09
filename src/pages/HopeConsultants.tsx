@@ -5,6 +5,7 @@ import { HopeConsultantsHeader } from './HopeConsultants/HopeConsultantsHeader';
 import { HopeConsultantsControls } from './HopeConsultants/HopeConsultantsControls';
 import { HopeConsultantsList } from './HopeConsultants/HopeConsultantsList';
 import { hopeConsultantFields } from './HopeConsultants/formFields';
+import { doctorLedgerFormField } from '@/components/DoctorLedgerField';
 
 const HopeConsultants = () => {
   const {
@@ -25,6 +26,11 @@ const HopeConsultants = () => {
     handleExport,
     handleImport
   } = useHopeConsultants();
+
+  // The ledger is mapped against the consultant's NAME, so it can only be
+  // picked once that name exists — on Add the field says so instead.
+  const addFields = [...hopeConsultantFields, doctorLedgerFormField('')];
+  const editFields = [...hopeConsultantFields, doctorLedgerFormField(editingConsultant?.name || '')];
 
   if (isLoading) {
     return (
@@ -61,7 +67,7 @@ const HopeConsultants = () => {
           onClose={() => setIsAddDialogOpen(false)}
           onAdd={handleAdd}
           title="Add Hope Consultant"
-          fields={hopeConsultantFields}
+          fields={addFields}
         />
 
         {editingConsultant && (
@@ -83,7 +89,7 @@ const HopeConsultants = () => {
               nabh_rate: editingConsultant.nabh_rate?.toString() || '',
               private_rate: editingConsultant.private_rate?.toString() || ''
             }}
-            fields={hopeConsultantFields}
+            fields={editFields}
           />
         )}
       </div>

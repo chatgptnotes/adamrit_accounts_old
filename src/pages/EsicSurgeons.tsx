@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Search, UserCheck, Edit, Trash2 } from 'lucide-react';
 import { AddItemDialog } from '@/components/AddItemDialog';
+import { doctorLedgerFormField } from '@/components/DoctorLedgerField';
 import { EditSurgeonDialog } from '@/components/EditSurgeonDialog';
 import { useToast } from '@/hooks/use-toast';
 
@@ -191,6 +192,10 @@ const EsicSurgeons = () => {
     { key: 'contact_info', label: 'Contact Info', type: 'text' as const }
   ];
 
+  // The ledger is mapped against the surgeon's NAME, so it can only be picked
+  // once that name exists. Editing an existing surgeon offers the real field.
+  const addFields = [...fields, doctorLedgerFormField('')];
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
       <div className="max-w-7xl mx-auto">
@@ -279,7 +284,7 @@ const EsicSurgeons = () => {
           onClose={() => setIsAddDialogOpen(false)}
           onAdd={handleAdd}
           title="Add ESIC Surgeon"
-          fields={fields}
+          fields={addFields}
         />
 
         <EditSurgeonDialog

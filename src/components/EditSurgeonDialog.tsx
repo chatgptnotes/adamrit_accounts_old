@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { DoctorLedgerField } from '@/components/DoctorLedgerField';
 
 interface EsicSurgeon {
   id: string;
@@ -103,6 +104,13 @@ export const EditSurgeonDialog: React.FC<EditSurgeonDialogProps> = ({
               onChange={(e) => handleFieldChange('contact_info', e.target.value)}
               placeholder="Enter contact information"
             />
+          </div>
+
+          <div>
+            <Label>Accounting Ledger (search — saves as soon as you pick)</Label>
+            {/* Mapped against the saved name, not the one being typed above,
+                so renaming and remapping stay two deliberate steps. */}
+            <DoctorLedgerField doctorName={surgeon.name || ''} />
           </div>
 
           <div className="flex justify-end space-x-2">

@@ -309,6 +309,11 @@ const HopeSurgeons = () => {
     { key: 'private_rate', label: 'Private Rate', type: 'number' as const }
   ];
 
+  // The ledger is mapped against the surgeon's NAME, so it can only be picked
+  // once that name exists — on Add the field says so instead.
+  const addFields = [...fields, doctorLedgerFormField('')];
+  const editFields = [...fields, doctorLedgerFormField(editingSurgeon?.name || '')];
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
       <div className="max-w-7xl mx-auto">
@@ -418,7 +423,7 @@ const HopeSurgeons = () => {
           onClose={() => setIsAddDialogOpen(false)}
           onAdd={handleAdd}
           title="Add Hope Surgeon"
-          fields={fields}
+          fields={addFields}
         />
 
         <AddItemDialog
@@ -429,7 +434,7 @@ const HopeSurgeons = () => {
           }}
           onAdd={handleUpdate}
           title="Edit Hope Surgeon"
-          fields={fields}
+          fields={editFields}
           initialData={{
             name: editingSurgeon?.name || '',
             specialty: editingSurgeon?.specialty || '',
