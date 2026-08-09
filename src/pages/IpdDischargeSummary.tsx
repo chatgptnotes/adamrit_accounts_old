@@ -16,6 +16,7 @@ import { toast } from "@/hooks/use-toast";
 import { geminiGenerateContentUrl, geminiFetch, GEMINI_MODEL } from "@/lib/gemini";
 import { downscaleImageForVision } from "@/lib/downscaleImage";
 import { format } from 'date-fns';
+import { formatAadhaar } from '@/utils/aadhaar';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface MedicationRow {
@@ -214,7 +215,8 @@ const IpdDischargeSummary = () => {
     dateOfDischarge: '',
     reasonOfDischarge: 'Please select',
     corporateType: '',
-    treatmentType: ''
+    treatmentType: '',
+    aadhaar: ''
   });
 
   // Track whether a saved discharge summary was loaded (to lock dates after save)
@@ -431,7 +433,8 @@ URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 937
               age,
               gender,
               address,
-              phone
+              phone,
+              aadhaar_number
             ),
             diagnoses!diagnosis_id (
               id,
@@ -1111,7 +1114,11 @@ URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 937
         reasonOfDischarge: summary?.reason_of_discharge || 'Please select',
         // Fetch corporate type from patients table
         corporateType: patient?.corporate || patient?.corporate_type || patient?.insurance_company || '',
-        treatmentType: patientData.treatment_type || ''
+        treatmentType: patientData.treatment_type || '',
+        // Read live from the patient record every time. The summary table has
+        // no column for it, so a number added after an earlier discharge still
+        // shows on a reprint.
+        aadhaar: patient?.aadhaar_number || ''
       });
 
       // Load existing discharge summary data if available
@@ -2714,6 +2721,10 @@ Rules: Use ONLY information visible in the images for diagnosis, medications, vi
     <div class="info-row">
       <span class="info-label">Mobile No</span>
       <span class="info-value">: ${summaryData.mobile_no || summaryData.phone || 'N/A'}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Aadhaar No</span>
+      <span class="info-value">: ${patientInfo.aadhaar ? formatAadhaar(patientInfo.aadhaar) : 'N/A'}</span>
     </div>
     <div class="info-row">
       <span class="info-label">Tariff</span>

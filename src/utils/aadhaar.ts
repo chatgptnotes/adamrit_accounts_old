@@ -9,3 +9,11 @@ export function normalizeAadhaar(value: string): string {
 export function isValidAadhaar(value: string): boolean {
   return /^\d{12}$/.test(normalizeAadhaar(value));
 }
+
+/**
+ * Grouped 4-4-4, the way it is printed on the card — so a number on screen or
+ * on a document can be read against the card without counting digits.
+ */
+export function formatAadhaar(value: string): string {
+  return normalizeAadhaar(value).replace(/(\d{4})(?=\d)/g, '$1 ');
+}

@@ -8,7 +8,7 @@ import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletInput } from "@/tablet/ui/TabletInput";
 import { shortDate } from "@/tablet/lib/format";
-import { normalizeAadhaar, isValidAadhaar } from "@/utils/aadhaar";
+import { normalizeAadhaar, isValidAadhaar, formatAadhaar } from "@/utils/aadhaar";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -43,11 +43,6 @@ function Field({ label, value }: { label: string; value: string | null }) {
     </div>
   );
 }
-
-/** Printed on the card in groups of four — shown the same way, so the number
- *  can be checked against the document without counting digits. */
-const groupAadhaar = (value: string): string =>
-  normalizeAadhaar(value).replace(/(\d{4})(?=\d)/g, "$1 ");
 
 /**
  * Aadhaar, with a way to put it right from here.
@@ -144,7 +139,7 @@ function AadhaarField({
       <dt className="text-sm font-medium text-muted-foreground">Aadhaar</dt>
       <dd className="flex items-center gap-2">
         <span className={cn(!patient.aadhaarNumber && "text-muted-foreground")}>
-          {patient.aadhaarNumber ? groupAadhaar(patient.aadhaarNumber) : "Not on record"}
+          {patient.aadhaarNumber ? formatAadhaar(patient.aadhaarNumber) : "Not on record"}
         </span>
         <button
           type="button"

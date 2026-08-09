@@ -13,6 +13,8 @@
  * made the old output look unfinished.
  */
 
+import { formatAadhaar } from "@/utils/aadhaar";
+
 export const stripMarkdownForPdf = (value: string) =>
   value
     .replace(/\*\*(.*?)\*\*/g, "$1")
@@ -114,6 +116,7 @@ export interface ArshiyaSummaryPdfInput {
   patientId: string | null | undefined;
   visitNumber: string | null | undefined;
   registrationId: string | null | undefined;
+  aadhaarNumber?: string | null;
   portalUrl: string;
   /** "DISCHARGE SUMMARY" (default) or "DEATH SUMMARY". */
   documentTitle?: string;
@@ -330,9 +333,15 @@ export async function buildArshiyaSummaryPdfBlob(
   pdf.setFillColor(TINT[0], TINT[1], TINT[2]);
   pdf.rect(MARGIN_X, stripY, CONTENT_W, 16, "F");
 
+  // The Aadhaar column appears only when a number was passed: the same strip
+  // prints on advance receipts, which have no business carrying an empty
+  // identity column, and a patient without a number gets no blank either.
   const cols = [
     { label: "Patient", value: input.patientName || "-" },
     { label: "Patient ID", value: input.patientId || "-" },
+    ...(input.aadhaarNumber
+      ? [{ label: "Aadhaar No", value: formatAadhaar(input.aadhaarNumber) }]
+      : []),
     { label: "Yojana Registration", value: input.registrationId || "-" },
   ];
   const colW = CONTENT_W / cols.length;

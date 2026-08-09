@@ -89,6 +89,7 @@ export default function DischargeSummaryFlow() {
         patientId: selected.patientsId,
         visitNumber: selected.visitId,
         registrationId: null,
+        aadhaarNumber: selected.aadhaarNumber,
         portalUrl: `${window.location.origin}/patient-portal`,
         signatory: await loadSummarySignatory(selected.doctorName),
       });
