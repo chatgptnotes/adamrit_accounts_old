@@ -5,6 +5,7 @@ import { HeartPulse, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import { normalizeAadhaar, isValidAadhaar } from "@/utils/aadhaar";
 import { useAdmittedVisits, type TabletVisit } from "@/tablet/hooks/useVisitLists";
 import { TabletVisitList } from "@/tablet/components/TabletVisitList";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
@@ -29,6 +30,32 @@ export default function IcuAdmissionFlow() {
   const [selected, setSelected] = useState<TabletVisit | null>(null);
   const [ward, setWard] = useState<IcuWard | null>(null);
   const [room, setRoom] = useState("");
+  const [aadhaar, setAadhaar] = useState("");
+
+  // An ICU bed is the point where the patient's identity has to be certain —
+  // the family is present and the stay is about to get expensive. If the
+  // number was never captured (a casualty arrival is allowed through without
+  // one), it is collected here before the bed is assigned.
+  const patientAadhaar = useQuery({
+    queryKey: ["tablet-icu-patient-aadhaar", selected?.patientUuid],
+    enabled: !!selected?.patientUuid,
+    queryFn: async (): Promise<string> => {
+      const { data, error } = await (supabase as any)
+        .from("patients")
+        .select("aadhaar_number")
+        .eq("id", selected!.patientUuid)
+        .maybeSingle();
+      if (error) throw error;
+      return normalizeAadhaar(String(data?.aadhaar_number || ""));
+    },
+  });
+  const aadhaarOnFile = patientAadhaar.data || "";
+  // If the patient record cannot be reached — no linked patient, or the
+  // lookup failed — the bed still gets assigned. A missing number must not
+  // hold up intensive care over an infrastructure problem.
+  const aadhaarUnknown = !selected?.patientUuid || patientAadhaar.isError;
+  const aadhaarSettled = patientAadhaar.isSuccess || aadhaarUnknown;
+  const aadhaarMissing = patientAadhaar.isSuccess && !aadhaarOnFile;
 
   const icuWards = useQuery({
     queryKey: ["tablet-icu-wards", hospitalConfig.name],
@@ -47,6 +74,24 @@ export default function IcuAdmissionFlow() {
   const admit = useMutation({
     mutationFn: async () => {
       if (!selected || !ward) throw new Error("Select a patient and ICU ward");
+
+      if (aadhaarMissing) {
+        if (!isValidAadhaar(aadhaar)) {
+          throw new Error("Enter the patient's 12-digit Aadhaar number.");
+        }
+        const { error: aadhaarError } = await (supabase as any)
+          .from("patients")
+          .update({ aadhaar_number: normalizeAadhaar(aadhaar) })
+          .eq("id", selected.patientUuid);
+        if (aadhaarError) {
+          throw new Error(
+            String(aadhaarError.message || "").includes("aadhaar")
+              ? "That Aadhaar number is already registered to another patient."
+              : `Could not save the Aadhaar number: ${aadhaarError.message}`,
+          );
+        }
+      }
+
       const { error } = await supabase
         .from("visits")
         .update({
@@ -68,7 +113,10 @@ export default function IcuAdmissionFlow() {
         visits={visits.data || []}
         loading={visits.isLoading}
         error={visits.isError}
-        onSelect={setSelected}
+        onSelect={(visit) => {
+          setAadhaar("");
+          setSelected(visit);
+        }}
         emptyText="No admitted patients."
         metaKind="admitted"
       />
@@ -95,14 +143,22 @@ export default function IcuAdmissionFlow() {
           <TabletButton
             variant="outline"
             className="flex-1"
-            onClick={() => setSelected(null)}
+            onClick={() => {
+              setAadhaar("");
+              setSelected(null);
+            }}
             disabled={admit.isPending}
           >
             Change patient
           </TabletButton>
           <TabletButton
             className="flex-1"
-            disabled={!ward || admit.isPending}
+            disabled={
+              !ward ||
+              admit.isPending ||
+              !aadhaarSettled ||
+              (aadhaarMissing && !isValidAadhaar(aadhaar))
+            }
             onClick={() => admit.mutate()}
           >
             {admit.isPending ? "Saving…" : "Assign ICU bed"}
@@ -158,6 +214,25 @@ export default function IcuAdmissionFlow() {
               placeholder="e.g. ICU-3 (optional)"
             />
           </div>
+          {aadhaarMissing ? (
+            <div>
+              <TabletLabel>Aadhaar number *</TabletLabel>
+              <TabletInput
+                inputMode="numeric"
+                maxLength={12}
+                value={aadhaar}
+                onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, "").slice(0, 12))}
+                placeholder="12 digits"
+              />
+              <p className="mt-1 text-sm text-muted-foreground">
+                Not on this patient's record yet — needed before an ICU bed is assigned.
+              </p>
+            </div>
+          ) : aadhaarOnFile ? (
+            <p className="text-sm text-muted-foreground">
+              Aadhaar on file: •••• •••• {aadhaarOnFile.slice(-4)}
+            </p>
+          ) : null}
           {admit.isError ? (
             <p className="text-destructive">
               {(admit.error as Error)?.message || "Could not assign bed."}

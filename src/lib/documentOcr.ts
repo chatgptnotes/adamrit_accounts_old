@@ -8,6 +8,7 @@ export interface ExtractedPatientData {
   gender?: string;
   phone?: string;
   address?: string;
+  aadhaar?: string;
 }
 
 // Preprocess: resize + grayscale + contrast stretch (+ optional QR-area masking)
@@ -117,6 +118,12 @@ export async function extractTextFromImage(
 export function parsePatientData(text: string): ExtractedPatientData {
   const data: ExtractedPatientData = {};
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+
+  // Aadhaar — printed as three groups of four. Read before the phone so the
+  // groups are claimed here rather than half-matched as a mobile number.
+  // A 16-digit run is a VID, not an Aadhaar, so the boundaries stay strict.
+  const aadhaarMatch = text.match(/(?:^|\D)(\d{4}\s\d{4}\s\d{4})(?:\D|$)/);
+  if (aadhaarMatch) data.aadhaar = aadhaarMatch[1].replace(/\s/g, '');
 
   // Phone — 10-digit Indian mobile
   const phoneMatch = text.match(/(?:^|\D)((?:6|7|8|9)\d{9})(?:\D|$)/m);

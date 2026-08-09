@@ -9,6 +9,7 @@ import { Loader2, Search, Camera, Upload, X, Circle, UserPlus, CheckCircle2, Eye
 import { VisitRegistrationForm } from '@/components/VisitRegistrationForm';
 import { extractTextFromImage, parsePatientData, ExtractedPatientData } from '@/lib/documentOcr';
 import { generatePatientId } from '@/utils/patientIdGenerator';
+import { normalizeAadhaar, isValidAadhaar } from '@/utils/aadhaar';
 import { captureInAppPhoto } from '@/lib/captureInAppPhoto';
 import { captureGeolocation, geoToDbFields, type GeoCapture } from '@/lib/geotag';
 import { geotagJpegFile } from '@/lib/embedGeotagExif';
@@ -36,6 +37,7 @@ function mergeScanned(front: ExtractedPatientData | null, back: ExtractedPatient
     gender:  front?.gender  || back?.gender,
     phone:   front?.phone   || back?.phone,
     address: back?.address  || front?.address,
+    aadhaar: front?.aadhaar || back?.aadhaar,
   };
 }
 
@@ -65,7 +67,7 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
   const [showReferralSelection, setShowReferralSelection] = useState(false);
   const [selectedReferral, setSelectedReferral] = useState<RegistrationReferral | null>(null);
   const [registering, setRegistering]       = useState(false);
-  const [quickForm, setQuickForm]           = useState({ name: '', age: '', dob: '', gender: '', phone: '' });
+  const [quickForm, setQuickForm]           = useState({ name: '', age: '', dob: '', gender: '', phone: '', aadhaar: '' });
   const [previewImage, setPreviewImage]     = useState<string | null>(null);
   // Sequential scan: null → front → back → done
   const [scanStep, setScanStep]             = useState<null | 'front' | 'back' | 'done'>(null);
@@ -257,6 +259,7 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
         dob:    merged.dob    || '',
         gender: merged.gender || '',
         phone:  merged.phone  || '',
+        aadhaar: merged.aadhaar || '',
       });
 
       // Front-specific check — name MUST be readable from front
@@ -336,6 +339,18 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
       toast({ title: 'Name required', variant: 'destructive' });
       return;
     }
+    // A casualty patient may arrive with no card and nobody able to give the
+    // number, so a blank is accepted here — but a half-typed one is not, or
+    // the number would identify nobody.
+    const aadhaar = normalizeAadhaar(quickForm.aadhaar);
+    if (aadhaar && !isValidAadhaar(aadhaar)) {
+      toast({
+        title: 'Aadhaar must be 12 digits',
+        description: 'Enter the full number, or leave it blank and add it later.',
+        variant: 'destructive',
+      });
+      return;
+    }
     setRegistering(true);
     try {
       const patientId = await generatePatientId(hospitalConfig?.id as any);
@@ -348,10 +363,18 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
           date_of_birth: quickForm.dob    || null,
           gender:        quickForm.gender || null,
           phone:         quickForm.phone  || null,
-        })
+          // Blank stays NULL: the uniqueness index only guards real numbers,
+          // so unidentified arrivals never collide with each other.
+          aadhaar_number: aadhaar || null,
+        } as any)
         .select('id, name, patients_id')
         .single();
-      if (error) throw error;
+      if (error) {
+        if (String(error.message || '').includes('aadhaar')) {
+          throw new Error('This Aadhaar number is already registered — search for that patient instead.');
+        }
+        throw error;
+      }
 
       if (selectedReferral?.id === 'direct-walk-in') {
         await (supabase as any).from('patients').update({
@@ -600,6 +623,11 @@ const AddEmergencyPatientDialog: React.FC<AddEmergencyPatientDialogProps> = ({
                     onChange={(e) => setQuickForm((f) => ({ ...f, phone: e.target.value }))} />
                   <Input placeholder="DOB (YYYY-MM-DD)" value={quickForm.dob}
                     onChange={(e) => setQuickForm((f) => ({ ...f, dob: e.target.value }))} />
+                  {/* Read off the scanned card when it could be, typed when
+                      not. Left blank for an unidentified emergency arrival. */}
+                  <Input placeholder="Aadhaar number (12 digits)" inputMode="numeric" maxLength={12}
+                    value={quickForm.aadhaar}
+                    onChange={(e) => setQuickForm((f) => ({ ...f, aadhaar: e.target.value.replace(/\D/g, '').slice(0, 12) }))} />
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" className="flex-1" onClick={() => setShowQuickRegister(false)}>Cancel</Button>
