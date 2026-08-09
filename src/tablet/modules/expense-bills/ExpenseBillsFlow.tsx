@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useDebounce } from "use-debounce";
 import { Camera, FileText, Loader2, Paperclip, Plus, QrCode, Search, Upload, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { saveLedgerQr, savePaymentProof } from "@/lib/expense-bills/paymentEvidence";
 import { extractInvoiceFromImage, fileToBase64 } from "@/lib/accounting-ai";

@@ -2399,6 +2399,11 @@ IMPORTANT:
       setIsGenerating(true);
       setShowGenerationModal(false);
 
+      // The diagnosis already typed into the summary, read the same way
+      // handleAIGenerate reads it, so the closing message can say truthfully
+      // whether it survived the regeneration.
+      const existingDiagnosis = (dischargeSummaryText || '').match(/Diagnosis:\s*([^\n]+)/i)?.[1]?.trim() || '';
+
       console.log('🤖 Generating AI discharge summary with edited data:', editablePatientData);
       console.log('🤖 Using edited prompt:', editablePrompt);
 
@@ -2623,8 +2628,7 @@ URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT: 7030974619, 937
       // so the finalSummary should already have the correct diagnosis
       setDischargeSummaryText(finalSummary);
 
-      // Use safer check for existingDiagnosis with proper variable scope
-      const diagnosisWasPreserved = (typeof existingDiagnosis !== 'undefined' && existingDiagnosis && existingDiagnosis.length > 0);
+      const diagnosisWasPreserved = existingDiagnosis.length > 0 && finalSummary.includes(existingDiagnosis);
       const preservedMessage = diagnosisWasPreserved
         ? '✅ AI-powered OPD summary generated successfully! Your existing diagnosis has been preserved.'
         : '✅ AI-powered OPD summary generated successfully using edited patient data!';

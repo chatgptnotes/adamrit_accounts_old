@@ -85,6 +85,36 @@ async function renderReportPdf(input: PublishGeneratedPatientReportInput): Promi
   let y = letterheadTop;
   const now = new Date();
 
+  // The seal comes from the hospital_stamps master, the same place the claim
+  // justification print takes it from. When nothing has been uploaded the
+  // report prints an empty box to stamp by hand — never a drawn-on seal.
+  const renderHospitalSeal = async (x: number, top: number, size: number) => {
+    const { data, error } = await supabase
+      .from('hospital_stamps' as any)
+      .select('stamp_url')
+      .eq('hospital_type', 'hope')
+      .maybeSingle();
+    if (error) console.warn('Could not load the hospital seal:', error.message);
+    const stampUrl = (data as { stamp_url: string | null } | null)?.stamp_url || null;
+    if (stampUrl) {
+      try {
+        doc.addImage(await loadImageDataUrl(stampUrl), 'PNG', x, top, size, size);
+        return;
+      } catch (imageError) {
+        console.warn('Could not load the hospital seal artwork:', imageError);
+      }
+    }
+    doc.setDrawColor(150);
+    doc.setLineDashPattern([2, 2], 0);
+    doc.rect(x, top, size, size);
+    doc.setLineDashPattern([], 0);
+    doc.setDrawColor(0);
+    doc.setFontSize(8);
+    doc.setTextColor(110);
+    doc.text('Hospital stamp', x + size / 2, top + size + 9, { align: 'center' });
+    doc.setTextColor(20, 20, 20);
+  };
+
   const renderMetaLines = (lines: string[]) => {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
