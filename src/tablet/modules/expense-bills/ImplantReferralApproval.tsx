@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, CheckCircle2, Loader2, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@/contexts/AuthContext";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletInput } from "@/tablet/ui/TabletInput";
 import {
@@ -24,9 +23,12 @@ const rupees = (n: number) =>
  * from the manager's mapping, so there is no ledger to choose here. A row
  * whose manager is unmapped is shown and counted but cannot be approved: the
  * fix is on the Relationship Manager master, not on this screen.
+ *
+ * Approving raises PENDING expense invoices; nothing reaches the day book
+ * until those are approved in the bill approvals list. Whoever works this
+ * screen approves them — a super admin is not required.
  */
 export function ImplantReferralApproval() {
-  const { isSuperAdmin } = useAuth();
   const { data: rows = [], isLoading, isError } = useImplantReferralRows();
   const { data: expenseLedger } = useReferralExpenseLedger();
   const approve = useApproveImplantReferral();
@@ -156,23 +158,17 @@ export function ImplantReferralApproval() {
             </span>
           </div>
 
-          {isSuperAdmin ? (
-            <TabletButton
-              onClick={() => void onApprove()}
-              disabled={approvable.length === 0 || approve.isPending || !expenseLedger}
-            >
-              {approve.isPending ? (
-                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              ) : (
-                <CheckCircle2 className="mr-2 h-5 w-5" />
-              )}
-              Approve {approvable.length} record(s)
-            </TabletButton>
-          ) : (
-            <span className="text-sm text-muted-foreground">
-              Only a super admin can approve these.
-            </span>
-          )}
+          <TabletButton
+            onClick={() => void onApprove()}
+            disabled={approvable.length === 0 || approve.isPending || !expenseLedger}
+          >
+            {approve.isPending ? (
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+            ) : (
+              <CheckCircle2 className="mr-2 h-5 w-5" />
+            )}
+            Approve {approvable.length} record(s)
+          </TabletButton>
         </div>
       </div>
     </div>
