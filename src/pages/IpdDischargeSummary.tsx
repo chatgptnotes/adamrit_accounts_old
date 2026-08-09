@@ -16,7 +16,7 @@ import { toast } from "@/hooks/use-toast";
 import { geminiGenerateContentUrl, geminiFetch, GEMINI_MODEL } from "@/lib/gemini";
 import { downscaleImageForVision } from "@/lib/downscaleImage";
 import { format } from 'date-fns';
-import { formatAadhaar } from '@/utils/aadhaar';
+import { maskAadhaar } from '@/utils/aadhaar';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface MedicationRow {
@@ -2724,7 +2724,7 @@ Rules: Use ONLY information visible in the images for diagnosis, medications, vi
     </div>
     <div class="info-row">
       <span class="info-label">Aadhaar No</span>
-      <span class="info-value">: ${patientInfo.aadhaar ? formatAadhaar(patientInfo.aadhaar) : 'N/A'}</span>
+      <span class="info-value">: ${patientInfo.aadhaar ? maskAadhaar(patientInfo.aadhaar) : 'N/A'}</span>
     </div>
     <div class="info-row">
       <span class="info-label">Tariff</span>

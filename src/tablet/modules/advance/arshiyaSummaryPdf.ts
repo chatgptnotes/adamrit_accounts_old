@@ -13,7 +13,7 @@
  * made the old output look unfinished.
  */
 
-import { formatAadhaar } from "@/utils/aadhaar";
+import { maskAadhaar } from "@/utils/aadhaar";
 
 export const stripMarkdownForPdf = (value: string) =>
   value
@@ -340,7 +340,7 @@ export async function buildArshiyaSummaryPdfBlob(
     { label: "Patient", value: input.patientName || "-" },
     { label: "Patient ID", value: input.patientId || "-" },
     ...(input.aadhaarNumber
-      ? [{ label: "Aadhaar No", value: formatAadhaar(input.aadhaarNumber) }]
+      ? [{ label: "Aadhaar No", value: maskAadhaar(input.aadhaarNumber) }]
       : []),
     { label: "Yojana Registration", value: input.registrationId || "-" },
   ];
