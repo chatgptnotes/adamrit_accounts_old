@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import type { Patient } from "@/components/PatientLookup/types/patientLookup";
+import { Textarea } from "@/components/ui/textarea";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletPatientPicker } from "@/tablet/components/TabletPatientPicker";
 import { TabletButton } from "@/tablet/ui/TabletButton";
@@ -49,6 +50,10 @@ export default function RupaliFlow() {
   );
   const [amount, setAmount] = useState("");
   const [editingAmount, setEditingAmount] = useState(false);
+  // Paying a doctor less than the standard — for a patient who cannot afford
+  // the full charge — has to say why, and who allowed it.
+  const [reductionReason, setReductionReason] = useState("");
+  const [reductionApprovedBy, setReductionApprovedBy] = useState("");
 
   // Active master rules for the chosen category — the source of the
   // auto-fetched amount. The flow works without them (manual amount).
@@ -125,7 +130,10 @@ export default function RupaliFlow() {
     // A locked category standard wins over everything: same amount for every
     // doctor, no manual entry.
     if (lockedAmount !== null) {
-      setEditingAmount(false);
+      // Once Reduce is tapped the user is deliberately paying less than the
+      // locked standard, so stop pinning the amount back to it — otherwise
+      // the concession is undone on the next render.
+      if (editingAmount) return;
       setAmount((prev) => (prev === String(lockedAmount) ? prev : String(lockedAmount)));
       return;
     }
@@ -144,12 +152,32 @@ export default function RupaliFlow() {
 
   const purpose = rule?.purpose_reason || category || "";
 
+  // What this visit is "supposed to" pay. The database enforces against the
+  // category standard; the doctor's own rule can sit above it, so the higher
+  // of the two is used here — the screen then never lets through a reduction
+  // the server would go on to refuse.
+  const benchmark = useMemo(() => {
+    const candidates = [rule?.amount, categoryStandard?.amount]
+      .map((n) => (n == null ? null : Number(n)))
+      .filter((n): n is number => n != null && Number.isFinite(n));
+    return candidates.length ? Math.max(...candidates) : null;
+  }, [rule, categoryStandard]);
+
+  const enteredAmount = parseFloat(amount || "");
+  const isReduced =
+    benchmark !== null && Number.isFinite(enteredAmount) && enteredAmount < benchmark;
+  const justificationMissing =
+    isReduced && (!reductionReason.trim() || !reductionApprovedBy.trim());
+
   const submit = useMutation({
     mutationFn: async () => {
       const finalAmount = parseFloat(amount);
       if (!category || !doctor || !patient) throw new Error("Incomplete entry");
       if (!Number.isFinite(finalAmount) || finalAmount < 0) {
         throw new Error("Enter a valid amount");
+      }
+      if (justificationMissing) {
+        throw new Error("A reduced payment needs a reason and who approved it");
       }
       // Posts the register row AND the Journal Voucher (Dr Consultation &
       // Visit Charges / Cr the doctor's ledger) in the hospital's own
@@ -165,6 +193,9 @@ export default function RupaliFlow() {
         p_hospital_type: searchHospital,
         p_created_by: user?.email || user?.id || null,
         p_patient_category: rule?.patient_category ?? null,
+        // Only meaningful on a reduction; the server ignores them otherwise.
+        p_reduction_reason: isReduced ? reductionReason.trim() : null,
+        p_reduction_approved_by: isReduced ? reductionApprovedBy.trim() : null,
       });
       if (error) throw new Error(error.message);
       return { finalAmount, voucherNumber: (data as any)?.voucherNumber as string | undefined };
@@ -182,6 +213,8 @@ export default function RupaliFlow() {
       setRule(null);
       setAmount("");
       setEditingAmount(false);
+      setReductionReason("");
+      setReductionApprovedBy("");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Could not save the entry"),
   });
@@ -197,6 +230,8 @@ export default function RupaliFlow() {
       setRule(null);
       setAmount("");
       setEditingAmount(false);
+      setReductionReason("");
+      setReductionApprovedBy("");
       setStep(3);
     }
   };
@@ -320,13 +355,16 @@ export default function RupaliFlow() {
           {backButton}
           <TabletButton
             className="flex-1"
-            disabled={!amount || submit.isPending}
+            disabled={!amount || submit.isPending || justificationMissing}
             onClick={() => submit.mutate()}
+            title={justificationMissing ? "Fill the reason and who approved the reduction" : undefined}
           >
             <Check className="mr-2 h-5 w-5" />
             {submit.isPending
               ? "Saving…"
-              : `Submit${amount ? ` — ₹${parseFloat(amount || "0").toLocaleString("en-IN")}` : ""}`}
+              : justificationMissing
+                ? "Reason & approver needed"
+                : `Submit${amount ? ` — ₹${parseFloat(amount || "0").toLocaleString("en-IN")}` : ""}`}
           </TabletButton>
         </div>
       }
@@ -382,20 +420,22 @@ export default function RupaliFlow() {
                 ₹{parseFloat(amount || "0").toLocaleString("en-IN")}
               </span>
             )}
-            {!editingAmount && lockedAmount === null && (
+            {!editingAmount && (
               <button
                 type="button"
                 className="flex items-center gap-1 text-sm font-medium text-primary"
                 onClick={() => setEditingAmount(true)}
               >
-                <Pencil className="h-4 w-4" /> Override
+                <Pencil className="h-4 w-4" />
+                {lockedAmount === null ? "Override" : "Reduce"}
               </button>
             )}
           </div>
           {lockedAmount !== null ? (
             <p className="mt-1 text-sm text-muted-foreground">
               Standard {category} visit charge — ₹{lockedAmount.toLocaleString("en-IN")} for
-              every doctor. Not overridable.
+              every doctor. It can only be reduced, never raised, and a reduction needs a
+              reason and an approver.
             </p>
           ) : rule ? (
             <p className="mt-1 text-sm text-muted-foreground">
@@ -412,6 +452,39 @@ export default function RupaliFlow() {
               Standard charge is ₹{Number(rule.amount).toLocaleString("en-IN")} — this entry
               will record the overridden amount.
             </p>
+          )}
+
+          {/* A concession is a decision, not a typo — the register keeps the
+              reason and the name of whoever allowed it, and refuses the entry
+              without both. */}
+          {isReduced && (
+            <div className="mt-4 space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-3">
+              <p className="text-sm font-semibold text-amber-900">
+                Paying ₹{enteredAmount.toLocaleString("en-IN")} instead of ₹
+                {benchmark!.toLocaleString("en-IN")} — a reduction of ₹
+                {(benchmark! - enteredAmount).toLocaleString("en-IN")}. Both fields are
+                required.
+              </p>
+              <div>
+                <TabletLabel>Reason for paying less *</TabletLabel>
+                <Textarea
+                  value={reductionReason}
+                  onChange={(e) => setReductionReason(e.target.value)}
+                  placeholder="e.g. patient could not afford the full charge — concession agreed"
+                  rows={2}
+                  className="mt-1 bg-background"
+                />
+              </div>
+              <div>
+                <TabletLabel>Approved by *</TabletLabel>
+                <TabletInput
+                  value={reductionApprovedBy}
+                  onChange={(e) => setReductionApprovedBy(e.target.value)}
+                  placeholder="Who allowed the reduction"
+                  className="mt-1"
+                />
+              </div>
+            </div>
           )}
         </div>
       </div>
