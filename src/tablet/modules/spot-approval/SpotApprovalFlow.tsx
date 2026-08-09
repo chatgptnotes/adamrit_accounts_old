@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Textarea } from "@/components/ui/textarea";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebounce } from "use-debounce";
 import { Check, ChevronLeft, Landmark, Loader2 } from "lucide-react";
@@ -46,6 +47,11 @@ export default function SpotApprovalFlow() {
   );
   const [depositToCollect, setDepositToCollect] = useState("");
   const [maxSpot, setMaxSpot] = useState(String(DEFAULT_SPOT));
+  // A spot away from the standard is a judgement — it says why, and on whose
+  // authority. The comment is offered on every approval; the pair becomes
+  // mandatory only when the amount varies.
+  const [comment, setComment] = useState("");
+  const [variationAuthorisedBy, setVariationAuthorisedBy] = useState("");
   const [debouncedSearch] = useDebounce(ledgerSearch, 250);
 
   // Referee ledgers: type-to-search over the chart, same rule as everywhere
@@ -112,6 +118,9 @@ export default function SpotApprovalFlow() {
       if (collect !== null && (!Number.isFinite(collect) || collect < 0)) {
         throw new Error("Enter a valid deposit amount to collect");
       }
+      if (spot !== DEFAULT_SPOT && (!comment.trim() || !variationAuthorisedBy.trim())) {
+        throw new Error("A spot away from the standard needs a comment and who authorised it");
+      }
       // One call records the approval AND posts the M.L. Enterprises implant
       // invoice on the hospital plus the sale + referee-commission journals
       // in ML's books — the same machinery as the revenue-report cuts.
@@ -125,6 +134,8 @@ export default function SpotApprovalFlow() {
         p_max_spot: spot,
         p_hospital_type: searchHospital,
         p_approved_by: user?.email || user?.id || null,
+        p_comment: comment.trim() || null,
+        p_variation_authorised_by: variationAuthorisedBy.trim() || null,
       });
       if (error) throw new Error(error.message);
       return { spot, invoice: (data as any)?.invoiceNumber as string | undefined };
@@ -140,6 +151,8 @@ export default function SpotApprovalFlow() {
       setPatient(null);
       setDepositToCollect("");
       setMaxSpot(String(DEFAULT_SPOT));
+      setComment("");
+      setVariationAuthorisedBy("");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Could not save the approval"),
   });
@@ -151,6 +164,8 @@ export default function SpotApprovalFlow() {
     } else if (step === 3) {
       setDepositToCollect("");
       setMaxSpot(String(DEFAULT_SPOT));
+      setComment("");
+      setVariationAuthorisedBy("");
       setStep(2);
     }
   };
@@ -235,6 +250,9 @@ export default function SpotApprovalFlow() {
 
   // ---- Step 3: deposit + maximum spot ----
   const spotValue = parseFloat(maxSpot) || 0;
+  const spotVaries = spotValue !== DEFAULT_SPOT;
+  const variationUnexplained =
+    spotVaries && (!comment.trim() || !variationAuthorisedBy.trim());
   return (
     <FlowScaffold
       step={3}
@@ -248,7 +266,12 @@ export default function SpotApprovalFlow() {
             className="flex-1"
             // Wait for the receipts lookup — approving early would record a
             // zero deposit for a patient who has actually paid.
-            disabled={approve.isPending || depositLoading}
+            disabled={approve.isPending || depositLoading || variationUnexplained}
+            title={
+              variationUnexplained
+                ? "Add a comment and who authorised this spot amount"
+                : undefined
+            }
             onClick={() => approve.mutate()}
           >
             <Check className="mr-2 h-5 w-5" />
@@ -256,7 +279,9 @@ export default function SpotApprovalFlow() {
               ? "Saving…"
               : depositLoading
                 ? "Checking receipts…"
-                : `Approve — up to ₹${spotValue.toLocaleString("en-IN")}`}
+                : variationUnexplained
+                  ? "Comment & authoriser needed"
+                  : `Approve — up to ₹${spotValue.toLocaleString("en-IN")}`}
           </TabletButton>
         </div>
       }
@@ -313,6 +338,47 @@ export default function SpotApprovalFlow() {
             Default ₹{DEFAULT_SPOT.toLocaleString("en-IN")} — can be raised to at most ₹
             {MAX_SPOT.toLocaleString("en-IN")}.
           </p>
+        </div>
+
+        <div
+          className={cn(
+            "space-y-3 rounded-xl border p-3",
+            spotVaries ? "border-amber-300 bg-amber-50" : "border-border",
+          )}
+        >
+          {spotVaries ? (
+            <p className="text-sm font-semibold text-amber-900">
+              ₹{spotValue.toLocaleString("en-IN")} is {spotValue > DEFAULT_SPOT ? "above" : "below"}{" "}
+              the standard ₹{DEFAULT_SPOT.toLocaleString("en-IN")} — both fields are required.
+            </p>
+          ) : null}
+
+          <div>
+            <TabletLabel>Comment{spotVaries ? " *" : " (optional)"}</TabletLabel>
+            <Textarea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder={
+                spotVaries
+                  ? "Why this spot rather than the standard"
+                  : "Anything worth recording about this approval"
+              }
+              rows={2}
+              className="mt-1 bg-background"
+            />
+          </div>
+
+          {spotVaries ? (
+            <div>
+              <TabletLabel>Variation authorised by *</TabletLabel>
+              <TabletInput
+                value={variationAuthorisedBy}
+                onChange={(e) => setVariationAuthorisedBy(e.target.value)}
+                placeholder="Who authorised this amount"
+                className="mt-1"
+              />
+            </div>
+          ) : null}
         </div>
       </div>
     </FlowScaffold>
