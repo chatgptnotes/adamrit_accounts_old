@@ -19,6 +19,7 @@ import {
 import { saveLedgerQr, savePaymentProof } from '@/lib/expense-bills/paymentEvidence';
 import { extractInvoiceFromImage, fileToBase64 } from '@/lib/accounting-ai';
 import { LedgerAutocomplete, type LedgerAccountOption } from '@/components/accounting/LedgerAutocomplete';
+import { RmoPaymentsTab } from '@/components/RmoPaymentsTab';
 import { useCashBankLedgers } from '@/hooks/useCashBankLedgers';
 import {
   useExpenseBillCompanyId,
@@ -1749,6 +1750,25 @@ export default function ExpenseBills() {
 
       <ReferralSection patientType="OPD" onPay={setPaying} selection={selection} />
       <ReferralSection patientType="IPD" onPay={setPaying} selection={selection} />
+
+      {/* RMO duty JVs from the Gaurav and Javed tiles. They are approval-queue
+          bills, not expense_bills rows, so they are paid by their own voucher
+          rather than through record_expense_bill_payment. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Banknote className="h-4 w-4 text-emerald-600" />
+            RMO duty — approved JVs awaiting payment
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Duties recorded on the RMO Duty (Gaurav) and Javed tiles. Once approved, the JV is
+            posted and the RMO's ledger is owed — tick the duties and pay them here on one voucher.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <RmoPaymentsTab companyId={company.data ?? null} />
+        </CardContent>
+      </Card>
 
       <PayBillDialog bill={paying} onClose={() => setPaying(null)} />
       <RecordBillDialog open={recording} onClose={() => setRecording(false)} />

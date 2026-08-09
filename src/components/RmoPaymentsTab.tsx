@@ -17,6 +17,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 // pending ones still need approval (JV) in Accounting → Approvals; approved
 // unpaid invoices are grouped per RMO, any number ticked, one voucher pays
 // them. Paid invoices never appear.
+//
+// The Expense Bill page mounts the same component with its own company fixed,
+// so the duty JVs are payable from there too. Both surfaces call the same
+// payInvoicesTogether, which claims every invoice before it posts — so a bill
+// paid on one screen cannot be paid again on the other.
 
 interface DutyBill {
   id: string;
@@ -30,26 +35,33 @@ interface DutyBill {
   jv_voucher_id: string | null;
 }
 
-export function RmoPaymentsTab() {
+export function RmoPaymentsTab({ companyId: fixedCompanyId }: { companyId?: string | null } = {}) {
   const queryClient = useQueryClient();
-  const [companyId, setCompanyId] = useState('');
+  const [pickedCompanyId, setPickedCompanyId] = useState('');
   const [bankId, setBankId] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [payingGroup, setPayingGroup] = useState<string | null>(null);
+
+  // A caller that knows its own company (Expense Bill) fixes it; Daily Payment
+  // Allocation pays for any company, so it picks one.
+  const fixedCompany = fixedCompanyId !== undefined;
+  const companyId = fixedCompany ? fixedCompanyId || '' : pickedCompanyId;
 
   const { data: companies = [] } = useCompanies();
   const { data: bankLedgers = [] } = useAccountingCashBankLedgers(companyId || null);
 
   const { data: bills = [], isLoading } = useQuery({
-    queryKey: ['rmo-duty-payments'],
+    queryKey: ['rmo-duty-payments', fixedCompany ? companyId : 'all'],
+    enabled: !fixedCompany || Boolean(companyId),
     queryFn: async (): Promise<DutyBill[]> => {
-      const { data, error } = await (supabase as any)
+      let query = (supabase as any)
         .from('approval_queue')
         .select('id, party_name, amount, reference_no, invoice_no, duty_shift, status, company_id, jv_voucher_id')
         .like('reference_no', 'RMO-DUTY-%')
         .neq('status', 'REJECTED')
-        .eq('is_paid', false)
-        .order('reference_no');
+        .eq('is_paid', false);
+      if (fixedCompany) query = query.eq('company_id', companyId);
+      const { data, error } = await query.order('reference_no');
       if (error) throw error;
       return data || [];
     },
@@ -75,7 +87,9 @@ export function RmoPaymentsTab() {
       return next;
     });
 
-  const dutyDate = (bill: DutyBill) => (bill.reference_no || '').replace('RMO-DUTY-', '');
+  // RMO-DUTY-2026-08-09 and the Javed roster's RMO-DUTY-JAVED-2026-08-09 both
+  // reduce to the duty date.
+  const dutyDate = (bill: DutyBill) => (bill.reference_no || '').replace(/^RMO-DUTY-(JAVED-)?/, '');
 
   const payGroup = async (group: { name: string; payable: DutyBill[] }) => {
     const ids = group.payable.filter((b) => selected.has(b.id)).map((b) => b.id);
@@ -108,18 +122,20 @@ export function RmoPaymentsTab() {
   return (
     <div className="space-y-4">
       <Card>
-        <CardContent className="grid gap-4 pt-6 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label>Company (must match the invoices' books)</Label>
-            <Select value={companyId} onValueChange={(v) => { setCompanyId(v); setBankId(''); }}>
-              <SelectTrigger><SelectValue placeholder="Select company" /></SelectTrigger>
-              <SelectContent>
-                {companies.map((c: any) => (
-                  <SelectItem key={c.id} value={c.id}>{c.company_name || c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <CardContent className={`grid gap-4 pt-6 ${fixedCompany ? '' : 'md:grid-cols-2'}`}>
+          {!fixedCompany && (
+            <div className="space-y-2">
+              <Label>Company (must match the invoices' books)</Label>
+              <Select value={companyId} onValueChange={(v) => { setPickedCompanyId(v); setBankId(''); }}>
+                <SelectTrigger><SelectValue placeholder="Select company" /></SelectTrigger>
+                <SelectContent>
+                  {companies.map((c: any) => (
+                    <SelectItem key={c.id} value={c.id}>{c.company_name || c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="space-y-2">
             <Label>Pay from (cash / bank)</Label>
             <Select value={bankId} onValueChange={setBankId}>
