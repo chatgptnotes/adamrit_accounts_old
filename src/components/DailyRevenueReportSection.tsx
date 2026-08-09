@@ -15,6 +15,7 @@ import { Banknote, Camera, CheckCircle2, Edit2, Eye, EyeOff, FileCheck2, Loader2
 import { LedgerAutocomplete, type LedgerAccountOption } from '@/components/accounting/LedgerAutocomplete';
 import { approveReferralRow } from '@/lib/referral-invoice-service';
 import { PayReferralBillDialog } from '@/components/PayReferralBillDialog';
+import { useMarketingLiaisonNames } from '@/lib/marketingLiaisons';
 
 interface VisitRow {
   id: string;
