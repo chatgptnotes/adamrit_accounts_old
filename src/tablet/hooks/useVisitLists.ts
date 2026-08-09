@@ -24,6 +24,7 @@ export interface TabletVisit {
   age: number | null;
   gender: string | null;
   aadhaarNumber: string | null;
+  phone: string | null;
 }
 
 function mapRow(v: any): TabletVisit {
@@ -49,11 +50,12 @@ function mapRow(v: any): TabletVisit {
     age: v.patients?.age ?? null,
     gender: v.patients?.gender ?? null,
     aadhaarNumber: v.patients?.aadhaar_number ?? null,
+    phone: v.patients?.phone ?? null,
   };
 }
 
 const SELECT =
-  "id, visit_id, patient_type, admission_date, discharge_date, discharge_mode, is_discharged, status, planned_discharge_date, bill_paid, billing_cleared_at, ward_allotted, room_allotted, appointment_with, patients!inner(id, name, patients_id, age, gender, hospital_name, aadhaar_number)";
+  "id, visit_id, patient_type, admission_date, discharge_date, discharge_mode, is_discharged, status, planned_discharge_date, bill_paid, billing_cleared_at, ward_allotted, room_allotted, appointment_with, patients!inner(id, name, patients_id, age, gender, hospital_name, aadhaar_number, phone)";
 
 /** Currently admitted IPD + Emergency visits for the active hospital. */
 export function useAdmittedVisits() {

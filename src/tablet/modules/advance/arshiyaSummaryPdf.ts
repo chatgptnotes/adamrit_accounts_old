@@ -13,7 +13,7 @@
  * made the old output look unfinished.
  */
 
-import { maskAadhaar } from "@/utils/aadhaar";
+import { maskAadhaar, maskMobile } from "@/utils/aadhaar";
 
 export const stripMarkdownForPdf = (value: string) =>
   value
@@ -117,6 +117,7 @@ export interface ArshiyaSummaryPdfInput {
   visitNumber: string | null | undefined;
   registrationId: string | null | undefined;
   aadhaarNumber?: string | null;
+  mobileNumber?: string | null;
   portalUrl: string;
   /** "DISCHARGE SUMMARY" (default) or "DEATH SUMMARY". */
   documentTitle?: string;
@@ -329,35 +330,53 @@ export async function buildArshiyaSummaryPdfBlob(
   }
 
   // --- Patient strip ----------------------------------------------------
-  const stripY = y;
-  pdf.setFillColor(TINT[0], TINT[1], TINT[2]);
-  pdf.rect(MARGIN_X, stripY, CONTENT_W, 16, "F");
-
-  // The Aadhaar column appears only when a number was passed: the same strip
-  // prints on advance receipts, which have no business carrying an empty
-  // identity column, and a patient without a number gets no blank either.
+  // Identity columns appear only when a value was passed: the same strip
+  // prints on advance receipts and radiology reports, which have no business
+  // carrying empty identity columns, and a patient with nothing on file gets
+  // no blank either. Both numbers are masked to their last four digits —
+  // these documents are handed over and posted on.
   const cols = [
     { label: "Patient", value: input.patientName || "-" },
     { label: "Patient ID", value: input.patientId || "-" },
     ...(input.aadhaarNumber
       ? [{ label: "Aadhaar No", value: maskAadhaar(input.aadhaarNumber) }]
       : []),
+    ...(input.mobileNumber
+      ? [{ label: "Mobile No", value: maskMobile(input.mobileNumber) }]
+      : []),
     { label: "Yojana Registration", value: input.registrationId || "-" },
   ];
-  const colW = CONTENT_W / cols.length;
-  cols.forEach((col, index) => {
-    const x = MARGIN_X + 4 + index * colW;
-    pdf.setFontSize(7);
-    setInk(MUTED);
-    pdf.setFont("helvetica", "normal");
-    pdf.text(col.label.toUpperCase(), x, stripY + 6);
-    pdf.setFontSize(10);
-    setInk(INK);
-    pdf.setFont("helvetica", "bold");
-    pdf.text(pdf.splitTextToSize(col.value, colW - 6)[0], x, stripY + 12);
+
+  // Three to a row. Squeezing five columns across the page turns a patient's
+  // name into an ellipsis, which defeats the point of the strip.
+  const PER_ROW = 3;
+  const rows: (typeof cols)[] = [];
+  for (let index = 0; index < cols.length; index += PER_ROW) {
+    rows.push(cols.slice(index, index + PER_ROW));
+  }
+
+  const stripY = y;
+  const ROW_H = 16;
+  pdf.setFillColor(TINT[0], TINT[1], TINT[2]);
+  pdf.rect(MARGIN_X, stripY, CONTENT_W, ROW_H * rows.length, "F");
+
+  const colW = CONTENT_W / PER_ROW;
+  rows.forEach((row, rowIndex) => {
+    const rowY = stripY + rowIndex * ROW_H;
+    row.forEach((col, index) => {
+      const x = MARGIN_X + 4 + index * colW;
+      pdf.setFontSize(7);
+      setInk(MUTED);
+      pdf.setFont("helvetica", "normal");
+      pdf.text(col.label.toUpperCase(), x, rowY + 6);
+      pdf.setFontSize(10);
+      setInk(INK);
+      pdf.setFont("helvetica", "bold");
+      pdf.text(pdf.splitTextToSize(col.value, colW - 6)[0], x, rowY + 12);
+    });
   });
 
-  y = stripY + 24;
+  y = stripY + ROW_H * rows.length + 8;
 
   // --- Body -------------------------------------------------------------
   for (const block of parseMarkdown(summary)) {

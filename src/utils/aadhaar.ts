@@ -33,3 +33,18 @@ export function maskAadhaar(value: string): string {
   if (!isValidAadhaar(digits)) return digits;
   return `XXXX XXXX ${digits.slice(-4)}`;
 }
+
+/**
+ * A mobile number with everything but its last four digits hidden, for the
+ * same reason as [maskAadhaar] — printed copies travel. Enough survives for
+ * the patient to recognise their own number and for a panel to match a
+ * query; not enough to call the person from a document lying on a desk.
+ *
+ * Anything shorter than five digits is returned as-is: there is nothing left
+ * to mask, and blanking it would only hide bad data.
+ */
+export function maskMobile(value: string): string {
+  const digits = (value || '').replace(/\D/g, '');
+  if (digits.length < 5) return value || '';
+  return `${'X'.repeat(digits.length - 4)} ${digits.slice(-4)}`;
+}

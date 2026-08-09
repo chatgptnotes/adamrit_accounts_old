@@ -774,6 +774,7 @@ export default function AdvanceFlow() {
         visitNumber: row.visitNumber,
         registrationId: row.registrationId,
         aadhaarNumber: row.patient.aadhaar_number,
+        mobileNumber: row.patient.phone,
         portalUrl: `${window.location.origin}/patient-portal`,
         signatory: await loadSummarySignatory(row.consultant),
       });
@@ -1620,6 +1621,7 @@ ${JSON.stringify(sourceContext, null, 2)}`,
       // Both documents this builds — discharge and death — identify the
       // patient to a panel or a registrar, so the number belongs on them.
       aadhaarNumber: patient?.aadhaar_number,
+      mobileNumber: patient?.phone,
       portalUrl: `${window.location.origin}/patient-portal`,
       signatory: await loadSummarySignatory(visit.data?.appointment_with),
     });
