@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import {
   BellRing,
   CheckCheck,
+  Smartphone,
   IndianRupee,
   Inbox,
   Loader2,
@@ -24,6 +25,8 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { useTabletTheme } from "@/tablet/theme/TabletTheme";
 import { haptics } from "@/tablet/lib/haptics";
+import { usePushNotifications } from "@/pwa/usePushNotifications";
+import { useInstallPrompt } from "@/tablet/hooks/useInstallPrompt";
 
 const QUERY_KEY = ["tablet-notifications"];
 /** One books-health run per device per day — the function itself dedupes findings. */
@@ -82,6 +85,8 @@ export function TabletNotificationBell() {
   const navigate = useNavigate();
   const { theme } = useTabletTheme();
   const [open, setOpen] = useState(false);
+  const push = usePushNotifications();
+  const { isIOS, isStandalone } = useInstallPrompt();
 
   const { data: rows = [], isFetching, refetch, error } = useQuery({
     queryKey: QUERY_KEY,
@@ -421,6 +426,77 @@ export function TabletNotificationBell() {
             </div>
           </div>
         </SheetHeader>
+
+        {/* Phone-alert opt-in. Hidden once this device is subscribed. On an
+            iPhone still running in the Safari tab, PushManager doesn't exist
+            (Apple only grants push to Home Screen apps, iOS 16.4+), so we show
+            the install steps instead of an Allow button. */}
+        {push.status !== "subscribed" && !(push.status === "unsupported" && !isIOS) ? (
+          <div
+            className={cn(
+              "border-b px-5 py-3",
+              sheetIsLight ? "border-slate-200" : "border-slate-800",
+            )}
+          >
+            <div
+              className={cn(
+                "flex items-start gap-3 rounded-xl border p-3",
+                sheetIsLight
+                  ? "border-emerald-200 bg-emerald-50 text-slate-800"
+                  : "border-emerald-800 bg-emerald-950/40 text-slate-100",
+              )}
+            >
+              <Smartphone className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+              <div className="min-w-0 flex-1 text-xs">
+                {isIOS && !isStandalone ? (
+                  <>
+                    <p className="font-semibold">Get alerts on this iPhone/iPad</p>
+                    <p className="mt-1">
+                      Tap Safari's <span className="font-semibold">Share</span> button,
+                      choose <span className="font-semibold">Add to Home Screen</span>,
+                      then open Adamrit from the new icon and enable alerts here.
+                    </p>
+                  </>
+                ) : push.status === "denied" ? (
+                  <>
+                    <p className="font-semibold">Notifications are blocked</p>
+                    <p className="mt-1">
+                      Allow notifications for Adamrit in this device's browser
+                      settings, then try again.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-semibold">Get alerts on this phone</p>
+                    <p className="mt-1">
+                      Bills due, approvals waiting and incoming patients will
+                      buzz this device even when the app is closed.
+                    </p>
+                    {push.error ? (
+                      <p className="mt-1 text-rose-500">{push.error}</p>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        haptics.tap();
+                        void push.enable();
+                      }}
+                      disabled={push.status === "subscribing"}
+                      className="mt-2 flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-semibold text-white transition-all active:scale-95 disabled:opacity-60"
+                    >
+                      {push.status === "subscribing" ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <BellRing className="h-4 w-4" />
+                      )}
+                      Enable phone alerts
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <div
           className={cn(

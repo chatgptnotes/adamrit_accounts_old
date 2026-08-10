@@ -77,6 +77,20 @@ serve(async (req) => {
       timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short',
     })
 
+    // Mirror into the in-app bell + phone push (the insert fires
+    // trg_notifications_push). Dedupe comes free: unbilled_payments_to_alert
+    // only ever returns rows that have not been alerted before.
+    await supabase.from('notifications').insert({
+      notification_type: 'unbilled_payment',
+      title: `Unbilled payments — ₹${total.toLocaleString('en-IN')}`,
+      message: `${rows.length} payment(s) with no bill behind them:\n${lines}`,
+      recipient_user_id: null,
+      recipient_role: 'all',
+      source_table: 'unbilled_payments',
+      source_id: rows.map((r) => r.id).join(',').slice(0, 500),
+      payload: { count: rows.length, total_amount: total },
+    })
+
     const results: Array<{ phone: string; ok: boolean; detail?: string }> = []
     for (const phone of phones) {
       const response = await fetch('https://public.doubletick.io/whatsapp/message/template', {

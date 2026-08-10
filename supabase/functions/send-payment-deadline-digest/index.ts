@@ -75,6 +75,29 @@ serve(async (req) => {
       timeStr,
     ]
 
+    // Mirror the digest into the in-app bell + phone push (the notifications
+    // insert fires trg_notifications_push). One shared row per calendar day —
+    // the cron runs daily, but a manual re-run must not re-buzz the phones.
+    const todayStr = now.toISOString().split('T')[0]
+    const { data: existingDigest } = await supabase
+      .from('notifications')
+      .select('id')
+      .eq('notification_type', 'payment_deadline_due')
+      .gte('created_at', `${todayStr}T00:00:00Z`)
+      .limit(1)
+    if (!existingDigest || existingDigest.length === 0) {
+      await supabase.from('notifications').insert({
+        notification_type: 'payment_deadline_due',
+        title: 'Payment deadlines',
+        message: `${overdue.length} overdue, ${dueSoon.length} due within 7 days — total ₹${total.toLocaleString('en-IN')}.\n${topItems}`,
+        recipient_user_id: null,
+        recipient_role: 'all',
+        source_table: 'payment_deadlines',
+        source_id: todayStr,
+        payload: { overdue: overdue.length, due_soon: dueSoon.length, total_amount: total },
+      })
+    }
+
     const apiUrl = 'https://public.doubletick.io/whatsapp/message/template'
     const results: Array<{ phone: string; success: boolean; response: unknown }> = []
 

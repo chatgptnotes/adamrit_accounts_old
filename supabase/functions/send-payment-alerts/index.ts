@@ -94,6 +94,24 @@ serve(async (req) => {
     // Also build a readable message string for logging
     const message = `${alertTitle} ALERT\nAmount: Rs. ${formattedAmount}\nPatient: ${patient_name}\nHospital: ${hospitalStr}\nDetails: ${detailsStr}\nTime: ${timeStr}`
 
+    // Mirror into the in-app bell + phone push (the insert fires
+    // trg_notifications_push). Event-driven — one call is one alert, so no
+    // dedupe needed beyond the caller's own threshold gate above.
+    await supabase.from('notifications').insert({
+      notification_type: 'payment_alert',
+      title: `${alertTitle} — ₹${formattedAmount}`,
+      message: `${patient_name || 'N/A'} at ${hospitalStr}. ${detailsStr}`,
+      recipient_user_id: null,
+      recipient_role: 'all',
+      hospital_name: hospital_name || null,
+      patient_id: patient_id || null,
+      patient_name: patient_name || null,
+      visit_id: visit_id || null,
+      source_table: 'payment_alerts',
+      source_id: null,
+      payload: { alert_type, amount },
+    })
+
     console.log(`Sending ${alert_type} alert: Rs. ${formattedAmount} for ${patient_name}`)
 
     const response = await fetch(apiUrl, {
