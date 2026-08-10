@@ -54,6 +54,15 @@ interface OverrideRow {
   hospital_type: string;
   is_hidden: boolean;
   notes: string | null;
+  /**
+   * An amount taken off the bill before the RM cut is worked out — an
+   * expensive investigation, typically. `deduction_applied` is the switch:
+   * an ignored deduction keeps its figure and reason on the row without
+   * changing the cut.
+   */
+  deduction: number | null;
+  deduction_reason: string | null;
+  deduction_applied: boolean | null;
   created_at: string;
   updated_at: string;
   // The manager's creditor ledger, chosen on this report. Older rows have none
@@ -199,6 +208,12 @@ interface DisplayRow {
   rmId: string | null;
   rmPercent: number;
   cost: number;
+  /** Taken off the bill before the cut is worked out, when applied. */
+  deduction: number;
+  deductionReason: string;
+  deductionApplied: boolean;
+  /** cost − deduction when applied; what rmPercent is actually charged on. */
+  cutBase: number;
   cut: number;
   cutIsSuggested: boolean; // true when cut was computed from the RM's saved %, not saved
   cost_source: CostSource;
@@ -359,6 +374,9 @@ export function DailyRevenueReportSection({
   const [draftCost, setDraftCost] = useState<string>('');
   const [draftRmIds, setDraftRmIds] = useState<string[]>([]);
   const [draftRmPercent, setDraftRmPercent] = useState<string>('');
+  const [editingDeductionId, setEditingDeductionId] = useState<string | null>(null);
+  const [draftDeduction, setDraftDeduction] = useState<string>('');
+  const [draftDeductionReason, setDraftDeductionReason] = useState<string>('');
   const [isManualDialogOpen, setIsManualDialogOpen] = useState(false);
   const [isLockConfirmOpen, setIsLockConfirmOpen] = useState(false);
   const [manualEditId, setManualEditId] = useState<string | null>(null);
@@ -732,7 +750,12 @@ export function DailyRevenueReportSection({
       const rmPercent = rowIsDirect ? 0 : validCommissionPercent(rm?.commission_percent);
       const savedCut = o ? Number(o.cut) : 0;
       const hasSavedCut = Boolean(o) && savedCut > 0;
-      const suggestedCut = rowIsDirect ? 0 : Math.round((cost * rmPercent) / 100);
+      // An applied deduction comes off the bill before the commission is
+      // worked out; ignored, it is carried on the row but changes nothing.
+      const deduction = Math.max(0, toNumber(o?.deduction));
+      const deductionApplied = Boolean(o?.deduction_applied) && deduction > 0;
+      const cutBase = Math.max(0, cost - (deductionApplied ? deduction : 0));
+      const suggestedCut = rowIsDirect ? 0 : Math.round((cutBase * rmPercent) / 100);
       const totalCut = hasSavedCut ? savedCut : suggestedCut;
       const visitManagers = [...(v.visit_relationship_managers ?? [])]
         .sort((a, b) => a.position - b.position).map((item) => item.relationship_managers).filter(Boolean) as Array<{ id: string; name: string; ledger_account_id: string | null }>;
@@ -760,6 +783,10 @@ export function DailyRevenueReportSection({
         rmId: rm?.id ?? null,
         rmPercent,
         cost,
+        deduction,
+        deductionReason: o?.deduction_reason ?? '',
+        deductionApplied,
+        cutBase,
         cut: totalCut,
         cutIsSuggested: !hasSavedCut && suggestedCut > 0,
         cost_source,
@@ -794,6 +821,13 @@ export function DailyRevenueReportSection({
           rmId: rm?.id ?? null,
           rmPercent: rowIsDirect ? 0 : validCommissionPercent(rm?.commission_percent),
           cost: Number(o.cost),
+          deduction: Math.max(0, toNumber(o.deduction)),
+          deductionReason: o.deduction_reason ?? '',
+          deductionApplied: Boolean(o.deduction_applied) && toNumber(o.deduction) > 0,
+          cutBase: Math.max(
+            0,
+            Number(o.cost) - (o.deduction_applied ? Math.max(0, toNumber(o.deduction)) : 0),
+          ),
           cut: Number(o.cut),
           cutIsSuggested: false,
           cost_source: 'override' as const,
@@ -824,7 +858,16 @@ export function DailyRevenueReportSection({
   }, [visitsQuery.data, overridesQuery.data, allocationsQuery.data, advanceQuery.data, finalPayQuery.data, rmMasterQuery.data, onlyWithRm, patientTypeFilter, showHidden, dateBasis, toDate]);
 
   const totals = useMemo(
-    () => rows.reduce((acc, r) => ({ cost: acc.cost + r.cost, cut: acc.cut + r.cut }), { cost: 0, cut: 0 }),
+    () => rows.reduce(
+      (acc, r) => ({
+        cost: acc.cost + r.cost,
+        // Only deductions actually applied are totalled — an ignored one
+        // changed nothing, so counting it would overstate what came off.
+        deduction: acc.deduction + (r.deductionApplied ? r.deduction : 0),
+        cut: acc.cut + r.cut,
+      }),
+      { cost: 0, deduction: 0, cut: 0 },
+    ),
     [rows],
   );
 
@@ -864,8 +907,12 @@ export function DailyRevenueReportSection({
       .map(({ category, label }) => {
         const groupRows = rows.filter((r) => r.category === category);
         const subtotal = groupRows.reduce(
-          (acc, r) => ({ cost: acc.cost + r.cost, cut: acc.cut + r.cut }),
-          { cost: 0, cut: 0 },
+          (acc, r) => ({
+            cost: acc.cost + r.cost,
+            deduction: acc.deduction + (r.deductionApplied ? r.deduction : 0),
+            cut: acc.cut + r.cut,
+          }),
+          { cost: 0, deduction: 0, cut: 0 },
         );
         return { category, label, rows: groupRows, subtotal };
       })
@@ -1081,6 +1128,75 @@ export function DailyRevenueReportSection({
       invalidate();
       setEditingRateId(null);
       toast.success('RM percentage and this row’s cut saved');
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
+  /**
+   * Save a row's deduction — the amount, why, and whether it counts.
+   *
+   * The cut is not written here. It is recomputed from (cost − deduction) on
+   * the next read for any row that has not had a cut saved by hand, so the
+   * figure on screen always matches the base beside it. A row whose cut was
+   * already fixed manually keeps that number; the deduction then shows what
+   * the base would be, and Save Cut is what re-applies it.
+   */
+  const saveDeductionMutation = useMutation({
+    mutationFn: async (
+      { row, amount, reason, applied }:
+        { row: DisplayRow; amount: number; reason: string; applied: boolean },
+    ) => {
+      if (isApproved) throw new Error('This report has already been approved and is locked');
+      if (row.approvalId || row.expenseBillId) {
+        throw new Error('This cut has already been raised — its deduction can no longer change');
+      }
+      if (!Number.isFinite(amount) || amount < 0) throw new Error('Enter a valid deduction amount');
+      if (amount > row.cost) {
+        throw new Error(`A deduction cannot exceed the bill of ₹${row.cost.toLocaleString('en-IN')}`);
+      }
+      if (applied && (amount <= 0 || !reason.trim())) {
+        throw new Error('A deduction that is applied needs an amount and a reason');
+      }
+
+      const patch = {
+        deduction: amount,
+        deduction_reason: reason.trim() || null,
+        deduction_applied: applied,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (row.overrideId) {
+        const { error } = await supabase
+          .from('daily_revenue_entries' as never)
+          .update(patch as never)
+          .eq('id', row.overrideId);
+        if (error) throw error;
+        return;
+      }
+
+      if (!row.visitId) throw new Error('Only report rows can carry a deduction');
+
+      // First deduction on a live visit row: persist the row as it stands, so
+      // the cost the deduction was judged against is the one on record.
+      const { error } = await supabase
+        .from('daily_revenue_entries' as never)
+        .insert([{
+          entry_date: row.entryDate,
+          visit_id: row.visitId,
+          patient_name: row.patient_name,
+          department: row.department || null,
+          rm_name: row.rm_name || null,
+          cost: row.cost,
+          cut: 0,
+          hospital_type: row.hospital || hospitalType || 'hope',
+          ...patch,
+        } as never]);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidate();
+      setEditingDeductionId(null);
+      toast.success('Deduction saved — the cut now follows it');
     },
     onError: (err) => toast.error(getErrorMessage(err)),
   });
@@ -1750,6 +1866,7 @@ export function DailyRevenueReportSection({
                   <TableHead>Marketing Liaison</TableHead>
                   <TableHead className="text-right">RM %</TableHead>
                   <TableHead className="text-right">Cost (Rs)</TableHead>
+                  <TableHead className="text-right">Deduction (Rs)</TableHead>
                   <TableHead className="text-right">Cut (Rs)</TableHead>
                   <TableHead className="print:hidden">Approval</TableHead>
                   <TableHead className="text-right print:hidden">Actions</TableHead>
@@ -1762,7 +1879,7 @@ export function DailyRevenueReportSection({
                     <React.Fragment key={`group-${group.category}`}>
                       <TableRow key={`header-${group.category}`}>
                         <TableCell
-                          colSpan={11}
+                          colSpan={12}
                           className="bg-emerald-50 text-emerald-700 text-xs font-semibold uppercase tracking-wide"
                         >
                           {group.label}
@@ -1918,6 +2035,111 @@ export function DailyRevenueReportSection({
                                 </span>
                               )}
                             </TableCell>
+                            {/* Deduction — an amount taken off the bill before the
+                                cut is worked out. Applying it is a choice: the
+                                figure and reason stay on the row either way. */}
+                            <TableCell className="text-right align-top">
+                              {editingDeductionId === r.key ? (
+                                <div className="flex w-56 flex-col gap-1 ml-auto print:hidden">
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    max={r.cost}
+                                    value={draftDeduction}
+                                    onChange={(e) => setDraftDeduction(e.target.value)}
+                                    placeholder="Amount"
+                                    className="h-8 text-right"
+                                    autoFocus
+                                  />
+                                  <Input
+                                    value={draftDeductionReason}
+                                    onChange={(e) => setDraftDeductionReason(e.target.value)}
+                                    placeholder="Reason — e.g. MRI Brain"
+                                    className="h-8 text-left text-xs"
+                                  />
+                                  <div className="flex justify-end gap-1">
+                                    <Button
+                                      size="sm"
+                                      className="h-7 px-2 text-xs"
+                                      disabled={saveDeductionMutation.isPending}
+                                      onClick={() => saveDeductionMutation.mutate({
+                                        row: r,
+                                        amount: parseFloat(draftDeduction) || 0,
+                                        reason: draftDeductionReason,
+                                        applied: true,
+                                      })}
+                                    >
+                                      Deduct
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 px-2 text-xs"
+                                      disabled={saveDeductionMutation.isPending}
+                                      title="Keep the amount and reason on the row, but calculate the cut on the full bill"
+                                      onClick={() => saveDeductionMutation.mutate({
+                                        row: r,
+                                        amount: parseFloat(draftDeduction) || 0,
+                                        reason: draftDeductionReason,
+                                        applied: false,
+                                      })}
+                                    >
+                                      Ignore
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 px-2 text-xs"
+                                      onClick={() => setEditingDeductionId(null)}
+                                    >
+                                      Cancel
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex flex-col items-end gap-0.5">
+                                  {r.deduction > 0 ? (
+                                    <>
+                                      <span className={r.deductionApplied ? 'text-amber-700' : 'text-gray-400 line-through'}>
+                                        Rs {formatINR(r.deduction)}
+                                      </span>
+                                      {r.deductionReason && (
+                                        <span className="max-w-[160px] truncate text-[10px] text-gray-500" title={r.deductionReason}>
+                                          {r.deductionReason}
+                                        </span>
+                                      )}
+                                      {r.deductionApplied && (
+                                        <span className="text-[10px] text-gray-500">
+                                          cut on Rs {formatINR(r.cutBase)}
+                                        </span>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <span className="text-gray-400">—</span>
+                                  )}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs print:hidden"
+                                    disabled={isApproved || Boolean(r.approvalId) || Boolean(r.expenseBillId)}
+                                    title={
+                                      isApproved
+                                        ? 'This approved report is locked'
+                                        : (r.approvalId || r.expenseBillId)
+                                          ? 'This cut has already been raised'
+                                          : 'Deduct an amount before the cut is calculated'
+                                    }
+                                    onClick={() => {
+                                      setEditingDeductionId(r.key);
+                                      setDraftDeduction(r.deduction ? String(r.deduction) : '');
+                                      setDraftDeductionReason(r.deductionReason);
+                                    }}
+                                  >
+                                    {r.deduction > 0 ? 'Change' : 'Deduct'}
+                                  </Button>
+                                </div>
+                              )}
+                            </TableCell>
                             <TableCell className="text-right">
                               {editing ? (
                                 <Input
@@ -2061,6 +2283,9 @@ export function DailyRevenueReportSection({
                           {group.label} Sub-total
                         </TableCell>
                         <TableCell className="text-right">Rs {formatINR(group.subtotal.cost)}</TableCell>
+                        <TableCell className="text-right">
+                          {group.subtotal.deduction > 0 ? `Rs ${formatINR(group.subtotal.deduction)}` : '—'}
+                        </TableCell>
                         <TableCell className="text-right">Rs {formatINR(group.subtotal.cut)}</TableCell>
                         <TableCell className="print:hidden" />
                         <TableCell className="print:hidden" />
@@ -2071,6 +2296,9 @@ export function DailyRevenueReportSection({
                 <TableRow className="bg-gray-100 font-bold border-t-2">
                   <TableCell colSpan={7} className="text-right">Grand Total</TableCell>
                   <TableCell className="text-right">Rs {formatINR(totals.cost)}</TableCell>
+                  <TableCell className="text-right">
+                    {totals.deduction > 0 ? `Rs ${formatINR(totals.deduction)}` : '—'}
+                  </TableCell>
                   <TableCell className="text-right">Rs {formatINR(totals.cut)}</TableCell>
                   <TableCell className="print:hidden text-right text-xs text-gray-600">
                     {pendingApproveCount > 0 && `${pendingApproveCount} to approve`}
