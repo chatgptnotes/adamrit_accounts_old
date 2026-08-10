@@ -155,6 +155,12 @@ interface SortableScheduleRowProps {
   companyName: string;
   ledgerName: string;
   narration: string;
+  /**
+   * What was decided at the start of the month for this party
+   * (payment_obligations.monthly_amount) — the figure the daily allocation is
+   * meant to work towards. Null when the party has no monthly figure set.
+   */
+  monthlyObligation: number | null;
   companies: Array<{ id: string; company_name: string }>;
   editParty: string;
   editCompanyId: string;
@@ -185,7 +191,7 @@ const hospitalRowLabel = (hospitalName: string | null | undefined) =>
 
 const SortableScheduleRow = ({
   entry, idx, isEditing, editAmount, editNotes, skipConfirmId,
-  subAllocations, companyName, ledgerName, narration, companies,
+  subAllocations, companyName, ledgerName, narration, companies, monthlyObligation,
   editParty, editCompanyId, editLedgerId, editLedgerName, editLedgerSearch,
   onStartEdit, onSaveEdit, onCancelEdit, onEditAmountChange, onEditNotesChange,
   onEditPartyChange, onEditCompanyChange, onEditLedgerChange, onEditLedgerSearchChange,
@@ -309,6 +315,17 @@ const SortableScheduleRow = ({
           />
         ) : (
           <span className="font-mono">{formatINR(entry.daily_amount)}</span>
+        )}
+      </TableCell>
+      {/* What was agreed for the month, so the daily figure can be judged
+          against it. Read-only here — the Monthly Obligation tab owns it. */}
+      <TableCell className="text-right font-mono">
+        {monthlyObligation && monthlyObligation > 0 ? (
+          <span title="Agreed at the start of the month, from the Monthly Obligation master">
+            {formatINR(monthlyObligation)}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">-</span>
         )}
       </TableCell>
       <TableCell className="text-right font-mono">
@@ -1001,6 +1018,21 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
     const map = new Map(displaySchedule.map(s => [s.id, s]));
     return localScheduleOrder.map(id => map.get(id)).filter(Boolean) as ScheduleEntry[];
   }, [displaySchedule, localScheduleOrder]);
+
+  // What was agreed for each party at the start of the month, keyed by the
+  // schedule row it belongs to. The figure lives on the obligation master, so
+  // every day's row for a party shows the same monthly commitment.
+  const monthlyObligationByEntry = useMemo(() => {
+    const byObligation = new Map(
+      obligations.map((o) => [o.id, Number((o as { monthly_amount?: number | null }).monthly_amount || 0)]),
+    );
+    const map = new Map<string, number | null>();
+    for (const entry of displaySchedule) {
+      const amount = entry.obligation_id ? byObligation.get(entry.obligation_id) : undefined;
+      map.set(entry.id, amount && amount > 0 ? amount : null);
+    }
+    return map;
+  }, [obligations, displaySchedule]);
 
   // Group schedule entries by sub_category for section totals
   const groupedSchedule = useMemo(() => {
@@ -2056,6 +2088,7 @@ ${sectionsHtml}
                       <TableHead>Ledger</TableHead>
                       <TableHead>Narration</TableHead>
                       <TableHead className="text-right">Daily Amount</TableHead>
+                      <TableHead className="text-right">Monthly Obligation</TableHead>
                       <TableHead className="text-right">Carry Forward</TableHead>
                       <TableHead className="text-right">Total Due</TableHead>
                       <TableHead className="text-right">Paid</TableHead>
@@ -2072,7 +2105,7 @@ ${sectionsHtml}
                           <React.Fragment key={group.category}>
                             {/* Section Header */}
                             <TableRow className="bg-blue-50 border-t-2 border-blue-200">
-                              <TableCell colSpan={13} className="py-2">
+                              <TableCell colSpan={14} className="py-2">
                                 <span className="font-semibold text-blue-800 text-sm uppercase tracking-wide">{group.label}</span>
                                 <span className="text-xs text-blue-600 ml-2">({group.entries.length} items)</span>
                               </TableCell>
@@ -2096,6 +2129,7 @@ ${sectionsHtml}
                                     : (entry.company_id ? (companyNameMap[entry.company_id] || '') : '')}
                                   ledgerName={entry.debit_account_name || ''}
                                   narration={getDailyAllocationNarration(entry.notes)}
+                                  monthlyObligation={monthlyObligationByEntry.get(entry.id) ?? null}
                                   companies={companies}
                                   editParty={editScheduleParty}
                                   editCompanyId={editScheduleCompanyId}

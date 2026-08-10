@@ -76,7 +76,8 @@ export const usePaymentObligations = (hospital: string = 'hope', includeDetails 
         : `
             id, party_name, category, sub_category, default_daily_amount,
             priority, chart_of_accounts_id, is_active, notes, hospital_name,
-            payee_name, payee_search_table, company_id, approximate_balance, active_until, section
+            payee_name, payee_search_table, company_id, approximate_balance, active_until, section,
+            monthly_amount
           `;
       let query = (supabase as any)
         .from('payment_obligations')
