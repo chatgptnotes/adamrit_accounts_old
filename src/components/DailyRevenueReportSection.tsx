@@ -446,6 +446,12 @@ export function DailyRevenueReportSection({
       const { data, error } = await query
         .gte(column, fromDate)
         .lte(column, toDate)
+        // Direct patients carry no referee, so no cut is ever calculated for
+        // them — in IPD or OPD — and the Director Dashboard credits nothing
+        // against them. Listing them here only invites an approval that the
+        // database triggers would refuse. patients.is_direct is NOT NULL
+        // DEFAULT false, so this drops nobody for want of a value.
+        .eq('patients.is_direct', false)
         .order('created_at', { ascending: true });
       if (error) throw error;
       return (data ?? []) as unknown as VisitRow[];
@@ -1726,7 +1732,10 @@ export function DailyRevenueReportSection({
                 : `between ${new Date(fromDate).toLocaleDateString('en-IN')} and ${new Date(toDate).toLocaleDateString('en-IN')}`}
               .
             </p>
-            <p className="text-sm">Use "Add Manual" for entries not already shown in this list.</p>
+            <p className="text-sm">
+              Direct patients are not listed — they carry no referee, so no cut is
+              calculated for them. Use "Add Manual" for anything else not shown here.
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
