@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { supabase } from '@/integrations/supabase/client';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useToast } from '@/hooks/use-toast';
 import {
   Select,
   SelectContent,
@@ -46,7 +49,6 @@ interface LabSubSpecialty {
   code: string;
   modality?: string;
   remark?: string;
-  isActive: boolean;
 }
 
 const LabSubSpecialty: React.FC = () => {
@@ -56,29 +58,98 @@ const LabSubSpecialty: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  // Sample data - this would come from your database
-  const [subspecialties, setSubspecialties] = useState<LabSubSpecialty[]>([
-    { id: '1', name: 'VITAMIN ASSAY', code: 'VITAMIN ASSAY', modality: '', remark: '', isActive: true },
-    { id: '2', name: 'URINE UCT', code: 'URINE UCT', modality: '', remark: '', isActive: true },
-    { id: '3', name: 'URINE EXAMINATION', code: 'URINE EXAMINATION', modality: '', remark: '', isActive: true },
-    { id: '4', name: 'TUMOR MARKER', code: 'TUMOR MARKER', modality: '', remark: '', isActive: true },
-    { id: '5', name: 'SEROLOGY', code: 'SEROLOGY', modality: '', remark: '', isActive: true },
-    { id: '6', name: 'SEMEN ANALYSIS', code: 'SEMEN ANALYSIS', modality: '', remark: '', isActive: true },
-    { id: '7', name: 'OTHERS (CULTURE/ SENSITIVITY C/S TEST)', code: 'OTHERS (CULTURE/ SENSITIVITY C/S TEST)', modality: '', remark: '', isActive: true },
-    { id: '8', name: 'MICROBIOLOGY', code: 'MICROBIOLOGY', modality: '', remark: '', isActive: true },
-    { id: '9', name: 'IRON STUDY', code: 'IRON STUDY', modality: '', remark: '', isActive: true },
-    { id: '10', name: 'IMMUNOLOGY', code: 'IMMUNOLOGY', modality: '', remark: '', isActive: true },
-    { id: '11', name: 'HORMONES', code: 'HORMONES', modality: '', remark: '', isActive: true },
-    { id: '12', name: 'HISTOPATHOLOGY', code: 'HISTOPATHOLOGY', modality: '', remark: '', isActive: true },
-    { id: '13', name: 'HISTO/CYTOLOGY', code: 'HISTO/CYTOLOGY', modality: '', remark: '', isActive: true },
-    { id: '14', name: 'HEMATOLOGY', code: 'HEMATOLOGY', modality: '', remark: '', isActive: true },
-    { id: '15', name: 'HBA1C', code: 'HBA1C', modality: '', remark: '', isActive: true },
-    { id: '16', name: 'GENEXPERT MTB RIFAMPICIN RESISTANCE DETECTION', code: 'GENEXPERT MTB RIFAMPICIN RESISTANCE DETECTION', modality: '', remark: '', isActive: true },
-    { id: '17', name: 'CORTISOL', code: 'CORTISOL', modality: '', remark: '', isActive: true },
-    { id: '18', name: 'COAGULATION PROFILE', code: 'COAGULATION PROFILE', modality: '', remark: '', isActive: true },
-    { id: '19', name: 'CLINICAL PATHOLOGY', code: 'CLINICAL PATHOLOGY', modality: '', remark: '', isActive: true },
-    { id: '20', name: 'BODY FLUID EXAMINATION', code: 'BODY FLUID EXAMINATION', modality: '', remark: '', isActive: true }
-  ]);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  // Shares its query key with the lab-orders category autocomplete (LabOrders.tsx),
+  // so invalidating here refreshes that dropdown too.
+  const { data: subspecialties = [], isLoading, error } = useQuery({
+    queryKey: ['lab-sub-specialities'],
+    queryFn: async () => {
+      const { data, error: fetchError } = await supabase
+        .from('lab_sub_speciality')
+        .select('id, name, sub_code, modality, remark')
+        .order('name');
+
+      if (fetchError) throw fetchError;
+
+      // DB column is sub_code; the table and forms below use `code`.
+      return (data || []).map((row: any): LabSubSpecialty => ({
+        id: row.id,
+        name: row.name || '',
+        code: row.sub_code || '',
+        modality: row.modality || '',
+        remark: row.remark || ''
+      }));
+    }
+  });
+
+  const refreshList = () => queryClient.invalidateQueries({ queryKey: ['lab-sub-specialities'] });
+
+  const reportFailure = (action: string, err: unknown) => {
+    console.error(`Error trying to ${action} lab sub specialty:`, err);
+    toast({
+      title: `Could not ${action} sub specialty`,
+      description: err instanceof Error ? err.message : 'Unexpected error. Please try again.',
+      variant: 'destructive'
+    });
+  };
+
+  const addMutation = useMutation({
+    mutationFn: async (values: Omit<LabSubSpecialty, 'id'>) => {
+      const { error: insertError } = await supabase
+        .from('lab_sub_speciality')
+        .insert({
+          name: values.name,
+          sub_code: values.code,
+          modality: values.modality || null,
+          remark: values.remark || null
+        });
+      if (insertError) throw insertError;
+    },
+    onSuccess: () => {
+      refreshList();
+      setIsAddDialogOpen(false);
+      toast({ title: 'Sub specialty added' });
+    },
+    onError: (err) => reportFailure('add', err)
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (values: LabSubSpecialty) => {
+      const { error: updateError } = await supabase
+        .from('lab_sub_speciality')
+        .update({
+          name: values.name,
+          sub_code: values.code,
+          modality: values.modality || null,
+          remark: values.remark || null
+        })
+        .eq('id', values.id);
+      if (updateError) throw updateError;
+    },
+    onSuccess: () => {
+      refreshList();
+      setEditingSpecialty(null);
+      toast({ title: 'Sub specialty updated' });
+    },
+    onError: (err) => reportFailure('update', err)
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error: deleteError } = await supabase
+        .from('lab_sub_speciality')
+        .delete()
+        .eq('id', id);
+      if (deleteError) throw deleteError;
+    },
+    onSuccess: () => {
+      refreshList();
+      toast({ title: 'Sub specialty deleted' });
+    },
+    onError: (err) => reportFailure('delete', err)
+  });
 
   const filteredSubspecialties = subspecialties.filter(subspecialty =>
     subspecialty.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -129,23 +200,15 @@ const LabSubSpecialty: React.FC = () => {
   };
 
   const handleAddSubspecialty = (newSubspecialty: Omit<LabSubSpecialty, 'id'>) => {
-    const subspecialty: LabSubSpecialty = {
-      ...newSubspecialty,
-      id: Date.now().toString()
-    };
-    setSubspecialties([...subspecialties, subspecialty]);
-    setIsAddDialogOpen(false);
+    addMutation.mutate(newSubspecialty);
   };
 
   const handleEditSubspecialty = (updatedSubspecialty: LabSubSpecialty) => {
-    setSubspecialties(subspecialties.map(sub => 
-      sub.id === updatedSubspecialty.id ? updatedSubspecialty : sub
-    ));
-    setEditingSpecialty(null);
+    updateMutation.mutate(updatedSubspecialty);
   };
 
   const handleDeleteSubspecialty = (id: string) => {
-    setSubspecialties(subspecialties.filter(sub => sub.id !== id));
+    deleteMutation.mutate(id);
   };
 
   return (
@@ -170,7 +233,7 @@ const LabSubSpecialty: React.FC = () => {
             <DialogHeader>
               <DialogTitle>Add New Sub Specialty</DialogTitle>
             </DialogHeader>
-            <AddSubSpecialtyForm onSubmit={handleAddSubspecialty} />
+            <AddSubSpecialtyForm onSubmit={handleAddSubspecialty} isSaving={addMutation.isPending} />
           </DialogContent>
         </Dialog>
       </div>
@@ -215,7 +278,28 @@ const LabSubSpecialty: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paginatedSubspecialties.map((subspecialty) => (
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                      Loading sub specialties...
+                    </TableCell>
+                  </TableRow>
+                ) : error ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-8 text-destructive">
+                      Could not load sub specialties: {error instanceof Error ? error.message : 'Unknown error'}
+                    </TableCell>
+                  </TableRow>
+                ) : paginatedSubspecialties.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                      {searchTerm
+                        ? 'No sub specialties match your search.'
+                        : 'No sub specialties yet. Use "Add Sub Specialty" to create one.'}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  paginatedSubspecialties.map((subspecialty) => (
                   <TableRow key={subspecialty.id}>
                     <TableCell className="font-medium">{subspecialty.name}</TableCell>
                     <TableCell>{subspecialty.code}</TableCell>
@@ -233,6 +317,7 @@ const LabSubSpecialty: React.FC = () => {
                         <Button
                           variant="destructive"
                           size="sm"
+                          disabled={deleteMutation.isPending}
                           onClick={() => handleDeleteSubspecialty(subspecialty.id)}
                         >
                           <Trash2 className="h-4 w-4" />
@@ -240,7 +325,8 @@ const LabSubSpecialty: React.FC = () => {
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                  ))
+                )}
               </TableBody>
             </Table>
           </div>
@@ -292,9 +378,10 @@ const LabSubSpecialty: React.FC = () => {
             <DialogTitle>Edit Sub Specialty</DialogTitle>
           </DialogHeader>
           {editingSpecialty && (
-            <EditSubSpecialtyForm 
+            <EditSubSpecialtyForm
               subspecialty={editingSpecialty}
               onSubmit={handleEditSubspecialty}
+              isSaving={updateMutation.isPending}
             />
           )}
         </DialogContent>
@@ -305,21 +392,22 @@ const LabSubSpecialty: React.FC = () => {
 
 interface AddSubSpecialtyFormProps {
   onSubmit: (subspecialty: Omit<LabSubSpecialty, 'id'>) => void;
+  isSaving: boolean;
 }
 
-const AddSubSpecialtyForm: React.FC<AddSubSpecialtyFormProps> = ({ onSubmit }) => {
+const AddSubSpecialtyForm: React.FC<AddSubSpecialtyFormProps> = ({ onSubmit, isSaving }) => {
   const [formData, setFormData] = useState({
     name: '',
     code: '',
     modality: '',
-    remark: '',
-    isActive: true
+    remark: ''
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // Deliberately not cleared here: the dialog unmounts this form on success, and
+    // keeping the values on failure means a rejected save does not lose the typing.
     onSubmit(formData);
-    setFormData({ name: '', code: '', modality: '', remark: '', isActive: true });
   };
 
   return (
@@ -357,7 +445,7 @@ const AddSubSpecialtyForm: React.FC<AddSubSpecialtyFormProps> = ({ onSubmit }) =
         />
       </div>
       <div className="flex justify-end gap-2">
-        <Button type="submit">Save</Button>
+        <Button type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save'}</Button>
       </div>
     </form>
   );
@@ -366,9 +454,10 @@ const AddSubSpecialtyForm: React.FC<AddSubSpecialtyFormProps> = ({ onSubmit }) =
 interface EditSubSpecialtyFormProps {
   subspecialty: LabSubSpecialty;
   onSubmit: (subspecialty: LabSubSpecialty) => void;
+  isSaving: boolean;
 }
 
-const EditSubSpecialtyForm: React.FC<EditSubSpecialtyFormProps> = ({ subspecialty, onSubmit }) => {
+const EditSubSpecialtyForm: React.FC<EditSubSpecialtyFormProps> = ({ subspecialty, onSubmit, isSaving }) => {
   const [formData, setFormData] = useState(subspecialty);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -411,10 +500,10 @@ const EditSubSpecialtyForm: React.FC<EditSubSpecialtyFormProps> = ({ subspecialt
         />
       </div>
       <div className="flex justify-end gap-2">
-        <Button type="submit">Update</Button>
+        <Button type="submit" disabled={isSaving}>{isSaving ? 'Updating...' : 'Update'}</Button>
       </div>
     </form>
   );
 };
 
-export default LabSubSpecialty; 
+export default LabSubSpecialty;

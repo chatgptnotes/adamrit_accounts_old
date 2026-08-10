@@ -238,6 +238,15 @@ const formatNormalRange = (minValue: string | number | null | undefined, maxValu
   }
 };
 
+// Tests printed without the NORMAL RANGE column (Investigation + Observed Value only)
+const NO_NORMAL_RANGE_TESTS = ['urine routine & microscopy', 'stool routine microscopy'];
+
+const isNoNormalRangeTest = (testName: string | null | undefined): boolean =>
+  NO_NORMAL_RANGE_TESTS.includes((testName || '').toLowerCase().replace(/\s+/g, ' ').trim());
+
+const isStoolRoutineTest = (testName: string | null | undefined): boolean =>
+  (testName || '').toLowerCase().replace(/\s+/g, ' ').trim() === 'stool routine microscopy';
+
 // Utility function to parse JSON result_value and extract actual observed value
 const parseResultValue = (resultValue) => {
   try {
@@ -3842,6 +3851,17 @@ const LabOrders = () => {
             padding: 0 8px;
           }
 
+          /* Reports printed without a NORMAL RANGE column */
+          .no-normal-range .header-row,
+          .no-normal-range .test-row {
+            grid-template-columns: 45% 55%;
+          }
+
+          .no-normal-range .test-range,
+          .no-normal-range .header-col-3 {
+            display: none;
+          }
+
           .abnormal {
             color: #d32f2f;
             font-weight: bold;
@@ -3930,8 +3950,16 @@ const LabOrders = () => {
             return subTests.length > 0 && subTests.every(st => st.test_type === 'Text');
           });
 
+          // Urine Routine & Microscopy / Stool Routine Microscopy print without a NORMAL RANGE column.
+          // Only drop the column when every test on this page is one of them, so other tests
+          // sharing the category page keep their range values.
+          const hideNormalRange = testsInCategory.every(testRow => isNoNormalRangeTest(testRow.test_name));
+          const reportTitle = testsInCategory.every(testRow => isStoolRoutineTest(testRow.test_name))
+            ? 'REPORT ON STOOL ROUTINE'
+            : `REPORT ON ${category.toUpperCase()}`;
+
           return `
-                <div class="category-section" style="margin-bottom: 30px;">
+                <div class="category-section${hideNormalRange ? ' no-normal-range' : ''}" style="margin-bottom: 30px;">
                   <div class="patient-info">
                     <div>
                       <div><strong>Patient Name :</strong> ${patientInfo?.patient_name || 'N/A'}</div>
@@ -3962,13 +3990,13 @@ const LabOrders = () => {
             })()}</div>
                     </div>
                   </div>
-                  <div class="report-title">REPORT ON ${category.toUpperCase()}</div>
+                  <div class="report-title">${reportTitle}</div>
 
                   ${!allTestsAreTextType ? `
                     <div class="header-row">
                       <div class="header-col-1">INVESTIGATION</div>
                       <div class="header-col-2">OBSERVED VALUE</div>
-                      <div class="header-col-3">NORMAL RANGE</div>
+                      ${hideNormalRange ? '' : '<div class="header-col-3">NORMAL RANGE</div>'}
                     </div>
                   ` : ''}
 
@@ -5639,6 +5667,12 @@ const LabOrders = () => {
                   const priorityB = getTestPriority(b.test_name, b.test_category);
                   return priorityA - priorityB;
                 });
+                // Urine Routine & Microscopy / Stool Routine Microscopy are entered without a
+                // NORMAL RANGE column. The header is shared across all tests in this form, so
+                // only drop the column when every test open here is one of those two.
+                const hideRange = sortedTestsForEntry.length > 0 &&
+                  sortedTestsForEntry.every(t => isNoNormalRangeTest(t.test_name));
+                const gridCols = hideRange ? 'grid-cols-2' : 'grid-cols-3';
                 return (
               <div className="border border-gray-300 rounded-lg overflow-hidden">
                 {/* Test Rows */}
@@ -5672,15 +5706,15 @@ const LabOrders = () => {
                           {/* Table Header - Show only once before first Numeric test */}
                           {index === 0 && hasNumericType && (
                             <div className="bg-gray-50 border-b border-gray-300">
-                              <div className="grid grid-cols-3 gap-0 items-center font-semibold text-sm text-gray-800">
+                              <div className={`grid ${gridCols} gap-0 items-center font-semibold text-sm text-gray-800`}>
                                 <div className="p-3 border-r border-gray-300 text-center">INVESTIGATION</div>
                                 <div className="p-3 border-r border-gray-300 text-center">OBSERVED VALUE</div>
-                                <div className="p-3 text-center">NORMAL RANGE</div>
+                                {!hideRange && <div className="p-3 text-center">NORMAL RANGE</div>}
                               </div>
                             </div>
                           )}
                           <div className="bg-white">
-                            <div className="grid grid-cols-3 gap-0 items-center">
+                            <div className={`grid ${gridCols} gap-0 items-center`}>
                               <div className="p-3 border-r border-gray-300">
                                 <div className="font-bold text-sm text-blue-900">
                                   {testRow.test_name}
@@ -5689,9 +5723,11 @@ const LabOrders = () => {
                               <div className="p-3 border-r border-gray-300 text-center text-gray-500 text-sm font-medium">
                                 {/* Empty for main test header */}
                               </div>
-                              <div className="p-3 text-center text-gray-500 text-sm font-medium">
-                                {/* Empty for main test header */}
-                              </div>
+                              {!hideRange && (
+                                <div className="p-3 text-center text-gray-500 text-sm font-medium">
+                                  {/* Empty for main test header */}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </>
@@ -5701,14 +5737,14 @@ const LabOrders = () => {
                       {allTextType && (
                         <>
                           <div className="bg-gray-50 border-b border-gray-300">
-                            <div className="grid grid-cols-3 gap-0 items-center font-semibold text-sm text-gray-800">
+                            <div className={`grid ${gridCols} gap-0 items-center font-semibold text-sm text-gray-800`}>
                               <div className="p-3 border-r border-gray-300 text-center">INVESTIGATION</div>
                               <div className="p-3 border-r border-gray-300 text-center">OBSERVED VALUE</div>
-                              <div className="p-3 text-center">NORMAL RANGE</div>
+                              {!hideRange && <div className="p-3 text-center">NORMAL RANGE</div>}
                             </div>
                           </div>
                           <div className="bg-white">
-                            <div className="grid grid-cols-3 gap-0 items-center">
+                            <div className={`grid ${gridCols} gap-0 items-center`}>
                               <div className="p-3 border-r border-gray-300">
                                 <div className="font-bold text-sm text-blue-900">
                                   {testRow.test_name}
@@ -5717,9 +5753,11 @@ const LabOrders = () => {
                               <div className="p-3 border-r border-gray-300 text-center text-gray-500 text-sm font-medium">
                                 {/* Empty for main test header */}
                               </div>
-                              <div className="p-3 text-center text-gray-500 text-sm font-medium">
-                                {/* Empty for main test header */}
-                              </div>
+                              {!hideRange && (
+                                <div className="p-3 text-center text-gray-500 text-sm font-medium">
+                                  {/* Empty for main test header */}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </>
@@ -5728,7 +5766,7 @@ const LabOrders = () => {
                       {/* Handle main tests without sub-tests */}
                       {subTests.length === 0 && (
                         <div className="bg-white border-t border-gray-100">
-                          <div className="grid grid-cols-3 gap-0 items-center min-h-[40px]">
+                          <div className={`grid ${gridCols} gap-0 items-center min-h-[40px]`}>
                             <div className="p-2 border-r border-gray-300 flex items-center">
                               <span className="text-sm ml-4">{testRow.test_name}</span>
                             </div>
@@ -5841,11 +5879,13 @@ const LabOrders = () => {
                                 );
                               })()}
                             </div>
-                            <div className="p-2 text-center">
-                              <div className="text-sm text-gray-700">
-                                {calculatedRanges[testRow.id] || formData.reference_range || '-'}
+                            {!hideRange && (
+                              <div className="p-2 text-center">
+                                <div className="text-sm text-gray-700">
+                                  {calculatedRanges[testRow.id] || formData.reference_range || '-'}
+                                </div>
                               </div>
-                            </div>
+                            )}
                           </div>
                         </div>
                       )}
@@ -5956,13 +5996,15 @@ const LabOrders = () => {
                                   <span className="text-green-600 text-sm">✓</span>
                                 )}
                               </div>
-                              <div className="grid grid-cols-3 gap-0 text-sm">
-                                <div></div>
-                                <div></div>
-                                <div className="text-center text-gray-700">
-                                  {subTest.range || subTestFormData.reference_range || subTest.text_value || '-'}
+                              {!hideRange && (
+                                <div className="grid grid-cols-3 gap-0 text-sm">
+                                  <div></div>
+                                  <div></div>
+                                  <div className="text-center text-gray-700">
+                                    {subTest.range || subTestFormData.reference_range || subTest.text_value || '-'}
+                                  </div>
                                 </div>
-                              </div>
+                              )}
                               {testRow.test_method && (
                                 <div className="ml-0 text-xs text-gray-600">
                                   <span className="font-medium">Method:</span> {testRow.test_method}
@@ -5973,7 +6015,7 @@ const LabOrders = () => {
                         ) : (
                           /* NUMERIC TYPE FORMAT - Table with columns */
                           <div key={subTestKey} className="bg-white border-t border-gray-100">
-                            <div className="grid grid-cols-3 gap-0 items-center min-h-[40px]">
+                            <div className={`grid ${gridCols} gap-0 items-center min-h-[40px]`}>
                               <div className="p-2 border-r border-gray-300 flex items-center">
                                 <span
                                   className={`text-sm cursor-help ${isNestedSubTest ? 'ml-8 text-gray-700' : 'ml-4'}`}
@@ -6023,7 +6065,7 @@ const LabOrders = () => {
                                   </div>
                                 )}
                               </div>
-                              <div className="p-2 flex items-center justify-center">
+                              <div className={`p-2 flex items-center justify-center ${hideRange ? 'hidden' : ''}`}>
                                 {subTest.isParent ? (
                                   <span className="text-gray-400 text-sm"></span>
                                 ) : (
@@ -6047,7 +6089,7 @@ const LabOrders = () => {
 
                       {/* Comments Section */}
                       <div className="bg-gray-50 border-t border-gray-200">
-                        <div className="grid grid-cols-3 gap-0 items-center">
+                        <div className={`grid ${gridCols} gap-0 items-center`}>
                           <div className="p-2 border-r border-gray-300 flex items-center gap-2">
                             <input
                               type="checkbox"
@@ -6103,7 +6145,7 @@ const LabOrders = () => {
                               />
                             )}
                           </div>
-                          <div className="p-2"></div>
+                          {!hideRange && <div className="p-2"></div>}
                         </div>
                       </div>
                     </div>
