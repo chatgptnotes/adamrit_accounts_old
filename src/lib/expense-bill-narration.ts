@@ -69,8 +69,13 @@ export function templateNarration(f: NarrationFacts): string {
   return parts.join(', ').replace(/\s+/g, ' ').trim();
 }
 
-/** Digits in the text that are not any figure or date we supplied. */
-function inventsNumbers(text: string, f: NarrationFacts): boolean {
+/**
+ * True when the text contains a digit-run that appears in none of the facts we
+ * supplied — the signature of a model inventing an amount or a date. Exported
+ * so the rejection can be tested directly; a narration is the wrong place to
+ * take a language model on trust.
+ */
+export function inventsNumbers(text: string, f: NarrationFacts): boolean {
   const allowed = new Set<string>();
   const add = (v?: string | null) => {
     if (!v) return;
