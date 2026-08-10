@@ -14,10 +14,11 @@ import { toast } from 'sonner';
 import { openStoredDocument } from '@/lib/openStoredDocument';
 import {
   Banknote, CalendarClock, Camera, FileText, Filter, Loader2, Paperclip, Plus, QrCode, Receipt,
-  Search, Undo2, Upload, Users, X,
+  Search, Sparkles, Undo2, Upload, Users, X,
 } from 'lucide-react';
 import { saveLedgerQr, savePaymentProof } from '@/lib/expense-bills/paymentEvidence';
 import { extractInvoiceFromImage, fileToBase64 } from '@/lib/accounting-ai';
+import { generateNarration } from '@/lib/expense-bill-narration';
 import { LedgerAutocomplete, type LedgerAccountOption } from '@/components/accounting/LedgerAutocomplete';
 import { RmoPaymentsTab } from '@/components/RmoPaymentsTab';
 import { RupaliConsultantPayments } from '@/components/RupaliConsultantPayments';
@@ -514,6 +515,32 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
   // Bills are settled two months after the office receives them, so the date
   // fills itself in — and stays editable for the ones that do not follow it.
   const paymentDateTouched = useRef(false);
+  // Ask the existing director digest to chase this invoice when it falls due.
+  const [notifyDirector, setNotifyDirector] = useState(false);
+  const [writingNarration, setWritingNarration] = useState(false);
+
+  const writeNarration = async () => {
+    setWritingNarration(true);
+    try {
+      const { text, source } = await generateNarration({
+        partyName: party?.account_name,
+        expenseHead: head?.account_name,
+        categoryName: category?.name,
+        billNumber, billDate, amount: amountValue,
+        patientName: patient?.name, patientId: patient?.id,
+        surgeryName,
+        dateOfProcedure, dateOfReceivingBill, dateOfPayment,
+      });
+      setNarration(text);
+      if (source === 'template') {
+        toast.message('Narration built from the form', {
+          description: 'Written from a template — the AI was unavailable or its wording was rejected.',
+        });
+      }
+    } finally {
+      setWritingNarration(false);
+    }
+  };
 
   // Patients and procedures to pick from — both search in the database so the
   // list is the real master, not a snapshot in the page.
@@ -578,6 +605,7 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
     setNarration(''); setFile(null); setIsReadingInvoice(false);
     setPatient(null); setPatientSearch(''); setSurgeryName('');
     setDateOfProcedure(''); setDateOfReceivingBill(''); setDateOfPayment('');
+    setNotifyDirector(false); setWritingNarration(false);
     paymentDateTouched.current = false;
     suggestedFor.current = null;
   };
@@ -663,6 +691,8 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
         dateOfProcedure: dateOfProcedure || null,
         dateOfReceivingBill: dateOfReceivingBill || null,
         dateOfPayment: dateOfPayment || null,
+        notifyDirectorOnDue: notifyDirector && !!dateOfPayment,
+        partyName: party.account_name,
       },
       {
         onSuccess: () => {
@@ -882,6 +912,18 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
               <Input id="eb-payment-date" type="date" value={dateOfPayment}
                 onChange={(e) => { paymentDateTouched.current = true; setDateOfPayment(e.target.value); }} />
               <p className="mt-1 text-xs text-muted-foreground">Two months after the bill was received.</p>
+              <label className="mt-2 flex items-start gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={notifyDirector}
+                  disabled={!dateOfPayment}
+                  onChange={(e) => setNotifyDirector(e.target.checked)}
+                />
+                <span className={dateOfPayment ? '' : 'text-muted-foreground'}>
+                  Remind the director when this falls due
+                </span>
+              </label>
             </div>
           </div>
 
@@ -897,9 +939,28 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
           </div>
 
           <div>
-            <Label htmlFor="eb-narration">Note (optional)</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="eb-narration">Narration</Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                disabled={writingNarration}
+                onClick={() => void writeNarration()}
+              >
+                {writingNarration
+                  ? <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                  : <Sparkles className="mr-1 h-3 w-3" />}
+                Generate
+              </Button>
+            </div>
             <Input id="eb-narration" value={narration} maxLength={300}
-              placeholder="Anything worth recording" onChange={(e) => setNarration(e.target.value)} />
+              placeholder="Generate one from the fields above, or write your own"
+              onChange={(e) => setNarration(e.target.value)} />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Built from the vendor, patient, surgery and dates above. Always editable.
+            </p>
           </div>
 
         </div>

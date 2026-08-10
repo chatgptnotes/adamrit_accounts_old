@@ -270,6 +270,10 @@ export interface NewExpenseBill {
   dateOfProcedure?: string | null;
   dateOfReceivingBill?: string | null;
   dateOfPayment?: string | null;
+  /** Raise a director reminder for date_of_payment. */
+  notifyDirectorOnDue?: boolean;
+  /** Vendor name, used only to label that reminder readably. */
+  partyName?: string | null;
 }
 
 /**
@@ -324,6 +328,7 @@ export function useRecordExpenseBill() {
           ...(bill.dateOfProcedure ? { date_of_procedure: bill.dateOfProcedure } : {}),
           ...(bill.dateOfReceivingBill ? { date_of_receiving_bill: bill.dateOfReceivingBill } : {}),
           ...(bill.dateOfPayment ? { date_of_payment: bill.dateOfPayment } : {}),
+          ...(bill.notifyDirectorOnDue ? { notify_director_on_due: true } : {}),
           document_path: documentPath,
           document_url: documentUrl,
           created_by: user?.email ?? "tablet",
@@ -335,6 +340,29 @@ export function useRecordExpenseBill() {
         const { error: cleanupError } = await supabase.storage.from(BUCKET).remove([documentPath]);
         if (cleanupError) console.error("Could not remove rejected invoice upload:", cleanupError);
         throw error;
+      }
+
+      // The director's reminder. send-payment-deadline-digest already
+      // WhatsApps every unpaid payment_deadlines row falling due within a
+      // week, so a ticked invoice just joins that queue rather than needing a
+      // notifier of its own. A failure here must not lose the invoice: the
+      // bill is saved and posted by this point, so the reminder is reported
+      // and skipped, never rolled back.
+      if (bill.notifyDirectorOnDue && bill.dateOfPayment && data?.id) {
+        const { error: deadlineError } = await supabase
+          .from("payment_deadlines" as any)
+          .insert({
+            service_name: [bill.partyName, bill.billNumber.trim()].filter(Boolean).join(" — ")
+              || `Invoice ${bill.billNumber.trim()}`,
+            amount: bill.amount,
+            due_date: bill.dateOfPayment,
+            status: "pending",
+            notes: bill.narration?.trim() || null,
+            expense_bill_id: data.id,
+          });
+        if (deadlineError) {
+          console.error("Invoice saved, but the director reminder was not raised:", deadlineError);
+        }
       }
       return data;
     },
@@ -392,6 +420,27 @@ export function useRecordBillPayment() {
       if (error) {
         if (signedPath) await supabase.storage.from(BUCKET).remove([signedPath]);
         throw new Error(error.message);
+      }
+
+      // Stop the director being chased for an invoice that is now settled.
+      // Only once nothing is left outstanding — a part payment is still due.
+      // Read back rather than assume: the outstanding is computed from the
+      // ledger, not from the amount typed here. A failure is logged, never
+      // thrown: the payment itself has already gone through.
+      try {
+        const { data: row } = await (supabase as any)
+          .from("v_expense_bills_outstanding")
+          .select("outstanding")
+          .eq("id", p.billId)
+          .maybeSingle();
+        if (row && Number(row.outstanding) <= 0.005) {
+          await (supabase as any)
+            .from("payment_deadlines")
+            .update({ status: "paid" })
+            .eq("expense_bill_id", p.billId);
+        }
+      } catch (reminderError) {
+        console.error("Payment recorded, but the director reminder was not closed:", reminderError);
       }
       return data as string;
     },
