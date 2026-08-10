@@ -1,6 +1,9 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Loader2, Search, User } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { usePatientLookup } from "@/hooks/usePatientLookup";
 import type {
   Patient,
@@ -40,6 +43,12 @@ interface TabletPatientPickerProps {
    */
   hospital?: 'hope' | 'ayushman';
   onHospitalChange?: (hospital: 'hope' | 'ayushman') => void;
+  /**
+   * When set, the empty state lists the patients registered in the last N
+   * hours instead of asking for a search term — for flows that act on someone
+   * who has just walked in. Typing a search replaces the list as usual.
+   */
+  recentHours?: number;
 }
 
 /**
@@ -56,6 +65,7 @@ export function TabletPatientPicker({
   hint,
   hospital,
   onHospitalChange,
+  recentHours,
 }: TabletPatientPickerProps) {
   const {
     criteria,
@@ -68,6 +78,33 @@ export function TabletPatientPicker({
     hasCriteria,
   } = usePatientLookup(hospital, { autoSearch: true });
   const [field, setField] = useState<FieldKey>("name");
+  const { hospitalConfig } = useAuth();
+  const hospitalName = hospital || hospitalConfig.name;
+
+  // The just-registered list. Same table and hospital scoping as the search,
+  // so a row picked from here is the same shape as a searched one.
+  const { data: recent = [], isFetching: recentLoading } = useQuery({
+    queryKey: ["patient-recent", hospitalName, recentHours],
+    enabled: !!recentHours && !hasCriteria,
+    staleTime: 60_000,
+    queryFn: async (): Promise<Patient[]> => {
+      const since = new Date(Date.now() - recentHours! * 60 * 60 * 1000).toISOString();
+      const { data, error } = await supabase
+        .from("patients")
+        .select("*")
+        .eq("hospital_name", hospitalName)
+        .gte("created_at", since)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return (data || []) as Patient[];
+    },
+  });
+
+  // With nothing typed, the recent list stands in for the results.
+  const showingRecent = !!recentHours && !hasCriteria;
+  const rows = showingRecent ? recent : patients;
+  const busy = showingRecent ? recentLoading : isLoading;
 
   const updateField = (key: FieldKey, value: string) => {
     setField(key);
@@ -148,12 +185,17 @@ export function TabletPatientPicker({
       {/* Results */}
       <div className="tablet-no-scrollbar min-h-0 flex-1 overflow-y-auto">
         <div className={ENVELOPE}>
-          {isLoading ? (
+          {busy ? (
             <div className="flex justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
-          ) : patients.length > 0 ? (
+          ) : rows.length > 0 ? (
             <div>
+              {showingRecent ? (
+                <p className="px-4 pb-2 text-sm font-semibold text-muted-foreground">
+                  Registered in the last {recentHours} hours
+                </p>
+              ) : null}
               {/* Column header — tablet / desktop only */}
               <div
                 className={cn(
@@ -169,7 +211,7 @@ export function TabletPatientPicker({
               </div>
 
               <ul className="space-y-3 sm:space-y-1.5">
-                {patients.map((p) => (
+                {rows.map((p) => (
                   <li key={p.id}>
                     <button
                       type="button"
@@ -225,6 +267,11 @@ export function TabletPatientPicker({
           ) : showNoResults ? (
             <p className="py-12 text-center text-muted-foreground">
               No patients found. Check the spelling or try another field.
+            </p>
+          ) : showingRecent ? (
+            <p className="py-12 text-center text-muted-foreground">
+              Nobody has been registered in the last {recentHours} hours. Search by name,
+              patient ID or mobile instead.
             </p>
           ) : (
             <p className="py-12 text-center text-muted-foreground">

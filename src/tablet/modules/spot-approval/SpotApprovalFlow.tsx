@@ -236,7 +236,8 @@ export default function SpotApprovalFlow() {
       <FlowScaffold step={2} totalSteps={3} heading={ledger?.account_name} actions={backButton}>
         <TabletPatientPicker
           heading="Whose admission is this?"
-          hint="Search by name, patient ID or mobile number"
+          hint="Pick from today's registrations, or search by name, patient ID or mobile number"
+          recentHours={24}
           hospital={searchHospital}
           onHospitalChange={setSearchHospital}
           onSelect={(p) => {
