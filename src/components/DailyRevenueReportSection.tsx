@@ -356,7 +356,9 @@ export function DailyRevenueReportSection({
 
   const [detailsRow, setDetailsRow] = useState<DisplayRow | null>(null);
   const [approvingKey, setApprovingKey] = useState<string | null>(null);
-  const [onlyWithRm, setOnlyWithRm] = useState<boolean>(true);
+  // Off by default: the report opens showing every patient of the day. Narrowing
+  // to RM-bearing rows is the reader's choice to make, not something done for them.
+  const [onlyWithRm, setOnlyWithRm] = useState<boolean>(false);
   const [showHidden, setShowHidden] = useState<boolean>(false);
   const [patientTypeFilter, setPatientTypeFilter] = useState<PatientTypeFilter>(defaultPatientType);
 
@@ -431,12 +433,6 @@ export function DailyRevenueReportSection({
       const { data, error } = await query
         .gte(column, fromDate)
         .lte(column, toDate)
-        // Direct patients carry no referee, so no cut is ever calculated for
-        // them — in IPD or OPD — and the Director Dashboard credits nothing
-        // against them. Listing them here only invites an approval that the
-        // database triggers would refuse. patients.is_direct is NOT NULL
-        // DEFAULT false, so this drops nobody for want of a value.
-        .eq('patients.is_direct', false)
         .order('created_at', { ascending: true });
       if (error) throw error;
       return (data ?? []) as unknown as VisitRow[];
@@ -1808,8 +1804,7 @@ export function DailyRevenueReportSection({
               .
             </p>
             <p className="text-sm">
-              Direct patients are not listed — they carry no referee, so no cut is
-              calculated for them. Use "Add Manual" for anything else not shown here.
+              Use "Add Manual" for anything not shown here.
             </p>
           </div>
         ) : (
