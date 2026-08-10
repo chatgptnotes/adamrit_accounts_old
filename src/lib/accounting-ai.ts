@@ -33,6 +33,15 @@ export interface InvoiceExtraction {
   bill_date: string | null;
   amount: number | null;
   description: string | null;
+  /**
+   * Implant and diagnostics invoices name the patient and the procedure they
+   * were supplied for. Read them so the Record Invoice form and the narration
+   * it generates carry the clinical context, rather than making someone retype
+   * what is already printed on the paper.
+   */
+  patient_name: string | null;
+  surgery_name: string | null;
+  date_of_procedure: string | null;
   confidence: 'high' | 'medium' | 'low';
 }
 
@@ -49,7 +58,11 @@ export async function extractInvoiceFromImage(
           '{"party_name": string|null (the seller/vendor), "bill_number": string|null, ' +
           '"bill_date": "YYYY-MM-DD"|null, "amount": number|null (grand total in rupees), ' +
           '"description": string|null (what was supplied, max 8 words), ' +
-          '"confidence": "high"|"medium"|"low"}. Use null when unreadable; never guess amounts.',
+          '"patient_name": string|null (the patient the goods were supplied for, if named), ' +
+          '"surgery_name": string|null (the operation or procedure named on the bill), ' +
+          '"date_of_procedure": "YYYY-MM-DD"|null (the date of that procedure, not the bill date), ' +
+          '"confidence": "high"|"medium"|"low"}. ' +
+          'Use null when unreadable or not printed; never guess amounts, names or dates.',
       },
       { inline_data: { mime_type: mimeType, data: base64 } },
     ],

@@ -634,6 +634,21 @@ function RecordBillDialog({ open, onClose }: { open: boolean; onClose: () => voi
       }
       if (!narration.trim() && extracted.description) setNarration(extracted.description);
 
+      // Clinical context printed on the bill. The surgery and its date are free
+      // text and go straight in; the patient does NOT — that field must hold a
+      // real patient from the master, so the read name only seeds the search
+      // and a person confirms which record it is. An OCR'd name is not an
+      // identity.
+      if (!surgeryName.trim() && extracted.surgery_name) setSurgeryName(extracted.surgery_name.trim());
+      if (!dateOfProcedure && extracted.date_of_procedure
+        && /^\d{4}-\d{2}-\d{2}$/.test(extracted.date_of_procedure)) {
+        setDateOfProcedure(extracted.date_of_procedure);
+      }
+      if (!patient && !patientSearch.trim() && extracted.patient_name) {
+        setPatientSearch(extracted.patient_name.trim());
+        toast.info(`Invoice names patient “${extracted.patient_name.trim()}” — pick the matching record.`);
+      }
+
       // Match the seller printed on the invoice to an existing accounting ledger.
       // Never create a ledger from OCR text; the user picks it manually when the
       // vendor is not already configured.
