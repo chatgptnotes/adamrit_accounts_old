@@ -96,7 +96,8 @@
       "Bash(cp gh_2.96.0_macOS_arm64/bin/gh ~/.local/bin/gh)",
       "Bash(chmod +x ~/.local/bin/gh)",
       "Bash(~/.local/bin/gh --version)",
-      "Bash(pbcopy)"
+      "Bash(pbcopy)",
+      "PowerShell(npx vite build --mode development 2>&1 | Select-Object -Last 15)"
     ],
     "deny": [],
     "ask": []

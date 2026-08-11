@@ -23,10 +23,24 @@ const NO_LIAISON = '__none__';
 const liaisonValue = (value?: string) =>
   !value || value === NO_LIAISON ? null : value;
 
+// Codes are compared case-insensitively by the unique index, so they are
+// stored uppercased. A blank box clears the column rather than saving ''.
+const normalizeShortCode = (value?: string) => value?.trim().toUpperCase() || null;
+// The table has two unique codes -- the auto-assigned number and the typed
+// short code. Only blame what was typed when it is genuinely that one that
+// clashed; the index name is carried in the message.
+const isDuplicateShortCode = (error: any) =>
+  error?.code === '23505' && String(error?.message ?? '').includes('short_code');
+// One manager per name, enforced by an index that lives only in the database
+// and not in this repo's migrations.
+const isDuplicateName = (error: any) =>
+  error?.code === '23505' && String(error?.message ?? '').includes('name_ci');
+
 interface RelationshipManagerType {
   id: string;
   name: string;
   code?: string;
+  short_code?: string | null;
   contact_no?: string;
   is_hidden?: boolean;
   ledger_account_id?: string | null;
@@ -199,11 +213,15 @@ const RelationshipManager = () => {
       });
       setIsAddDialogOpen(false);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       console.error('Add relationship manager error:', error);
       toast({
         title: "Error",
-        description: "Failed to add relationship manager",
+        description: isDuplicateShortCode(error)
+          ? "That code is already used by another manager"
+          : isDuplicateName(error)
+            ? "A manager with this name already exists — click the pencil on their card to edit them instead"
+            : error?.message || "Failed to add relationship manager",
         variant: "destructive"
       });
     }
@@ -269,6 +287,7 @@ const RelationshipManager = () => {
         .from('relationship_managers')
         .update({
           name: data.name,
+          short_code: data.short_code ?? null,
           contact_no: data.contact_no || null,
           ledger_account_id: data.ledger_account_id ?? null,
           company_id: data.company_id ?? null,
@@ -291,7 +310,9 @@ const RelationshipManager = () => {
       console.error('Edit relationship manager error:', error);
       toast({
         title: "Error",
-        description: "Failed to update relationship manager",
+        description: isDuplicateShortCode(error)
+          ? "That code is already used by another manager"
+          : error?.message || "Failed to update relationship manager",
         variant: "destructive"
       });
     }
@@ -300,6 +321,7 @@ const RelationshipManager = () => {
   const filteredManagers = managers.filter((manager: RelationshipManagerType) =>
     manager.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     manager.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    manager.short_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     manager.contact_no?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -314,6 +336,7 @@ const RelationshipManager = () => {
     }
     addMutation.mutate({
       name: dialogLedger.account_name,
+      short_code: normalizeShortCode(formData.short_code),
       contact_no: formData.contact_no || undefined,
       ledger_account_id: dialogLedger.id,
       company_id: dialogLedger.company_id,
@@ -340,6 +363,7 @@ const RelationshipManager = () => {
         // that has not been mapped yet keeps the name it already had.
         data: {
           name: dialogLedger?.account_name || selectedManager.name,
+          short_code: normalizeShortCode(formData.short_code),
           contact_no: formData.contact_no,
           ledger_account_id: dialogLedger?.id ?? null,
           company_id: dialogLedger?.company_id ?? null,
@@ -521,6 +545,14 @@ const RelationshipManager = () => {
     );
   }
 
+  // Picking a ledger that already has a manager means this is an edit, not an
+  // add — the database holds one manager per name and will reject the insert.
+  const existingForLedger = dialogLedger
+    ? managers.find((m: RelationshipManagerType) => m.ledger_account_id === dialogLedger.id)
+    : undefined;
+  const ledgerTaken =
+    isAddDialogOpen && existingForLedger && existingForLedger.id !== selectedManager?.id;
+
   // The name is not typed. It comes from the ledger picked here, which is the
   // same ledger every referral and implant commission is credited to.
   const fields = [
@@ -536,6 +568,12 @@ const RelationshipManager = () => {
             onChange={setDialogLedger}
             placeholder="Search the chart of ledgers by name..."
           />
+          {ledgerTaken && (
+            <p className="rounded-md bg-amber-100 px-2 py-1.5 text-xs font-medium text-amber-700">
+              {existingForLedger?.name} already uses this ledger. Close this and click the
+              pencil on their card to set their code — adding them again is not allowed.
+            </p>
+          )}
           {!dialogLedger && (
             <div className="rounded-md border border-dashed p-2">
               <p className="mb-2 text-xs text-muted-foreground">
@@ -563,6 +601,8 @@ const RelationshipManager = () => {
         </div>
       ),
     },
+    // The short code the Daily Revenue Report shows in place of this name.
+    { key: 'short_code', label: 'Code (e.g. SJ01)', type: 'text' as const },
     { key: 'contact_no', label: 'Contact No', type: 'text' as const },
     {
       // Every RM is liaisoned by someone on the marketing side. The Daily
@@ -675,6 +715,11 @@ const RelationshipManager = () => {
                     {manager.code && (
                       <span className="inline-flex items-center rounded-md bg-primary/10 px-2.5 py-1 text-base font-mono font-semibold text-primary">
                         RM-{manager.code}
+                      </span>
+                    )}
+                    {manager.short_code && (
+                      <span className="inline-flex items-center rounded-md bg-sky-100 px-2.5 py-1 text-base font-mono font-semibold text-sky-800">
+                        {manager.short_code}
                       </span>
                     )}
                     <span className="text-xl">{manager.name}</span>
@@ -791,6 +836,7 @@ const RelationshipManager = () => {
           title="Edit Relationship Manager"
           fields={fields}
           initialData={selectedManager ? {
+            short_code: selectedManager.short_code || '',
             contact_no: selectedManager.contact_no || '',
             liaison_user_id: selectedManager.liaison_user_id || NO_LIAISON
           } : undefined}

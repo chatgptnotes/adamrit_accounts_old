@@ -449,13 +449,13 @@ export function DailyRevenueReportSection({
   // RM master list — used by the inline RM picker on each row.
   const rmMasterQuery = useQuery({
     queryKey: ['dailyRevenueRmMaster'],
-    queryFn: async (): Promise<Array<{ id: string; name: string; code: string | null; commission_percent: number | null; ledger_account_id: string | null; liaison_user_id: string | null }>> => {
+    queryFn: async (): Promise<Array<{ id: string; name: string; code: string | null; short_code: string | null; commission_percent: number | null; ledger_account_id: string | null; liaison_user_id: string | null }>> => {
       const { data, error } = await supabase
         .from('relationship_managers' as never)
-        .select('id, name, code, commission_percent, ledger_account_id, liaison_user_id')
+        .select('id, name, code, short_code, commission_percent, ledger_account_id, liaison_user_id')
         .order('name', { ascending: true });
       if (error) throw error;
-      return (data ?? []) as unknown as Array<{ id: string; name: string; code: string | null; commission_percent: number | null; ledger_account_id: string | null; liaison_user_id: string | null }>;
+      return (data ?? []) as unknown as Array<{ id: string; name: string; code: string | null; short_code: string | null; commission_percent: number | null; ledger_account_id: string | null; liaison_user_id: string | null }>;
     },
     staleTime: 5 * 60 * 1000, // 5 min — master list rarely changes
   });
@@ -480,6 +480,29 @@ export function DailyRevenueReportSection({
     }
     return map;
   }, [rmMasterQuery.data, liaisonNames]);
+
+  // The short code the report shows in place of an RM's name. Resolved by id
+  // where the row has one and by name otherwise, the same way the liaison is.
+  const shortCodeByRmId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const manager of rmMasterQuery.data ?? []) {
+      if (manager.short_code) map.set(manager.id, manager.short_code);
+    }
+    return map;
+  }, [rmMasterQuery.data]);
+  const shortCodeByRmName = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const manager of rmMasterQuery.data ?? []) {
+      if (manager.short_code) map.set(manager.name.trim().toLowerCase(), manager.short_code);
+    }
+    return map;
+  }, [rmMasterQuery.data]);
+
+  /** An RM's short code, falling back to their name while none is set. */
+  const rmDisplay = (manager: { id?: string; name: string }) =>
+    (manager.id && shortCodeByRmId.get(manager.id))
+    || shortCodeByRmName.get((manager.name || '').trim().toLowerCase())
+    || manager.name;
 
   /** The liaison(s) behind a row's RMs, deduped — a row can carry three RMs. */
   const liaisonsForRow = (row: { rms: RmAllocation[]; rmId: string | null; rm_name: string }) => {
@@ -1902,7 +1925,7 @@ export function DailyRevenueReportSection({
                                 <div className="space-y-0.5">
                                   {(r.rms.length ? r.rms : [{ id: r.rmId || '', name: r.rm_name, ledgerId: r.rmLedgerId, amount: r.cut, position: 1 }]).map((rm, index) => (
                                     <div key={`${rm.id}-${index}`} className="whitespace-nowrap text-xs">
-                                      <span className="font-medium">{rm.name}</span>
+                                      <span className="font-medium">{rmDisplay(rm)}</span>
                                       {r.rms.length > 1 && <span className="ml-1 text-gray-500">₹{formatINR(rm.amount)}</span>}
                                       {index === 0 && r.rms.length > 1 && <span className="ml-1 text-[10px] text-blue-600">Primary</span>}
                                     </div>
