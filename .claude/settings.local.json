@@ -96,7 +96,10 @@
       "Bash(cp gh_2.96.0_macOS_arm64/bin/gh ~/.local/bin/gh)",
       "Bash(chmod +x ~/.local/bin/gh)",
       "Bash(~/.local/bin/gh --version)",
-      "Bash(pbcopy)"
+      "Bash(pbcopy)",
+      "Bash(supabase status *)",
+      "Bash(dir supabase\\\\functions)",
+      "Bash(supabase projects *)"
     ],
     "deny": [],
     "ask": []
