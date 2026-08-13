@@ -6,7 +6,6 @@
       "Bash(git pull:*)",
       "Bash(git push:*)",
       "Read(c:\\Users\\Lenovo\\OneDrive\\Pictures\\Camera Roll/**)",
-      "Read(c:\\Users\\Lenovo\\OneDrive\\Pictures\\Camera Roll/**)",
       "Read(//c/Users/hope4/Pictures/**)",
       "Bash(taskkill:*)",
       "Bash(npm run dev:*)",
