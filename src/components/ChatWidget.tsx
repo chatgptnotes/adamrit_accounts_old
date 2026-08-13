@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { MessageSquare, X, Send, Bot, User } from 'lucide-react';
+import { useDraggableFab } from '@/hooks/useDraggableFab';
 import { geminiGenerateContentUrl, geminiFetch } from '@/lib/gemini';
 import { LLM_BACKEND, callVpsClaude } from '@/lib/vpsClaude';
 
@@ -24,6 +25,7 @@ export default function ChatWidget() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const { dragProps } = useDraggableFab<HTMLButtonElement>('chat_fab_position');
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -83,6 +85,7 @@ export default function ChatWidget() {
     <>
       {!open && (
         <button
+          {...dragProps}
           onClick={() => setOpen(true)}
           className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-gray-900 text-white shadow-lg flex items-center justify-center hover:bg-gray-800 transition-colors"
           title="AI Assistant"
