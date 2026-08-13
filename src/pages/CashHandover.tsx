@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -21,7 +21,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  fetchDenominations, fetchHandovers, fetchNominees, fetchPositions, setNominee,
+  fetchDenominations, fetchHandovers, fetchNominees, fetchPayouts, fetchPositions, setNominee,
   verifyHandover, type CashHandover,
 } from "@/lib/cashHandover";
 import { printHandoverSlip } from "@/lib/printHandoverSlip";
@@ -67,9 +67,16 @@ export default function CashHandoverPage() {
   // Receipts carry no hospital of their own; it comes from the patient. Without
   // this filter both counters showed each other's transactions.
   const [posScope, setPosScope] = useState<string>("");
+  const [showPayouts, setShowPayouts] = useState(false);
   const positions = useQuery({
     queryKey: ["cash-positions", posScope || "all"],
     queryFn: () => fetchPositions(posScope || null),
+  });
+  // The individual vouchers behind the "Cash paid out" line — a single total
+  // left Dr M unable to find the Rs 1 he knew had been paid.
+  const payouts = useQuery({
+    queryKey: ["cash-payouts", posScope || "all"],
+    queryFn: () => fetchPayouts(posScope || null),
   });
   const handovers = useQuery({ queryKey: ["cash-handovers"], queryFn: () => fetchHandovers({ limit: 200 }) });
   const nominees = useQuery({ queryKey: ["cash-handover-nominees", "all"], queryFn: () => fetchNominees() });
@@ -172,8 +179,9 @@ export default function CashHandoverPage() {
                   <TableRow>
                     <TableHead>Person</TableHead>
                     <TableHead className="text-right">Cash held</TableHead>
-                    <TableHead className="text-right">Receipts</TableHead>
-                    <TableHead>Oldest uncollected</TableHead>
+                    {/* Not "Receipts": on the paid-out row these are vouchers. */}
+                    <TableHead className="text-right">Entries</TableHead>
+                    <TableHead>Oldest</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -185,7 +193,8 @@ export default function CashHandoverPage() {
                     </TableRow>
                   ) : (
                     (positions.data ?? []).map((p) => (
-                      <TableRow key={`${p.holder_user_id ?? "x"}-${p.holder_name}`}>
+                      <Fragment key={`${p.holder_user_id ?? "x"}-${p.holder_name}`}>
+                      <TableRow>
                         <TableCell className="font-medium">
                           {p.attribution === "payout" ? (
                             <>
@@ -216,9 +225,65 @@ export default function CashHandoverPage() {
                         <TableCell className="text-right font-semibold">
                           {inr(p.net_cash)}
                         </TableCell>
-                        <TableCell className="text-right">{p.receipt_count}</TableCell>
-                        <TableCell>{when(p.oldest_uncollected)}</TableCell>
+                        <TableCell className="text-right">
+                          {p.receipt_count}
+                          {p.attribution === "payout" && (
+                            <span className="ml-1 text-xs text-muted-foreground">
+                              voucher{p.receipt_count === 1 ? "" : "s"}
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {when(p.oldest_uncollected)}
+                          {p.attribution === "payout" && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="ml-2 h-6 px-2 text-xs"
+                              onClick={() => setShowPayouts((v) => !v)}
+                            >
+                              {showPayouts ? "Hide" : "Show each"}
+                            </Button>
+                          )}
+                        </TableCell>
                       </TableRow>
+                      {p.attribution === "payout" && showPayouts && (
+                        <TableRow>
+                          <TableCell colSpan={4} className="bg-muted/30 p-0">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead className="text-xs">Voucher</TableHead>
+                                  <TableHead className="text-xs">Paid for</TableHead>
+                                  <TableHead className="text-xs">Paid by</TableHead>
+                                  <TableHead className="text-xs">When</TableHead>
+                                  <TableHead className="text-right text-xs">Amount</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {(payouts.data ?? []).map((v) => (
+                                  <TableRow key={v.id}>
+                                    <TableCell className="font-mono text-xs">
+                                      {v.voucher_no ?? "—"}
+                                    </TableCell>
+                                    <TableCell className="text-xs">{v.label}</TableCell>
+                                    <TableCell className="text-xs">
+                                      {v.paid_by ?? (
+                                        <span className="text-amber-700">Not recorded</span>
+                                      )}
+                                    </TableCell>
+                                    <TableCell className="text-xs">{when(v.at)}</TableCell>
+                                    <TableCell className="text-right text-xs font-medium text-rose-700">
+                                      −{inr(v.amount)}
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      </Fragment>
                     ))
                   )}
                 </TableBody>

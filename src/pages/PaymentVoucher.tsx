@@ -453,7 +453,7 @@ const LedgerSearch = ({ selected, onSelect, placeholder, className, inputRef, on
 // Page
 // ---------------------------------------------------------------------------
 const PaymentVoucher = () => {
-  const { hospitalConfig } = useAuth();
+  const { hospitalConfig, user } = useAuth();
   const hospitalType = hospitalConfig.name;
 
   // --- Tally-style entry form state ---
@@ -602,7 +602,10 @@ const PaymentVoucher = () => {
           person_name: filled[0].ledger!.name,
           amount,
           purpose: null,
-          paid_by: null,
+          // Who paid the money out. This was hardcoded null, so the cash
+          // handover screen could show that Rs 1 left the drawer but never
+          // who handed it over the counter.
+          paid_by: user?.email ?? user?.id ?? null,
           account_ledger_name: account.name,
           narration: narration.trim() || null,
           hospital_type: hospitalType,

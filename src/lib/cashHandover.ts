@@ -158,6 +158,24 @@ export async function cancelHandover(id: string, userId: string, reason: string)
   return data;
 }
 
+export interface CashPayout {
+  id: string;
+  amount: number;
+  at: string;
+  label: string;
+  voucher_no: string | null;
+  paid_by: string | null;
+}
+
+/** The individual payment vouchers behind the "Cash paid out" line. */
+export async function fetchPayouts(hospitalType?: string | null): Promise<CashPayout[]> {
+  const { data, error } = await rpc("cash_payouts_pool", {
+    p_hospital_type: hospitalType ?? null,
+  });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as CashPayout[]).sort((a, b) => (a.at < b.at ? 1 : -1));
+}
+
 /** Omit the hospital for the group-wide view; pass one to see just that counter. */
 export async function fetchPositions(hospitalType?: string | null): Promise<CashPosition[]> {
   const { data, error } = await rpc("cash_position_by_holder", {
