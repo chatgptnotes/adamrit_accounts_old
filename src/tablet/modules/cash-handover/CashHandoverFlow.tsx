@@ -135,10 +135,12 @@ function HandOverPanel({
   const [reason, setReason] = useState("");
   const [notes, setNotes] = useState("");
 
+  // Scoped to this cashier's own hospital: Hope and Ayushman keep separate
+  // drawers even though a receipt carries no hospital of its own.
   const preview = useQuery({
-    queryKey: ["cash-handover-preview", userId, includeUnattributed],
+    queryKey: ["cash-handover-preview", userId, includeUnattributed, hospitalType ?? "all"],
     enabled: !!userId,
-    queryFn: () => fetchPreview(userId, includeUnattributed),
+    queryFn: () => fetchPreview(userId, includeUnattributed, hospitalType),
     staleTime: 10_000,
   });
 

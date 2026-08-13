@@ -95,10 +95,12 @@ const rpc = (fn: string, args: Record<string, unknown>) =>
 export async function fetchPreview(
   userId: string,
   includeUnattributed: boolean,
+  hospitalType?: string | null,
 ): Promise<HandoverPreview> {
   const { data, error } = await rpc("cash_handover_preview", {
     p_user_id: userId,
     p_include_unattributed: includeUnattributed,
+    p_hospital_type: hospitalType ?? null,
   });
   if (error) throw new Error(error.message);
   return data as HandoverPreview;
@@ -156,8 +158,11 @@ export async function cancelHandover(id: string, userId: string, reason: string)
   return data;
 }
 
-export async function fetchPositions(): Promise<CashPosition[]> {
-  const { data, error } = await rpc("cash_position_by_holder", {});
+/** Omit the hospital for the group-wide view; pass one to see just that counter. */
+export async function fetchPositions(hospitalType?: string | null): Promise<CashPosition[]> {
+  const { data, error } = await rpc("cash_position_by_holder", {
+    p_hospital_type: hospitalType ?? null,
+  });
   if (error) throw new Error(error.message);
   return (data ?? []) as CashPosition[];
 }

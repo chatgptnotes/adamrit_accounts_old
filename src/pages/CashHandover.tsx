@@ -47,7 +47,13 @@ export default function CashHandoverPage() {
   const { user, hospitalType } = useAuth();
   const qc = useQueryClient();
 
-  const positions = useQuery({ queryKey: ["cash-positions"], queryFn: fetchPositions });
+  // Receipts carry no hospital of their own; it comes from the patient. Without
+  // this filter both counters showed each other's transactions.
+  const [posScope, setPosScope] = useState<string>("");
+  const positions = useQuery({
+    queryKey: ["cash-positions", posScope || "all"],
+    queryFn: () => fetchPositions(posScope || null),
+  });
   const handovers = useQuery({ queryKey: ["cash-handovers"], queryFn: () => fetchHandovers({ limit: 200 }) });
   const nominees = useQuery({ queryKey: ["cash-handover-nominees", "all"], queryFn: () => fetchNominees() });
 
@@ -118,6 +124,22 @@ export default function CashHandoverPage() {
         <TabsContent value="holders" className="mt-4">
           <Card>
             <CardContent className="pt-6">
+              <div className="mb-4 flex flex-wrap gap-2">
+                {[
+                  { key: "", label: "Both hospitals" },
+                  { key: "hope", label: "Hope" },
+                  { key: "ayushman", label: "Ayushman Nagpur" },
+                ].map((h) => (
+                  <Button
+                    key={h.key || "all"}
+                    size="sm"
+                    variant={posScope === h.key ? "default" : "outline"}
+                    onClick={() => setPosScope(h.key)}
+                  >
+                    {h.label}
+                  </Button>
+                ))}
+              </div>
               <Table>
                 <TableHeader>
                   <TableRow>
