@@ -6,6 +6,7 @@ import { TabletHome } from "./screens/TabletHome";
 import { TabletModuleHost } from "./screens/TabletModuleHost";
 import { TabletFinalBill } from "./screens/TabletFinalBill";
 import { TabletGatePass } from "./screens/TabletGatePass";
+import { TabletDischargeSummary } from "./screens/TabletDischargeSummary";
 import { TabletThemeProvider, useTabletTheme } from "./theme/TabletTheme";
 
 /** Routed shell — applies the active theme class to the `.tablet-root` scope. */
@@ -21,6 +22,10 @@ function TabletAppShell() {
               :moduleId and redirected straight back to the home screen. */}
           <Route path="final-bill/:visitId" element={<TabletFinalBill />} />
           <Route path="gate-pass/:visitId" element={<TabletGatePass />} />
+          <Route
+            path="ipd-discharge-summary/:visitId"
+            element={<TabletDischargeSummary />}
+          />
           <Route path=":moduleId/*" element={<TabletModuleHost />} />
         </Route>
       </Routes>

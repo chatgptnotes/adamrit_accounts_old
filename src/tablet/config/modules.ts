@@ -397,8 +397,8 @@ export const TABLET_MODULES: TabletModule[] = [
   },
   {
     id: "discharge-summary",
-    label: "Discharge Summary - Diksha",
-    description: "View & print summary",
+    label: "Discharge Summary",
+    description: "Create, edit & print summary",
     icon: FileText,
     accent: "text-violet-600",
     tint: "from-violet-400 to-violet-600",

@@ -1,9 +1,14 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Printer } from "lucide-react";
+import { Loader2, Pencil, Printer } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { useDischargedVisits, type TabletVisit } from "@/tablet/hooks/useVisitLists";
+import {
+  useAdmittedVisits,
+  useDischargedVisits,
+  type TabletVisit,
+} from "@/tablet/hooks/useVisitLists";
 import { TabletVisitList } from "@/tablet/components/TabletVisitList";
 import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletButton } from "@/tablet/ui/TabletButton";
@@ -20,15 +25,31 @@ const HIDE_KEYS = new Set([
   "patient_id",
 ]);
 
+type Scope = "admitted" | "discharged";
+
 function labelize(key: string): string {
   return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Module 2 — view & print an IPD discharge summary (read-only). */
+/** Module 2 — view & print an IPD discharge summary, or open the full editor. */
 export default function DischargeSummaryFlow() {
   const { hospitalConfig } = useAuth();
-  const visits = useDischargedVisits();
+  const navigate = useNavigate();
+  const [scope, setScope] = useState<Scope>("admitted");
   const [selected, setSelected] = useState<TabletVisit | null>(null);
+
+  // A summary is normally written before/at discharge, so the picker offers
+  // still-admitted patients too — not only the discharged list it used to show.
+  const admitted = useAdmittedVisits();
+  const discharged = useDischargedVisits();
+  const active = scope === "admitted" ? admitted : discharged;
+
+  // The editor queries visits with .eq('patient_type', 'IPD'), so an Emergency
+  // visit would land on its "No Data Found" placeholder form. Keep them out.
+  const visits =
+    scope === "admitted"
+      ? (active.data || []).filter((v) => v.patientType === "IPD")
+      : active.data || [];
 
   const summary = useQuery({
     queryKey: ["tablet-discharge-summary", selected?.id],
@@ -48,14 +69,38 @@ export default function DischargeSummaryFlow() {
 
   if (!selected) {
     return (
-      <TabletVisitList
-        visits={visits.data || []}
-        loading={visits.isLoading}
-        error={visits.isError}
-        onSelect={setSelected}
-        emptyText="No discharged patients."
-        metaKind="discharged"
-      />
+      <div className="flex h-full flex-col">
+        <div className="flex flex-shrink-0 gap-2 p-4 pb-0">
+          {(["admitted", "discharged"] as Scope[]).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setScope(s)}
+              className={`min-h-[44px] flex-1 rounded-xl border text-base font-medium capitalize transition active:scale-95 ${
+                scope === s
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-card text-muted-foreground"
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+        <div className="min-h-0 flex-1">
+          <TabletVisitList
+            visits={visits}
+            loading={active.isLoading}
+            error={active.isError}
+            onSelect={setSelected}
+            emptyText={
+              scope === "admitted"
+                ? "No admitted IPD patients."
+                : "No discharged patients."
+            }
+            metaKind={scope}
+          />
+        </div>
+      </div>
     );
   }
 
@@ -117,6 +162,19 @@ export default function DischargeSummaryFlow() {
           </TabletButton>
           <TabletButton
             className="flex-1"
+            onClick={() =>
+              // The editor looks the visit up by visits.visit_id — the TEXT
+              // code. Passing selected.id (the uuid the query above needs)
+              // silently opens an empty form instead.
+              navigate(`/ipd-discharge-summary/${selected.visitId}`)
+            }
+          >
+            <Pencil className="h-5 w-5" />
+            {summary.data ? "Edit" : "Create"}
+          </TabletButton>
+          <TabletButton
+            variant="outline"
+            className="flex-1"
             disabled={!summary.data}
             onClick={() => void printSummary()}
           >
@@ -135,7 +193,7 @@ export default function DischargeSummaryFlow() {
         </p>
       ) : !summary.data ? (
         <p className="py-10 text-center text-muted-foreground">
-          No discharge summary recorded for this visit.
+          No discharge summary recorded yet — tap Create to write one.
         </p>
       ) : (
         <div className="tablet-print-area space-y-4">

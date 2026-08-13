@@ -48,12 +48,14 @@
   overscroll-behavior: none;
 }
 
-/* The tablet voucher tiles reuse the canonical desktop accounting form.
-   It is a light Tally canvas inside the dark tablet shell, so reset the
-   shadcn colour tokens here as well as increasing the tap targets. Without
-   this scope, tablet foreground/background tokens produce white text on the
-   pale Tally header, fields, and ledger rows. */
-.tablet-voucher-flow {
+/* Light canvas for canonical DESKTOP pages rendered inside the dark tablet
+   shell — the accounting voucher form and the IPD discharge summary.
+   Each is a light page, so reset the shadcn colour tokens here as well as
+   increasing the tap targets. Without this scope, the tablet foreground/
+   background tokens produce white text on the pale headers, fields and rows.
+   .tablet-desktop-canvas is the generic one; keep the voucher class as is. */
+.tablet-voucher-flow,
+.tablet-desktop-canvas {
   --background: 0 0% 100%;
   --foreground: 222 47% 11%;
   --card: 0 0% 100%;
@@ -77,18 +79,68 @@
 
 .tablet-voucher-flow input,
 .tablet-voucher-flow textarea,
-.tablet-voucher-flow [role="combobox"] {
+.tablet-voucher-flow [role="combobox"],
+.tablet-desktop-canvas input,
+.tablet-desktop-canvas textarea,
+.tablet-desktop-canvas [role="combobox"] {
   min-height: 44px;
   font-size: 16px;
 }
 
-.tablet-voucher-flow button {
+.tablet-voucher-flow button,
+.tablet-desktop-canvas button {
   min-height: 40px;
 }
 
 @media (max-width: 760px) {
   .tablet-voucher-flow > div {
     min-width: 720px;
+  }
+}
+
+/* Phone reflow for the mirrored desktop pages.
+   The discharge summary is a desktop form with almost no responsive classes, so
+   at 440px it laid out wider than the screen: the document grew past the
+   viewport and the shell — bottom tab bar included — was pushed off to one side.
+   These rules only fire below the md breakpoint and only inside
+   .tablet-desktop-canvas, a class the desktop tree never renders, so the full
+   site and the iPad layout are untouched.
+   NOTE: deliberately NOT added to the min-width:720px rule above — that is the
+   voucher form's intentional sideways scroll and would re-create this exact bug. */
+@media (max-width: 767px) {
+  /* Any residual overflow scrolls inside the canvas instead of widening the page. */
+  .tablet-desktop-canvas {
+    overflow-x: hidden;
+  }
+
+  /* tailwind.config.ts sets container.padding to 2rem — too much of a 440px screen. */
+  .tablet-desktop-canvas .container {
+    max-width: 100%;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  /* One column for every grid. Matches "grid-cols-2" and "md:grid-cols-6" alike;
+     safe because md: only applies from 768px up, outside this query. */
+  .tablet-desktop-canvas [class*="grid-cols-"] {
+    grid-template-columns: 1fr;
+  }
+
+  /* Card titles and action bars all use justify-between, and every shadcn Button
+     is whitespace-nowrap, so a long label next to a title cannot shrink. Let just
+     those rows wrap — a blanket .flex rule would break icon+text rows. */
+  .tablet-desktop-canvas [class*="justify-between"] {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  /* Fixed-width selects and wide scrollers must not exceed their card. */
+  .tablet-desktop-canvas .w-40 {
+    width: 100%;
+  }
+
+  .tablet-desktop-canvas .overflow-x-auto {
+    max-width: 100%;
   }
 }
 
