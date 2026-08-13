@@ -4,7 +4,12 @@ import { Loader2 } from "lucide-react";
 import { getModule } from "@/tablet/config/modules";
 import { useAuth } from "@/contexts/AuthContext";
 import { canCreateAccountingVouchers } from "@/lib/accounting-access";
-import { OFFICE_TILE_IDS, canSeeOfficeTiles } from "@/lib/officeTileAccess";
+import {
+  OFFICE_TILE_IDS,
+  VOUCHER_TILE_IDS,
+  canSeeOfficeTiles,
+  canSeeVoucherTiles,
+} from "@/lib/officeTileAccess";
 
 /** Lazy module-flow registry, keyed by the module id from config/modules.ts. */
 const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
@@ -167,7 +172,15 @@ export function TabletModuleHost() {
   if (isOfficeTile && !canSeeOfficeTiles(user)) {
     return <Navigate to="/" replace />;
   }
-  if (!isOfficeTile && mod.accountingOnly && !canCreateAccountingVouchers(user)) {
+  // The voucher tiles run off their own list, and it has to be tested here as
+  // well as on the grid. Testing accountingOnly here instead showed Diksha the
+  // Payment Voucher tile and then sent her straight back home when she tapped
+  // it, because her role is not an accounting role.
+  const isVoucherTile = (VOUCHER_TILE_IDS as readonly string[]).includes(mod.id);
+  if (isVoucherTile && !canSeeVoucherTiles(user)) {
+    return <Navigate to="/" replace />;
+  }
+  if (!isOfficeTile && !isVoucherTile && mod.accountingOnly && !canCreateAccountingVouchers(user)) {
     return <Navigate to="/" replace />;
   }
 

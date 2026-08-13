@@ -35,7 +35,12 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { canCreateAccountingVouchers } from "@/lib/accounting-access";
-import { OFFICE_TILE_IDS, canSeeOfficeTiles, canSeePaymentVoucher } from "@/lib/officeTileAccess";
+import {
+  OFFICE_TILE_IDS,
+  VOUCHER_TILE_IDS,
+  canSeeOfficeTiles,
+  canSeeVoucherTiles,
+} from "@/lib/officeTileAccess";
 
 export interface TabletModule {
   /** URL segment under /t/ and lookup key. */
@@ -670,8 +675,11 @@ export function modulesForUser(
     if ((OFFICE_TILE_IDS as readonly string[]).includes(module.id)) {
       return canSeeOfficeTiles(user);
     }
-    if (module.id === "payment-voucher") {
-      return canSeePaymentVoucher(user);
+    // The four voucher tiles run off their own list, which must also override
+    // accountingOnly — otherwise Nisha and Diksha are admitted by name and
+    // then turned away by their role, exactly as with the office tiles above.
+    if ((VOUCHER_TILE_IDS as readonly string[]).includes(module.id)) {
+      return canSeeVoucherTiles(user);
     }
     if (module.accountingOnly && !canCreateAccountingVouchers(user)) return false;
     if (module.roles && module.roles.length > 0) {

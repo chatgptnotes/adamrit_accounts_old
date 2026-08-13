@@ -69,7 +69,7 @@ export interface CashPosition {
    * typed on the payment screen, shown so old rows are not a blank; "none" is
    * neither.
    */
-  attribution: "login" | "name" | "none";
+  attribution: "login" | "name" | "none" | "payout";
   net_cash: number;
   receipt_count: number;
   oldest_uncollected: string | null;
@@ -156,6 +156,49 @@ export async function cancelHandover(id: string, userId: string, reason: string)
   });
   if (error) throw new Error(error.message);
   return data;
+}
+
+export interface CashPayout {
+  id: string;
+  amount: number;
+  /** When the cash actually left the counter. */
+  at: string;
+  /** The date the voucher is filed under, which staff often backdate. */
+  entry_date: string | null;
+  label: string;
+  voucher_no: string | null;
+  paid_by: string | null;
+  /** "payment_voucher" = the till; "accounting" = posted in the books. */
+  source: "payment_voucher" | "accounting";
+}
+
+/** The individual payment vouchers behind the "Cash paid out" line. */
+export async function fetchPayouts(hospitalType?: string | null): Promise<CashPayout[]> {
+  const { data, error } = await rpc("cash_payouts_pool", {
+    p_hospital_type: hospitalType ?? null,
+  });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as CashPayout[]).sort((a, b) => (a.at < b.at ? 1 : -1));
+}
+
+export interface PharmacySummary {
+  cashAmount: number; cashCount: number;
+  upiAmount: number; upiCount: number;
+  cardAmount: number; cardCount: number;
+}
+
+/** Hope Pharmacy runs its own drawer: its own company, ledger and staff. */
+export async function fetchPharmacyPositions(): Promise<CashPosition[]> {
+  const { data, error } = await rpc("pharmacy_position_by_holder", {});
+  if (error) throw new Error(error.message);
+  return (data ?? []) as CashPosition[];
+}
+
+/** Cash is counted; UPI and card are reported beside it, never counted. */
+export async function fetchPharmacySummary(): Promise<PharmacySummary> {
+  const { data, error } = await rpc("pharmacy_cash_summary", {});
+  if (error) throw new Error(error.message);
+  return data as PharmacySummary;
 }
 
 /** Omit the hospital for the group-wide view; pass one to see just that counter. */

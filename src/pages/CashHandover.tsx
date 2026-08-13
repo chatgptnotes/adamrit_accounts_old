@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -21,7 +21,8 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  fetchDenominations, fetchHandovers, fetchNominees, fetchPositions, setNominee,
+  fetchDenominations, fetchHandovers, fetchNominees, fetchPayouts,
+  fetchPharmacyPositions, fetchPharmacySummary, fetchPositions, setNominee,
   verifyHandover, type CashHandover,
 } from "@/lib/cashHandover";
 import { printHandoverSlip } from "@/lib/printHandoverSlip";
@@ -35,6 +36,23 @@ const when = (iso: string | null) =>
         day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
       })
     : "—";
+
+/**
+ * Everyone at the counter may LOOK at this screen — reception, billing and
+ * accounts all need to see whose cash is whose. Changing who may receive or
+ * verify is a different matter: a receptionist who can nominate themselves as a
+ * verifier can approve their own drawer, which is the one thing this feature
+ * exists to prevent.
+ *
+ * Matched case-insensitively on purpose. The same role is stored both ways in
+ * the user table — "Receptionist" for Diksha and "receptionist" for Nisha,
+ * "Billing" and "billing", "Pharmacy" and "pharmacy" — so an exact comparison
+ * silently locks out half the staff who hold the very same job.
+ */
+const NOMINEE_ADMIN_ROLES = ["superadmin", "super_admin", "ca", "admin", "cmd", "director"];
+
+const canManageNominees = (role: string | null | undefined) =>
+  NOMINEE_ADMIN_ROLES.includes((role ?? "").toLowerCase().trim());
 
 const STATUS_TONE: Record<string, string> = {
   SUBMITTED: "bg-amber-100 text-amber-800",
@@ -50,10 +68,21 @@ export default function CashHandoverPage() {
   // Receipts carry no hospital of their own; it comes from the patient. Without
   // this filter both counters showed each other's transactions.
   const [posScope, setPosScope] = useState<string>("");
+  const [showPayouts, setShowPayouts] = useState(false);
   const positions = useQuery({
     queryKey: ["cash-positions", posScope || "all"],
     queryFn: () => fetchPositions(posScope || null),
   });
+  // The individual vouchers behind the "Cash paid out" line — a single total
+  // left Dr M unable to find the Rs 1 he knew had been paid.
+  const payouts = useQuery({
+    queryKey: ["cash-payouts", posScope || "all"],
+    queryFn: () => fetchPayouts(posScope || null),
+  });
+  // Hope Pharmacy is a separate company with its own till and its own staff,
+  // so it gets its own tab rather than being mixed into the hospital counters.
+  const pharmacy = useQuery({ queryKey: ["pharmacy-positions"], queryFn: fetchPharmacyPositions });
+  const pharmacySummary = useQuery({ queryKey: ["pharmacy-summary"], queryFn: fetchPharmacySummary });
   const handovers = useQuery({ queryKey: ["cash-handovers"], queryFn: () => fetchHandovers({ limit: 200 }) });
   const nominees = useQuery({ queryKey: ["cash-handover-nominees", "all"], queryFn: () => fetchNominees() });
 
@@ -66,7 +95,9 @@ export default function CashHandoverPage() {
   const totalHeld = (positions.data ?? []).reduce((s, p) => s + Number(p.net_cash || 0), 0);
 
   return (
-    <div className="space-y-6 p-6">
+    // pb-28 clears the floating camera and chat buttons, which sat on top of
+    // the last row of the table.
+    <div className="space-y-6 p-6 pb-28">
       <div>
         <h1 className="text-2xl font-bold">Cash Handover</h1>
         <p className="text-muted-foreground">
@@ -82,10 +113,20 @@ export default function CashHandoverPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{inr(totalHeld)}</p>
-            <p className="text-xs text-muted-foreground">
-              Collected but not yet handed over
+            <p className={`text-3xl font-bold ${totalHeld < 0 ? "text-amber-700" : ""}`}>
+              {inr(totalHeld)}
             </p>
+            <p className="text-xs text-muted-foreground">
+              Collected, less cash paid out, not yet handed over
+            </p>
+            {totalHeld < 0 && (
+              <p className="mt-2 text-xs text-amber-700">
+                Below zero because more has been paid out than collected since
+                counting began. The difference came from cash already in the drawer
+                beforehand, which the system never saw. It settles after the first
+                full handover.
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card className="border-l-4 border-l-amber-500">
@@ -117,6 +158,7 @@ export default function CashHandoverPage() {
       <Tabs defaultValue="holders">
         <TabsList className="flex h-auto flex-wrap">
           <TabsTrigger value="holders">Who is holding cash</TabsTrigger>
+          <TabsTrigger value="pharmacy">Hope Pharmacy</TabsTrigger>
           <TabsTrigger value="register">Handover register</TabsTrigger>
           <TabsTrigger value="people">Nominated people</TabsTrigger>
         </TabsList>
@@ -145,8 +187,9 @@ export default function CashHandoverPage() {
                   <TableRow>
                     <TableHead>Person</TableHead>
                     <TableHead className="text-right">Cash held</TableHead>
-                    <TableHead className="text-right">Receipts</TableHead>
-                    <TableHead>Oldest uncollected</TableHead>
+                    {/* Not "Receipts": on the paid-out row these are vouchers. */}
+                    <TableHead className="text-right">Entries</TableHead>
+                    <TableHead>Oldest</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -158,9 +201,20 @@ export default function CashHandoverPage() {
                     </TableRow>
                   ) : (
                     (positions.data ?? []).map((p) => (
-                      <TableRow key={`${p.holder_user_id ?? "x"}-${p.holder_name}`}>
+                      <Fragment key={`${p.holder_user_id ?? "x"}-${p.holder_name}`}>
+                      <TableRow>
                         <TableCell className="font-medium">
-                          {p.attribution === "login" ? (
+                          {p.attribution === "payout" ? (
+                            <>
+                              <span className="text-rose-700">{p.holder_name}</span>
+                              <span
+                                className="ml-2 rounded bg-rose-100 px-1.5 py-0.5 text-xs font-normal text-rose-800"
+                                title="Cash paid out of the drawer on payment vouchers. Payment vouchers record no user, so this reduces the counter rather than one person."
+                              >
+                                paid out
+                              </span>
+                            </>
+                          ) : p.attribution === "login" ? (
                             p.holder_name
                           ) : p.attribution === "name" ? (
                             <>
@@ -179,15 +233,99 @@ export default function CashHandoverPage() {
                         <TableCell className="text-right font-semibold">
                           {inr(p.net_cash)}
                         </TableCell>
-                        <TableCell className="text-right">{p.receipt_count}</TableCell>
-                        <TableCell>{when(p.oldest_uncollected)}</TableCell>
+                        <TableCell className="text-right">
+                          {p.receipt_count}
+                          {p.attribution === "payout" && (
+                            <span className="ml-1 text-xs text-muted-foreground">
+                              voucher{p.receipt_count === 1 ? "" : "s"}
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {when(p.oldest_uncollected)}
+                          {p.attribution === "payout" && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="ml-2 h-6 px-2 text-xs"
+                              onClick={() => setShowPayouts((v) => !v)}
+                            >
+                              {showPayouts ? "Hide" : "Show each"}
+                            </Button>
+                          )}
+                        </TableCell>
                       </TableRow>
+                      {p.attribution === "payout" && showPayouts && (
+                        <TableRow>
+                          <TableCell colSpan={4} className="bg-muted/30 p-0">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead className="text-xs">Voucher</TableHead>
+                                  <TableHead className="text-xs">Paid for</TableHead>
+                                  <TableHead className="text-xs">Paid by</TableHead>
+                                  {/* Two dates on purpose: staff routinely file
+                                      yesterday's slips today, and the drawer
+                                      counts when the cash actually left. */}
+                                  <TableHead className="text-xs">Dated</TableHead>
+                                  <TableHead className="text-xs">Entered</TableHead>
+                                  <TableHead className="text-right text-xs">Amount</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {(payouts.data ?? []).map((v) => (
+                                  <TableRow key={v.id}>
+                                    <TableCell className="font-mono text-xs">
+                                      {v.voucher_no ?? "—"}
+                                    </TableCell>
+                                    <TableCell className="text-xs">{v.label}</TableCell>
+                                    <TableCell className="text-xs">
+                                      {v.paid_by ?? (
+                                        <span className="text-amber-700">Not recorded</span>
+                                      )}
+                                    </TableCell>
+                                    <TableCell className="text-xs">
+                                      {v.entry_date
+                                        ? new Date(v.entry_date).toLocaleDateString("en-IN", {
+                                            day: "2-digit", month: "short",
+                                          })
+                                        : "—"}
+                                      {v.entry_date &&
+                                        v.entry_date !== v.at.slice(0, 10) && (
+                                          <span
+                                            className="ml-1 rounded bg-amber-100 px-1 text-[10px] text-amber-800"
+                                            title="Filed under a different day from when the cash left the counter"
+                                          >
+                                            backdated
+                                          </span>
+                                        )}
+                                    </TableCell>
+                                    <TableCell className="text-xs">{when(v.at)}</TableCell>
+                                    <TableCell className="text-right text-xs font-medium text-rose-700">
+                                      −{inr(v.amount)}
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      </Fragment>
                     ))
                   )}
                 </TableBody>
               </Table>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="pharmacy" className="mt-4">
+          <PharmacyPanel
+            rows={pharmacy.data ?? []}
+            summary={pharmacySummary.data}
+            isLoading={pharmacy.isLoading}
+          />
         </TabsContent>
 
         <TabsContent value="register" className="mt-4">
@@ -209,6 +347,7 @@ export default function CashHandoverPage() {
           <NomineeMaster
             nominees={nominees.data ?? []}
             actor={user?.email ?? user?.id ?? null}
+            canManage={canManageNominees(user?.role)}
             onChanged={() => qc.invalidateQueries({ queryKey: ["cash-handover-nominees"] })}
           />
         </TabsContent>
@@ -328,13 +467,14 @@ const HOSPITAL_SCOPES = [
 ] as const;
 
 function NomineeMaster({
-  nominees, actor, onChanged,
+  nominees, actor, canManage, onChanged,
 }: {
   nominees: {
     user_id: string; display_name: string;
     can_receive: boolean; can_verify: boolean; hospital_type: string;
   }[];
   actor: string | null;
+  canManage: boolean;
   onChanged: () => void;
 }) {
   const [search, setSearch] = useState("");
@@ -430,6 +570,7 @@ function NomineeMaster({
                     </TableCell>
                     <TableCell className="text-center">
                       <Switch
+                        disabled={!canManage}
                         checked={!!n?.can_receive}
                         onCheckedChange={(v) =>
                           save.mutate({
@@ -442,6 +583,7 @@ function NomineeMaster({
                     </TableCell>
                     <TableCell className="text-center">
                       <Switch
+                        disabled={!canManage}
                         checked={!!n?.can_verify}
                         onCheckedChange={(v) =>
                           save.mutate({
@@ -461,7 +603,134 @@ function NomineeMaster({
           <ShieldCheck className="h-3.5 w-3.5" />
           A person can never verify a count they submitted themselves, whatever is set here.
         </p>
+        {!canManage && (
+          <p className="mt-1 flex items-center gap-2 text-xs text-amber-700">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            You can see this list but not change it — only a director or administrator
+            can decide who receives cash or verifies a count.
+          </p>
+        )}
       </CardContent>
     </Card>
+  );
+}
+
+/* ------------------------------------------------------------- pharmacy */
+
+/**
+ * Hope Pharmacy's own drawer. Cash is what gets handed over; UPI and card are
+ * shown beside it so the shift can be reconciled in full, but never added into
+ * the drawer, because that money is in the bank and not in anyone's hand.
+ */
+function PharmacyPanel({
+  rows, summary, isLoading,
+}: {
+  rows: import("@/lib/cashHandover").CashPosition[];
+  summary: import("@/lib/cashHandover").PharmacySummary | undefined;
+  isLoading: boolean;
+}) {
+  const drawer = rows.reduce((s, r) => s + Number(r.net_cash || 0), 0);
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card className="border-l-4 border-l-emerald-500">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Cash in the till</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className={`text-3xl font-bold ${drawer < 0 ? "text-amber-700" : ""}`}>
+              {inr(drawer)}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {summary?.cashCount ?? 0} cash sale(s), less anything paid out
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-blue-500">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">UPI / online</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold">{inr(summary?.upiAmount ?? 0)}</p>
+            <p className="text-xs text-muted-foreground">
+              {summary?.upiCount ?? 0} payment(s) — reference only, not handed over
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-violet-500">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Card</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold">{inr(summary?.cardAmount ?? 0)}</p>
+            <p className="text-xs text-muted-foreground">
+              {summary?.cardCount ?? 0} payment(s) — reference only
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Who is holding pharmacy cash</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Farhan, Ruchika, Lalit and Siddhanth work this till. A name appears
+            once that person is signed in when the sale is made.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Person</TableHead>
+                <TableHead className="text-right">Cash held</TableHead>
+                <TableHead className="text-right">Entries</TableHead>
+                <TableHead>Oldest</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                    Loading…
+                  </TableCell>
+                </TableRow>
+              ) : rows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                    No pharmacy cash outstanding.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                rows.map((p) => (
+                  <TableRow key={`${p.holder_user_id ?? "x"}-${p.holder_name}`}>
+                    <TableCell className="font-medium">
+                      {p.attribution === "payout" ? (
+                        <span className="text-rose-700">{p.holder_name}</span>
+                      ) : p.attribution === "login" ? (
+                        p.holder_name
+                      ) : p.attribution === "name" ? (
+                        <>
+                          {p.holder_name}
+                          <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">
+                            by name
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-amber-700">Not recorded to anyone</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right font-semibold">{inr(p.net_cash)}</TableCell>
+                    <TableCell className="text-right">{p.receipt_count}</TableCell>
+                    <TableCell>{when(p.oldest_uncollected)}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
