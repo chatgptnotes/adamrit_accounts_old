@@ -161,10 +161,15 @@ export async function cancelHandover(id: string, userId: string, reason: string)
 export interface CashPayout {
   id: string;
   amount: number;
+  /** When the cash actually left the counter. */
   at: string;
+  /** The date the voucher is filed under, which staff often backdate. */
+  entry_date: string | null;
   label: string;
   voucher_no: string | null;
   paid_by: string | null;
+  /** "payment_voucher" = the till; "accounting" = posted in the books. */
+  source: "payment_voucher" | "accounting";
 }
 
 /** The individual payment vouchers behind the "Cash paid out" line. */

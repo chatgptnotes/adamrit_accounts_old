@@ -90,7 +90,9 @@ export default function CashHandoverPage() {
   const totalHeld = (positions.data ?? []).reduce((s, p) => s + Number(p.net_cash || 0), 0);
 
   return (
-    <div className="space-y-6 p-6">
+    // pb-28 clears the floating camera and chat buttons, which sat on top of
+    // the last row of the table.
+    <div className="space-y-6 p-6 pb-28">
       <div>
         <h1 className="text-2xl font-bold">Cash Handover</h1>
         <p className="text-muted-foreground">
@@ -256,7 +258,11 @@ export default function CashHandoverPage() {
                                   <TableHead className="text-xs">Voucher</TableHead>
                                   <TableHead className="text-xs">Paid for</TableHead>
                                   <TableHead className="text-xs">Paid by</TableHead>
-                                  <TableHead className="text-xs">When</TableHead>
+                                  {/* Two dates on purpose: staff routinely file
+                                      yesterday's slips today, and the drawer
+                                      counts when the cash actually left. */}
+                                  <TableHead className="text-xs">Dated</TableHead>
+                                  <TableHead className="text-xs">Entered</TableHead>
                                   <TableHead className="text-right text-xs">Amount</TableHead>
                                 </TableRow>
                               </TableHeader>
@@ -271,6 +277,22 @@ export default function CashHandoverPage() {
                                       {v.paid_by ?? (
                                         <span className="text-amber-700">Not recorded</span>
                                       )}
+                                    </TableCell>
+                                    <TableCell className="text-xs">
+                                      {v.entry_date
+                                        ? new Date(v.entry_date).toLocaleDateString("en-IN", {
+                                            day: "2-digit", month: "short",
+                                          })
+                                        : "—"}
+                                      {v.entry_date &&
+                                        v.entry_date !== v.at.slice(0, 10) && (
+                                          <span
+                                            className="ml-1 rounded bg-amber-100 px-1 text-[10px] text-amber-800"
+                                            title="Filed under a different day from when the cash left the counter"
+                                          >
+                                            backdated
+                                          </span>
+                                        )}
                                     </TableCell>
                                     <TableCell className="text-xs">{when(v.at)}</TableCell>
                                     <TableCell className="text-right text-xs font-medium text-rose-700">
