@@ -36,6 +36,23 @@ const when = (iso: string | null) =>
       })
     : "—";
 
+/**
+ * Everyone at the counter may LOOK at this screen — reception, billing and
+ * accounts all need to see whose cash is whose. Changing who may receive or
+ * verify is a different matter: a receptionist who can nominate themselves as a
+ * verifier can approve their own drawer, which is the one thing this feature
+ * exists to prevent.
+ *
+ * Matched case-insensitively on purpose. The same role is stored both ways in
+ * the user table — "Receptionist" for Diksha and "receptionist" for Nisha,
+ * "Billing" and "billing", "Pharmacy" and "pharmacy" — so an exact comparison
+ * silently locks out half the staff who hold the very same job.
+ */
+const NOMINEE_ADMIN_ROLES = ["superadmin", "super_admin", "ca", "admin", "cmd", "director"];
+
+const canManageNominees = (role: string | null | undefined) =>
+  NOMINEE_ADMIN_ROLES.includes((role ?? "").toLowerCase().trim());
+
 const STATUS_TONE: Record<string, string> = {
   SUBMITTED: "bg-amber-100 text-amber-800",
   ACCEPTED: "bg-blue-100 text-blue-800",
@@ -209,6 +226,7 @@ export default function CashHandoverPage() {
           <NomineeMaster
             nominees={nominees.data ?? []}
             actor={user?.email ?? user?.id ?? null}
+            canManage={canManageNominees(user?.role)}
             onChanged={() => qc.invalidateQueries({ queryKey: ["cash-handover-nominees"] })}
           />
         </TabsContent>
@@ -328,13 +346,14 @@ const HOSPITAL_SCOPES = [
 ] as const;
 
 function NomineeMaster({
-  nominees, actor, onChanged,
+  nominees, actor, canManage, onChanged,
 }: {
   nominees: {
     user_id: string; display_name: string;
     can_receive: boolean; can_verify: boolean; hospital_type: string;
   }[];
   actor: string | null;
+  canManage: boolean;
   onChanged: () => void;
 }) {
   const [search, setSearch] = useState("");
@@ -430,6 +449,7 @@ function NomineeMaster({
                     </TableCell>
                     <TableCell className="text-center">
                       <Switch
+                        disabled={!canManage}
                         checked={!!n?.can_receive}
                         onCheckedChange={(v) =>
                           save.mutate({
@@ -442,6 +462,7 @@ function NomineeMaster({
                     </TableCell>
                     <TableCell className="text-center">
                       <Switch
+                        disabled={!canManage}
                         checked={!!n?.can_verify}
                         onCheckedChange={(v) =>
                           save.mutate({
@@ -461,6 +482,13 @@ function NomineeMaster({
           <ShieldCheck className="h-3.5 w-3.5" />
           A person can never verify a count they submitted themselves, whatever is set here.
         </p>
+        {!canManage && (
+          <p className="mt-1 flex items-center gap-2 text-xs text-amber-700">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            You can see this list but not change it — only a director or administrator
+            can decide who receives cash or verifies a count.
+          </p>
+        )}
       </CardContent>
     </Card>
   );
