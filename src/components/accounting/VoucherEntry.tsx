@@ -589,6 +589,11 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
   const [voucherNumberOverride, setVoucherNumberOverride] = useState('');
   const [datePickerRequest, setDatePickerRequest] = useState(0);
   const [referenceNumber, setReferenceNumber] = useState('');
+  // Required on a hand-typed payment or receipt: money changes hands with a
+  // person, and a name alone leaves nobody to ring afterwards. Contra and
+  // journal are exempt -- moving money between our own ledgers has no
+  // counterparty. The database enforces the same rule.
+  const [partyMobile, setPartyMobile] = useState('');
   const [referenceDate, setReferenceDate] = useState('');
   const [narration, setNarration] = useState('');
   const [patientId, setPatientId] = useState('');
@@ -984,6 +989,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     setLoadedNumber(alterMode ? loadedVoucher.voucher_number || '' : '');
     setVoucherDate(loadedVoucher.voucher_date || format(new Date(), 'yyyy-MM-dd'));
     setReferenceNumber(loadedVoucher.reference_number || '');
+    setPartyMobile((loadedVoucher as any).party_mobile || '');
     setReferenceDate(loadedVoucher.reference_date || '');
     setNarration(loadedVoucher.narration || '');
     setPatientId(loadedVoucher.patient_id || '');
@@ -1286,6 +1292,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
     setIsOptional(false);
     setVoucherDate(format(new Date(), 'yyyy-MM-dd'));
     setReferenceNumber('');
+    setPartyMobile('');
     setReferenceDate('');
     setNarration('');
     setPatientId('');
@@ -1448,6 +1455,28 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
       toast.error('Select a voucher type.');
       return;
     }
+    // The other party's mobile, on payments and receipts only. Checked here so
+    // the message arrives before a voucher number is taken; the database
+    // enforces the same rule so no other client can skip it.
+    const mobileRequired = category === 'PAYMENT' || category === 'RECEIPT';
+    const partyMobileDigits = partyMobile
+      .replace(/\D/g, '')
+      .replace(/^91(?=\d{10}$)/, '')
+      .replace(/^0(?=\d{10}$)/, '');
+    if (mobileRequired) {
+      if (!partyMobileDigits) {
+        toast.error(
+          category === 'PAYMENT'
+            ? 'Enter the mobile number of the person being paid.'
+            : 'Enter the mobile number of the person the money came from.',
+        );
+        return;
+      }
+      if (!/^[6-9]\d{9}$/.test(partyMobileDigits)) {
+        toast.error('That mobile number should be 10 digits starting 6, 7, 8 or 9.');
+        return;
+      }
+    }
     if (onBehalf && onBehalfCounterpart && category === 'PAYMENT' && !alterMode) {
       // Both sides post as AUTHORISED in one transaction; there is no draft
       // half-state where one company has the entry and the other does not.
@@ -1564,6 +1593,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
           is_optional: isOptional,
           // The one screen where a person types a voucher; everything else posts itself.
           is_auto: false,
+          party_mobile: partyMobileDigits || null,
           // The typist, not 'system' — the user log must name who made the entry.
           created_by: username,
           last_modified_by: username,
@@ -1731,6 +1761,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
       through,
       rows,
       narration,
+      partyMobile: partyMobile || null,
     });
     if (!printed) toast.error('Popup blocked — allow popups to print');
   };
@@ -2018,6 +2049,27 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
               aria-label="Reference date"
             />
           </div>
+          {/* Payments and receipts only: contra and journal move money between
+              our own ledgers and have no other party to reach. */}
+          {(category === 'PAYMENT' || category === 'RECEIPT') && (
+            <div className="mt-1 flex items-center gap-2 text-[12px]">
+              <span className="font-medium">
+                Mobile of {category === 'PAYMENT' ? 'person paid' : 'person paying'}
+                <span className="text-red-600"> *</span>
+              </span>
+              <Input
+                data-tally-field
+                value={partyMobile}
+                inputMode="numeric"
+                maxLength={15}
+                onChange={(e) => setPartyMobile(e.target.value)}
+                placeholder="10 digits"
+                className="h-6 w-40 rounded-none border-0 border-b border-dashed border-gray-400 bg-transparent px-1 text-[12px] shadow-none focus-visible:border-solid focus-visible:border-blue-600 focus-visible:ring-0"
+                aria-label="Mobile number of the other party"
+              />
+              <span className="text-[11px] italic text-gray-600">required</span>
+            </div>
+          )}
         </div>
         <div className="text-right">
           <EnhancedDatePicker

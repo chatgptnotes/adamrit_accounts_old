@@ -74,6 +74,9 @@ export interface TallyVoucherPrintData {
   through: string | null;
   rows: { name: string; dr: number; cr: number }[];
   narration: string;
+  /** The other party's mobile. Printed on payments and receipts so the entry
+   *  can be traced back to a person who can actually be reached. */
+  partyMobile?: string | null;
 }
 
 const VOUCHER_CSS = `
@@ -98,7 +101,7 @@ const VOUCHER_CSS = `
  * amount-in-words blocks live inside the table rather than after it.
  */
 export function printTallyVoucher(data: TallyVoucherPrintData): boolean {
-  const { orgName, addressLines, voucherTypeName, voucherNumber, voucherDate, category, through, rows, narration } =
+  const { orgName, addressLines, voucherTypeName, voucherNumber, voucherDate, category, through, rows, narration, partyMobile } =
     data;
   // Single-account rows all sit on one side, so summing the debits alone would
   // total zero on a Receipt.
@@ -128,6 +131,7 @@ export function printTallyVoucher(data: TallyVoucherPrintData): boolean {
     <div>Dated&nbsp;&nbsp; :&nbsp;&nbsp;${esc(tallyDateLabel(voucherDate))}</div>
   </div>
   ${through ? `<div class="through">Through :&nbsp;&nbsp;${esc(through)}</div>` : ''}
+  ${partyMobile ? `<div class="through">Mobile :&nbsp;&nbsp;${esc(partyMobile)}</div>` : ''}
   <table>
     <thead><tr><th class="part">Particulars</th>${
       through ? '<th class="num">Amount</th>' : '<th class="num">Debit</th><th class="num">Credit</th>'

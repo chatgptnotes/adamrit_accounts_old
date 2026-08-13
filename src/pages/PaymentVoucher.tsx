@@ -699,7 +699,8 @@ const PaymentVoucher = () => {
       category: 'PAYMENT',
       through: v.account_ledger_name || v.paid_by || 'Cash',
       rows: voucherLines.map((l) => ({ name: l.ledger_name, dr: Number(l.amount), cr: 0 })),
-      narration: v.narration || v.purpose || '',
+      partyMobile: v.mobile_number || null,
+        narration: v.narration || v.purpose || '',
     });
     if (!printed) toast.error('Popup blocked — please allow popups for this site to print');
   };
