@@ -18,6 +18,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -391,9 +396,21 @@ function RegisterTable({
   canVerify: boolean;
   onChanged: () => void;
 }) {
+  // The verifier records what THEY found. Where the count is out, the database
+  // will not accept a sign-off without it: the only account of a shortage
+  // should not be the account of the person who was short.
+  const [verifying, setVerifying] = useState<CashHandover | null>(null);
+  const [verifyNote, setVerifyNote] = useState("");
+
   const verify = useMutation({
-    mutationFn: (id: string) => verifyHandover(id, currentUserId),
-    onSuccess: () => { toast.success("Count verified."); onChanged(); },
+    mutationFn: ({ id, note }: { id: string; note: string }) =>
+      verifyHandover(id, currentUserId, note.trim() || undefined),
+    onSuccess: () => {
+      toast.success("Count verified.");
+      setVerifying(null);
+      setVerifyNote("");
+      onChanged();
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Could not verify"),
   });
 
@@ -404,8 +421,79 @@ function RegisterTable({
     }
   };
 
+  const verifyDiff = verifying ? Number(verifying.variance || 0) : 0;
+  const verifyNeedsNote = Math.round(verifyDiff * 100) !== 0;
+
   return (
     <Card>
+      <Dialog open={!!verifying} onOpenChange={(o) => !o && setVerifying(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Verify {verifying?.handover_no}</DialogTitle>
+            <DialogDescription>
+              {verifying?.from_user_name} handed {inr(verifying?.counted_cash ?? 0)} to{" "}
+              {verifying?.to_user_name}. The software expected{" "}
+              {inr(verifying?.expected_cash ?? 0)}.
+            </DialogDescription>
+          </DialogHeader>
+
+          {verifyNeedsNote && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm">
+              <p className="font-medium text-amber-900">
+                Out by {inr(Math.abs(verifyDiff))} ({verifyDiff > 0 ? "extra" : "short"})
+              </p>
+              {verifying?.variance_reason && (
+                <p className="mt-1 text-amber-800">
+                  Cashier said: “{verifying.variance_reason}”
+                </p>
+              )}
+            </div>
+          )}
+
+          <div>
+            <Label htmlFor="verify-note">
+              What did you find?{" "}
+              {verifyNeedsNote ? (
+                <span className="text-destructive">*</span>
+              ) : (
+                <span className="text-muted-foreground">(optional)</span>
+              )}
+            </Label>
+            <Textarea
+              id="verify-note"
+              className="mt-1"
+              rows={3}
+              value={verifyNote}
+              onChange={(e) => setVerifyNote(e.target.value)}
+              placeholder={
+                verifyNeedsNote
+                  ? "e.g. recounted with the cashier, ₹100 short, paid out for stationery without a slip"
+                  : "Anything worth recording"
+              }
+            />
+            {verifyNeedsNote && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Required, because the count did not match. This is your record,
+                separate from the cashier's reason above.
+              </p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVerifying(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={verify.isPending || (verifyNeedsNote && !verifyNote.trim())}
+              onClick={() => verifying && verify.mutate({ id: verifying.id, note: verifyNote })}
+            >
+              <BadgeCheck className="mr-1 h-4 w-4" />
+              {verify.isPending ? "Verifying…" : "Verify"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <CardContent className="overflow-x-auto pt-6">
         <Table>
           <TableHeader>
@@ -496,7 +584,7 @@ function RegisterTable({
                             size="sm"
                             variant="outline"
                             disabled={verify.isPending}
-                            onClick={() => verify.mutate(h.id)}
+                            onClick={() => { setVerifying(h); setVerifyNote(""); }}
                           >
                             <BadgeCheck className="mr-1 h-4 w-4" /> Verify
                           </Button>

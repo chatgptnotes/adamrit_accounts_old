@@ -418,11 +418,18 @@ function ForMePanel({
   iAmVerifier: boolean;
   onDone: () => void;
 }) {
+  // Where a count is out, the verifier records what THEY found before signing
+  // it off. The database refuses the sign-off without it.
+  const [notes, setNotes] = useState<Record<string, string>>({});
+
   const act = useMutation({
     mutationFn: async ({ id, kind }: { id: string; kind: "accept" | "verify" }) =>
-      kind === "accept" ? acceptHandover(id, userId) : verifyHandover(id, userId),
+      kind === "accept"
+        ? acceptHandover(id, userId)
+        : verifyHandover(id, userId, notes[id]?.trim() || undefined),
     onSuccess: (_d, v) => {
       toast.success(v.kind === "accept" ? "Cash received." : "Count verified.");
+      setNotes((n) => ({ ...n, [v.id]: "" }));
       onDone();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Could not update"),
@@ -474,9 +481,28 @@ function ForMePanel({
 
             {h.notes && <p className="text-sm text-muted-foreground">{h.notes}</p>}
 
+            {!isReceive && Math.round(h.variance * 100) !== 0 && (
+              <div>
+                <TabletLabel htmlFor={`vn-${h.id}`}>
+                  What did you find? (required — the count is out)
+                </TabletLabel>
+                <TabletInput
+                  id={`vn-${h.id}`}
+                  value={notes[h.id] ?? ""}
+                  onChange={(e) => setNotes((n) => ({ ...n, [h.id]: e.target.value }))}
+                  placeholder="e.g. recounted together, ₹100 short"
+                />
+              </div>
+            )}
+
             <TabletButton
               className="w-full"
-              disabled={act.isPending}
+              disabled={
+                act.isPending ||
+                (!isReceive &&
+                  Math.round(h.variance * 100) !== 0 &&
+                  !(notes[h.id] ?? "").trim())
+              }
               onClick={() => act.mutate({ id: h.id, kind: isReceive ? "accept" : "verify" })}
             >
               {isReceive ? (
