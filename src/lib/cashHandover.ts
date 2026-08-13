@@ -181,6 +181,26 @@ export async function fetchPayouts(hospitalType?: string | null): Promise<CashPa
   return ((data ?? []) as CashPayout[]).sort((a, b) => (a.at < b.at ? 1 : -1));
 }
 
+export interface PharmacySummary {
+  cashAmount: number; cashCount: number;
+  upiAmount: number; upiCount: number;
+  cardAmount: number; cardCount: number;
+}
+
+/** Hope Pharmacy runs its own drawer: its own company, ledger and staff. */
+export async function fetchPharmacyPositions(): Promise<CashPosition[]> {
+  const { data, error } = await rpc("pharmacy_position_by_holder", {});
+  if (error) throw new Error(error.message);
+  return (data ?? []) as CashPosition[];
+}
+
+/** Cash is counted; UPI and card are reported beside it, never counted. */
+export async function fetchPharmacySummary(): Promise<PharmacySummary> {
+  const { data, error } = await rpc("pharmacy_cash_summary", {});
+  if (error) throw new Error(error.message);
+  return data as PharmacySummary;
+}
+
 /** Omit the hospital for the group-wide view; pass one to see just that counter. */
 export async function fetchPositions(hospitalType?: string | null): Promise<CashPosition[]> {
   const { data, error } = await rpc("cash_position_by_holder", {

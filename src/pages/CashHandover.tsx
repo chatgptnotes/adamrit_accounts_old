@@ -21,7 +21,8 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  fetchDenominations, fetchHandovers, fetchNominees, fetchPayouts, fetchPositions, setNominee,
+  fetchDenominations, fetchHandovers, fetchNominees, fetchPayouts,
+  fetchPharmacyPositions, fetchPharmacySummary, fetchPositions, setNominee,
   verifyHandover, type CashHandover,
 } from "@/lib/cashHandover";
 import { printHandoverSlip } from "@/lib/printHandoverSlip";
@@ -78,6 +79,10 @@ export default function CashHandoverPage() {
     queryKey: ["cash-payouts", posScope || "all"],
     queryFn: () => fetchPayouts(posScope || null),
   });
+  // Hope Pharmacy is a separate company with its own till and its own staff,
+  // so it gets its own tab rather than being mixed into the hospital counters.
+  const pharmacy = useQuery({ queryKey: ["pharmacy-positions"], queryFn: fetchPharmacyPositions });
+  const pharmacySummary = useQuery({ queryKey: ["pharmacy-summary"], queryFn: fetchPharmacySummary });
   const handovers = useQuery({ queryKey: ["cash-handovers"], queryFn: () => fetchHandovers({ limit: 200 }) });
   const nominees = useQuery({ queryKey: ["cash-handover-nominees", "all"], queryFn: () => fetchNominees() });
 
@@ -153,6 +158,7 @@ export default function CashHandoverPage() {
       <Tabs defaultValue="holders">
         <TabsList className="flex h-auto flex-wrap">
           <TabsTrigger value="holders">Who is holding cash</TabsTrigger>
+          <TabsTrigger value="pharmacy">Hope Pharmacy</TabsTrigger>
           <TabsTrigger value="register">Handover register</TabsTrigger>
           <TabsTrigger value="people">Nominated people</TabsTrigger>
         </TabsList>
@@ -312,6 +318,14 @@ export default function CashHandoverPage() {
               </Table>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="pharmacy" className="mt-4">
+          <PharmacyPanel
+            rows={pharmacy.data ?? []}
+            summary={pharmacySummary.data}
+            isLoading={pharmacy.isLoading}
+          />
         </TabsContent>
 
         <TabsContent value="register" className="mt-4">
@@ -598,5 +612,125 @@ function NomineeMaster({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/* ------------------------------------------------------------- pharmacy */
+
+/**
+ * Hope Pharmacy's own drawer. Cash is what gets handed over; UPI and card are
+ * shown beside it so the shift can be reconciled in full, but never added into
+ * the drawer, because that money is in the bank and not in anyone's hand.
+ */
+function PharmacyPanel({
+  rows, summary, isLoading,
+}: {
+  rows: import("@/lib/cashHandover").CashPosition[];
+  summary: import("@/lib/cashHandover").PharmacySummary | undefined;
+  isLoading: boolean;
+}) {
+  const drawer = rows.reduce((s, r) => s + Number(r.net_cash || 0), 0);
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card className="border-l-4 border-l-emerald-500">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Cash in the till</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className={`text-3xl font-bold ${drawer < 0 ? "text-amber-700" : ""}`}>
+              {inr(drawer)}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {summary?.cashCount ?? 0} cash sale(s), less anything paid out
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-blue-500">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">UPI / online</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold">{inr(summary?.upiAmount ?? 0)}</p>
+            <p className="text-xs text-muted-foreground">
+              {summary?.upiCount ?? 0} payment(s) — reference only, not handed over
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-violet-500">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Card</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold">{inr(summary?.cardAmount ?? 0)}</p>
+            <p className="text-xs text-muted-foreground">
+              {summary?.cardCount ?? 0} payment(s) — reference only
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Who is holding pharmacy cash</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Farhan, Ruchika, Lalit and Siddhanth work this till. A name appears
+            once that person is signed in when the sale is made.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Person</TableHead>
+                <TableHead className="text-right">Cash held</TableHead>
+                <TableHead className="text-right">Entries</TableHead>
+                <TableHead>Oldest</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                    Loading…
+                  </TableCell>
+                </TableRow>
+              ) : rows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                    No pharmacy cash outstanding.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                rows.map((p) => (
+                  <TableRow key={`${p.holder_user_id ?? "x"}-${p.holder_name}`}>
+                    <TableCell className="font-medium">
+                      {p.attribution === "payout" ? (
+                        <span className="text-rose-700">{p.holder_name}</span>
+                      ) : p.attribution === "login" ? (
+                        p.holder_name
+                      ) : p.attribution === "name" ? (
+                        <>
+                          {p.holder_name}
+                          <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">
+                            by name
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-amber-700">Not recorded to anyone</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right font-semibold">{inr(p.net_cash)}</TableCell>
+                    <TableCell className="text-right">{p.receipt_count}</TableCell>
+                    <TableCell>{when(p.oldest_uncollected)}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
