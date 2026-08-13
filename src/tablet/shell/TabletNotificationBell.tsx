@@ -89,7 +89,10 @@ export function TabletNotificationBell() {
   const { isIOS, isStandalone } = useInstallPrompt();
 
   const { data: rows = [], isFetching, refetch, error } = useQuery({
-    queryKey: QUERY_KEY,
+    // Scoped to the user, now that the list is theirs rather than everyone's:
+    // a static key would hand the next person the previous one's cache.
+    // Invalidations still use the QUERY_KEY prefix and so still match.
+    queryKey: [...QUERY_KEY, user?.id],
     enabled: Boolean(user),
     queryFn: async () => {
       // The books checks run at most once a day (the function dedupes its own
@@ -103,9 +106,14 @@ export function TabletNotificationBell() {
         if (healthError) console.warn("Books health check failed:", healthError.message);
       }
 
+      // Broadcast rows (no recipient) plus the ones addressed to this person.
+      // Without this every user saw notifications meant for somebody else --
+      // harmless while everything was broadcast, wrong now that a handover
+      // names the one receiver who has to acknowledge it.
       const { data, error: queryError } = await (supabase as any)
         .from("notifications")
         .select("*")
+        .or(`recipient_user_id.is.null,recipient_user_id.eq.${user?.id}`)
         .order("created_at", { ascending: false })
         .limit(50);
       if (queryError) throw queryError;
