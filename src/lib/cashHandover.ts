@@ -190,6 +190,29 @@ export interface PharmacySummary {
   cardAmount: number; cardCount: number;
 }
 
+export interface PharmacyTransaction {
+  id: string;
+  source_table: "pharmacy_sales" | "pharmacy_credit_payments";
+  amount: number;
+  at: string;
+  /** CASH, UPI, CARD ... upper-cased at the database. */
+  mode: string;
+  uid: string | null;
+  /** Patient, or what the payment was for. */
+  label: string;
+  /** Who took it: the signed-in user's name, else the name typed at the till. */
+  who: string | null;
+  /** Bill number, or the payment reference on a credit collection. */
+  reference: string | null;
+}
+
+/** Every pharmacy transaction behind the till figure, cash and online alike. */
+export async function fetchPharmacyTransactions(): Promise<PharmacyTransaction[]> {
+  const { data, error } = await rpc("pharmacy_cash_pool", {});
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as PharmacyTransaction[]).sort((a, b) => (a.at < b.at ? 1 : -1));
+}
+
 /** Hope Pharmacy runs its own drawer: its own company, ledger and staff. */
 export async function fetchPharmacyPositions(): Promise<CashPosition[]> {
   const { data, error } = await rpc("pharmacy_position_by_holder", {});

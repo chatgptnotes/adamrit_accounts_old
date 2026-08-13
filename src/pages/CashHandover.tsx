@@ -5,6 +5,7 @@ import {
   BadgeCheck,
   Banknote,
   Printer,
+  Receipt,
   ShieldCheck,
   TriangleAlert,
   UserCog,
@@ -22,7 +23,8 @@ import {
 } from "@/components/ui/table";
 import {
   fetchDenominations, fetchHandovers, fetchNominees, fetchPayouts,
-  fetchPharmacyPositions, fetchPharmacySummary, fetchPositions, setNominee,
+  fetchPharmacyPositions, fetchPharmacySummary, fetchPharmacyTransactions,
+  fetchPositions, setNominee,
   verifyHandover, type CashHandover,
 } from "@/lib/cashHandover";
 import { printHandoverSlip } from "@/lib/printHandoverSlip";
@@ -640,6 +642,13 @@ function PharmacyPanel({
   isLoading: boolean;
 }) {
   const drawer = rows.reduce((s, r) => s + Number(r.net_cash || 0), 0);
+  // A total nobody can open is a total nobody can check.
+  const [showTxns, setShowTxns] = useState(false);
+  const txns = useQuery({
+    queryKey: ["pharmacy-transactions"],
+    queryFn: fetchPharmacyTransactions,
+    enabled: showTxns,
+  });
 
   return (
     <div className="space-y-4">
@@ -690,6 +699,12 @@ function PharmacyPanel({
           </p>
         </CardHeader>
         <CardContent>
+          <div className="mb-3">
+            <Button size="sm" variant="outline" onClick={() => setShowTxns((v) => !v)}>
+              <Receipt className="mr-1 h-4 w-4" />
+              {showTxns ? "Hide transactions" : "Show every transaction"}
+            </Button>
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
@@ -739,6 +754,77 @@ function PharmacyPanel({
               )}
             </TableBody>
           </Table>
+
+          {showTxns && (
+            <div className="mt-4 rounded-md border">
+              <div className="border-b bg-muted/40 px-3 py-2 text-sm font-medium">
+                Every pharmacy transaction since counting began
+                {txns.data ? ` — ${txns.data.length}` : ""}
+              </div>
+              <div className="max-h-[28rem] overflow-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-xs">Bill / ref</TableHead>
+                      <TableHead className="text-xs">Patient</TableHead>
+                      <TableHead className="text-xs">Received by</TableHead>
+                      <TableHead className="text-xs">Mode</TableHead>
+                      <TableHead className="text-xs">When</TableHead>
+                      <TableHead className="text-right text-xs">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {txns.isLoading ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="py-6 text-center text-muted-foreground">
+                          Loading…
+                        </TableCell>
+                      </TableRow>
+                    ) : (txns.data ?? []).length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="py-6 text-center text-muted-foreground">
+                          No pharmacy transactions yet.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      (txns.data ?? []).map((t) => (
+                        <TableRow key={`${t.source_table}-${t.id}`}>
+                          <TableCell className="font-mono text-xs">
+                            {t.reference ?? "—"}
+                            {t.source_table === "pharmacy_credit_payments" && (
+                              <span className="ml-1 rounded bg-blue-100 px-1 text-[10px] text-blue-800">
+                                credit bill
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs">{t.label}</TableCell>
+                          <TableCell className="text-xs">
+                            {t.who ?? <span className="text-amber-700">Not recorded</span>}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            <Badge
+                              variant="secondary"
+                              className={
+                                t.mode === "CASH"
+                                  ? "bg-emerald-100 text-emerald-800"
+                                  : "bg-blue-100 text-blue-800"
+                              }
+                            >
+                              {t.mode || "—"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-xs">{when(t.at)}</TableCell>
+                          <TableCell className="text-right text-xs font-medium">
+                            {inr(t.amount)}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
