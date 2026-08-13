@@ -35,6 +35,13 @@ export const ALL_ROLES = [
   "security",
   "driver",
   "physiotherapist",
+  // All of these are already held by live users but were absent here, so an
+  // admin editing one of those people could not re-pick their own role and a
+  // save would silently move them to something else.
+  "finance",
+  "reception",
+  "pharmacy",
+  "user",
 ] as const;
 
 export const ALL_TILE_GROUPS = [
