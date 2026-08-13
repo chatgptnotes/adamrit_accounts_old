@@ -115,6 +115,213 @@ export default function CashHandoverPage() {
     // pb-28 clears the floating camera and chat buttons, which sat on top of
     // the last row of the table.
     <div className="space-y-6 p-6 pb-28">
+      {/* One dialog, three explanations. Each says what the number MEANS before
+          showing what it is made of: the meaning is the part that was missing,
+          and a figure without it is how "Software Rs 0" went unquestioned. */}
+      <Dialog open={!!cardOpen} onOpenChange={(o) => !o && setCardOpen(null)}>
+        <DialogContent className="max-h-[85vh] overflow-auto sm:max-w-3xl">
+          {cardOpen === "counter" && (
+            <>
+              <DialogHeader>
+                <DialogTitle>Cash at the counter — {inr(totalHeld)}</DialogTitle>
+                <DialogDescription className="space-y-2 pt-1 text-left">
+                  <span className="block">
+                    Everything collected in cash at this counter that has not yet been
+                    handed over, less the cash paid out of it. It is what a cashier
+                    should be able to put on the table right now.
+                  </span>
+                  <span className="block">
+                    Counting starts from the moment this feature went live, so cash
+                    already in the drawer before then was never seen. That is why it
+                    can read below zero at first — today's payments came partly out of
+                    money the system never counted. It settles after the first full
+                    handover.
+                  </span>
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <h4 className="mb-1 text-sm font-semibold">Who is holding it</h4>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-xs">Person</TableHead>
+                        <TableHead className="text-xs">How known</TableHead>
+                        <TableHead className="text-right text-xs">Amount</TableHead>
+                        <TableHead className="text-right text-xs">Entries</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(positions.data ?? []).map((r) => (
+                        <TableRow key={`${r.holder_user_id ?? "x"}-${r.holder_name}`}>
+                          <TableCell className="text-xs">{r.holder_name}</TableCell>
+                          <TableCell className="text-xs">
+                            {r.attribution === "login"
+                              ? "Signed in"
+                              : r.attribution === "name"
+                                ? "Name typed at the till"
+                                : r.attribution === "payout"
+                                  ? "Paid out"
+                                  : "Nobody recorded"}
+                          </TableCell>
+                          <TableCell className="text-right text-xs font-medium">
+                            {inr(r.net_cash)}
+                          </TableCell>
+                          <TableCell className="text-right text-xs">{r.receipt_count}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+                {(payouts.data ?? []).length > 0 && (
+                  <div>
+                    <h4 className="mb-1 text-sm font-semibold">
+                      Cash paid out — {(payouts.data ?? []).length} voucher(s)
+                    </h4>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs">Voucher</TableHead>
+                          <TableHead className="text-xs">Paid for</TableHead>
+                          <TableHead className="text-xs">Paid by</TableHead>
+                          <TableHead className="text-right text-xs">Amount</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(payouts.data ?? []).map((o) => (
+                          <TableRow key={o.id}>
+                            <TableCell className="font-mono text-xs">{o.voucher_no ?? "—"}</TableCell>
+                            <TableCell className="text-xs">{o.label}</TableCell>
+                            <TableCell className="text-xs">
+                              {o.paid_by ?? <span className="text-amber-700">Not recorded</span>}
+                            </TableCell>
+                            <TableCell className="text-right text-xs text-rose-700">
+                              −{inr(o.amount)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+                {(onlineOut.data ?? []).length > 0 && (
+                  <p className="rounded bg-blue-50 p-2 text-xs text-blue-900">
+                    Separately,{" "}
+                    {inr((onlineOut.data ?? []).reduce((a, o) => a + Number(o.amount || 0), 0))} went
+                    out by bank or UPI across {(onlineOut.data ?? []).length} payment(s). That money
+                    left the bank, not the counter, so it is not part of this figure.
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+
+          {cardOpen === "variances" && (
+            <>
+              <DialogHeader>
+                <DialogTitle>Differences recorded — {openVariances.length}</DialogTitle>
+                <DialogDescription className="pt-1 text-left">
+                  Handovers where the cash counted did not equal what the software
+                  expected. A difference never blocks a handover, but it cannot be saved
+                  without a reason, and a verifier cannot sign it off without recording
+                  what they found. Both accounts appear below.
+                </DialogDescription>
+              </DialogHeader>
+              {openVariances.length === 0 ? (
+                <p className="py-6 text-center text-muted-foreground">
+                  Every count has matched so far.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {openVariances.map((h) => (
+                    <div key={h.id} className="rounded border p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs">{h.handover_no}</span>
+                        <span className="text-sm">
+                          {h.from_user_name} → {h.to_user_name}
+                        </span>
+                        <Badge className={STATUS_TONE[h.status]} variant="secondary">
+                          {h.status}
+                        </Badge>
+                        <span className="ml-auto font-semibold text-amber-700">
+                          {Number(h.variance) > 0 ? "+" : "−"}
+                          {inr(Math.abs(Number(h.variance)))}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Counted {inr(h.counted_cash)} against {inr(h.expected_cash)} expected ·{" "}
+                        {when(h.submitted_at)}
+                      </p>
+                      {h.variance_reason && (
+                        <p className="mt-1 text-sm">
+                          <span className="font-medium">Cashier:</span> {h.variance_reason}
+                        </p>
+                      )}
+                      {h.verify_note && (
+                        <p className="mt-1 text-sm">
+                          <span className="font-medium">Verifier:</span> {h.verify_note}
+                        </p>
+                      )}
+                      {!h.verify_note && h.status !== "VERIFIED" && (
+                        <p className="mt-1 text-xs text-amber-700">Not verified yet.</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {cardOpen === "nominees" && (
+            <>
+              <DialogHeader>
+                <DialogTitle>Nominated people — {(nominees.data ?? []).length}</DialogTitle>
+                <DialogDescription className="pt-1 text-left">
+                  Only these people may be handed cash or confirm a count, and only at
+                  the counters listed. Everyone else can still hand cash over; this list
+                  governs receiving and verifying. Nobody may verify a count they
+                  submitted themselves, whatever is set here.
+                </DialogDescription>
+              </DialogHeader>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs">Person</TableHead>
+                    <TableHead className="text-xs">Counter</TableHead>
+                    <TableHead className="text-center text-xs">Receives cash</TableHead>
+                    <TableHead className="text-center text-xs">Verifies counts</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(nominees.data ?? []).map((n) => (
+                    <TableRow key={n.id}>
+                      <TableCell className="text-xs font-medium">{n.display_name}</TableCell>
+                      <TableCell className="text-xs">
+                        {n.hospital_type === "*"
+                          ? "All counters"
+                          : n.hospital_type === "hope"
+                            ? "Hope Hospital"
+                            : n.hospital_type === "ayushman"
+                              ? "Ayushman Nagpur"
+                              : n.hospital_type === "pharmacy"
+                                ? "Hope Pharmacy"
+                                : n.hospital_type}
+                      </TableCell>
+                      <TableCell className="text-center text-xs">
+                        {n.can_receive ? "Yes" : "—"}
+                      </TableCell>
+                      <TableCell className="text-center text-xs">
+                        {n.can_verify ? "Yes" : "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <div>
         <h1 className="text-2xl font-bold">Cash Handover</h1>
         <p className="text-muted-foreground">
