@@ -51,7 +51,6 @@ export interface CashHandover {
   ref_card_total: number;
   declared_online: number | null;
   verifier_counted: number | null;
-  is_unmatched: boolean;
   software_online: number | null;
   source_count: number;
   included_unattributed: boolean;
