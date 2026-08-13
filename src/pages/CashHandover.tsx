@@ -76,6 +76,7 @@ export default function CashHandoverPage() {
   // this filter both counters showed each other's transactions.
   const [posScope, setPosScope] = useState<string>("");
   const [showPayouts, setShowPayouts] = useState(false);
+  const [showOnlineOut, setShowOnlineOut] = useState(false);
   const positions = useQuery({
     queryKey: ["cash-positions", posScope || "all"],
     queryFn: () => fetchPositions(posScope || null),
@@ -209,6 +210,51 @@ export default function CashHandoverPage() {
                     {(onlineOut.data ?? []).length} payment(s). Not part of the drawer —
                     this money left the bank, not the counter.
                   </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-2 bg-white"
+                    onClick={() => setShowOnlineOut((v) => !v)}
+                  >
+                    {showOnlineOut ? "Hide breakdown" : "Show breakdown"}
+                  </Button>
+
+                  {showOnlineOut && (
+                    <div className="mt-3 max-h-80 overflow-auto rounded border bg-white">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-xs">Voucher</TableHead>
+                            <TableHead className="text-xs">Paid for</TableHead>
+                            <TableHead className="text-xs">From account</TableHead>
+                            <TableHead className="text-xs">Dated</TableHead>
+                            <TableHead className="text-right text-xs">Amount</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {(onlineOut.data ?? []).map((o) => (
+                            <TableRow key={o.id}>
+                              <TableCell className="font-mono text-xs">
+                                {o.voucher_no ?? "—"}
+                              </TableCell>
+                              <TableCell className="text-xs">{o.label}</TableCell>
+                              <TableCell className="text-xs">{o.ledger ?? "—"}</TableCell>
+                              <TableCell className="text-xs">
+                                {o.entry_date
+                                  ? new Date(o.entry_date).toLocaleDateString("en-IN", {
+                                      day: "2-digit", month: "short",
+                                    })
+                                  : "—"}
+                              </TableCell>
+                              <TableCell className="text-right text-xs font-medium text-blue-900">
+                                {inr(o.amount)}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
                 </div>
               )}
               <Table>
@@ -777,13 +823,25 @@ function PharmacyPanel({
   isLoading: boolean;
 }) {
   const drawer = rows.reduce((s, r) => s + Number(r.net_cash || 0), 0);
+  const CASH_MODES = ["CASH"];
   // A total nobody can open is a total nobody can check.
   const [showTxns, setShowTxns] = useState(false);
+  // Cash and online are different animals: one is counted and handed over, the
+  // other is already in the bank. The list mixes them, so it needs a filter.
+  const [txnMode, setTxnMode] = useState<"all" | "cash" | "online">("all");
   const txns = useQuery({
     queryKey: ["pharmacy-transactions"],
     queryFn: fetchPharmacyTransactions,
     enabled: showTxns,
   });
+
+  const filteredTxns = (txns.data ?? []).filter((t) =>
+    txnMode === "all"
+      ? true
+      : txnMode === "cash"
+        ? CASH_MODES.includes(t.mode)
+        : !CASH_MODES.includes(t.mode),
+  );
 
   return (
     <div className="space-y-4">
@@ -892,9 +950,29 @@ function PharmacyPanel({
 
           {showTxns && (
             <div className="mt-4 rounded-md border">
-              <div className="border-b bg-muted/40 px-3 py-2 text-sm font-medium">
-                Every pharmacy transaction since counting began
-                {txns.data ? ` — ${txns.data.length}` : ""}
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/40 px-3 py-2">
+                <span className="text-sm font-medium">
+                  Pharmacy transactions since counting began
+                </span>
+                <div className="flex items-center gap-2">
+                  {([
+                    { key: "all", label: "All" },
+                    { key: "cash", label: "Cash" },
+                    { key: "online", label: "Online" },
+                  ] as const).map((m) => (
+                    <Button
+                      key={m.key}
+                      size="sm"
+                      variant={txnMode === m.key ? "default" : "outline"}
+                      onClick={() => setTxnMode(m.key)}
+                    >
+                      {m.label}
+                    </Button>
+                  ))}
+                  <span className="ml-1 text-sm text-muted-foreground">
+                    {filteredTxns.length} · {inr(filteredTxns.reduce((a, t) => a + Number(t.amount || 0), 0))}
+                  </span>
+                </div>
               </div>
               <div className="max-h-[28rem] overflow-auto">
                 <Table>
@@ -915,14 +993,14 @@ function PharmacyPanel({
                           Loading…
                         </TableCell>
                       </TableRow>
-                    ) : (txns.data ?? []).length === 0 ? (
+                    ) : filteredTxns.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={6} className="py-6 text-center text-muted-foreground">
                           No pharmacy transactions yet.
                         </TableCell>
                       </TableRow>
                     ) : (
-                      (txns.data ?? []).map((t) => (
+                      filteredTxns.map((t) => (
                         <TableRow key={`${t.source_table}-${t.id}`}>
                           <TableCell className="font-mono text-xs">
                             {t.reference ?? "—"}
