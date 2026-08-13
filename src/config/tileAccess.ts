@@ -28,6 +28,9 @@ export const ALL_ROLES = [
   "cath_lab_tech",
   "marketing",
   "billing",
+  // Tilak keeps the books. Was missing here, so it could not be picked in User
+  // Management even though the accounting code already grants it rights.
+  "accountant",
   "housekeeping",
   "security",
   "driver",
