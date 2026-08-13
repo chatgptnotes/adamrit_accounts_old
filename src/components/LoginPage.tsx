@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -32,6 +32,15 @@ const LoginPage: React.FC<LoginPageProps> = ({ hospitalType }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [deactivated, setDeactivated] = useState(false);
+
+  // A session ended mid-shift because the account was switched off. Say so
+  // here, or the person just finds themselves at a login screen for no reason.
+  useEffect(() => {
+    if (localStorage.getItem('hmis_deactivated')) {
+      setDeactivated(true);
+      localStorage.removeItem('hmis_deactivated');
+    }
+  }, []);
   const [error, setError] = useState<string | null>(null);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
 

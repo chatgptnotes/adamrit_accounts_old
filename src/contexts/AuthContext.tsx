@@ -143,6 +143,25 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           parsed.role = parsed.username === 'admin' ? 'admin' : 'user';
         }
         setUser(parsed);
+
+        // A session already open outlives the switch being thrown: deactivating
+        // an account stops the next sign-in, not the tab someone left running.
+        // Shared logins were retired today while people were still working in
+        // them, so the open session is re-checked against the database and
+        // ended the moment the account is no longer active.
+        if (parsed?.email) {
+          (supabase as any)
+            .rpc('lookup_user_by_email', { lookup_email: parsed.email })
+            .then(({ data, error }: { data: unknown[] | null; error: unknown }) => {
+              // Only a clear "no such active user" ends the session. A network
+              // failure must never log the counter out mid-shift.
+              if (!error && Array.isArray(data) && data.length === 0) {
+                localStorage.removeItem('hmis_user');
+                localStorage.setItem('hmis_deactivated', parsed.email);
+                setUser(null);
+              }
+            });
+        }
       } catch {
         localStorage.removeItem('hmis_user');
       }
