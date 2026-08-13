@@ -54,6 +54,9 @@ export interface SaleData {
   payment_method: 'CASH' | 'CARD' | 'UPI' | 'INSURANCE' | 'CREDIT';
   payment_status?: 'PENDING' | 'COMPLETED' | 'REFUNDED' | 'CANCELLED';
   created_by?: string;
+  /** The signed-in user's id. The sale RPC takes created_by as free text and
+   *  the column is a uuid, so the cash handover could never say who sold. */
+  collected_by_user_id?: string | null;
   items: CartItem[];
 }
 
@@ -171,6 +174,17 @@ export async function savePharmacySale(saleData: SaleData): Promise<SaleResponse
         success: false,
         error: 'Database did not confirm the pharmacy sale'
       };
+    }
+
+    // Stamp who sold it. Done here rather than inside create_pharmacy_sale,
+    // which lives outside supabase/migrations and is not ours to change; a
+    // failure must never lose a sale that the database already committed.
+    if (saleData.collected_by_user_id) {
+      const { error: stampError } = await (supabase as any)
+        .from('pharmacy_sales')
+        .update({ collected_by_user_id: saleData.collected_by_user_id })
+        .eq('sale_id', result.sale_id);
+      if (stampError) console.error('Could not record who made the sale:', stampError);
     }
 
     return {

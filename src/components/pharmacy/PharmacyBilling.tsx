@@ -694,6 +694,7 @@ const PharmacyBilling: React.FC = () => {
     payment_status: paymentStatus as SaleData['payment_status'],
     is_ot_surgical: isOtSurgical,
     created_by: user?.email || user?.username || undefined,
+    collected_by_user_id: user?.id ?? null,
     items: cart.map(item => ({
       medicine_id: item.medicine_id,
       medicine_name: item.medicine_name,

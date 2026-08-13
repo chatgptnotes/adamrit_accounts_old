@@ -374,7 +374,10 @@ export const CreditPayments: React.FC = () => {
           payment_reference: paymentReference,
           remarks: paymentRemarks,
           pharmacy_executive: pharmacyExecutive || '',
-          received_by: user?.name || 'Unknown',
+          // user has no `name` field, so this always wrote 'Unknown' -- every
+          // one of these collections was anonymous.
+          received_by: user?.username || user?.email || 'Unknown',
+          collected_by_user_id: user?.id ?? null,
           hospital_name: hospitalConfig?.name
         });
 
