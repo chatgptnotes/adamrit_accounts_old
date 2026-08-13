@@ -28,7 +28,8 @@ import {
 } from "@/components/ui/table";
 import {
   fetchDenominations, fetchHandovers, fetchNominees, fetchPayouts,
-  fetchOnlineOut, fetchPharmacyPositions, fetchPharmacySummary, fetchPharmacyTransactions,
+  declareOpeningCash, fetchOnlineOut, fetchPharmacyPositions,
+  fetchSharedLogins, fetchStaleHandovers, fetchPharmacySummary, fetchPharmacyTransactions,
   fetchPositions, setNominee,
   verifyHandover, type CashHandover,
 } from "@/lib/cashHandover";
@@ -95,6 +96,27 @@ export default function CashHandoverPage() {
   const onlineOut = useQuery({
     queryKey: ["online-out", posScope || "all"],
     queryFn: () => fetchOnlineOut(posScope || null),
+  });
+  const stale = useQuery({ queryKey: ["stale-handovers"], queryFn: () => fetchStaleHandovers(6) });
+  const sharedLogins = useQuery({ queryKey: ["shared-logins"], queryFn: () => fetchSharedLogins(30) });
+  const [openingFor, setOpeningFor] = useState<string | null>(null);
+  const [openingAmt, setOpeningAmt] = useState("");
+  const [openingNote, setOpeningNote] = useState("");
+
+  const declareOpening = useMutation({
+    mutationFn: () =>
+      declareOpeningCash({
+        hospitalType: openingFor!,
+        amount: Number(openingAmt.replace(/[^0-9.]/g, "")),
+        userId: user?.id ?? "",
+        note: openingNote.trim() || null,
+      }),
+    onSuccess: () => {
+      toast.success("Opening cash recorded. The drawer counts from here.");
+      setOpeningFor(null); setOpeningAmt(""); setOpeningNote("");
+      qc.invalidateQueries({ queryKey: ["cash-positions"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not record it"),
   });
   // Hope Pharmacy is a separate company with its own till and its own staff,
   // so it gets its own tab rather than being mixed into the hospital counters.
@@ -406,6 +428,88 @@ export default function CashHandoverPage() {
         </Card>
       </div>
 
+      {/* One-off: count the drawer so the figures stop reading negative. */}
+      <Dialog open={!!openingFor} onOpenChange={(o) => !o && setOpeningFor(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Opening cash — {openingFor}</DialogTitle>
+            <DialogDescription className="pt-1 text-left">
+              Count everything physically in the drawer now and record it. The
+              system started counting part-way through a day, so cash that was
+              already there was never seen — which is why the figure can read
+              below zero. This is recorded once and carried into the next
+              handover.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="op-amt">Cash counted now</Label>
+              <Input id="op-amt" inputMode="decimal" value={openingAmt} className="mt-1"
+                onChange={(e) => setOpeningAmt(e.target.value.replace(/[^0-9.]/g, ""))}
+                placeholder="e.g. 14095" />
+            </div>
+            <div>
+              <Label htmlFor="op-note">Note (optional)</Label>
+              <Input id="op-note" value={openingNote} className="mt-1"
+                onChange={(e) => setOpeningNote(e.target.value)}
+                placeholder="Who counted it, and with whom" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpeningFor(null)}>Cancel</Button>
+            <Button disabled={declareOpening.isPending || !openingAmt}
+              onClick={() => declareOpening.mutate()}>
+              {declareOpening.isPending ? "Recording…" : "Record opening cash"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {(stale.data ?? []).length > 0 && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3">
+          <p className="font-medium text-amber-900">
+            {(stale.data ?? []).length} handover(s) still waiting on somebody
+          </p>
+          <ul className="mt-1 space-y-0.5 text-sm text-amber-900">
+            {(stale.data ?? []).map((h) => (
+              <li key={h.id}>
+                {h.handover_no}: {h.from_user_name} → {h.to_user_name}, {inr(h.counted_cash)},{" "}
+                waiting {h.hours_waiting}h on {h.waiting_on}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {(sharedLogins.data ?? []).length > 0 && (
+        <div className="rounded-md border border-rose-300 bg-rose-50 p-3">
+          <p className="font-medium text-rose-900">
+            {(sharedLogins.data ?? []).length} login(s) look shared
+          </p>
+          <p className="text-xs text-rose-800">
+            More than one person's name was picked at the till under the same
+            login. Cash collected there cannot be traced to a person, and it is
+            what stopped the first handovers reconciling.
+          </p>
+          <ul className="mt-1 space-y-0.5 text-sm text-rose-900">
+            {(sharedLogins.data ?? []).map((l) => (
+              <li key={l.login}>
+                <span className="font-mono text-xs">{l.login}</span> — used as {l.names} ·{" "}
+                {l.receipts} receipts · {inr(l.total)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        {["hope", "ayushman", "pharmacy"].map((h) => (
+          <Button key={h} size="sm" variant="outline" onClick={() => setOpeningFor(h)}>
+            Record opening cash — {h === "hope" ? "Hope" : h === "ayushman" ? "Ayushman" : "Pharmacy"}
+          </Button>
+        ))}
+      </div>
+
       <Tabs defaultValue="holders">
         <TabsList className="flex h-auto flex-wrap">
           <TabsTrigger value="holders">Who is holding cash</TabsTrigger>
@@ -695,14 +799,24 @@ function RegisterTable({
   // should not be the account of the person who was short.
   const [verifying, setVerifying] = useState<CashHandover | null>(null);
   const [verifyNote, setVerifyNote] = useState("");
+  // Blind: the verifier's own count is entered BEFORE the cashier's figure is
+  // shown. Two people agreeing a false number is the failure this exists to
+  // catch, and it cannot be caught if the second is handed the first's answer.
+  const [ownCount, setOwnCount] = useState("");
+  const [revealed, setRevealed] = useState(false);
 
   const verify = useMutation({
     mutationFn: ({ id, note }: { id: string; note: string }) =>
-      verifyHandover(id, currentUserId, note.trim() || undefined),
+      verifyHandover(
+        id, currentUserId, note.trim() || undefined,
+        ownCount.trim() === "" ? null : Number(ownCount.replace(/[^0-9.]/g, "")),
+      ),
     onSuccess: () => {
       toast.success("Count verified.");
       setVerifying(null);
       setVerifyNote("");
+      setOwnCount("");
+      setRevealed(false);
       onChanged();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Could not verify"),
@@ -725,16 +839,58 @@ function RegisterTable({
           <DialogHeader>
             <DialogTitle>Verify {verifying?.handover_no}</DialogTitle>
             <DialogDescription>
-              {verifying?.from_user_name} handed {inr(verifying?.counted_cash ?? 0)} to{" "}
-              {verifying?.to_user_name}. The software expected{" "}
-              {inr(verifying?.expected_cash ?? 0)}.
+              {verifying?.from_user_name} handed cash to {verifying?.to_user_name}.
+              {revealed
+                ? ` They counted ${inr(verifying?.counted_cash ?? 0)}; the software expected ${inr(
+                    verifying?.expected_cash ?? 0,
+                  )}.`
+                : " Their figure is hidden until you have entered your own count."}
             </DialogDescription>
           </DialogHeader>
 
-          {verifyNeedsNote && (
+          <div className="rounded-md border p-3">
+            <Label htmlFor="own-count">Count the cash yourself first</Label>
+            <div className="mt-1 flex gap-2">
+              <Input
+                id="own-count"
+                inputMode="decimal"
+                value={ownCount}
+                onChange={(e) => setOwnCount(e.target.value.replace(/[^0-9.]/g, ""))}
+                placeholder="What you counted"
+              />
+              <Button variant="outline" onClick={() => setRevealed(true)} disabled={revealed}>
+                {revealed ? "Shown" : "Show their figure"}
+              </Button>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Enter your own count before revealing theirs. Optional, but it is
+              the strongest check there is — two people cannot agree a wrong
+              number if the second has not seen the first.
+            </p>
+            {revealed && ownCount.trim() !== "" && (
+              <p
+                className={`mt-2 text-sm font-medium ${
+                  Math.round(
+                    (Number(ownCount) - Number(verifying?.counted_cash ?? 0)) * 100,
+                  ) === 0
+                    ? "text-emerald-700"
+                    : "text-rose-700"
+                }`}
+              >
+                {Math.round((Number(ownCount) - Number(verifying?.counted_cash ?? 0)) * 100) === 0
+                  ? "Your count agrees with theirs."
+                  : `You counted ${inr(Number(ownCount))} against ${inr(
+                      verifying?.counted_cash ?? 0,
+                    )} handed over — say what you found.`}
+              </p>
+            )}
+          </div>
+
+          {revealed && verifyNeedsNote && (
             <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm">
               <p className="font-medium text-amber-900">
                 Out by {inr(Math.abs(verifyDiff))} ({verifyDiff > 0 ? "extra" : "short"})
+                against the software
               </p>
               {verifying?.variance_reason && (
                 <p className="mt-1 text-amber-800">
@@ -878,7 +1034,9 @@ function RegisterTable({
                             size="sm"
                             variant="outline"
                             disabled={verify.isPending}
-                            onClick={() => { setVerifying(h); setVerifyNote(""); }}
+                            onClick={() => {
+                              setVerifying(h); setVerifyNote(""); setOwnCount(""); setRevealed(false);
+                            }}
                           >
                             <BadgeCheck className="mr-1 h-4 w-4" /> Verify
                           </Button>

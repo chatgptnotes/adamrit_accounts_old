@@ -50,6 +50,8 @@ export interface CashHandover {
   ref_upi_total: number;
   ref_card_total: number;
   declared_online: number | null;
+  verifier_counted: number | null;
+  is_unmatched: boolean;
   software_online: number | null;
   source_count: number;
   included_unattributed: boolean;
@@ -149,11 +151,14 @@ export async function acceptHandover(id: string, userId: string, note?: string) 
   return data;
 }
 
-export async function verifyHandover(id: string, userId: string, note?: string) {
+export async function verifyHandover(
+  id: string, userId: string, note?: string, verifierCounted?: number | null,
+) {
   const { data, error } = await rpc("verify_cash_handover", {
     p_handover_id: id,
     p_user_id: userId,
     p_note: note ?? null,
+    p_verifier_counted: verifierCounted ?? null,
   });
   if (error) throw new Error(error.message);
   return data;
@@ -254,6 +259,46 @@ export async function fetchPharmacySummary(): Promise<PharmacySummary> {
   const { data, error } = await rpc("pharmacy_cash_summary", {});
   if (error) throw new Error(error.message);
   return data as PharmacySummary;
+}
+
+
+export interface StaleHandover {
+  id: string; handover_no: string; hospital_type: string | null; status: string;
+  from_user_name: string; to_user_name: string; counted_cash: number;
+  waiting_since: string; hours_waiting: number; waiting_on: string;
+}
+
+/** Handovers nobody has acted on. Both of the first two sat for hours. */
+export async function fetchStaleHandovers(hours = 12): Promise<StaleHandover[]> {
+  const { data, error } = await rpc("stale_handovers", { p_hours: hours });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as StaleHandover[];
+}
+
+export interface SharedLogin {
+  login: string; login_name: string; distinct_names: number;
+  names: string; receipts: number; total: number;
+}
+
+/** Logins where more than one person's name was typed at the till. */
+export async function fetchSharedLogins(days = 30): Promise<SharedLogin[]> {
+  const { data, error } = await rpc("shared_login_report", { p_days: days });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as SharedLogin[];
+}
+
+/** The one-off count that stops the drawer reading negative. */
+export async function declareOpeningCash(input: {
+  hospitalType: string; amount: number; userId: string; note?: string | null;
+}) {
+  const { data, error } = await rpc("declare_opening_cash", {
+    p_hospital_type: input.hospitalType,
+    p_amount: input.amount,
+    p_user_id: input.userId,
+    p_note: input.note ?? null,
+  });
+  if (error) throw new Error(error.message);
+  return data;
 }
 
 /** Omit the hospital for the group-wide view; pass one to see just that counter. */
