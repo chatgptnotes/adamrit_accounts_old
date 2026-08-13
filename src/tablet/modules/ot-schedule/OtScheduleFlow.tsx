@@ -568,6 +568,7 @@ function GauravScheduler() {
   const [surgeonName, setSurgeonName] = useState("");
   const [anesthetistName, setAnesthetistName] = useState("");
   const [anesthesiaType, setAnesthesiaType] = useState("");
+  const [notes, setNotes] = useState("");
   const [otRoom, setOtRoom] = useState("OT");
   // Outsourced per-case help, entered the day before with the fee decided
   // beforehand — saving raises their bill for approval ahead of the surgery.
@@ -606,6 +607,7 @@ function GauravScheduler() {
     setSurgeonName("");
     setAnesthetistName("");
     setAnesthesiaType("");
+    setNotes("");
     setOtRoom(visibleRooms[0] || "OT");
     setOtAssistantName("");
     setOtAssistantFee("");
@@ -618,7 +620,7 @@ function GauravScheduler() {
     try {
       const { data } = await supabase
         .from("ot_schedule")
-        .select("id, surgery_name, scheduled_date, scheduled_time, ot_room, ot_assistant_name, ot_assistant_fee, cathlab_assistant_name, cathlab_assistant_fee")
+        .select("id, surgery_name, scheduled_date, scheduled_time, ot_room, notes, ot_assistant_name, ot_assistant_fee, cathlab_assistant_name, cathlab_assistant_fee")
         .eq("visit_id", visit.id)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -629,6 +631,7 @@ function GauravScheduler() {
         if (data.scheduled_date) setScheduledDate(data.scheduled_date);
         if (data.scheduled_time) setScheduledTime(data.scheduled_time);
         if (data.ot_room) setOtRoom(data.ot_room);
+        if (data.notes) setNotes(data.notes);
         const extras = data as any;
         if (extras.ot_assistant_name) setOtAssistantName(extras.ot_assistant_name);
         if (extras.ot_assistant_fee) setOtAssistantFee(String(extras.ot_assistant_fee));
@@ -669,6 +672,7 @@ function GauravScheduler() {
         surgeon_name: surgeonName.trim() || null,
         anesthetist_name: anesthetistName.trim() || null,
         special_requirements: anesthesiaType.trim() ? `Anesthesia Type: ${anesthesiaType.trim()}` : null,
+        notes: notes.trim() || null,
         urgency: "elective",
         status: "scheduled",
         ot_assistant_name: otAssistantName.trim() || null,
@@ -706,6 +710,7 @@ function GauravScheduler() {
       setSurgeonName("");
       setAnesthetistName("");
       setAnesthesiaType("");
+      setNotes("");
       setOtAssistantName("");
       setOtAssistantFee("");
       setCathlabAssistantName("");
@@ -829,6 +834,10 @@ function GauravScheduler() {
               <label className="block space-y-1">
                 <span className="text-sm font-medium">Anesthesia Type</span>
                 <TabletInput value={anesthesiaType} onChange={(event) => setAnesthesiaType(event.target.value)} placeholder="Auto-filled from package master" />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-sm font-medium">Note</span>
+                <TabletInput value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add a note" />
               </label>
             </div>
             <div className="mt-3 grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-2">
