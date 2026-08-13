@@ -228,6 +228,7 @@ export default function CashHandoverPage() {
                             <TableHead className="text-xs">Voucher</TableHead>
                             <TableHead className="text-xs">Paid for</TableHead>
                             <TableHead className="text-xs">From account</TableHead>
+                            <TableHead className="text-xs">Paid by</TableHead>
                             <TableHead className="text-xs">Dated</TableHead>
                             <TableHead className="text-right text-xs">Amount</TableHead>
                           </TableRow>
@@ -240,6 +241,11 @@ export default function CashHandoverPage() {
                               </TableCell>
                               <TableCell className="text-xs">{o.label}</TableCell>
                               <TableCell className="text-xs">{o.ledger ?? "—"}</TableCell>
+                              <TableCell className="text-xs">
+                                {o.paid_by ?? (
+                                  <span className="text-amber-700">Not recorded</span>
+                                )}
+                              </TableCell>
                               <TableCell className="text-xs">
                                 {o.entry_date
                                   ? new Date(o.entry_date).toLocaleDateString("en-IN", {

@@ -200,6 +200,8 @@ export interface OnlineOut {
   label: string;
   ledger: string | null;
   voucher_no: string | null;
+  /** Who the books say posted it, resolved to a name where the login is one. */
+  paid_by: string | null;
 }
 
 /** Vendor and other payments made by bank or UPI. Never part of the drawer. */
