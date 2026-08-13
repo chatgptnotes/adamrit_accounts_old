@@ -99,10 +99,20 @@ export default function CashHandoverPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{inr(totalHeld)}</p>
-            <p className="text-xs text-muted-foreground">
-              Collected but not yet handed over
+            <p className={`text-3xl font-bold ${totalHeld < 0 ? "text-amber-700" : ""}`}>
+              {inr(totalHeld)}
             </p>
+            <p className="text-xs text-muted-foreground">
+              Collected, less cash paid out, not yet handed over
+            </p>
+            {totalHeld < 0 && (
+              <p className="mt-2 text-xs text-amber-700">
+                Below zero because more has been paid out than collected since
+                counting began. The difference came from cash already in the drawer
+                beforehand, which the system never saw. It settles after the first
+                full handover.
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card className="border-l-4 border-l-amber-500">
@@ -177,7 +187,17 @@ export default function CashHandoverPage() {
                     (positions.data ?? []).map((p) => (
                       <TableRow key={`${p.holder_user_id ?? "x"}-${p.holder_name}`}>
                         <TableCell className="font-medium">
-                          {p.attribution === "login" ? (
+                          {p.attribution === "payout" ? (
+                            <>
+                              <span className="text-rose-700">{p.holder_name}</span>
+                              <span
+                                className="ml-2 rounded bg-rose-100 px-1.5 py-0.5 text-xs font-normal text-rose-800"
+                                title="Cash paid out of the drawer on payment vouchers. Payment vouchers record no user, so this reduces the counter rather than one person."
+                              >
+                                paid out
+                              </span>
+                            </>
+                          ) : p.attribution === "login" ? (
                             p.holder_name
                           ) : p.attribution === "name" ? (
                             <>

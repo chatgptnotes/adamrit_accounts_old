@@ -69,7 +69,7 @@ export interface CashPosition {
    * typed on the payment screen, shown so old rows are not a blank; "none" is
    * neither.
    */
-  attribution: "login" | "name" | "none";
+  attribution: "login" | "name" | "none" | "payout";
   net_cash: number;
   receipt_count: number;
   oldest_uncollected: string | null;
