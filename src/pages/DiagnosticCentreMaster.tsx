@@ -370,7 +370,7 @@ export default function DiagnosticCentreMaster() {
                     : (
                       <p className="text-xs text-muted-foreground">
                         Test names come from the radiology / lab master. No CT above Rs. 2,500,
-                        no MRI above Rs. 3,000 — anything under the cap is editable.
+                        no MRI above Rs. 3,500 — anything under the cap is editable.
                       </p>
                     )}
                 </div>

@@ -12,10 +12,10 @@ export interface MasterTest {
   source: 'radiology' | 'lab';
 }
 
-/** No CT over 2,500 and no MRI over 3,000 — enforced again by a DB trigger. */
+/** No CT over 2,500 and no MRI over 3,500 — enforced again by a DB trigger. */
 export function testCeiling(testName: string): number | null {
   const name = testName.toUpperCase();
-  if (/\bMRI\b/.test(name)) return 3000;
+  if (/\bMRI\b/.test(name)) return 3500;
   if (/\bCT\b/.test(name)) return 2500;
   return null;
 }
