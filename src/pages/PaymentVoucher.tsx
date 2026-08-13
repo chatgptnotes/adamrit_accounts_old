@@ -25,6 +25,7 @@ interface PaymentVoucher {
   voucher_no: string;
   voucher_date: string;
   person_name: string;
+  mobile_number: string | null;
   amount: number;
   purpose: string | null;
   paid_by: string | null;
@@ -464,6 +465,9 @@ const PaymentVoucher = () => {
   const [account, setAccount] = useState<LedgerOption | null>(null);
   const [lines, setLines] = useState<VoucherLine[]>(() => [newLine()]);
   const [narration, setNarration] = useState('');
+  // Required: cash leaves against a person, and a name alone gives nobody to
+  // ring three weeks later about what the money was for.
+  const [mobile, setMobile] = useState('');
   const [saving, setSaving] = useState(false);
 
   const lineLedgerRefs = useRef<Record<number, HTMLInputElement | null>>({});
@@ -573,6 +577,7 @@ const PaymentVoucher = () => {
     setAccount(null);
     setLines([newLine()]);
     setNarration('');
+    setMobile('');
   };
 
   const handleSave = async (): Promise<void> => {
@@ -590,6 +595,17 @@ const PaymentVoucher = () => {
       toast.error('A particulars row is incomplete — give every ledger an amount');
       return;
     }
+    // Same rule the database enforces, checked here so the message arrives
+    // before the voucher number is burnt.
+    const mobileDigits = mobile.replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '').replace(/^0(?=\d{10}$)/, '');
+    if (!mobileDigits) {
+      toast.error('Enter the mobile number of the person being paid');
+      return;
+    }
+    if (!/^[6-9]\d{9}$/.test(mobileDigits)) {
+      toast.error('That mobile number should be 10 digits starting 6, 7, 8 or 9');
+      return;
+    }
     const amount = filled.reduce((sum, l) => sum + Number(l.amount), 0);
     setSaving(true);
     try {
@@ -600,6 +616,7 @@ const PaymentVoucher = () => {
           voucher_no,
           voucher_date: date,
           person_name: filled[0].ledger!.name,
+          mobile_number: mobileDigits,
           amount,
           purpose: null,
           // Who paid the money out. This was hardcoded null, so the cash
@@ -702,6 +719,7 @@ const PaymentVoucher = () => {
           <td class="b">${escapeHTML(formatDateLabel(v.voucher_date))}</td>
           <td class="b">${escapeHTML(v.account_ledger_name || v.paid_by || '')}</td>
           <td class="b">${escapeHTML(v.person_name)}</td>
+          <td class="b">${escapeHTML(v.mobile_number || '—')}</td>
           <td class="b">${escapeHTML(v.narration || v.purpose || '')}</td>
           <td class="b num">${fmtINR(Number(v.amount))}</td>
         </tr>`,
@@ -724,7 +742,7 @@ const PaymentVoucher = () => {
   <h2>Payment Vouchers</h2>
   <div class="meta">${escapeHTML(formatDateLabel(fromDate))} to ${escapeHTML(formatDateLabel(toDate))} · ${vouchers.length} voucher(s)</div>
   <table>
-    <thead><tr><th>#</th><th>Voucher No.</th><th>Date</th><th>Account</th><th>Particulars</th><th>Narration</th><th class="num">Amount</th></tr></thead>
+    <thead><tr><th>#</th><th>Voucher No.</th><th>Date</th><th>Account</th><th>Particulars</th><th>Mobile</th><th>Narration</th><th class="num">Amount</th></tr></thead>
     <tbody>
       ${rows}
       <tr class="total"><td colspan="6" class="num">TOTAL</td><td class="num">${fmtINR(total)}</td></tr>
@@ -848,6 +866,26 @@ const PaymentVoucher = () => {
             <span className="font-mono text-sm font-bold">{entryTotal > 0 ? fmtINR(entryTotal) : ''}</span>
           </div>
 
+          {/* Mobile of the person being paid — required, and the database
+              refuses the voucher without it. */}
+          <div className="mt-4 max-w-xs">
+            <Label htmlFor="pv-mobile" className="text-sm font-semibold">
+              Mobile of person paid: <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="pv-mobile"
+              value={mobile}
+              inputMode="numeric"
+              maxLength={15}
+              placeholder="10 digits"
+              onChange={(e) => setMobile(e.target.value)}
+              className="mt-1 bg-white"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Required. Prints on the voucher so the payment can be traced back.
+            </p>
+          </div>
+
           {/* Narration + actions */}
           <div className="mt-6 flex items-end justify-between gap-4">
             <div className="w-full max-w-2xl">
@@ -903,6 +941,7 @@ const PaymentVoucher = () => {
                   <TableHead>Date</TableHead>
                   <TableHead>Account</TableHead>
                   <TableHead>Particulars</TableHead>
+                  <TableHead>Mobile</TableHead>
                   <TableHead>Narration</TableHead>
                   <TableHead className="text-right">Amount (₹)</TableHead>
                   <TableHead className="w-20"></TableHead>
@@ -911,11 +950,11 @@ const PaymentVoucher = () => {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="py-6 text-center text-sm text-gray-400">Loading…</TableCell>
+                    <TableCell colSpan={9} className="py-6 text-center text-sm text-gray-400">Loading…</TableCell>
                   </TableRow>
                 ) : vouchers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="py-6 text-center text-sm text-gray-400">No vouchers in this date range.</TableCell>
+                    <TableCell colSpan={9} className="py-6 text-center text-sm text-gray-400">No vouchers in this date range.</TableCell>
                   </TableRow>
                 ) : (
                   vouchers.map((v, idx) => (
@@ -925,6 +964,9 @@ const PaymentVoucher = () => {
                       <TableCell>{formatDateLabel(v.voucher_date)}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">{v.account_ledger_name || v.paid_by || '-'}</TableCell>
                       <TableCell className="font-medium">{v.person_name}</TableCell>
+                      <TableCell className="font-mono text-sm">
+                        {v.mobile_number || <span className="text-amber-700">—</span>}
+                      </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{v.narration || v.purpose || '-'}</TableCell>
                       <TableCell className="text-right font-mono">{fmtINR(Number(v.amount))}</TableCell>
                       <TableCell>
