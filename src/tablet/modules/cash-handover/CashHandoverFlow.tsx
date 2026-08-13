@@ -38,9 +38,11 @@ export default function CashHandoverFlow() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>("hand-over");
 
+  // Only people nominated at THIS hospital (plus the group-wide ones): the
+  // Ayushman counter hands to Arpit, which has nothing to do with Hope.
   const nominees = useQuery({
-    queryKey: ["cash-handover-nominees"],
-    queryFn: fetchNominees,
+    queryKey: ["cash-handover-nominees", hospitalType ?? "all"],
+    queryFn: () => fetchNominees(hospitalType),
     staleTime: 60_000,
   });
 

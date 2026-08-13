@@ -75,7 +75,12 @@ export interface Nominee {
   can_receive: boolean;
   can_verify: boolean;
   is_active: boolean;
+  /** Which counter this applies to. "*" means every hospital. */
+  hospital_type: string;
 }
+
+/** Nomination that applies everywhere. */
+export const ALL_HOSPITALS = "*";
 
 const rpc = (fn: string, args: Record<string, unknown>) =>
   (supabase as any).rpc(fn, args);
@@ -150,12 +155,21 @@ export async function fetchPositions(): Promise<CashPosition[]> {
   return (data ?? []) as CashPosition[];
 }
 
-export async function fetchNominees(): Promise<Nominee[]> {
-  const { data, error } = await (supabase as any)
+/**
+ * Nominated people. Pass a hospital to get only those who hold rights at that
+ * counter (its own nominations plus the group-wide "*" ones); omit it to get
+ * the full roster for the master screen.
+ */
+export async function fetchNominees(hospitalType?: string | null): Promise<Nominee[]> {
+  let q = (supabase as any)
     .from("cash_handover_verifiers")
-    .select("id, user_id, display_name, can_receive, can_verify, is_active")
+    .select("id, user_id, display_name, can_receive, can_verify, is_active, hospital_type")
     .eq("is_active", true)
     .order("display_name");
+  if (hospitalType) {
+    q = q.in("hospital_type", [ALL_HOSPITALS, hospitalType.trim().toLowerCase()]);
+  }
+  const { data, error } = await q;
   if (error) throw new Error(error.message);
   return (data ?? []) as Nominee[];
 }
@@ -166,6 +180,8 @@ export async function setNominee(input: {
   canVerify: boolean;
   isActive: boolean;
   actor?: string | null;
+  /** "*" (default) applies at every hospital. */
+  hospitalType?: string;
 }) {
   const { data, error } = await rpc("set_cash_handover_verifier", {
     p_user_id: input.userId,
@@ -173,6 +189,7 @@ export async function setNominee(input: {
     p_can_verify: input.canVerify,
     p_is_active: input.isActive,
     p_actor: input.actor ?? null,
+    p_hospital_type: input.hospitalType ?? ALL_HOSPITALS,
   });
   if (error) throw new Error(error.message);
   return data;

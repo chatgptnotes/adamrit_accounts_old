@@ -49,7 +49,7 @@ export default function CashHandoverPage() {
 
   const positions = useQuery({ queryKey: ["cash-positions"], queryFn: fetchPositions });
   const handovers = useQuery({ queryKey: ["cash-handovers"], queryFn: () => fetchHandovers({ limit: 200 }) });
-  const nominees = useQuery({ queryKey: ["cash-handover-nominees"], queryFn: fetchNominees });
+  const nominees = useQuery({ queryKey: ["cash-handover-nominees", "all"], queryFn: () => fetchNominees() });
 
   const openVariances = useMemo(
     () => (handovers.data ?? []).filter(
@@ -291,14 +291,25 @@ function RegisterTable({
 
 /* ----------------------------------------------------------- nominee master */
 
+const HOSPITAL_SCOPES = [
+  { key: "*", label: "All hospitals" },
+  { key: "hope", label: "Hope" },
+  { key: "ayushman", label: "Ayushman Nagpur" },
+] as const;
+
 function NomineeMaster({
   nominees, actor, onChanged,
 }: {
-  nominees: { user_id: string; display_name: string; can_receive: boolean; can_verify: boolean }[];
+  nominees: {
+    user_id: string; display_name: string;
+    can_receive: boolean; can_verify: boolean; hospital_type: string;
+  }[];
   actor: string | null;
   onChanged: () => void;
 }) {
   const [search, setSearch] = useState("");
+  // Rights are granted per counter. Everything below applies to this scope.
+  const [scope, setScope] = useState<string>("*");
 
   const users = useQuery({
     queryKey: ["cash-handover-user-list"],
@@ -314,12 +325,16 @@ function NomineeMaster({
 
   const save = useMutation({
     mutationFn: (v: { userId: string; canReceive: boolean; canVerify: boolean; isActive: boolean }) =>
-      setNominee({ ...v, actor }),
+      setNominee({ ...v, actor, hospitalType: scope }),
     onSuccess: () => { toast.success("Saved."); onChanged(); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Could not save"),
   });
 
-  const byId = new Map(nominees.map((n) => [n.user_id, n]));
+  // Only the nominations for the scope on screen, so a Hope row is never
+  // mistaken for an Ayushman one.
+  const byId = new Map(
+    nominees.filter((n) => n.hospital_type === scope).map((n) => [n.user_id, n]),
+  );
   const filtered = (users.data ?? []).filter((u) => {
     const q = search.trim().toLowerCase();
     if (!q) return byId.has(u.id);
@@ -333,11 +348,24 @@ function NomineeMaster({
           <UserCog className="h-4 w-4" /> Who may receive and verify cash
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Only the people listed here can be handed cash or confirm a count. Search to add
-          someone; clear the search to see the current list.
+          Only the people listed here can be handed cash or confirm a count. Rights are
+          granted per counter — pick the hospital first. Search to add someone; clear the
+          search to see the current list.
         </p>
       </CardHeader>
       <CardContent>
+        <div className="mb-4 flex flex-wrap gap-2">
+          {HOSPITAL_SCOPES.map((h) => (
+            <Button
+              key={h.key}
+              size="sm"
+              variant={scope === h.key ? "default" : "outline"}
+              onClick={() => setScope(h.key)}
+            >
+              {h.label}
+            </Button>
+          ))}
+        </div>
         <input
           className="mb-4 w-full rounded-md border px-3 py-2"
           placeholder="Search staff by name or email to nominate…"
@@ -356,7 +384,9 @@ function NomineeMaster({
             {filtered.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={3} className="py-8 text-center text-muted-foreground">
-                  {search ? "No staff match that search." : "Nobody is nominated yet."}
+                  {search
+                    ? "No staff match that search."
+                    : `Nobody is nominated for ${HOSPITAL_SCOPES.find((h) => h.key === scope)?.label}.`}
                 </TableCell>
               </TableRow>
             ) : (
