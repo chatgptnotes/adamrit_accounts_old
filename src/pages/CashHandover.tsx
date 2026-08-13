@@ -136,14 +136,22 @@ export default function CashHandoverPage() {
                     </TableRow>
                   ) : (
                     (positions.data ?? []).map((p) => (
-                      <TableRow key={p.holder_user_id ?? "none"}>
+                      <TableRow key={`${p.holder_user_id ?? "x"}-${p.holder_name}`}>
                         <TableCell className="font-medium">
-                          {p.holder_user_id ? (
+                          {p.attribution === "login" ? (
                             p.holder_name
+                          ) : p.attribution === "name" ? (
+                            <>
+                              <span>{p.holder_name}</span>
+                              <span
+                                className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-normal text-amber-800"
+                                title="Taken from the billing executive name typed on the payment screen, not from a login. This cash cannot be handed over until it is collected under a login."
+                              >
+                                by name
+                              </span>
+                            </>
                           ) : (
-                            <span className="text-amber-700">
-                              Not recorded to anyone
-                            </span>
+                            <span className="text-amber-700">Not recorded to anyone</span>
                           )}
                         </TableCell>
                         <TableCell className="text-right font-semibold">

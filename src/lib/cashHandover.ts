@@ -63,6 +63,13 @@ export interface CashHandover {
 export interface CashPosition {
   holder_user_id: string | null;
   holder_name: string;
+  /**
+   * How the holder was identified. "login" is the person who was signed in and
+   * is the only one that can claim cash; "name" is the billing-executive name
+   * typed on the payment screen, shown so old rows are not a blank; "none" is
+   * neither.
+   */
+  attribution: "login" | "name" | "none";
   net_cash: number;
   receipt_count: number;
   oldest_uncollected: string | null;
