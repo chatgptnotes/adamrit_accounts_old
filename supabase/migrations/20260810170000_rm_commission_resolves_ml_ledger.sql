@@ -1,5 +1,3 @@
-BEGIN;
-
 -- Approving an RM cut on the Director Dashboard failed with
 -- 'Every RM ledger must be an active M.L. Enterprises ledger' on every row.
 --
@@ -128,5 +126,3 @@ BEGIN
   UPDATE daily_revenue_entries SET expense_bill_id=v_bill_id,updated_at=now() WHERE id=p_entry_id;
   RETURN jsonb_build_object('bill_id',v_bill_id,'bill_number',btrim(p_bill_number),'company_key',v_hosp_key,'sales_voucher',v_sales_vno,'commission_voucher',v_comm_vno);
 END $$;
-
-COMMIT;

@@ -100,7 +100,12 @@
       "PowerShell(npx vite build --mode development 2>&1 | Select-Object -Last 15)",
       "Bash(supabase status *)",
       "Bash(dir supabase\\functions)",
-      "Bash(supabase projects *)"
+      "Bash(supabase projects *)",
+      "Bash(open *)",
+      "Bash(python3 /private/tmp/claude-501/-Users-ruby-Documents-Adamrit-adamrit/c61ea879-b56c-4ba1-b2e5-6d310f1bfc5a/scratchpad/po_check.py)",
+      "Bash(echo \"exit-grep:$?\")",
+      "Bash(awk 'NR<11390 && /^      [a-z_]+: \\\\{/ {line=NR\": \"$0} END{}' src/integrations/supabase/types.ts)",
+      "Bash(awk -F: '$1<11386')"
     ],
     "deny": [],
     "ask": []
