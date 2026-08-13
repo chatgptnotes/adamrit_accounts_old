@@ -44,8 +44,8 @@ export default function CashHandoverFlow() {
   // Only people nominated at THIS hospital (plus the group-wide ones): the
   // Ayushman counter hands to Arpit, which has nothing to do with Hope.
   const nominees = useQuery({
-    queryKey: ["cash-handover-nominees", hospitalType ?? "all"],
-    queryFn: () => fetchNominees(hospitalType),
+    queryKey: ["cash-handover-nominees", tab === "pharmacy" ? "pharmacy" : hospitalType ?? "all"],
+    queryFn: () => fetchNominees(tab === "pharmacy" ? "pharmacy" : hospitalType),
     staleTime: 60_000,
   });
 
@@ -102,7 +102,17 @@ export default function CashHandoverFlow() {
       </div>
 
       {tab === "pharmacy" ? (
-        <PharmacyPanel />
+        <PharmacyPanel
+          userId={user?.id ?? ""}
+          nominees={(nominees.data ?? []).filter(
+            (n) => n.can_receive && n.user_id !== user?.id,
+          )}
+          onDone={() => {
+            qc.invalidateQueries({ queryKey: ["tablet-pharmacy-positions"] });
+            qc.invalidateQueries({ queryKey: ["tablet-pharmacy-summary"] });
+            qc.invalidateQueries({ queryKey: ["cash-handover-inbox"] });
+          }}
+        />
       ) : tab === "hand-over" ? (
         <HandOverPanel
           userId={user?.id ?? ""}
@@ -473,16 +483,62 @@ function ForMePanel({
  * because the handover claims patient receipts and the pharmacy sells from a
  * different set of tables.
  */
-function PharmacyPanel() {
+function PharmacyPanel({
+  userId,
+  nominees,
+  onDone,
+}: {
+  userId: string;
+  nominees: { user_id: string; display_name: string }[];
+  onDone: () => void;
+}) {
+  const [counts, setCounts] = useState<Record<number, string>>({});
+  const [toUserId, setToUserId] = useState("");
+  const [reason, setReason] = useState("");
+
   const positions = useQuery({
     queryKey: ["tablet-pharmacy-positions"],
     queryFn: fetchPharmacyPositions,
     staleTime: 30_000,
   });
+  // The pharmacy claims its own tables, so the expected figure comes from the
+  // same preview the hospital counters use, scoped to "pharmacy".
+  const preview = useQuery({
+    queryKey: ["pharmacy-preview", userId],
+    enabled: !!userId,
+    queryFn: () => fetchPreview(userId, true, "pharmacy"),
+    staleTime: 10_000,
+  });
   const summary = useQuery({
     queryKey: ["tablet-pharmacy-summary"],
     queryFn: fetchPharmacySummary,
     staleTime: 30_000,
+  });
+
+  const submit = useMutation({
+    mutationFn: async () => {
+      if (!toUserId) throw new Error("Choose who is receiving the cash");
+      return submitHandover({
+        fromUserId: userId,
+        toUserId,
+        hospitalType: "pharmacy",
+        includeUnattributed: true,
+        varianceReason: reason.trim() || null,
+        denominations: DENOMINATIONS.map((d) => ({
+          denomination: d,
+          qty: parseInt(counts[d] ?? "", 10) || 0,
+        })),
+      });
+    },
+    onSuccess: (r) => {
+      toast.success(`Handover ${r.handoverNo} recorded. Waiting for it to be received.`);
+      setCounts({});
+      setReason("");
+      setToUserId("");
+      preview.refetch();
+      onDone();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not record the handover"),
   });
 
   if (positions.isLoading || summary.isLoading) {
@@ -493,8 +549,15 @@ function PharmacyPanel() {
     );
   }
 
-  const till = (positions.data ?? []).reduce((s, p) => s + Number(p.net_cash || 0), 0);
+  const till = (positions.data ?? []).reduce((acc, p) => acc + Number(p.net_cash || 0), 0);
   const s = summary.data;
+  const counted = DENOMINATIONS.reduce(
+    (sum, d) => sum + d * (parseInt(counts[d] ?? "", 10) || 0),
+    0,
+  );
+  const expected = preview.data?.expectedCash ?? 0;
+  const variance = counted - expected;
+  const needsReason = Math.round(variance * 100) !== 0;
 
   return (
     <div className="space-y-4 pb-4">
@@ -523,6 +586,95 @@ function PharmacyPanel() {
       <p className="text-center text-xs text-muted-foreground">
         UPI and card are shown for the shift total. Only cash is handed over.
       </p>
+
+      <h3 className="mb-1 font-semibold">Count the till and hand it over</h3>
+      <div className="space-y-2">
+        {DENOMINATIONS.map((d) => {
+          const qty = parseInt(counts[d] ?? "", 10) || 0;
+          return (
+            <div key={d} className="flex items-center gap-3">
+              <div className="w-20 flex-shrink-0 text-right font-semibold">₹{d}</div>
+              <span className="text-muted-foreground">×</span>
+              <TabletInput
+                className="w-24"
+                inputMode="numeric"
+                value={counts[d] ?? ""}
+                placeholder="0"
+                onChange={(e) =>
+                  setCounts((c) => ({ ...c, [d]: e.target.value.replace(/\D/g, "") }))
+                }
+              />
+              <div className="flex-1 text-right text-muted-foreground">
+                {qty > 0 ? inr(d * qty) : "—"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <TabletCard className={needsReason ? "border-amber-400 bg-amber-50" : "bg-muted/40"}>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">You counted</span>
+          <span className="text-2xl font-bold">{inr(counted)}</span>
+        </div>
+        <div className="mt-1 flex items-center justify-between">
+          <span className="text-muted-foreground">Software says</span>
+          <span className="font-medium">{inr(expected)}</span>
+        </div>
+        <div className="mt-2 flex items-center justify-between border-t pt-2">
+          <span className="font-medium">
+            {variance === 0 ? "Matches" : variance > 0 ? "Extra in till" : "Short"}
+          </span>
+          <span className={variance === 0 ? "text-xl font-bold text-emerald-700" : "text-xl font-bold text-amber-700"}>
+            {variance === 0 ? "✓" : inr(Math.abs(variance))}
+          </span>
+        </div>
+      </TabletCard>
+
+      {needsReason && (
+        <div>
+          <TabletLabel htmlFor="ph-reason">
+            Why is it different? (required — the handover still goes through)
+          </TabletLabel>
+          <TabletInput
+            id="ph-reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. ₹200 paid out for a delivery"
+          />
+        </div>
+      )}
+
+      <div>
+        <TabletLabel>Who is receiving the cash?</TabletLabel>
+        {nominees.length === 0 ? (
+          <p className="rounded-xl bg-muted/40 p-3 text-sm text-muted-foreground">
+            Nobody is nominated to receive pharmacy cash yet. A director sets this
+            up on the Cash Handover screen, under Hope Pharmacy.
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            {nominees.map((n) => (
+              <TabletButton
+                key={n.user_id}
+                variant={toUserId === n.user_id ? "default" : "outline"}
+                onClick={() => setToUserId(n.user_id)}
+              >
+                {n.display_name}
+              </TabletButton>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <TabletButton
+        className="w-full"
+        disabled={submit.isPending || counted <= 0 || !toUserId}
+        onClick={() => submit.mutate()}
+      >
+        <Check className="mr-2 h-5 w-5" />
+        {submit.isPending ? "Recording…" : `Hand over ${inr(counted)}`}
+      </TabletButton>
 
       <h3 className="mb-1 font-semibold">Who is holding pharmacy cash</h3>
       {(positions.data ?? []).length === 0 ? (
