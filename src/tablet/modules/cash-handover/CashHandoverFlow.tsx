@@ -156,6 +156,10 @@ function HandOverPanel({
   const [toUserId, setToUserId] = useState("");
   const [reason, setReason] = useState("");
   const [notes, setNotes] = useState("");
+  // What the cashier says came in online this shift. Never added to the cash
+  // count -- that money is in the bank -- but recorded so the two can be
+  // compared against what the software holds.
+  const [online, setOnline] = useState("");
 
   // Scoped to this cashier's own hospital: Hope and Ayushman keep separate
   // drawers even though a receipt carries no hospital of its own.
@@ -188,6 +192,7 @@ function HandOverPanel({
         includeUnattributed,
         varianceReason: reason.trim() || null,
         notes: notes.trim() || null,
+        declaredOnline: online.trim() === "" ? null : Number(online.replace(/[^0-9.]/g, "")),
         denominations: DENOMINATIONS.map((d) => ({
           denomination: d,
           qty: parseInt(counts[d] ?? "", 10) || 0,
@@ -199,6 +204,7 @@ function HandOverPanel({
       setCounts({});
       setReason("");
       setNotes("");
+      setOnline("");
       setToUserId("");
       preview.refetch();
       onDone();
@@ -339,6 +345,24 @@ function HandOverPanel({
             ))}
           </div>
         )}
+      </div>
+
+      <div>
+        <TabletLabel htmlFor="ch-online">
+          Online receipts this shift (UPI, card) — software says{" "}
+          {inr((p?.refUpiTotal ?? 0) + (p?.refCardTotal ?? 0))}
+        </TabletLabel>
+        <TabletInput
+          id="ch-online"
+          inputMode="decimal"
+          value={online}
+          onChange={(e) => setOnline(e.target.value.replace(/[^0-9.]/g, ""))}
+          placeholder="What you took online"
+        />
+        <p className="mt-1 text-xs text-muted-foreground">
+          Not handed over — this money is in the bank. Recorded so it can be
+          checked against the software.
+        </p>
       </div>
 
       <div>

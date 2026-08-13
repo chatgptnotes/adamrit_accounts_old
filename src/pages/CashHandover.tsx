@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/table";
 import {
   fetchDenominations, fetchHandovers, fetchNominees, fetchPayouts,
-  fetchPharmacyPositions, fetchPharmacySummary, fetchPharmacyTransactions,
+  fetchOnlineOut, fetchPharmacyPositions, fetchPharmacySummary, fetchPharmacyTransactions,
   fetchPositions, setNominee,
   verifyHandover, type CashHandover,
 } from "@/lib/cashHandover";
@@ -80,6 +80,12 @@ export default function CashHandoverPage() {
   const payouts = useQuery({
     queryKey: ["cash-payouts", posScope || "all"],
     queryFn: () => fetchPayouts(posScope || null),
+  });
+  // Vendor and other payments made by bank or UPI. They never touch the
+  // drawer, but a shift cannot be read as complete without them.
+  const onlineOut = useQuery({
+    queryKey: ["online-out", posScope || "all"],
+    queryFn: () => fetchOnlineOut(posScope || null),
   });
   // Hope Pharmacy is a separate company with its own till and its own staff,
   // so it gets its own tab rather than being mixed into the hospital counters.
@@ -184,6 +190,22 @@ export default function CashHandoverPage() {
                   </Button>
                 ))}
               </div>
+              {(onlineOut.data ?? []).length > 0 && (
+                <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-blue-900">
+                      Paid out by bank or UPI (vendors and others)
+                    </span>
+                    <span className="font-semibold text-blue-900">
+                      {inr((onlineOut.data ?? []).reduce((a, o) => a + Number(o.amount || 0), 0))}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-blue-800">
+                    {(onlineOut.data ?? []).length} payment(s). Not part of the drawer —
+                    this money left the bank, not the counter.
+                  </p>
+                </div>
+              )}
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -390,9 +412,13 @@ function RegisterTable({
             <TableRow>
               <TableHead>No.</TableHead>
               <TableHead>From → To</TableHead>
-              <TableHead className="text-right">Counted</TableHead>
-              <TableHead className="text-right">Software</TableHead>
+              <TableHead className="text-right">Cash counted</TableHead>
+              <TableHead className="text-right">Software cash</TableHead>
               <TableHead className="text-right">Difference</TableHead>
+              {/* Online never joins the cash count -- that money is in the
+                  bank -- but a shift cannot be read without it. */}
+              <TableHead className="text-right">Online (software)</TableHead>
+              <TableHead className="text-right">Online (declared)</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Submitted</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -401,7 +427,7 @@ function RegisterTable({
           <TableBody>
             {rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
                   No handovers recorded yet.
                 </TableCell>
               </TableRow>
@@ -433,6 +459,27 @@ function RegisterTable({
                       ) : (
                         <span className="font-semibold text-amber-700" title={h.variance_reason ?? ""}>
                           {diff > 0 ? "+" : "−"}{inr(Math.abs(diff))}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right text-blue-800">
+                      {inr((h.ref_upi_total ?? 0) + (h.ref_card_total ?? 0))}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {h.declared_online === null || h.declared_online === undefined ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <span
+                          className={
+                            Math.round(
+                              (Number(h.declared_online) - (h.software_online ?? 0)) * 100,
+                            ) === 0
+                              ? "text-emerald-700"
+                              : "font-semibold text-amber-700"
+                          }
+                          title="Compared with what the software had recorded online at that moment"
+                        >
+                          {inr(h.declared_online)}
                         </span>
                       )}
                     </TableCell>

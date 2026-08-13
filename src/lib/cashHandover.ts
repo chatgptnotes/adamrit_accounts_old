@@ -21,6 +21,9 @@ export interface HandoverLine {
 }
 
 export interface HandoverPreview {
+  counterAmount: number;
+  counterCount: number;
+  payoutAmount: number;
   cutoverAt: string;
   mineAmount: number;
   mineCount: number;
@@ -46,6 +49,8 @@ export interface CashHandover {
   variance_reason: string | null;
   ref_upi_total: number;
   ref_card_total: number;
+  declared_online: number | null;
+  software_online: number | null;
   source_count: number;
   included_unattributed: boolean;
   /** True when no receipts could be claimed: a declared count, not a
@@ -117,6 +122,8 @@ export async function submitHandover(input: {
   varianceReason?: string | null;
   includeUnattributed?: boolean;
   notes?: string | null;
+  /** What the cashier says was taken online. Never counted as cash. */
+  declaredOnline?: number | null;
 }): Promise<{ handoverId: string; handoverNo: string; variance: number }> {
   const { data, error } = await rpc("submit_cash_handover", {
     p_from_user_id: input.fromUserId,
@@ -126,6 +133,7 @@ export async function submitHandover(input: {
     p_variance_reason: input.varianceReason ?? null,
     p_include_unattributed: input.includeUnattributed ?? false,
     p_notes: input.notes ?? null,
+    p_declared_online: input.declaredOnline ?? null,
   });
   if (error) throw new Error(error.message);
   return data as { handoverId: string; handoverNo: string; variance: number };
@@ -182,6 +190,25 @@ export async function fetchPayouts(hospitalType?: string | null): Promise<CashPa
   });
   if (error) throw new Error(error.message);
   return ((data ?? []) as CashPayout[]).sort((a, b) => (a.at < b.at ? 1 : -1));
+}
+
+export interface OnlineOut {
+  id: string;
+  amount: number;
+  at: string;
+  entry_date: string | null;
+  label: string;
+  ledger: string | null;
+  voucher_no: string | null;
+}
+
+/** Vendor and other payments made by bank or UPI. Never part of the drawer. */
+export async function fetchOnlineOut(hospitalType?: string | null): Promise<OnlineOut[]> {
+  const { data, error } = await rpc("online_out_pool", {
+    p_hospital_type: hospitalType ?? null,
+  });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as OnlineOut[]).sort((a, b) => (a.at < b.at ? 1 : -1));
 }
 
 export interface PharmacySummary {
