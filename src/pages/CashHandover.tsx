@@ -174,6 +174,7 @@ export default function CashHandoverPage() {
           <TabsTrigger value="holders">Who is holding cash</TabsTrigger>
           <TabsTrigger value="pharmacy">Hope Pharmacy</TabsTrigger>
           <TabsTrigger value="register">Handover register</TabsTrigger>
+          <TabsTrigger value="by-person">By person</TabsTrigger>
           <TabsTrigger value="people">Nominated people</TabsTrigger>
         </TabsList>
 
@@ -416,6 +417,10 @@ export default function CashHandoverPage() {
               qc.invalidateQueries({ queryKey: ["cash-positions"] });
             }}
           />
+        </TabsContent>
+
+        <TabsContent value="by-person" className="mt-4">
+          <ByPersonPanel rows={handovers.data ?? []} />
         </TabsContent>
 
         <TabsContent value="people" className="mt-4">
@@ -1040,6 +1045,120 @@ function PharmacyPanel({
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------- by person */
+
+/**
+ * Each person's own chain of custody: what they handed over, and what they
+ * took in. The register is chronological, which answers "what happened
+ * today"; this answers "what has passed through this person's hands", which
+ * is the question asked when a shortage turns up.
+ */
+function ByPersonPanel({ rows }: { rows: CashHandover[] }) {
+  const live = rows.filter((h) => h.status !== "CANCELLED");
+
+  // One entry per person, holding both directions.
+  const people = new Map<string, { name: string; given: CashHandover[]; taken: CashHandover[] }>();
+  const slot = (id: string, name: string) => {
+    if (!people.has(id)) people.set(id, { name, given: [], taken: [] });
+    return people.get(id)!;
+  };
+  for (const h of live) {
+    slot(h.from_user_id, h.from_user_name).given.push(h);
+    slot(h.to_user_id, h.to_user_name).taken.push(h);
+  }
+
+  const sum = (list: CashHandover[]) =>
+    list.reduce((a, h) => a + Number(h.counted_cash || 0), 0);
+
+  const ordered = [...people.entries()].sort(
+    (a, b) => sum(b[1].given) + sum(b[1].taken) - (sum(a[1].given) + sum(a[1].taken)),
+  );
+
+  if (ordered.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-10 text-center text-muted-foreground">
+          No handovers yet, so there is nothing against anyone's name.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const line = (h: CashHandover, direction: "given" | "taken") => {
+    const diff = Number(h.variance || 0);
+    return (
+      <div
+        key={`${direction}-${h.id}`}
+        className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b py-2 last:border-b-0"
+      >
+        <span className="font-mono text-xs text-muted-foreground">{h.handover_no}</span>
+        <span className="text-sm">
+          {direction === "given" ? `→ ${h.to_user_name}` : `← ${h.from_user_name}`}
+        </span>
+        <Badge className={STATUS_TONE[h.status]} variant="secondary">
+          {h.status}
+        </Badge>
+        {h.is_unmatched && (
+          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800">
+            unmatched
+          </span>
+        )}
+        {Math.round(diff * 100) !== 0 && (
+          <span className="text-xs font-medium text-amber-700" title={h.variance_reason ?? ""}>
+            {diff > 0 ? "+" : "−"}{inr(Math.abs(diff))} vs software
+          </span>
+        )}
+        <span className="ml-auto text-xs text-muted-foreground">{when(h.submitted_at)}</span>
+        <span className="w-24 text-right font-semibold">{inr(h.counted_cash)}</span>
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      {ordered.map(([id, p]) => (
+        <Card key={id}>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">{p.name}</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Gave {p.given.length} ({inr(sum(p.given))}) · Took {p.taken.length} (
+              {inr(sum(p.taken))})
+            </p>
+          </CardHeader>
+          <CardContent className="grid gap-6 md:grid-cols-2">
+            <div>
+              <h4 className="mb-1 flex items-center gap-2 border-b pb-1 text-sm font-semibold text-rose-800">
+                Handed over{" "}
+                <span className="font-normal text-muted-foreground">
+                  — cash that left {p.name.split(" ")[0]}
+                </span>
+              </h4>
+              {p.given.length === 0 ? (
+                <p className="py-3 text-sm text-muted-foreground">Nothing handed over.</p>
+              ) : (
+                p.given.map((h) => line(h, "given"))
+              )}
+            </div>
+            <div>
+              <h4 className="mb-1 flex items-center gap-2 border-b pb-1 text-sm font-semibold text-emerald-800">
+                Received{" "}
+                <span className="font-normal text-muted-foreground">
+                  — cash that came to {p.name.split(" ")[0]}
+                </span>
+              </h4>
+              {p.taken.length === 0 ? (
+                <p className="py-3 text-sm text-muted-foreground">Nothing received.</p>
+              ) : (
+                p.taken.map((h) => line(h, "taken"))
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      ))}
     </div>
   );
 }
