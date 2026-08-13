@@ -13,6 +13,7 @@ import {
   DoorOpen,
   Droplets,
   FileText,
+  HandCoins,
   HeartPulse,
   LayoutDashboard,
   LogOut,
@@ -568,6 +569,15 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: Banknote,
     accent: "text-green-600",
     tint: "from-green-400 to-green-600",
+  },
+  {
+    id: "cash-handover",
+    label: "Cash Handover",
+    description: "Count the drawer and hand it over",
+    icon: HandCoins,
+    accent: "text-emerald-600",
+    tint: "from-emerald-400 to-teal-600",
+    keywords: ["cashier", "handover", "drawer", "count", "shortage"],
   },
   {
     id: "report",

@@ -1,4 +1,4 @@
-import { BarChart3, Calendar, PhoneCall, Users, UserPlus, Database, Activity, FileText, TestTube, Camera, Pill, MapPin, Stethoscope, UserCog, Syringe, Shield, Building2, ClipboardList, ShieldCheck, Receipt, HeartHandshake, ExternalLink, UserCheck, Bed, DoorOpen, LayoutDashboard, BookOpen, Clock, TrendingUp, Scissors, Heart, Cross, ClipboardCheck, ArrowLeftRight, Wallet, Navigation, Smartphone, MonitorSmartphone, MessageCircle, MessageSquare, ScanLine, Footprints, Phone, QrCode, Sparkles, Boxes, ScrollText, Stamp } from 'lucide-react';
+import { BarChart3, Calendar, PhoneCall, Users, UserPlus, Database, Activity, FileText, TestTube, Camera, Pill, MapPin, Stethoscope, UserCog, Syringe, Shield, Building2, ClipboardList, ShieldCheck, Receipt, HeartHandshake, ExternalLink, UserCheck, Bed, DoorOpen, LayoutDashboard, BookOpen, Clock, TrendingUp, Scissors, Heart, Cross, ClipboardCheck, ArrowLeftRight, Wallet, Navigation, Smartphone, MonitorSmartphone, MessageCircle, MessageSquare, ScanLine, Footprints, Phone, QrCode, Sparkles, Boxes, ScrollText, Stamp, HandCoins } from 'lucide-react';
 
 export type MenuSection = 'main' | 'masters';
 
@@ -135,6 +135,11 @@ export const menuItems: MenuItemDef[] = [
     title: "Cash Book",
     url: "/cash-book",
     icon: BookOpen,
+  },
+  {
+    title: "Cash Handover",
+    url: "/cash-handover",
+    icon: HandCoins,
   },
   {
     title: "Accounting",

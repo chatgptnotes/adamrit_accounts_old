@@ -57,6 +57,7 @@ const Accounting = lazy(() => import("../pages/Accounting"));
 const ExpenseBillsPage = lazy(() => import("../pages/ExpenseBills"));
 const PatientFeedbackPage = lazy(() => import("../pages/PatientFeedback"));
 const CashBook = lazy(() => import("../pages/CashBook"));
+const CashHandover = lazy(() => import("../pages/CashHandover"));
 const PatientLedger = lazy(() => import("../pages/PatientLedger"));
 const DayBook = lazy(() => import("../pages/DayBook"));
 const LedgerStatement = lazy(() => import("../pages/LedgerStatement"));
@@ -357,6 +358,7 @@ export const AppRoutes = () => {
         <Route path="/expense-bill" element={<Suspense fallback={<PageLoader />}><ExpenseBillsPage /></Suspense>} />
         <Route path="/patient-feedback" element={<Suspense fallback={<PageLoader />}><PatientFeedbackPage /></Suspense>} />
         <Route path="/cash-book" element={<Suspense fallback={<PageLoader />}><CashBook /></Suspense>} />
+        <Route path="/cash-handover" element={<Suspense fallback={<PageLoader />}><CashHandover /></Suspense>} />
         <Route path="/patient-ledger" element={<Suspense fallback={<PageLoader />}><PatientLedger /></Suspense>} />
         <Route path="/day-book" element={<Suspense fallback={<PageLoader />}><DayBook /></Suspense>} />
         <Route path="/ledger-statement" element={<Suspense fallback={<PageLoader />}><LedgerStatement /></Suspense>} />

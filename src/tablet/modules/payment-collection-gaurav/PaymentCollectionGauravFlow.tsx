@@ -581,6 +581,11 @@ function PatientCollectionDetail({ row, onBack }: { row: CollectionRow; onBack: 
         billing_executive: payment.receivedBy.trim() || user?.username || null,
         remarks,
         status: "ACTIVE",
+        // The logged-in user, who is accountable for the entry. Note this is
+        // not always the same person as billing_executive above: on vasooli
+        // collections the cash may have been received by someone else, whose
+        // name is free text and cannot be resolved to a user.
+        collected_by_user_id: user?.id ?? null,
       });
 
       if (error) throw error;

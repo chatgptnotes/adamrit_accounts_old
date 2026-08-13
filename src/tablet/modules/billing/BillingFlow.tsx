@@ -4,6 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Loader2, Receipt } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useFinalBillData } from "@/hooks/useFinalBillData";
+import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import {
   useAdmittedVisits,
@@ -77,6 +78,7 @@ function BillingUnlockedView({
   onBack: () => void;
 }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { billData, isLoading } = useFinalBillData(visit.visitId);
   const [stage, setStage] = useState<"view" | "collect">("view");
   const [amount, setAmount] = useState("");
@@ -103,6 +105,8 @@ function BillingUnlockedView({
         payment_date: new Date().toISOString(),
         payment_mode: mode,
         status: "ACTIVE",
+        // Whose drawer this cash lands in, for the cash handover.
+        collected_by_user_id: user?.id ?? null,
       });
       if (error) throw new Error(error.message || "Payment could not be recorded");
       return { success: true };

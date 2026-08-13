@@ -651,7 +651,11 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
         remarks: formData.remarks && formData.remarks.trim() ? formData.remarks.trim() : null,
         bank_account_id: (formData.selectedBank && isValidUUID(formData.selectedBank)) ? formData.selectedBank : null,
         bank_account_name: bankAccounts.find(b => b.id === formData.selectedBank)?.account_name || null,
-        created_by: null,
+        // Who physically took the money. Until now this was hardcoded null, so
+        // no cash receipt could be traced to a person -- see the cash handover
+        // feature, which needs this to say whose drawer the cash is in.
+        created_by: user?.id ?? null,
+        collected_by_user_id: user?.id ?? null,
         package_name: formData.packageName?.trim() || null,
         package_days: formData.packageDays ? parseInt(formData.packageDays) : null,
       };

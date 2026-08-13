@@ -1170,6 +1170,8 @@ export default function AdvanceFlow() {
         payment_mode: mode,
         remarks: remarks.trim() || null,
         status: "ACTIVE",
+        // Whose drawer this cash lands in, for the cash handover.
+        collected_by_user_id: user?.id ?? null,
       });
       if (error) throw error;
     },
