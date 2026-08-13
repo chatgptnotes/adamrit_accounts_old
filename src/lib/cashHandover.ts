@@ -48,6 +48,9 @@ export interface CashHandover {
   ref_card_total: number;
   source_count: number;
   included_unattributed: boolean;
+  /** True when no receipts could be claimed: a declared count, not a
+   *  reconciled one. Happens while counter staff share a login. */
+  is_unmatched: boolean;
   status: "SUBMITTED" | "ACCEPTED" | "VERIFIED" | "CANCELLED";
   submitted_at: string;
   accepted_at: string | null;

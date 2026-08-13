@@ -408,7 +408,17 @@ function RegisterTable({
                 const diff = Number(h.variance || 0);
                 return (
                   <TableRow key={h.id}>
-                    <TableCell className="font-mono text-xs">{h.handover_no}</TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {h.handover_no}
+                      {h.is_unmatched && (
+                        <span
+                          className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-normal text-amber-800"
+                          title="No receipts could be matched to this handover — the cash was counted and passed on, but it reconciles against nothing. Usually means the counter shares a login."
+                        >
+                          unmatched
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <div className="font-medium">{h.from_user_name}</div>
                       <div className="text-xs text-muted-foreground">→ {h.to_user_name}</div>
