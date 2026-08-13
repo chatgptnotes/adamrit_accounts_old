@@ -8,6 +8,7 @@ import {
   Check,
   HandCoins,
   Loader2,
+  Pill,
   ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
@@ -22,6 +23,8 @@ import {
   acceptHandover,
   fetchHandovers,
   fetchNominees,
+  fetchPharmacyPositions,
+  fetchPharmacySummary,
   fetchPreview,
   submitHandover,
   verifyHandover,
@@ -31,7 +34,7 @@ import {
 // / verify_cash_handover. Every rupee figure is computed in the database; this
 // screen only sends the note count and who is receiving the cash.
 
-type Tab = "hand-over" | "to-me";
+type Tab = "hand-over" | "to-me" | "pharmacy";
 
 export default function CashHandoverFlow() {
   const { user, hospitalType } = useAuth();
@@ -89,9 +92,18 @@ export default function CashHandoverFlow() {
             </span>
           )}
         </TabletButton>
+        <TabletButton
+          variant={tab === "pharmacy" ? "default" : "outline"}
+          className="flex-1"
+          onClick={() => setTab("pharmacy")}
+        >
+          <Pill className="mr-2 h-5 w-5" /> Pharmacy
+        </TabletButton>
       </div>
 
-      {tab === "hand-over" ? (
+      {tab === "pharmacy" ? (
+        <PharmacyPanel />
+      ) : tab === "hand-over" ? (
         <HandOverPanel
           userId={user?.id ?? ""}
           hospitalType={hospitalType ?? null}
@@ -447,6 +459,117 @@ function ForMePanel({
           </TabletCard>
         );
       })}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------- pharmacy */
+
+/**
+ * Hope Pharmacy's till. Its own company, its own Cash ledger and its own
+ * staff, so it never mixes with the hospital counters.
+ *
+ * Read-only for now: pharmacy cash is not yet claimable through a handover,
+ * because the handover claims patient receipts and the pharmacy sells from a
+ * different set of tables.
+ */
+function PharmacyPanel() {
+  const positions = useQuery({
+    queryKey: ["tablet-pharmacy-positions"],
+    queryFn: fetchPharmacyPositions,
+    staleTime: 30_000,
+  });
+  const summary = useQuery({
+    queryKey: ["tablet-pharmacy-summary"],
+    queryFn: fetchPharmacySummary,
+    staleTime: 30_000,
+  });
+
+  if (positions.isLoading || summary.isLoading) {
+    return (
+      <div className="flex justify-center py-10">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  const till = (positions.data ?? []).reduce((s, p) => s + Number(p.net_cash || 0), 0);
+  const s = summary.data;
+
+  return (
+    <div className="space-y-4 pb-4">
+      <TabletCard className="bg-emerald-50">
+        <p className="text-sm text-muted-foreground">Cash in the pharmacy till</p>
+        <p className={`text-4xl font-bold ${till < 0 ? "text-amber-700" : "text-emerald-700"}`}>
+          {inr(till)}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {s?.cashCount ?? 0} cash sale(s), less anything paid out
+        </p>
+      </TabletCard>
+
+      <div className="grid grid-cols-2 gap-3">
+        <TabletCard>
+          <p className="text-sm text-muted-foreground">UPI / online</p>
+          <p className="text-2xl font-bold">{inr(s?.upiAmount ?? 0)}</p>
+          <p className="text-xs text-muted-foreground">{s?.upiCount ?? 0} payment(s)</p>
+        </TabletCard>
+        <TabletCard>
+          <p className="text-sm text-muted-foreground">Card</p>
+          <p className="text-2xl font-bold">{inr(s?.cardAmount ?? 0)}</p>
+          <p className="text-xs text-muted-foreground">{s?.cardCount ?? 0} payment(s)</p>
+        </TabletCard>
+      </div>
+      <p className="text-center text-xs text-muted-foreground">
+        UPI and card are shown for the shift total. Only cash is handed over.
+      </p>
+
+      <h3 className="mb-1 font-semibold">Who is holding pharmacy cash</h3>
+      {(positions.data ?? []).length === 0 ? (
+        <p className="py-6 text-center text-muted-foreground">
+          No pharmacy cash outstanding.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {(positions.data ?? []).map((p) => (
+            <TabletCard
+              key={`${p.holder_user_id ?? "x"}-${p.holder_name}`}
+              className="flex items-center gap-3 py-3"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium">
+                  {p.attribution === "payout" ? (
+                    <span className="text-rose-700">{p.holder_name}</span>
+                  ) : p.attribution === "login" ? (
+                    p.holder_name
+                  ) : p.attribution === "name" ? (
+                    <>
+                      {p.holder_name}
+                      <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">
+                        by name
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-amber-700">Not recorded to anyone</span>
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {p.receipt_count} entr{p.receipt_count === 1 ? "y" : "ies"}
+                </p>
+              </div>
+              <span
+                className={
+                  Number(p.net_cash) < 0
+                    ? "font-semibold text-rose-700"
+                    : "font-semibold text-emerald-700"
+                }
+              >
+                {inr(p.net_cash)}
+              </span>
+            </TabletCard>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
