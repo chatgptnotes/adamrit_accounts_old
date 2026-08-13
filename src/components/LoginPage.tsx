@@ -4,6 +4,14 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { HospitalType } from '@/types/hospital';
 import ForgotPasswordDialog from '@/components/ForgotPasswordDialog';
@@ -23,6 +31,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ hospitalType }) => {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [deactivated, setDeactivated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
 
@@ -47,14 +56,20 @@ const LoginPage: React.FC<LoginPageProps> = ({ hospitalType }) => {
     setError(null);
 
     try {
-      const success = await login({
+      const result = await login({
         email: userId.trim(),
         password,
         hospitalType: selectedHospitalType,
       });
 
-      if (!success) {
-        setError('Invalid user ID or password');
+      if (!result.ok) {
+        // A switched-off shared login is not a wrong password, and saying so
+        // would send counter staff hunting for a password that works fine.
+        if (result.reason === 'account_deactivated') {
+          setDeactivated(true);
+        } else {
+          setError('Invalid user ID or password');
+        }
       }
     } catch {
       setError('Login failed. Please try again.');
@@ -64,6 +79,43 @@ const LoginPage: React.FC<LoginPageProps> = ({ hospitalType }) => {
   };
 
   return (
+    <>
+      {/* Shared counter logins are being retired. Whoever tries one needs to
+          know it is not a broken password, and that their own account exists. */}
+      <Dialog open={deactivated} onOpenChange={setDeactivated}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Please sign in with your own user ID</DialogTitle>
+            <DialogDescription className="space-y-2 pt-2 text-left">
+              <span className="block">
+                This shared login has been switched off. Your password is fine —
+                the account is simply no longer in use.
+              </span>
+              <span className="block">
+                Sign in with your own user ID instead, the one in your own name.
+                It matters for cash: money you take is recorded against whoever
+                is signed in, so a shared login records it against nobody and
+                you cannot hand it over at the end of your shift.
+              </span>
+              <span className="block text-muted-foreground">
+                If you do not know your user ID, ask the director or the
+                accounts desk.
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              onClick={() => {
+                setDeactivated(false);
+                setUserId('');
+                setPassword('');
+              }}
+            >
+              Sign in as myself
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
@@ -146,6 +198,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ hospitalType }) => {
         initialEmail={userId.includes('@') ? userId : ''}
       />
     </div>
+    </>
   );
 };
 

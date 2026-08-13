@@ -23,7 +23,7 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
-  login: (credentials: { email: string; password: string; hospitalType?: HospitalType }) => Promise<boolean>;
+  login: (credentials: { email: string; password: string; hospitalType?: HospitalType }) => Promise<{ ok: boolean; reason?: string }>;
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   isAuthenticated: boolean;
@@ -219,7 +219,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   }, []);
 
   // Database authentication
-  const login = async (credentials: { email: string; password: string; hospitalType?: HospitalType }): Promise<boolean> => {
+  // Returns the server's reason as well as success: the login screen has to
+  // tell a shared-login user to come back as themselves, and "invalid user ID
+  // or password" would send them hunting for a password that works fine.
+  const login = async (credentials: { email: string; password: string; hospitalType?: HospitalType }): Promise<{ ok: boolean; reason?: string }> => {
     try {
       const response = await fetch('/api/auth-session', {
         method: 'POST',
@@ -228,17 +231,19 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         body: JSON.stringify(credentials),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok || !body?.ok || !body.user) return false;
+      if (!response.ok || !body?.ok || !body.user) {
+        return { ok: false, reason: typeof body?.error === 'string' ? body.error : undefined };
+      }
 
       const appUser: User = body.user;
       setUser(appUser);
       localStorage.setItem('hmis_user', JSON.stringify(appUser));
       // last_login_at is stamped server-side by /api/auth-session.
       logActivity('user_login', { email: appUser.email, role: appUser.role, hospital: appUser.hospitalType });
-      return true;
+      return { ok: true };
     } catch (error) {
       console.error('Login failed:', error);
-      return false;
+      return { ok: false };
     }
   };
 
