@@ -102,7 +102,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!accessToken) return res.status(400).json({ error: 'access_token_required' });
     const auth = await sb.auth.getUser(accessToken);
     if (auth.error || !auth.data.user?.email) return res.status(401).json({ error: 'invalid_google_session' });
-    const result = await sb.from('User').select('id,email,role,hospital_type,employee_id').ilike('email', auth.data.user.email).maybeSingle();
+    const result = await sb.from('User').select('id,email,role,hospital_type,employee_id,is_active').ilike('email', auth.data.user.email).maybeSingle();
     row = result.data;
   } else {
     const email = text(req.body?.email);
@@ -110,7 +110,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const hospitalType = text(req.body?.hospitalType);
     const isStaffPin = !email && password.startsWith('@') && password.length === 5;
     const buildQuery = (scopeHospitalType?: string | null) => {
-      let query = sb.from('User').select('id,email,role,hospital_type,password,employee_id');
+      let query = sb.from('User').select('id,email,role,hospital_type,password,employee_id,is_active');
       if (isStaffPin) {
         query = query.eq('staff_pin', password.slice(1));
         if (scopeHospitalType) query = query.eq('hospital_type', scopeHospitalType);
@@ -130,6 +130,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       row = fallbackResult.data?.[0] || null;
     }
     if (!row) return res.status(401).json({ error: 'invalid_credentials' });
+    // A leaver keeps their password; deactivating the account was the only
+    // thing standing between them and the hospital's data, and nothing was
+    // checking it. is_active is nullable and every screen reads NULL as
+    // active, so only an explicit false is refused.
+    if (row.is_active === false) return res.status(403).json({ error: 'account_deactivated' });
     if (!isStaffPin) {
       const stored = String(row.password || '');
       const valid = stored.startsWith('$2') ? await bcrypt.compare(password, stored) : stored === password;
@@ -138,5 +143,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (!row) return res.status(401).json({ error: 'account_not_found' });
+  // Covers Google as well as password and staff PIN: whichever door a leaver
+  // tries, a deactivated account issues no session.
+  if (row.is_active === false) return res.status(403).json({ error: 'account_deactivated' });
   return issueSession(row, res, serviceKey, sb);
 }
