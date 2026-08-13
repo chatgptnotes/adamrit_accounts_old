@@ -77,6 +77,9 @@ export default function CashHandoverPage() {
   const [posScope, setPosScope] = useState<string>("");
   const [showPayouts, setShowPayouts] = useState(false);
   const [showOnlineOut, setShowOnlineOut] = useState(false);
+  // Every card is a number somebody has to trust. Each one opens to say what
+  // it means and what it is made of.
+  const [cardOpen, setCardOpen] = useState<null | "counter" | "variances" | "nominees">(null);
   const positions = useQuery({
     queryKey: ["cash-positions", posScope || "all"],
     queryFn: () => fetchPositions(posScope || null),
@@ -120,10 +123,19 @@ export default function CashHandoverPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card className="border-l-4 border-l-emerald-500">
+        <Card
+          className="cursor-pointer border-l-4 border-l-emerald-500 transition-shadow hover:shadow-md"
+          role="button"
+          tabIndex={0}
+          onClick={() => setCardOpen("counter")}
+          onKeyDown={(e) => e.key === "Enter" && setCardOpen("counter")}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base">
               <Banknote className="h-4 w-4 text-emerald-600" /> Cash at the counter
+              <span className="ml-auto text-xs font-normal text-muted-foreground">
+                Click for detail
+              </span>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -143,10 +155,19 @@ export default function CashHandoverPage() {
             )}
           </CardContent>
         </Card>
-        <Card className="border-l-4 border-l-amber-500">
+        <Card
+          className="cursor-pointer border-l-4 border-l-amber-500 transition-shadow hover:shadow-md"
+          role="button"
+          tabIndex={0}
+          onClick={() => setCardOpen("variances")}
+          onKeyDown={(e) => e.key === "Enter" && setCardOpen("variances")}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base">
               <TriangleAlert className="h-4 w-4 text-amber-600" /> Differences recorded
+              <span className="ml-auto text-xs font-normal text-muted-foreground">
+                Click for detail
+              </span>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -156,10 +177,19 @@ export default function CashHandoverPage() {
             </p>
           </CardContent>
         </Card>
-        <Card className="border-l-4 border-l-blue-500">
+        <Card
+          className="cursor-pointer border-l-4 border-l-blue-500 transition-shadow hover:shadow-md"
+          role="button"
+          tabIndex={0}
+          onClick={() => setCardOpen("nominees")}
+          onKeyDown={(e) => e.key === "Enter" && setCardOpen("nominees")}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base">
               <Users className="h-4 w-4 text-blue-600" /> Nominated people
+              <span className="ml-auto text-xs font-normal text-muted-foreground">
+                Click for detail
+              </span>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -840,11 +870,14 @@ function PharmacyPanel({
   // Cash and online are different animals: one is counted and handed over, the
   // other is already in the bank. The list mixes them, so it needs a filter.
   const [txnMode, setTxnMode] = useState<"all" | "cash" | "online">("all");
-  const txns = useQuery({
+  const [phCard, setPhCard] = useState<null | "cash" | "upi" | "card">(null);
+  // The dialog needs the list whichever way it is opened.
+  const allTxns = useQuery({
     queryKey: ["pharmacy-transactions"],
     queryFn: fetchPharmacyTransactions,
-    enabled: showTxns,
+    enabled: showTxns || phCard !== null,
   });
+  const txns = allTxns;
 
   const filteredTxns = (txns.data ?? []).filter((t) =>
     txnMode === "all"
@@ -854,12 +887,89 @@ function PharmacyPanel({
         : !CASH_MODES.includes(t.mode),
   );
 
+  const phRows = (allTxns.data ?? []).filter((t) =>
+    phCard === "cash"
+      ? t.mode === "CASH"
+      : phCard === "upi"
+        ? ["UPI", "ONLINE", "PHONEPE", "GPAY", "NEFT", "RTGS"].includes(t.mode)
+        : ["CARD", "CREDIT CARD", "DEBIT CARD"].includes(t.mode),
+  );
+  const phTitle =
+    phCard === "cash" ? "Cash in the till" : phCard === "upi" ? "UPI / online" : "Card";
+  const phExplain =
+    phCard === "cash"
+      ? "Cash sales and cash collected against credit bills, less anything paid out of the pharmacy's own cash ledger. This is the money physically in the till, and the only figure that gets counted and handed over."
+      : phCard === "upi"
+        ? "Money taken by UPI or bank transfer. It is shown so a shift can be reconciled in full, but it is never counted or handed over — that money is already in the bank, not in anyone's hand."
+        : "Money taken by card. Like UPI, it is reported for the shift picture only and never forms part of the cash handed over.";
+
   return (
     <div className="space-y-4">
+      <Dialog open={!!phCard} onOpenChange={(o) => !o && setPhCard(null)}>
+        <DialogContent className="max-h-[85vh] overflow-auto sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>
+              {phTitle} — {inr(phRows.reduce((a, t) => a + Number(t.amount || 0), 0))}
+            </DialogTitle>
+            <DialogDescription className="pt-1 text-left">{phExplain}</DialogDescription>
+          </DialogHeader>
+          {allTxns.isLoading ? (
+            <p className="py-6 text-center text-muted-foreground">Loading…</p>
+          ) : phRows.length === 0 ? (
+            <p className="py-6 text-center text-muted-foreground">
+              Nothing taken this way since counting began.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-xs">Bill / ref</TableHead>
+                  <TableHead className="text-xs">Patient</TableHead>
+                  <TableHead className="text-xs">Received by</TableHead>
+                  <TableHead className="text-xs">When</TableHead>
+                  <TableHead className="text-right text-xs">Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {phRows.map((t) => (
+                  <TableRow key={`${t.source_table}-${t.id}`}>
+                    <TableCell className="font-mono text-xs">
+                      {t.reference ?? "—"}
+                      {t.source_table === "pharmacy_credit_payments" && (
+                        <span className="ml-1 rounded bg-blue-100 px-1 text-[10px] text-blue-800">
+                          credit bill
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs">{t.label}</TableCell>
+                    <TableCell className="text-xs">
+                      {t.who ?? <span className="text-amber-700">Not recorded</span>}
+                    </TableCell>
+                    <TableCell className="text-xs">{when(t.at)}</TableCell>
+                    <TableCell className="text-right text-xs font-medium">{inr(t.amount)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <div className="grid gap-4 md:grid-cols-3">
-        <Card className="border-l-4 border-l-emerald-500">
+        <Card
+          className="cursor-pointer border-l-4 border-l-emerald-500 transition-shadow hover:shadow-md"
+          role="button"
+          tabIndex={0}
+          onClick={() => setPhCard("cash")}
+          onKeyDown={(e) => e.key === "Enter" && setPhCard("cash")}
+        >
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Cash in the till</CardTitle>
+            <CardTitle className="flex items-center text-base">
+              Cash in the till
+              <span className="ml-auto text-xs font-normal text-muted-foreground">
+                Click for detail
+              </span>
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <p className={`text-3xl font-bold ${drawer < 0 ? "text-amber-700" : ""}`}>
@@ -870,9 +980,20 @@ function PharmacyPanel({
             </p>
           </CardContent>
         </Card>
-        <Card className="border-l-4 border-l-blue-500">
+        <Card
+          className="cursor-pointer border-l-4 border-l-blue-500 transition-shadow hover:shadow-md"
+          role="button"
+          tabIndex={0}
+          onClick={() => setPhCard("upi")}
+          onKeyDown={(e) => e.key === "Enter" && setPhCard("upi")}
+        >
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">UPI / online</CardTitle>
+            <CardTitle className="flex items-center text-base">
+              UPI / online
+              <span className="ml-auto text-xs font-normal text-muted-foreground">
+                Click for detail
+              </span>
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold">{inr(summary?.upiAmount ?? 0)}</p>
@@ -881,9 +1002,20 @@ function PharmacyPanel({
             </p>
           </CardContent>
         </Card>
-        <Card className="border-l-4 border-l-violet-500">
+        <Card
+          className="cursor-pointer border-l-4 border-l-violet-500 transition-shadow hover:shadow-md"
+          role="button"
+          tabIndex={0}
+          onClick={() => setPhCard("card")}
+          onKeyDown={(e) => e.key === "Enter" && setPhCard("card")}
+        >
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Card</CardTitle>
+            <CardTitle className="flex items-center text-base">
+              Card
+              <span className="ml-auto text-xs font-normal text-muted-foreground">
+                Click for detail
+              </span>
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold">{inr(summary?.cardAmount ?? 0)}</p>
