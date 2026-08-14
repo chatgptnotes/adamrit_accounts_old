@@ -14,8 +14,9 @@ import { useVoucherActions } from '@/hooks/useVoucherActions';
 import { toast } from 'sonner';
 import { VoucherAttachmentButton, useVoucherAttachmentMap } from './VoucherAttachmentViewer';
 import { openGeneratedInvoice, useGeneratedInvoiceMap } from '@/lib/generated-voucher-invoices';
+import { openStoredDocument } from '@/lib/openStoredDocument';
 import { printTallyVoucher } from '@/lib/tallyPrint';
-import { FileText, Printer } from 'lucide-react';
+import { BadgeCheck, FileText, Printer } from 'lucide-react';
 
 type LedgerSource = 'adamrit' | 'tally';
 
@@ -626,6 +627,30 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
                           className="inline-flex h-7 w-8 items-center justify-center rounded text-emerald-700 hover:bg-emerald-100"
                         >
                           <FileText className="h-4 w-4" />
+                        </button>
+                      )}
+                      {/* The confirmation that the money actually went out:
+                          the signed cash payment voucher, or the transfer
+                          screenshot, stored beside the bill. The day book was
+                          already fetching it and then never showing it, so a
+                          payment row proved the invoice but never the payment.
+                          The Expense Bills page calls this "Signed PV". */}
+                      {r.nativeId && generatedInvoiceMap.get(r.nativeId)?.signedVoucherUrl && (
+                        <button
+                          type="button"
+                          title={`View the payment confirmation for ${r.number}`}
+                          aria-label={`View payment confirmation for voucher ${r.number}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void openStoredDocument(
+                              generatedInvoiceMap.get(r.nativeId!)!.signedVoucherUrl!,
+                            ).catch((err: any) =>
+                              toast.error(err?.message || 'Could not open the payment confirmation'),
+                            );
+                          }}
+                          className="inline-flex h-7 w-8 items-center justify-center rounded text-blue-700 hover:bg-blue-100"
+                        >
+                          <BadgeCheck className="h-4 w-4" />
                         </button>
                       )}
                     </div>
