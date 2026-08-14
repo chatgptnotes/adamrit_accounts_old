@@ -32,7 +32,9 @@ import {
   CORRECTION_COMMENT_STATUS,
   EXTRA_PACKAGE_STATUS,
   STATUS_ORDER,
+  buildExtraPackageRemarks,
   getPaymentStatus,
+  parseExtraInstruction,
   parseExtraPackage,
   statusMeta,
   toNumber,
@@ -70,6 +72,8 @@ type CollectionRow = {
   schemeName: string;
   totalApprovedAmount: number;
   extraPackageAmount: number;
+  /** Why this extra cash is due / how to collect it. Set with the amount. */
+  extraInstruction: string;
   totalReceivedAmount: number;
   balancePending: number;
   paymentStatus: PaymentStatus;
@@ -310,6 +314,7 @@ async function loadCollectionRows(hospitalName: string): Promise<CollectionRow[]
       reference_number: latestExtra.referenceNumber,
       remarks: latestExtra.remarks,
     }) : 0;
+    const extraInstruction = latestExtra ? parseExtraInstruction(latestExtra.remarks) : "";
     const paymentRows = ledger.filter((entry) => entry.kind === "payment");
     const totalReceivedAmount = paymentRows.reduce((sum, payment) => sum + payment.amount, 0);
     const balancePending = Math.max(extraPackageAmount - totalReceivedAmount, 0);
@@ -332,6 +337,7 @@ async function loadCollectionRows(hospitalName: string): Promise<CollectionRow[]
       schemeName: visit.corporate || visit.insurance_type || billPrep?.corporate || patient?.corporate || "Yojana",
       totalApprovedAmount,
       extraPackageAmount,
+      extraInstruction,
       totalReceivedAmount,
       balancePending,
       paymentStatus: getPaymentStatus(extraPackageAmount, totalReceivedAmount),
@@ -491,6 +497,7 @@ function PatientCollectionDetail({ row, onBack }: { row: CollectionRow; onBack: 
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [extraAmount, setExtraAmount] = useState(row.extraPackageAmount ? String(row.extraPackageAmount) : "");
+  const [extraInstruction, setExtraInstruction] = useState(row.extraInstruction);
   const [payment, setPayment] = useState<PaymentForm>({
     collectionDate: todayInput(),
     amount: "",
@@ -527,7 +534,7 @@ function PatientCollectionDetail({ row, onBack }: { row: CollectionRow; onBack: 
         payment_mode: "SYSTEM",
         reference_number: String(value),
         billing_executive: user?.username || null,
-        remarks: `extra_package_amount=${value}`,
+        remarks: buildExtraPackageRemarks(value, extraInstruction),
         status: EXTRA_PACKAGE_STATUS,
       });
       if (error) throw error;
@@ -711,15 +718,29 @@ function PatientCollectionDetail({ row, onBack }: { row: CollectionRow; onBack: 
           <Pencil className="h-5 w-5 text-amber-600" />
           <h3 className="text-lg font-bold">Extra Package Amount</h3>
         </div>
-        <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-          <AmountInput
-            label="Amount to be paid by patient"
-            value={extraAmount}
-            onChange={setExtraAmount}
-            placeholder="0"
+        <AmountInput
+          label="Amount to be paid by patient"
+          value={extraAmount}
+          onChange={setExtraAmount}
+          placeholder="0"
+        />
+        {/* The counter is told an amount but never why, so a patient who
+            queries it gets no answer and the cash is not collected. The
+            instruction is saved with the amount, as one record. */}
+        <label className="block space-y-1">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Instruction to collect
+          </span>
+          <textarea
+            value={extraInstruction}
+            onChange={(event) => setExtraInstruction(event.target.value)}
+            rows={3}
+            className="w-full resize-none rounded-xl border bg-background p-3 text-base outline-none focus:ring-2 focus:ring-ring"
+            placeholder="Why this extra cash is due and how to collect it — e.g. implant balance, collect in cash before discharge"
           />
+        </label>
+        <div className="flex justify-end">
           <TabletButton
-            className="self-end"
             onClick={() => saveExtra.mutate()}
             disabled={saveExtra.isPending}
           >
@@ -727,6 +748,12 @@ function PatientCollectionDetail({ row, onBack }: { row: CollectionRow; onBack: 
             Save Amount
           </TabletButton>
         </div>
+        {row.extraInstruction ? (
+          <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <span className="font-semibold">Current instruction: </span>
+            {row.extraInstruction}
+          </p>
+        ) : null}
       </TabletCard>
 
       <TabletCard variant="flat" className="space-y-4">

@@ -1899,6 +1899,21 @@ ${JSON.stringify(sourceContext, null, 2)}`,
                 <Download className="mr-2 h-4 w-4" />
                 Summary PDF
               </TabletButton>
+              {/* The hospital's printable discharge summary. This used to hang
+                  off the second "Advanced Statement" tile, which was deleted on
+                  16-Jul as a duplicate (79b934e) — but this button went with it,
+                  and nothing here replaced it. Like the gate pass and final
+                  bill, the route keys on the visit CODE, not the row's uuid. */}
+              <TabletButton
+                variant="outline"
+                onClick={() =>
+                  window.open(`/discharge-summary-print/${row.visitNumber}`, "_blank", "noopener,noreferrer")
+                }
+                disabled={!row.visitNumber}
+              >
+                <FileText className="mr-2 h-4 w-4" />
+                Discharge Summary
+              </TabletButton>
               <TabletButton
                 onClick={() => setDischargeConfirmRow(row)}
                 disabled={!unlocked || !!row.dischargeDate}

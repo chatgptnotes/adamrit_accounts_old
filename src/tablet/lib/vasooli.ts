@@ -31,6 +31,26 @@ export function parseExtraPackage(row: { reference_number?: unknown; remarks?: u
   return match ? toNumber(match[1]) : 0;
 }
 
+/**
+ * The instruction telling the counter WHY this extra cash is due and how to
+ * collect it. It shares the extra-package row's `remarks` with the amount
+ * token, written as `extra_package_amount=N; <instruction>` — the amount also
+ * lives in `reference_number`, which is what parseExtraPackage reads first, so
+ * free text after the token cannot corrupt the figure.
+ */
+export function buildExtraPackageRemarks(amount: number, instruction: string) {
+  const note = instruction.trim();
+  return note ? `extra_package_amount=${amount}; ${note}` : `extra_package_amount=${amount}`;
+}
+
+/** The instruction only — the amount token and its separator stripped off. */
+export function parseExtraInstruction(remarks: unknown) {
+  return String(remarks || "")
+    .replace(/extra_package_amount=[0-9.]+/i, "")
+    .replace(/^[\s;]+/, "")
+    .trim();
+}
+
 export function getPaymentStatus(
   extraPackageAmount: number,
   totalReceivedAmount: number,
