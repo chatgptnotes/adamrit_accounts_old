@@ -14,7 +14,8 @@ import { useVoucherActions } from '@/hooks/useVoucherActions';
 import { toast } from 'sonner';
 import { VoucherAttachmentButton, useVoucherAttachmentMap } from './VoucherAttachmentViewer';
 import { openGeneratedInvoice, useGeneratedInvoiceMap } from '@/lib/generated-voucher-invoices';
-import { FileText } from 'lucide-react';
+import { printTallyVoucher } from '@/lib/tallyPrint';
+import { FileText, Printer } from 'lucide-react';
 
 type LedgerSource = 'adamrit' | 'tally';
 
@@ -24,6 +25,9 @@ interface DayRow {
   date: string;
   particulars: string;
   type: string;
+  /** Voucher category (RECEIPT / PAYMENT / CONTRA / …) — drives the printed
+   *  layout, since Tally prints those three in single-account mode. */
+  category: string;
   number: string;
   debit: number;
   credit: number;
@@ -210,6 +214,77 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
       return data as unknown as Voucher[];
     },
   });
+  // Letterhead for the printed voucher. The daybook only ever held the company
+  // id, but a voucher cannot print without the name and address on top of it.
+  const { data: company } = useQuery({
+    queryKey: ['daybook_company', selectedCompanyId],
+    enabled: Boolean(selectedCompanyId),
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('companies')
+        .select('company_name, address_line1, address_line2')
+        .eq('id', selectedCompanyId)
+        .maybeSingle();
+      return data as { company_name: string; address_line1: string | null; address_line2: string | null } | null;
+    },
+  });
+
+  /**
+   * The voucher itself, printed the way TallyPrime prints one.
+   *
+   * Every row can produce this — a Tally mirror row as readily as a native one
+   * — because it is built from the ledger lines already on the row, not from
+   * anything uploaded. Previously a daybook row offered a document only when
+   * somebody had attached a proof or an invoice had been generated, so most
+   * entries showed nothing at all.
+   *
+   * Tally puts the cash/bank side in the header as "Through :" instead of in
+   * the Particulars table, but only on the single-account categories, and only
+   * when that side is one line. Anything else prints in journal layout, which
+   * is always correct — it just shows both columns.
+   */
+  const printRowVoucher = (row: DayRow): void => {
+    const category = row.category.toUpperCase();
+    const isReceipt = category.includes('RECEIPT');
+    const isPayment = category.includes('PAYMENT') || category.includes('CONTRA');
+    const lines = row.entries.map((entry) => ({
+      name: entry.label.replace(/^(Dr|Cr)\s+/, ''),
+      dr: entry.debit,
+      cr: entry.credit,
+    }));
+
+    let through: string | null = null;
+    let rowsToPrint = lines;
+    if (isReceipt || isPayment) {
+      // On a receipt the cash/bank sits on the debit side; on a payment and a
+      // contra, the credit side.
+      const throughSide = isReceipt ? lines.filter((l) => l.dr > 0) : lines.filter((l) => l.cr > 0);
+      const otherSide = isReceipt ? lines.filter((l) => l.dr <= 0) : lines.filter((l) => l.cr <= 0);
+      if (throughSide.length === 1 && otherSide.length > 0) {
+        through = throughSide[0].name;
+        rowsToPrint = otherSide;
+      }
+    }
+
+    if (rowsToPrint.length === 0) {
+      toast.error('Nothing to print — this entry has no ledger lines');
+      return;
+    }
+
+    const printed = printTallyVoucher({
+      orgName: company?.company_name || 'Hospital',
+      addressLines: [company?.address_line1, company?.address_line2].filter(Boolean) as string[],
+      voucherTypeName: row.type || 'Voucher',
+      voucherNumber: row.number || '',
+      voucherDate: row.date,
+      category,
+      through,
+      rows: rowsToPrint,
+      narration: row.narration || '',
+    });
+    if (!printed) toast.error('Popup blocked — allow popups to print');
+  };
+
   const nativeVoucherIds = useMemo(() => vouchers.map((voucher) => voucher.id), [vouchers]);
   const { data: attachmentMap = new Map() } = useVoucherAttachmentMap(nativeVoucherIds);
   // The system-generated invoice behind auto-posted vouchers (expense bills,
@@ -271,6 +346,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
         date: v.voucher_date,
         particulars: leadLedger(v.voucher_type?.voucher_category ?? v.voucher_type?.voucher_type_name ?? '', normalizedEntries),
         type: v.voucher_type?.voucher_type_name?.replace(' Voucher', '') ?? '',
+        category: v.voucher_type?.voucher_category ?? v.voucher_type?.voucher_type_name ?? '',
         number: v.voucher_number,
         debit: sides.debit,
         credit: sides.credit,
@@ -300,6 +376,8 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
         date: v.date,
         particulars: leadLedger(v.voucher_type, normalizedEntries),
         type: v.voucher_type.replace(' Voucher', ''),
+        // Tally carries no separate category; its type name is the category.
+        category: v.voucher_type,
         number: v.voucher_number,
         debit: sides.debit,
         credit: sides.credit,
@@ -504,6 +582,21 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
                       )}
                     </div>
                     <div className="flex w-10 items-center justify-center gap-0.5 px-1 text-center">
+                      {/* Every entry, whatever its source, can show its own
+                          voucher. The two icons after this one appear only
+                          where a document was uploaded or generated. */}
+                      <button
+                        type="button"
+                        title={`Print voucher ${r.number}`}
+                        aria-label={`Print voucher ${r.number}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          printRowVoucher(r);
+                        }}
+                        className="text-gray-500 hover:text-black"
+                      >
+                        <Printer className="h-3.5 w-3.5" />
+                      </button>
                       {r.nativeId && (
                         <VoucherAttachmentButton
                           attachments={attachmentMap.get(r.nativeId) || []}
