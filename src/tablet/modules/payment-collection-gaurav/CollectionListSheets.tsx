@@ -1,12 +1,13 @@
 import { useState, type ChangeEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Camera, FileImage, Loader2, NotebookPen, X } from "lucide-react";
+import { Camera, FileImage, Loader2, NotebookPen, Trash2, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import {
+  deleteVasooliListPhoto,
   fetchVasooliListPhotos,
   uploadVasooliListPhoto,
   type VasooliListPhoto,
@@ -54,6 +55,24 @@ export function CollectionListSheets({ hospital }: { hospital: string | null }) 
       return Object.fromEntries(
         (data ?? []).map((u: any) => [u.id, u.full_name || u.email || "Unknown"]),
       ) as Record<string, string>;
+    },
+  });
+
+  // Deleting is two taps, not one. This is the sheet the day's collection is
+  // being typed from, and it is sitting under a thumb on a tablet.
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+
+  const remove = useMutation({
+    mutationFn: (id: string) => deleteVasooliListPhoto({ id, userId: user?.id ?? null }),
+    onSuccess: (_data, id) => {
+      toast.success("List photo removed.");
+      setConfirmingId(null);
+      if (openId === id) setOpenId(null);
+      qc.invalidateQueries({ queryKey: ["vasooli-list-photos"] });
+    },
+    onError: (e) => {
+      setConfirmingId(null);
+      toast.error(e instanceof Error ? e.message : "Could not remove the photo");
     },
   });
 
@@ -174,6 +193,46 @@ export function CollectionListSheets({ hospital }: { hospital: string | null }) 
             >
               Open full size
             </a>
+
+            {/* Only the person who took it. The database refuses anyone else
+                regardless, so this hides an action that would fail rather
+                than being the check itself. */}
+            {!!user?.id && open.uploadedBy === user.id && (
+              confirmingId === open.id ? (
+                <>
+                  <TabletButton
+                    variant="outline"
+                    className="min-h-9 border-red-300 px-3 text-sm text-red-700"
+                    disabled={remove.isPending}
+                    onClick={() => remove.mutate(open.id)}
+                  >
+                    {remove.isPending ? (
+                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="mr-1 h-4 w-4" />
+                    )}
+                    Tap again to delete
+                  </TabletButton>
+                  <TabletButton
+                    variant="outline"
+                    className="min-h-9 px-3 text-sm"
+                    onClick={() => setConfirmingId(null)}
+                  >
+                    Keep
+                  </TabletButton>
+                </>
+              ) : (
+                <TabletButton
+                  variant="outline"
+                  className="min-h-9 px-3 text-sm text-red-700"
+                  title="Delete this photo"
+                  onClick={() => setConfirmingId(open.id)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </TabletButton>
+              )
+            )}
+
             <TabletButton variant="outline" className="min-h-9 px-3" onClick={() => setOpenId(null)}>
               <X className="h-4 w-4" />
             </TabletButton>

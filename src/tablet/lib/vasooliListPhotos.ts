@@ -118,3 +118,28 @@ export async function uploadVasooliListPhoto(input: {
     throw new Error(insertError.message);
   }
 }
+
+/**
+ * Remove a sheet. Only the person who took it may, and that is decided by the
+ * database, not here — hiding the button decides what is easy, not what is
+ * possible.
+ *
+ * The row goes first and the file second. The row is what makes a photo
+ * appear, so a failure between the two leaves an invisible leftover file
+ * rather than a sheet nobody can get rid of.
+ */
+export async function deleteVasooliListPhoto(input: {
+  id: string;
+  userId: string | null;
+}): Promise<void> {
+  const { data, error } = await (supabase as any).rpc("delete_vasooli_list_photo", {
+    p_id: input.id,
+    p_user_id: input.userId,
+  });
+  if (error) throw new Error(error.message);
+
+  const storagePath = (data as any)?.storagePath as string | null;
+  if (storagePath) {
+    await supabase.storage.from(BUCKET).remove([storagePath]);
+  }
+}
