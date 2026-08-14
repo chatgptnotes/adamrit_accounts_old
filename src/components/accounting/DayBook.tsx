@@ -29,6 +29,9 @@ interface DayRow {
   /** Voucher category (RECEIPT / PAYMENT / CONTRA / …) — drives the printed
    *  layout, since Tally prints those three in single-account mode. */
   category: string;
+  /** The other party's mobile, printed on payments and receipts so the entry
+   *  traces back to somebody who can actually be reached. */
+  partyMobile: string | null;
   number: string;
   debit: number;
   credit: number;
@@ -63,6 +66,7 @@ interface Voucher {
   total_amount: number;
   status: string;
   is_auto?: boolean;
+  party_mobile?: string | null;
   voucher_type: VoucherType | null;
   voucher_entries: EntryRow[];
 }
@@ -185,7 +189,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
       let query = supabase
         .from('vouchers')
         .select(`
-          id, voucher_number, voucher_date, reference_number, narration, total_amount, status, is_auto,
+          id, voucher_number, voucher_date, reference_number, narration, total_amount, status, is_auto, party_mobile,
           voucher_type:voucher_types(id, voucher_type_name, voucher_category),
           voucher_entries(
             id, debit_amount, credit_amount, narration, entry_order,
@@ -282,6 +286,9 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
       through,
       rows: rowsToPrint,
       narration: row.narration || '',
+      // Printed on payments and receipts only, which is where the voucher has
+      // to name somebody who can be rung about it.
+      partyMobile: row.partyMobile,
     });
     if (!printed) toast.error('Popup blocked — allow popups to print');
   };
@@ -348,6 +355,7 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
         particulars: leadLedger(v.voucher_type?.voucher_category ?? v.voucher_type?.voucher_type_name ?? '', normalizedEntries),
         type: v.voucher_type?.voucher_type_name?.replace(' Voucher', '') ?? '',
         category: v.voucher_type?.voucher_category ?? v.voucher_type?.voucher_type_name ?? '',
+        partyMobile: v.party_mobile ?? null,
         number: v.voucher_number,
         debit: sides.debit,
         credit: sides.credit,
@@ -379,6 +387,8 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
         type: v.voucher_type.replace(' Voucher', ''),
         // Tally carries no separate category; its type name is the category.
         category: v.voucher_type,
+        // Tally's own vouchers carry no party mobile.
+        partyMobile: null,
         number: v.voucher_number,
         debit: sides.debit,
         credit: sides.credit,
@@ -410,8 +420,14 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
       // Enterprises bill off every approved cut, and the generated invoice off
       // the scan-centre and specialist payments, wherever the same voucher had
       // also been imported from Tally. The id rides across the swap.
+      // The party mobile rides across for the same reason: only the native
+      // voucher records it, so printing from a mirrored row would drop it.
       const winner = r.source === 'tally' ? r : existing;
-      byNumber.set(key, { ...winner, nativeId: winner.nativeId ?? existing.nativeId ?? r.nativeId });
+      byNumber.set(key, {
+        ...winner,
+        nativeId: winner.nativeId ?? existing.nativeId ?? r.nativeId,
+        partyMobile: winner.partyMobile ?? existing.partyMobile ?? r.partyMobile,
+      });
     }
     return [...byNumber.values(), ...passthrough]
       .filter((r) => !removedIds.has(r.id))
