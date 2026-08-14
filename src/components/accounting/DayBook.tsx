@@ -401,7 +401,16 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
       const key = normalizeName(r.number);
       if (!key) { passthrough.push(r); continue; }
       const existing = byNumber.get(key);
-      if (!existing || r.source === 'tally') byNumber.set(key, r);
+      if (!existing) { byNumber.set(key, r); continue; }
+      // Tally's copy is the one displayed, but it is the native voucher that
+      // owns the evidence: both the attachment button and the generated
+      // invoice resolve through nativeId, and a Tally row has none. Letting
+      // the mirror simply replace the native row therefore stripped the M.L.
+      // Enterprises bill off every approved cut, and the generated invoice off
+      // the scan-centre and specialist payments, wherever the same voucher had
+      // also been imported from Tally. The id rides across the swap.
+      const winner = r.source === 'tally' ? r : existing;
+      byNumber.set(key, { ...winner, nativeId: winner.nativeId ?? existing.nativeId ?? r.nativeId });
     }
     return [...byNumber.values(), ...passthrough]
       .filter((r) => !removedIds.has(r.id))
