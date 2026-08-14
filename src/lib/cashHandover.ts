@@ -125,6 +125,10 @@ export async function submitHandover(input: {
   notes?: string | null;
   /** What the cashier says was taken online. Never counted as cash. */
   declaredOnline?: number | null;
+  /** Cash held in the locker — still theirs, so it counts toward the total. */
+  lockerCash?: number | null;
+  /** Cash they already paid into the bank this shift, so it is not a shortfall. */
+  bankDeposit?: number | null;
 }): Promise<{ handoverId: string; handoverNo: string; variance: number }> {
   const { data, error } = await rpc("submit_cash_handover", {
     p_from_user_id: input.fromUserId,
@@ -135,6 +139,8 @@ export async function submitHandover(input: {
     p_include_unattributed: input.includeUnattributed ?? false,
     p_notes: input.notes ?? null,
     p_declared_online: input.declaredOnline ?? null,
+    p_locker_cash: input.lockerCash ?? 0,
+    p_bank_deposit: input.bankDeposit ?? 0,
   });
   if (error) throw new Error(error.message);
   return data as { handoverId: string; handoverNo: string; variance: number };

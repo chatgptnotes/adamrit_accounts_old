@@ -186,6 +186,12 @@ function HandOverPanel({
   // count -- that money is in the bank -- but recorded so the two can be
   // compared against what the software holds.
   const [online, setOnline] = useState("");
+  // Money collected has to be somewhere. Cash in the locker is still held, and
+  // cash already banked has left the drawer for a good reason -- counting
+  // neither made both look like a shortfall, which is how a real shortage got
+  // lost among them.
+  const [locker, setLocker] = useState("");
+  const [deposited, setDeposited] = useState("");
 
   // Scoped to this cashier's own hospital: Hope and Ayushman keep separate
   // drawers even though a receipt carries no hospital of its own.
@@ -205,7 +211,9 @@ function HandOverPanel({
     [counts],
   );
   const expected = preview.data?.expectedCash ?? 0;
-  const variance = counted - expected;
+  const num = (v: string) => Number(v.replace(/[^0-9.]/g, "")) || 0;
+  const accounted = counted + num(locker) + num(deposited);
+  const variance = accounted - expected;
   const needsReason = Math.round(variance * 100) !== 0;
 
   const submit = useMutation({
@@ -219,6 +227,8 @@ function HandOverPanel({
         varianceReason: reason.trim() || null,
         notes: notes.trim() || null,
         declaredOnline: online.trim() === "" ? null : Number(online.replace(/[^0-9.]/g, "")),
+        lockerCash: num(locker),
+        bankDeposit: num(deposited),
         denominations: DENOMINATIONS.map((d) => ({
           denomination: d,
           qty: parseInt(counts[d] ?? "", 10) || 0,
@@ -314,18 +324,66 @@ function HandOverPanel({
 
       <OpeningCashCard hospitalType={hospitalType} userId={userId} />
 
+      <div>
+        <TabletLabel htmlFor="ch-locker">Cash in the locker</TabletLabel>
+        <TabletInput
+          id="ch-locker"
+          inputMode="decimal"
+          value={locker}
+          onChange={(e) => setLocker(e.target.value.replace(/[^0-9.]/g, ""))}
+          placeholder="0"
+        />
+        <p className="mt-1 text-xs text-muted-foreground">
+          Still held by the counter, not handed over — counted so it does not look
+          like a shortfall.
+        </p>
+      </div>
+
+      <div>
+        <TabletLabel htmlFor="ch-deposited">Deposited by me in bank</TabletLabel>
+        <TabletInput
+          id="ch-deposited"
+          inputMode="decimal"
+          value={deposited}
+          onChange={(e) => setDeposited(e.target.value.replace(/[^0-9.]/g, ""))}
+          placeholder="0"
+        />
+        <p className="mt-1 text-xs text-muted-foreground">
+          Cash you paid into the bank during this shift. Record the deposit itself in
+          Bank &amp; Cash — this is only so the drawer adds up.
+        </p>
+      </div>
+
       <TabletCard className={needsReason ? "border-amber-400 bg-amber-50" : "bg-muted/40"}>
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">You counted</span>
           <span className="text-2xl font-bold">{inr(counted)}</span>
         </div>
+        {num(locker) > 0 && (
+          <div className="mt-1 flex items-center justify-between">
+            <span className="text-muted-foreground">In the locker</span>
+            <span className="font-medium">{inr(num(locker))}</span>
+          </div>
+        )}
+        {num(deposited) > 0 && (
+          <div className="mt-1 flex items-center justify-between">
+            <span className="text-muted-foreground">Deposited in bank</span>
+            <span className="font-medium">{inr(num(deposited))}</span>
+          </div>
+        )}
+        {(num(locker) > 0 || num(deposited) > 0) && (
+          <div className="mt-1 flex items-center justify-between border-t pt-1">
+            <span className="text-muted-foreground">Accounted for</span>
+            <span className="font-semibold">{inr(accounted)}</span>
+          </div>
+        )}
         <div className="mt-1 flex items-center justify-between">
           <span className="text-muted-foreground">Software says</span>
           <span className="font-medium">{inr(expected)}</span>
         </div>
         <div className="mt-2 flex items-center justify-between border-t pt-2">
           <span className="font-medium">
-            {variance === 0 ? "Matches" : variance > 0 ? "Extra in drawer" : "Short"}
+            {variance === 0 ? "Matches" : variance > 0 ? "Extra" : "Short"}
           </span>
           <span
             className={
