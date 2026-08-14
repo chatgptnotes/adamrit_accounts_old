@@ -18,6 +18,7 @@ import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletInput, TabletLabel } from "@/tablet/ui/TabletInput";
 import { inr, shortDate } from "@/tablet/lib/format";
+import { useCashHandoverAccess } from "@/tablet/hooks/useCashHandoverAccess";
 import {
   DENOMINATIONS,
   acceptHandover,
@@ -40,6 +41,10 @@ export default function CashHandoverFlow() {
   const { user, hospitalType } = useAuth();
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>("hand-over");
+  // Hiding the tile is not access control -- the URL is still typeable, and a
+  // handover recorded against somebody not on the roster is exactly the
+  // untraceable cash this screen exists to prevent.
+  const access = useCashHandoverAccess();
 
   // Only people nominated at THIS hospital (plus the group-wide ones): the
   // Ayushman counter hands to Arpit, which has nothing to do with Hope.
@@ -66,6 +71,26 @@ export default function CashHandoverFlow() {
       (h.status === "SUBMITTED" && h.to_user_id === user?.id) ||
       (h.status === "ACCEPTED" && iAmVerifier && h.from_user_id !== user?.id),
   );
+
+  if (!access.isLoading && !access.allowed) {
+    return (
+      <FlowScaffold
+        heading="Cash Handover"
+        subheading="Restricted to the people named on the cash roster."
+      >
+        <TabletCard className="bg-amber-50">
+          <p className="text-base font-semibold text-amber-900">
+            You are not on the cash handover roster.
+          </p>
+          <p className="mt-2 text-sm text-amber-900">
+            Only people named as able to hand over, receive or verify cash can use this
+            screen, so that every rupee stays traceable to one person. Ask the director or
+            the accounts desk to add you if you hold a drawer.
+          </p>
+        </TabletCard>
+      </FlowScaffold>
+    );
+  }
 
   return (
     <FlowScaffold

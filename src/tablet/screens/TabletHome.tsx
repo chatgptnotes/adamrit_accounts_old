@@ -10,6 +10,7 @@ import { TabletWatermark } from "@/tablet/components/TabletWatermark";
 import { useRecentlyDischargedVisits } from "@/tablet/hooks/useVisitLists";
 import { useDialysisTracker } from "@/tablet/hooks/useDialysisTracker";
 import { useAssignedTiles } from "@/tablet/hooks/useAssignedTiles";
+import { useCashHandoverAccess } from "@/tablet/hooks/useCashHandoverAccess";
 import { DIALYSIS_SESSION_BILLING_QUERY_KEY, loadDialysisBillableSessions } from "@/lib/dialysisSessionBilling";
 import { loadDialysisPatients } from "@/lib/dialysis/scheme";
 import { supabase } from "@/integrations/supabase/client";
@@ -19,7 +20,14 @@ export function TabletHome() {
   const navigate = useNavigate();
   const { user, hospitalConfig } = useAuth();
   const [query, setQuery] = useState("");
-  const modules = modulesForUser(user ?? undefined);
+  const allModules = modulesForUser(user ?? undefined);
+  // Cash Handover is restricted to the named cash roster (and cashiers), so it
+  // is dropped from the grid for everyone else rather than shown and refused.
+  const cashHandover = useCashHandoverAccess();
+  const modules = useMemo(
+    () => allModules.filter((m) => m.id !== "cash-handover" || cashHandover.allowed),
+    [allModules, cashHandover.allowed],
+  );
   // Recently-discharged intimation for the billing desk, badged on their tile.
   const billing = useRecentlyDischargedVisits();
   // Dialysis patients due a bill or a 30-day lab report, badged on their tile.
