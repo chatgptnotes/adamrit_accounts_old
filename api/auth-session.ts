@@ -102,8 +102,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!accessToken) return res.status(400).json({ error: 'access_token_required' });
     const auth = await sb.auth.getUser(accessToken);
     if (auth.error || !auth.data.user?.email) return res.status(401).json({ error: 'invalid_google_session' });
-    const result = await sb.from('User').select('id,email,role,hospital_type,employee_id,is_active').ilike('email', auth.data.user.email).maybeSingle();
-    row = result.data;
+    // Newest row wins, exactly as the password branch below does. maybeSingle()
+    // used to be here, and it errors rather than picking when one email has more
+    // than one "User" row -- which is why the password path already orders and
+    // limits. A duplicate would have turned a good Google login into "could not
+    // establish a secure application session".
+    const result = await sb
+      .from('User')
+      .select('id,email,role,hospital_type,employee_id,is_active')
+      .ilike('email', auth.data.user.email)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    row = result.data?.[0] || null;
   } else {
     const email = text(req.body?.email);
     const password = text(req.body?.password);

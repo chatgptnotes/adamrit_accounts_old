@@ -276,6 +276,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     });
     if (error) {
       console.error('Google login error:', error);
+      // Rethrown so the login screen can put its button back. Swallowing it
+      // left the page sitting on "Redirecting..." for a redirect that was
+      // never going to happen.
+      throw error;
     }
   }, []);
 
