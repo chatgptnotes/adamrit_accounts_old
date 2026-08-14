@@ -107,7 +107,10 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'banking', label: 'Banking', icon: Building2 },
   // Opening counts, bank deposits and handovers. Routes out to the report page
   // rather than living in this folder, which is frozen.
-  { id: 'cash-handover-log', label: 'Cash Handover', icon: ArrowLeftRight, route: '/cash-shift-report' },
+  // Named for what is in it. "Cash Handover" was the same label the sidebar
+  // uses for a different screen, so anyone told "it is under Accounting" went
+  // to the other one and reported the lists missing.
+  { id: 'cash-handover-log', label: 'Opening Cash, Deposits & Handovers', icon: ArrowLeftRight, route: '/cash-shift-report' },
   { id: 'trial-balance', label: 'Trial Balance', icon: Scale },
   { id: 'balance-sheet', label: 'Balance Sheet', icon: Landmark },
   { id: 'profit-loss', label: 'Profit & Loss', icon: TrendingUp },

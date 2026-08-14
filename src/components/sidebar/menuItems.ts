@@ -1,4 +1,4 @@
-import { BarChart3, Calendar, PhoneCall, Users, UserPlus, Database, Activity, FileText, TestTube, Camera, Pill, MapPin, Stethoscope, UserCog, Syringe, Shield, Building2, ClipboardList, ShieldCheck, Receipt, HeartHandshake, ExternalLink, UserCheck, Bed, DoorOpen, LayoutDashboard, BookOpen, Clock, TrendingUp, Scissors, Heart, Cross, ClipboardCheck, ArrowLeftRight, Wallet, Navigation, Smartphone, MonitorSmartphone, MessageCircle, MessageSquare, ScanLine, Footprints, Phone, QrCode, Sparkles, Boxes, ScrollText, Stamp, HandCoins } from 'lucide-react';
+import { BarChart3, Calendar, PhoneCall, Users, UserPlus, Database, Activity, FileText, TestTube, Camera, Pill, MapPin, Stethoscope, UserCog, Syringe, Shield, Building2, ClipboardList, ShieldCheck, Receipt, HeartHandshake, ExternalLink, UserCheck, Bed, DoorOpen, LayoutDashboard, BookOpen, Clock, TrendingUp, Scissors, Heart, Cross, ClipboardCheck, ArrowLeftRight, Wallet, Navigation, Smartphone, MonitorSmartphone, MessageCircle, MessageSquare, ScanLine, Footprints, Phone, QrCode, Sparkles, Boxes, ScrollText, Stamp, HandCoins, NotebookText } from 'lucide-react';
 
 export type MenuSection = 'main' | 'masters';
 
@@ -140,6 +140,14 @@ export const menuItems: MenuItemDef[] = [
     title: "Cash Handover",
     url: "/cash-handover",
     icon: HandCoins,
+  },
+  // The three lists — opening counts, bank deposits, handovers. Named for what
+  // is in it rather than "Cash Shift Report": the person looking for it is
+  // looking for the lists, and "Cash Handover" above is a different screen.
+  {
+    title: "Opening Cash, Deposits & Handovers",
+    url: "/cash-shift-report",
+    icon: NotebookText,
   },
   {
     title: "Accounting",

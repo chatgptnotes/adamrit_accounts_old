@@ -3,7 +3,7 @@
   "src/components/accounting/AccountMasters.tsx": "4b83a11260d66378a3b104f3593a3d4237423b5cf425e91f65dd9d8c57ea39e4",
   "src/components/accounting/AccountingCompanyContext.tsx": "fc3ab93f5c6692c867491cfec470ad4b90f992bdc19e911e12d689abf3725794",
   "src/components/accounting/AccountingNavigationContext.tsx": "98edce0316bde757e9eefd3d917d6d3259a6458744449283a1952747b3924a85",
-  "src/components/accounting/AccountingPage.tsx": "f3edc0e62852df930fb06d9374f047ef8d745ea76b4ec0112f2a687a1b118536",
+  "src/components/accounting/AccountingPage.tsx": "613fe8c9309321d50df2fac3103407db4a7e7c4b8da7727065ac61211669d8b7",
   "src/components/accounting/BalanceSheet.tsx": "e94fe8674815b771d0f86239f449433da3a1e1919d79f8ca2115a69d79b52de7",
   "src/components/accounting/BankReconciliation.tsx": "64b7824bd2d820b97189a0a88d9e4054d83474d3dc355e8a1caf1f852cfe770a",
   "src/components/accounting/Banking.tsx": "7d9922e0ad2f170207cdc079e9e7594b30861213618a613308aa27fd2acdddf0",

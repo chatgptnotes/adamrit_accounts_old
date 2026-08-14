@@ -9,8 +9,10 @@ import {
   ShieldCheck,
   TriangleAlert,
   UserCog,
+  NotebookText,
   Users,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -107,6 +109,7 @@ const STATUS_TONE: Record<string, string> = {
 
 export default function CashHandoverPage() {
   const { user, hospitalType } = useAuth();
+  const navigate = useNavigate();
   const qc = useQueryClient();
 
   // Receipts carry no hospital of their own; it comes from the patient. Without
@@ -567,12 +570,24 @@ export default function CashHandoverPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {["hope", "ayushman", "pharmacy"].map((h) => (
           <Button key={h} size="sm" variant="outline" onClick={() => setOpeningFor(h)}>
             Record opening cash — {h === "hope" ? "Hope" : h === "ayushman" ? "Ayushman" : "Pharmacy"}
           </Button>
         ))}
+        {/* This screen is where anyone looking for the handover lists lands
+            first. The lists are on a different page, so say so here rather
+            than leave them hunting the menu. */}
+        <Button
+          size="sm"
+          variant="secondary"
+          className="ml-auto"
+          onClick={() => navigate("/cash-shift-report")}
+        >
+          <NotebookText className="mr-2 h-4 w-4" />
+          Full lists — opening cash, bank deposits, handovers
+        </Button>
       </div>
 
       <Tabs defaultValue="holders">
