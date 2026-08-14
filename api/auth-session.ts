@@ -107,10 +107,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // than one "User" row -- which is why the password path already orders and
     // limits. A duplicate would have turned a good Google login into "could not
     // establish a secure application session".
+    // Either address. Staff keep their existing login ID for password sign-in,
+    // and arrive through Google on their own Gmail — see google_email
+    // (20260814110000). Matching only `email` here would have let the lookup
+    // succeed in the browser and then denied the session.
+    const googleEmail = auth.data.user.email.toLowerCase();
     const result = await sb
       .from('User')
       .select('id,email,role,hospital_type,employee_id,is_active')
-      .ilike('email', auth.data.user.email)
+      .or(`email.ilike.${googleEmail},google_email.ilike.${googleEmail}`)
       .order('created_at', { ascending: false })
       .limit(1);
     row = result.data?.[0] || null;
