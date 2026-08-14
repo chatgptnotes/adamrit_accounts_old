@@ -35,6 +35,10 @@ export const ALL_ROLES = [
   "security",
   "driver",
   "physiotherapist",
+  // Counter staff who take cash. A role of their own rather than borrowing
+  // "billing" or "reception", so that cash handover and collection reporting
+  // can be scoped to the people actually holding a drawer.
+  "cashier",
   // All of these are already held by live users but were absent here, so an
   // admin editing one of those people could not re-pick their own role and a
   // save would silently move them to something else.
