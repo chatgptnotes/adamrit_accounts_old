@@ -102,19 +102,29 @@ export default function CashHandoverPage() {
   const sharedLogins = useQuery({ queryKey: ["shared-logins"], queryFn: () => fetchSharedLogins(30) });
   const [openingFor, setOpeningFor] = useState<string | null>(null);
   const [openingAmt, setOpeningAmt] = useState("");
+  // Cash in the locker is still cash the counter holds. Counted separately
+  // because it is kept separately, then recorded as one opening total.
+  const [openingLocker, setOpeningLocker] = useState("");
   const [openingNote, setOpeningNote] = useState("");
+  const openingNum = (v: string) => Number(v.replace(/[^0-9.]/g, "")) || 0;
+  const openingTotal = openingNum(openingAmt) + openingNum(openingLocker);
 
   const declareOpening = useMutation({
     mutationFn: () =>
       declareOpeningCash({
         hospitalType: openingFor!,
-        amount: Number(openingAmt.replace(/[^0-9.]/g, "")),
+        amount: openingTotal,
         userId: user?.id ?? "",
-        note: openingNote.trim() || null,
+        // The opening figure the reconciliation reads stays one number; the
+        // split lives in the note so it can be explained later.
+        note: (() => {
+          const split = `drawer ${openingNum(openingAmt)} + locker ${openingNum(openingLocker)}`;
+          return openingNote.trim() ? `${split}; ${openingNote.trim()}` : split;
+        })(),
       }),
     onSuccess: () => {
       toast.success("Opening cash recorded. The drawer counts from here.");
-      setOpeningFor(null); setOpeningAmt(""); setOpeningNote("");
+      setOpeningFor(null); setOpeningAmt(""); setOpeningLocker(""); setOpeningNote("");
       qc.invalidateQueries({ queryKey: ["cash-positions"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Could not record it"),
@@ -435,7 +445,7 @@ export default function CashHandoverPage() {
           <DialogHeader>
             <DialogTitle>Opening cash — {openingFor}</DialogTitle>
             <DialogDescription className="pt-1 text-left">
-              Count everything physically in the drawer now and record it. The
+              Count everything the counter physically holds now — the cash in hand and the cash in the locker — and record it. The
               system started counting part-way through a day, so cash that was
               already there was never seen — which is why the figure can read
               below zero. This is recorded once and carried into the next
@@ -444,10 +454,20 @@ export default function CashHandoverPage() {
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label htmlFor="op-amt">Cash counted now</Label>
+              <Label htmlFor="op-amt">Cash in hand</Label>
               <Input id="op-amt" inputMode="decimal" value={openingAmt} className="mt-1"
                 onChange={(e) => setOpeningAmt(e.target.value.replace(/[^0-9.]/g, ""))}
                 placeholder="e.g. 14095" />
+            </div>
+            <div>
+              <Label htmlFor="op-locker">Cash in the locker</Label>
+              <Input id="op-locker" inputMode="decimal" value={openingLocker} className="mt-1"
+                onChange={(e) => setOpeningLocker(e.target.value.replace(/[^0-9.]/g, ""))}
+                placeholder="e.g. 5000" />
+            </div>
+            <div className="flex items-center justify-between border-t pt-2 text-sm">
+              <span className="text-muted-foreground">Opening total</span>
+              <span className="text-lg font-bold">₹{openingTotal.toLocaleString("en-IN")}</span>
             </div>
             <div>
               <Label htmlFor="op-note">Note (optional)</Label>
@@ -458,7 +478,7 @@ export default function CashHandoverPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpeningFor(null)}>Cancel</Button>
-            <Button disabled={declareOpening.isPending || !openingAmt}
+            <Button disabled={declareOpening.isPending || openingTotal <= 0}
               onClick={() => declareOpening.mutate()}>
               {declareOpening.isPending ? "Recording…" : "Record opening cash"}
             </Button>

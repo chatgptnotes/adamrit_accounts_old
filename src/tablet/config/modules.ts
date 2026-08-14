@@ -576,6 +576,15 @@ export const TABLET_MODULES: TabletModule[] = [
     tint: "from-green-400 to-green-600",
   },
   {
+    id: "opening-cash",
+    label: "Opening Cash",
+    description: "Count cash in hand and in the locker before your shift",
+    icon: Banknote,
+    accent: "text-amber-600",
+    tint: "from-amber-400 to-orange-600",
+    keywords: ["opening", "locker", "cash in hand", "start of shift", "cashier"],
+  },
+  {
     id: "cash-handover",
     label: "Cash Handover",
     description: "Count the drawer and hand it over",

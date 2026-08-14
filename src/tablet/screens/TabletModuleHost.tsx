@@ -91,6 +91,7 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   "rupali-register": lazy(() => import("@/tablet/modules/rupali/RupaliFlow")),
   requisition: lazy(() => import("@/tablet/modules/requisition/RequisitionFlow")),
   "gate-pass": lazy(() => import("@/tablet/modules/gate-pass/GatePassFlow")),
+  "opening-cash": lazy(() => import("@/tablet/modules/opening-cash/OpeningCashFlow")),
   "discharge-summary": lazy(
     () => import("@/tablet/modules/discharge-summary/DischargeSummaryFlow"),
   ),
