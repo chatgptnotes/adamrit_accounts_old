@@ -36,6 +36,22 @@ const inr = (n: number) =>
 const stamp = (iso: string | null) =>
   iso ? format(new Date(iso), 'dd MMM yy, HH:mm') : '—';
 
+/**
+ * Handovers gathered under their session's statement number, newest session
+ * first, order preserved within each. A handover whose session could not be
+ * attached is shown under a plain label rather than dropped — a row missing
+ * from a cash report is worse than a row with no number on it.
+ */
+const groupBySession = (rows: HandoverRow[]): [string, HandoverRow[]][] => {
+  const groups = new Map<string, HandoverRow[]>();
+  for (const r of rows) {
+    const key = r.statementNo ?? 'No statement number';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(r);
+  }
+  return [...groups.entries()];
+};
+
 /** "(3 · ₹1,080.00)" — a list of money is not readable without its total. */
 const tally = (rows: { amount?: number; counted?: number }[] | undefined, key: 'amount' | 'counted') =>
   `${rows?.length ?? 0} · ${inr((rows ?? []).reduce((s, r) => s + (r[key] ?? 0), 0))}`;
@@ -279,14 +295,34 @@ export default function CashShiftReport() {
               No cash was handed over on this counter in this period.
             </p>
           ) : (
-            <div className="space-y-2">
-              {(handovers.data ?? []).map((h) => (
-                <ShiftRow
-                  key={h.id}
-                  row={h}
-                  open={openShift === h.id}
-                  onToggle={() => setOpenShift(openShift === h.id ? null : h.id)}
-                />
+            /* Grouped by statement number, because that is what a session IS:
+               two handovers on one counter on one day belong to one statement
+               and reading them as two unrelated rows is how a shift stops
+               being legible. */
+            <div className="space-y-4">
+              {groupBySession(handovers.data ?? []).map(([statementNo, rows]) => (
+                <div key={statementNo}>
+                  <div className="mb-1 flex flex-wrap items-baseline gap-x-3 border-b pb-1">
+                    <span className="font-mono text-sm font-semibold">{statementNo}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {bookLabel(rows[0].hospitalType)}
+                      {rows.length > 1 && ` · ${rows.length} handovers in this session`}
+                    </span>
+                    <span className="ml-auto font-mono text-sm">
+                      {inr(rows.reduce((s, r) => s + r.counted, 0))}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {rows.map((h) => (
+                      <ShiftRow
+                        key={h.id}
+                        row={h}
+                        open={openShift === h.id}
+                        onToggle={() => setOpenShift(openShift === h.id ? null : h.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           )}

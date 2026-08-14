@@ -27,6 +27,13 @@ export interface OpeningRow {
 export interface HandoverRow {
   id: string;
   handoverNo: string;
+  /**
+   * The statement number of the whole session this handover belongs to: one
+   * counter, one day. Two handovers on the same counter on the same day share
+   * it, while their CH- numbers stay distinct — one is the session, the other
+   * is the act. Null only on a row whose session could not be attached.
+   */
+  statementNo: string | null;
   hospitalType: string | null;
   fromUserId: string | null;
   fromName: string | null;
@@ -94,7 +101,7 @@ export async function fetchHandoverLog(opts: {
   let q = (supabase as any)
     .from('cash_handovers')
     .select(
-      'id, handover_no, hospital_type, from_user_id, from_user_name, to_user_name, expected_cash, counted_cash, locker_cash, bank_deposit, variance, variance_reason, status, submitted_at, accepted_at, verified_at, period_from, period_to, source_count, created_at',
+      'id, handover_no, hospital_type, from_user_id, from_user_name, to_user_name, expected_cash, counted_cash, locker_cash, bank_deposit, variance, variance_reason, status, submitted_at, accepted_at, verified_at, period_from, period_to, source_count, created_at, cash_sessions(statement_no)',
     )
     .order('created_at', { ascending: false })
     .limit(500);
@@ -107,6 +114,7 @@ export async function fetchHandoverLog(opts: {
   return (data ?? []).map((r: any) => ({
     id: r.id,
     handoverNo: r.handover_no,
+    statementNo: r.cash_sessions?.statement_no ?? null,
     hospitalType: r.hospital_type ?? null,
     fromUserId: r.from_user_id ?? null,
     fromName: r.from_user_name ?? null,
