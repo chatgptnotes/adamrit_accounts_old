@@ -32,10 +32,23 @@ import {
  * The posting itself goes through post_cash_bank_entry unchanged. One deposit,
  * one voucher, no second record to reconcile against the first.
  */
+/**
+ * The three sets of books cash can be deposited into. Hope Pharmacy is a
+ * separate company from DRM Hope Hospital Private Limited, so its cash goes
+ * into its own bank and its own cash book — never DRM Hope's.
+ */
+const BOOKS = [
+  { key: "hope", label: "DRM Hope Hospital" },
+  { key: "ayushman", label: "Ayushman Nagpur" },
+  { key: "pharmacy", label: "Hope Pharmacy" },
+] as const;
+
+type BookKey = (typeof BOOKS)[number]["key"];
+
 export default function BankDepositFlow() {
   const { user, hospitalType } = useAuth();
-  const [hospital, setHospital] = useState<"hope" | "ayushman">(
-    hospitalType === "ayushman" ? "ayushman" : "hope",
+  const [hospital, setHospital] = useState<BookKey>(
+    hospitalType === "ayushman" ? "ayushman" : hospitalType === "pharmacy" ? "pharmacy" : "hope",
   );
   const [bank, setBank] = useState<{ id: string; account_name: string } | null>(null);
   const [amount, setAmount] = useState("");
@@ -49,7 +62,12 @@ export default function BankDepositFlow() {
     queryKey: ["bank-deposit-banks", hospital],
     enabled: allowed,
     queryFn: async () => {
-      const wanted = hospital === "ayushman" ? "ayushman_nagpur" : "drm_pvt_ltd";
+      // The same mapping the database posts through (cash_bank_company_key),
+      // so the ledgers offered here are the ones the voucher can actually use.
+      const wanted =
+        hospital === "ayushman" ? "ayushman_nagpur"
+          : hospital === "pharmacy" ? "hope_pharmacy"
+            : "drm_pvt_ltd";
       const { data: company } = await (supabase as any)
         .from("companies").select("id").eq("company_key", wanted).single();
       const { data, error } = await (supabase as any)
@@ -144,7 +162,7 @@ export default function BankDepositFlow() {
 
   if (!allowed) {
     return (
-      <FlowScaffold heading="Bank Deposit" subheading="Restricted to cashiers and accounts.">
+      <FlowScaffold heading="Nisha Bank Deposit" subheading="Restricted to cashiers and accounts.">
         <TabletCard className="bg-amber-50">
           <p className="text-base font-semibold text-amber-900">You cannot record deposits.</p>
           <p className="mt-2 text-sm text-amber-900">
@@ -160,21 +178,27 @@ export default function BankDepositFlow() {
 
   return (
     <FlowScaffold
-      heading="Bank Deposit"
+      heading="Nisha Bank Deposit"
       subheading="Record cash paid into the bank, with the slip. The directors are told."
     >
       <div className="space-y-4">
-        <div className="flex gap-2">
-          {(["hope", "ayushman"] as const).map((h) => (
-            <TabletButton
-              key={h}
-              variant={hospital === h ? "default" : "outline"}
-              className="flex-1 capitalize"
-              onClick={() => { setHospital(h); setBank(null); }}
-            >
-              {h}
-            </TabletButton>
-          ))}
+        <div>
+          <TabletLabel>Whose cash is this?</TabletLabel>
+          <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {BOOKS.map((b) => (
+              <TabletButton
+                key={b.key}
+                variant={hospital === b.key ? "default" : "outline"}
+                onClick={() => { setHospital(b.key); setBank(null); }}
+              >
+                {b.label}
+              </TabletButton>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Three separate companies, three separate cash books. The deposit is
+            posted in the books of the one you pick.
+          </p>
         </div>
 
         <div>
@@ -204,7 +228,7 @@ export default function BankDepositFlow() {
             ))}
             {banks.length === 0 && (
               <p className="text-sm text-muted-foreground">
-                No bank ledgers found for this hospital.
+                No bank ledgers found in this company's books.
               </p>
             )}
           </div>

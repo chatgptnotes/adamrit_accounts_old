@@ -39,6 +39,8 @@ export interface HandoverPreview {
 export interface CashHandover {
   id: string;
   handover_no: string;
+  /** Which counter, and so which company's books: hope, ayushman, pharmacy. */
+  hospital_type: string | null;
   from_user_id: string;
   from_user_name: string;
   to_user_id: string;

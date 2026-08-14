@@ -76,7 +76,7 @@ export default function CashHandoverFlow() {
   if (!access.isLoading && !access.allowed) {
     return (
       <FlowScaffold
-        heading="Cash Handover"
+        heading="Nisha Cash Handover"
         subheading="Restricted to the people named on the cash roster."
       >
         <TabletCard className="bg-amber-50">
@@ -95,7 +95,7 @@ export default function CashHandoverFlow() {
 
   return (
     <FlowScaffold
-      heading="Cash Handover"
+      heading="Nisha Cash Handover"
       subheading="Count the drawer, hand it to a nominated person, and have the count verified."
     >
       <div className="mb-4 flex gap-2">

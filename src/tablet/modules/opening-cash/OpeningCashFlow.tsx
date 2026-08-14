@@ -24,7 +24,7 @@ export default function OpeningCashFlow() {
   if (!access.isLoading && !access.allowed) {
     return (
       <FlowScaffold
-        heading="Opening Cash"
+        heading="Nisha Opening Cash"
         subheading="Restricted to the people named on the cash roster."
       >
         <TabletCard className="bg-amber-50">
@@ -42,7 +42,7 @@ export default function OpeningCashFlow() {
 
   return (
     <FlowScaffold
-      heading="Opening Cash"
+      heading="Nisha Opening Cash"
       subheading="Count the cash in hand and in the locker before your shift begins."
     >
       <OpeningCashCard

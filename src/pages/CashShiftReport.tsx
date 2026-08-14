@@ -35,11 +35,28 @@ const inr = (n: number) =>
 const stamp = (iso: string | null) =>
   iso ? format(new Date(iso), 'dd MMM yy, HH:mm') : '—';
 
-const HOSPITALS = [
-  { key: '', label: 'Both hospitals' },
-  { key: 'hope', label: 'Hope' },
-  { key: 'ayushman', label: 'Ayushman' },
-];
+/** "(3 · ₹1,080.00)" — a list of money is not readable without its total. */
+const tally = (rows: { amount?: number; counted?: number }[] | undefined, key: 'amount' | 'counted') =>
+  `${rows?.length ?? 0} · ${inr((rows ?? []).reduce((s, r) => s + (r[key] ?? 0), 0))}`;
+
+/**
+ * One book per company. Hope Pharmacy and DRM Hope Hospital Private Limited are
+ * two companies, and their cash was being read as one: the pharmacy was not
+ * even offered here, so its openings and handovers could only be seen mixed
+ * into "both hospitals" with nothing to tell them apart.
+ */
+const BOOKS = [
+  { key: '', label: 'All companies', companyKey: null },
+  { key: 'hope', label: 'DRM Hope Hospital', companyKey: 'drm_pvt_ltd' },
+  { key: 'ayushman', label: 'Ayushman Nagpur', companyKey: 'ayushman_nagpur' },
+  { key: 'pharmacy', label: 'Hope Pharmacy', companyKey: 'hope_pharmacy' },
+] as const;
+
+/** The counter a row was recorded against, named as the company it belongs to. */
+const bookLabel = (hospitalType: string | null | undefined) =>
+  BOOKS.find((b) => b.key && b.key === (hospitalType ?? '').trim().toLowerCase())?.label
+    ?? hospitalType
+    ?? '—';
 
 export default function CashShiftReport() {
   const today = format(new Date(), 'yyyy-MM-dd');
@@ -67,7 +84,7 @@ export default function CashShiftReport() {
     queryKey: ['cash-report-company', hospital],
     enabled: !!hospital,
     queryFn: async () => {
-      const key = hospital === 'ayushman' ? 'ayushman_nagpur' : 'drm_pvt_ltd';
+      const key = BOOKS.find((b) => b.key === hospital)?.companyKey ?? 'drm_pvt_ltd';
       const { data } = await (supabase as any)
         .from('companies').select('id').eq('company_key', key).maybeSingle();
       return (data?.id as string) ?? null;
@@ -95,23 +112,25 @@ export default function CashShiftReport() {
       <div>
         <h1 className="text-2xl font-bold">Cash Shift Report</h1>
         <p className="text-sm text-muted-foreground">
-          Opening counts, handovers and the receipts in between — by counter, by day, in order.
+          Three lists, in order: opening cash recorded, cash paid into the bank,
+          and cash handed over. Hope Pharmacy keeps its own books, so pick a
+          company to read one set on its own.
         </p>
       </div>
 
       <Card>
         <CardContent className="flex flex-wrap items-end gap-3 pt-6">
           <div>
-            <Label>Counter</Label>
-            <div className="mt-1 flex gap-1">
-              {HOSPITALS.map((h) => (
+            <Label>Company</Label>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {BOOKS.map((b) => (
                 <Button
-                  key={h.key}
+                  key={b.key}
                   size="sm"
-                  variant={hospital === h.key ? 'default' : 'outline'}
-                  onClick={() => setHospital(h.key)}
+                  variant={hospital === b.key ? 'default' : 'outline'}
+                  onClick={() => setHospital(b.key)}
                 >
-                  {h.label}
+                  {b.label}
                 </Button>
               ))}
             </div>
@@ -135,7 +154,7 @@ export default function CashShiftReport() {
           <CardTitle className="text-base">
             Opening cash recorded{' '}
             <span className="font-normal text-muted-foreground">
-              ({openings.data?.length ?? 0})
+              ({tally(openings.data, 'amount')})
             </span>
           </CardTitle>
         </CardHeader>
@@ -152,7 +171,7 @@ export default function CashShiftReport() {
                 <thead>
                   <tr className="border-b text-left text-xs uppercase text-muted-foreground">
                     <th className="py-2 pr-3">Recorded at</th>
-                    <th className="py-2 pr-3">Counter</th>
+                    <th className="py-2 pr-3">Company</th>
                     <th className="py-2 pr-3">Cashier</th>
                     <th className="py-2 pr-3 text-right">Amount</th>
                     <th className="py-2 pr-3">Note (drawer / locker)</th>
@@ -163,7 +182,7 @@ export default function CashShiftReport() {
                   {(openings.data ?? []).map((o) => (
                     <tr key={o.id} className="border-b last:border-0">
                       <td className="py-2 pr-3 font-mono text-xs">{stamp(o.at)}</td>
-                      <td className="py-2 pr-3 capitalize">{o.hospitalType}</td>
+                      <td className="py-2 pr-3">{bookLabel(o.hospitalType)}</td>
                       <td className="py-2 pr-3 font-medium">{o.declaredByName}</td>
                       <td className="py-2 pr-3 text-right font-mono">{inr(o.amount)}</td>
                       <td className="py-2 pr-3 text-xs text-muted-foreground">{o.note || '—'}</td>
@@ -189,7 +208,7 @@ export default function CashShiftReport() {
           <CardTitle className="text-base">
             Cash deposited into the bank{' '}
             <span className="font-normal text-muted-foreground">
-              ({deposits.data?.length ?? 0})
+              ({tally(deposits.data, 'amount')})
             </span>
           </CardTitle>
         </CardHeader>
@@ -247,7 +266,7 @@ export default function CashShiftReport() {
           <CardTitle className="text-base">
             Cash handed over{' '}
             <span className="font-normal text-muted-foreground">
-              ({handovers.data?.length ?? 0})
+              ({tally(handovers.data, 'counted')})
             </span>
           </CardTitle>
         </CardHeader>
@@ -307,7 +326,7 @@ function ShiftRow({
         {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         <span className="font-mono text-xs">{row.handoverNo}</span>
         <span className="font-mono text-xs text-muted-foreground">{stamp(row.submittedAt)}</span>
-        <span className="capitalize text-muted-foreground">{row.hospitalType ?? '—'}</span>
+        <span className="text-muted-foreground">{bookLabel(row.hospitalType)}</span>
         <span className="font-medium">{row.fromName ?? '—'}</span>
         <span className="text-muted-foreground">→ {row.toName ?? '—'}</span>
         <span className="ml-auto font-mono">{inr(row.counted)}</span>

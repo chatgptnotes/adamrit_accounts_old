@@ -63,6 +63,41 @@ const NOMINEE_ADMIN_ROLES = ["superadmin", "super_admin", "ca", "admin", "cmd", 
 const canManageNominees = (role: string | null | undefined) =>
   NOMINEE_ADMIN_ROLES.includes((role ?? "").toLowerCase().trim());
 
+/**
+ * One book per company. Hope Pharmacy is a separate company from DRM Hope
+ * Hospital Private Limited, and the register listed both together — so a
+ * pharmacy handover and a hospital handover read as one drawer when they are
+ * two sets of books that must never be totalled against each other.
+ */
+const BOOKS = [
+  { key: "", label: "All companies" },
+  { key: "hope", label: "DRM Hope Hospital" },
+  { key: "ayushman", label: "Ayushman Nagpur" },
+  { key: "pharmacy", label: "Hope Pharmacy" },
+] as const;
+
+const bookLabel = (hospitalType: string | null | undefined) =>
+  BOOKS.find((b) => b.key && b.key === (hospitalType ?? "").trim().toLowerCase())?.label
+    ?? hospitalType
+    ?? "—";
+
+function BookFilter({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="mb-4 flex flex-wrap gap-2">
+      {BOOKS.map((b) => (
+        <Button
+          key={b.key || "all"}
+          size="sm"
+          variant={value === b.key ? "default" : "outline"}
+          onClick={() => onChange(b.key)}
+        >
+          {b.label}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
 const STATUS_TONE: Record<string, string> = {
   SUBMITTED: "bg-amber-100 text-amber-800",
   ACCEPTED: "bg-blue-100 text-blue-800",
@@ -134,6 +169,15 @@ export default function CashHandoverPage() {
   const pharmacy = useQuery({ queryKey: ["pharmacy-positions"], queryFn: fetchPharmacyPositions });
   const pharmacySummary = useQuery({ queryKey: ["pharmacy-summary"], queryFn: fetchPharmacySummary });
   const handovers = useQuery({ queryKey: ["cash-handovers"], queryFn: () => fetchHandovers({ limit: 200 }) });
+  // The register and the by-person view are read one company at a time. Two
+  // companies' handovers in one list is the mixing this separates.
+  const [bookScope, setBookScope] = useState("");
+  const booked = useMemo(
+    () => (handovers.data ?? []).filter(
+      (h) => !bookScope || (h.hospital_type ?? "").trim().toLowerCase() === bookScope,
+    ),
+    [handovers.data, bookScope],
+  );
   const nominees = useQuery({ queryKey: ["cash-handover-nominees", "all"], queryFn: () => fetchNominees() });
 
   const openVariances = useMemo(
@@ -545,8 +589,8 @@ export default function CashHandoverPage() {
             <CardContent className="pt-6">
               <div className="mb-4 flex flex-wrap gap-2">
                 {[
-                  { key: "", label: "Both hospitals" },
-                  { key: "hope", label: "Hope" },
+                  { key: "", label: "Both hospital counters" },
+                  { key: "hope", label: "DRM Hope Hospital" },
                   { key: "ayushman", label: "Ayushman Nagpur" },
                 ].map((h) => (
                   <Button
@@ -559,6 +603,11 @@ export default function CashHandoverPage() {
                   </Button>
                 ))}
               </div>
+              <p className="mb-4 text-xs text-muted-foreground">
+                Hospital counters only. Hope Pharmacy is a separate company with
+                its own till, its own ledgers and its own cash book — it is on
+                the Hope Pharmacy tab, and its cash is never added to these.
+              </p>
               {(onlineOut.data ?? []).length > 0 && (
                 <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm">
                   <div className="flex items-center justify-between">
@@ -773,8 +822,9 @@ export default function CashHandoverPage() {
         </TabsContent>
 
         <TabsContent value="register" className="mt-4">
+          <BookFilter value={bookScope} onChange={setBookScope} />
           <RegisterTable
-            rows={handovers.data ?? []}
+            rows={booked}
             currentUserId={user?.id ?? ""}
             orgName={hospitalType ?? "Hospital"}
             canVerify={(nominees.data ?? []).some(
@@ -788,7 +838,8 @@ export default function CashHandoverPage() {
         </TabsContent>
 
         <TabsContent value="by-person" className="mt-4">
-          <ByPersonPanel rows={handovers.data ?? []} />
+          <BookFilter value={bookScope} onChange={setBookScope} />
+          <ByPersonPanel rows={booked} />
         </TabsContent>
 
         <TabsContent value="people" className="mt-4">
@@ -970,6 +1021,9 @@ function RegisterTable({
           <TableHeader>
             <TableRow>
               <TableHead>No.</TableHead>
+              {/* Which company's books this drawer belongs to. Without it the
+                  register reads as one cash book when it is three. */}
+              <TableHead>Company</TableHead>
               <TableHead>From → To</TableHead>
               <TableHead className="text-right">Cash counted</TableHead>
               <TableHead className="text-right">Software cash</TableHead>
@@ -986,8 +1040,8 @@ function RegisterTable({
           <TableBody>
             {rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
-                  No handovers recorded yet.
+                <TableCell colSpan={11} className="py-8 text-center text-muted-foreground">
+                  No handovers recorded in these books yet.
                 </TableCell>
               </TableRow>
             ) : (
@@ -1006,6 +1060,7 @@ function RegisterTable({
                         </span>
                       )}
                     </TableCell>
+                    <TableCell className="text-xs">{bookLabel(h.hospital_type)}</TableCell>
                     <TableCell>
                       <div className="font-medium">{h.from_user_name}</div>
                       <div className="text-xs text-muted-foreground">→ {h.to_user_name}</div>
@@ -1606,7 +1661,7 @@ function ByPersonPanel({ rows }: { rows: CashHandover[] }) {
     return (
       <Card>
         <CardContent className="py-10 text-center text-muted-foreground">
-          No handovers yet, so there is nothing against anyone's name.
+          No handovers in these books yet, so there is nothing against anyone's name.
         </CardContent>
       </Card>
     );
@@ -1620,6 +1675,7 @@ function ByPersonPanel({ rows }: { rows: CashHandover[] }) {
         className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b py-2 last:border-b-0"
       >
         <span className="font-mono text-xs text-muted-foreground">{h.handover_no}</span>
+        <span className="text-xs text-muted-foreground">{bookLabel(h.hospital_type)}</span>
         <span className="text-sm">
           {direction === "given" ? `→ ${h.to_user_name}` : `← ${h.from_user_name}`}
         </span>
