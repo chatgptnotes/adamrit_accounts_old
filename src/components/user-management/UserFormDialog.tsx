@@ -26,6 +26,8 @@ export interface UserFormData {
   full_name: string;
   employee_id: string;
   email: string;
+  /** The address Google sign-in accepts, if it differs from the login email. */
+  google_email: string;
   phone: string;
   password: string;
   role: string;
@@ -38,7 +40,7 @@ export interface UserFormData {
 }
 
 const EMPTY_FORM: UserFormData = {
-  full_name: "", employee_id: "", email: "", phone: "", password: "",
+  full_name: "", employee_id: "", email: "", google_email: "", phone: "", password: "",
   role: "receptionist", hospital_type: "hope", department: "", designation: "",
   company_id: "", is_active: true, must_change_password: true,
 };
@@ -66,6 +68,7 @@ const UserFormDialog: React.FC<Props> = ({ open, editing, companies, saving, onC
       full_name: editing.full_name || "",
       employee_id: editing.employee_id || "",
       email: editing.email || "",
+      google_email: editing.google_email || "",
       phone: editing.phone || "",
       // Blank on edit. Changing a password is the Reset password action, which
       // is the only path that can show the new one to the admin.
@@ -115,6 +118,22 @@ const UserFormDialog: React.FC<Props> = ({ open, editing, companies, saving, onC
               value={form.email}
               onChange={(e) => set({ email: e.target.value })}
             />
+          </div>
+
+          {/* Sign-in matches either address, so staff keep the user ID they
+              already type while signing in through Google on their own Gmail.
+              Leave blank when the email above IS their Google account. */}
+          <div className="space-y-1">
+            <Label htmlFor="um-google-email">Google sign-in address</Label>
+            <Input
+              id="um-google-email" type="email" placeholder="their real Gmail, e.g. name@gmail.com"
+              value={form.google_email}
+              onChange={(e) => set({ google_email: e.target.value })}
+            />
+            <p className="text-xs text-muted-foreground">
+              Must be an address they can actually sign into Google with. Leave blank if
+              the email above is already their Google account.
+            </p>
           </div>
 
           <div className="space-y-1">

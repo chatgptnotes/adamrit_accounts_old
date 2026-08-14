@@ -15,6 +15,8 @@ export interface AdminUser {
   full_name: string | null;
   employee_id: string | null;
   email: string;
+  /** Second address accepted by Google sign-in only; null when unset. */
+  google_email: string | null;
   phone: string | null;
   role: string | null;
   hospital_type: string | null;

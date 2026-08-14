@@ -31,6 +31,10 @@ const SAFE_COLUMNS = [
   'id', 'full_name', 'employee_id', 'email', 'phone', 'role', 'hospital_type',
   'company_id', 'department', 'designation', 'is_active', 'must_change_password',
   'hr_pulse_can_view_all', 'last_login_at', 'created_at',
+  // The address Google sign-in accepts, alongside the primary email. Not a
+  // secret -- it is the person's own Gmail -- and the page cannot collect it
+  // without being able to read it back.
+  'google_email',
 ].join(',');
 
 // Columns an `update` may touch. Passwords go through reset_password and PINs
@@ -39,6 +43,7 @@ const SAFE_COLUMNS = [
 const EDITABLE_COLUMNS = new Set([
   'full_name', 'employee_id', 'email', 'phone', 'role', 'hospital_type',
   'company_id', 'department', 'designation', 'is_active', 'must_change_password',
+  'google_email',
 ]);
 
 const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
@@ -210,6 +215,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (typeof record.email === 'string') {
           const { data: clash } = await sb.from('User').select('id').ilike('email', record.email).neq('id', targetId).maybeSingle();
           if (clash) return sendError(res, 409, 'email_already_exists');
+        }
+        // A Google address decides who you are logged in as, so it has to be
+        // one person's alone — against both columns, since sign-in matches
+        // either. Two accounts claiming one Google identity would hand the
+        // session to whichever row sorted first.
+        if (typeof record.google_email === 'string') {
+          const googleEmail = record.google_email.trim().toLowerCase();
+          if (googleEmail && !isEmail(googleEmail)) return sendError(res, 400, 'valid_google_email_required');
+          record.google_email = googleEmail || null;
+          if (googleEmail) {
+            const { data: clash } = await sb
+              .from('User')
+              .select('id')
+              .or(`email.ilike.${googleEmail},google_email.ilike.${googleEmail}`)
+              .neq('id', targetId)
+              .maybeSingle();
+            if (clash) return sendError(res, 409, 'google_email_already_used');
+          }
         }
         if ('role' in record) record.hr_pulse_can_view_all = isSuperAdminRole(String(record.role));
 

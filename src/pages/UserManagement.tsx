@@ -21,6 +21,7 @@ import { isSuperAdminRole } from "@/lib/roles";
 import { adminUsersErrorMessage, useAdminUsers, type AdminUser, type BulkOp } from "@/hooks/useAdminUsers";
 
 import UserStatCards from "@/components/user-management/UserStatCards";
+import GoogleSignInReadiness from "@/components/user-management/GoogleSignInReadiness";
 import UserFilters, { type Filters } from "@/components/user-management/UserFilters";
 import UserTable from "@/components/user-management/UserTable";
 import BulkActionBar from "@/components/user-management/BulkActionBar";
@@ -193,6 +194,10 @@ const UserManagement: React.FC = () => {
           users={users}
           onSelectHospital={(hospital) => changeFilters({ ...filters, hospital })}
         />
+
+        {/* Password sign-in is to be switched off in favour of Google. This is
+            the count that decides when that is safe. */}
+        <GoogleSignInReadiness users={users} />
 
         <UserFilters users={users} filters={filters} onChange={changeFilters} />
 
