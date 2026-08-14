@@ -17,6 +17,7 @@ import { TabletPatientPicker } from "@/tablet/components/TabletPatientPicker";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletInput, TabletLabel } from "@/tablet/ui/TabletInput";
+import { RefereePicker } from "./RefereePicker";
 
 // DATA SOURCE: incoming_referrals — announced before arrival, linked to the
 // real registration when the patient reaches. The link stamp is the claim.
@@ -137,7 +138,7 @@ export default function IncomingReferralsFlow() {
     // name-only clash; an id or mobile clash is refused whatever it says.
     mutationFn: async (force: boolean = false) => {
       if (!form.patientName.trim()) throw new Error("Enter the patient's name");
-      if (!isDirect && !form.refereeInitials.trim()) throw new Error("Enter the referee's initials");
+      if (!isDirect && !form.refereeInitials.trim()) throw new Error("Choose the RM or referee");
       // The duplicate check and the insert must be one step: RLS on this table
       // is fully permissive, so a check made here alone loses the race between
       // two tablets announcing the same patient at the same moment.
@@ -470,14 +471,12 @@ export default function IncomingReferralsFlow() {
             />
           </div>
           {!isDirect && (
-            <div>
-              <TabletLabel>Referee initials</TabletLabel>
-              <TabletInput
-                value={form.refereeInitials}
-                onChange={(e) => setForm((f) => ({ ...f, refereeInitials: e.target.value }))}
-                placeholder="e.g. RKS"
-              />
-            </div>
+            <RefereePicker
+              value={form.refereeInitials}
+              onChange={(choice) =>
+                setForm((f) => ({ ...f, refereeInitials: choice?.value ?? "" }))
+              }
+            />
           )}
           <div>
             <TabletLabel>Documents</TabletLabel>
