@@ -24,7 +24,7 @@ export interface RefereeChoice {
   /** What gets stored on the announcement. */
   value: string;
   label: string;
-  kind: "rm" | "referee";
+  kind: "rm" | "referee" | "typed";
   detail: string | null;
 }
 
@@ -36,7 +36,19 @@ export function RefereePicker({
   onChange: (choice: RefereeChoice | null) => void;
 }) {
   const [term, setTerm] = useState("");
+  // Whether the name currently held was typed rather than chosen. Kept so the
+  // exception stays visible after it is taken, not just at the moment of
+  // taking it.
+  const [wasTyped, setWasTyped] = useState(false);
   const search = term.trim();
+
+  const useAsTyped = () => {
+    const name = search;
+    if (name.length < 2) return;
+    setWasTyped(true);
+    onChange({ value: name, label: name, kind: "typed", detail: null });
+    setTerm("");
+  };
 
   const results = useQuery({
     queryKey: ["referee-picker", search],
@@ -96,13 +108,19 @@ export function RefereePicker({
           </span>
           <button
             type="button"
-            onClick={() => { onChange(null); setTerm(""); }}
+            onClick={() => { onChange(null); setWasTyped(false); setTerm(""); }}
             className="flex-shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-muted"
             aria-label="Choose a different RM or referee"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
+        {wasTyped && (
+          <p className="mt-1 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+            Typed by hand — this name is not on the RM or referee master, so nothing will
+            match it automatically when the commission is worked out. Have them added.
+          </p>
+        )}
       </div>
     );
   }
@@ -132,10 +150,24 @@ export function RefereePicker({
       )}
 
       {search.length >= 2 && !results.isLoading && (results.data ?? []).length === 0 && (
-        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
-          Nobody matches “{search}”. They have to exist in the RM or referee master
-          first — ask the office to add them, so the commission has somewhere to go.
-        </p>
+        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2">
+          <p className="text-xs text-amber-900">
+            Nobody matches “{search}”. Best is to have them added to the master, so the
+            commission has somewhere to go.
+          </p>
+          <TabletButton
+            variant="outline"
+            className="mt-2 w-full justify-start text-left"
+            onClick={useAsTyped}
+          >
+            <span className="min-w-0">
+              <span className="block truncate font-semibold">Use “{search}” as typed</span>
+              <span className="block text-xs font-normal text-muted-foreground">
+                An exception — it will not match a commission automatically
+              </span>
+            </span>
+          </TabletButton>
+        </div>
       )}
 
       {(results.data ?? []).length > 0 && (
@@ -156,6 +188,13 @@ export function RefereePicker({
               </span>
             </TabletButton>
           ))}
+          <button
+            type="button"
+            onClick={useAsTyped}
+            className="w-full px-1 pt-1 text-left text-xs text-muted-foreground underline"
+          >
+            None of these — use “{search}” as typed
+          </button>
         </div>
       )}
     </div>
