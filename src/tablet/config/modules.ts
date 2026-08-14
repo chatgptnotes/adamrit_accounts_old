@@ -34,7 +34,7 @@ import {
   Wallet,
   type LucideIcon,
 } from "lucide-react";
-import { canCreateAccountingVouchers } from "@/lib/accounting-access";
+import { canCreateAccountingVouchers, canDepositCash } from "@/lib/accounting-access";
 import {
   OFFICE_TILE_IDS,
   VOUCHER_TILE_IDS,
@@ -681,6 +681,9 @@ export function modulesForUser(
     if ((VOUCHER_TILE_IDS as readonly string[]).includes(module.id)) {
       return canSeeVoucherTiles(user);
     }
+    // Bank & Cash is accountingOnly, but a cashier banks the day's takings.
+    // The flow shows them the deposit and nothing else.
+    if (module.id === 'bank-cash') return canDepositCash(user);
     if (module.accountingOnly && !canCreateAccountingVouchers(user)) return false;
     if (module.roles && module.roles.length > 0) {
       return !!user?.role && module.roles.includes(user.role);

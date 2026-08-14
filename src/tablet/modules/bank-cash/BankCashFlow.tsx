@@ -9,6 +9,7 @@ import { FlowScaffold } from "@/tablet/components/FlowScaffold";
 import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletInput, TabletLabel } from "@/tablet/ui/TabletInput";
+import { canCreateAccountingVouchers } from "@/lib/accounting-access";
 
 // DATA SOURCE: post_cash_bank_entry — guided Contra / bank-charge / interest
 // vouchers, replacing the last manual voucher types.
@@ -22,6 +23,11 @@ const KINDS = [
 
 export default function BankCashFlow() {
   const { user, hospitalType } = useAuth();
+  // A cashier is here to bank the takings and nothing else. Withdrawals, bank
+  // charges and interest are accounting entries and stay with accounting, so
+  // they are not offered rather than offered and refused.
+  const depositOnly = !canCreateAccountingVouchers(user);
+  const kinds = depositOnly ? KINDS.filter((k) => k.kind === "DEPOSIT") : KINDS;
   const [hospital, setHospital] = useState<"hope" | "ayushman">(
     hospitalType === "ayushman" ? "ayushman" : "hope",
   );
@@ -116,7 +122,7 @@ export default function BankCashFlow() {
         </div>
 
         <div className="grid gap-2 sm:grid-cols-2">
-          {KINDS.map(({ kind: k, label, icon: Icon }) => (
+          {kinds.map(({ kind: k, label, icon: Icon }) => (
             <TabletButton
               key={k}
               variant={kind === k ? "default" : "outline"}

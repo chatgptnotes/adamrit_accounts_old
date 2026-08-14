@@ -16,6 +16,22 @@ const ACCOUNTING_EMAILS = new Set([
   'nisha@gmail.com',
 ]);
 
+/**
+ * Banking the day's takings is the one Bank & Cash action a cashier may take.
+ *
+ * Deliberately NOT done by adding 'cashier' to ACCOUNTING_ROLES above. That set
+ * is the single switch for both surfaces, so widening it would also hand every
+ * cashier voucher create and alter rights on the desktop Accounting screen --
+ * far more than depositing cash, and exactly the kind of quiet over-grant the
+ * comment above warns about.
+ *
+ * The tile opens for them; BankCashFlow shows them the deposit and nothing
+ * else, so withdrawals, bank charges and interest stay with accounting.
+ */
+export function canDepositCash(user?: { role?: string | null; email?: string | null } | null): boolean {
+  return canCreateAccountingVouchers(user) || (user?.role || '').toLowerCase() === 'cashier';
+}
+
 export function canCreateAccountingVouchers(user?: { role?: string | null; email?: string | null } | null): boolean {
   const role = (user?.role || '').toLowerCase();
   const email = (user?.email || '').toLowerCase();

@@ -3,7 +3,7 @@ import { Navigate, useParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { getModule } from "@/tablet/config/modules";
 import { useAuth } from "@/contexts/AuthContext";
-import { canCreateAccountingVouchers } from "@/lib/accounting-access";
+import { canCreateAccountingVouchers, canDepositCash } from "@/lib/accounting-access";
 import {
   OFFICE_TILE_IDS,
   VOUCHER_TILE_IDS,
@@ -180,7 +180,11 @@ export function TabletModuleHost() {
   if (isVoucherTile && !canSeeVoucherTiles(user)) {
     return <Navigate to="/" replace />;
   }
-  if (!isOfficeTile && !isVoucherTile && mod.accountingOnly && !canCreateAccountingVouchers(user)) {
+  // Bank & Cash: a cashier may reach it to bank the takings. The flow itself
+  // limits them to the deposit, so the URL is no way around the restriction.
+  if (mod.id === "bank-cash") {
+    if (!canDepositCash(user)) return <Navigate to="/" replace />;
+  } else if (!isOfficeTile && !isVoucherTile && mod.accountingOnly && !canCreateAccountingVouchers(user)) {
     return <Navigate to="/" replace />;
   }
 
