@@ -14,7 +14,12 @@ import { useCashHandoverAccess } from "@/tablet/hooks/useCashHandoverAccess";
 
 // Both cash tiles answer to the same roster: opening cash writes the figure
 // that the handover is later measured against, so it is no less restricted.
-const CASH_TILES = new Set(["cash-handover", "opening-cash", "cash-shift-report"]);
+const CASH_TILES = new Set([
+  "cash-handover", "opening-cash", "cash-shift-report",
+  // The daily report shows the whole day's cash and raises a shortage to the
+  // directors. Same roster: it is a cash screen, not a reporting one.
+  "daily-cash-report-avani",
+]);
 import { DIALYSIS_SESSION_BILLING_QUERY_KEY, loadDialysisBillableSessions } from "@/lib/dialysisSessionBilling";
 import { loadDialysisPatients } from "@/lib/dialysis/scheme";
 import { supabase } from "@/integrations/supabase/client";

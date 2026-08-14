@@ -93,6 +93,9 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   "gate-pass": lazy(() => import("@/tablet/modules/gate-pass/GatePassFlow")),
   "opening-cash": lazy(() => import("@/tablet/modules/opening-cash/OpeningCashFlow")),
   "cash-shift-report": lazy(() => import("@/pages/CashShiftReport")),
+  "daily-cash-report-avani": lazy(
+    () => import("@/tablet/modules/daily-cash-report-avani/DailyCashReportAvaniFlow"),
+  ),
   "bank-deposit": lazy(() => import("@/tablet/modules/bank-deposit/BankDepositFlow")),
   "discharge-summary": lazy(
     () => import("@/tablet/modules/discharge-summary/DischargeSummaryFlow"),

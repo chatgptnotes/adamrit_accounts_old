@@ -34,6 +34,7 @@ import {
   Users,
   Wallet,
   type LucideIcon,
+  ShieldAlert,
 } from "lucide-react";
 import { canCreateAccountingVouchers, canDepositCash } from "@/lib/accounting-access";
 import {
@@ -584,6 +585,15 @@ export const TABLET_MODULES: TabletModule[] = [
     accent: "text-sky-700",
     tint: "from-sky-500 to-blue-700",
     keywords: ["deposit", "bank", "slip", "cash", "cashier", "pay in", "nisha"],
+  },
+  {
+    id: "daily-cash-report-avani",
+    label: "Avani Daily Cash Report",
+    description: "Report the day's shortage or excess to the directors",
+    icon: ShieldAlert,
+    accent: "text-rose-700",
+    tint: "from-rose-500 to-red-700",
+    keywords: ["avani", "cash", "shortage", "excess", "daily", "report", "director", "vasooli"],
   },
   {
     id: "cash-shift-report",
