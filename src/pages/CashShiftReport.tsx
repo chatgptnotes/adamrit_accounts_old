@@ -7,12 +7,14 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
+  fetchBankDeposits,
   fetchHandoverLog,
   fetchOpenings,
   fetchOpeningForHandover,
   fetchShiftLines,
   type HandoverRow,
 } from '@/lib/cashShiftReport';
+import { supabase } from '@/integrations/supabase/client';
 
 /**
  * Cash Shift Report — the trail for a counter, in order.
@@ -56,6 +58,31 @@ export default function CashShiftReport() {
   const openings = useQuery({
     queryKey: ['cash-report-openings', hospital, range.from, range.to],
     queryFn: () => fetchOpenings({ hospitalType: hospital || null, ...range }),
+  });
+
+  // Deposits are per COMPANY, not per hospital_type: the pharmacy is its own
+  // company with its own bank, so filtering them by counter would silently mix
+  // two sets of books.
+  const companyId = useQuery({
+    queryKey: ['cash-report-company', hospital],
+    enabled: !!hospital,
+    queryFn: async () => {
+      const key = hospital === 'ayushman' ? 'ayushman_nagpur' : 'drm_pvt_ltd';
+      const { data } = await (supabase as any)
+        .from('companies').select('id').eq('company_key', key).maybeSingle();
+      return (data?.id as string) ?? null;
+    },
+  });
+
+  const deposits = useQuery({
+    queryKey: ['cash-report-deposits', companyId.data ?? 'all', from, to],
+    queryFn: () =>
+      fetchBankDeposits({
+        companyId: hospital ? companyId.data ?? null : null,
+        from: from || null,
+        to: to || null,
+      }),
+    enabled: !hospital || companyId.isFetched,
   });
 
   const handovers = useQuery({
@@ -145,6 +172,64 @@ export default function CashShiftReport() {
                           <span className="text-emerald-700">carried into a handover</span>
                         ) : (
                           <span className="text-amber-700">still on the counter</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ------------------------------------------------- bank deposits */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">
+            Cash deposited into the bank{' '}
+            <span className="font-normal text-muted-foreground">
+              ({deposits.data?.length ?? 0})
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {deposits.isLoading ? (
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          ) : (deposits.data ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No cash was paid into the bank in this period.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs uppercase text-muted-foreground">
+                    <th className="py-2 pr-3">Date</th>
+                    <th className="py-2 pr-3">Voucher</th>
+                    <th className="py-2 pr-3">Company</th>
+                    <th className="py-2 pr-3">Bank / note</th>
+                    <th className="py-2 pr-3">By</th>
+                    <th className="py-2 pr-3 text-right">Amount</th>
+                    <th className="py-2">Slip</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(deposits.data ?? []).map((d) => (
+                    <tr key={d.id} className="border-b last:border-0">
+                      <td className="py-2 pr-3 font-mono text-xs">
+                        {d.at ? format(new Date(d.at), 'dd MMM yy') : '—'}
+                      </td>
+                      <td className="py-2 pr-3 font-mono text-xs">{d.voucherNo}</td>
+                      <td className="py-2 pr-3 text-xs">{d.companyName}</td>
+                      <td className="py-2 pr-3 text-xs text-muted-foreground">{d.narration}</td>
+                      <td className="py-2 pr-3 text-xs">{d.by || '—'}</td>
+                      <td className="py-2 pr-3 text-right font-mono">{inr(d.amount)}</td>
+                      <td className="py-2 text-xs">
+                        {d.slipCount > 0 ? (
+                          <span className="text-emerald-700">attached</span>
+                        ) : (
+                          <span className="text-amber-700">no slip</span>
                         )}
                       </td>
                     </tr>

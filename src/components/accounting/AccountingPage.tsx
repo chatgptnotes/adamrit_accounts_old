@@ -105,6 +105,9 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'exception-reports', label: 'Exception Reports', icon: Scale },
   { id: 'billwise', label: 'Bill-wise Outstandings', icon: Landmark },
   { id: 'banking', label: 'Banking', icon: Building2 },
+  // Opening counts, bank deposits and handovers. Routes out to the report page
+  // rather than living in this folder, which is frozen.
+  { id: 'cash-handover-log', label: 'Cash Handover', icon: ArrowLeftRight, route: '/cash-shift-report' },
   { id: 'trial-balance', label: 'Trial Balance', icon: Scale },
   { id: 'balance-sheet', label: 'Balance Sheet', icon: Landmark },
   { id: 'profit-loss', label: 'Profit & Loss', icon: TrendingUp },

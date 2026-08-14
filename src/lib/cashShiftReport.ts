@@ -167,3 +167,67 @@ export async function fetchOpeningForHandover(handoverId: string): Promise<Openi
     handoverId: r.cash_handover_id ?? null,
   };
 }
+
+export interface DepositRow {
+  id: string;
+  voucherNo: string;
+  at: string;
+  amount: number;
+  narration: string;
+  companyName: string;
+  by: string | null;
+  slipCount: number;
+}
+
+/**
+ * Cash paid into the bank.
+ *
+ * post_cash_bank_entry writes a CONTRA voucher whose narration always begins
+ * "Cash deposited into <bank>", which is what identifies one. There is no
+ * deposit table -- the voucher IS the record, and inventing a parallel one
+ * would mean two versions of the same deposit to reconcile.
+ */
+export async function fetchBankDeposits(opts: {
+  companyId?: string | null;
+  from?: string | null;
+  to?: string | null;
+}): Promise<DepositRow[]> {
+  let q = (supabase as any)
+    .from('vouchers')
+    .select('id, voucher_number, voucher_date, narration, total_amount, created_by, created_at, company_id, companies(company_name)')
+    .ilike('narration', 'Cash deposited into%')
+    .order('voucher_date', { ascending: false })
+    .limit(500);
+  if (opts.companyId) q = q.eq('company_id', opts.companyId);
+  if (opts.from) q = q.gte('voucher_date', opts.from);
+  if (opts.to) q = q.lte('voucher_date', opts.to);
+
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  const rows = data ?? [];
+
+  // The deposit slip, if one was attached. Counted rather than fetched: the
+  // report says whether the evidence exists, and the day book opens it.
+  const ids = rows.map((r: any) => r.id);
+  const slips = new Map<string, number>();
+  if (ids.length) {
+    const { data: files } = await (supabase as any)
+      .from('file_uploads')
+      .select('voucher_id')
+      .in('voucher_id', ids);
+    for (const f of files ?? []) {
+      slips.set(f.voucher_id, (slips.get(f.voucher_id) ?? 0) + 1);
+    }
+  }
+
+  return rows.map((r: any) => ({
+    id: r.id,
+    voucherNo: r.voucher_number,
+    at: r.voucher_date || r.created_at,
+    amount: num(r.total_amount),
+    narration: r.narration || '',
+    companyName: r.companies?.company_name || '—',
+    by: r.created_by ?? null,
+    slipCount: slips.get(r.id) ?? 0,
+  }));
+}
