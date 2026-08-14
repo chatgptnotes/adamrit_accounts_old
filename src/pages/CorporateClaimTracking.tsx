@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
-import { AlertCircle, ArrowUpDown, Calendar, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, FileSpreadsheet, History, Info, Loader2, RefreshCw, Search, ShieldAlert, ShieldCheck, Upload, X, XCircle } from 'lucide-react';
+import { AlertCircle, AlertTriangle, ArrowUpDown, Calendar, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, FileSpreadsheet, History, Info, Loader2, RefreshCw, Search, ShieldAlert, ShieldCheck, Upload, X, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { corporateClaimFileFingerprint, parseCorporateClaimFile, schemeForProgramId, checkPaymentStatus, autoMatchClaimByNameAndDate, storePatientLinkage, type CorporateClaimParsedFile } from '@/lib/corporateClaimTracking';
+import { exportClaimsToCSV, exportClaimsToExcel, exportReconciliationReport, type ClaimExportFilters, type ClaimRow } from '@/lib/corporateClaimReports';
+import { generateReconciliationReport, type ReconciliationReport } from '@/lib/corporateClaimReconciliation';
+import { reconcilePaymentsAndUTRs, exportPaymentUTRReconciliation } from '@/lib/paymentUTRReconciliation';
+import { generateManagementSummary } from '@/lib/corporateClaimSummaries';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -48,7 +52,7 @@ type Stage = 'all' | 'under_treatment' | 'claims_to_be_submitted' | 'claims_sent
 type VerificationStatus = 'all' | 'matched' | 'unmatched' | 'ambiguous' | 'conflict' | 'invalid' | 'not_checked';
 type AdmissionStatus = 'all' | 'active_ipd' | 'discharged' | 'not_ipd' | 'no_visit' | 'not_matched' | 'ambiguous' | 'conflict' | 'not_checked';
 
-const STAGES: Exclude<Stage, 'all'>[] = ['under_treatment', 'claims_to_be_submitted', 'claims_sent_to_bank', 'pending_with_payer', 'payment_initiated', 'payment_accomplished', 'rejected'];
+const STAGES: Exclude<Stage, 'all'>[] = ['under_treatment', 'claims_to_be_submitted', 'pending_with_payer', 'payment_accomplished', 'rejected'];
 const STAGE_LABELS: Record<Exclude<Stage, 'all'>, string> = {
   under_treatment: 'Under Treatment',
   claims_to_be_submitted: 'To Be Submitted',
@@ -320,7 +324,14 @@ function PortalImport({ onPreview, onImported }: { onPreview: (files: CorporateC
   };
 
   const importSnapshot = async () => {
-    if (!files.length || files.some((file) => file.fatalErrors.length)) return;
+    if (!files.length) {
+      toast.error('No files to save. Please upload files first.');
+      return;
+    }
+    if (files.some((file) => file.fatalErrors.length)) {
+      toast.error('Cannot save files with fatal errors. Please fix errors first.');
+      return;
+    }
 
     setBusy(true);
     try {
@@ -437,10 +448,31 @@ function previewClaims(files: CorporateClaimParsedFile[]): Claim[] {
   );
 }
 
+// Helper function to check if a claim is stale (>120 days since discharge)
+function isStaleClaim(row: Claim): boolean {
+  if (!row.matched_visit?.discharge_date) return false;
+  const dischargeDate = new Date(row.matched_visit.discharge_date);
+  const today = new Date();
+  const daysDiff = Math.floor((today.getTime() - dischargeDate.getTime()) / (1000 * 60 * 60 * 24));
+  return daysDiff > 120;
+}
+
 function ClaimDetailDrawer({ claim, onClose }: { claim: Claim | null; onClose: () => void }) {
   if (!claim) return null;
 
   const isPreview = claim.isPreview;
+
+  // Calculate days pending from discharge date
+  const calculateDaysPending = (): number | null => {
+    if (!claim.matched_visit?.discharge_date) return null;
+    const dischargeDate = new Date(claim.matched_visit.discharge_date);
+    const today = new Date();
+    const daysDiff = Math.floor((today.getTime() - dischargeDate.getTime()) / (1000 * 60 * 60 * 24));
+    return daysDiff > 0 ? daysDiff : 0;
+  };
+
+  const daysPending = calculateDaysPending();
+  const isStaleClaim = daysPending !== null && daysPending > 120;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/30">
@@ -611,9 +643,17 @@ function ClaimDetailDrawer({ claim, onClose }: { claim: Claim | null; onClose: (
               </Card>
 
               {claim.matched_visit && (
-                <Card>
+                <Card className={isStaleClaim ? 'border-amber-300 bg-amber-50' : ''}>
                   <CardContent className="p-4">
-                    <Label className="text-xs text-muted-foreground">Latest Visit</Label>
+                    <div className="flex items-center justify-between mb-2">
+                      <Label className="text-xs text-muted-foreground">Latest Visit</Label>
+                      {isStaleClaim && (
+                        <div className="flex items-center gap-1 text-amber-600" title="Claim pending for over 120 days">
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                          <span className="text-xs font-medium">Stale Claim</span>
+                        </div>
+                      )}
+                    </div>
                     <div className="mt-2 text-xs grid grid-cols-2 gap-2">
                       <div>
                         <span className="text-muted-foreground">Type:</span> {claim.matched_visit.patient_type}
@@ -626,6 +666,12 @@ function ClaimDetailDrawer({ claim, onClose }: { claim: Claim | null; onClose: (
                       {claim.matched_visit.discharge_date && (
                         <div>
                           <span className="text-muted-foreground">Discharged:</span> {formatDate(claim.matched_visit.discharge_date)}
+                        </div>
+                      )}
+                      {daysPending !== null && (
+                        <div className={isStaleClaim ? 'font-medium text-amber-700' : ''}>
+                          <span className="text-muted-foreground">Days Pending:</span>{' '}
+                          {daysPending} {isStaleClaim && '(⚠️ Over 4 months)'}
                         </div>
                       )}
                       <div>
@@ -848,6 +894,62 @@ function Operations() {
     }
   }, [hospitalType]);
 
+  const handleExport = async (type: 'csv' | 'excel' | 'reconciliation' | 'payment-utr') => {
+    const claimsToExport: ClaimRow[] = filtered.map(row => ({
+      id: row.id,
+      scheme_type: row.scheme_type,
+      beneficiary_name: row.beneficiary_name,
+      government_registration_id: row.government_registration_id,
+      government_program_id: row.government_program_id,
+      current_stage: row.current_stage,
+      claimed_amount: row.claimed_amount,
+      approved_amount: row.approved_amount,
+      paid_amount: row.paid_amount,
+      tds_amount: row.tds_amount,
+      rf_amount: row.rf_amount,
+      utr: row.utr,
+      payment_date: row.payment_date,
+      preauth_date: row.preauth_date,
+      verification_state: row.verification_state,
+      admission_status: row.admission_status,
+      matched_patient: row.matched_patient,
+      matched_visit: row.matched_visit,
+      raw_government_status: row.raw_government_status,
+      source_file_name: row.source_file_name,
+      row_number: row.row_number
+    }));
+
+    const filters: ClaimExportFilters = {
+      scheme: schemeType === 'ALL' ? 'ALL' : schemeType === 'PMJAY' ? 'PMJAY' : 'MJPJAY',
+      stage: stage === 'all' ? 'all' : stage,
+      verificationState: verification === 'all' ? 'all' : verification,
+      admissionStatus: admission === 'all' ? 'all' : admission
+    };
+
+    try {
+      switch (type) {
+        case 'csv':
+          exportClaimsToCSV(claimsToExport, filters);
+          toast.success('CSV export started');
+          break;
+        case 'excel':
+          exportClaimsToExcel(claimsToExport, filters);
+          toast.success('Excel export started');
+          break;
+        case 'reconciliation':
+          exportReconciliationReport(claimsToExport, filters);
+          toast.success('Reconciliation report export started');
+          break;
+        case 'payment-utr':
+          exportPaymentUTRReconciliation(claimsToExport);
+          toast.success('Payment/UTR reconciliation export started');
+          break;
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Export failed');
+    }
+  };
+
   useEffect(() => {
     refresh();
   }, [refresh]);
@@ -912,10 +1014,7 @@ function Operations() {
     return scoped.filter((row) => {
       // Needs Review quick filter
       if (showOnlyNeedsReview) {
-        const needsReview =
-          ['pending', 'unmatched', 'ambiguous', 'conflict', 'invalid'].includes(row.verification_state) ||
-          ['not_ipd', 'discharged'].includes(row.admission_status) ||
-          (row.issues && row.issues.length > 0);
+        const needsReview = ['unmatched', 'invalid', 'ambiguous', 'conflict', 'pending'].includes(row.verification_state);
         if (!needsReview) return false;
       }
 
@@ -958,10 +1057,9 @@ function Operations() {
       ambiguous: base.filter((r) => r.verification_state === 'ambiguous').length,
       conflict: base.filter((r) => r.verification_state === 'conflict' || r.verification_state === 'invalid').length,
       // Count rows that need review (pending verification + issues)
-      // Needs Review = Only truly unmatched or invalid data
+      // Needs Review = Unmatched, Invalid, Ambiguous, Conflict, or Pending
       needs_review: base.filter((r) =>
-        r.verification_state === 'unmatched' ||  // Not found in database
-        r.verification_state === 'invalid'        // Invalid data only
+        ['unmatched', 'invalid', 'ambiguous', 'conflict', 'pending'].includes(r.verification_state)
       ).length,
       paid_rows: base.filter((r) => Number(r.paid_amount || 0) > 0).length,
       paid_total: base.reduce((sum, r) => sum + Number(r.paid_amount || 0), 0)
@@ -1062,22 +1160,6 @@ function Operations() {
           </CardContent>
         </Card>
 
-        {/* Ambiguous */}
-        <Card onClick={() => { setStage('all'); setVerification('ambiguous'); setAdmission('all'); setShowOnlyNeedsReview(false); }} className="cursor-pointer hover:bg-accent/50">
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Ambiguous</p>
-            <p className="text-2xl font-bold text-amber-700">{metrics.ambiguous}</p>
-          </CardContent>
-        </Card>
-
-        {/* Conflict/Invalid */}
-        <Card onClick={() => { setStage('all'); setVerification('conflict'); setAdmission('all'); setShowOnlyNeedsReview(false); }} className="cursor-pointer hover:bg-accent/50">
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Conflict/Invalid</p>
-            <p className="text-2xl font-bold text-red-700">{metrics.conflict}</p>
-          </CardContent>
-        </Card>
-
         {/* Needs Review */}
         <Card onClick={() => {
           setShowOnlyNeedsReview(!showOnlyNeedsReview);
@@ -1134,15 +1216,53 @@ function Operations() {
               </CardDescription>
             </div>
             {!preview.length && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={refresh}
-                disabled={loading}
-              >
-                <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-                Refresh
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={refresh}
+                  disabled={loading}
+                >
+                  <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleExport('csv')}
+                  disabled={loading || filtered.length === 0}
+                >
+                  <FileSpreadsheet className="mr-2 h-4 w-4" />
+                  Export CSV
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleExport('excel')}
+                  disabled={loading || filtered.length === 0}
+                >
+                  <FileSpreadsheet className="mr-2 h-4 w-4" />
+                  Export Excel
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleExport('reconciliation')}
+                  disabled={loading || filtered.length === 0}
+                >
+                  <FileSpreadsheet className="mr-2 h-4 w-4" />
+                  Reconciliation
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleExport('payment-utr')}
+                  disabled={loading || filtered.length === 0}
+                >
+                  <FileSpreadsheet className="mr-2 h-4 w-4" />
+                  Payment/UTR Check
+                </Button>
+              </div>
             )}
           </div>
         </CardHeader>
@@ -1246,20 +1366,23 @@ function Operations() {
                   <TableHead>Admission</TableHead>
                   <TableHead>Amounts</TableHead>
                   <TableHead>Paid</TableHead>
+                  <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading && !preview.length ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="py-10 text-center">
+                    <TableCell colSpan={9} className="py-10 text-center">
                       <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filtered.map((row) => (
+                  filtered.map((row) => {
+                    const stale = isStaleClaim(row);
+                    return (
                     <TableRow
                       key={row.id}
-                      className="cursor-pointer hover:bg-accent/50"
+                      className={`cursor-pointer hover:bg-accent/50 ${stale ? 'bg-amber-50 hover:bg-amber-100' : ''}`}
                       onClick={() => setSelectedClaim(row)}
                     >
                       <TableCell>
@@ -1311,12 +1434,18 @@ function Operations() {
                       <TableCell className={Number(row.paid_amount || 0) > 0 ? 'text-emerald-700 font-medium' : ''}>
                         {formatMoney(row.paid_amount)}
                       </TableCell>
+                      <TableCell className="w-8">
+                        {stale && (
+                          <AlertTriangle className="h-4 w-4 text-amber-600" title="Stale claim: Pending over 120 days" />
+                        )}
+                      </TableCell>
                     </TableRow>
-                  ))
+                  );
+                  })
                 )}
                 {!loading && !filtered.length && (
                   <TableRow>
-                    <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+                    <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">
                       No records match this filter.
                     </TableCell>
                   </TableRow>
