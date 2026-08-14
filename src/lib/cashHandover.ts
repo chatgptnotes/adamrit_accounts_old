@@ -374,6 +374,118 @@ export async function fetchHandovers(opts?: {
   return (data ?? []) as CashHandover[];
 }
 
+/* ------------------------------------------------- photographs at handover */
+
+/** What a photograph is OF, so a reader knows before opening it. */
+export const HANDOVER_PHOTO_KINDS = [
+  { key: "cash_register", label: "Cash register" },
+  { key: "signed_note", label: "Signed handover note" },
+  { key: "other", label: "Other" },
+] as const;
+
+export type HandoverPhotoKind = (typeof HANDOVER_PHOTO_KINDS)[number]["key"];
+
+export const handoverPhotoLabel = (kind: string) =>
+  HANDOVER_PHOTO_KINDS.find((k) => k.key === kind)?.label ?? "Other";
+
+export interface HandoverPhoto {
+  id: string;
+  fileName: string;
+  fileUrl: string;
+  fileType: string | null;
+  kind: HandoverPhotoKind;
+  uploadedAt: string | null;
+}
+
+const PHOTO_BUCKET = "uploads";
+const MAX_PHOTO_SIZE = 12 * 1024 * 1024;
+
+/** The photographs taken when this drawer was handed over, oldest first. */
+export async function fetchHandoverPhotos(handoverId: string): Promise<HandoverPhoto[]> {
+  const { data, error } = await (supabase as any)
+    .from("cash_handover_photos")
+    .select("id, file_name, file_url, file_type, kind, created_at")
+    .eq("handover_id", handoverId)
+    .order("created_at");
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((r: any) => ({
+    id: r.id,
+    fileName: r.file_name ?? "photo",
+    fileUrl: r.file_url ?? "",
+    fileType: r.file_type ?? null,
+    kind: (r.kind ?? "other") as HandoverPhotoKind,
+    uploadedAt: r.created_at ?? null,
+  }));
+}
+
+/**
+ * Store the photographs taken at a handover.
+ *
+ * Uploaded AFTER the handover is recorded, because the handover is the thing
+ * that must not be lost: a failed upload should leave a correct handover with
+ * missing evidence, never a photograph belonging to nothing. The caller is
+ * expected to say so loudly if this throws.
+ *
+ * Each file is attempted on its own. One unreadable photo out of four should
+ * not throw the other three away.
+ */
+export async function uploadHandoverPhotos(input: {
+  handoverId: string;
+  photos: { file: File; kind: HandoverPhotoKind }[];
+  uploadedBy: string | null;
+}): Promise<{ saved: number; failed: string[] }> {
+  const failed: string[] = [];
+  let saved = 0;
+
+  for (const { file, kind } of input.photos) {
+    try {
+      const isPdf =
+        file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+      if (!file.type.startsWith("image/") && !isPdf) {
+        throw new Error("not an image or PDF");
+      }
+      if (file.size > MAX_PHOTO_SIZE) throw new Error("over 12 MB");
+
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const storagePath = `cash-handovers/${input.handoverId}/${Date.now()}_${crypto.randomUUID()}_${safeName}`;
+
+      const { error: storageError } = await supabase.storage
+        .from(PHOTO_BUCKET)
+        .upload(storagePath, file, {
+          contentType: file.type || "application/octet-stream",
+          upsert: false,
+        });
+      if (storageError) throw new Error(storageError.message);
+
+      const { data: urlData } = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(storagePath);
+
+      const { error: insertError } = await (supabase as any)
+        .from("cash_handover_photos")
+        .insert({
+          handover_id: input.handoverId,
+          file_name: file.name,
+          file_url: urlData?.publicUrl || "",
+          file_type: file.type || (isPdf ? "application/pdf" : "application/octet-stream"),
+          file_size: file.size,
+          storage_path: storagePath,
+          kind,
+          uploaded_by: input.uploadedBy,
+        });
+      // The row is what makes a photograph findable; a file with no row is
+      // invisible, so take it back out rather than leave it orphaned.
+      if (insertError) {
+        await supabase.storage.from(PHOTO_BUCKET).remove([storagePath]);
+        throw new Error(insertError.message);
+      }
+      saved += 1;
+    } catch (e) {
+      failed.push(`${file.name} (${e instanceof Error ? e.message : "failed"})`);
+    }
+  }
+
+  return { saved, failed };
+}
+
 export async function fetchDenominations(handoverId: string) {
   const { data, error } = await (supabase as any)
     .from("cash_handover_denominations")

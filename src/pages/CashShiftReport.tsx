@@ -15,6 +15,7 @@ import {
   type HandoverRow,
 } from '@/lib/cashShiftReport';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchHandoverPhotos, handoverPhotoLabel } from '@/lib/cashHandover';
 
 /**
  * Cash Shift Report — the trail for a counter, in order.
@@ -311,6 +312,9 @@ function ShiftRow({
     queryFn: async () => ({
       opening: await fetchOpeningForHandover(row.id),
       lines: await fetchShiftLines(row.id),
+      // The register page and the note the cashier signed. Evidence is worth
+      // nothing if the person reviewing a disputed count cannot see it.
+      photos: await fetchHandoverPhotos(row.id),
     }),
   });
 
@@ -389,6 +393,46 @@ function ShiftRow({
                   <p className="mt-1 text-sm text-muted-foreground">
                     None was carried into this handover.
                   </p>
+                )}
+              </div>
+
+              <div className="rounded border bg-background p-2">
+                <p className="text-xs font-semibold uppercase text-muted-foreground">
+                  Photographs taken at the handover ({detail.data?.photos.length ?? 0})
+                </p>
+                {(detail.data?.photos ?? []).length === 0 ? (
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    None. This count has no register page or signed note behind it.
+                  </p>
+                ) : (
+                  <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+                    {(detail.data?.photos ?? []).map((ph) => (
+                      <a
+                        key={ph.id}
+                        href={ph.fileUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="w-36 shrink-0 overflow-hidden rounded-md border"
+                        title={`${handoverPhotoLabel(ph.kind)} — ${ph.fileName}`}
+                      >
+                        {ph.fileType === 'application/pdf' ? (
+                          <span className="flex h-24 items-center justify-center bg-muted text-xs font-semibold text-muted-foreground">
+                            PDF
+                          </span>
+                        ) : (
+                          <img
+                            src={ph.fileUrl}
+                            alt={handoverPhotoLabel(ph.kind)}
+                            className="h-24 w-full bg-muted object-cover"
+                            loading="lazy"
+                          />
+                        )}
+                        <span className="block truncate px-2 py-1 text-[11px] font-medium">
+                          {handoverPhotoLabel(ph.kind)}
+                        </span>
+                      </a>
+                    ))}
+                  </div>
                 )}
               </div>
 

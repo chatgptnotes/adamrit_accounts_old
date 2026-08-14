@@ -29,8 +29,10 @@ import {
   fetchPharmacySummary,
   fetchPreview,
   submitHandover,
+  uploadHandoverPhotos,
   verifyHandover,
 } from "@/lib/cashHandover";
+import { HandoverPhotoCapture, type PendingPhoto } from "./HandoverPhotoCapture";
 
 // DATA SOURCE: cash_handover_preview / submit_cash_handover / accept_cash_handover
 // / verify_cash_handover. Every rupee figure is computed in the database; this
@@ -192,6 +194,9 @@ function HandOverPanel({
   // lost among them.
   const [locker, setLocker] = useState("");
   const [deposited, setDeposited] = useState("");
+  // Held until the handover exists, then attached to it. See the note in
+  // HandoverPhotoCapture on why they are not uploaded as they are taken.
+  const [photos, setPhotos] = useState<PendingPhoto[]>([]);
 
   // Scoped to this cashier's own hospital: Hope and Ayushman keep separate
   // drawers even though a receipt carries no hospital of its own.
@@ -219,7 +224,7 @@ function HandOverPanel({
   const submit = useMutation({
     mutationFn: async () => {
       if (!toUserId) throw new Error("Choose who is receiving the cash");
-      return submitHandover({
+      const result = await submitHandover({
         fromUserId: userId,
         toUserId,
         hospitalType,
@@ -234,14 +239,39 @@ function HandOverPanel({
           qty: parseInt(counts[d] ?? "", 10) || 0,
         })),
       });
+
+      // Attached after the handover exists, and never allowed to undo it. A
+      // failed upload leaves a correct handover missing its evidence, which is
+      // recoverable; losing the handover itself is not.
+      let photoWarning: string | null = null;
+      if (photos.length) {
+        const { saved, failed } = await uploadHandoverPhotos({
+          handoverId: result.handoverId,
+          photos: photos.map((p) => ({ file: p.file, kind: p.kind })),
+          uploadedBy: userId,
+        });
+        if (failed.length) {
+          photoWarning = `${saved} of ${photos.length} photos saved. Failed: ${failed.join("; ")}`;
+        }
+      }
+      return { ...result, photoWarning };
     },
     onSuccess: (r) => {
-      toast.success(`Handover ${r.handoverNo} recorded. Waiting for it to be received.`);
+      if (r.photoWarning) {
+        // Loud, not a passing note: a handover whose evidence did not save has
+        // to be photographed again while the register is still open.
+        toast.warning(`Handover ${r.handoverNo} recorded, but ${r.photoWarning}`, {
+          duration: 12_000,
+        });
+      } else {
+        toast.success(`Handover ${r.handoverNo} recorded. Waiting for it to be received.`);
+      }
       setCounts({});
       setReason("");
       setNotes("");
       setOnline("");
       setToUserId("");
+      setPhotos([]);
       preview.refetch();
       onDone();
     },
@@ -460,6 +490,12 @@ function HandOverPanel({
           placeholder="Anything the receiver should know"
         />
       </div>
+
+      <HandoverPhotoCapture
+        photos={photos}
+        onChange={setPhotos}
+        disabled={submit.isPending}
+      />
 
       {(p?.refUpiTotal || p?.refCardTotal) ? (
         <TabletCard className="bg-muted/30">
