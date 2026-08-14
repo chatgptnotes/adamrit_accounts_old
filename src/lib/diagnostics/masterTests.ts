@@ -12,11 +12,24 @@ export interface MasterTest {
   source: 'radiology' | 'lab';
 }
 
-/** No CT over 2,500 and no MRI over 3,500 — enforced again by a DB trigger. */
+/**
+ * No CT over 2,500 and no MRI over 3,500 — enforced again by a DB trigger.
+ *
+ * CT Urography is the one exception: a multi-phase contrast study the centres
+ * quote 3,500 for, so the general CT level turned its real rate away. Keep this
+ * in step with enforce_diagnostic_test_ceiling() (20260814160000) — if the two
+ * disagree, the screen refuses a rate the database would take, or worse, waves
+ * through one it will reject on save.
+ *
+ * UROGRAPH matches "CT Urography" only. A test named "CT Urogram" would still
+ * cap at 2,500; the radiology master holds only the longer spelling, so nothing
+ * is missed today, but adding the shorter one would need this widened here AND
+ * in the trigger.
+ */
 export function testCeiling(testName: string): number | null {
   const name = testName.toUpperCase();
   if (/\bMRI\b/.test(name)) return 3500;
-  if (/\bCT\b/.test(name)) return 2500;
+  if (/\bCT\b/.test(name)) return /UROGRAPH/.test(name) ? 3500 : 2500;
   return null;
 }
 
@@ -24,7 +37,14 @@ export function testCeiling(testName: string): number | null {
 export function ceilingError(testName: string, amount: number): string | null {
   const ceiling = testCeiling(testName);
   if (ceiling === null || amount <= ceiling) return null;
-  const kind = /\bMRI\b/.test(testName.toUpperCase()) ? 'MRI' : 'CT scan';
+  const name = testName.toUpperCase();
+  // Name the study when it has a ceiling of its own, so "No CT scan can be
+  // more than Rs. 3,500" cannot be read as the rule for every CT.
+  const kind = /\bMRI\b/.test(name)
+    ? 'MRI'
+    : /UROGRAPH/.test(name)
+      ? 'CT Urography'
+      : 'CT scan';
   return `No ${kind} can be more than Rs. ${ceiling.toLocaleString('en-IN')}.`;
 }
 
