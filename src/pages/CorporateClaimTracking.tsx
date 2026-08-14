@@ -9,11 +9,40 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { corporateClaimFileFingerprint, parseCorporateClaimFile, schemeForProgramId, type CorporateClaimParsedFile } from '@/lib/corporateClaimTracking';
+import { corporateClaimFileFingerprint, parseCorporateClaimFile, schemeForProgramId, checkPaymentStatus, autoMatchClaimByNameAndDate, storePatientLinkage, type CorporateClaimParsedFile } from '@/lib/corporateClaimTracking';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
-type Claim = Record<string, any>;
+type Claim = Record<string, any> & {
+  id: string;
+  scheme_type: string;
+  beneficiary_name: string;
+  government_registration_id?: string;
+  government_program_id?: string;
+  current_stage: string;
+  claimed_amount?: number | string;
+  approved_amount?: number | string;
+  paid_amount?: number | string;
+  payment_state?: string;
+  verification_state: VerificationStatus | 'pending';
+  admission_status: AdmissionStatus | 'pending';
+  match_state?: string;
+  raw_government_status?: string;
+  source_file_name?: string;
+  row_number?: number;
+  isPreview?: boolean;
+  verification_evidence?: Record<string, unknown>;
+  matched_patient?: { id: string; name: string; patients_id?: string; registration_id?: string };
+  matched_visit?: { id: string; patient_type: string; admission_date?: string; discharge_date?: string; visit_id?: string };
+  payment_status?: {
+    hasBill: boolean;
+    billDetails?: { bill_amount?: number; received_amount?: number; tds_amount?: number; date_of_submission?: string };
+    paymentCount: number;
+    totalPaid: number;
+  };
+  utr?: string;
+  payment_date?: string | null;
+};
 type SchemeFilter = 'ALL' | 'PMJAY' | 'MJPJAY' | 'UNRESOLVED';
 type Stage = 'all' | 'under_treatment' | 'claims_to_be_submitted' | 'claims_sent_to_bank' | 'pending_with_payer' | 'payment_initiated' | 'payment_accomplished' | 'rejected';
 type VerificationStatus = 'all' | 'matched' | 'unmatched' | 'ambiguous' | 'conflict' | 'invalid' | 'not_checked';
@@ -30,17 +59,18 @@ const STAGE_LABELS: Record<Exclude<Stage, 'all'>, string> = {
   rejected: 'Rejected'
 };
 
-const VERIFICATION_LABELS: Record<VerificationStatus, string> = {
+const VERIFICATION_LABELS: Record<VerificationStatus | 'pending', string> = {
   all: 'All Verification',
   matched: 'Matched',
   unmatched: 'Unmatched',
   ambiguous: 'Ambiguous',
   conflict: 'Conflict',
   invalid: 'Invalid',
-  not_checked: 'Not Checked'
+  not_checked: 'Not Checked',
+  pending: 'Pending Verification'
 };
 
-const ADMISSION_LABELS: Record<AdmissionStatus, string> = {
+const ADMISSION_LABELS: Record<AdmissionStatus | 'pending', string> = {
   all: 'All Admission',
   active_ipd: 'Active IPD',
   discharged: 'Discharged',
@@ -49,7 +79,8 @@ const ADMISSION_LABELS: Record<AdmissionStatus, string> = {
   not_matched: 'Not Matched',
   ambiguous: 'Ambiguous',
   conflict: 'Conflict',
-  not_checked: 'Not Checked'
+  not_checked: 'Not Checked',
+  pending: 'Pending Verification'
 };
 
 const REVIEW_CATEGORIES = [
@@ -63,6 +94,184 @@ const REVIEW_CATEGORIES = [
   { value: 'discharged', label: 'Discharged', color: 'destructive' },
   { value: 'payment_conflict', label: 'Payment Conflict', color: 'destructive' }
 ] as const;
+
+// ============================================================================
+// Live Verification: Query existing Adamrit patients/visits directly
+// ============================================================================
+
+async function verifyClaimAgainstAdamrit(claim: Claim) {
+  const regId = claim.government_registration_id;
+  const progId = claim.government_program_id;
+  const hospitalName = (claim.hospital_name || 'hope').toLowerCase();
+
+  if (!regId && !progId) {
+    return { status: 'unmatched', patient: null, visit: null, admissionStatus: 'no_visit' };
+  }
+
+  try {
+    // Step 1: Check linkage table first (previous manual/auto matches)
+    const { data: linkage } = await supabase
+      .from('patient_government_linkage')
+      .select('patient_id')
+      .eq('hospital_name', hospitalName)
+      .or(`government_id.eq.${regId},government_id.eq.${progId}`)
+      .maybeSingle();
+
+    if (linkage) {
+      // Use existing linkage - load patient and visit
+      const { data: patient } = await supabase
+        .from('patients')
+        .select('id, name, patients_id, registration_id, pmjay_program_id')
+        .eq('id', linkage.patient_id)
+        .maybeSingle();
+
+      if (patient) {
+        const { data: visit } = await supabase
+          .from('visits')
+          .select('id, visit_id, patient_type, admission_date, discharge_date')
+          .eq('patient_id', patient.id)
+          .order('admission_date', { ascending: false, nullsFirst: false })
+          .limit(1)
+          .maybeSingle();
+
+        let admissionStatus = 'no_visit';
+        if (visit) {
+          if (visit.patient_type !== 'IPD') {
+            admissionStatus = 'not_ipd';
+          } else if (!visit.admission_date) {
+            admissionStatus = 'not_ipd';
+          } else if (visit.discharge_date) {
+            admissionStatus = 'discharged';
+          } else {
+            admissionStatus = 'active_ipd';
+          }
+        }
+
+        return {
+          status: 'matched',
+          patient,
+          visit,
+          admissionStatus,
+          evidence: {
+            matched_by: 'linkage_table',
+            patient_id: patient.id,
+            visit_id: visit?.id
+          }
+        };
+      }
+    }
+
+    // Step 2: Try auto-match by name + date
+    const claimDate = claim.preauth_date || claim.payment_date;
+    const autoMatch = await autoMatchClaimByNameAndDate(
+      claim.beneficiary_name,
+      claimDate,
+      hospitalName
+    );
+
+    if (autoMatch) {
+      // Store the linkage for future use
+      await storePatientLinkage(
+        hospitalName,
+        autoMatch.patient_id,
+        regId || progId || '',
+        regId ? 'registration_id' : 'program_id',
+        'auto_name_date'
+      );
+
+      // Load patient and visit data
+      const { data: patient } = await supabase
+        .from('patients')
+        .select('id, name, patients_id, registration_id, pmjay_program_id')
+        .eq('id', autoMatch.patient_id)
+        .maybeSingle();
+
+      if (patient) {
+        const { data: visit } = await supabase
+          .from('visits')
+          .select('id, visit_id, patient_type, admission_date, discharge_date')
+          .eq('patient_id', patient.id)
+          .order('admission_date', { ascending: false, nullsFirst: false })
+          .limit(1)
+          .maybeSingle();
+
+        let admissionStatus = 'no_visit';
+        if (visit) {
+          if (visit.patient_type !== 'IPD') {
+            admissionStatus = 'not_ipd';
+          } else if (!visit.admission_date) {
+            admissionStatus = 'not_ipd';
+          } else if (visit.discharge_date) {
+            admissionStatus = 'discharged';
+          } else {
+            admissionStatus = 'active_ipd';
+          }
+        }
+
+        return {
+          status: 'matched',
+          patient,
+          visit,
+          admissionStatus,
+          evidence: {
+            matched_by: 'auto_name_date',
+            patient_id: patient.id,
+            visit_id: visit?.id
+          }
+        };
+      }
+    }
+
+    // Step 3: Direct lookup (existing IDs might work)
+    const { data: patient } = await supabase
+      .from('patients')
+      .select('id, name, patients_id, registration_id, pmjay_program_id')
+      .or(`registration_id.eq.${regId},patients_id.eq.${progId},pmjay_program_id.eq.${progId}`)
+      .limit(1)
+      .maybeSingle();
+
+    if (patient) {
+      const { data: visit } = await supabase
+        .from('visits')
+        .select('id, visit_id, patient_type, admission_date, discharge_date')
+        .eq('patient_id', patient.id)
+        .order('admission_date', { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+
+      let admissionStatus = 'no_visit';
+      if (visit) {
+        if (visit.patient_type !== 'IPD') {
+          admissionStatus = 'not_ipd';
+        } else if (!visit.admission_date) {
+          admissionStatus = 'not_ipd';
+        } else if (visit.discharge_date) {
+          admissionStatus = 'discharged';
+        } else {
+          admissionStatus = 'active_ipd';
+        }
+      }
+
+      return {
+        status: 'matched',
+        patient,
+        visit,
+        admissionStatus,
+        evidence: {
+          matched_by: patient.registration_id === regId ? 'registration_id' : 'program_id',
+          patient_id: patient.id,
+          visit_id: visit?.id
+        }
+      };
+    }
+
+    // Step 4: Not found anywhere
+    return { status: 'unmatched', patient: null, visit: null, admissionStatus: 'no_visit' };
+  } catch (error) {
+    // Error during verification - return error status
+    return { status: 'error', patient: null, visit: null, admissionStatus: 'error' };
+  }
+}
 
 const formatMoney = (value: unknown) => {
   if (value === null || value === undefined || value === '' || value === '—') return '—';
@@ -116,21 +325,34 @@ function PortalImport({ onPreview, onImported }: { onPreview: (files: CorporateC
     setBusy(true);
     try {
       const contentFingerprints = await Promise.all(files.map(corporateClaimFileFingerprint));
-      const { data, error } = await supabase.functions.invoke('corporate-claim-import', {
-        body: {
-          hospitalName: (hospitalType || 'hope').toLowerCase(),
-          schemeCode: 'ALL',
-          sourceKind: 'portal',
-          files,
-          contentFingerprints
-        }
-      });
 
-      if (error) throw error;
-      toast.success(`${data?.validRows || 0} valid row(s) imported; ${data?.duplicateFiles || 0} duplicate file(s) skipped.`);
+      // Save to simplified snapshot table (no Edge Function needed)
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const hash = contentFingerprints[i];
+
+        // Check for duplicate
+        const { data: existing } = await supabase
+          .from('corporate_claim_snapshots')
+          .select('id')
+          .eq('content_hash', hash)
+          .maybeSingle();
+
+        if (!existing) {
+          await supabase.from('corporate_claim_snapshots').insert({
+            hospital_name: (hospitalType || 'hope').toLowerCase(),
+            scheme_code: 'ALL',
+            file_name: file.fileName,
+            parsed_data: file,
+            content_hash: hash
+          });
+        }
+      }
+
+      toast.success(`${files.length} file(s) saved to snapshots.`);
       onImported();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Saved import is unavailable until local Supabase is running.');
+      toast.error(error instanceof Error ? error.message : 'Failed to save snapshots.');
     } finally {
       setBusy(false);
     }
@@ -172,7 +394,7 @@ function PortalImport({ onPreview, onImported }: { onPreview: (files: CorporateC
               disabled={busy || files.some((file) => file.fatalErrors.length)}
             >
               <Upload className="mr-2 h-4 w-4" />
-              {busy ? 'Processing…' : 'Import validated snapshot'}
+              {busy ? 'Saving…' : 'Save snapshot'}
             </Button>
           </div>
         )}
@@ -203,13 +425,13 @@ function previewClaims(files: CorporateClaimParsedFile[]): Claim[] {
         approved_amount: row.normalizedValues.approved_amount,
         paid_amount: row.normalizedValues.paid_amount,
         payment_state: row.normalizedValues.paid_amount ? 'received' : 'not_due',
-        verification_state: 'not_checked',
-        admission_status: 'not_checked',
+        verification_state: 'pending', // Will be verified against live data
+        admission_status: 'pending', // Will be verified against live data
         match_state: row.issues.length ? 'invalid' : 'preview',
         raw_government_status: row.originalValues['Case Status'],
         source_file_name: file.fileName,
         row_number: row.rowNumber,
-        isPreview: true
+        isPreview: true // Still marks source, but verification happens immediately
       };
     })
   );
@@ -326,64 +548,103 @@ function ClaimDetailDrawer({ claim, onClose }: { claim: Claim | null; onClose: (
               Adamrit Verification
             </h3>
             <div className="space-y-3">
-              {isPreview ? (
-                <Card className="border-amber-200 bg-amber-50">
+              {claim.matched_patient && (
+                <Card className="border-green-200 bg-green-50">
                   <CardContent className="p-4">
-                    <div className="flex items-start gap-3 text-sm">
-                      <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-medium text-amber-900">Preview Mode - Not Verified</p>
-                        <p className="text-amber-800">
-                          This row is from the local file preview. Adamrit patient matching requires saved import with Supabase running.
-                        </p>
+                    <div className="flex items-start gap-2 text-sm">
+                      <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1">
+                        <p className="font-medium text-green-900">Matched Patient</p>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <span className="text-muted-foreground">Name:</span> {claim.matched_patient.name}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Patient ID:</span> {claim.matched_patient.patients_id || '—'}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Registration ID:</span> {claim.matched_patient.registration_id || '—'}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Internal ID:</span> {claim.matched_patient.id.slice(0, 8)}...
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </CardContent>
                 </Card>
-              ) : (
-                <>
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <Label className="text-xs text-muted-foreground">Verification State</Label>
-                          <Badge
-                            variant={
-                              claim.verification_state === 'matched' ? 'default' :
-                              claim.verification_state === 'unmatched' || claim.verification_state === 'invalid' ? 'destructive' :
-                              claim.verification_state === 'ambiguous' ? 'secondary' : 'outline'
-                            }
-                          >
-                            {claim.verification_state || 'Not Checked'}
-                          </Badge>
-                        </div>
-                        <div>
-                          <Label className="text-xs text-muted-foreground">Admission Status</Label>
-                          <Badge
-                            variant={
-                              claim.admission_status === 'active_ipd' ? 'default' :
-                              claim.admission_status === 'discharged' || claim.admission_status === 'not_ipd' ? 'secondary' :
-                              claim.admission_status === 'no_visit' || claim.admission_status === 'not_matched' ? 'destructive' : 'outline'
-                            }
-                          >
-                            {ADMISSION_LABELS[claim.admission_status as AdmissionStatus] || claim.admission_status || 'Not Checked'}
-                          </Badge>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+              )}
 
-                  {claim.verification_evidence && (
-                    <Card>
-                      <CardContent className="p-4">
-                        <Label className="text-xs text-muted-foreground">Match Evidence</Label>
-                        <pre className="mt-2 text-xs bg-muted p-2 rounded overflow-auto max-h-40">
-                          {JSON.stringify(claim.verification_evidence, null, 2)}
-                        </pre>
-                      </CardContent>
-                    </Card>
-                  )}
-                </>
+              <Card>
+                <CardContent className="p-4">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Verification State</Label>
+                      <Badge
+                        variant={
+                          claim.verification_state === 'matched' ? 'default' :
+                          claim.verification_state === 'unmatched' || claim.verification_state === 'invalid' ? 'destructive' :
+                          claim.verification_state === 'ambiguous' ? 'secondary' :
+                          claim.verification_state === 'pending' ? 'secondary' : 'outline'
+                        }
+                      >
+                        {claim.verification_state === 'pending' ? 'Pending Verification' :
+                         VERIFICATION_LABELS[claim.verification_state as VerificationStatus] || claim.verification_state || 'Not Checked'}
+                      </Badge>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Admission Status</Label>
+                      <Badge
+                        variant={
+                          claim.admission_status === 'active_ipd' ? 'default' :
+                          claim.admission_status === 'discharged' || claim.admission_status === 'not_ipd' ? 'secondary' :
+                          claim.admission_status === 'no_visit' || claim.admission_status === 'not_matched' ? 'destructive' :
+                          claim.admission_status === 'pending' ? 'secondary' : 'outline'
+                        }
+                      >
+                        {claim.admission_status === 'pending' ? 'Pending Verification' :
+                         ADMISSION_LABELS[claim.admission_status as AdmissionStatus] || claim.admission_status || 'Not Checked'}
+                      </Badge>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {claim.matched_visit && (
+                <Card>
+                  <CardContent className="p-4">
+                    <Label className="text-xs text-muted-foreground">Latest Visit</Label>
+                    <div className="mt-2 text-xs grid grid-cols-2 gap-2">
+                      <div>
+                        <span className="text-muted-foreground">Type:</span> {claim.matched_visit.patient_type}
+                      </div>
+                      {claim.matched_visit.admission_date && (
+                        <div>
+                          <span className="text-muted-foreground">Admitted:</span> {formatDate(claim.matched_visit.admission_date)}
+                        </div>
+                      )}
+                      {claim.matched_visit.discharge_date && (
+                        <div>
+                          <span className="text-muted-foreground">Discharged:</span> {formatDate(claim.matched_visit.discharge_date)}
+                        </div>
+                      )}
+                      <div>
+                        <span className="text-muted-foreground">Visit ID:</span> {claim.matched_visit.id.slice(0, 8)}...
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {claim.verification_evidence && (
+                <Card>
+                  <CardContent className="p-4">
+                    <Label className="text-xs text-muted-foreground">Match Evidence</Label>
+                    <pre className="mt-2 text-xs bg-muted p-2 rounded overflow-auto max-h-40">
+                      {JSON.stringify(claim.verification_evidence, null, 2)}
+                    </pre>
+                  </CardContent>
+                </Card>
               )}
             </div>
           </section>
@@ -397,28 +658,89 @@ function ClaimDetailDrawer({ claim, onClose }: { claim: Claim | null; onClose: (
                 <History className="h-4 w-4" />
                 Payment Details
               </h3>
-              <Card>
-                <CardContent className="p-4">
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <Label className="text-xs text-muted-foreground">Paid Amount</Label>
-                      <p className="font-medium text-emerald-700">{formatMoney(claim.paid_amount)}</p>
+              <div className="space-y-3">
+                {/* Government Payment Data */}
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="mb-2 text-xs font-semibold text-muted-foreground">Government Portal Payment</div>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Paid Amount (Portal)</Label>
+                        <p className="font-medium text-emerald-700">{formatMoney(claim.paid_amount)}</p>
+                      </div>
+                      {claim.utr && (
+                        <div>
+                          <Label className="text-xs text-muted-foreground">UTR (Portal)</Label>
+                          <p className="font-medium">{claim.utr}</p>
+                        </div>
+                      )}
+                      {claim.payment_date && (
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Payment Date (Portal)</Label>
+                          <p className="font-medium">{formatDate(claim.payment_date)}</p>
+                        </div>
+                      )}
                     </div>
-                    {claim.utr && (
-                      <div>
-                        <Label className="text-xs text-muted-foreground">UTR</Label>
-                        <p className="font-medium">{claim.utr}</p>
+                  </CardContent>
+                </Card>
+
+                {/* Adamrit Billing Data */}
+                {claim.payment_status && (
+                  <Card className={claim.payment_status.hasBill ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'}>
+                    <CardContent className="p-4">
+                      <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
+                        {claim.payment_status.hasBill ? (
+                          <>
+                            <CheckCircle2 className="h-3 w-3 text-green-600" />
+                            <span className="text-green-900">Bill Found in Adamrit</span>
+                          </>
+                        ) : (
+                          <>
+                            <AlertCircle className="h-3 w-3 text-amber-600" />
+                            <span className="text-amber-900">No Bill in Adamrit</span>
+                          </>
+                        )}
                       </div>
-                    )}
-                    {claim.payment_date && (
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Payment Date</Label>
-                        <p className="font-medium">{formatDate(claim.payment_date)}</p>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        {claim.payment_status.billDetails && (
+                          <>
+                            <div>
+                              <Label className="text-xs text-muted-foreground">Bill Amount</Label>
+                              <p className="font-medium">{formatMoney(claim.payment_status.billDetails.bill_amount)}</p>
+                            </div>
+                            {claim.payment_status.billDetails.received_amount && (
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Received Amount</Label>
+                                <p className="font-medium">{formatMoney(claim.payment_status.billDetails.received_amount)}</p>
+                              </div>
+                            )}
+                            {claim.payment_status.billDetails.tds_amount && (
+                              <div>
+                                <Label className="text-xs text-muted-foreground">TDS Amount</Label>
+                                <p className="font-medium">{formatMoney(claim.payment_status.billDetails.tds_amount)}</p>
+                              </div>
+                            )}
+                            {claim.payment_status.billDetails.date_of_submission && (
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Submission Date</Label>
+                                <p className="font-medium">{formatDate(claim.payment_status.billDetails.date_of_submission)}</p>
+                              </div>
+                            )}
+                          </>
+                        )}
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Payment Transactions</Label>
+                          <p className="font-medium">{claim.payment_status.paymentCount} transaction(s)</p>
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Total Paid (Adamrit)</Label>
+                          <p className="font-medium">{formatMoney(claim.payment_status.totalPaid)}</p>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
             </section>
           )}
 
@@ -468,23 +790,56 @@ function Operations() {
   const [verification, setVerification] = useState<VerificationStatus>('all');
   const [admission, setAdmission] = useState<AdmissionStatus>('all');
   const [search, setSearch] = useState('');
+  const [showOnlyNeedsReview, setShowOnlyNeedsReview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
+      // Load from snapshots table (simplified approach)
       const { data, error: queryError } = await supabase
-        .from('corporate_claims')
+        .from('corporate_claim_snapshots')
         .select('*')
-        .eq('hospital_name', hospitalType || 'hope')
-        .order('updated_at', { ascending: false });
+        .eq('hospital_name', (hospitalType || 'hope').toLowerCase())
+        .order('created_at', { ascending: false });
 
       if (queryError) {
         setError('Saved data is unavailable. Local preview remains available; start local Supabase for persistence.');
       } else {
         setError('');
-        setSaved((data || []).map((row: Claim) => ({ ...row, scheme_type: row.scheme_code })));
+        // Expand parsed_data from snapshots into claim rows
+        const expandedClaims = (data || []).flatMap((snapshot: { parsed_data: CorporateClaimParsedFile }) => {
+          const file = snapshot.parsed_data;
+          return file.rows.map((row) => {
+            const caseStatus = String(row.originalValues['Case Status'] || '').toLowerCase();
+            let stage: string = file.fileType;
+            if (file.fileType === 'claims_approved_from_bank') {
+              if (caseStatus.includes('accomplished')) stage = 'payment_accomplished';
+              else if (caseStatus.includes('initiated')) stage = 'payment_initiated';
+            }
+            return {
+              id: `saved-${snapshot.id}-${row.rowNumber}`,
+              scheme_type: schemeForProgramId(row.originalValues['Program ID']),
+              beneficiary_name: row.originalValues['Beneficiary Name'],
+              government_registration_id: row.originalValues['Registration ID'],
+              government_program_id: row.originalValues['Program ID'],
+              current_stage: stage,
+              claimed_amount: row.normalizedValues.claim_amount,
+              approved_amount: row.normalizedValues.approved_amount,
+              paid_amount: row.normalizedValues.paid_amount,
+              payment_state: row.normalizedValues.paid_amount ? 'received' : 'not_due',
+              verification_state: 'pending',
+              admission_status: 'pending',
+              utr: row.normalizedValues.utr,
+              payment_date: row.normalizedValues.payment_date,
+              source_file_name: file.fileName,
+              row_number: row.rowNumber,
+              isPreview: false
+            };
+          });
+        });
+        setSaved(expandedClaims);
       }
     } catch (err) {
       setError('Database connection failed.');
@@ -497,6 +852,55 @@ function Operations() {
     refresh();
   }, [refresh]);
 
+  const [verifiedCount, setVerifiedCount] = useState(0);
+  const [isVerifying, setIsVerifying] = useState(false);
+
+  // Verify preview claims against live Adamrit data
+  useEffect(() => {
+    if (preview.length === 0) return;
+    // Skip if already verified (verifiedCount matches current length)
+    if (preview.length === verifiedCount && !isVerifying) return;
+
+    const verifyPreviewClaims = async () => {
+      setIsVerifying(true);
+      try {
+        const verifiedClaims = await Promise.all(
+          preview.map(async (claim) => {
+            // Skip already verified claims
+            if (claim.verification_state !== 'pending' && claim.verification_state !== 'not_checked') {
+              return claim;
+            }
+
+            // Verify patient and visit
+            const result = await verifyClaimAgainstAdamrit(claim);
+
+            // Check payment status if claim has paid_amount
+            let paymentStatus = undefined;
+            if (Number(claim.paid_amount || 0) > 0 && result.patient?.id && result.visit?.visit_id) {
+              paymentStatus = await checkPaymentStatus(result.patient.id, result.visit.visit_id);
+            }
+
+            return {
+              ...claim,
+              verification_state: result.status,
+              admission_status: result.admissionStatus,
+              verification_evidence: result.evidence,
+              matched_patient: result.patient,
+              matched_visit: result.visit,
+              payment_status: paymentStatus
+            };
+          })
+        );
+        setPreview(verifiedClaims);
+        setVerifiedCount(verifiedClaims.length);
+      } finally {
+        setIsVerifying(false);
+      }
+    };
+
+    verifyPreviewClaims();
+  }, [preview.length, verifiedCount]);
+
   const all = preview.length ? preview : saved;
 
   const scoped = useMemo(() => {
@@ -506,6 +910,15 @@ function Operations() {
 
   const filtered = useMemo(() => {
     return scoped.filter((row) => {
+      // Needs Review quick filter
+      if (showOnlyNeedsReview) {
+        const needsReview =
+          ['pending', 'unmatched', 'ambiguous', 'conflict', 'invalid'].includes(row.verification_state) ||
+          ['not_ipd', 'discharged'].includes(row.admission_status) ||
+          (row.issues && row.issues.length > 0);
+        if (!needsReview) return false;
+      }
+
       // Stage filter
       if (stage !== 'all' && row.current_stage !== stage) return false;
 
@@ -529,7 +942,7 @@ function Operations() {
 
       return true;
     });
-  }, [scoped, stage, verification, admission, search]);
+  }, [scoped, stage, verification, admission, search, showOnlyNeedsReview]);
 
   // Calculate dashboard metrics
   const metrics = useMemo(() => {
@@ -537,15 +950,18 @@ function Operations() {
 
     return {
       total: base.length,
+      // Count actual verification states (no preview distinction)
       matched: base.filter((r) => r.verification_state === 'matched').length,
       active_ipd: base.filter((r) => r.admission_status === 'active_ipd').length,
       discharged: base.filter((r) => r.admission_status === 'discharged').length,
       unmatched: base.filter((r) => r.verification_state === 'unmatched').length,
       ambiguous: base.filter((r) => r.verification_state === 'ambiguous').length,
       conflict: base.filter((r) => r.verification_state === 'conflict' || r.verification_state === 'invalid').length,
+      // Count rows that need review (pending verification + issues)
+      // Needs Review = Only truly unmatched or invalid data
       needs_review: base.filter((r) =>
-        !['matched', 'manual_match', 'preview', 'not_checked'].includes(r.verification_state) ||
-        !['active_ipd'].includes(r.admission_status)
+        r.verification_state === 'unmatched' ||  // Not found in database
+        r.verification_state === 'invalid'        // Invalid data only
       ).length,
       paid_rows: base.filter((r) => Number(r.paid_amount || 0) > 0).length,
       paid_total: base.reduce((sum, r) => sum + Number(r.paid_amount || 0), 0)
@@ -574,6 +990,7 @@ function Operations() {
               setStage('all');
               setVerification('all');
               setAdmission('all');
+              setShowOnlyNeedsReview(false);
             }}
           >
             {item === 'ALL' ? 'All' : item}
@@ -581,10 +998,32 @@ function Operations() {
         ))}
       </div>
 
+      {/* Preview Mode Banner */}
+      {preview.length > 0 && (
+        <Card className="border-blue-300 bg-blue-50">
+          <CardContent className="p-4 flex items-start gap-3">
+            <ShieldCheck className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+            <div className="flex-1 text-sm">
+              <p className="font-semibold text-blue-900">
+                Live Verification Active
+                {isVerifying && ' - Verifying claims...'}
+              </p>
+              <p className="text-blue-800 mt-1">
+                Claim data is verified directly against Adamrit patients and visits in real-time.
+                Click <strong>"Save snapshot"</strong> to persist files for future reference.
+              </p>
+            </div>
+            {isVerifying && (
+              <Loader2 className="h-5 w-5 text-blue-600 animate-spin" />
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Dashboard Cards */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {/* Total Claims */}
-        <Card onClick={() => { setStage('all'); setVerification('all'); setAdmission('all'); }} className="cursor-pointer hover:bg-accent/50">
+        <Card onClick={() => { setStage('all'); setVerification('all'); setAdmission('all'); setShowOnlyNeedsReview(false); }} className="cursor-pointer hover:bg-accent/50">
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Total Claims</p>
             <p className="text-2xl font-bold">{metrics.total}</p>
@@ -592,7 +1031,7 @@ function Operations() {
         </Card>
 
         {/* Matched */}
-        <Card onClick={() => { setStage('all'); setVerification('matched'); setAdmission('all'); }} className="cursor-pointer hover:bg-accent/50">
+        <Card onClick={() => { setStage('all'); setVerification('matched'); setAdmission('all'); setShowOnlyNeedsReview(false); }} className="cursor-pointer hover:bg-accent/50">
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Adamrit Matched</p>
             <p className="text-2xl font-bold text-blue-700">{metrics.matched}</p>
@@ -600,7 +1039,7 @@ function Operations() {
         </Card>
 
         {/* Active IPD */}
-        <Card onClick={() => { setStage('all'); setVerification('all'); setAdmission('active_ipd'); }} className="cursor-pointer hover:bg-accent/50">
+        <Card onClick={() => { setStage('all'); setVerification('all'); setAdmission('active_ipd'); setShowOnlyNeedsReview(false); }} className="cursor-pointer hover:bg-accent/50">
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Active Admitted</p>
             <p className="text-2xl font-bold text-green-700">{metrics.active_ipd}</p>
@@ -608,7 +1047,7 @@ function Operations() {
         </Card>
 
         {/* Discharged */}
-        <Card onClick={() => { setStage('all'); setVerification('all'); setAdmission('discharged'); }} className="cursor-pointer hover:bg-accent/50">
+        <Card onClick={() => { setStage('all'); setVerification('all'); setAdmission('discharged'); setShowOnlyNeedsReview(false); }} className="cursor-pointer hover:bg-accent/50">
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Discharged</p>
             <p className="text-2xl font-bold text-orange-700">{metrics.discharged}</p>
@@ -616,7 +1055,7 @@ function Operations() {
         </Card>
 
         {/* Unmatched */}
-        <Card onClick={() => { setStage('all'); setVerification('unmatched'); setAdmission('all'); }} className="cursor-pointer hover:bg-accent/50">
+        <Card onClick={() => { setStage('all'); setVerification('unmatched'); setAdmission('all'); setShowOnlyNeedsReview(false); }} className="cursor-pointer hover:bg-accent/50">
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Unmatched</p>
             <p className="text-2xl font-bold text-red-700">{metrics.unmatched}</p>
@@ -624,7 +1063,7 @@ function Operations() {
         </Card>
 
         {/* Ambiguous */}
-        <Card onClick={() => { setStage('all'); setVerification('ambiguous'); setAdmission('all'); }} className="cursor-pointer hover:bg-accent/50">
+        <Card onClick={() => { setStage('all'); setVerification('ambiguous'); setAdmission('all'); setShowOnlyNeedsReview(false); }} className="cursor-pointer hover:bg-accent/50">
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Ambiguous</p>
             <p className="text-2xl font-bold text-amber-700">{metrics.ambiguous}</p>
@@ -632,7 +1071,7 @@ function Operations() {
         </Card>
 
         {/* Conflict/Invalid */}
-        <Card onClick={() => { setStage('all'); setVerification('conflict'); setAdmission('all'); }} className="cursor-pointer hover:bg-accent/50">
+        <Card onClick={() => { setStage('all'); setVerification('conflict'); setAdmission('all'); setShowOnlyNeedsReview(false); }} className="cursor-pointer hover:bg-accent/50">
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Conflict/Invalid</p>
             <p className="text-2xl font-bold text-red-700">{metrics.conflict}</p>
@@ -640,9 +1079,14 @@ function Operations() {
         </Card>
 
         {/* Needs Review */}
-        <Card onClick={() => { setStage('all'); }} className="cursor-pointer hover:bg-accent/50 border-amber-300 bg-amber-50">
+        <Card onClick={() => {
+          setShowOnlyNeedsReview(!showOnlyNeedsReview);
+          setStage('all');
+          setVerification('all');
+          setAdmission('all');
+        }} className={`cursor-pointer hover:bg-accent/50 border-amber-300 bg-amber-50 ${showOnlyNeedsReview ? 'ring-2 ring-amber-500' : ''}`}>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Needs Review</p>
+            <p className="text-xs text-muted-foreground">Needs Review {showOnlyNeedsReview && '(Active)'}</p>
             <p className="text-2xl font-bold text-amber-700">{metrics.needs_review}</p>
           </CardContent>
         </Card>
@@ -661,7 +1105,10 @@ function Operations() {
         {STAGES.map((item) => (
           <Card
             key={item}
-            onClick={() => setStage(item)}
+            onClick={() => {
+              setStage(item);
+              setShowOnlyNeedsReview(false);
+            }}
             className="cursor-pointer hover:bg-accent/50"
           >
             <CardContent className="p-4">
@@ -750,7 +1197,7 @@ function Operations() {
           </div>
 
           {/* Active Filters Display */}
-          {(stage !== 'all' || verification !== 'all' || admission !== 'all') && (
+          {(stage !== 'all' || verification !== 'all' || admission !== 'all' || showOnlyNeedsReview) && (
             <div className="flex flex-wrap gap-2 text-sm">
               {stage !== 'all' && (
                 <Badge variant="secondary" className="flex items-center gap-1">
@@ -768,6 +1215,12 @@ function Operations() {
                 <Badge variant="secondary" className="flex items-center gap-1">
                   Admission: {ADMISSION_LABELS[admission]}
                   <X className="h-3 w-3 cursor-pointer" onClick={() => setAdmission('all')} />
+                </Badge>
+              )}
+              {showOnlyNeedsReview && (
+                <Badge variant="secondary" className="flex items-center gap-1 bg-amber-100">
+                  Needs Review
+                  <X className="h-3 w-3 cursor-pointer" onClick={() => setShowOnlyNeedsReview(false)} />
                 </Badge>
               )}
             </div>

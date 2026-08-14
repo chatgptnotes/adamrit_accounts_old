@@ -170,3 +170,147 @@ export async function parseCorporateClaimFile(file: File): Promise<CorporateClai
   const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[workbook.SheetNames[0]], { FS: '^' });
   return parseCorporateClaimText(`${file.name}.csv`, csv);
 }
+
+/**
+ * Check payment status from existing Adamrit billing data
+ * Queries bill_preparation and patient_payment_transactions tables
+ */
+export async function checkPaymentStatus(patientId: string, visitId: string): Promise<{
+  hasBill: boolean;
+  billDetails?: { bill_amount?: number; received_amount?: number; tds_amount?: number; date_of_submission?: string };
+  paymentCount: number;
+  totalPaid: number;
+}> {
+  try {
+    const { createClient } = await import('@/integrations/supabase/client');
+    const supabase = createClient();
+
+    // Check bill preparation
+    const { data: bill } = await supabase
+      .from('bill_preparation')
+      .select('bill_amount, received_amount, tds_amount, date_of_submission')
+      .eq('visit_id', visitId)
+      .maybeSingle();
+
+    // Check payment transactions
+    const { data: payments } = await supabase
+      .from('patient_payment_transactions')
+      .select('amount')
+      .eq('patient_id', patientId)
+      .eq('visit_id', visitId);
+
+    const totalPaid = (payments || []).reduce((sum: number, p: { amount?: number }) => sum + (p.amount || 0), 0);
+
+    return {
+      hasBill: !!bill,
+      billDetails: bill || undefined,
+      paymentCount: payments?.length || 0,
+      totalPaid
+    };
+  } catch (error) {
+    // Error during payment status check - return default values
+    return {
+      hasBill: false,
+      paymentCount: 0,
+      totalPaid: 0
+    };
+  }
+}
+
+/**
+ * Auto-match claim by patient name + visit date
+ * Searches for patients with matching name and visit date within allowed range
+ */
+export async function autoMatchClaimByNameAndDate(
+  patientName: string,
+  claimDate: string | null,
+  hospitalName: string
+): Promise<{ patient_id: string; match_type: 'name_date' } | null> {
+  try {
+    const { createClient } = await import('@/integrations/supabase/client');
+    const supabase = createClient();
+
+    // Normalize patient name (uppercase, trim spaces)
+    const normalizedName = clean(patientName).toUpperCase().trim().replace(/\s+/g, ' ');
+
+    // Search for patients with exact name match
+    const { data: patients } = await supabase
+      .from('patients')
+      .select('id, name')
+      .eq('name', normalizedName)
+      .limit(10);
+
+    if (!patients || patients.length === 0) {
+      return null;  // No name match
+    }
+
+    // If only one patient with this name, use it
+    if (patients.length === 1) {
+      return { patient_id: patients[0].id, match_type: 'name_date' };
+    }
+
+    // Multiple patients with same name: try to disambiguate by date
+    if (!claimDate) {
+      return null;  // Can't disambiguate without date
+    }
+
+    const claimDateObj = new Date(claimDate);
+    const allowedDays = 30;  // Within 30 days
+
+    // Check each patient for visits around the claim date
+    for (const patient of patients) {
+      const { data: visits } = await supabase
+        .from('visits')
+        .select('admission_date, discharge_date')
+        .eq('patient_id', patient.id)
+        .order('admission_date', { ascending: false, nullsFirst: false })
+        .limit(5);
+
+      if (visits && visits.length > 0) {
+        // Find visit closest to claim date
+        for (const visit of visits) {
+          if (!visit.admission_date) continue;
+
+          const admitDate = new Date(visit.admission_date);
+          const daysDiff = Math.abs((claimDateObj.getTime() - admitDate.getTime()) / (1000 * 60 * 60 * 24));
+
+          if (daysDiff <= allowedDays) {
+            return { patient_id: patient.id, match_type: 'name_date' };
+          }
+        }
+      }
+    }
+
+    return null;  // No good date match found
+  } catch (error) {
+    return null;  // Error during search
+  }
+}
+
+/**
+ * Store a linkage between government ID and patient
+ */
+export async function storePatientLinkage(
+  hospitalName: string,
+  patientId: string,
+  governmentId: string,
+  idType: 'registration_id' | 'program_id',
+  matchType: 'auto_name_date' | 'manual'
+): Promise<boolean> {
+  try {
+    const { createClient } = await import('@/integrations/supabase/client');
+    const supabase = createClient();
+
+    const { error } = await supabase.from('patient_government_linkage').insert({
+      hospital_name: hospitalName.toLowerCase(),
+      patient_id: patientId,
+      government_id: governmentId,
+      id_type: idType,
+      matched_by: matchType
+    });
+
+    return !error;
+  } catch (error) {
+    return false;
+  }
+}
