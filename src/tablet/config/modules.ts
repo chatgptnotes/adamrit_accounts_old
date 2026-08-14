@@ -1,4 +1,5 @@
 import {
+  Landmark,
   AlertTriangle,
   ArrowLeftRight,
   Banknote,
@@ -574,6 +575,15 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: Banknote,
     accent: "text-green-600",
     tint: "from-green-400 to-green-600",
+  },
+  {
+    id: "bank-deposit",
+    label: "Bank Deposit",
+    description: "Pay cash into the bank, with the slip — directors are told",
+    icon: Landmark,
+    accent: "text-sky-700",
+    tint: "from-sky-500 to-blue-700",
+    keywords: ["deposit", "bank", "slip", "cash", "cashier", "pay in"],
   },
   {
     id: "cash-shift-report",
