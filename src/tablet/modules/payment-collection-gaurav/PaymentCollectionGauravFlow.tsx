@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   BadgeIndianRupee,
+  Camera,
   Download,
   FileImage,
   FileText,
@@ -28,6 +29,7 @@ import { inr } from "@/tablet/lib/format";
 import { NoChargeBadge } from "@/components/NoChargeBadge";
 import { useNoChargeFlags } from "@/lib/noChargeFlag";
 import { NoChargeCard } from "./NoChargeCard";
+import { CollectionListSheets } from "./CollectionListSheets";
 import {
   CORRECTION_COMMENT_STATUS,
   EXTRA_PACKAGE_STATUS,
@@ -359,9 +361,12 @@ async function loadCollectionRows(hospitalName: string): Promise<CollectionRow[]
 }
 
 export default function PaymentCollectionGauravFlow() {
-  const { hospitalConfig } = useAuth();
+  const { hospitalConfig, user } = useAuth();
   const [search, setSearch] = useState("");
   const [selectedVisitUuid, setSelectedVisitUuid] = useState<string | null>(null);
+  // Which row's camera is busy, so the spinner sits on that patient rather
+  // than on every camera in the list at once.
+  const [proofUploadingFor, setProofUploadingFor] = useState<string | null>(null);
 
   const collection = useQuery({
     queryKey: ["tablet-payment-collection-gaurav", hospitalConfig.name],
@@ -395,6 +400,35 @@ export default function PaymentCollectionGauravFlow() {
   // not refetch.
   const { data: noChargeFlags = {} } = useNoChargeFlags(rows.map((row) => row.patientUuid));
 
+  /**
+   * Evidence of a payment, photographed against the patient it was received
+   * from. Separate from the proof attached when a collection is saved: money
+   * often arrives before anyone is at the tile to book it, and the receipt in
+   * Gaurav's hand is the only record until then. Filed under the same
+   * payment_proof category, so both land in one place on the patient.
+   */
+  const uploadProof = useMutation({
+    mutationFn: async ({ row, file }: { row: CollectionRow; file: File }) => {
+      if (!row.patientUuid) throw new Error("This visit is not linked to a patient.");
+      if (!file.type.startsWith("image/") && file.type !== "application/pdf") {
+        throw new Error("Take a photo, or choose an image or PDF.");
+      }
+      await uploadPatientDocs([file], {
+        patientId: row.patientUuid,
+        patientName: row.patientName,
+        category: "payment_proof",
+        uploadedBy: user?.id ?? null,
+        placeLabel: "Payment Collection (Vasooli)",
+      });
+    },
+    onMutate: ({ row }) => setProofUploadingFor(row.visitUuid),
+    onSettled: () => setProofUploadingFor(null),
+    onSuccess: (_data, { row }) =>
+      toast.success(`Payment evidence saved against ${row.patientName}.`),
+    onError: (error) =>
+      toast.error((error as Error)?.message || "Could not save the payment evidence."),
+  });
+
   const totals = useMemo(() => ({
     patients: filteredRows.length,
     approved: filteredRows.reduce((sum, row) => sum + row.totalApprovedAmount, 0),
@@ -420,6 +454,10 @@ export default function PaymentCollectionGauravFlow() {
       }
     >
       <div className="space-y-4">
+        {/* First on the screen because it is first in the day: the paper list
+            is photographed before any of it has been typed in. */}
+        <CollectionListSheets hospital={hospitalConfig.name ?? null} />
+
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
           <Metric label="Patients" value={String(totals.patients)} tone="slate" />
           <Metric label="Approved" value={inr(totals.approved)} tone="blue" />
@@ -472,6 +510,8 @@ export default function PaymentCollectionGauravFlow() {
                       noCharge={Boolean(row.patientUuid && noChargeFlags[row.patientUuid])}
                       selected={selected?.visitUuid === row.visitUuid}
                       onSelect={() => setSelectedVisitUuid(row.visitUuid)}
+                      onProof={(file) => uploadProof.mutate({ row, file })}
+                      proofUploading={proofUploadingFor === row.visitUuid}
                     />
                   ))
                 )}
@@ -946,15 +986,24 @@ function PatientListItem({
   noCharge,
   selected,
   onSelect,
+  onProof,
+  proofUploading,
 }: {
   row: CollectionRow;
   /** Resolved by the list in one query, not per row. */
   noCharge: boolean;
   selected: boolean;
   onSelect: () => void;
+  onProof: (file: File) => void;
+  proofUploading: boolean;
 }) {
   const meta = statusMeta(row.paymentStatus);
   return (
+    // The camera sits beside the row button rather than inside it. A file
+    // input nested in a button is invalid, and tapping it would also select
+    // the row -- so photographing one patient's receipt would quietly move
+    // the payment panel to another.
+    <div className="relative">
     <button
       type="button"
       onClick={onSelect}
@@ -979,11 +1028,41 @@ function PatientListItem({
           {meta.label}
         </span>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+      {/* Right padding keeps the figures clear of the camera below. */}
+      <div className="mt-3 grid grid-cols-2 gap-2 pr-12 text-sm">
         <Info label="Extra" value={inr(row.extraPackageAmount)} />
         <Info label="Pending" value={inr(row.balancePending)} />
       </div>
     </button>
+
+    <label
+      title={`Photograph evidence of payment received from ${row.patientName}`}
+      aria-label={`Photograph evidence of payment received from ${row.patientName}`}
+      className={cn(
+        "absolute bottom-3 right-3 inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg border bg-background shadow-sm transition-all active:scale-95",
+        proofUploading && "pointer-events-none opacity-60",
+      )}
+    >
+      {proofUploading ? (
+        <Loader2 className="h-5 w-5 animate-spin" />
+      ) : (
+        <Camera className="h-5 w-5 text-emerald-700" />
+      )}
+      <input
+        type="file"
+        accept="image/*,application/pdf"
+        capture="environment"
+        className="hidden"
+        disabled={proofUploading}
+        onChange={(event: ChangeEvent<HTMLInputElement>) => {
+          const file = event.target.files?.[0];
+          // Cleared so the same receipt can be retaken after a blurred shot.
+          event.target.value = "";
+          if (file) onProof(file);
+        }}
+      />
+    </label>
+    </div>
   );
 }
 
