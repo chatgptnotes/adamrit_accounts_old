@@ -286,25 +286,33 @@ export default function DischargeSummary({
   // Extract additional data from patientDataSummary if available
   const summaryData = patientDataSummary ? extractDataFromText(patientDataSummary) : null;
   
-  // Only use provided data - no fallback to demo data
+  // Only use provided data - no fallback to demo data.
+  //
+  // Every list defaults to empty. The printable page at
+  // /discharge-summary-print passes only `allPatientData` and never `data`, so
+  // all of these were undefined; the guard below does not fire, because
+  // allPatientData IS present; and the render then reached `medications.map`
+  // on undefined and took the whole page down with "Cannot read properties of
+  // undefined (reading 'map')". These lists are fallbacks for when the text
+  // extraction finds nothing, so empty is exactly the right default.
   const {
     header,
     patient,
     diagnoses,
-    medications,
-    complaints,
-    vitals,
-    investigations,
-    abnormalInvestigations,
+    medications = [],
+    complaints = [],
+    vitals = [],
+    investigations = [],
+    abnormalInvestigations = [],
     surgical,
     intraOp,
-    treatmentCourse,
-    condition,
+    treatmentCourse = [],
+    condition = [],
     followUp,
-    woundCare,
-    activityDiet,
-    warnings,
-    contacts,
+    woundCare = [],
+    activityDiet = [],
+    warnings = [],
+    contacts = [],
     footer
   } = data || {};
 
@@ -420,7 +428,9 @@ export default function DischargeSummary({
 
           {/* Clinical Summary */}
           <Section title="CLINICAL SUMMARY">
-            <p className="text-[10px] leading-snug text-gray-800 mb-2">{data.clinicalSummary}</p>
+            {/* `data` is undefined whenever the summary is built from text
+                rather than passed in, which is the case on the printable page. */}
+            <p className="text-[10px] leading-snug text-gray-800 mb-2">{data?.clinicalSummary}</p>
             <div className="grid grid-cols-12 gap-4">
               <div className="col-span-12 md:col-span-6">
                 <h4 className="text-[10px] font-semibold mb-1">Vital Signs at Admission:</h4>

@@ -1,6 +1,7 @@
 import { useParams } from 'react-router-dom';
 import DischargeSummary from '@/components/DischargeSummary';
 import { useVisitDiagnosis } from '@/hooks/useVisitDiagnosis';
+import { buildDischargeSummaryText } from '@/lib/dischargeSummaryText';
 
 export default function DischargeSummaryPrint() {
   const { visitId } = useParams<{ visitId: string }>();
@@ -12,26 +13,13 @@ export default function DischargeSummaryPrint() {
 
   console.log('📊 useVisitDiagnosis results:', { data: visitDiagnosis, isLoading, error });
 
-  // Generate dynamic patient data string from database data only
+  // Generate dynamic patient data string from database data only.
+  // The wording now lives in one shared builder, because the Documents &
+  // Images section produces the same summary as a downloadable PDF and the two
+  // must not drift apart.
   const generatePatientDataString = (data: any) => {
     if (!data) return null;
-
-    return `
-Name: ${data.patientName}
-Age: ${data.age}
-Gender: ${data.gender}
-Visit ID: ${data.visitId}
-Admission Date: ${data.admissionDate}
-Discharge Date: ${data.dischargeDate}
-Primary Diagnosis: ${data.primaryDiagnosis}
-Secondary Diagnosis: ${data.secondaryDiagnoses.length > 0 ? data.secondaryDiagnoses.join(', ') : 'N/A'}
-Medications: ${data.medications.length > 0 ? data.medications.join(', ') : 'N/A'}
-Presenting Complaints: ${data.complaints.length > 0 ? data.complaints.join(', ') : 'N/A'}
-Vital Signs: ${data.vitals.length > 0 ? data.vitals.join(', ') : 'N/A'}
-Investigations: ${data.investigations.length > 0 ? data.investigations.join(', ') : 'N/A'}
-Treatment Course: ${data.treatmentCourse.length > 0 ? data.treatmentCourse.join(', ') : 'N/A'}
-Discharge Condition: ${data.condition.length > 0 ? data.condition.join(', ') : 'N/A'}
-    `.trim();
+    return buildDischargeSummaryText(data);
   };
 
   // Only use real database data - no fallbacks

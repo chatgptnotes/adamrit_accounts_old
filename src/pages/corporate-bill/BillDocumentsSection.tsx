@@ -17,6 +17,8 @@ import {
   type PatientDocCategory,
 } from "@/tablet/hooks/usePatientDocs";
 import { getRegistrationDocumentDisplayName } from "@/lib/registrationDocuments";
+import { useVisitDiagnosis } from "@/hooks/useVisitDiagnosis";
+import { buildDischargeSummaryLines } from "@/lib/dischargeSummaryText";
 
 interface BillDocumentsSectionProps {
   patientId?: string;
@@ -1291,6 +1293,10 @@ export function BillDocumentsSection({
   const [allDocsBusy, setAllDocsBusy] = useState(false);
   const [otNotesView, setOtNotesView] = useState<"auto" | "master">("auto");
   const docs = usePatientAllDocs(patientId);
+  // The generated discharge summary, so it can be downloaded from here and
+  // folded into the combined export rather than only opening in another tab.
+  const dischargeSummary = useVisitDiagnosis(visitId || "");
+  const [dischargeSummaryBusy, setDischargeSummaryBusy] = useState(false);
   const visitSummary = useBillVisitSummary(visitId);
   const labInvestigations = useBillLabInvestigations({
     visitId,
@@ -1532,6 +1538,19 @@ export function BillDocumentsSection({
       });
       appendedPages += doc.getNumberOfPages() - beforeOt;
 
+      // The discharge summary belongs in here with everything else. It used to
+      // be left out and offered only as a link that opened another tab, which
+      // is why it appeared to be missing from this section altogether.
+      if (dischargeSummary.data) {
+        const beforeSummary = doc.getNumberOfPages();
+        await appendPdfBlobToPdf(
+          doc,
+          await buildTextPdfBlob("DISCHARGE SUMMARY", buildDischargeSummaryLines(dischargeSummary.data)),
+          { title: "Generated Discharge Summary" },
+        );
+        appendedPages += doc.getNumberOfPages() - beforeSummary;
+      }
+
       if (appendedPages === 0) {
         alert("No supported documents were available to merge.");
         return;
@@ -1541,7 +1560,7 @@ export function BillDocumentsSection({
       triggerBlobDownload(doc.output("blob"), `${safeName}_All_Documents.pdf`);
 
       if (skippedCount > 0) {
-        alert(`${skippedCount} unsupported file(s) were skipped. Generated discharge summary is not included in this merged PDF.`);
+        alert(`${skippedCount} unsupported file(s) were skipped.`);
       }
     } catch (err) {
       console.error("Combined patient document export failed:", err);
@@ -1671,7 +1690,7 @@ export function BillDocumentsSection({
                       Total All Documents Download
                     </div>
                     <p className="mt-1 text-xs text-slate-600">
-                      Creates one merged PDF from uploaded files, generated lab report, and generated OT notes. Generated discharge summary opens separately and is not part of this combined export.
+                      Creates one merged PDF from uploaded files, generated lab report, generated OT notes, and the generated discharge summary.
                     </p>
                   </div>
                   <button
@@ -1805,23 +1824,66 @@ export function BillDocumentsSection({
                           </div>
                           {!isTabletListMode && (
                             <p className="mt-1 text-sm text-slate-600">
-                              Open the printable discharge summary for this visit and download or print it from the generated view.
+                              Download the discharge summary as a PDF, or open the printable view to print it.
                             </p>
                           )}
                         </div>
-                        <button
-                          type="button"
-                          disabled={!visitId}
-                          onClick={() => {
-                            if (!visitId) return;
-                            window.open(`/discharge-summary-print/${visitId}`, "_blank", "noopener,noreferrer");
-                          }}
-                          className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                        >
-                          <Download className="h-3.5 w-3.5" />
-                          Download
-                        </button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {/* This said "Download" but opened another tab, which
+                              is why the summary looked absent from this
+                              section. It now produces the file, and the
+                              printable view is a separate, honestly labelled
+                              button beside it. */}
+                          <button
+                            type="button"
+                            disabled={!visitId || !dischargeSummary.data || dischargeSummaryBusy}
+                            onClick={async () => {
+                              if (!dischargeSummary.data || dischargeSummaryBusy) return;
+                              setDischargeSummaryBusy(true);
+                              try {
+                                const blob = await buildTextPdfBlob(
+                                  "DISCHARGE SUMMARY",
+                                  buildDischargeSummaryLines(dischargeSummary.data),
+                                );
+                                triggerBlobDownload(blob, `${safeName}_Discharge_Summary.pdf`);
+                              } catch (err) {
+                                console.error("Discharge summary download failed:", err);
+                                alert("Could not prepare the discharge summary PDF. Please try again.");
+                              } finally {
+                                setDischargeSummaryBusy(false);
+                              }
+                            }}
+                            className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                          >
+                            {dischargeSummaryBusy ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Download className="h-3.5 w-3.5" />
+                            )}
+                            Download
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!visitId}
+                            onClick={() => {
+                              if (!visitId) return;
+                              window.open(`/discharge-summary-print/${visitId}`, "_blank", "noopener,noreferrer");
+                            }}
+                            className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-medium hover:bg-slate-100 disabled:opacity-50"
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                            Open printable view
+                          </button>
+                        </div>
                       </div>
+                      {visitId && dischargeSummary.isLoading && (
+                        <p className="mt-3 text-xs text-slate-500">Loading the discharge summary…</p>
+                      )}
+                      {visitId && !dischargeSummary.isLoading && !dischargeSummary.data && (
+                        <p className="mt-3 text-xs text-amber-700">
+                          No discharge summary has been recorded for this visit yet, so there is nothing to download.
+                        </p>
+                      )}
                       {!visitId && (
                         <p className="mt-3 text-xs text-amber-700">
                           Visit ID is not available on this bill, so the generated discharge summary cannot be opened from here.
