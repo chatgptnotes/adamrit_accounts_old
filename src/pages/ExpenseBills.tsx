@@ -14,7 +14,7 @@ import { toast } from 'sonner';
 import { openStoredDocument } from '@/lib/openStoredDocument';
 import {
   Banknote, CalendarClock, Camera, FileText, Filter, Loader2, Paperclip, Plus, QrCode, Receipt,
-  Search, Sparkles, Undo2, Upload, Users, X,
+  Search, ShieldCheck, Sparkles, Undo2, Upload, Users, X,
 } from 'lucide-react';
 import { saveLedgerQr, savePaymentProof } from '@/lib/expense-bills/paymentEvidence';
 import { extractInvoiceFromImage, fileToBase64 } from '@/lib/accounting-ai';
@@ -88,6 +88,72 @@ interface BillRow {
   partyLedgerId: string | null;
   partyQrUrl: string | null;
   paymentProofUrl: string | null;
+  /** Null until an approver releases the bill for payment. */
+  approvedAt: string | null;
+  approvedByName: string | null;
+}
+
+/**
+ * Approval, fetched for the rows on screen and merged in.
+ *
+ * The register reads v_expense_bills_outstanding, which other screens share.
+ * Widening that view so one button can read two columns is a bigger change
+ * than the button warrants, so the approval is asked for separately and joined
+ * by id.
+ */
+function useBillApprovals(ids: string[]) {
+  const key = [...ids].sort().join(',');
+  return useQuery({
+    queryKey: ['expense-bill-approvals', key],
+    enabled: ids.length > 0,
+    queryFn: async (): Promise<Record<string, { at: string | null; by: string | null }>> => {
+      const out: Record<string, { at: string | null; by: string | null }> = {};
+      // Chunked: a register of 300 bills would otherwise build a URL long
+      // enough for PostgREST to reject outright.
+      for (let i = 0; i < ids.length; i += 100) {
+        const { data, error } = await (supabase as any)
+          .from('expense_bills')
+          .select('id, approved_at, approved_by_name')
+          .in('id', ids.slice(i, i + 100));
+        if (error) throw error;
+        for (const r of data ?? []) out[r.id] = { at: r.approved_at, by: r.approved_by_name };
+      }
+      return out;
+    },
+  });
+}
+
+/** May the signed-in person release a bill for payment? */
+function useIsBillApprover() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ['expense-bill-approver', user?.id],
+    enabled: Boolean(user?.id),
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<boolean> => {
+      const { data } = await (supabase as any)
+        .from('expense_bill_approvers')
+        .select('user_id')
+        .eq('user_id', user?.id)
+        .maybeSingle();
+      return Boolean(data);
+    },
+  });
+}
+
+/** Is approval being enforced? Drives the wording, never the permission. */
+function useApprovalEnforced() {
+  return useQuery({
+    queryKey: ['expense-bill-approval-enforced'],
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<boolean> => {
+      const { data } = await (supabase as any)
+        .from('expense_bill_approval_settings')
+        .select('enforced')
+        .maybeSingle();
+      return Boolean(data?.enforced);
+    },
+  });
 }
 
 type PaymentStatus = 'unpaid' | 'partial' | 'paid';
@@ -123,6 +189,11 @@ const mapRow = (r: any): BillRow => ({
   partyLedgerId: r.party_ledger_id ?? null,
   partyQrUrl: r.party_qr_url ?? null,
   paymentProofUrl: r.payment_proof_url ?? null,
+  // Merged in by useBillApprovals rather than carried on the view: the
+  // outstanding view is shared with other screens, and adding columns to it to
+  // serve one button is a wider change than the button deserves.
+  approvedAt: r.approved_at ?? null,
+  approvedByName: r.approved_by_name ?? null,
 });
 
 interface RegisterFilters {
@@ -1217,6 +1288,7 @@ function PayEvidenceCell({ bill }: { bill: BillRow }) {
 function BillTable({
   rows, isLoading, error, onPay, emptyMessage, showPatient, billedToPatient,
   selectedIds, onToggleRow, onToggleAll, movedDates, onMove, moving, onRevert, reverting,
+  onApprove, canApprove, approving, approvalEnforced,
 }: {
   rows: BillRow[];
   isLoading: boolean;
@@ -1238,6 +1310,12 @@ function BillTable({
   moving: boolean;
   onRevert: (id: string) => void;
   reverting: boolean;
+  /** Release a bill for payment. Only rendered for named approvers. */
+  onApprove: (bill: BillRow) => void;
+  canApprove: boolean;
+  approving: boolean;
+  /** Drives the wording only — the refusal itself lives in the database. */
+  approvalEnforced: boolean;
 }) {
   if (isLoading) {
     return (
@@ -1310,7 +1388,7 @@ function BillTable({
               </div>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                 <PayEvidenceCell bill={b} />
-                {status !== 'paid' && <div className="flex gap-2"><Button size="sm" variant="outline" className="h-9 gap-1 bg-white text-slate-900 hover:bg-slate-100 hover:text-slate-900 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-100" onClick={() => onPay(b)}><Banknote className="h-3.5 w-3.5" />Pay</Button>{!movedInfo && <Button size="sm" variant="outline" className="h-9 gap-1 bg-white text-slate-900 hover:bg-slate-100 hover:text-slate-900 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-100" disabled={moving} onClick={() => onMove([b.id])}><CalendarClock className="h-3.5 w-3.5" />Move</Button>}{movedInfo && <Button size="sm" variant="outline" className="h-9 gap-1 bg-white text-amber-800 hover:bg-amber-50 hover:text-amber-900" disabled={reverting} onClick={() => onRevert(b.id)}><Undo2 className="h-3.5 w-3.5" />Revert Allocation</Button>}</div>}
+                {status !== 'paid' && <div className="flex flex-wrap items-center gap-2">{!b.approvedAt && (canApprove ? <Button size="sm" className="h-9 gap-1 bg-emerald-600 text-white hover:bg-emerald-700" disabled={approving} onClick={() => onApprove(b)}><ShieldCheck className="h-3.5 w-3.5" />Approve</Button> : <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800"><ShieldCheck className="h-3.5 w-3.5" />{approvalEnforced ? 'Awaiting approval — cannot be paid' : 'Awaiting approval'}</span>)}{b.approvedAt && b.approvedByName && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800" title={`Approved by ${b.approvedByName}`}><ShieldCheck className="h-3.5 w-3.5" />Approved</span>}<Button size="sm" variant="outline" className="h-9 gap-1 bg-white text-slate-900 hover:bg-slate-100 hover:text-slate-900 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-100" onClick={() => onPay(b)}><Banknote className="h-3.5 w-3.5" />Pay</Button>{!movedInfo && <Button size="sm" variant="outline" className="h-9 gap-1 bg-white text-slate-900 hover:bg-slate-100 hover:text-slate-900 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-100" disabled={moving} onClick={() => onMove([b.id])}><CalendarClock className="h-3.5 w-3.5" />Move</Button>}{movedInfo && <Button size="sm" variant="outline" className="h-9 gap-1 bg-white text-amber-800 hover:bg-amber-50 hover:text-amber-900" disabled={reverting} onClick={() => onRevert(b.id)}><Undo2 className="h-3.5 w-3.5" />Revert Allocation</Button>}</div>}
               </div>
             </article>
           );
@@ -1475,6 +1553,10 @@ interface SelectionProps {
   moving: boolean;
   onRevert: (id: string) => void;
   reverting: boolean;
+  onApprove: (bill: BillRow) => void;
+  canApprove: boolean;
+  approving: boolean;
+  approvalEnforced: boolean;
 }
 
 function ReferralSection({ patientType, onPay, selection }: {
@@ -1574,6 +1656,16 @@ export default function ExpenseBills() {
   }, [selected]);
 
   const registerQuery = useExpenseBillRegister(company.data, applied);
+  // Approval for the rows on screen, merged in — see useBillApprovals.
+  const approvals = useBillApprovals((registerQuery.data ?? []).map((b) => b.id));
+  const registerRows = useMemo(
+    () => (registerQuery.data ?? []).map((b) => ({
+      ...b,
+      approvedAt: approvals.data?.[b.id]?.at ?? b.approvedAt,
+      approvedByName: approvals.data?.[b.id]?.by ?? b.approvedByName,
+    })),
+    [registerQuery.data, approvals.data],
+  );
   const movedQuery = useMovedToAllocation();
 
   const applyFilters = (filters: RegisterFilters) => {
@@ -1665,6 +1757,34 @@ export default function ExpenseBills() {
     onError: (err) => toast.error(getErrorMessage(err)),
   });
 
+  /**
+   * Releasing a bill for payment. The database decides who may -- this only
+   * decides who is offered the button, and a refusal from the RPC is shown
+   * rather than swallowed.
+   */
+  const isApprover = useIsBillApprover();
+  const approvalEnforced = useApprovalEnforced();
+  const approveMutation = useMutation({
+    mutationFn: async (bill: BillRow) => {
+      const { data, error } = await (supabase as any).rpc('approve_expense_bill', {
+        p_bill_id: bill.id,
+        p_user_id: user?.id ?? null,
+        p_note: null,
+      });
+      if (error) throw error;
+      return { bill, result: data as { alreadyApproved?: boolean; approvedBy?: string } };
+    },
+    onSuccess: ({ bill, result }) => {
+      toast.success(
+        result?.alreadyApproved
+          ? `${bill.billNumber} was already approved.`
+          : `${bill.billNumber} approved for payment.`,
+      );
+      queryClient.invalidateQueries({ queryKey: ['expense-bill-approvals'] });
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
   const selection: SelectionProps = {
     selectedIds: selected,
     onToggleRow: toggleRow,
@@ -1674,6 +1794,10 @@ export default function ExpenseBills() {
     moving: moveMutation.isPending,
     onRevert: (id) => revertMutation.mutate(id),
     reverting: revertMutation.isPending,
+    onApprove: (bill) => approveMutation.mutate(bill),
+    canApprove: isApprover.data === true,
+    approving: approveMutation.isPending,
+    approvalEnforced: approvalEnforced.data === true,
   };
 
   const activeFilterCount = useMemo(
@@ -1814,7 +1938,7 @@ export default function ExpenseBills() {
           )}
 
           <BillTable
-            rows={registerQuery.data ?? []}
+            rows={registerRows}
             isLoading={registerQuery.isLoading || company.isLoading}
             error={registerQuery.error ?? (company.isError ? company.error : null)}
             onPay={setPaying}
