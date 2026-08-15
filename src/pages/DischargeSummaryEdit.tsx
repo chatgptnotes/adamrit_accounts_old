@@ -1777,18 +1777,18 @@ PLEASE CONTACT: 7030974619, 9373111709.
       abnormalResultsLocal = [];
     }
 
-    // Fetch visit diagnosis data if not available
-    let visitDiagnosisLocal = null;
-    try {
-      const { data: diagData } = await supabase
-        .from('visit_diagnosis')
-        .select('*')
-        .eq('visit_id', visitId)
-        .single();
-
-      visitDiagnosisLocal = diagData;
-    } catch (error) {
-    }
+    // The diagnosis data is already loaded by useVisitDiagnosis above, and the
+    // rest of this file reads it directly (see primaryDiagnosis at ~1046 and
+    // complaints at ~1276). This used to re-fetch it from a table called
+    // `visit_diagnosis`, which was wrong three times over: no such table exists
+    // (the real one is visit_diagnoses), it filtered a uuid column with the
+    // printed visit code from the URL, and that table's columns are
+    // diagnosis_id/is_primary/notes -- nothing like the shape read below.
+    //
+    // So it always threw, was always swallowed, and every field below fell
+    // through to its default. Complaints, diagnoses, treatment course and
+    // condition were blank on every discharge summary.
+    const visitDiagnosisLocal = visitDiagnosis;
 
     // Fetch complete patient data if not available
     let fullPatientData = patient.patients;
