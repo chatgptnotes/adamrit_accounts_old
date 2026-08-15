@@ -15,11 +15,22 @@
 
 import { reportingFetch, setDbAccessToken } from '../src/integrations/supabase/loudFailures';
 
+// Must run under vite-node, not tsx/ts-node: the code under test reads
+// import.meta.env.VITE_SUPABASE_ANON_KEY, which only Vite populates. Under the
+// wrong runner it is undefined and the header tests report confusing failures.
+if (!(import.meta as any).env?.VITE_SUPABASE_ANON_KEY) {
+  console.log('SKIP: run with `npx vite-node e2e/loud-failures.test.ts` — import.meta.env is empty here.');
+  process.exit(0);
+}
+
 let pass = 0;
 let fail = 0;
 const check = (name: string, ok: boolean, detail?: unknown) => {
   if (ok) { pass++; console.log(`  ok   ${name}`); }
-  else { fail++; console.error(`  FAIL ${name}`, detail ?? ''); }
+  // Deliberately NOT console.error: this file stubs console.error to capture
+  // what the reporter says, which would swallow its own failure messages and
+  // leave a red test printing nothing at all.
+  else { fail++; console.log(`  FAIL ${name}`, detail ?? ''); }
 };
 
 /** Captures what the reporter logs, so "did it speak?" is testable. */

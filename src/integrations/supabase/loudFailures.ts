@@ -161,7 +161,10 @@ const withUserToken = (init: RequestInit | undefined, url: string): RequestInit 
   const headers = new Headers(init?.headers as HeadersInit | undefined);
   const current = headers.get('Authorization');
   const anonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string | undefined;
-  if (current && anonKey && current !== `Bearer ${anonKey}`) return init;
+  // Fail closed. If we cannot tell what the anon key is, leave an existing
+  // header alone: overwriting a real Google/Supabase session would sign the
+  // request as the wrong identity, which is worse than not swapping at all.
+  if (current && current !== `Bearer ${anonKey}`) return init;
 
   headers.set('Authorization', `Bearer ${dbAccessToken}`);
   return { ...init, headers };
