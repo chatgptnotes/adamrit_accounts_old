@@ -1003,6 +1003,12 @@ export default function DischargeSummaryEdit() {
                 )
               `)
               .eq('visit_id', visitData?.id || visitId)
+              // Devices are not medicines. 458 rows here are needles, syringes,
+              // gloves, IV sets and catheters, and they were printing in the
+              // MEDICATIONS table of the discharge summary on 119 of 172
+              // visits. They stay on the record and on the bill -- they are
+              // real items that were issued -- they just are not treatment.
+              .eq('is_consumable', false)
               .order('created_at', { ascending: true });
 
             if (visitMedications && !medError) {
