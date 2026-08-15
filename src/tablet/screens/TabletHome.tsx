@@ -11,6 +11,7 @@ import { useRecentlyDischargedVisits } from "@/tablet/hooks/useVisitLists";
 import { useDialysisTracker } from "@/tablet/hooks/useDialysisTracker";
 import { useAssignedTiles } from "@/tablet/hooks/useAssignedTiles";
 import { useCashHandoverAccess } from "@/tablet/hooks/useCashHandoverAccess";
+import { OpeningCashBanner } from "@/tablet/components/OpeningCashBanner";
 
 // Both cash tiles answer to the same roster: opening cash writes the figure
 // that the handover is later measured against, so it is no less restricted.
@@ -189,6 +190,11 @@ export function TabletHome() {
         {/* Centring guard rail — caps width so the dashboard never
             over-stretches on large desktop / 4K monitors. */}
         <div className="mx-auto w-full max-w-[1800px]">
+          {/* Shown only to the people who work a drawer. A nurse being told to
+              declare opening cash is noise, and noise is how a warning stops
+              being read. */}
+          {cashHandover.allowed && <OpeningCashBanner className="mb-4" />}
+
           {/* Quick search — filter tiles by name / description / id. */}
           <div className="sticky top-0 z-10 -mx-1 mb-4 px-1">
             <div className="tablet-glass relative flex items-center">

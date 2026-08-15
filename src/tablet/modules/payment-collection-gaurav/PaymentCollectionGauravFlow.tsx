@@ -30,6 +30,7 @@ import { NoChargeBadge } from "@/components/NoChargeBadge";
 import { useNoChargeFlags } from "@/lib/noChargeFlag";
 import { NoChargeCard } from "./NoChargeCard";
 import { CollectionListSheets } from "./CollectionListSheets";
+import { OpeningCashBanner } from "@/tablet/components/OpeningCashBanner";
 import {
   CORRECTION_COMMENT_STATUS,
   EXTRA_PACKAGE_STATUS,
@@ -454,6 +455,10 @@ export default function PaymentCollectionGauravFlow() {
       }
     >
       <div className="space-y-4">
+        {/* Above everything: money is about to be taken on this screen, and
+            this is the moment the missing count still costs nothing to fix. */}
+        <OpeningCashBanner />
+
         {/* First on the screen because it is first in the day: the paper list
             is photographed before any of it has been typed in. */}
         <CollectionListSheets hospital={hospitalConfig.name ?? null} />
