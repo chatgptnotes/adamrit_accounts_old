@@ -13,6 +13,7 @@
 // Use THIS client for ordinary data reads/writes so they always run as `anon`,
 // independent of any OAuth session. Use `./client` only for `supabase.auth.*`.
 import { createClient } from '@supabase/supabase-js';
+import { reportingFetch } from './loudFailures';
 
 const supabaseUrl = 'https://xvkxccqaopbnkvwgyfjv.supabase.co';
 const supabaseAnonKey =
@@ -20,4 +21,11 @@ const supabaseAnonKey =
 
 export const supabaseData = createClient(supabaseUrl, supabaseAnonKey, {
   auth: { persistSession: false, autoRefreshToken: false },
+  // Same fetch as the main client, so a signed-in member of staff reaches the
+  // database as themselves here too. Without it this client is permanently
+  // `anon`, and every policy that asks who is calling would refuse it -- which
+  // is what stands between the patient tables and a real access rule today.
+  // No behaviour changes while SUPABASE_USER_JWT is off: there is no token to
+  // attach, and the request goes out exactly as before.
+  global: { fetch: reportingFetch },
 });
