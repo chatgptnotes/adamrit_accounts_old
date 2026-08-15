@@ -26,8 +26,9 @@ scripts/*
 !scripts/check-accounting-locked.cjs
 !scripts/accounting-baseline.json
 !scripts/check-api-routes.cjs
-# Runs first in prebuild. Without this line the file is stripped from the
-# deployment and every build logs "Cannot find module" — harmless only because
-# the prebuild chain separates it with ';', which meant the guard silently
-# never ran in CI at all.
+# Shipped but NOT called: d9806b6 removed it from prebuild. Do not add it back
+# without also un-ignoring its input — it reads supabase/migrations/*.sql, and
+# line 16 above strips *.sql from the upload, so on Vercel its readdirSync finds
+# no directory and throws. Behind ';' that only logs; behind '&&' it fails every
+# deploy. Run it locally via `npm run check:migrations`, as CLAUDE.md says.
 !scripts/check-migration-safety.cjs
