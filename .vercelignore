@@ -25,3 +25,4 @@ scripts/*
 !scripts/expensebill-baseline.json
 !scripts/check-accounting-locked.cjs
 !scripts/accounting-baseline.json
+!scripts/check-api-routes.cjs
