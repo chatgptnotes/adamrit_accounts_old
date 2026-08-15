@@ -119,7 +119,6 @@ const EditSaleBill = lazy(() => import("../components/pharmacy/EditSaleBill"));
 const OldBills = lazy(() => import("../pages/OldBills"));
 const ViewBill = lazy(() => import("../pages/ViewBill"));
 const FinancialSummary = lazy(() => import("../pages/FinancialSummary"));
-const P2Form = lazy(() => import("../pages/P2Form"));
 const LabResultsEntryDemo = lazy(() => import("../pages/LabResultsEntryDemo"));
 const Invoice = lazy(() => import("../pages/Invoice"));
 const DetailedInvoice = lazy(() => import("../pages/DetailedInvoice"));
@@ -392,7 +391,6 @@ export const AppRoutes = () => {
         <Route path="/old-bills" element={<Suspense fallback={<PageLoader />}><MlPinGate><OldBills /></MlPinGate></Suspense>} />
         <Route path="/view-bill/:billId" element={<Suspense fallback={<PageLoader />}><MlPinGate><ViewBill /></MlPinGate></Suspense>} />
         <Route path="/financial-summary" element={<Suspense fallback={<PageLoader />}><FinancialSummary /></Suspense>} />
-        <Route path="/p2form/:visitId" element={<Suspense fallback={<PageLoader />}><P2Form /></Suspense>} />
         <Route path="/lab-print-demo" element={<Suspense fallback={<PageLoader />}><LabPrintDemo /></Suspense>} />
         <Route path="/lab-results-entry-demo" element={<Suspense fallback={<PageLoader />}><LabResultsEntryDemo /></Suspense>} />
         <Route path="/invoice/:visitId" element={<ProtectedFinalBillRoute><Suspense fallback={<PageLoader />}><Invoice /></Suspense></ProtectedFinalBillRoute>} />
