@@ -1281,17 +1281,25 @@ export default function DischargeSummaryEdit() {
           }
           // Otherwise check various possible field names
           else {
-            // custom_medication_name is where the drug name ACTUALLY is.
-            // Measured on 15 Aug 2026 across all 5,081 rows of
-            // visit_medications: medication_name is null on every one,
-            // medication_id is null on every one (so the JOIN above can never
-            // resolve, and the `medications` table is empty anyway), and
+            // WHAT THE PATIENT ACTUALLY RECEIVED COMES FIRST.
+            //
+            // dispensed_medication_name is what the pharmacy handed over;
+            // custom_medication_name is what was prescribed. On 646 rows they
+            // differ, and a discharge summary should tell the patient what
+            // they are actually taking home. Director's decision, 15 Aug 2026.
+            // Where nothing was dispensed the prescribed name still shows.
+            //
+            // Measured across all 5,081 rows of visit_medications on the same
+            // day: medication_name is null on every one, medication_id is null
+            // on every one (so the JOIN above can never resolve, and the
+            // `medications` table is empty regardless), and
             // custom_medication_name is populated on every one -- "Inj
-            // rantac50" and the like. Without it in this list every medication
-            // resolved to an empty name and the discharge summary printed a
-            // table row with no drug in it.
+            // rantac50" and the like. With neither name in this list, every
+            // medication resolved to an empty string and the summary printed a
+            // table row carrying a dose and a route but no drug.
             const possibleNameFields = [
-              'medication_name', 'custom_medication_name', 'name', 'medicine_name',
+              'dispensed_medication_name', 'medication_name', 'custom_medication_name',
+              'name', 'medicine_name',
               'drug_name', 'item_name', 'drug', 'item', 'medicine',
               'med_name', 'product_name', 'generic_name'
             ];
@@ -1717,11 +1725,12 @@ PLEASE CONTACT: 7030974619, 9373111709.
             }
             // Otherwise check various possible field names
             else {
-              // See the note on the same list earlier in this file:
-              // custom_medication_name is the only field that actually holds
-              // the drug name on visit_medications.
+              // Same order as the list earlier in this file: what the pharmacy
+              // dispensed first, then what was prescribed. Those two fields are
+              // the only ones that ever hold a drug name on visit_medications.
               const possibleNameFields = [
-                'medication_name', 'custom_medication_name', 'name', 'medicine_name',
+                'dispensed_medication_name', 'medication_name', 'custom_medication_name',
+                'name', 'medicine_name',
                 'drug_name', 'item_name', 'drug', 'item', 'medicine',
                 'med_name', 'product_name', 'generic_name'
               ];
