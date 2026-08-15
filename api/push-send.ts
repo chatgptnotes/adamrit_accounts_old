@@ -13,7 +13,12 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import webpush from 'web-push';
-import { serviceClient } from './_auth';
+// .js extension is required: package.json sets "type": "module", so Node
+// resolves this as ESM and an extensionless relative import throws at load
+// time. Without it the function died with FUNCTION_INVOCATION_FAILED before
+// reaching a single line of the handler — every other route in api/ already
+// writes './_auth.js'.
+import { serviceClient } from './_auth.js';
 
 interface NotificationRow {
   id: string;

@@ -10,7 +10,9 @@
 // the only way rows are ever written or read.
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getSessionUser, serviceClient } from './_auth';
+// .js extension required — see the note in push-send.ts. Extensionless
+// relative imports throw at load under "type": "module".
+import { getSessionUser, serviceClient } from './_auth.js';
 
 const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
 
