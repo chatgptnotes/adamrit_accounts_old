@@ -25,7 +25,8 @@
     "tally:direct-sync": "node scripts/tally-direct-sync.js",
     "check:emails": "cd scripts/email-automation && node run.js",
     "typecheck": "node scripts/typecheck-ratchet.cjs",
-    "test:loud-failures": "npx vite-node e2e/loud-failures.test.ts"
+    "test:loud-failures": "npx vite-node e2e/loud-failures.test.ts",
+    "test:money-paths": "python3 scripts/test-money-paths.py"
   },
   "dependencies": {
     "@ckeditor/ckeditor5-build-classic": "^41.4.2",
