@@ -118,11 +118,35 @@ interface AccountingPeriodContextValue {
 
 const AccountingPeriodContext = createContext<AccountingPeriodContextValue | null>(null);
 
-const STORAGE_KEY = 'accounting-period';
+/**
+ * Bumped from 'accounting-period' on 15 Aug 2026 to discard every period
+ * already saved in a browser, once.
+ *
+ * The default here has always been the current financial year, but the saved
+ * value wins — and Dr M's had been left on 14-Aug-26 to 14-Aug-26. One day.
+ * Every report obeys it, so patient and RM ledgers, which post once or twice
+ * in their lives, showed nothing at all and read as though the postings had
+ * never happened. Cash looked fine beside them because cash posts daily.
+ *
+ * Renaming the key is the whole reset: the old value is not read, so everyone
+ * lands on this financial year on their next load without touching a button.
+ * The old key is then removed so it does not sit in storage for ever.
+ *
+ * Periods still persist. Choosing one deliberately -- a month-end job, an audit
+ * window -- survives a reload exactly as Tally's does, because that is the
+ * behaviour this context exists to reproduce. What does not survive is a
+ * narrow period nobody remembers setting.
+ */
+const STORAGE_KEY = 'accounting-period-fy';
+const LEGACY_STORAGE_KEY = 'accounting-period';
 
 const storedPeriod = (): AccountingPeriod => {
   const fallback = currentFinancialYear();
   try {
+    // Clear the pre-reset preference. Best-effort: a storage that refuses to
+    // remove a key must not stop the accounts module loading.
+    try { localStorage.removeItem(LEGACY_STORAGE_KEY); } catch { /* ignore */ }
+
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
     const valid = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
     if (raw && valid(raw.from) && valid(raw.to) && raw.from <= raw.to) return { from: raw.from, to: raw.to };

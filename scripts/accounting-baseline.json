@@ -57,7 +57,7 @@
   "src/components/accounting/tally/ChangeView.tsx": "5d5c3a2ad2a94b62d1f198f67dc9a3cbfc2213fc8a20e8f49c9eeba1a570abe5",
   "src/components/accounting/tally/ColumnBox.tsx": "23f9335c7590dac1ba2869e56753b7270f29d8f37f2f966ab0a1c8b29ea96571",
   "src/components/accounting/tally/CompanyPopups.tsx": "ed10b2746f9f2a702d6eedc620f842b02ed932b2ad8ba5e9108ec34ddabac956",
-  "src/components/accounting/tally/PeriodContext.tsx": "1ec7f2dd27cb640195740a266b8f7f93764a7f1841a157e5c9606c491e18aca1",
+  "src/components/accounting/tally/PeriodContext.tsx": "de7a2c50f6946ae3ac2c9d76ee63fd742e961a920c55c915cda32c6fb4f4e2b5",
   "src/components/accounting/tally/QuickLedgerPopup.tsx": "8a917dca116fad6c8e4d77dbbfd9df1425743c40d634df0e7c9067f0ba9c9275",
   "src/components/accounting/tally/ReportConfigure.tsx": "02de8a3d5f8797d24a16b237a8be3c815117fcc06a5e2c1e44c1fb0f741067cc",
   "src/components/accounting/tally/TallyCalculator.tsx": "653f240ce9a14090d29fb2f13011fa941f4d9af961f5ee53f722a2331736a43f",
