@@ -1,7 +1,22 @@
-export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  
-  const { message, photos, corporates } = req.body;
+// Extract structured visit notes from a marketing field report.
+//
+// WAS COMPLETELY OPEN. Unauthenticated, unmetered, and it forwards whatever it
+// is given to OpenAI on the hospital's OPENAI_API_KEY — a free GPT endpoint for
+// anyone who found the URL, billed here. Now staff-only and capped.
+//
+// NOTE: no page in src/ calls this route. It may be dead; it is protected
+// rather than deleted because that is not a decision to take by inference.
+// Renamed from .js so it is covered by tsconfig.api.json like everything else.
+
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { withRoute } from './_middleware.js';
+
+export default withRoute({ auth: 'session', methods: ['POST'], rateLimit: { perMinute: 10, perHour: 100 } },
+  async (req: VercelRequest, res: VercelResponse) => {
+  const { message, photos } = req.body || {};
+  if (typeof message !== 'string' || !message.trim()) {
+    return res.status(400).json({ error: 'message required' });
+  }
   
   const systemPrompt = `You are an AI field assistant for hospital marketing. Extract structured JSON from visit descriptions.
 
@@ -41,7 +56,10 @@ Return ONLY valid JSON.`;
       })
     });
     
-    const data = await response.json();
+    const data = await response.json() as {
+      error?: { message?: string };
+      choices?: { message?: { content?: string } }[];
+    };
     
     if (data.error) {
       return res.status(500).json({ error: data.error.message });
@@ -52,4 +70,4 @@ Return ONLY valid JSON.`;
   } catch (err) {
     return res.status(500).json({ error: 'Failed to process request' });
   }
-}
+});

@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { withRoute } from './_middleware.js';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_MODEL_LITE = 'gemini-2.5-flash-lite';
@@ -9,9 +10,7 @@ const MAX_BODY_BYTES = 8 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_IMAGES = 4;
 const MAX_OUTPUT_TOKENS = 4096;
-const WINDOW_MS = 60_000;
 const MAX_REQUESTS_PER_WINDOW = 30;
-const requestWindows = new Map<string, number[]>();
 
 const geminiUrl = (model: string, apiKey: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -21,38 +20,6 @@ const readText = async (response: Response) => {
   if (!text) return '{}';
   return text;
 };
-
-function requestOriginAllowed(req: VercelRequest): boolean {
-  const origin = String(req.headers.origin || '').replace(/\/$/, '');
-  const referer = String(req.headers.referer || '');
-  const configured = String(process.env.APP_ORIGIN || process.env.VERCEL_PROJECT_PRODUCTION_URL || '')
-    .replace(/^https?:\/\//, '')
-    .replace(/\/$/, '');
-  const allowedHosts = new Set([configured, 'www.adamrit.com', 'adamrit.com', 'localhost:5173', 'localhost:4173']);
-  if (origin) {
-    try { return allowedHosts.has(new URL(origin).host); } catch { return false; }
-  }
-  if (referer) {
-    try { return allowedHosts.has(new URL(referer).host); } catch { return false; }
-  }
-  return false;
-}
-
-function clientKey(req: VercelRequest): string {
-  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-  return forwarded || String(req.headers['x-real-ip'] || req.socket?.remoteAddress || 'unknown');
-}
-
-function withinRateLimit(key: string): boolean {
-  const now = Date.now();
-  const previous = (requestWindows.get(key) || []).filter((timestamp) => now - timestamp < 60 * 60_000);
-  const minuteCount = previous.filter((timestamp) => now - timestamp < WINDOW_MS).length;
-  if (minuteCount >= MAX_REQUESTS_PER_WINDOW || previous.length >= 300) return false;
-  previous.push(now);
-  requestWindows.set(key, previous);
-  if (requestWindows.size > 10_000) requestWindows.clear();
-  return true;
-}
 
 function byteLength(value: string): number {
   return Buffer.byteLength(value, 'utf8');
@@ -91,18 +58,13 @@ async function callGemini(model: string, payload: unknown, apiKey: string) {
   return upstream;
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'method_not_allowed' });
-  }
-
-  if (!requestOriginAllowed(req)) {
-    return res.status(403).json({ error: 'forbidden_origin' });
-  }
-  if (!withinRateLimit(clientKey(req))) {
-    return res.status(429).json({ error: 'rate_limited' });
-  }
-
+// Staff-only. The origin allowlist below was the only guard, and an Origin
+// header costs nothing to forge from outside a browser — so this was in
+// practice an open Gemini endpoint on the hospital's key. The origin check is
+// kept (withRoute applies it) but it is no longer the thing holding the door.
+export default withRoute(
+  { auth: 'session', methods: ['POST'], rateLimit: { perMinute: MAX_REQUESTS_PER_WINDOW, perHour: 300 } },
+  async (req: VercelRequest, res: VercelResponse) => {
   const apiKey = (process.env.GEMINI_API_KEY || '').trim();
   if (PLACEHOLDER_KEYS.has(apiKey)) {
     return res.status(500).json({ error: 'GEMINI_API_KEY is not configured on the server' });
@@ -139,4 +101,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const message = error instanceof Error ? error.message : 'unknown';
     res.status(502).json({ error: 'gemini_unreachable', detail: message });
   }
-}
+});

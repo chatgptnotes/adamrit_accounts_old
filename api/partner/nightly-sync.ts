@@ -19,8 +19,8 @@ import { snapshotPage } from './_client.js';
 // GET  — cron invocation, guarded by CRON_SECRET (Vercel sends it automatically)
 // POST — manual re-run by a logged-in staff member after a failed night
 //
-// Auth note: if CRON_SECRET is not set in Vercel the GET path is open, matching
-// api/deadline-reminders.ts. Set one.
+// Auth note: CRON_SECRET must be set in Vercel or the GET path refuses every
+// caller, the scheduler included. It fails closed rather than open.
 
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 200; // 200k rows; a runaway backstop, not an expected bound
@@ -166,8 +166,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!user) return res.status(401).json({ ok: false, error: 'not_authenticated' });
     trigger = 'manual';
   } else if (req.method === 'GET') {
+    // Fails closed. The previous `if (cronSecret && ...)` meant an unset secret
+    // left this open to the world — the configuration needing the check most was
+    // the one where it did nothing.
     const cronSecret = process.env.CRON_SECRET;
-    if (cronSecret && req.headers.authorization !== `Bearer ${cronSecret}`) {
+    if (!cronSecret || req.headers.authorization !== `Bearer ${cronSecret}`) {
       return res.status(401).json({ ok: false, error: 'unauthorized' });
     }
     trigger = 'cron';

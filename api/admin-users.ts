@@ -18,11 +18,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import bcrypt from 'bcryptjs';
 import { randomInt } from 'node:crypto';
-import { getSessionUser, serviceClient } from './_auth.js';
-
-const SUPER_ADMIN_ROLES = new Set(['superadmin', 'super_admin', 'ca']);
-const isSuperAdminRole = (role?: string | null) =>
-  SUPER_ADMIN_ROLES.has(String(role || '').toLowerCase().trim());
+import { withRoute, sendError, text, isSuperAdminRole, type RouteContext } from './_middleware.js';
 
 // The columns that may ever be sent to a browser. `password` and `staff_pin` are
 // deliberately absent and must stay absent — this list is the reason the page can
@@ -45,16 +41,6 @@ const EDITABLE_COLUMNS = new Set([
   'company_id', 'department', 'designation', 'is_active', 'must_change_password',
   'google_email',
 ]);
-
-const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
-const sendError = (res: VercelResponse, status: number, error: string) =>
-  res.status(status).json({ ok: false, error });
-
-const clientIp = (req: VercelRequest): string | null => {
-  const fwd = req.headers['x-forwarded-for'];
-  const raw = Array.isArray(fwd) ? fwd[0] : fwd;
-  return raw ? String(raw).split(',')[0].trim() : null;
-};
 
 // Audit rows are written here rather than through src/lib/activity-logger.ts,
 // which runs in the browser and always records ip_address: null. For a log of
@@ -111,30 +97,17 @@ const wouldStrandSuperAdmins = async (sb: any, targetId: string): Promise<boolea
   return actives.length <= 1 && actives.some((u: any) => String(u.id) === targetId);
 };
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-  if (!serviceKey) return sendError(res, 500, 'supabase_not_configured');
-
-  const sessionUser = getSessionUser(req, serviceKey);
-  if (!sessionUser) return sendError(res, 401, 'not_authenticated');
-
-  const sb = serviceClient(serviceKey);
-  const ip = clientIp(req);
-
-  const { data: actor, error: actorError } = await sb
-    .from('User')
-    .select('id,email,role,is_active')
-    .eq('id', sessionUser.id)
-    .maybeSingle();
-  if (actorError) return sendError(res, 500, actorError.message || 'identity_lookup_failed');
-  if (!actor || actor.is_active === false) return sendError(res, 403, 'account_inactive');
-  if (!isSuperAdminRole(actor.role)) return sendError(res, 403, 'super_admin_required');
-
-  const actorId = String(actor.id);
+// The session check, the not-inactive check and the re-read of the caller's role
+// from the database all moved into withRoute's 'admin' mode — see the note there
+// on why the cookie's own role claim is never the answer.
+export default withRoute({ auth: 'admin', methods: ['GET', 'POST'] },
+  async (req: VercelRequest, res: VercelResponse, ctx: RouteContext) => {
+  const { sb, ip } = ctx;
+  const actorId = String(ctx.user!.id);
   const auditActor: Actor = {
     id: actorId,
-    email: String(actor.email || sessionUser.email),
-    role: String(actor.role || ''),
+    email: String(ctx.user!.email),
+    role: String(ctx.user!.role || ''),
   };
 
   // ---------------------------------------------------------------- list
@@ -153,8 +126,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }));
     return res.status(200).json({ ok: true, users });
   }
-
-  if (req.method !== 'POST') return sendError(res, 405, 'method_not_allowed');
 
   const action = text(req.body?.action);
   const targetId = text(req.body?.id);
@@ -183,7 +154,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         const { data, error } = await sb.from('User').insert([record]).select(SAFE_COLUMNS).single();
         if (error) return sendError(res, 400, error.message);
-        await audit(sb, auditActor, 'user_create', { user_id: data.id, email }, ip);
+        await audit(sb, auditActor, 'user_create', { user_id: (data as any).id, email }, ip);
         return res.status(201).json({ ok: true, user: data });
       }
 
@@ -415,7 +386,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           return sendError(res, 400, error.message);
         }
         await audit(sb, auditActor, pin ? 'user_staff_pin_set' : 'user_staff_pin_cleared', { user_id: targetId }, ip);
-        return res.status(200).json({ ok: true, user: { ...data, has_staff_pin: Boolean(pin) } });
+        return res.status(200).json({ ok: true, user: { ...(data as any), has_staff_pin: Boolean(pin) } });
       }
 
       default:
@@ -424,4 +395,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error: any) {
     return sendError(res, 500, error?.message || 'admin_users_failed');
   }
-}
+});

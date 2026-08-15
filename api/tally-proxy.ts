@@ -3,6 +3,7 @@
 // Adapted from supabase/functions/tally-proxy/index.ts for Vercel (Node.js)
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { withRoute } from './_middleware.js'
 import { createClient } from '@supabase/supabase-js'
 
 const SUPABASE_URL = 'https://xvkxccqaopbnkvwgyfjv.supabase.co'
@@ -188,7 +189,7 @@ async function mirrorTallyLedgersToChartAccounts(
     (existing || []).map((item: any) => [item.account_name.trim().toLowerCase(), item]),
   )
   const accountRows = ledgerRows.map((ledger) => {
-    const current = existingByName.get(ledger.name.trim().toLowerCase())
+    const current = existingByName.get(ledger.name.trim().toLowerCase()) as any
     return {
       ...(current?.id ? { id: current.id } : {}),
       company_id: company.id,
@@ -709,16 +710,18 @@ async function handleSync(body: any) {
 }
 
 // ─── Main handler ───
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'authorization, x-client-info, apikey, content-type')
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end()
-  }
-
+//
+// STAFF-ONLY, AND WHY THAT MATTERS MORE HERE THAN ANYWHERE ELSE
+// This route reaches the hospital's accounting data: `push` and `sync` write
+// ledgers and vouchers. It carried no authentication at all and answered with
+// Access-Control-Allow-Origin: *, so anyone who knew the path could push
+// entries into the books, or point `proxy` at a server of their choosing.
+// Every caller is a page under src/, so requiring a signed-in session breaks
+// none of them. This is money-path rule 1 — enforce at entry, not at commit.
+//
+// The CORS lines are gone deliberately: withRoute reflects our own origins only.
+export default withRoute({ auth: 'session', methods: ['GET', 'POST'] },
+  async (req: VercelRequest, res: VercelResponse) => {
   // GET = health check
   if (req.method === 'GET') {
     return res.status(200).json({
@@ -726,10 +729,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       endpoints: ['test-connection', 'sync', 'push', 'proxy'],
       timestamp: new Date().toISOString(),
     })
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' })
   }
 
   try {
@@ -749,4 +748,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (err: any) {
     return res.status(400).json({ error: err.message })
   }
-}
+})

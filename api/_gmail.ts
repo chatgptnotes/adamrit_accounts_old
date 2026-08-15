@@ -31,7 +31,7 @@ async function accessToken(): Promise<string> {
     }),
   });
 
-  const payload = await response.json().catch(() => ({}));
+  const payload = await response.json().catch(() => ({})) as { access_token?: string; error?: string };
   if (!response.ok || !payload?.access_token) {
     // Surfaced rather than swallowed: a revoked or expired refresh token is
     // otherwise silent, and the only symptom is that nobody gets their code.

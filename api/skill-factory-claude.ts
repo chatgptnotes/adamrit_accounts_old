@@ -6,14 +6,17 @@
 // show the real failure (per-decision: no silent degradation).
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { withRoute } from './_middleware.js'
 
 const VPS_URL = process.env.VPS_CLAUDE_URL
 const VPS_TOKEN = process.env.VPS_CLAUDE_TOKEN
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'method_not_allowed' })
-  }
+// Staff-only: this runs an arbitrary prompt on the VPS sidecar and the tokens
+// are billed to the hospital. It was previously open to anyone who knew the
+// path. The per-minute ceiling is low because a single request here can be
+// expensive and no legitimate screen fires them in bursts.
+export default withRoute({ auth: 'session', methods: ['POST'], rateLimit: { perMinute: 10, perHour: 200 } },
+  async (req: VercelRequest, res: VercelResponse) => {
   if (!VPS_URL || !VPS_TOKEN) {
     return res.status(500).json({
       error: 'vps_not_configured',
@@ -70,4 +73,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const contentType = upstream.headers.get('content-type') || 'application/json'
   res.setHeader('content-type', contentType)
   res.send(text)
-}
+})

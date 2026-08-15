@@ -1,0 +1,27 @@
+{
+  // The serverless functions were outside every tsconfig until now: tsconfig.app
+  // includes only "src" and tsconfig.node only vite.config.ts, so nothing ever
+  // typechecked api/. Settings mirror tsconfig.app.json so the backend is held
+  // to the same bar as the frontend, no looser and no stricter.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "types": ["node"],
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": false,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "strict": false,
+    "strictNullChecks": false,
+    "noImplicitAny": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["api"]
+}

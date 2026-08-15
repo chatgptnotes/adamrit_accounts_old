@@ -14,6 +14,7 @@
 //   VPS_CLAUDE_TOKEN      — bearer token the sidecars expect.
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { withRoute } from './_middleware.js'
 
 const VPS_URL = process.env.VPS_CLAUDE_URL
 const VPS_TOKEN = process.env.VPS_CLAUDE_TOKEN
@@ -39,10 +40,10 @@ function addInto(acc: Record<string, number>, t: Record<string, number>) {
   for (const k of Object.keys(acc)) acc[k] += Number(t?.[k]) || 0
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'method_not_allowed' })
-  }
+// Staff-only. It reports what the hospital is spending on AI; that is nobody
+// else's business, and the sidecar URLs it names are not public either.
+export default withRoute({ auth: 'session', methods: ['GET'] },
+  async (req: VercelRequest, res: VercelResponse) => {
   if (!VPS_TOKEN || (!USAGE_URLS_RAW && !VPS_URL)) {
     return res.status(500).json({
       error: 'vps_not_configured',
@@ -85,4 +86,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   res.status(200).json({ generated_at: new Date().toISOString(), combined, sidecars })
-}
+})

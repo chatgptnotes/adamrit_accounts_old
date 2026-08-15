@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { randomUUID } from 'node:crypto';
+import { withRoute } from './_middleware.js';
 
 const DOUBLETICK_DOCUMENT_URL = 'https://public.doubletick.io/whatsapp/message/document';
 
@@ -11,11 +12,11 @@ const normalizeWhatsAppNumber = (value: string) => {
   return digits;
 };
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'method_not_allowed' });
-  }
-
+// Staff-only. This sends a document to any WhatsApp number from the hospital's
+// business number; open to the world, it was a way to make Hope Hospital send
+// a stranger's file to a stranger's phone.
+export default withRoute({ auth: 'session', methods: ['POST'], rateLimit: { perMinute: 12, perHour: 200 } },
+  async (req: VercelRequest, res: VercelResponse) => {
   const apiKey = process.env.DOUBLETICK_API_KEY || '';
   const from = process.env.DOUBLETICK_PHONE || '';
 
@@ -89,4 +90,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const message = error instanceof Error ? error.message : 'unknown';
     return res.status(502).json({ error: 'doubletick_unreachable', detail: message });
   }
-}
+});

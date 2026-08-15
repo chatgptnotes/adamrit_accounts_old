@@ -1,13 +1,15 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { withRoute } from './_middleware.js';
 
 const SUPABASE_URL = 'https://xvkxccqaopbnkvwgyfjv.supabase.co';
 const TWIML_URL = 'https://adamrit.com/api/twilio-twiml';
 const WHATSAPP_FROM = process.env.TWILIO_WHATSAPP_FROM || 'whatsapp:+14155238886';
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+// Staff-only: this dials two real phone numbers and bridges them, billed to the
+// hospital. It was previously open to anyone who knew the path.
+export default withRoute({ auth: 'session', methods: ['POST'], rateLimit: { perMinute: 6, perHour: 60 } },
+  async (req: VercelRequest, res: VercelResponse) => {
   try {
-    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-
     const {
       visitId,
       patientName,
@@ -93,7 +95,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
   } catch (e: any) {
-    // Top-level catch — surface exact error
-    return res.status(500).json({ error: 'Unexpected error', detail: e.message, stack: e.stack?.split('\n').slice(0,5) });
+    // The stack trace used to be returned to the caller, which named internal
+    // paths and env vars. It is logged instead; withRoute puts a request id on
+    // the response so a report can still be traced to the exact invocation.
+    console.error('[twilio-conference]', e?.stack || e?.message);
+    return res.status(500).json({ error: 'conference_failed', detail: e?.message });
   }
-}
+});

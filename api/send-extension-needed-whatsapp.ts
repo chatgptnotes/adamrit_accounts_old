@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { withRoute } from './_middleware.js';
 
 const DOUBLETICK_URL = 'https://public.doubletick.io/whatsapp/message/template';
 const TEMPLATE_NAME = 'extension_needed_patients_v1';
@@ -6,11 +7,10 @@ const LANGUAGE = 'en';
 
 const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'method_not_allowed' });
-  }
-
+// Staff-only. Fires a WhatsApp template to the extension-alert recipient; open
+// to the world it was a way to spam that number from the hospital's own sender.
+export default withRoute({ auth: 'session', methods: ['POST'], rateLimit: { perMinute: 6, perHour: 60 } },
+  async (req: VercelRequest, res: VercelResponse) => {
   const apiKey = process.env.DOUBLETICK_API_KEY || '';
   const from = process.env.DOUBLETICK_PHONE || '';
   const to = process.env.DOUBLETICK_EXTENSION_ALERT_TO || '';
@@ -102,4 +102,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const message = error instanceof Error ? error.message : 'unknown';
     return res.status(502).json({ error: 'doubletick_unreachable', detail: message });
   }
-}
+});

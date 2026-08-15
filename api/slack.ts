@@ -10,13 +10,14 @@
 // vite.config.ts.
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { withRoute } from './_middleware.js'
 
 const WEBHOOK = process.env.SLACK_WEBHOOK_URL
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'method_not_allowed' })
-  }
+// Staff-only: unauthenticated, this was an open relay for posting arbitrary
+// text into the hospital's Slack under the hospital's own webhook.
+export default withRoute({ auth: 'session', methods: ['POST'], rateLimit: { perMinute: 20 } },
+  async (req: VercelRequest, res: VercelResponse) => {
   if (!WEBHOOK) {
     return res.status(500).json({ error: 'slack_not_configured', detail: 'SLACK_WEBHOOK_URL missing in Vercel env.' })
   }
@@ -35,4 +36,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const message = err instanceof Error ? err.message : 'unknown'
     return res.status(502).json({ error: 'slack_unreachable', detail: message })
   }
-}
+})

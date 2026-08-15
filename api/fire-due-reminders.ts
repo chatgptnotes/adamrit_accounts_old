@@ -7,6 +7,7 @@
 // Security: if CRON_SECRET is set, the caller must send it as a Bearer token.
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { withRoute } from './_middleware.js'
 import { createClient } from '@supabase/supabase-js'
 
 const SUPABASE_URL = 'https://xvkxccqaopbnkvwgyfjv.supabase.co'
@@ -41,14 +42,14 @@ function isImportant(r: { important?: boolean; amount?: number; due_date?: strin
   return false
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const cronSecret = process.env.CRON_SECRET
-  if (cronSecret && req.headers.authorization !== `Bearer ${cronSecret}`) {
-    return res.status(401).json({ error: 'unauthorized' })
-  }
-
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!key) return res.status(500).json({ error: 'SUPABASE_SERVICE_ROLE_KEY not configured' })
+// Scheduler-only. The old guard read `if (cronSecret && ...)`, so an unset
+// CRON_SECRET left the route open to anyone — the one configuration where the
+// check mattered most was the one where it did nothing. withRoute's 'cron' mode
+// refuses when the secret is missing instead. CRON_SECRET must be set in Vercel
+// or this returns 401 and the digest silently stops arriving.
+export default withRoute({ auth: 'cron', methods: ['GET', 'POST'], rateLimit: false },
+  async (req: VercelRequest, res: VercelResponse, ctx) => {
+  const key = ctx.serviceKey
   const webhook = process.env.SLACK_WEBHOOK_URL
   if (!webhook) return res.status(500).json({ error: 'SLACK_WEBHOOK_URL not configured' })
 
@@ -108,4 +109,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   return res.status(200).json({ ok: true, fired: firedIds.length, checked: rows.length })
-}
+})
