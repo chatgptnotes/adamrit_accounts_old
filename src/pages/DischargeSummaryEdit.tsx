@@ -1013,28 +1013,12 @@ export default function DischargeSummaryEdit() {
           }
         }
 
-        // Try visit_pharmacy table as fallback
-        if (!prescriptionData) {
-          try {
-            const { data: visitPharmacy, error: pharmError } = await supabase
-              .from('visit_pharmacy')
-              .select(`
-                *,
-                medication:medication_id (
-                  name,
-                  dosage,
-                  route
-                )
-              `)
-              .eq('visit_id', visitData?.id || visitId)
-              .order('created_at', { ascending: true });
-
-            if (visitPharmacy && !pharmError) {
-              prescriptionData = visitPharmacy;
-            }
-          } catch (error) {
-          }
-        }
+        // There was a third fallback here, onto a `visit_pharmacy` table.
+        // Traced on 15 Aug 2026: no such table exists and never has, so the
+        // query could only ever fail. It was also unreachable in practice --
+        // visit_medications above returns an array even when empty, which
+        // satisfies the guard. visit_medications IS the medication table:
+        // 5,081 rows across 172 visits, most recent 13 Aug 2026.
       }
 
       setFetchProgress('Processing & formatting all data...');
@@ -1297,8 +1281,17 @@ export default function DischargeSummaryEdit() {
           }
           // Otherwise check various possible field names
           else {
+            // custom_medication_name is where the drug name ACTUALLY is.
+            // Measured on 15 Aug 2026 across all 5,081 rows of
+            // visit_medications: medication_name is null on every one,
+            // medication_id is null on every one (so the JOIN above can never
+            // resolve, and the `medications` table is empty anyway), and
+            // custom_medication_name is populated on every one -- "Inj
+            // rantac50" and the like. Without it in this list every medication
+            // resolved to an empty name and the discharge summary printed a
+            // table row with no drug in it.
             const possibleNameFields = [
-              'medication_name', 'name', 'medicine_name',
+              'medication_name', 'custom_medication_name', 'name', 'medicine_name',
               'drug_name', 'item_name', 'drug', 'item', 'medicine',
               'med_name', 'product_name', 'generic_name'
             ];
@@ -1724,8 +1717,11 @@ PLEASE CONTACT: 7030974619, 9373111709.
             }
             // Otherwise check various possible field names
             else {
+              // See the note on the same list earlier in this file:
+              // custom_medication_name is the only field that actually holds
+              // the drug name on visit_medications.
               const possibleNameFields = [
-                'medication_name', 'name', 'medicine_name',
+                'medication_name', 'custom_medication_name', 'name', 'medicine_name',
                 'drug_name', 'item_name', 'drug', 'item', 'medicine',
                 'med_name', 'product_name', 'generic_name'
               ];
