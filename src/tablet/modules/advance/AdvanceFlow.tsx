@@ -1154,29 +1154,48 @@ export default function AdvanceFlow() {
     },
   });
 
+  /**
+   * The first screen moved onto record_patient_payment.
+   *
+   * It used to insert into advance_payment directly, as four other screens
+   * still do — which is why only 95 of the last 300 payments record who took
+   * the money, and only 62 of the 203 cash ones. The rules now live in the
+   * function rather than being repeated, or forgotten, per screen: cash must
+   * name its collector, the mode is normalised, the counter is taken from the
+   * patient's own hospital rather than assumed.
+   *
+   * The fields sent are exactly the ones this screen sent before. Anything the
+   * function fills in itself — status, payment date, the patient's name and
+   * UHID — is no longer passed, because two places deciding the same value is
+   * how they come to disagree.
+   */
   const collect = useMutation({
     mutationFn: async () => {
       const value = Number(amount);
       if (!patient || !value || value <= 0) throw new Error("Enter a valid amount");
       if (!visit.data?.visit_id) throw new Error("No visit found for this patient");
-      const { error } = await supabase.from("advance_payment").insert({
-        patient_id: patient.id,
-        visit_id: visit.data.visit_id,
-        patient_name: patient.name,
-        patients_id: patient.patients_id || null,
-        advance_amount: value,
-        returned_amount: 0,
-        is_refund: false,
-        payment_date: new Date().toISOString(),
-        payment_mode: mode,
-        remarks: remarks.trim() || null,
-        status: "ACTIVE",
-        // Whose drawer this cash lands in, for the cash handover.
-        collected_by_user_id: user?.id ?? null,
+
+      const { data, error } = await (supabase as any).rpc("record_patient_payment", {
+        p_patient_id: patient.id,
+        p_amount: value,
+        p_payment_mode: mode,
+        p_collected_by_user_id: user?.id ?? null,
+        p_visit_id: visit.data.visit_id,
+        p_remarks: remarks.trim() || null,
       });
-      if (error) throw error;
+      if (error) throw new Error(error.message);
+      return data as { warnings?: string[] };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      // The drawer having no opening count does not stop a patient paying, but
+      // the cashier is the one person who can still fix it, and only now.
+      //
+      // This screen uses the shadcn toast, which is a FUNCTION — toast.warning
+      // does not exist on it and would have thrown here, after the payment had
+      // already been recorded. TypeScript did not catch it.
+      for (const warning of result?.warnings ?? []) {
+        toast({ title: "Opening cash not declared", description: warning });
+      }
       qc.invalidateQueries({ queryKey: ["tablet-advances", patient?.id] });
     },
   });
