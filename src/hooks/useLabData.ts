@@ -1314,11 +1314,12 @@ export function useLabDashboard() {
           .select('processing_status, sample_quality, lab_orders!inner(patients!inner(hospital_name))')
           .eq('lab_orders.patients.hospital_name', hospitalFilter)
           .limit(1000),
-        supabase
-          .from('test_results')
-          .select('result_status, is_critical, lab_orders!inner(patients!inner(hospital_name))')
-          .eq('lab_orders.patients.hospital_name', hospitalFilter)
-          .limit(1000),
+        // Results are counted in SQL, not here. `test_results` does not exist
+        // on this database -- this panel read a confident zero for as long as
+        // it has been on screen -- and the real table, lab_results, has no
+        // foreign key to visits, so there is no client-side join to the
+        // hospital. Counting 560k rows in the browser is not an option either.
+        supabase.rpc('lab_result_stats', { p_hospital_type: hospitalFilter }),
         supabase.from('quality_controls').select('qc_status').limit(1000) // QC might not have direct hospital filtering
       ]);
 
@@ -1339,11 +1340,15 @@ export function useLabDashboard() {
         rejected: samplesResult.data?.filter(s => s.sample_quality === 'Rejected').length || 0
       };
 
+      // Already aggregated by lab_result_stats(): four integers, not rows.
+      const resultCounts = (resultsResult.data ?? {}) as Record<string, number>;
       const resultStats = {
-        total: resultsResult.data?.length || 0,
-        pending: resultsResult.data?.filter(r => r.result_status === 'Preliminary').length || 0,
-        final: resultsResult.data?.filter(r => r.result_status === 'Final').length || 0,
-        critical: resultsResult.data?.filter(r => r.is_critical === true).length || 0
+        total: Number(resultCounts.total) || 0,
+        pending: Number(resultCounts.pending) || 0,
+        final: Number(resultCounts.final) || 0,
+        // Counted from is_abnormal, the only real column of its kind. Nothing
+        // sets it today, so this reads 0 until something does.
+        critical: Number(resultCounts.critical) || 0
       };
 
       const qcStats = {
