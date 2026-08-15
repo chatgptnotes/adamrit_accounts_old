@@ -31,7 +31,7 @@
   "src/components/accounting/GroupVouchers.tsx": "fdd1d0cb4476391a2cf0846fe6115b706a34cd0b30e41bdb2680da1f0deb4560",
   "src/components/accounting/GstSalesSummary.tsx": "a746de8775c41ef4fed12ade927bbea456008aa4728887643945e527dcf6d22a",
   "src/components/accounting/LedgerAutocomplete.tsx": "abea1e9677bfe5a29d9a0513ab55fbae9f75c1bbfb762819180ad5d32e556626",
-  "src/components/accounting/LedgerView.tsx": "17813d000ae9b4be5ddd5190532678056bf2b1ee0cf6bae0bfdc9f0876b6d731",
+  "src/components/accounting/LedgerView.tsx": "ff1ef873f0847960952ad5b1bcaea561b20ec3594b18cb1c24302a978904575a",
   "src/components/accounting/NegativeLedgers.tsx": "b6b397346a69496faf6e6a0b0ba8625af2cf5cf1a79996670ec9b9869b7e1be4",
   "src/components/accounting/OpeningBalances.tsx": "480416c3e0c2789609d9b4209cc6fd5ff328b412802ce2b516927915ba31a553",
   "src/components/accounting/PostDatedVouchers.tsx": "0835265c13b9c304c4c16c40f705fcf87d4a5d588c0ddf94ffca37993fe8514f",

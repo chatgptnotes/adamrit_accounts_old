@@ -7,7 +7,7 @@ import { useAccountingCompany } from './AccountingCompanyContext';
 import { TallyScreen, voucherBottomBar } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
-import { dayBefore, dayLabel, monthsInPeriod } from './tally/PeriodContext';
+import { currentFinancialYear, dayBefore, dayLabel, monthsInPeriod, useAccountingPeriod } from './tally/PeriodContext';
 import { fetchTallyVouchers } from '@/lib/mergedVouchers';
 import { normalizeName } from '@/lib/tallyCompanyMatch';
 import { accountMovements, type Movement } from '@/lib/accountMovements';
@@ -90,6 +90,7 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
   const { source: srcFilter, railItem: sourceRail } = useSourceFilter();
   const { selectedCompanyId } = useAccountingCompany();
 
+  const periodContext = useAccountingPeriod();
   const report = useTallyReport({
     filterFields: ['Particulars', 'Vch Type', 'Vch No.'],
     views: [
@@ -202,6 +203,47 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
         return query.range(from, to);
       });
       return data as unknown as VoucherEntryRow[];
+    },
+  });
+
+  /**
+   * Postings this ledger has OUTSIDE the current period.
+   *
+   * Tally keeps one Current Period across every screen, and it persists. Left
+   * on a single day after a month-end job, a ledger that posts once or twice
+   * in its life reads as completely empty -- which is indistinguishable from
+   * "the posting never happened". A patient ledger credited on 12 August shows
+   * nothing at all while the period sits on 14 August, and the Cash ledger
+   * beside it looks fine because cash posts every day.
+   *
+   * The chrome already warns when TODAY is outside the period. That is not the
+   * same warning: the period can contain today and still hide every entry this
+   * particular ledger has. So the count is asked per ledger, and only when the
+   * period is hiding something is anything said.
+   *
+   * Counted, not fetched -- the answer is "there are N you cannot see", and
+   * pulling the rows to say so would cost a second full query on every ledger.
+   */
+  const { data: hiddenOutsidePeriod } = useQuery({
+    queryKey: ['ledger_outside_period', selectedCompanyId, selectedAccountId, fromDate, toDate, dropOptional],
+    enabled: !!selectedCompanyId && !!selectedAccountId,
+    queryFn: async () => {
+      const range = async (op: 'lt' | 'gt', value: string) => {
+        let q = supabase
+          .from('voucher_entries')
+          .select('id, voucher:vouchers!inner(voucher_date)', { count: 'exact', head: true })
+          .eq('account_id', selectedAccountId)
+          .eq('voucher.status', 'AUTHORISED')
+          .eq('voucher.company_id', selectedCompanyId);
+        if (dropOptional) q = q.eq('voucher.is_optional', false);
+        q = op === 'lt'
+          ? q.lt('voucher.voucher_date', value)
+          : q.gt('voucher.voucher_date', value);
+        const { count } = await q;
+        return count ?? 0;
+      };
+      const [before, after] = await Promise.all([range('lt', fromDate), range('gt', toDate)]);
+      return { before, after, total: before + after };
     },
   });
 
@@ -510,6 +552,33 @@ const LedgerView: React.FC<LedgerViewProps> = ({ onOpenVoucher, initialAccountId
               </>
             ) : (
               <>
+                {/* This ledger's own postings that the period is hiding. The
+                    chrome warns when TODAY is outside the period; that is a
+                    different thing, and it stays silent in exactly the case
+                    that reads as missing data -- a ledger whose only entries
+                    are older than the period. */}
+                {!!hiddenOutsidePeriod?.total && (
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 border border-[#e0b34a] bg-[#fdf6d8] px-2 py-1 text-[12px] text-[#7a4a00] print:hidden">
+                    <span className="font-semibold">
+                      {hiddenOutsidePeriod.total} posting{hiddenOutsidePeriod.total === 1 ? '' : 's'} on this
+                      ledger {hiddenOutsidePeriod.total === 1 ? 'is' : 'are'} outside the current period
+                    </span>
+                    <span>
+                      {hiddenOutsidePeriod.before > 0 && `${hiddenOutsidePeriod.before} before ${dayLabel(fromDate)}`}
+                      {hiddenOutsidePeriod.before > 0 && hiddenOutsidePeriod.after > 0 && ', '}
+                      {hiddenOutsidePeriod.after > 0 && `${hiddenOutsidePeriod.after} after ${dayLabel(toDate)}`}
+                      . They are posted — this report is dated.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => periodContext.setPeriod(currentFinancialYear())}
+                      className="rounded border border-[#c08a1e] bg-white px-2 py-0.5 font-semibold text-[#7a4a00] hover:bg-[#fffbe9]"
+                    >
+                      Show this financial year
+                    </button>
+                  </div>
+                )}
+
                 {/* Column header */}
                 <div className="mt-1 flex border-y border-black bg-[#f0f4fa] font-semibold">
                   <div className="w-20 px-1">Date</div>
