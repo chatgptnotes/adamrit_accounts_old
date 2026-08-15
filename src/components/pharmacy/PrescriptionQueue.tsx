@@ -1084,9 +1084,20 @@ const DetailModal: React.FC<DetailModalProps> = ({ prescription, onClose }) => {
 
   const handleConfirmChange = async () => {
     if (!changeItem || !selectedMedicine) return;
+    // The button is disabled without a reason; this guards the path anyway,
+    // because a silent default is what made all 741 existing substitutions say
+    // the same uninformative sentence.
+    const reason = substituteReason.trim();
+    if (!reason) {
+      toast({
+        title: 'Say why the medicine is being changed',
+        description: 'The reason goes on the patient\'s record, so it cannot be left blank.',
+        variant: 'destructive',
+      });
+      return;
+    }
     setIsSaving(true);
     try {
-      const reason = substituteReason.trim() || 'Stock substitution by pharmacist';
       const newUnitPrice = selectedMedicine.fefoBatch?.selling_price ?? 0;
       // FEFO batch of the chosen medicine — populates the Batch/Expiry column;
       // earliest_expiry is recomputed from this on the next fetch.
@@ -1571,19 +1582,33 @@ const DetailModal: React.FC<DetailModalProps> = ({ prescription, onClose }) => {
               </div>
             )}
             <div>
-              <label className="text-xs text-muted-foreground">Reason for substitution</label>
+              <label className="text-xs text-muted-foreground">
+                Reason for substitution <span className="text-red-600">*</span>
+              </label>
               <Input
                 value={substituteReason}
                 onChange={(e) => setSubstituteReason(e.target.value)}
                 placeholder="e.g. Prescribed medicine out of stock"
+                aria-required="true"
               />
+              {/* This used to be optional and fell back to "Stock substitution
+                  by pharmacist". All 741 recorded substitutions carry exactly
+                  that sentence, which is another way of saying nobody ever
+                  typed one. The reason reaches the patient's discharge summary,
+                  so it has to come from the person who made the swap. */}
+              <p className="mt-1 text-xs text-muted-foreground">
+                Say what was swapped and why — this appears on the patient's record.
+              </p>
             </div>
           </div>
           <div className="flex shrink-0 justify-end gap-2 border-t bg-background px-6 py-4">
               <Button variant="outline" onClick={closeChangeDialog}>
                 Cancel
               </Button>
-              <Button onClick={handleConfirmChange} disabled={!selectedMedicine || isSaving}>
+              <Button
+                onClick={handleConfirmChange}
+                disabled={!selectedMedicine || !substituteReason.trim() || isSaving}
+              >
                 {isSaving ? 'Saving…' : 'Confirm change'}
               </Button>
           </div>
