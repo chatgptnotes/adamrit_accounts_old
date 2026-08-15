@@ -655,6 +655,108 @@ const deriveOTAnaesthesiaType = (anaesthetist?: OTStaffMaster, savedType?: strin
   return '';
 };
 
+
+/**
+ * Days check — admission vs accommodation vs the per-day fees.
+ *
+ * Three numbers that must agree and, until now, nothing compared: the
+ * accommodation days come from typed start/end dates, the doctor and nursing
+ * quantities are typed separately, and the admission period is a third figure
+ * nobody checks against. Measured across the live data, 140 DOCTOR CHARGES and
+ * 116 Nursing Chrages lines disagree with the accommodation days, almost all by
+ * exactly one -- the signature of one person counting nights while the other
+ * counts days. 21 discharged visits were billed for MORE days than the patient
+ * stayed, 77 days in all.
+ *
+ * READ-ONLY, and deliberately not a block. It changes no total, writes nothing
+ * and stops nobody: a bill that cannot be finalised over a day count is worse
+ * than a bill with a day count somebody can see and correct. It states the
+ * three figures and says which disagree.
+ */
+const BillDaysCheck = ({ visitUuid, admissionDate, dischargeDate }: {
+  visitUuid?: string | null;
+  admissionDate?: string | null;
+  dischargeDate?: string | null;
+}) => {
+  const { data } = useQuery({
+    queryKey: ['final-bill-days-check', visitUuid],
+    enabled: Boolean(visitUuid),
+    queryFn: async () => {
+      const [accom, clinical, mandatory] = await Promise.all([
+        supabase.from('visit_accommodations').select('days').eq('visit_id', visitUuid),
+        supabase.from('visit_clinical_services')
+          .select('quantity, clinical_services(service_name)').eq('visit_id', visitUuid),
+        supabase.from('visit_mandatory_services')
+          .select('quantity, mandatory_services(service_name)').eq('visit_id', visitUuid),
+      ]);
+
+      const accommodationDays = (accom.data ?? [])
+        .reduce((s: number, r: any) => s + (Number(r.days) || 0), 0);
+
+      // Only the charges that are billed per day of stay. Anything else --
+      // a one-off procedure, a consumable -- has no reason to match.
+      const perDay = /nurs|doctor|consultant visit/i;
+      const lines: { name: string; qty: number }[] = [];
+      for (const r of (clinical.data ?? []) as any[]) {
+        const name = r.clinical_services?.service_name;
+        if (name && perDay.test(name)) lines.push({ name, qty: Number(r.quantity) || 0 });
+      }
+      for (const r of (mandatory.data ?? []) as any[]) {
+        const name = r.mandatory_services?.service_name;
+        if (name && perDay.test(name)) lines.push({ name, qty: Number(r.quantity) || 0 });
+      }
+      return { accommodationDays, lines };
+    },
+  });
+
+  if (!data) return null;
+
+  // Inclusive, because a patient admitted and discharged on the same day had
+  // one day of accommodation, not none.
+  const stayDays = admissionDate && dischargeDate
+    ? Math.floor(
+        (new Date(`${String(dischargeDate).slice(0, 10)}T00:00:00`).getTime() -
+         new Date(`${String(admissionDate).slice(0, 10)}T00:00:00`).getTime()) / 86400000) + 1
+    : null;
+
+  const accomVsStay = stayDays !== null && stayDays !== data.accommodationDays;
+  const badLines = data.lines.filter((l) => l.qty !== data.accommodationDays);
+  if (!accomVsStay && badLines.length === 0) return null;
+
+  return (
+    <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm print:hidden">
+      <p className="font-semibold text-amber-900">Check the days on this bill</p>
+      <div className="mt-1 flex flex-wrap gap-x-6 gap-y-1 text-amber-900">
+        <span>Admitted: <strong>{stayDays ?? '—'}</strong> day{stayDays === 1 ? '' : 's'}</span>
+        <span>Accommodation billed: <strong>{data.accommodationDays}</strong></span>
+      </div>
+      <ul className="mt-2 list-disc space-y-0.5 pl-5 text-amber-900">
+        {accomVsStay && (
+          <li>
+            Accommodation is billed for <strong>{data.accommodationDays}</strong> day
+            {data.accommodationDays === 1 ? '' : 's'} but the patient was admitted for{' '}
+            <strong>{stayDays}</strong>.
+            {data.accommodationDays > (stayDays ?? 0)
+              ? ' The patient is being charged for days not stayed.'
+              : ' The stay is longer than what is billed.'}
+          </li>
+        )}
+        {badLines.map((l, i) => (
+          <li key={i}>
+            <strong>{l.name}</strong> is billed <strong>{l.qty}</strong> against{' '}
+            <strong>{data.accommodationDays}</strong> accommodation day
+            {data.accommodationDays === 1 ? '' : 's'}.
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-xs text-amber-800">
+        Nothing is blocked — this is a check, not a refusal. Correct the dates or the
+        quantities if they are wrong.
+      </p>
+    </div>
+  );
+};
+
 const FinalBill = () => {
   const { visitId } = useParams<{ visitId: string }>();
   const navigate = useNavigate();
@@ -22289,6 +22391,14 @@ Dr. Murali B K
             }
           `}</style>
             <div className="max-w-full mx-auto bg-white shadow-lg p-3 sm:p-4 lg:p-6 printable-area avoid-break">
+              {/* Days check — read-only, above everything, hidden when the
+                  three figures agree and hidden from the print. */}
+              <BillDaysCheck
+                visitUuid={visitData?.id}
+                admissionDate={visitData?.admission_date}
+                dischargeDate={visitData?.discharge_date}
+              />
+
               {/* Complete Financial Summary UI - Above FINAL BILL */}
               <div className="mb-8 hidden bg-white border border-gray-300 rounded-lg p-3 sm:p-4 lg:p-6 w-full no-print xl:block">
                 {/* Date Input and Action Buttons */}
