@@ -32,7 +32,7 @@ const stub = (status: number, body: string, contentType = 'application/json') =>
   globalThis.fetch = (async () =>
     new Response(body, { status, headers: { 'content-type': contentType } })) as typeof fetch;
 };
-const spoke = () => errors.some((e) => e.startsWith('[not saved]'));
+const spoke = () => errors.some((e) => e.startsWith('[failed '));
 const reset = () => { errors.length = 0; };
 
 const URL_REST = 'https://x.supabase.co/rest/v1/advance_payment';
@@ -117,7 +117,20 @@ const run = async () => {
   for (let i = 0; i < 5; i++) await reportingFetch(URL_REST, { method: 'POST' });
   await new Promise((r) => setTimeout(r, 10));
   check('every attempt is logged for the developer',
-    errors.filter((e) => e.startsWith('[not saved]')).length === 5, errors.length);
+    errors.filter((e) => e.startsWith('[failed ')).length === 5, errors.length);
+
+  // 11. A read-only RPC that fails must not claim something was not saved.
+  //     get_panel_document_status is a query; telling a cashier their work was
+  //     lost because a list failed to load sends them checking a payment that
+  //     was never at risk.
+  reset();
+  stub(404, JSON.stringify({ message: 'Could not find the function' }));
+  await reportingFetch('https://x.supabase.co/rest/v1/rpc/get_panel_document_status',
+    { method: 'POST' });
+  await new Promise((r) => setTimeout(r, 10));
+  check('a failed RPC is still reported', spoke(), errors);
+  check('but it is not called "not saved"',
+    !errors.some((e) => e.toLowerCase().includes('not saved')), errors);
 
   // 10. If fetch itself rejects, the caller sees the real network error rather
   //     than something this file invented.

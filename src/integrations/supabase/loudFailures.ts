@@ -91,19 +91,34 @@ const readError = async (response: Response): Promise<{ message: string; detail:
   }
 };
 
+/**
+ * "Not saved" is a promise about what happened, and it must be true.
+ *
+ * Every RPC is a POST, but plenty of them only READ —
+ * get_panel_document_status is a query, and telling a cashier their work was
+ * not saved because a list failed to load sends them to check a payment that
+ * was never in danger. A test that lied about its own failure caused exactly
+ * that confusion earlier today; this is the same mistake in the UI.
+ *
+ * A write to a table is a save. Anything through /rpc/ might be either, so it
+ * gets wording that is true in both cases.
+ */
+const titleFor = (url: string): string =>
+  url.includes('/rest/v1/rpc/') ? "That didn't go through" : 'Not saved';
+
 const report = async (method: string, url: string, response: Response): Promise<void> => {
   const target = describeTarget(url);
   const { message, detail } = await readError(response);
 
   // The log always happens, toast or no toast — it is what a developer needs
   // and it costs nothing.
-  console.error(`[not saved] ${method} ${target} → ${response.status}`, { message, detail, url });
+  console.error(`[failed ${method}] ${target} → ${response.status}`, { message, detail, url });
 
   if (typeof window === 'undefined') return;
   if (seenRecently(`${method}|${target}|${message}`)) return;
 
   const { toast } = await import('sonner');
-  toast.error('Not saved', {
+  toast.error(titleFor(url), {
     description: message,
     duration: 10_000,
   });
