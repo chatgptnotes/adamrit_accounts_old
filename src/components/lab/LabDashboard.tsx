@@ -35,7 +35,7 @@ import LabSampleProcessing from './LabSampleProcessing';
 import LabReportPrintFormat from './LabReportPrintFormat';
 
 // Import lab hooks
-import { useLabDashboard } from '@/hooks/useLabData';
+import { useLabDashboard, useLabTopTestsToday, useLabDepartmentStatus } from '@/hooks/useLabData';
 
 const LabDashboard: React.FC = () => {
   // Persist selected tab in URL so it survives page refresh
@@ -48,6 +48,8 @@ const LabDashboard: React.FC = () => {
 
   // Use real data from backend
   const { dashboardData, loading, error, refetch } = useLabDashboard();
+  const { tests: topTests, loading: topTestsLoading } = useLabTopTestsToday();
+  const { departments: departmentStatus, loading: departmentsLoading } = useLabDepartmentStatus();
 
   // Calculate dashboard metrics from real data
   const metrics = {
@@ -73,22 +75,6 @@ const LabDashboard: React.FC = () => {
     }
     return `${(hours / 24).toFixed(1)} days`;
   };
-
-  const topTests = [
-    { name: 'Complete Blood Count', count: 45, tat: '2.5 hrs' },
-    { name: 'Basic Metabolic Panel', count: 38, tat: '3.2 hrs' },
-    { name: 'Lipid Panel', count: 29, tat: '4.1 hrs' },
-    { name: 'Liver Function Tests', count: 24, tat: '3.8 hrs' },
-    { name: 'Thyroid Function Tests', count: 18, tat: '6.2 hrs' }
-  ];
-
-  const departmentStatus = [
-    { name: 'Hematology', pending: 12, completed: 28, equipment: 'OK' },
-    { name: 'Chemistry', pending: 18, completed: 45, equipment: 'OK' },
-    { name: 'Microbiology', pending: 8, completed: 15, equipment: 'MAINTENANCE' },
-    { name: 'Immunology', pending: 5, completed: 12, equipment: 'OK' },
-    { name: 'Molecular Biology', pending: 2, completed: 8, equipment: 'OK' }
-  ];
 
   return (
     <div className="space-y-6">
@@ -304,14 +290,28 @@ const LabDashboard: React.FC = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {topTests.map((test, index) => (
-                    <div key={index} className="flex items-center justify-between p-2 rounded hover:bg-gray-50">
+                  {topTestsLoading && (
+                    <p className="text-sm text-muted-foreground">Loading…</p>
+                  )}
+                  {!topTestsLoading && topTests.length === 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      No tests ordered yet today.
+                    </p>
+                  )}
+                  {topTests.map((test) => (
+                    <div key={test.test_name} className="flex items-center justify-between p-2 rounded hover:bg-gray-50">
                       <div>
-                        <p className="text-sm font-medium">{test.name}</p>
-                        <p className="text-xs text-muted-foreground">Count: {test.count}</p>
+                        <p className="text-sm font-medium">{test.test_name}</p>
+                        <p className="text-xs text-muted-foreground">Count: {test.ordered_count}</p>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-semibold">TAT: {test.tat}</p>
+                        {/* A test ordered minutes ago has no turnaround yet. A
+                            dash says so; 0.0 hrs would not. */}
+                        <p className="text-sm font-semibold">
+                          {test.tat_hours === null
+                            ? 'TAT: —'
+                            : `TAT: ${Number(test.tat_hours).toFixed(1)} hrs`}
+                        </p>
                       </div>
                     </div>
                   ))}
@@ -326,28 +326,40 @@ const LabDashboard: React.FC = () => {
               <CardTitle>Department Status</CardTitle>
             </CardHeader>
             <CardContent>
+              {/* Pending and Completed used to sit here, invented. They are
+                  gone rather than guessed: no column links a test to a
+                  department, so the only honest way to add them back is to
+                  record a department on the test master. */}
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-                {departmentStatus.map((dept, index) => (
-                  <div key={index} className="p-4 border rounded-lg">
+                {departmentsLoading && (
+                  <p className="text-sm text-muted-foreground">Loading…</p>
+                )}
+                {!departmentsLoading && departmentStatus.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No departments recorded.</p>
+                )}
+                {departmentStatus.map((dept) => (
+                  <div key={dept.department_code || dept.department_name} className="p-4 border rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
                       <FlaskConical className="h-4 w-4" />
-                      <h3 className="font-medium">{dept.name}</h3>
+                      <h3 className="font-medium">{dept.department_name}</h3>
                     </div>
                     <div className="space-y-1">
                       <div className="flex justify-between text-sm">
-                        <span>Pending:</span>
-                        <span className="font-medium">{dept.pending}</span>
+                        <span>Machines:</span>
+                        <span className="font-medium">{dept.equipment_total}</span>
                       </div>
                       <div className="flex justify-between text-sm">
-                        <span>Completed:</span>
-                        <span className="font-medium">{dept.completed}</span>
+                        <span>Working:</span>
+                        <span className="font-medium">
+                          {dept.equipment_active}/{dept.equipment_total}
+                        </span>
                       </div>
                       <div className="flex justify-between text-sm">
-                        <span>Equipment:</span>
+                        <span>Status:</span>
                         <span className={`font-medium ${
-                          dept.equipment === 'OK' ? 'text-green-600' : 'text-orange-600'
+                          dept.equipment_state === 'Active' ? 'text-green-600' : 'text-orange-600'
                         }`}>
-                          {dept.equipment}
+                          {dept.equipment_state}
                         </span>
                       </div>
                     </div>

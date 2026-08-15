@@ -1383,6 +1383,99 @@ export function useLabDashboard() {
   };
 }
 
+export interface LabTopTest {
+  test_name: string;
+  ordered_count: number;
+  /** Measured ordered → completed, in hours. Null while nothing has finished. */
+  tat_hours: number | null;
+}
+
+/**
+ * The most-ordered tests of the current IST day, with real turnaround.
+ *
+ * Replaces a hardcoded array of five invented tests. Counted in SQL because
+ * the turnaround is an average over the day's orders, and because the hospital
+ * filter runs through visits to patients.
+ */
+export function useLabTopTestsToday() {
+  const { hospitalConfig } = useAuth();
+  const [tests, setTests] = useState<LabTopTest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const hospitalFilter = hospitalConfig?.name === 'ayushman' ? 'ayushman' : 'hope';
+
+  useEffect(() => {
+    const fetchTopTests = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data, error: supabaseError } = await supabase.rpc('lab_top_tests_today', {
+          p_hospital_type: hospitalFilter,
+          p_limit: 5,
+        });
+        if (supabaseError) throw supabaseError;
+        setTests((data ?? []) as LabTopTest[]);
+      } catch (err) {
+        console.error('Error fetching top tests:', err);
+        setError(err instanceof Error ? err.message : 'Failed to fetch top tests');
+        // Empty, never a stand-in. An invented list is what this replaced.
+        setTests([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchTopTests();
+  }, [hospitalFilter]);
+
+  return { tests, loading, error };
+}
+
+export interface LabDepartmentStatus {
+  department_name: string;
+  department_code: string;
+  equipment_total: number;
+  equipment_active: number;
+  /** 'Active', 'No equipment', or the actual status of whatever is not active. */
+  equipment_state: string;
+}
+
+/**
+ * Departments and the real state of their machines.
+ *
+ * The panel this replaces also showed Pending and Completed per department.
+ * Those are not here because nothing links a test to a department -- `lab` has
+ * a free-text category and no department_id -- and mapping the two by name
+ * would be a clinical guess dressed up as a count. Not hospital-scoped:
+ * lab_departments has no hospital column.
+ */
+export function useLabDepartmentStatus() {
+  const [departments, setDepartments] = useState<LabDepartmentStatus[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data, error: supabaseError } = await supabase.rpc('lab_department_status');
+        if (supabaseError) throw supabaseError;
+        setDepartments((data ?? []) as LabDepartmentStatus[]);
+      } catch (err) {
+        console.error('Error fetching department status:', err);
+        setError(err instanceof Error ? err.message : 'Failed to fetch department status');
+        setDepartments([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchStatus();
+  }, []);
+
+  return { departments, loading, error };
+}
+
 // Lab Subspecialties Hook
 export function useLabSubspecialties() {
   const [subspecialties, setSubspecialties] = useState<any[]>([]);
