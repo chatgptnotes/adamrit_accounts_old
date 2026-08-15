@@ -662,11 +662,33 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
 
       console.log('💾 Saving advance payment:', advancePaymentData);
 
-      const { data, error } = await supabase
-        .from('advance_payment')
-        .insert(advancePaymentData)
-        .select()
-        .single();
+      // Second screen onto record_patient_payment. The fields are the same
+      // ones this modal always sent; what the function decides for itself —
+      // status, and the counter, which comes from the patient's own hospital —
+      // is no longer sent from here. Two places deciding one value is how they
+      // come to disagree.
+      const { data, error } = await (supabase as any).rpc('record_patient_payment', {
+        p_patient_id: advancePaymentData.patient_id,
+        p_amount: advancePaymentData.advance_amount,
+        p_payment_mode: advancePaymentData.payment_mode,
+        p_collected_by_user_id: advancePaymentData.collected_by_user_id,
+        p_visit_id: advancePaymentData.visit_id,
+        p_patient_name: advancePaymentData.patient_name,
+        p_patients_id: advancePaymentData.patients_id,
+        p_bill_no: advancePaymentData.bill_no,
+        p_date_of_admission: advancePaymentData.date_of_admission,
+        p_payment_date: advancePaymentData.payment_date,
+        p_is_refund: advancePaymentData.is_refund,
+        p_refund_reason: advancePaymentData.refund_reason,
+        p_returned_amount: advancePaymentData.returned_amount,
+        p_billing_executive: advancePaymentData.billing_executive,
+        p_reference_number: advancePaymentData.reference_number,
+        p_remarks: advancePaymentData.remarks,
+        p_bank_account_id: advancePaymentData.bank_account_id,
+        p_bank_account_name: advancePaymentData.bank_account_name,
+        p_package_name: advancePaymentData.package_name,
+        p_package_days: advancePaymentData.package_days,
+      });
 
       if (error) {
         console.error('❌ Error saving advance payment:', error);
@@ -682,6 +704,10 @@ export const AdvancePaymentModal: React.FC<AdvancePaymentModalProps> = ({
         return;
       }
 
+
+      // The counter having no opening cash does not stop a patient paying, but
+      // whoever is at the desk is the only person who can still fix it today.
+      for (const warning of (data?.warnings ?? []) as string[]) toast.warning(warning);
 
       // Fire-and-forget: push payment to Tally
       pushPaymentToTally({
