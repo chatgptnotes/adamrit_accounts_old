@@ -28,6 +28,7 @@
     "test:loud-failures": "npx vite-node e2e/loud-failures.test.ts",
     "test:money-paths": "python3 scripts/test-money-paths.py",
     "check:migrations": "node scripts/check-migration-safety.cjs",
+    "check:accounting-schema": "node scripts/check-accounting-schema.cjs",
     "check:api": "node scripts/check-api-routes.cjs && tsc -p tsconfig.api.json",
     "test:api": "npx vite-node e2e/api-middleware.test.ts"
   },

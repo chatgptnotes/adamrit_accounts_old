@@ -274,7 +274,17 @@ export async function upsertDoctorLedgerMap(input: {
   if (!name) throw new Error('Enter the doctor name')
   if (!input.companyId || !input.partyAccountId) throw new Error('Select the company and party ledger')
 
-  const { data: existing } = await doctorLedgerMap().select('id').ilike('surgeon_name', name).limit(1)
+  // This read decides UPDATE vs INSERT. If it failed and the error were
+  // dropped, `existing` would be undefined, the INSERT branch would be taken,
+  // and the doctor would silently gain a SECOND ledger mapping — after which
+  // "resolve the ledger by name" returns whichever row comes back first.
+  const { data: existing, error: existingError } = await doctorLedgerMap()
+    .select('id')
+    .ilike('surgeon_name', name)
+    .limit(1)
+  if (existingError) {
+    throw new Error(existingError.message || 'Could not check for an existing doctor mapping')
+  }
   const payload = {
     surgeon_name: name,
     company_id: input.companyId,
@@ -342,17 +352,25 @@ export async function createDoctorApprovalsFromOt(ot: {
     let corporateName = ''
     try {
       if (ot.visit_id) {
-        const { data: visitRow } = await supabase
+        const { data: visitRow, error: visitError } = await supabase
           .from('visits')
           .select('patients!inner(corporate)')
           .eq('visit_id', ot.visit_id)
           .maybeSingle()
+        // "No such patient" is a legitimate miss and keeps the private default.
+        // A rejected read is not — without this the two are indistinguishable
+        // and a panel patient is silently charged the private rate.
+        if (visitError) throw visitError
         corporateName = String((visitRow as any)?.patients?.corporate || '').trim()
         const corporate = corporateName.toLowerCase()
         isPrivate = !corporate || corporate.includes('private')
       }
     } catch (err: any) {
-      console.warn('[ot-auto] patient class lookup failed:', err?.message || err)
+      console.warn(
+        '[ot-auto] patient class lookup FAILED — falling back to the private rate, ' +
+          'which may be the wrong rate for this patient:',
+        err?.message || err,
+      )
     }
     const rate = isPrivate ? 'private' : 'panel'
     // Named on the bill and therefore in the JV: Private, or the actual
@@ -366,10 +384,13 @@ export async function createDoctorApprovalsFromOt(ot: {
     try {
       const surgeryName = (ot.surgery_name || '').trim()
       if (surgeryName) {
-        const { data: feeRows } = await (supabase as any)
+        const { data: feeRows, error: feeError } = await (supabase as any)
           .from('surgery_fee_master')
           .select('procedure_name, yojana_surgery_name, panel_rate, private_rate')
           .eq('is_active', true)
+        // Same distinction as above: an empty master legitimately means "use
+        // the owner's default", a rejected read means we do not know the fee.
+        if (feeError) throw feeError
         const lowerName = surgeryName.toLowerCase()
         const fee =
           (feeRows || []).find((row: any) => row.procedure_name?.trim().toLowerCase() === lowerName) ||
@@ -378,7 +399,11 @@ export async function createDoctorApprovalsFromOt(ot: {
         if (masterAmount > 0) surgeonAmount = masterAmount
       }
     } catch (err: any) {
-      console.warn('[ot-auto] surgery fee lookup failed:', err?.message || err)
+      console.warn(
+        '[ot-auto] surgery fee lookup FAILED — falling back to the default rate, ' +
+          'so the payable amount may not match the Surgery Fees master:',
+        err?.message || err,
+      )
     }
 
     // Anesthetist: fixed rate by anesthesia type; an unrecognised type

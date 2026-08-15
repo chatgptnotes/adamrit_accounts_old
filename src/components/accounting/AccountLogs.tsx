@@ -176,11 +176,12 @@ async function fetchAccountLog(start: string, end: string): Promise<LogEntry[]> 
 }
 
 async function fetchVouchers(start: string, end: string): Promise<LogEntry[]> {
-  const { data } = await supabaseData
+  const { data, error } = await supabaseData
     .from('payment_vouchers')
     .select('id, voucher_no, person_name, amount, purpose, created_at')
     .gte('created_at', start)
     .lte('created_at', end);
+  if (error) throw error;
   return (data ?? []).map((r: any) => ({
     id: `pv-${r.id}`,
     created_at: r.created_at,
@@ -191,17 +192,22 @@ async function fetchVouchers(start: string, end: string): Promise<LogEntry[]> {
 }
 
 async function fetchPharmacy(start: string, end: string): Promise<LogEntry[]> {
-  const { data } = await supabaseData
+  // Column names here are sale_id / bill_number / total_amount. They were
+  // previously id / bill_no / total, which the database rejects outright — and
+  // because the error was dropped, every pharmacy sale silently vanished from
+  // this log rather than showing an error.
+  const { data, error } = await supabaseData
     .from('pharmacy_sales')
-    .select('id, bill_no, patient_name, total, created_at')
+    .select('sale_id, bill_number, patient_name, total_amount, created_at')
     .gte('created_at', start)
     .lte('created_at', end);
+  if (error) throw error;
   return (data ?? []).map((r: any) => ({
-    id: `ps-${r.id}`,
+    id: `ps-${r.sale_id}`,
     created_at: r.created_at,
     type: 'Pharmacy Sale',
-    description: [r.bill_no ? `Rx #${r.bill_no}` : 'Sale', r.patient_name].filter(Boolean).join(' – '),
-    amount: r.total ?? undefined,
+    description: [r.bill_number ? `Rx #${r.bill_number}` : 'Sale', r.patient_name].filter(Boolean).join(' – '),
+    amount: r.total_amount ?? undefined,
   }));
 }
 
@@ -214,10 +220,14 @@ async function fetchBilling(start: string, end: string): Promise<LogEntry[]> {
       .lte('created_at', end),
     supabaseData
       .from('final_payments')
-      .select('id, amount, payment_mode, created_at')
+      // mode_of_payment, not payment_mode — the latter does not exist here and
+      // the rejected query silently dropped every final payment from the log.
+      .select('id, amount, mode_of_payment, created_at')
       .gte('created_at', start)
       .lte('created_at', end),
   ]);
+  if (apRes.error) throw apRes.error;
+  if (fpRes.error) throw fpRes.error;
   const ap: LogEntry[] = (apRes.data ?? []).map((r: any) => ({
     id: `ap-${r.id}`,
     created_at: r.created_at,
@@ -229,23 +239,36 @@ async function fetchBilling(start: string, end: string): Promise<LogEntry[]> {
     id: `fp-${r.id}`,
     created_at: r.created_at,
     type: 'Final Payment',
-    description: r.payment_mode ? `via ${r.payment_mode}` : 'Final Payment',
+    description: r.mode_of_payment ? `via ${r.mode_of_payment}` : 'Final Payment',
     amount: r.amount ?? undefined,
   }));
   return [...ap, ...fp];
 }
 
 async function fetchTallySync(start: string, end: string): Promise<LogEntry[]> {
-  const { data } = await supabaseData
-    .from('tally_sync_log')
-    .select('id, sync_type, direction, status, records_synced, company_name, created_at')
-    .gte('created_at', start)
-    .lte('created_at', end);
-  return (data ?? []).map((r: any) => ({
+  // This table has no company_name and no created_at. It carries company_id and
+  // started_at, so the old query was rejected and every Tally sync silently
+  // disappeared from the log. company_id has no foreign key to companies, so
+  // PostgREST cannot embed the name — it is looked up separately and mapped.
+  const [syncRes, companyRes] = await Promise.all([
+    supabaseData
+      .from('tally_sync_log')
+      .select('id, sync_type, direction, status, records_synced, started_at, company_id')
+      .gte('started_at', start)
+      .lte('started_at', end),
+    supabaseData.from('companies').select('id, company_name'),
+  ]);
+  if (syncRes.error) throw syncRes.error;
+  if (companyRes.error) throw companyRes.error;
+  const companyName = new Map<string, string>(
+    (companyRes.data ?? []).map((c: any) => [String(c.id), String(c.company_name)]),
+  );
+  return (syncRes.data ?? []).map((r: any) => ({
     id: `tsl-${r.id}`,
-    created_at: r.created_at,
+    created_at: r.started_at,
     type: 'Tally Sync',
-    description: [r.sync_type, r.direction, r.company_name,
+    description: [r.sync_type, r.direction,
+      r.company_id ? companyName.get(String(r.company_id)) : null,
       r.records_synced != null ? `${r.records_synced} records` : null]
       .filter(Boolean).join(' / '),
     tally_status:
