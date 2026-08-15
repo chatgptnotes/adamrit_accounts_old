@@ -24,7 +24,7 @@ for line in (root / ".env").read_text().splitlines():
         env[key.strip()] = value.strip()
 
 request = urllib.request.Request(
-    env["VITE_SUPABASE_URL"].rstrip("/") + "/rest/v1/rpc/run_money_path_tests",
+    env["VITE_SUPABASE_URL"].rstrip("/") + "/rest/v1/rpc/run_money_path_tests_all",
     data=b"{}",
     headers={
         "apikey": env["SUPABASE_SERVICE_ROLE_KEY"],
