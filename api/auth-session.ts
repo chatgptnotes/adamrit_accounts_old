@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import bcrypt from 'bcryptjs';
-import { getSessionUser, parseCookies, serviceClient, sessionCookie, signToken, SESSION_COOKIE, SESSION_TTL_SECONDS } from './_auth.js';
+import { getSessionUser, parseCookies, serviceClient, sessionCookie, signToken, supabaseAccessToken, SESSION_COOKIE, SESSION_TTL_SECONDS } from './_auth.js';
 
 const text = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
 
@@ -33,7 +33,11 @@ const issueSession = async (row: any, res: VercelResponse, secret: string, sb: a
     () => {},
   );
 
-  return res.status(200).json({ ok: true, user: userResponse(row) });
+  return res.status(200).json({
+    ok: true,
+    user: userResponse(row),
+    dbToken: supabaseAccessToken({ id: String(row.id), email: row.email ? String(row.email) : null }),
+  });
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -43,7 +47,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'GET') {
     const user = getSessionUser(req, serviceKey);
-    return user ? res.status(200).json({ ok: true, user }) : res.status(401).json({ error: 'not_authenticated' });
+    // dbToken is minted fresh on every session check, so a tab open across a
+    // long shift keeps a valid database pass rather than expiring silently.
+    // Null unless SUPABASE_USER_JWT=1 — see supabaseAccessToken().
+    return user
+      ? res.status(200).json({ ok: true, user, dbToken: supabaseAccessToken({ id: user.id, email: user.email }) })
+      : res.status(401).json({ error: 'not_authenticated' });
   }
 
   if (req.method === 'DELETE') {

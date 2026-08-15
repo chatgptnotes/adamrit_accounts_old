@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useMemo, useCallback, R
 import { createClient } from '@supabase/supabase-js';
 import { HospitalType, getHospitalConfig } from '@/types/hospital';
 import { supabase } from '@/integrations/supabase/client';
+import { setDbAccessToken } from '@/integrations/supabase/loudFailures';
 import { logActivity } from '@/lib/activity-logger';
 import { isSuperAdminRole } from '@/lib/roles';
 
@@ -103,6 +104,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       setIsAuthLoading(false);
       return;
     }
+    // A Google sign-in already carries a real Supabase session, so swapping in
+    // our own token would be a downgrade — withUserToken() leaves supabase-js's
+    // own Authorization header alone. This is set only so logout clears the
+    // same slot for both sign-in routes.
+    const sessionBody = await sessionResponse.clone().json().catch(() => ({} as any));
+    setDbAccessToken(typeof sessionBody?.dbToken === 'string' ? sessionBody.dbToken : null);
 
     setUser(appUser);
     localStorage.setItem('hmis_user', JSON.stringify(appUser));
@@ -143,6 +150,16 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           parsed.role = parsed.username === 'admin' ? 'admin' : 'user';
         }
         setUser(parsed);
+
+        // A reload restores the user from localStorage but not the database
+        // pass, which is deliberately never stored. Ask the server for a fresh
+        // one; the httpOnly session cookie is what proves who this is. Without
+        // this the tab would fall back to the anon key after every refresh and
+        // lose access to the authenticated-only tables.
+        fetch('/api/auth-session', { method: 'GET', credentials: 'include' })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((b) => setDbAccessToken(typeof b?.dbToken === 'string' ? b.dbToken : null))
+          .catch(() => { /* stay on the anon key; a failed refresh must not log anyone out */ });
 
         // A session already open outlives the switch being thrown: deactivating
         // an account stops the next sign-in, not the tab someone left running.
@@ -255,6 +272,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       }
 
       const appUser: User = body.user;
+      // The database pass that makes auth.role() 'authenticated' for this
+      // person. Null unless SUPABASE_USER_JWT=1 on the server, in which case
+      // nothing changes. Kept in memory only — it is a credential.
+      setDbAccessToken(typeof body.dbToken === 'string' ? body.dbToken : null);
       setUser(appUser);
       localStorage.setItem('hmis_user', JSON.stringify(appUser));
       // last_login_at is stamped server-side by /api/auth-session.
@@ -286,6 +307,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   const logout = useCallback(async () => {
     setUser(null);
+    setDbAccessToken(null);
     localStorage.removeItem('hmis_user');
     setShowHospitalSelection(false);
     // Also sign out of Supabase Auth (for Google OAuth sessions)

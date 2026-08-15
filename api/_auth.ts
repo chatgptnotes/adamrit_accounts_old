@@ -27,6 +27,58 @@ export const signToken = (payload: Record<string, unknown>, secret: string) => {
   return `${body}.${signature}`;
 };
 
+/**
+ * A Supabase-recognised access token for a staff member who has just signed in.
+ *
+ * WHY THIS EXISTS. Staff sign in against our own "User" table, so the browser
+ * talks to PostgREST with the ANON key and the database sees `anon`. Every
+ * policy written `USING (auth.role() = 'authenticated')` therefore matches
+ * nothing we send — 19 tables carry rules the database has been ignoring, and
+ * turning RLS on without this would lock out 85 of 109 active staff.
+ *
+ * This mints a token the database accepts, signed with the project's own JWT
+ * secret, so `auth.role()` becomes 'authenticated' for a real signed-in person
+ * whichever way they logged in. Nobody's login changes.
+ *
+ * NOTE the shape: this is a standard three-part JWT (header.payload.signature).
+ * signToken() above is our own two-part app token and is NOT interchangeable.
+ *
+ * OFF BY DEFAULT. Returns null unless SUPABASE_USER_JWT=1 and the secret is
+ * present, so installing it cannot change behaviour — a rule that can stop the
+ * hospital gets a switch (docs/money-path-rules.md, rule 5).
+ *
+ * This is authentication, not authorisation: it proves somebody is staff, not
+ * which records they should see. Tightening individual policies to roles is a
+ * later pass that only becomes possible once this is in place.
+ */
+export const supabaseAccessToken = (user: { id: string; email?: string | null }): string | null => {
+  const secret = process.env.SUPABASE_JWT_SECRET || '';
+  if (process.env.SUPABASE_USER_JWT !== '1' || !secret) return null;
+
+  // The project ref is the subdomain of the Supabase URL; deriving it means a
+  // project move cannot leave a stale hard-coded ref behind.
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+  const ref = url.replace(/^https?:\/\//, '').split('.')[0];
+  if (!ref) return null;
+
+  const now = Math.floor(Date.now() / 1000);
+  const header = encodePart(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const payload = encodePart(JSON.stringify({
+    iss: 'supabase',
+    ref,
+    aud: 'authenticated',
+    role: 'authenticated',
+    sub: user.id,
+    email: user.email || undefined,
+    iat: now,
+    // Matches the app session, so the database pass never expires mid-shift
+    // while the person is still logged in.
+    exp: now + SESSION_TTL_SECONDS,
+  }));
+  const signature = createHmac('sha256', secret).update(`${header}.${payload}`).digest('base64url');
+  return `${header}.${payload}.${signature}`;
+};
+
 export const verifyToken = <T extends Record<string, any>>(token: string, secret: string): T | null => {
   const [body, signature] = token.split('.');
   if (!body || !signature) return null;

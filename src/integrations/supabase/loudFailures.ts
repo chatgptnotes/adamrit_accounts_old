@@ -43,6 +43,24 @@
 
 const WRITE_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 
+/**
+ * The signed-in staff member's database pass, if the server issued one.
+ *
+ * Staff authenticate against our own "User" table, so without this the browser
+ * presents only the anon key and the database sees `anon` — which is why 19
+ * tables carry `auth.role() = 'authenticated'` policies that have never matched
+ * anything. api/auth-session mints a Supabase-signed token at login;
+ * AuthContext hands it here, and every database call below swaps it in.
+ *
+ * Null until the server sends one, and null whenever SUPABASE_USER_JWT is off,
+ * so the app behaves exactly as before until the switch is thrown.
+ */
+let dbAccessToken: string | null = null;
+
+export const setDbAccessToken = (token: string | null): void => {
+  dbAccessToken = token || null;
+};
+
 /** Recently reported failures, so a retry loop cannot bury the screen. */
 const recent = new Map<string, number>();
 const QUIET_WINDOW_MS = 5000;
@@ -128,8 +146,43 @@ const report = async (method: string, url: string, response: Response): Promise<
  * A fetch that behaves exactly like the real one, and says so when a write is
  * refused. The response is returned untouched either way.
  */
+/**
+ * Present the signed-in person's token instead of the bare anon key.
+ *
+ * Only swaps a header that currently carries the anon key: supabase-js sets its
+ * own Authorization for /auth/v1/ (Google sign-in) and for a genuine Supabase
+ * session, and neither must be overwritten. The apikey header stays as-is —
+ * PostgREST still wants it.
+ */
+const withUserToken = (init: RequestInit | undefined, url: string): RequestInit | undefined => {
+  if (!dbAccessToken) return init;
+  if (url.includes('/auth/v1/')) return init;
+
+  const headers = new Headers(init?.headers as HeadersInit | undefined);
+  const current = headers.get('Authorization');
+  const anonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string | undefined;
+  if (current && anonKey && current !== `Bearer ${anonKey}`) return init;
+
+  headers.set('Authorization', `Bearer ${dbAccessToken}`);
+  return { ...init, headers };
+};
+
 export const reportingFetch: typeof fetch = async (input, init) => {
-  const response = await fetch(input as RequestInfo, init);
+  const requestUrl =
+    typeof input === 'string' ? input
+      : input instanceof URL ? input.toString()
+        : (input as Request)?.url || '';
+
+  // Wrapped: a fault in header-swapping must not take down every database call.
+  let effectiveInit = init;
+  try {
+    effectiveInit = withUserToken(init, requestUrl);
+  } catch {
+    effectiveInit = init;
+  }
+
+  const response = await fetch(input as RequestInfo, effectiveInit);
+  init = effectiveInit;
 
   try {
     const method = (init?.method || (input as Request)?.method || 'GET').toUpperCase();

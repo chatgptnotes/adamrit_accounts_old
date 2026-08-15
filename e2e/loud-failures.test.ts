@@ -13,7 +13,7 @@
  * Run: npx vite-node e2e/loud-failures.test.ts
  */
 
-import { reportingFetch } from '../src/integrations/supabase/loudFailures';
+import { reportingFetch, setDbAccessToken } from '../src/integrations/supabase/loudFailures';
 
 let pass = 0;
 let fail = 0;
@@ -131,6 +131,54 @@ const run = async () => {
   check('a failed RPC is still reported', spoke(), errors);
   check('but it is not called "not saved"',
     !errors.some((e) => e.toLowerCase().includes('not saved')), errors);
+
+  // 12. THE DATABASE PASS. reportingFetch now swaps the anon key for the
+  //     signed-in person's token, which means a fault here signs every request
+  //     as the wrong identity — or none. These pin the behaviour.
+  const ANON = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'anon-test-key';
+  let seen: Headers | null = null;
+  const captureFetch = () => {
+    globalThis.fetch = (async (_i: unknown, init?: RequestInit) => {
+      seen = new Headers(init?.headers as HeadersInit | undefined);
+      return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+  };
+
+  // no token → nothing is touched
+  reset(); captureFetch(); setDbAccessToken(null);
+  await reportingFetch(URL_REST, { method: 'GET', headers: { Authorization: `Bearer ${ANON}` } });
+  check('without a token the anon key is left alone',
+    seen?.get('Authorization') === `Bearer ${ANON}`, seen?.get('Authorization'));
+
+  // token → swapped in
+  reset(); captureFetch(); setDbAccessToken('user-jwt');
+  await reportingFetch(URL_REST, { method: 'GET', headers: { Authorization: `Bearer ${ANON}` } });
+  check('with a token the request is signed as the user',
+    seen?.get('Authorization') === 'Bearer user-jwt', seen?.get('Authorization'));
+
+  // auth endpoints are never touched — Google sign-in must keep its own header
+  reset(); captureFetch(); setDbAccessToken('user-jwt');
+  await reportingFetch(URL_AUTH, { method: 'POST', headers: { Authorization: `Bearer ${ANON}` } });
+  check('auth endpoints keep their own Authorization',
+    seen?.get('Authorization') === `Bearer ${ANON}`, seen?.get('Authorization'));
+
+  // a real Supabase session outranks ours and must survive
+  reset(); captureFetch(); setDbAccessToken('user-jwt');
+  await reportingFetch(URL_REST, { method: 'GET', headers: { Authorization: 'Bearer google-session' } });
+  check('an existing non-anon session is not overwritten',
+    seen?.get('Authorization') === 'Bearer google-session', seen?.get('Authorization'));
+
+  // logout puts it back
+  reset(); captureFetch(); setDbAccessToken(null);
+  await reportingFetch(URL_REST, { method: 'GET', headers: { Authorization: `Bearer ${ANON}` } });
+  check('clearing the token restores the anon key',
+    seen?.get('Authorization') === `Bearer ${ANON}`, seen?.get('Authorization'));
+
+  // and the apikey header, which PostgREST still requires, is never dropped
+  reset(); captureFetch(); setDbAccessToken('user-jwt');
+  await reportingFetch(URL_REST, { method: 'GET', headers: { Authorization: `Bearer ${ANON}`, apikey: ANON } });
+  check('the apikey header survives the swap', seen?.get('apikey') === ANON, seen?.get('apikey'));
+  setDbAccessToken(null);
 
   // 10. If fetch itself rejects, the caller sees the real network error rather
   //     than something this file invented.
