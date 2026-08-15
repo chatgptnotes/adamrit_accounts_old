@@ -21997,14 +21997,12 @@ Dr. Murali B K
                         >
                           📄 Generate ESIC Letter
                         </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => navigate(`/p2form/${visitId}`)}
-                          className="hover:bg-green-50 hover:border-green-300"
-                        >
-                          📝 P2Form
-                        </Button>
+                        {/* The P2Form button was removed on 15 Aug 2026. It
+                            opened a page that saved to a `p2_forms` table which
+                            has never existed on this database, so no P2 form
+                            was ever stored — and the page opened pre-filled
+                            with placeholder patient details. Director's call:
+                            take the button away rather than finish the form. */}
 
                       </div>
 
