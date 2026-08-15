@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "prebuild": "node scripts/check-finalbill-locked.cjs && node scripts/check-registration-locked.cjs && node scripts/check-expensebill-locked.cjs && node scripts/check-accounting-locked.cjs",
+    "prebuild": "node scripts/check-migration-safety.cjs; node scripts/check-finalbill-locked.cjs && node scripts/check-registration-locked.cjs && node scripts/check-expensebill-locked.cjs && node scripts/check-accounting-locked.cjs",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "check:finalbill": "node scripts/check-finalbill-locked.cjs",
@@ -26,7 +26,8 @@
     "check:emails": "cd scripts/email-automation && node run.js",
     "typecheck": "node scripts/typecheck-ratchet.cjs",
     "test:loud-failures": "npx vite-node e2e/loud-failures.test.ts",
-    "test:money-paths": "python3 scripts/test-money-paths.py"
+    "test:money-paths": "python3 scripts/test-money-paths.py",
+    "check:migrations": "node scripts/check-migration-safety.cjs"
   },
   "dependencies": {
     "@ckeditor/ckeditor5-build-classic": "^41.4.2",

@@ -226,3 +226,19 @@ _Catalog auto-regenerated on every Claude Code session start. Do not edit betwee
 - For multi-step tasks, state a brief plan with a verify step for each.
 - Define success criteria concretely — weak criteria require constant clarification.
 
+## Money paths — read before changing cash, billing or payments
+
+`docs/money-path-rules.md` records seven rules, each written after a real
+failure in August 2026: enforce at entry not at commit; never write a child row
+in a BEFORE INSERT trigger; rebuild functions from the live database rather than
+from a migration file; model the claim AND the release; put anything that can
+stop the hospital behind a switch defaulted off; never resolve a ledger by name
+alone; never swallow a failed write.
+
+Before and after any such change:
+
+```
+npm run check:migrations     # flags the patterns that caused those failures
+npm run test:money-paths     # ten checks, each from a real incident
+npm run test:loud-failures   # the failed-write reporter itself
+```
