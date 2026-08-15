@@ -26,3 +26,8 @@ scripts/*
 !scripts/check-accounting-locked.cjs
 !scripts/accounting-baseline.json
 !scripts/check-api-routes.cjs
+# Runs first in prebuild. Without this line the file is stripped from the
+# deployment and every build logs "Cannot find module" — harmless only because
+# the prebuild chain separates it with ';', which meant the guard silently
+# never ran in CI at all.
+!scripts/check-migration-safety.cjs
