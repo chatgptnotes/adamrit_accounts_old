@@ -18,6 +18,7 @@ import { TabletButton } from "@/tablet/ui/TabletButton";
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletInput, TabletLabel } from "@/tablet/ui/TabletInput";
 import { DictationTextarea } from "@/tablet/components/DictationTextarea";
+import { OpeningCashBanner } from "@/tablet/components/OpeningCashBanner";
 import { syncPortalDataForRegistrationId } from "@/lib/governmentPortalReportDb";
 import { derivePackageCodeFromName, resolvePackageCodeFromSavedData } from "@/lib/packageCodeLookup";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -2126,6 +2127,11 @@ ${JSON.stringify(sourceContext, null, 2)}`,
         }
       >
         <div className="space-y-5">
+          {/* Above the amount, because this is the screen where the cash is
+              actually taken and the moment a missing count still costs
+              nothing to fix. It never blocks the collection. */}
+          <OpeningCashBanner />
+
           <div className="rounded-2xl bg-muted p-5 text-center">
             <p className="text-sm text-muted-foreground">Advance amount</p>
             <p className="text-4xl font-bold">{inr(value)}</p>
