@@ -18,7 +18,6 @@ import {
   Settings,
   Plus,
   RefreshCw,
-  Activity,
   Microscope,
   FlaskConical
 } from 'lucide-react';
@@ -74,14 +73,6 @@ const LabDashboard: React.FC = () => {
     }
     return `${(hours / 24).toFixed(1)} days`;
   };
-
-  const recentActivities = [
-    { id: 1, type: 'order', description: 'New urgent order received - Patient #1234', time: '2 min ago', priority: 'high' },
-    { id: 2, type: 'result', description: 'Critical value detected - Glucose 450 mg/dL', time: '5 min ago', priority: 'critical' },
-    { id: 3, type: 'sample', description: 'Sample rejected - Hemolyzed specimen', time: '10 min ago', priority: 'medium' },
-    { id: 4, type: 'qc', description: 'QC passed for Chemistry analyzer', time: '15 min ago', priority: 'low' },
-    { id: 5, type: 'equipment', description: 'Maintenance completed on Hematology analyzer', time: '1 hour ago', priority: 'low' }
-  ];
 
   const topTests = [
     { name: 'Complete Blood Count', count: 45, tat: '2.5 hrs' },
@@ -297,37 +288,12 @@ const LabDashboard: React.FC = () => {
             </CardContent>
           </Card>
 
-          {/* Dashboard Content Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Recent Activities */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Activity className="h-5 w-5" />
-                  Recent Activities
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {recentActivities.map((activity) => (
-                    <div key={activity.id} className="flex items-center justify-between p-2 rounded hover:bg-gray-50">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-2 h-2 rounded-full ${
-                          activity.priority === 'critical' ? 'bg-red-500' : 
-                          activity.priority === 'high' ? 'bg-orange-500' :
-                          activity.priority === 'medium' ? 'bg-yellow-500' : 'bg-green-500'
-                        }`} />
-                        <div>
-                          <p className="text-sm font-medium">{activity.description}</p>
-                          <p className="text-xs text-muted-foreground">{activity.time}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
+          {/* Dashboard Content Grid. Held two cards until the Recent
+              Activities feed was removed — it was five hardcoded lines of
+              invented clinical detail ("Critical value detected - Glucose 450
+              mg/dL"), identical on every load, at every hospital, for every
+              user. */}
+          <div className="grid grid-cols-1 gap-6">
             {/* Top Tests */}
             <Card>
               <CardHeader>
