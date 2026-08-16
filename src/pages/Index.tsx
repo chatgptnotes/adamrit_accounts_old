@@ -485,11 +485,6 @@ const Index = () => {
               setIsAddPatientDialogOpen(false);
               setSelectedSurgery(undefined);
             }}
-            onPatientAdded={(patient) => {
-              if (selectedSurgery) {
-                handleAddPatient(selectedSurgery, patient);
-              }
-            }}
           />
         )}
 
