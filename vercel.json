@@ -18,18 +18,37 @@
     }
   },
   "crons": [
-    { "path": "/api/deadline-reminders", "schedule": "30 3 * * *" },
-    { "path": "/api/partner/nightly-sync", "schedule": "30 20 * * *" }
+    {
+      "path": "/api/deadline-reminders",
+      "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/partner/nightly-sync",
+      "schedule": "30 20 * * *"
+    },
+    {
+      "path": "/api/books-health-check",
+      "schedule": "0 2 * * *"
+    }
   ],
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ],
   "headers": [
     {
       "source": "/manifest.webmanifest",
       "headers": [
-        { "key": "Content-Type", "value": "application/manifest+json" }
+        {
+          "key": "Content-Type",
+          "value": "application/manifest+json"
+        }
       ]
     }
   ]
