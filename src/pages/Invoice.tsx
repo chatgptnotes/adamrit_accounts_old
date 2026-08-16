@@ -1198,17 +1198,23 @@ const Invoice = () => {
         const startDate = mandatoryService.start_date ? format(new Date(mandatoryService.start_date), 'dd-MM-yyyy') : '';
         const endDate = mandatoryService.end_date ? format(new Date(mandatoryService.end_date), 'dd-MM-yyyy') : '';
 
-        let days = mandatoryService.quantity || 1;
-        if (mandatoryService.start_date && mandatoryService.end_date) {
+        // The saved quantity is what somebody actually entered on the bill, so it
+        // wins. This used to recompute the quantity from the date range and
+        // discard it: MLC Processing and Emergency Charges were saved as 1 day at
+        // Rs 2,500, carried an end date of today, and printed as 3 days at
+        // Rs 7,500. A date range is a note about the period a charge covers, not
+        // a multiplier.
+        let days = Number(mandatoryService.quantity) > 0 ? Number(mandatoryService.quantity) : 1;
+        if (!(Number(mandatoryService.quantity) > 0) && mandatoryService.start_date && mandatoryService.end_date) {
+          // Only when no quantity was recorded at all does the range stand in
+          // for one, which is how the older rows without a quantity still add up.
           const start = new Date(mandatoryService.start_date);
           const end = new Date(mandatoryService.end_date);
           days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
         }
 
         const rate = mandatoryService.rate_used || mandatoryService.amount || 0;
-        const amount = (mandatoryService.start_date && mandatoryService.end_date)
-          ? (rate * days)
-          : (mandatoryService.amount || (rate * days));
+        const amount = Number(mandatoryService.amount) > 0 ? Number(mandatoryService.amount) : rate * days;
 
         const dateRange = startDate && endDate ? ` (${startDate} to ${endDate})` : '';
         const itemDescription = `${mandatoryService.service_name}${dateRange}`;
@@ -1234,17 +1240,23 @@ const Invoice = () => {
         const startDate = mandatoryService.start_date ? format(new Date(mandatoryService.start_date), 'dd-MM-yyyy') : '';
         const endDate = mandatoryService.end_date ? format(new Date(mandatoryService.end_date), 'dd-MM-yyyy') : '';
 
-        let days = mandatoryService.quantity || 1;
-        if (mandatoryService.start_date && mandatoryService.end_date) {
+        // The saved quantity is what somebody actually entered on the bill, so it
+        // wins. This used to recompute the quantity from the date range and
+        // discard it: MLC Processing and Emergency Charges were saved as 1 day at
+        // Rs 2,500, carried an end date of today, and printed as 3 days at
+        // Rs 7,500. A date range is a note about the period a charge covers, not
+        // a multiplier.
+        let days = Number(mandatoryService.quantity) > 0 ? Number(mandatoryService.quantity) : 1;
+        if (!(Number(mandatoryService.quantity) > 0) && mandatoryService.start_date && mandatoryService.end_date) {
+          // Only when no quantity was recorded at all does the range stand in
+          // for one, which is how the older rows without a quantity still add up.
           const start = new Date(mandatoryService.start_date);
           const end = new Date(mandatoryService.end_date);
           days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
         }
 
         const rate = mandatoryService.rate_used || mandatoryService.amount || 0;
-        const amount = (mandatoryService.start_date && mandatoryService.end_date)
-          ? (rate * days)
-          : (mandatoryService.amount || (rate * days));
+        const amount = Number(mandatoryService.amount) > 0 ? Number(mandatoryService.amount) : rate * days;
 
         const dateRange = startDate && endDate ? ` (${startDate} to ${endDate})` : '';
         const itemDescription = `${mandatoryService.service_name}${dateRange}`;
@@ -1407,17 +1419,23 @@ const Invoice = () => {
         const startDate = mandatoryService.start_date ? format(new Date(mandatoryService.start_date), 'dd-MM-yyyy') : '';
         const endDate = mandatoryService.end_date ? format(new Date(mandatoryService.end_date), 'dd-MM-yyyy') : '';
 
-        let days = mandatoryService.quantity || 1;
-        if (mandatoryService.start_date && mandatoryService.end_date) {
+        // The saved quantity is what somebody actually entered on the bill, so it
+        // wins. This used to recompute the quantity from the date range and
+        // discard it: MLC Processing and Emergency Charges were saved as 1 day at
+        // Rs 2,500, carried an end date of today, and printed as 3 days at
+        // Rs 7,500. A date range is a note about the period a charge covers, not
+        // a multiplier.
+        let days = Number(mandatoryService.quantity) > 0 ? Number(mandatoryService.quantity) : 1;
+        if (!(Number(mandatoryService.quantity) > 0) && mandatoryService.start_date && mandatoryService.end_date) {
+          // Only when no quantity was recorded at all does the range stand in
+          // for one, which is how the older rows without a quantity still add up.
           const start = new Date(mandatoryService.start_date);
           const end = new Date(mandatoryService.end_date);
           days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
         }
 
         const rate = mandatoryService.rate_used || mandatoryService.amount || 0;
-        const amount = (mandatoryService.start_date && mandatoryService.end_date)
-          ? (rate * days)
-          : (mandatoryService.amount || (rate * days));
+        const amount = Number(mandatoryService.amount) > 0 ? Number(mandatoryService.amount) : rate * days;
 
         const dateRange = startDate && endDate ? ` (${startDate} to ${endDate})` : '';
         const itemDescription = `${mandatoryService.service_name}${dateRange}`;
@@ -1443,17 +1461,23 @@ const Invoice = () => {
         const startDate = clinicalService.start_date ? format(new Date(clinicalService.start_date), 'dd-MM-yyyy') : '';
         const endDate = clinicalService.end_date ? format(new Date(clinicalService.end_date), 'dd-MM-yyyy') : '';
 
-        let days = clinicalService.quantity || 1;
-        if (clinicalService.start_date && clinicalService.end_date) {
+        // The saved quantity is what somebody actually entered on the bill, so it
+        // wins. This used to recompute the quantity from the date range and
+        // discard it: MLC Processing and Emergency Charges were saved as 1 day at
+        // Rs 2,500, carried an end date of today, and printed as 3 days at
+        // Rs 7,500. A date range is a note about the period a charge covers, not
+        // a multiplier.
+        let days = Number(clinicalService.quantity) > 0 ? Number(clinicalService.quantity) : 1;
+        if (!(Number(clinicalService.quantity) > 0) && clinicalService.start_date && clinicalService.end_date) {
+          // Only when no quantity was recorded at all does the range stand in
+          // for one, which is how the older rows without a quantity still add up.
           const start = new Date(clinicalService.start_date);
           const end = new Date(clinicalService.end_date);
           days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
         }
 
         const rate = clinicalService.rate_used || clinicalService.amount || 0;
-        const amount = (clinicalService.start_date && clinicalService.end_date)
-          ? (rate * days)
-          : (clinicalService.amount || (rate * days));
+        const amount = Number(clinicalService.amount) > 0 ? Number(clinicalService.amount) : rate * days;
 
         const dateRange = startDate && endDate ? ` (${startDate} to ${endDate})` : '';
         const itemDescription = `${clinicalService.service_name}${dateRange}`;
@@ -1480,17 +1504,23 @@ const Invoice = () => {
         const startDate = clinicalService.start_date ? format(new Date(clinicalService.start_date), 'dd-MM-yyyy') : '';
         const endDate = clinicalService.end_date ? format(new Date(clinicalService.end_date), 'dd-MM-yyyy') : '';
 
-        let days = clinicalService.quantity || 1;
-        if (clinicalService.start_date && clinicalService.end_date) {
+        // The saved quantity is what somebody actually entered on the bill, so it
+        // wins. This used to recompute the quantity from the date range and
+        // discard it: MLC Processing and Emergency Charges were saved as 1 day at
+        // Rs 2,500, carried an end date of today, and printed as 3 days at
+        // Rs 7,500. A date range is a note about the period a charge covers, not
+        // a multiplier.
+        let days = Number(clinicalService.quantity) > 0 ? Number(clinicalService.quantity) : 1;
+        if (!(Number(clinicalService.quantity) > 0) && clinicalService.start_date && clinicalService.end_date) {
+          // Only when no quantity was recorded at all does the range stand in
+          // for one, which is how the older rows without a quantity still add up.
           const start = new Date(clinicalService.start_date);
           const end = new Date(clinicalService.end_date);
           days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
         }
 
         const rate = clinicalService.rate_used || clinicalService.amount || 0;
-        const amount = (clinicalService.start_date && clinicalService.end_date)
-          ? (rate * days)
-          : (clinicalService.amount || (rate * days));
+        const amount = Number(clinicalService.amount) > 0 ? Number(clinicalService.amount) : rate * days;
 
         const dateRange = startDate && endDate ? ` (${startDate} to ${endDate})` : '';
         const itemDescription = `${clinicalService.service_name}${dateRange}`;
@@ -1520,17 +1550,23 @@ const Invoice = () => {
         const startDate = mandatoryService.start_date ? format(new Date(mandatoryService.start_date), 'dd-MM-yyyy') : '';
         const endDate = mandatoryService.end_date ? format(new Date(mandatoryService.end_date), 'dd-MM-yyyy') : '';
 
-        let days = mandatoryService.quantity || 1;
-        if (mandatoryService.start_date && mandatoryService.end_date) {
+        // The saved quantity is what somebody actually entered on the bill, so it
+        // wins. This used to recompute the quantity from the date range and
+        // discard it: MLC Processing and Emergency Charges were saved as 1 day at
+        // Rs 2,500, carried an end date of today, and printed as 3 days at
+        // Rs 7,500. A date range is a note about the period a charge covers, not
+        // a multiplier.
+        let days = Number(mandatoryService.quantity) > 0 ? Number(mandatoryService.quantity) : 1;
+        if (!(Number(mandatoryService.quantity) > 0) && mandatoryService.start_date && mandatoryService.end_date) {
+          // Only when no quantity was recorded at all does the range stand in
+          // for one, which is how the older rows without a quantity still add up.
           const start = new Date(mandatoryService.start_date);
           const end = new Date(mandatoryService.end_date);
           days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
         }
 
         const rate = mandatoryService.rate_used || mandatoryService.amount || 0;
-        const amount = (mandatoryService.start_date && mandatoryService.end_date)
-          ? (rate * days)
-          : (mandatoryService.amount || (rate * days));
+        const amount = Number(mandatoryService.amount) > 0 ? Number(mandatoryService.amount) : rate * days;
 
         const dateRange = startDate && endDate ? ` (${startDate} to ${endDate})` : '';
         const itemDescription = `${mandatoryService.service_name}${dateRange}`;
