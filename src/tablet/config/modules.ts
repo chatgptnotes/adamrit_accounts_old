@@ -602,6 +602,13 @@ export const TABLET_MODULES: TabletModule[] = [
     icon: Wallet,
     accent: "text-emerald-700",
     tint: "from-emerald-500 to-green-700",
+    // The whole hospital's takings for a day, every mode, named patients. That
+    // is a books figure, not a counter figure, so it runs off the same single
+    // switch as voucher creation rather than the cash-handover roster — a
+    // cashier counts their own drawer, they do not get the hospital's day.
+    // TabletModuleHost tests this too, so a typed /t/daily-collection is
+    // refused as well as the tile being absent from the grid.
+    accountingOnly: true,
     keywords: ["collection", "daily", "today", "money", "cash", "upi", "advance", "pharmacy", "vasooli"],
   },
   {

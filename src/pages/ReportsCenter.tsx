@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { canAccessReferralRegister } from '@/lib/referralRegisterAccess';
+import { canCreateAccountingVouchers } from '@/lib/accounting-access';
 
 /**
  * Reports Center — one place that lists every standalone system report, ordered
@@ -117,7 +118,12 @@ export default function ReportsCenter() {
       SECTIONS.map((section) => ({
         ...section,
         items: section.items.filter(
-          (item) => item.route !== '/referral-register' || canAccessReferralRegister(user),
+          (item) =>
+            (item.route !== '/referral-register' || canAccessReferralRegister(user)) &&
+            // Same switch as the sidebar entry and the tablet tile. The page
+            // refuses on its own too; this only avoids offering a card that
+            // will turn the reader away.
+            (item.route !== '/daily-collection-report' || canCreateAccountingVouchers(user)),
         ),
       })).filter((section) => section.items.length > 0),
     [user],

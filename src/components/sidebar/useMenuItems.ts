@@ -115,6 +115,13 @@ export const useMenuItems = (props: AppSidebarProps): { mainItems: MenuItem[]; m
           return false;
         }
 
+        // The day's whole takings, every mode, named patients. Same switch as
+        // the tablet tile (accountingOnly) so the two surfaces cannot drift
+        // into disagreeing about who may see the hospital's day.
+        if (item.title === "Daily Collection Report" && !canAccessAccounting) {
+          return false;
+        }
+
         // Hide Director Dashboard for non-authorized users
         if (item.title === "Director Dashboard") {
           const DIRECTOR_EMAILS = ['cmd@hopehospital.com', 'finance@hopehospital.com'];
