@@ -25,8 +25,11 @@ const MANAGEMENT_ROLES = new Set([
 ]);
 
 const OFFICE_TILE_EMAILS = new Set([
-  // The named office staff, by the address they actually log in with.
-  'diksha@gmail.com',
+  // The named office staff, by the address they actually log in with -- and it
+  // has to BE the address they log in with. When Diksha's was corrected on her
+  // account, the stale entry here took the Accounts and Expense Bills tiles
+  // away from her without a word. Changing an email means grepping this file.
+  'sakharediksha54@gmail.com',
   'nisha@gmail.com',
   'lalit@gmail.com',
   'lokesh@gmail.com',
