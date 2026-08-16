@@ -166,6 +166,16 @@ export default function CashHandoverFlow() {
   );
 }
 
+/** A labelled divider, so the three places cash can be are visually separate. */
+function SectionHeading({ title, hint }: { title: string; hint: string }) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2 border-b pt-2">
+      <h3 className="text-base font-bold">{title}</h3>
+      <p className="text-xs text-muted-foreground">{hint}</p>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ hand over */
 
 function HandOverPanel({
@@ -333,6 +343,15 @@ function HandOverPanel({
         </TabletCard>
       )}
 
+      {/* Sits above the three sections: the opening count covers the drawer AND
+          the locker, so it belongs to neither. */}
+      <OpeningCashCard hospitalType={hospitalType} userId={userId} />
+
+      {/* Three sections, because the cash is in three places and mixing them
+          is how a count goes wrong: what is in the drawer, what is in the
+          locker, and what has already reached the bank. */}
+      <SectionHeading title="Drawer" hint="The notes in front of you" />
+
       <div>
         <h3 className="mb-2 font-semibold">Count the notes</h3>
         <div className="space-y-2">
@@ -360,7 +379,7 @@ function HandOverPanel({
         </div>
       </div>
 
-      <OpeningCashCard hospitalType={hospitalType} userId={userId} />
+      <SectionHeading title="Locker" hint="Held by the counter, not handed over" />
 
       <div>
         <TabletLabel htmlFor="ch-locker">Cash in the locker</TabletLabel>
@@ -377,20 +396,6 @@ function HandOverPanel({
         </p>
       </div>
 
-      <div>
-        <TabletLabel htmlFor="ch-deposited">Deposited by me in bank</TabletLabel>
-        <TabletInput
-          id="ch-deposited"
-          inputMode="decimal"
-          value={deposited}
-          onChange={(e) => setDeposited(e.target.value.replace(/[^0-9.]/g, ""))}
-          placeholder="0"
-        />
-        <p className="mt-1 text-xs text-muted-foreground">
-          Cash you paid into the bank during this shift. Record the deposit itself in
-          Bank &amp; Cash — this is only so the drawer adds up.
-        </p>
-      </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
@@ -418,6 +423,41 @@ function HandOverPanel({
         Movements only — they do not change the total. Cash taken out of the locker is
         already in your note count, and cash put in is already in the locker figure.
       </p>
+
+      <SectionHeading title="Bank" hint="Money that has already left the counter" />
+
+      <div>
+        <TabletLabel htmlFor="ch-deposited">Deposited by me in bank</TabletLabel>
+        <TabletInput
+          id="ch-deposited"
+          inputMode="decimal"
+          value={deposited}
+          onChange={(e) => setDeposited(e.target.value.replace(/[^0-9.]/g, ""))}
+          placeholder="0"
+        />
+        <p className="mt-1 text-xs text-muted-foreground">
+          Cash you paid into the bank during this shift. Record the deposit itself in
+          Bank &amp; Cash — this is only so the drawer adds up.
+        </p>
+      </div>
+
+      <div>
+        <TabletLabel htmlFor="ch-online">
+          Online receipts this shift (UPI, card) — software says{" "}
+          {inr((p?.refUpiTotal ?? 0) + (p?.refCardTotal ?? 0))}
+        </TabletLabel>
+        <TabletInput
+          id="ch-online"
+          inputMode="decimal"
+          value={online}
+          onChange={(e) => setOnline(e.target.value.replace(/[^0-9.]/g, ""))}
+          placeholder="What you took online"
+        />
+        <p className="mt-1 text-xs text-muted-foreground">
+          Not handed over — this money is in the bank. Recorded so it can be
+          checked against the software.
+        </p>
+      </div>
 
       <TabletCard className={needsReason ? "border-amber-400 bg-amber-50" : "bg-muted/40"}>
         <div className="flex items-center justify-between">
@@ -508,23 +548,6 @@ function HandOverPanel({
         )}
       </div>
 
-      <div>
-        <TabletLabel htmlFor="ch-online">
-          Online receipts this shift (UPI, card) — software says{" "}
-          {inr((p?.refUpiTotal ?? 0) + (p?.refCardTotal ?? 0))}
-        </TabletLabel>
-        <TabletInput
-          id="ch-online"
-          inputMode="decimal"
-          value={online}
-          onChange={(e) => setOnline(e.target.value.replace(/[^0-9.]/g, ""))}
-          placeholder="What you took online"
-        />
-        <p className="mt-1 text-xs text-muted-foreground">
-          Not handed over — this money is in the bank. Recorded so it can be
-          checked against the software.
-        </p>
-      </div>
 
       <div>
         <TabletLabel htmlFor="ch-notes">Notes (optional)</TabletLabel>
