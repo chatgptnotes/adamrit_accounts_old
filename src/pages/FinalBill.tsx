@@ -3981,6 +3981,17 @@ const FinalBill = () => {
         return;
       }
 
+      // Anything somebody deliberately removed from THIS bill stays removed.
+      // Read once, above BOTH auto-add loops: the daily charges below and the
+      // one-time charges further down. It sat below the daily loop at first,
+      // so Doctor and Nursing were re-added on every load however often they
+      // were deleted, while Emergency and MLC behaved.
+      const { data: excludedRows } = await supabase
+        .from('visit_clinical_service_exclusions')
+        .select('clinical_service_id')
+        .eq('visit_id', visitData.id);
+      const excludedServiceIds = new Set((excludedRows || []).map((r: any) => r.clinical_service_id));
+
       // Filter for daily services (Doctor Charges and Nursing Charges - case insensitive)
       const dailyServices = allActiveServices.filter(s =>
         s.service_name?.toLowerCase().includes('doctor charges') ||
@@ -3993,6 +4004,10 @@ const FinalBill = () => {
       if (dailyServices.length > 0) console.log('🔄 [AUTO-DAILY] Auto-adding daily services:', dailyServices.map(s => s.service_name), 'Days:', days);
 
       for (const service of dailyServices) {
+        if (excludedServiceIds.has(service.id)) {
+          console.log('⏭️ [AUTO-DAILY] Skipping', service.service_name, '— removed from this bill on purpose');
+          continue;
+        }
         // Select correct rate based on patient type
         let rate = 0;
         if (usesPrivateRate) {
@@ -4066,13 +4081,6 @@ const FinalBill = () => {
         s.service_name?.toLowerCase().includes('consultation charge') ||
         s.service_name?.toLowerCase().includes('mlc processing')
       );
-
-      // Anything somebody deliberately removed from THIS bill stays removed.
-      const { data: excludedRows } = await supabase
-        .from('visit_clinical_service_exclusions')
-        .select('clinical_service_id')
-        .eq('visit_id', visitData.id);
-      const excludedServiceIds = new Set((excludedRows || []).map((r: any) => r.clinical_service_id));
 
       if (oneTimeServices.length > 0) {
         console.log('🔄 [AUTO-ONETIME] Auto-adding one-time charges:', oneTimeServices.map(s => s.service_name));
