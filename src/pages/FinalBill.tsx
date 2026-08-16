@@ -4067,10 +4067,21 @@ const FinalBill = () => {
         s.service_name?.toLowerCase().includes('mlc processing')
       );
 
+      // Anything somebody deliberately removed from THIS bill stays removed.
+      const { data: excludedRows } = await supabase
+        .from('visit_clinical_service_exclusions')
+        .select('clinical_service_id')
+        .eq('visit_id', visitData.id);
+      const excludedServiceIds = new Set((excludedRows || []).map((r: any) => r.clinical_service_id));
+
       if (oneTimeServices.length > 0) {
         console.log('🔄 [AUTO-ONETIME] Auto-adding one-time charges:', oneTimeServices.map(s => s.service_name));
 
         for (const service of oneTimeServices) {
+          if (excludedServiceIds.has(service.id)) {
+            console.log('⏭️ [AUTO-ONETIME] Skipping', service.service_name, '— removed from this bill on purpose');
+            continue;
+          }
           let rate = 0;
           if (usesPrivateRate) {
             rate = service.private_rate || service.tpa_rate || 0;
@@ -10273,7 +10284,7 @@ INSTRUCTIONS:
         .from('visit_clinical_services')
         .delete()
         .eq('id', junctionId)
-        .select('id');
+        .select('id, visit_id, clinical_service_id');
 
       if (deleteError) {
         console.error('❌ [CLINICAL DELETE] Error:', deleteError);
@@ -10287,6 +10298,32 @@ INSTRUCTIONS:
         // Deliberately NOT removed from the screen: showing it gone when it is
         // still there is what made this look fixed and bill wrongly.
         return;
+      }
+
+      // Remember the removal, or opening the bill will put it straight back.
+      // Emergency, Consultation and MLC Processing are auto-added whenever they
+      // are absent, and "absent" is exactly what deleting achieves — which is
+      // why those three came back on reload and nothing else did.
+      const removed = deletedRows[0] as { visit_id?: string; clinical_service_id?: string };
+      if (removed?.visit_id && removed?.clinical_service_id) {
+        const { error: excludeError } = await supabase
+          .from('visit_clinical_service_exclusions')
+          .upsert(
+            {
+              visit_id: removed.visit_id,
+              clinical_service_id: removed.clinical_service_id,
+              excluded_by: user?.email || user?.id || null,
+            },
+            { onConflict: 'visit_id,clinical_service_id' },
+          );
+        if (excludeError) {
+          // The row is already gone, so say what will actually happen rather
+          // than claim a clean success.
+          console.error('❌ [CLINICAL DELETE] Could not record the exclusion:', excludeError);
+          toast.warning('Deleted, but it may return when the bill is reopened.');
+          setSavedClinicalServicesData(prev => prev.filter(s => s.junction_id !== junctionId));
+          return;
+        }
       }
 
       // Update local state immediately - no re-fetch needed
