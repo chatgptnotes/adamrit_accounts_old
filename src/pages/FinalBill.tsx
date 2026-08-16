@@ -10260,11 +10260,20 @@ INSTRUCTIONS:
     try {
       console.log('🗑️ [CLINICAL DELETE] Deleting service with junction ID:', junctionId);
 
-      // Delete from junction table only
-      const { error: deleteError, count } = await supabase
+      // .select() so the deleted rows come back and can be counted.
+      //
+      // Without it this reported success for a delete that removed nothing. A
+      // DELETE matching no rows is not an error in PostgREST -- a row-level
+      // security policy that refuses it, or an id that no longer exists, both
+      // return no error and no rows. The old code checked only deleteError,
+      // stripped the row from the screen and said "deleted successfully", so
+      // the service reappeared on the next reload and the bill silently went
+      // back up. `count` was destructured here and never looked at.
+      const { data: deletedRows, error: deleteError } = await supabase
         .from('visit_clinical_services')
         .delete()
-        .eq('id', junctionId);
+        .eq('id', junctionId)
+        .select('id');
 
       if (deleteError) {
         console.error('❌ [CLINICAL DELETE] Error:', deleteError);
@@ -10272,6 +10281,13 @@ INSTRUCTIONS:
         return;
       }
 
+      if (!deletedRows || deletedRows.length === 0) {
+        console.error('❌ [CLINICAL DELETE] Nothing was deleted for junction ID:', junctionId);
+        toast.error('Not deleted — the database removed no row. The service is still on the bill.');
+        // Deliberately NOT removed from the screen: showing it gone when it is
+        // still there is what made this look fixed and bill wrongly.
+        return;
+      }
 
       // Update local state immediately - no re-fetch needed
       setSavedClinicalServicesData(prev => prev.filter(s => s.junction_id !== junctionId));
@@ -10308,15 +10324,25 @@ INSTRUCTIONS:
       console.log('🔍 [MANDATORY DELETE] Visit found:', visitData.id);
 
       // Delete from junction table (source of truth for multiple services)
-      const { error: deleteError } = await supabase
+      // Counted for the same reason as the clinical delete above: a DELETE that
+      // matches no rows returns no error, and reporting that as success is how
+      // a removed charge comes back on the next reload.
+      const { data: deletedRows, error: deleteError } = await supabase
         .from('visit_mandatory_services')
         .delete()
         .eq('visit_id', visitData.id)
-        .eq('mandatory_service_id', serviceId);
+        .eq('mandatory_service_id', serviceId)
+        .select('id');
 
       if (deleteError) {
         console.error('❌ [MANDATORY DELETE] Error deleting from junction table:', deleteError);
         toast.error('Failed to delete mandatory service');
+        return;
+      }
+
+      if (!deletedRows || deletedRows.length === 0) {
+        console.error('❌ [MANDATORY DELETE] Nothing was deleted for service:', serviceId);
+        toast.error('Not deleted — the database removed no row. The service is still on the bill.');
         return;
       }
 
