@@ -83,6 +83,20 @@ const bookLabel = (hospitalType: string | null | undefined) =>
     ?? hospitalType
     ?? "—";
 
+/**
+ * Cash sits in three places, and mixing them is how a count goes wrong. The
+ * same three headings the tablet uses, so a cashier who counts on the tablet
+ * and a director who reads on the desktop are looking at the same shape.
+ */
+function SectionHeading({ title, hint }: { title: string; hint: string }) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2 border-b pt-1">
+      <h3 className="text-sm font-bold">{title}</h3>
+      <p className="text-xs text-muted-foreground">{hint}</p>
+    </div>
+  );
+}
+
 function BookFilter({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <div className="mb-4 flex flex-wrap gap-2">
@@ -143,6 +157,11 @@ export default function CashHandoverPage() {
   // Cash in the locker is still cash the counter holds. Counted separately
   // because it is kept separately, then recorded as one opening total.
   const [openingLocker, setOpeningLocker] = useState("");
+  // Movements between the drawer and the locker. Recorded for the trail, never
+  // added to the opening total: whatever came out of the locker is in the hand
+  // count, and whatever went in is in the locker count.
+  const [openingOut, setOpeningOut] = useState("");
+  const [openingIn, setOpeningIn] = useState("");
   const [openingNote, setOpeningNote] = useState("");
   const openingNum = (v: string) => Number(v.replace(/[^0-9.]/g, "")) || 0;
   const openingTotal = openingNum(openingAmt) + openingNum(openingLocker);
@@ -159,10 +178,13 @@ export default function CashHandoverPage() {
           const split = `drawer ${openingNum(openingAmt)} + locker ${openingNum(openingLocker)}`;
           return openingNote.trim() ? `${split}; ${openingNote.trim()}` : split;
         })(),
+        lockerWithdrawn: openingNum(openingOut),
+        lockerDeposited: openingNum(openingIn),
       }),
     onSuccess: () => {
       toast.success("Opening cash recorded. The drawer counts from here.");
-      setOpeningFor(null); setOpeningAmt(""); setOpeningLocker(""); setOpeningNote("");
+      setOpeningFor(null); setOpeningAmt(""); setOpeningLocker("");
+      setOpeningOut(""); setOpeningIn(""); setOpeningNote("");
       qc.invalidateQueries({ queryKey: ["cash-positions"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Could not record it"),
@@ -500,18 +522,42 @@ export default function CashHandoverPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            {/* No Bank section here: an opening count is what the counter
+                holds before the shift, and nothing has been banked yet. */}
+            <SectionHeading title="Drawer" hint="The notes in front of you" />
             <div>
               <Label htmlFor="op-amt">Cash in hand</Label>
               <Input id="op-amt" inputMode="decimal" value={openingAmt} className="mt-1"
                 onChange={(e) => setOpeningAmt(e.target.value.replace(/[^0-9.]/g, ""))}
                 placeholder="e.g. 14095" />
             </div>
+
+            <SectionHeading title="Locker" hint="Held by the counter, not handed over" />
             <div>
               <Label htmlFor="op-locker">Cash in the locker</Label>
               <Input id="op-locker" inputMode="decimal" value={openingLocker} className="mt-1"
                 onChange={(e) => setOpeningLocker(e.target.value.replace(/[^0-9.]/g, ""))}
                 placeholder="e.g. 5000" />
             </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="op-out">Withdrawn from the locker</Label>
+                <Input id="op-out" inputMode="decimal" value={openingOut} className="mt-1"
+                  onChange={(e) => setOpeningOut(e.target.value.replace(/[^0-9.]/g, ""))}
+                  placeholder="0" />
+              </div>
+              <div>
+                <Label htmlFor="op-in">Deposited into the locker</Label>
+                <Input id="op-in" inputMode="decimal" value={openingIn} className="mt-1"
+                  onChange={(e) => setOpeningIn(e.target.value.replace(/[^0-9.]/g, ""))}
+                  placeholder="0" />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Movements only — not added to the total. Cash taken out of the locker is
+              already in the hand count, and cash put in is already in the locker count.
+            </p>
+
             <div className="flex items-center justify-between border-t pt-2 text-sm">
               <span className="text-muted-foreground">Opening total</span>
               <span className="text-lg font-bold">₹{openingTotal.toLocaleString("en-IN")}</span>
@@ -918,6 +964,9 @@ function RegisterTable({
 
   const verifyDiff = verifying ? Number(verifying.variance || 0) : 0;
   const verifyNeedsNote = Math.round(verifyDiff * 100) !== 0;
+  const verifyLocker = Number(verifying?.locker_cash || 0);
+  const verifyBank = Number(verifying?.bank_deposit || 0);
+  const verifyAccounted = Number(verifying?.counted_cash || 0) + verifyLocker + verifyBank;
 
   return (
     <Card>
@@ -972,6 +1021,49 @@ function RegisterTable({
               </p>
             )}
           </div>
+
+          {/* The verifier counts the DRAWER -- the locker and the banked cash
+              are not in front of them -- but the difference they are asked to
+              sign off is measured against all three. Show the three so the
+              figure can be followed. */}
+          {revealed && (verifyLocker !== 0 || verifyBank !== 0) && (
+            <div className="rounded-md border p-3 text-sm">
+              <p className="mb-2 text-xs text-muted-foreground">
+                Where this shift's cash is. You counted the drawer; the other two
+                were declared by the cashier.
+              </p>
+              <dl className="space-y-1">
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Drawer</dt>
+                  <dd>{inr(verifying?.counted_cash ?? 0)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Locker</dt>
+                  <dd>{inr(verifyLocker)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Already banked</dt>
+                  <dd>{inr(verifyBank)}</dd>
+                </div>
+                <div className="flex justify-between border-t pt-1 font-semibold">
+                  <dt>Accounted</dt>
+                  <dd>{inr(verifyAccounted)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Software expected</dt>
+                  <dd>{inr(verifying?.expected_cash ?? 0)}</dd>
+                </div>
+              </dl>
+              {(Number(verifying?.locker_withdrawn || 0) !== 0 ||
+                Number(verifying?.locker_deposited || 0) !== 0) && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Locker movements during the shift: {inr(Number(verifying?.locker_withdrawn || 0))} out,{" "}
+                  {inr(Number(verifying?.locker_deposited || 0))} in. Not part of the total —
+                  that money is already counted at whichever end it landed.
+                </p>
+              )}
+            </div>
+          )}
 
           {revealed && verifyNeedsNote && (
             <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm">
@@ -1040,7 +1132,13 @@ function RegisterTable({
                   register reads as one cash book when it is three. */}
               <TableHead>Company</TableHead>
               <TableHead>From → To</TableHead>
-              <TableHead className="text-right">Cash counted</TableHead>
+              {/* Was "Cash counted", showing the drawer alone -- while the
+                  Difference beside it is measured against drawer + locker +
+                  bank. A row could read "counted 10,000, software 30,000,
+                  difference nil" with nothing on screen to explain it. */}
+              <TableHead className="text-right" title="Drawer + locker + already banked — the three places the shift's cash can be">
+                Cash accounted
+              </TableHead>
               <TableHead className="text-right">Software cash</TableHead>
               <TableHead className="text-right">Difference</TableHead>
               {/* Online never joins the cash count -- that money is in the
@@ -1062,6 +1160,9 @@ function RegisterTable({
             ) : (
               rows.map((h) => {
                 const diff = Number(h.variance || 0);
+                const locker = Number(h.locker_cash || 0);
+                const bank = Number(h.bank_deposit || 0);
+                const split = locker !== 0 || bank !== 0;
                 return (
                   <TableRow key={h.id}>
                     <TableCell className="font-mono text-xs">
@@ -1080,7 +1181,20 @@ function RegisterTable({
                       <div className="font-medium">{h.from_user_name}</div>
                       <div className="text-xs text-muted-foreground">→ {h.to_user_name}</div>
                     </TableCell>
-                    <TableCell className="text-right font-semibold">{inr(h.counted_cash)}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="font-semibold">
+                        {inr(Number(h.counted_cash || 0) + locker + bank)}
+                      </div>
+                      {/* Only when there is something to split. A drawer-only
+                          handover reads exactly as it did before. */}
+                      {split && (
+                        <div className="text-xs text-muted-foreground">
+                          Drawer {inr(h.counted_cash)}
+                          {locker !== 0 && <> · Locker {inr(locker)}</>}
+                          {bank !== 0 && <> · Bank {inr(bank)}</>}
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">{inr(h.expected_cash)}</TableCell>
                     <TableCell className="text-right">
                       {Math.round(diff * 100) === 0 ? (

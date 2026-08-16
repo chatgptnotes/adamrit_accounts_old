@@ -46,7 +46,17 @@ export interface CashHandover {
   to_user_id: string;
   to_user_name: string;
   expected_cash: number;
+  /** The drawer only: the notes physically counted at handover. */
   counted_cash: number;
+  /** Held by the counter but not handed over. Part of the variance. */
+  locker_cash: number | null;
+  /** Already banked during the shift. Part of the variance. */
+  bank_deposit: number | null;
+  /** Moved between drawer and locker during the shift. Recorded for the
+   *  trail; deliberately NOT part of the variance, because the money is
+   *  already counted at whichever end it landed. */
+  locker_withdrawn: number | null;
+  locker_deposited: number | null;
   variance: number;
   variance_reason: string | null;
   ref_upi_total: number;

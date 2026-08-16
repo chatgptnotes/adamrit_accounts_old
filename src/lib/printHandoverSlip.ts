@@ -32,7 +32,14 @@ export function printHandoverSlip(
   denominations: { denomination: number; qty: number; line_total: number }[],
   orgName: string,
 ): boolean {
-  const variance = Number(h.counted_cash) - Number(h.expected_cash);
+  // The stored variance, not a fresh subtraction. The database computes it as
+  // drawer + locker + already-banked - software, so recomputing it here from
+  // the drawer alone printed a different figure from the one on screen for any
+  // handover where cash was left in the locker or banked during the shift.
+  const locker = Number(h.locker_cash || 0);
+  const bank = Number(h.bank_deposit || 0);
+  const accounted = Number(h.counted_cash) + locker + bank;
+  const variance = Number(h.variance);
   const denomRows = denominations
     .filter((d) => d.qty > 0)
     .map(
@@ -47,9 +54,9 @@ export function printHandoverSlip(
 
   const varianceBlock =
     Math.round(variance * 100) === 0
-      ? `<tr class="ok"><td colspan="3">Counted cash matches the software figure</td><td class="r">0.00</td></tr>`
+      ? `<tr class="ok"><td colspan="3">Cash accounted for matches the software figure</td><td class="r">0.00</td></tr>`
       : `<tr class="warn">
-           <td colspan="3">${variance > 0 ? "EXCESS in drawer" : "SHORT against software"} — reason recorded below</td>
+           <td colspan="3">${variance > 0 ? "EXCESS over software" : "SHORT against software"} — reason recorded below</td>
            <td class="r">${money(Math.abs(variance))}</td>
          </tr>`;
 
@@ -75,13 +82,20 @@ export function printHandoverSlip(
       <thead><tr><th class="r">Note</th><th class="c"></th><th class="r">Count</th><th class="r">Amount</th></tr></thead>
       <tbody>
         ${denomRows || `<tr><td colspan="4" class="c">No denominations recorded</td></tr>`}
-        <tr class="tot"><td colspan="3">Physically counted</td><td class="r">${money(h.counted_cash)}</td></tr>
+        <tr class="tot"><td colspan="3">Drawer — physically counted</td><td class="r">${money(h.counted_cash)}</td></tr>
+        ${
+          locker !== 0 || bank !== 0
+            ? `<tr><td colspan="3">Locker — held at the counter</td><td class="r">${money(locker)}</td></tr>
+               <tr><td colspan="3">Bank — already deposited</td><td class="r">${money(bank)}</td></tr>
+               <tr class="tot"><td colspan="3">Total accounted</td><td class="r">${money(accounted)}</td></tr>`
+            : ""
+        }
         <tr><td colspan="3">Software figure</td><td class="r">${money(h.expected_cash)}</td></tr>
         ${varianceBlock}
       </tbody>
     </table>
 
-    <div class="words">${esc(amountInWords(Number(h.counted_cash)))}</div>
+    <div class="words">Cash handed over: ${esc(amountInWords(Number(h.counted_cash)))}</div>
 
     ${
       h.variance_reason
