@@ -18,6 +18,8 @@ import {
 import { toast } from 'sonner';
 import { Plus, Trash2, Printer, RotateCcw, X } from 'lucide-react';
 import { pushLedgerToTally, pushPaymentVoucherToTally } from '@/lib/tally-auto-push';
+import { canSeeVoucherTiles } from '@/lib/officeTileAccess';
+import { useCashHandoverAccess } from '@/tablet/hooks/useCashHandoverAccess';
 import { printTallyVoucher } from '@/lib/tallyPrint';
 
 interface PaymentVoucher {
@@ -457,6 +459,15 @@ const PaymentVoucher = () => {
   const { hospitalConfig, user } = useAuth();
   const hospitalType = hospitalConfig.name;
 
+  // This page CREATES and DELETES payment vouchers and pushes them to Tally, so
+  // it is gated by the same rule as the four tablet voucher tiles rather than
+  // being left open to every signed-in user, which is what it was until now.
+  // The desktop Accounting screen only ever disabled its buttons for people
+  // without rights (useAccountingRights); this route was outside that entirely,
+  // so a driver or a housekeeper could post cash out of the books here.
+  const { allowed: handlesCash, isLoading: cashLoading } = useCashHandoverAccess();
+  const mayWorkVouchers = canSeeVoucherTiles(user, handlesCash);
+
   // --- Tally-style entry form state ---
   const lineKey = useRef(0);
   const newLine = (): VoucherLine => ({ key: ++lineKey.current, ledger: null, amount: '' });
@@ -755,6 +766,32 @@ const PaymentVoucher = () => {
     win.document.write(html);
     win.document.close();
   };
+
+  // Wait for the roster answer instead of refusing while it is in flight. A
+  // cashier shown the page and then thrown off it a moment later is the exact
+  // bug the voucher-tile guard was written to avoid.
+  if (cashLoading) {
+    return (
+      <div className="flex items-center justify-center p-16 text-sm text-muted-foreground">
+        Checking your voucher access…
+      </div>
+    );
+  }
+
+  if (!mayWorkVouchers) {
+    return (
+      <div className="mx-auto max-w-xl p-8 text-center">
+        <h1 className="text-lg font-semibold">Payment vouchers are not open to you</h1>
+        <p className="mt-3 text-sm text-muted-foreground">
+          This screen pays money out of the hospital's books, so it is limited to
+          the accounts team and to the people who hold a cash drawer. If you work
+          a counter and cannot get in, ask to be added to the cash roster — that
+          is the same list the Cash Handover screen uses, and no code change is
+          needed to put you on it.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 p-4">
