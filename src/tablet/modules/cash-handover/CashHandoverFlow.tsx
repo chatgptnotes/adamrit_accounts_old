@@ -30,9 +30,11 @@ import {
   fetchPreview,
   submitHandover,
   uploadHandoverPhotos,
+  VOICE_REASON_KIND,
   verifyHandover,
 } from "@/lib/cashHandover";
 import { HandoverPhotoCapture, type PendingPhoto } from "./HandoverPhotoCapture";
+import { VoiceReasonRecorder } from "./VoiceReasonRecorder";
 
 // DATA SOURCE: cash_handover_preview / submit_cash_handover / accept_cash_handover
 // / verify_cash_handover. Every rupee figure is computed in the database; this
@@ -213,6 +215,9 @@ function HandOverPanel({
   // Held until the handover exists, then attached to it. See the note in
   // HandoverPhotoCapture on why they are not uploaded as they are taken.
   const [photos, setPhotos] = useState<PendingPhoto[]>([]);
+  // A spoken variance reason. Held like the photos and uploaded after the
+  // handover exists, for the same reason.
+  const [voice, setVoice] = useState<File | null>(null);
 
   // Scoped to this cashier's own hospital: Hope and Ayushman keep separate
   // drawers even though a receipt carries no hospital of its own.
@@ -240,12 +245,21 @@ function HandOverPanel({
   const submit = useMutation({
     mutationFn: async () => {
       if (!toUserId) throw new Error("Choose who is receiving the cash");
+      // Caught here rather than in the database so the cashier is told which
+      // of the two things to do, not just that a column was empty.
+      if (needsReason && !reason.trim() && !voice) {
+        throw new Error("Say or type why the cash is different");
+      }
+      // A recording alone still has to leave something readable in the books:
+      // an accountant scanning a hundred rows cannot play a hundred clips.
+      const writtenReason = reason.trim()
+        || (voice ? "Spoken explanation attached — play the voice note on this handover" : "");
       const result = await submitHandover({
         fromUserId: userId,
         toUserId,
         hospitalType,
         includeUnattributed,
-        varianceReason: reason.trim() || null,
+        varianceReason: writtenReason || null,
         notes: notes.trim() || null,
         declaredOnline: online.trim() === "" ? null : Number(online.replace(/[^0-9.]/g, "")),
         lockerCash: num(locker),
@@ -261,15 +275,19 @@ function HandOverPanel({
       // Attached after the handover exists, and never allowed to undo it. A
       // failed upload leaves a correct handover missing its evidence, which is
       // recoverable; losing the handover itself is not.
+      const attachments = [
+        ...photos.map((p) => ({ file: p.file, kind: p.kind })),
+        ...(voice ? [{ file: voice, kind: VOICE_REASON_KIND }] : []),
+      ];
       let photoWarning: string | null = null;
-      if (photos.length) {
+      if (attachments.length) {
         const { saved, failed } = await uploadHandoverPhotos({
           handoverId: result.handoverId,
-          photos: photos.map((p) => ({ file: p.file, kind: p.kind })),
+          photos: attachments,
           uploadedBy: userId,
         });
         if (failed.length) {
-          photoWarning = `${saved} of ${photos.length} photos saved. Failed: ${failed.join("; ")}`;
+          photoWarning = `${saved} of ${attachments.length} attachments saved. Failed: ${failed.join("; ")}`;
         }
       }
       return { ...result, photoWarning };
@@ -290,6 +308,7 @@ function HandOverPanel({
       setOnline("");
       setToUserId("");
       setPhotos([]);
+      setVoice(null);
       preview.refetch();
       onDone();
     },
@@ -523,6 +542,13 @@ function HandOverPanel({
             onChange={(e) => setReason(e.target.value)}
             placeholder="e.g. ₹500 paid out for stationery, slip in drawer"
           />
+          <div className="mt-2">
+            <VoiceReasonRecorder
+              file={voice}
+              onChange={setVoice}
+              disabled={submit.isPending}
+            />
+          </div>
         </div>
       )}
 
@@ -754,26 +780,54 @@ function PharmacyPanel({
     queryFn: fetchPharmacySummary,
     staleTime: 30_000,
   });
+  // A spoken variance reason, same as the hospital counters. Declared up here
+  // with the other hooks because this component returns early while loading.
+  const [voice, setVoice] = useState<File | null>(null);
 
   const submit = useMutation({
     mutationFn: async () => {
       if (!toUserId) throw new Error("Choose who is receiving the cash");
-      return submitHandover({
+      // A recording alone still has to leave something readable in the books:
+      // an accountant scanning a hundred rows cannot play a hundred clips.
+      // The database still decides whether a reason was REQUIRED.
+      const writtenReason = reason.trim()
+        || (voice ? "Spoken explanation attached — play the voice note on this handover" : "");
+      const result = await submitHandover({
         fromUserId: userId,
         toUserId,
         hospitalType: "pharmacy",
         includeUnattributed: true,
-        varianceReason: reason.trim() || null,
+        varianceReason: writtenReason || null,
         denominations: DENOMINATIONS.map((d) => ({
           denomination: d,
           qty: parseInt(counts[d] ?? "", 10) || 0,
         })),
       });
+
+      // Same order as the hospital counter: the handover first, the recording
+      // after, and a failed upload never undoes a correct handover.
+      let voiceWarning: string | null = null;
+      if (voice) {
+        const { failed } = await uploadHandoverPhotos({
+          handoverId: result.handoverId,
+          photos: [{ file: voice, kind: VOICE_REASON_KIND }],
+          uploadedBy: userId,
+        });
+        if (failed.length) voiceWarning = `the recording did not save (${failed.join("; ")})`;
+      }
+      return { ...result, voiceWarning };
     },
     onSuccess: (r) => {
-      toast.success(`Handover ${r.handoverNo} recorded. Waiting for it to be received.`);
+      if (r.voiceWarning) {
+        toast.warning(`Handover ${r.handoverNo} recorded, but ${r.voiceWarning}`, {
+          duration: 12_000,
+        });
+      } else {
+        toast.success(`Handover ${r.handoverNo} recorded. Waiting for it to be received.`);
+      }
       setCounts({});
       setReason("");
+      setVoice(null);
       setToUserId("");
       preview.refetch();
       onDone();
@@ -882,6 +936,13 @@ function PharmacyPanel({
             onChange={(e) => setReason(e.target.value)}
             placeholder="e.g. ₹200 paid out for a delivery"
           />
+          <div className="mt-2">
+            <VoiceReasonRecorder
+              file={voice}
+              onChange={setVoice}
+              disabled={submit.isPending}
+            />
+          </div>
         </div>
       )}
 

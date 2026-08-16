@@ -15,7 +15,7 @@ import {
   type HandoverRow,
 } from '@/lib/cashShiftReport';
 import { supabase } from '@/integrations/supabase/client';
-import { fetchHandoverPhotos, handoverPhotoLabel } from '@/lib/cashHandover';
+import { fetchHandoverPhotos, handoverPhotoLabel, isVoiceAttachment } from '@/lib/cashHandover';
 
 /**
  * Cash Shift Report — the trail for a counter, in order.
@@ -447,6 +447,22 @@ function ShiftRow({
                 ) : (
                   <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
                     {(detail.data?.photos ?? []).map((ph) => (
+                      // A spoken reason has to be playable here, or it may as
+                      // well not have been recorded. Rendered as a player
+                      // rather than a link, and NOT wrapped in the anchor the
+                      // images use -- clicking the play button would navigate
+                      // away instead of playing.
+                      isVoiceAttachment(ph) ? (
+                        <div
+                          key={ph.id}
+                          className="w-56 shrink-0 overflow-hidden rounded-md border bg-amber-50"
+                        >
+                          <audio src={ph.fileUrl} controls preload="none" className="h-10 w-full" />
+                          <span className="block truncate px-2 py-1 text-[11px] font-medium">
+                            {handoverPhotoLabel(ph.kind)}
+                          </span>
+                        </div>
+                      ) : (
                       <a
                         key={ph.id}
                         href={ph.fileUrl}
@@ -471,6 +487,7 @@ function ShiftRow({
                           {handoverPhotoLabel(ph.kind)}
                         </span>
                       </a>
+                      )
                     ))}
                   </div>
                 )}

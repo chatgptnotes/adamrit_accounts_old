@@ -403,10 +403,28 @@ export const HANDOVER_PHOTO_KINDS = [
   { key: "other", label: "Other" },
 ] as const;
 
-export type HandoverPhotoKind = (typeof HANDOVER_PHOTO_KINDS)[number]["key"];
+/**
+ * A spoken explanation of the variance. Deliberately NOT in
+ * HANDOVER_PHOTO_KINDS: that list is the dropdown offered when labelling a
+ * photograph, and "spoken explanation" is not something a photograph can be.
+ * It travels the same upload path because it is the same kind of thing -- a
+ * file attached to a handover -- but it is produced by the recorder, never
+ * chosen from a menu.
+ */
+export const VOICE_REASON_KIND = "voice_reason" as const;
+
+export type HandoverPhotoKind =
+  | (typeof HANDOVER_PHOTO_KINDS)[number]["key"]
+  | typeof VOICE_REASON_KIND;
 
 export const handoverPhotoLabel = (kind: string) =>
-  HANDOVER_PHOTO_KINDS.find((k) => k.key === kind)?.label ?? "Other";
+  kind === VOICE_REASON_KIND
+    ? "Spoken explanation"
+    : (HANDOVER_PHOTO_KINDS.find((k) => k.key === kind)?.label ?? "Other");
+
+/** True for an attachment that must be played rather than looked at. */
+export const isVoiceAttachment = (a: { kind: string; fileType: string | null }) =>
+  a.kind === VOICE_REASON_KIND || (a.fileType ?? "").startsWith("audio/");
 
 export interface HandoverPhoto {
   id: string;
@@ -461,8 +479,12 @@ export async function uploadHandoverPhotos(input: {
     try {
       const isPdf =
         file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-      if (!file.type.startsWith("image/") && !isPdf) {
-        throw new Error("not an image or PDF");
+      // Audio joins images and PDFs: a spoken variance explanation rides this
+      // same path. Gated on the KIND as well as the type so an arbitrary sound
+      // file cannot be attached as though it were a register page.
+      const isVoice = kind === VOICE_REASON_KIND && file.type.startsWith("audio/");
+      if (!file.type.startsWith("image/") && !isPdf && !isVoice) {
+        throw new Error("not an image, PDF or voice note");
       }
       if (file.size > MAX_PHOTO_SIZE) throw new Error("over 12 MB");
 
