@@ -59,6 +59,10 @@ const OFF_REGISTRY = new Set([
   'pmjay-mjpjay-master',
   'corporate-claim-tracking',
   'tally',
+  // Sister products on their own domains. They have no route here by design.
+  'hrpulse-site',
+  'nabh-online',
+  'emergency-seva',
 ]);
 const dead = [...listed.keys()].filter((id) => !known.has(id) && !OFF_REGISTRY.has(id));
 if (dead.length) {
@@ -79,15 +83,33 @@ const routes = new Set(
     .readFileSync(path.join(ROOT, 'src/components/AppRoutes.tsx'), 'utf8')
     .matchAll(/path="([^"]+)"/g)].map((m) => m[1]),
 );
+// A tile may point at a sister product instead of a route here. Those cannot be
+// route-checked, so they are held to the other rule that matters on a public
+// page: an absolute https address. A bare domain or an http:// link is a bug —
+// the first resolves against adamrit.com, the second is insecure.
+const external = (href) => /^https?:\/\//.test(href || '');
+
 const brokenLinks = [...OFF_REGISTRY]
   .filter((id) => listed.has(id))
-  .filter((id) => !routes.has(hrefs.get(id)))
+  .filter((id) => !external(hrefs.get(id)) && !routes.has(hrefs.get(id)))
   .map((id) => `  ${id} -> ${hrefs.get(id) ?? '(no href found)'}`);
 
 if (brokenLinks.length) {
   console.error('[public-labels] ERROR: landing tiles point at routes that do not exist:\n');
   console.error(brokenLinks.join('\n'));
-  console.error('\nEvery off-registry tile must match a path= in src/components/AppRoutes.tsx.');
+  console.error('\nEvery off-registry tile must match a path= in src/components/AppRoutes.tsx,');
+  console.error('or be an absolute https:// link to a sister product.');
+  process.exit(1);
+}
+
+const badExternal = [...hrefs.entries()]
+  .filter(([, href]) => external(href))
+  .filter(([, href]) => !/^https:\/\/[a-z0-9.-]+\.[a-z]{2,}(\/|$)/i.test(href))
+  .map(([id, href]) => `  ${id} -> ${href}`);
+
+if (badExternal.length) {
+  console.error('[public-labels] ERROR: external tiles must be absolute https links:\n');
+  console.error(badExternal.join('\n'));
   process.exit(1);
 }
 

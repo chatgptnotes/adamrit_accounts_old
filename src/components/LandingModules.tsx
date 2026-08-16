@@ -2,7 +2,9 @@ import React from 'react';
 import {
   Activity,
   AlertTriangle,
+  Ambulance,
   ArrowLeftRight,
+  Award,
   Banknote,
   BarChart3,
   BedDouble,
@@ -16,6 +18,7 @@ import {
   ClipboardList,
   DoorOpen,
   Droplets,
+  ExternalLink,
   FileSpreadsheet,
   FileText,
   Globe,
@@ -183,6 +186,15 @@ const GROUPS: Group[] = [
       { id: 'patient-feedback', label: 'Patient Feedback', description: 'Photo & video feedback from patients', href: '/patient-feedback', icon: MessageCircle },
     ],
   },
+  {
+    title: 'Connected Products',
+    blurb: 'Sister systems that open on their own site',
+    tiles: [
+      { id: 'hrpulse-site', label: 'HR Pulse', description: 'Staff records, payroll and statutory returns — the full product', href: 'https://www.hrpulse.site/', icon: Users },
+      { id: 'nabh-online', label: 'NABH Online', description: 'Accreditation evidence, incident reporting, audits and quality reviews', href: 'https://nabh.online', icon: Award },
+      { id: 'emergency-seva', label: 'Emergency Seva', description: 'Ambulance dispatch and emergency response — Raftaar Help', href: 'https://emergencyseva.in', icon: Ambulance },
+    ],
+  },
 ];
 
 /**
@@ -201,6 +213,9 @@ const enter = (href: string) => (event: React.MouseEvent) => {
   window.location.href = href;
 };
 
+/** A separate product on its own domain, not a route inside this app. */
+const isExternal = (href: string) => /^https?:\/\//.test(href);
+
 const TileCard = ({
   label,
   description,
@@ -211,23 +226,36 @@ const TileCard = ({
   description: string;
   href: string;
   Icon: LucideIcon;
-}) => (
-  <a
-    href={href}
-    onClick={enter(href)}
-    className="group flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4 transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-  >
-    <span className="mt-0.5 inline-flex h-10 w-10 flex-none items-center justify-center rounded-lg bg-blue-50 text-blue-600 transition-colors group-hover:bg-blue-600 group-hover:text-white">
-      <Icon className="h-5 w-5" />
-    </span>
-    <span className="min-w-0">
-      <span className="block font-semibold text-gray-900">{label}</span>
-      <span className="mt-0.5 block text-sm leading-snug text-gray-600 line-clamp-2">
-        {description}
+}) => {
+  const external = isExternal(href);
+
+  return (
+    <a
+      href={href}
+      // The sign-in redirect is for routes in this app. A sister product has its
+      // own login, so sending the visitor through ours would be a detour to the
+      // wrong door — external tiles open directly, in their own tab.
+      onClick={external ? undefined : enter(href)}
+      {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+      className="group flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4 transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+    >
+      <span className="mt-0.5 inline-flex h-10 w-10 flex-none items-center justify-center rounded-lg bg-blue-50 text-blue-600 transition-colors group-hover:bg-blue-600 group-hover:text-white">
+        <Icon className="h-5 w-5" />
       </span>
-    </span>
-  </a>
-);
+      <span className="min-w-0">
+        <span className="flex items-center gap-1.5 font-semibold text-gray-900">
+          {label}
+          {external && (
+            <ExternalLink className="h-3.5 w-3.5 flex-none text-gray-400" aria-label="opens in a new tab" />
+          )}
+        </span>
+        <span className="mt-0.5 block text-sm leading-snug text-gray-600 line-clamp-2">
+          {description}
+        </span>
+      </span>
+    </a>
+  );
+};
 
 const LandingModules = () => {
   const groups = GROUPS.filter((g) => g.tiles.length > 0);
