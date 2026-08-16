@@ -50,7 +50,31 @@ export const useSearchableIcd11 = (minLength = 2) => {
       // Loudly. An empty list here would read as "no such diagnosis in ICD-11",
       // which is a clinical statement, not a failed query.
       if (error) throw error;
-      return data || [];
+
+      // Rank in the client, because search_text matches the definition too and
+      // Postgres has no idea which hit is the one you meant. Searching
+      // "cholera" was returning "Harmful effects of drugs" above "Cholera",
+      // because the word appears somewhere in its text. 50 rows is nothing to
+      // sort, and getting this wrong makes the whole lookup feel broken.
+      const needle = safe.toLowerCase();
+      const rank = (entry: Icd11Entry): number => {
+        const title = (entry.title || '').toLowerCase();
+        if ((entry.code || '').toLowerCase() === needle) return 0;   // exact code
+        if (title === needle) return 1;                              // exact title
+        if (title.startsWith(needle)) return 2;
+        if ((entry.synonyms || []).some((s) => s.toLowerCase() === needle)) return 3;
+        if (title.includes(needle)) return 4;
+        if ((entry.synonyms || []).some((s) => s.toLowerCase().includes(needle))) return 5;
+        return 6;                                                    // definition only
+      };
+      return (data || []).slice().sort((a: Icd11Entry, b: Icd11Entry) => {
+        const byRank = rank(a) - rank(b);
+        if (byRank !== 0) return byRank;
+        // A codable category beats a chapter or block heading, which is not a
+        // diagnosis anybody should be picking.
+        if (a.is_leaf !== b.is_leaf) return a.is_leaf ? -1 : 1;
+        return (a.code || 'zzz').localeCompare(b.code || 'zzz');
+      });
     },
   });
 
