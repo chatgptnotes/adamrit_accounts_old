@@ -68,10 +68,18 @@ export const useSearchableIcd11 = (minLength = 2) => {
         return 6;                                                    // definition only
       };
       return (data || []).slice().sort((a: Icd11Entry, b: Icd11Entry) => {
+        // Codeable entries first, ahead of even an exact title match. Searching
+        // "malaria" was returning the BLOCK titled "Malaria" — an exact title
+        // hit, but blocks carry no code, so it is a grouping you cannot code a
+        // patient to. In a diagnosis picker an uncodeable row must never
+        // outrank a codeable one.
+        const aCode = Boolean(a.code);
+        const bCode = Boolean(b.code);
+        if (aCode !== bCode) return aCode ? -1 : 1;
+
         const byRank = rank(a) - rank(b);
         if (byRank !== 0) return byRank;
-        // A codable category beats a chapter or block heading, which is not a
-        // diagnosis anybody should be picking.
+
         if (a.is_leaf !== b.is_leaf) return a.is_leaf ? -1 : 1;
         return (a.code || 'zzz').localeCompare(b.code || 'zzz');
       });
