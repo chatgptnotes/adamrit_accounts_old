@@ -20,6 +20,8 @@ import ConferenceCallPage from "../pages/ConferenceCall";
 import TodaysOpd from "../pages/TodaysOpd";
 import DialysisDashboard from "../pages/DialysisDashboard";
 import AdvanceStatementReport from "../pages/AdvanceStatementReport";
+import DailyCollectionReport from "../pages/DailyCollectionReport";
+import DailyBillSubmissionReport from "../pages/DailyBillSubmissionReport";
 import NoDeductionLetterPage from "../pages/NoDeductionLetter";
 import CurrentlyAdmittedPatients from "../pages/CurrentlyAdmittedPatients";
 // Loaded eagerly (no lazy chunk) so an open tab never hits "Failed to fetch
@@ -300,6 +302,8 @@ export const AppRoutes = () => {
         <Route path="/todays-opd" element={<TodaysOpd />} />
         <Route path="/dialysis" element={<DialysisDashboard />} />
         <Route path="/advance-statement-report" element={<AdvanceStatementReport />} />
+        <Route path="/daily-collection-report" element={<DailyCollectionReport />} />
+        <Route path="/daily-bill-submission-report" element={<DailyBillSubmissionReport />} />
         <Route path="/workflow-status-report/:reportKey" element={<Suspense fallback={<PageLoader />}><WorkflowStatusReport /></Suspense>} />
         <Route path="/workflow-status-master" element={<Suspense fallback={<PageLoader />}><WorkflowStatusMaster /></Suspense>} />
         <Route path="/advanced-statement-report" element={<Suspense fallback={<PageLoader />}><AdvancedStatementReport /></Suspense>} />

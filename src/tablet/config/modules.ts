@@ -596,6 +596,15 @@ export const TABLET_MODULES: TabletModule[] = [
     keywords: ["avani", "cash", "shortage", "excess", "daily", "report", "director", "vasooli"],
   },
   {
+    id: "daily-collection",
+    label: "Daily Collection",
+    description: "Everything the hospital took in today, by payment mode",
+    icon: Wallet,
+    accent: "text-emerald-700",
+    tint: "from-emerald-500 to-green-700",
+    keywords: ["collection", "daily", "today", "money", "cash", "upi", "advance", "pharmacy", "vasooli"],
+  },
+  {
     id: "cash-shift-report",
     label: "Cash Shift Report",
     description: "Opening counts, handovers and the receipts in between",

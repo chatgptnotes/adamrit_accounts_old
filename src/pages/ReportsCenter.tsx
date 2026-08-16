@@ -54,6 +54,8 @@ const SECTIONS: ReportSection[] = [
   {
     heading: 'Financial',
     items: [
+      { title: 'Daily Collection Report', route: '/daily-collection-report', description: 'Money in for one day — advances, final payments and pharmacy, by mode', icon: Wallet },
+      { title: 'Daily Bill Submission', route: '/daily-bill-submission-report', description: 'Corporate bill files sent on a day, and everything still waiting to go', icon: FileCheck2 },
       { title: 'Bill Aging Statement', route: '/bill-aging-statement', description: 'Corporate bills aged by days outstanding', icon: Clock },
       { title: 'TPA / Insurance Claims', route: '/tpa-claims', description: 'Pre-auth to settlement tracker for private insurers and TPAs', icon: FileCheck2 },
       { title: 'Ledger Statement', route: '/ledger-statement', description: 'Account ledger by date range and narration', icon: FileText },

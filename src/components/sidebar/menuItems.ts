@@ -27,6 +27,11 @@ export const menuItems: MenuItemDef[] = [
     icon: FileText,
   },
   {
+    title: "Daily Collection Report",
+    url: "/daily-collection-report",
+    icon: Wallet,
+  },
+  {
     title: "Reports",
     url: "/reports-center",
     icon: FileText,

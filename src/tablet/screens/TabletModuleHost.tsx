@@ -96,6 +96,9 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
   "daily-cash-report-avani": lazy(
     () => import("@/tablet/modules/daily-cash-report-avani/DailyCashReportAvaniFlow"),
   ),
+  "daily-collection": lazy(
+    () => import("@/tablet/modules/daily-collection/DailyCollectionFlow"),
+  ),
   "bank-deposit": lazy(() => import("@/tablet/modules/bank-deposit/BankDepositFlow")),
   "discharge-summary": lazy(
     () => import("@/tablet/modules/discharge-summary/DischargeSummaryFlow"),
