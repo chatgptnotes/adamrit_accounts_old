@@ -25,7 +25,6 @@ interface Patient {
   id: string;
   visit_id?: string;
   patient_id?: string;
-  name?: string;
   patients?: {
     id: string;
     name: string;
@@ -34,24 +33,12 @@ interface Patient {
     date_of_birth?: string;
     patients_id?: string;
     corporate?: string;
-    phone?: string;
-    address?: string;
-    registration_id?: string;
-    tariff?: string;
   };
   visit_type?: string;
   appointment_with?: string;
   diagnosis?: string;
   reason_for_visit?: string;
   discharge_summary?: string;
-  opd_summary_text?: string;
-  extracted_notes?: string;
-  fetched_data_text?: string;
-  admission_date?: string;
-  visit_date?: string;
-  discharge_date?: string;
-  bill_paid?: boolean;
-  patient_name?: string;
 }
 
 // Helper function to convert HTML to plain text
