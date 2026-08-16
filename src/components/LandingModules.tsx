@@ -1,26 +1,57 @@
 import React from 'react';
 import {
   Activity,
+  AlertTriangle,
+  ArrowLeftRight,
+  Banknote,
+  BarChart3,
+  BedDouble,
   BookOpen,
+  CalendarCheck,
+  CalendarClock,
+  ClipboardCheck,
+  ClipboardList,
+  DoorOpen,
+  Droplets,
+  FileText,
+  HandCoins,
   HeartPulse,
+  Landmark,
+  LayoutDashboard,
+  LogOut,
+  Megaphone,
+  MessageCircle,
+  NotebookPen,
+  Package,
+  Pill,
+  Receipt,
+  ReceiptIndianRupee,
+  ScanLine,
+  ShoppingCart,
+  Stethoscope,
+  UserCheck,
+  UserPlus,
+  UserRound,
+  Users,
   type LucideIcon,
 } from 'lucide-react';
-import { getModule } from '@/tablet/config/modules';
 
 /**
  * What this application actually does, on the front page.
  *
- * Labels, descriptions and icons are read from the module registry rather than
- * copied here, so a tile renamed in modules.ts is renamed here too. A
- * hand-written list of seventy modules would be wrong within a fortnight —
- * "Advance Statement" became "Advance Statement Arshiya" without anybody
- * updating a second list, and that is the normal case, not the exception.
+ * SELF-CONTAINED ON PURPOSE. This page is served to anyone on the internet, and
+ * it used to build itself from the module registry -- which meant importing
+ * that registry, staff names and all, into the bundle every anonymous visitor
+ * downloads. The page rendered no names and shipped nineteen of them: "Nisha
+ * Cash Handover", "Document azhar", "Register Patient Diksha", readable in
+ * devtools by anybody.
  *
- * A few entries are full-site pages with no tablet tile (Accounting, Cath Lab),
- * so they carry their own label and route.
+ * So the public names live here instead, and the registry is not imported. The
+ * cost is that this list no longer follows a rename by itself; that is what
+ * scripts/check-public-labels.cjs is for, and it fails the build if an id here
+ * stops existing or a staff name reappears.
  */
-
-interface Extra {
+interface Tile {
   id: string;
   label: string;
   description: string;
@@ -31,71 +62,100 @@ interface Extra {
 interface Group {
   title: string;
   blurb: string;
-  /** Module ids, resolved against the registry. Unknown ids are skipped. */
-  ids: string[];
-  extras?: Extra[];
+  tiles: Tile[];
 }
 
 const GROUPS: Group[] = [
   {
     title: 'Patients & Visits',
     blurb: 'From the front desk to the gate pass',
-    ids: ['register', 'patient-profile', 'incoming-referrals', 'direct-patients',
-      'discharge', 'discharge-summary', 'documents', 'gate-pass'],
+    tiles: [
+      { id: 'register', label: 'Register Patient', description: 'New patient & visit', href: '/register', icon: UserPlus },
+      { id: 'patient-profile', label: 'Patient Profile', description: 'View patient details', href: '/patient-profile', icon: UserRound },
+      { id: 'incoming-referrals', label: 'Incoming Referrals', description: 'Announce a referred or direct patient before arrival, link on registration', href: '/incoming-referrals', icon: Megaphone },
+      { id: 'direct-patients', label: 'Direct Patients', description: 'Announce a patient as DIRECT - referees blocked by the database', href: '/direct-patients', icon: UserCheck },
+      { id: 'discharge', label: 'Discharged Patients', description: 'Discharged patient list', href: '/discharge', icon: LogOut },
+      { id: 'discharge-summary', label: 'Discharge Summary', description: 'Create, edit & print summary', href: '/discharge-summary', icon: FileText },
+      { id: 'documents', label: 'Documents', description: 'Patient documents & downloads', href: '/documents', icon: FileText },
+      { id: 'gate-pass', label: 'Gate Pass', description: 'Issue & print gate pass', href: '/gate-pass', icon: DoorOpen },
+    ],
   },
   {
     title: 'Clinical Care',
     blurb: 'The ward, the theatre and the bedside',
-    ids: ['doctor-notes', 'medication-round', 'icu-admission', 'ot-schedule-gaurav',
-      'requisition', 'bed-booking', 'bed-shifting', 'occupancy', 'dama',
-      'stores-inventory'],
-    extras: [
-      {
-        id: 'cath-lab',
-        label: 'Cath Lab',
-        description: 'Catheterisation lab schedule, inventory and technicians',
-        href: '/cath-lab',
-        icon: HeartPulse,
-      },
+    tiles: [
+      { id: 'doctor-notes', label: 'Doctor Notes', description: 'Bedside clinical notes', href: '/doctor-notes', icon: Stethoscope },
+      { id: 'medication-round', label: 'Medication Round', description: 'Mark doses given / missed', href: '/medication-round', icon: ClipboardCheck },
+      { id: 'icu-admission', label: 'ICU Admission', description: 'Admit / transfer to ICU bed', href: '/icu-admission', icon: HeartPulse },
+      { id: 'ot-schedule-gaurav', label: 'OT Schedule', description: 'Schedule surgery date & time', href: '/ot-schedule-gaurav', icon: CalendarClock },
+      { id: 'requisition', label: 'Requisition', description: 'Raise lab / radiology / store', href: '/requisition', icon: ClipboardList },
+      { id: 'bed-booking', label: 'Bed Booking', description: 'Reserve a bed for an incoming patient', href: '/bed-booking', icon: CalendarCheck },
+      { id: 'bed-shifting', label: 'Bed Shifting', description: 'Drag a patient to another bed', href: '/bed-shifting', icon: ArrowLeftRight },
+      { id: 'occupancy', label: 'Bed Occupancy', description: 'Live ward & bed status', href: '/occupancy', icon: BedDouble },
+      { id: 'dama', label: 'DAMA / LAMA', description: 'Discharge against medical advice', href: '/dama', icon: AlertTriangle },
+      { id: 'stores-inventory', label: 'Stores & Inventory', description: 'Stock levels, movements in and out, and reorder alerts', href: '/stores-inventory', icon: Package },
+      { id: 'cath-lab', label: 'Cath Lab', description: 'Catheterisation lab schedule, inventory and technicians', href: '/cath-lab', icon: HeartPulse },
     ],
   },
   {
     title: 'Diagnostics',
     blurb: 'Laboratory, imaging and dialysis',
-    ids: ['diagnostics-hope', 'diagnostics-ayushman', 'dialysis', 'dialysis-billing',
-      'dialysis-front-office', 'report'],
+    tiles: [
+      { id: 'diagnostics-hope', label: 'Diagnostics (Hope)', description: 'Send patient to outside CT/MRI/lab — posts on DRM Hope', href: '/diagnostics-hope', icon: ScanLine },
+      { id: 'diagnostics-ayushman', label: 'Diagnostics (Ayushman)', description: 'Send patient to outside CT/MRI/lab — posts on Ayushman', href: '/diagnostics-ayushman', icon: ScanLine },
+      { id: 'dialysis', label: 'Dialysis', description: 'Cycle billing & 30-day lab reports', href: '/dialysis', icon: Droplets },
+      { id: 'dialysis-billing', label: 'Dialysis Billing', description: 'Patients whose block is complete and ready to claim', href: '/dialysis-billing', icon: Receipt },
+      { id: 'report', label: 'Reports', description: 'Occupancy, collections, census', href: '/report', icon: BarChart3 },
+    ],
   },
   {
     title: 'Pharmacy',
     blurb: 'Dispensing, billing and suppliers',
-    ids: ['pharmacy-dispense', 'pharmacy-billing-abhishek', 'pharmacy-dues-abhishek',
-      'pharmacy-vendor-lalit'],
+    tiles: [
+      { id: 'pharmacy-dispense', label: 'Pharmacy', description: 'Dispense / substitute approved meds', href: '/pharmacy-dispense', icon: Pill },
+      { id: 'pharmacy-billing-abhishek', label: 'Pharmacy Billing', description: 'Bill the patient, generate the invoice, take payment by QR', href: '/pharmacy-billing-abhishek', icon: ShoppingCart },
+      { id: 'pharmacy-dues-abhishek', label: 'Supplier Dues', description: 'Outstanding supplier invoices, pay full or part in cash', href: '/pharmacy-dues-abhishek', icon: ReceiptIndianRupee },
+      { id: 'pharmacy-vendor-lalit', label: 'Pharmacy Vendors', description: 'Vendor bills from GRNs — scan the QR, pay, attach the proof', href: '/pharmacy-vendor-lalit', icon: Package },
+    ],
   },
   {
     title: 'Billing & Panels',
     blurb: 'Bills, implants and government schemes',
-    ids: ['billing', 'implant-bill', 'implant-calculation', 'implant-sticker',
-      'panel-documents', 'panel-payment-received', 'payments-due'],
+    tiles: [
+      { id: 'billing', label: 'Billing', description: 'View bill & collect payment', href: '/billing', icon: Receipt },
+      { id: 'implant-bill', label: 'Implant Bill', description: 'Create implant vendor invoice', href: '/implant-bill', icon: Receipt },
+      { id: 'implant-calculation', label: 'Implant Calculation', description: 'Settle each discharged patient: direct or referred cut', href: '/implant-calculation', icon: ClipboardCheck },
+      { id: 'implant-sticker', label: 'Implant Sticker', description: 'Create implant pouch cover sheet', href: '/implant-sticker', icon: ScanLine },
+      { id: 'panel-documents', label: 'Panel Documents', description: 'Panel-wise mandatory docs', href: '/panel-documents', icon: ClipboardCheck },
+      { id: 'panel-payment-received', label: 'Panel Payment Received', description: 'Record corporate / panel / Yojana payments as they arrive', href: '/panel-payment-received', icon: ReceiptIndianRupee },
+      { id: 'payments-due', label: 'Payments Due', description: 'Pay today\'s salary, rent and vendor obligations', href: '/payments-due', icon: CalendarClock },
+    ],
   },
   {
     title: 'Cash & Accounts',
     blurb: 'Every rupee traceable to a person',
-    ids: ['opening-cash', 'cash-handover', 'bank-deposit', 'cash-shift-report',
-      'expense-bills', 'payment-voucher', 'receipt-voucher', 'bank-cash'],
-    extras: [
-      {
-        id: 'accounting',
-        label: 'Accounting',
-        description: 'Day book, ledgers, trial balance and the full Tally-style books',
-        href: '/accounting',
-        icon: BookOpen,
-      },
+    tiles: [
+      { id: 'opening-cash', label: 'Opening Cash', description: 'Count cash in hand and in the locker before your shift', href: '/opening-cash', icon: Banknote },
+      { id: 'cash-handover', label: 'Cash Handover', description: 'Count the drawer and hand it over', href: '/cash-handover', icon: HandCoins },
+      { id: 'bank-deposit', label: 'Bank Deposit', description: 'Pay cash into the bank, with the slip — directors are told', href: '/bank-deposit', icon: Landmark },
+      { id: 'cash-shift-report', label: 'Cash Shift Report', description: 'Opening counts, handovers and the receipts in between', href: '/cash-shift-report', icon: NotebookPen },
+      { id: 'expense-bills', label: 'Expense Bills', description: 'Record supplier and utility invoices', href: '/expense-bills', icon: ReceiptIndianRupee },
+      { id: 'payment-voucher', label: 'Payment Voucher', description: 'Create payment voucher with invoice proof', href: '/payment-voucher', icon: Banknote },
+      { id: 'receipt-voucher', label: 'Receipt Voucher', description: 'Create receipt voucher with invoice proof', href: '/receipt-voucher', icon: Receipt },
+      { id: 'bank-cash', label: 'Bank & Cash', description: 'Deposits, withdrawals, bank charges & interest', href: '/bank-cash', icon: ArrowLeftRight },
+      { id: 'accounting', label: 'Accounting', description: 'Day book, ledgers, trial balance and the full Tally-style books', href: '/accounting', icon: BookOpen },
     ],
   },
   {
     title: 'Management',
     blurb: 'Oversight, people and referrals',
-    ids: ['director', 'hr-pulse', 'referral-register', 'referee-ruby', 'patient-feedback'],
+    tiles: [
+      { id: 'director', label: 'Director Dashboard', description: 'KPIs & payment deadlines', href: '/director', icon: LayoutDashboard },
+      { id: 'hr-pulse', label: 'HR Pulse', description: 'Attendance, leave & HR alerts', href: '/hr-pulse', icon: HeartPulse },
+      { id: 'referral-register', label: 'Referral Register', description: 'Complete referral entries', href: '/referral-register', icon: Users },
+      { id: 'referee-ruby', label: 'Referee Register', description: 'OPDs & admissions · how patients found us', href: '/referee-ruby', icon: Megaphone },
+      { id: 'patient-feedback', label: 'Patient Feedback', description: 'Photo & video feedback from patients', href: '/patient-feedback', icon: MessageCircle },
+    ],
   },
 ];
 
@@ -115,7 +175,7 @@ const enter = (href: string) => (event: React.MouseEvent) => {
   window.location.href = href;
 };
 
-const Tile = ({
+const TileCard = ({
   label,
   description,
   href,
@@ -144,17 +204,7 @@ const Tile = ({
 );
 
 const LandingModules = () => {
-  const groups = GROUPS.map((g) => {
-    const fromRegistry = g.ids
-      .map((id) => {
-        const m = getModule(id);
-        return m
-          ? { id, label: m.label, description: m.description, href: `/${id}`, icon: m.icon as LucideIcon }
-          : null;
-      })
-      .filter(Boolean) as Extra[];
-    return { ...g, tiles: [...fromRegistry, ...(g.extras ?? [])] };
-  }).filter((g) => g.tiles.length > 0);
+  const groups = GROUPS.filter((g) => g.tiles.length > 0);
 
   const total = groups.reduce((n, g) => n + g.tiles.length, 0);
 
@@ -183,7 +233,7 @@ const LandingModules = () => {
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {g.tiles.map((t) => (
-                  <Tile
+                  <TileCard
                     key={t.id}
                     label={t.label}
                     description={t.description}

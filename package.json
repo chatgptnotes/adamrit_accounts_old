@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "prebuild": "node scripts/check-finalbill-locked.cjs && node scripts/check-registration-locked.cjs && node scripts/check-expensebill-locked.cjs && node scripts/check-accounting-locked.cjs && node scripts/check-api-routes.cjs",
+    "prebuild": "node scripts/check-finalbill-locked.cjs && node scripts/check-registration-locked.cjs && node scripts/check-expensebill-locked.cjs && node scripts/check-accounting-locked.cjs && node scripts/check-api-routes.cjs && node scripts/check-public-labels.cjs",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "check:finalbill": "node scripts/check-finalbill-locked.cjs",
@@ -30,7 +30,8 @@
     "check:migrations": "node scripts/check-migration-safety.cjs",
     "check:accounting-schema": "node scripts/check-accounting-schema.cjs",
     "check:api": "node scripts/check-api-routes.cjs && tsc -p tsconfig.api.json",
-    "test:api": "npx vite-node e2e/api-middleware.test.ts"
+    "test:api": "npx vite-node e2e/api-middleware.test.ts",
+    "check:public-labels": "node scripts/check-public-labels.cjs"
   },
   "dependencies": {
     "@ckeditor/ckeditor5-build-classic": "^41.4.2",

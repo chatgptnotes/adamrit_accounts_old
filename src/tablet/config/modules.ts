@@ -59,6 +59,15 @@ export interface TabletModule {
   /** Voucher creation tiles use the shared desktop accounting rights. */
   accountingOnly?: boolean;
   /** Hide from the tablet home grid while still allowing direct navigation. */
+  /**
+   * The name shown to the public, on the landing page.
+   *
+   * Tiles are named after whoever works them -- "Nisha Cash Handover",
+   * "Document azhar" -- which is useful inside the hospital and is a staff list
+   * published to the internet outside it. Set this on any module the landing
+   * page lists whose label names a person.
+   */
+  publicLabel?: string;
   hiddenFromHome?: boolean;
   /** Extra words the home search matches — the people who also work the tile. */
   keywords?: string[];
@@ -85,6 +94,7 @@ export const TABLET_MODULES: TabletModule[] = [
   {
     id: "register",
     label: "Register Patient Diksha",
+    publicLabel: "Register Patient",
     description: "New patient & visit",
     icon: UserPlus,
     accent: "text-emerald-600",
@@ -125,6 +135,7 @@ export const TABLET_MODULES: TabletModule[] = [
   {
     id: "patient-profile",
     label: "Patient Profile Sonali",
+    publicLabel: "Patient Profile",
     description: "View patient details",
     icon: UserRound,
     accent: "text-blue-600",
@@ -220,6 +231,7 @@ export const TABLET_MODULES: TabletModule[] = [
   {
     id: "direct-patients",
     label: "Direct Patient - Rupali",
+    publicLabel: "Direct Patients",
     description: "Announce a patient as DIRECT - referees blocked by the database",
     icon: UserCheck,
     accent: "text-emerald-700",
@@ -293,6 +305,7 @@ export const TABLET_MODULES: TabletModule[] = [
   {
     id: "pharmacy-billing-abhishek",
     label: "Pharmacy Billing - Abhishek",
+    publicLabel: "Pharmacy Billing",
     description: "Bill the patient, generate the invoice, take payment by QR",
     icon: ShoppingCart,
     accent: "text-emerald-700",
@@ -301,6 +314,7 @@ export const TABLET_MODULES: TabletModule[] = [
   {
     id: "pharmacy-vendor-lalit",
     label: "Pharmacy Vendors - Lalit",
+    publicLabel: "Pharmacy Vendors",
     description: "Vendor bills from GRNs — scan the QR, pay, attach the proof",
     icon: Package,
     accent: "text-orange-700",
@@ -309,6 +323,7 @@ export const TABLET_MODULES: TabletModule[] = [
   {
     id: "pharmacy-dues-abhishek",
     label: "Supplier Dues - Abhishek",
+    publicLabel: "Supplier Dues",
     description: "Outstanding supplier invoices, pay full or part in cash",
     icon: ReceiptIndianRupee,
     accent: "text-red-700",
@@ -326,6 +341,7 @@ export const TABLET_MODULES: TabletModule[] = [
   {
     id: "implant-calculation",
     label: "Implant Calculation - Azhar",
+    publicLabel: "Implant Calculation",
     description: "Settle each discharged patient: direct or referred cut",
     icon: ClipboardCheck,
     accent: "text-rose-700",
@@ -342,6 +358,7 @@ export const TABLET_MODULES: TabletModule[] = [
   {
     id: "incoming-referrals",
     label: "Incoming Referrals - Suraj Arpit",
+    publicLabel: "Incoming Referrals",
     description: "Announce a referred or direct patient before arrival, link on registration",
     icon: Megaphone,
     accent: "text-orange-700",
@@ -358,6 +375,7 @@ export const TABLET_MODULES: TabletModule[] = [
   {
     id: "diagnostics-hope",
     label: "Diagnostics - Nisha (Hope)",
+    publicLabel: "Diagnostics (Hope)",
     description: "Send patient to outside CT/MRI/lab — posts on DRM Hope",
     icon: ScanLine,
     accent: "text-sky-700",
@@ -366,6 +384,7 @@ export const TABLET_MODULES: TabletModule[] = [
   {
     id: "diagnostics-ayushman",
     label: "Diagnostics - Chetna (Ayushman)",
+    publicLabel: "Diagnostics (Ayushman)",
     description: "Send patient to outside CT/MRI/lab — posts on Ayushman",
     icon: ScanLine,
     accent: "text-violet-700",
@@ -438,6 +457,7 @@ export const TABLET_MODULES: TabletModule[] = [
   {
     id: "dialysis-billing",
     label: "Dialysis Billing - Shashank",
+    publicLabel: "Dialysis Billing",
     description: "Patients whose block is complete and ready to claim",
     icon: Receipt,
     accent: "text-emerald-700",
@@ -446,6 +466,7 @@ export const TABLET_MODULES: TabletModule[] = [
   {
     id: "dialysis-front-office",
     label: "Dialysis Front Office - Diksha",
+    publicLabel: "Dialysis Front Office",
     description: "Thumb impression first, then print the slip",
     // Lalit and Nisha work this desk too, so their names find it.
     keywords: ["Lalit", "Nisha"],
@@ -456,6 +477,7 @@ export const TABLET_MODULES: TabletModule[] = [
   {
     id: "ot-schedule-gaurav",
     label: "OT Schedule - Gaurav",
+    publicLabel: "OT Schedule",
     description: "Schedule surgery date & time",
     icon: CalendarClock,
     accent: "text-blue-700",
@@ -480,6 +502,7 @@ export const TABLET_MODULES: TabletModule[] = [
   {
     id: "panel-payment-received",
     label: "Shashank Payment Received",
+    publicLabel: "Panel Payment Received",
     description: "Record corporate / panel / Yojana payments as they arrive",
     icon: ReceiptIndianRupee,
     accent: "text-emerald-700",
@@ -564,6 +587,7 @@ export const TABLET_MODULES: TabletModule[] = [
   {
     id: "documents",
     label: "Document azhar",
+    publicLabel: "Documents",
     description: "Patient documents & downloads",
     icon: FileText,
     accent: "text-indigo-600",
@@ -589,6 +613,7 @@ export const TABLET_MODULES: TabletModule[] = [
   {
     id: "bank-deposit",
     label: "Nisha Bank Deposit",
+    publicLabel: "Bank Deposit",
     description: "Pay cash into the bank, with the slip — directors are told",
     icon: Landmark,
     accent: "text-sky-700",
@@ -632,6 +657,7 @@ export const TABLET_MODULES: TabletModule[] = [
   {
     id: "opening-cash",
     label: "Nisha Opening Cash",
+    publicLabel: "Opening Cash",
     description: "Count cash in hand and in the locker before your shift",
     icon: Banknote,
     accent: "text-amber-600",
@@ -641,6 +667,7 @@ export const TABLET_MODULES: TabletModule[] = [
   {
     id: "cash-handover",
     label: "Nisha Cash Handover",
+    publicLabel: "Cash Handover",
     description: "Count the drawer and hand it over",
     icon: HandCoins,
     accent: "text-emerald-600",
@@ -666,6 +693,7 @@ export const TABLET_MODULES: TabletModule[] = [
   {
     id: "referee-ruby",
     label: "Referee - Ruby",
+    publicLabel: "Referee Register",
     description: "OPDs & admissions · how patients found us",
     icon: Megaphone,
     accent: "text-pink-700",
