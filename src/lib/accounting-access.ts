@@ -14,6 +14,10 @@ const ACCOUNTING_EMAILS = new Set([
   'finance@hopehospital.com',
   'diksha@gmail.com',
   'nisha@gmail.com',
+  // Lalit, pharmacist by role, works the vouchers and the books. Named rather
+  // than adding 'pharmacist', which would hand the same rights to every
+  // pharmacist at once -- the distinction this list exists to make.
+  'lalit@gmail.com',
 ]);
 
 /**
