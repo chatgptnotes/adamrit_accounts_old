@@ -18,9 +18,26 @@ import { reportingFetch, setDbAccessToken } from '../src/integrations/supabase/l
 // Must run under vite-node, not tsx/ts-node: the code under test reads
 // import.meta.env.VITE_SUPABASE_ANON_KEY, which only Vite populates. Under the
 // wrong runner it is undefined and the header tests report confusing failures.
+//
+// This used to exit 0 here, which made the suite green on any machine without a
+// .env — including CI, where it would have guarded all 278 write paths by
+// asserting nothing at all. A suite that cannot run is a failure, not a pass:
+// that is the same rule the code under test enforces on failed writes, and it
+// applies to the harness too. Set ALLOW_SKIP_LOUD_FAILURES=1 to opt out
+// deliberately, which leaves the decision in the diff instead of in silence.
 if (!(import.meta as any).env?.VITE_SUPABASE_ANON_KEY) {
-  console.log('SKIP: run with `npx vite-node e2e/loud-failures.test.ts` — import.meta.env is empty here.');
-  process.exit(0);
+  const message =
+    'cannot run: VITE_SUPABASE_ANON_KEY is not set.\n' +
+    '  Run with `npx vite-node e2e/loud-failures.test.ts` and a .env present.\n' +
+    '  To skip deliberately: ALLOW_SKIP_LOUD_FAILURES=1 npm run test:loud-failures';
+
+  if (process.env.ALLOW_SKIP_LOUD_FAILURES === '1') {
+    console.log(`SKIPPED ON PURPOSE — ${message}`);
+    process.exit(0);
+  }
+
+  console.log(`FAIL ${message}`);
+  process.exit(1);
 }
 
 let pass = 0;

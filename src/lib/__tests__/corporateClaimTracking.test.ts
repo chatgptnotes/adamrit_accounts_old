@@ -5,10 +5,12 @@
 // Covers file parsing, duplicate detection, matching, permissions, and more
 // ============================================================================
 
-import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   corporateClaimFileFingerprint,
   parseCorporateClaimFile,
+  parseClaimAmount,
+  parseClaimDate,
   schemeForProgramId,
   checkPaymentStatus,
   autoMatchClaimByNameAndDate,
@@ -36,20 +38,52 @@ describe('Corporate Claim Tracking', () => {
   const mockPMJAYProgramId = 'PMJAY' + 'A'.repeat(40);
   const mockMJPJAYProgramId = 'MJPJAY' + 'B'.repeat(40);
 
+  /**
+   * Builds a parsed file of the shape corporateClaimFileFingerprint actually
+   * takes. The fingerprint covers fileType, reportDate, headers and each row's
+   * originalValues — deliberately NOT fileName, which is what makes a renamed
+   * copy of the same export count as a duplicate.
+   */
+  const parsedFile = (
+    values: Record<string, string>[],
+    overrides: Partial<CorporateClaimParsedFile> = {}
+  ): CorporateClaimParsedFile => ({
+    fileName: 'claims.xlsx',
+    fileType: 'pending_with_payer',
+    delimiter: null,
+    headers: ['Beneficiary Name', 'Claimed Amount'],
+    reportDate: '2026-08-01',
+    rows: values.map((originalValues, index) => ({
+      rowNumber: index + 1,
+      originalValues,
+      normalizedValues: {},
+      issues: [],
+      fingerprintInput: JSON.stringify(originalValues),
+    })),
+    fatalErrors: [],
+    ...overrides,
+  });
+
   // ============================================================================
   // Test 1: File Parsing Tests (6 file types)
   // ============================================================================
   describe('File Parsing', () => {
+    // The scheme is decided by the NORMALIZED prefix — PJ / MJ — not by the
+    // scheme's display name. A "PMJAY..." string normalizes to a PM prefix and
+    // is deliberately UNRESOLVED rather than guessed at.
     it('should parse PMJAY claim file correctly', async () => {
-      const programId = 'PMJAY' + '1'.repeat(40);
-      const result = schemeForProgramId(programId);
-      expect(result).toBe('PMJAY');
+      expect(schemeForProgramId('PJ' + '1'.repeat(40))).toBe('PMJAY');
+      expect(schemeForProgramId('pj-123/456')).toBe('PMJAY');
     });
 
     it('should parse MJPJAY claim file correctly', async () => {
-      const programId = 'MJPJAY' + '1'.repeat(40);
-      const result = schemeForProgramId(programId);
-      expect(result).toBe('MJPJAY');
+      expect(schemeForProgramId('MJ' + '1'.repeat(40))).toBe('MJPJAY');
+    });
+
+    it('should refuse to guess a scheme it does not recognise', () => {
+      expect(schemeForProgramId('PMJAY' + '1'.repeat(40))).toBe('UNRESOLVED');
+      expect(schemeForProgramId('')).toBe('UNRESOLVED');
+      expect(schemeForProgramId(null)).toBe('UNRESOLVED');
     });
 
     it('should handle files with missing required fields', async () => {
@@ -63,22 +97,24 @@ describe('Corporate Claim Tracking', () => {
     });
 
     it('should parse valid date formats correctly', () => {
-      const validDate = '2024-01-15';
-      const parsed = new Date(validDate);
-      expect(parsed.toISOString().slice(0, 10)).toBe(validDate);
+      expect(parseClaimDate('2024-01-15')).toBe('2024-01-15');
+      // Portal exports are day-first, so this is 15 January, not 1 March.
+      expect(parseClaimDate('15/01/2024')).toBe('2024-01-15');
+      expect(parseClaimDate('15-01-24')).toBe('2024-01-15');
     });
 
     it('should handle invalid date formats gracefully', () => {
-      const invalidDate = '15-01-2024'; // Wrong format
-      const parsed = new Date(invalidDate);
-      // Should either parse or handle gracefully without crashing
-      expect(parsed).toBeDefined();
+      expect(parseClaimDate('invalid-date')).toBeNull();
+      expect(parseClaimDate('')).toBeNull();
+      // A real calendar check, not just a shape check: there is no 31 February.
+      expect(parseClaimDate('31/02/2024')).toBeNull();
     });
 
     it('should parse numeric amounts correctly', () => {
-      const amountStr = '10,500.50';
-      const amount = parseFloat(amountStr.replace(/,/g, ''));
-      expect(amount).toBe(10500.50);
+      expect(parseClaimAmount('10,500.50')).toBe(10500.5);
+      expect(parseClaimAmount('₹ 1,00,000')).toBe(100000);
+      expect(parseClaimAmount('')).toBeNull();
+      expect(parseClaimAmount('not a number')).toBeNull();
     });
   });
 
@@ -87,28 +123,40 @@ describe('Corporate Claim Tracking', () => {
   // ============================================================================
   describe('Duplicate Upload Detection', () => {
     it('should detect duplicate files by content hash', async () => {
-      const hash1 = await corporateClaimFileFingerprint(mockFileContent.content);
-      const hash2 = await corporateClaimFileFingerprint(mockFileContent.content);
+      const rows = [{ 'Beneficiary Name': 'Test Patient', 'Claimed Amount': '10000' }];
+      const hash1 = await corporateClaimFileFingerprint(parsedFile(rows));
+      const hash2 = await corporateClaimFileFingerprint(parsedFile(rows));
 
       expect(hash1).toBe(hash2);
       expect(hash1).toMatch(/^[a-f0-9]{64}$/); // SHA-256 format
     });
 
     it('should generate different hashes for different content', async () => {
-      const hash1 = await corporateClaimFileFingerprint('content 1');
-      const hash2 = await corporateClaimFileFingerprint('content 2');
+      const hash1 = await corporateClaimFileFingerprint(parsedFile([{ 'Claimed Amount': '10000' }]));
+      const hash2 = await corporateClaimFileFingerprint(parsedFile([{ 'Claimed Amount': '20000' }]));
+
+      expect(hash1).not.toBe(hash2);
+    });
+
+    it('should notice a changed report date on otherwise identical rows', async () => {
+      const rows = [{ 'Claimed Amount': '10000' }];
+      const hash1 = await corporateClaimFileFingerprint(parsedFile(rows));
+      const hash2 = await corporateClaimFileFingerprint(parsedFile(rows, { reportDate: '2026-08-02' }));
 
       expect(hash1).not.toBe(hash2);
     });
 
     it('should handle empty file content', async () => {
-      const hash = await corporateClaimFileFingerprint('');
+      const hash = await corporateClaimFileFingerprint(parsedFile([]));
       expect(hash).toMatch(/^[a-f0-9]{64}$/);
     });
 
     it('should handle large file content', async () => {
-      const largeContent = 'A'.repeat(1000000); // 1MB
-      const hash = await corporateClaimFileFingerprint(largeContent);
+      const manyRows = Array.from({ length: 5000 }, (_, index) => ({
+        'Beneficiary Name': `Patient ${index}`,
+        'Claimed Amount': String(index * 100),
+      }));
+      const hash = await corporateClaimFileFingerprint(parsedFile(manyRows));
       expect(hash).toMatch(/^[a-f0-9]{64}$/);
     });
   });
@@ -118,17 +166,20 @@ describe('Corporate Claim Tracking', () => {
   // ============================================================================
   describe('Renamed Duplicate File', () => {
     it('should detect duplicate even with different filename', async () => {
-      const content = 'same content';
-      const hash1 = await corporateClaimFileFingerprint(content);
-      const hash2 = await corporateClaimFileFingerprint(content);
+      const rows = [{ 'Beneficiary Name': 'Test Patient' }];
+      const hash1 = await corporateClaimFileFingerprint(parsedFile(rows, { fileName: 'claims.xlsx' }));
+      const hash2 = await corporateClaimFileFingerprint(
+        parsedFile(rows, { fileName: 'claims (1) FINAL v2.xlsx' })
+      );
 
+      // This is the property the whole duplicate check rests on: re-downloading
+      // the same portal export under a new name must not create a second upload.
       expect(hash1).toBe(hash2);
-      // Filename shouldn't affect hash
     });
 
     it('should not flag different content as duplicate', async () => {
-      const hash1 = await corporateClaimFileFingerprint('content A');
-      const hash2 = await corporateClaimFileFingerprint('content B');
+      const hash1 = await corporateClaimFileFingerprint(parsedFile([{ 'Beneficiary Name': 'Patient A' }]));
+      const hash2 = await corporateClaimFileFingerprint(parsedFile([{ 'Beneficiary Name': 'Patient B' }]));
 
       expect(hash1).not.toBe(hash2);
     });
@@ -191,22 +242,21 @@ describe('Corporate Claim Tracking', () => {
   // ============================================================================
   describe('Scheme Conflicts', () => {
     it('should identify PMJAY scheme correctly', () => {
-      const pmjayId = 'PMJAY' + '1'.repeat(40);
+      const pmjayId = 'PJ' + '1'.repeat(40);
       expect(schemeForProgramId(pmjayId)).toBe('PMJAY');
     });
 
     it('should identify MJPJAY scheme correctly', () => {
-      const mjpjayId = 'MJPJAY' + '1'.repeat(40);
+      const mjpjayId = 'MJ' + '1'.repeat(40);
       expect(schemeForProgramId(mjpjayId)).toBe('MJPJAY');
     });
 
     it('should handle scheme mismatch correctly', () => {
-      const pmjayId = 'PMJAY' + '1'.repeat(40);
-      const scheme = schemeForProgramId(pmjayId);
-
-      // If database record has different scheme, flag as conflict
-      const dbScheme = 'MJPJAY';
-      expect(scheme).not.toBe(dbScheme);
+      // A PJ id belongs to PMJAY, so a stored MJPJAY scheme on the same claim
+      // is a genuine conflict rather than two spellings of one answer.
+      expect(schemeForProgramId('PJ' + '1'.repeat(40))).not.toBe(
+        schemeForProgramId('MJ' + '1'.repeat(40))
+      );
     });
 
     it('should handle unrecognized scheme prefixes', () => {
@@ -535,11 +585,14 @@ describe('Corporate Claim Tracking', () => {
     });
 
     it('should handle concurrent uploads', async () => {
-      const hash1 = await corporateClaimFileFingerprint('content');
-      const hash2 = await corporateClaimFileFingerprint('content');
+      const rows = [{ 'Beneficiary Name': 'Test Patient' }];
+      const hashes = await Promise.all(
+        Array.from({ length: 8 }, () => corporateClaimFileFingerprint(parsedFile(rows)))
+      );
 
-      // Same content should produce same hash even in rapid succession
-      expect(hash1).toBe(hash2);
+      // Same content must produce the same hash even in rapid succession, so
+      // two staff uploading the same export at once collide on one record.
+      expect(new Set(hashes).size).toBe(1);
     });
   });
 });
