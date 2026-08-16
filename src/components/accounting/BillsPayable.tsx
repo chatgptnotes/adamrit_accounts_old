@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
@@ -130,13 +131,20 @@ const BillsPayable: React.FC = () => {
   // Tally drills a payable line to the party's ledger; unmatched names land on
   // the bill-wise outstandings.
   const drillLine = async (l: PayableLine) => {
-    const { data } = await (supabase as any)
+    const { data, error } = await (supabase as any)
       .from('chart_of_accounts')
       .select('id')
       .ilike('account_name', l.party.trim().replace(/[%_\\]/g, '\\$&'))
       .eq('is_active', true)
       .limit(1)
       .maybeSingle();
+    // "No ledger of that name" legitimately falls through to the outstandings.
+    // A failed lookup must not: it would land the user on a different screen
+    // with no hint that the drill-through never actually happened.
+    if (error) {
+      toast.error(`Could not open the ledger for ${l.party}: ${error.message}`);
+      return;
+    }
     if (data?.id) {
       window.dispatchEvent(new CustomEvent('tally-open-ledger', { detail: { accountId: data.id, monthly: true } }));
       return;

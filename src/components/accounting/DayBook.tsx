@@ -225,11 +225,14 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
     queryKey: ['daybook_company', selectedCompanyId],
     enabled: Boolean(selectedCompanyId),
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('companies')
         .select('company_name, address_line1, address_line2')
         .eq('id', selectedCompanyId)
         .maybeSingle();
+      // A dropped error here prints a voucher with no company name or address,
+      // which is not the TallyPrime format the printout is meant to replicate.
+      if (error) throw error;
       return data as { company_name: string; address_line1: string | null; address_line2: string | null } | null;
     },
   });

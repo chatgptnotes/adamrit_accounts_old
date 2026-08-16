@@ -6,6 +6,7 @@ import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
 import { useRowCursor } from './tally/useRowCursor';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 const fmt = (n: number): string =>
   new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
@@ -92,13 +93,19 @@ const BillsReceivable: React.FC = () => {
   const drillBill = async (r: BillAgingRecord) => {
     const name = (r.corporate || '').trim();
     if (name) {
-      const { data } = await (supabase as any)
+      const { data, error } = await (supabase as any)
         .from('chart_of_accounts')
         .select('id')
         .ilike('account_name', name.replace(/[%_\\]/g, '\\$&'))
         .eq('is_active', true)
         .limit(1)
         .maybeSingle();
+      // An unmatched corporate name legitimately falls through to the
+      // outstandings; a failed lookup silently would send the user there too.
+      if (error) {
+        toast.error(`Could not open the ledger for ${name}: ${error.message}`);
+        return;
+      }
       if (data?.id) {
         window.dispatchEvent(new CustomEvent('tally-open-ledger', { detail: { accountId: data.id, monthly: true } }));
         return;

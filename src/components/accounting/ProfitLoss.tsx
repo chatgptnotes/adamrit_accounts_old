@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { mergedLedgerBalances, type LedgerBalanceRow, type LedgerSource } from '@/lib/mergedLedgerBalances';
 import { TallyScreen } from './tally/TallyChrome';
 import { useTallyReport } from './tally/useTallyReport';
@@ -107,6 +108,20 @@ const ProfitLoss: React.FC<{
       queryFn: () => mergedLedgerBalances({ from: c.from, upto: c.to, companyId: selectedCompanyId }),
     })),
   });
+
+  // A comparison column that failed to load computes from an empty list, so it
+  // prints as a column of zeros beside real figures — indistinguishable from a
+  // period in which nothing happened. Say so instead.
+  const columnErrorKey = columnResults.map((q) => (q.isError ? '1' : '0')).join('');
+  useEffect(() => {
+    columnResults.forEach((q, i) => {
+      if (!q.isError) return;
+      toast.error(
+        `Comparison column "${report.columns[i]?.title ?? i + 1}" could not be loaded — its figures are not shown.`,
+      );
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [columnErrorKey]);
 
   const compute = useMemo(
     () => (ledgerRows: LedgerBalanceRow[]) => {

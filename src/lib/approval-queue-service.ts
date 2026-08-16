@@ -132,7 +132,13 @@ export async function approveAndPostJV(id: string, approvedBy?: string): Promise
   if (claimError) throw new Error(claimError.message || 'Failed to approve the bill')
   const row = (claimed || [])[0] as ApprovalQueueRow | undefined
   if (!row) {
-    const { data: current } = await approvalQueue().select('*').eq('id', id).maybeSingle()
+    // Why did the claim match nothing? If this diagnostic read itself fails we
+    // must not guess — the old code fell through to "already approved by
+    // someone else", which is a confident answer to a question it never asked.
+    const { data: current, error: currentError } = await approvalQueue().select('*').eq('id', id).maybeSingle()
+    if (currentError) {
+      throw new Error(`Could not approve the bill, and could not determine why: ${currentError.message}`)
+    }
     if (current && current.status === 'PENDING' && needsDetails(current as ApprovalQueueRow)) {
       throw new Error('Fill the amount and ledgers before approving this bill')
     }
@@ -425,25 +431,42 @@ export async function createDoctorApprovalsFromOt(ot: {
 
     let created = 0
     for (const { name: surgeon, amount: masterAmount, isAnesthetist } of people) {
-      const { data: maps } = await doctorLedgerMap()
+      // This decides which company and ledgers the payable is raised against.
+      // A dropped error leaves `map` undefined and creates the row with all
+      // three set to null — a payable pointing at no ledger at all.
+      const { data: maps, error: mapsError } = await doctorLedgerMap()
         .select('company_id, party_account_id, expense_account_id')
         .ilike('surgeon_name', surgeon)
         .limit(1)
+      if (mapsError) {
+        throw new Error(`Could not read the ledger mapping for ${surgeon}: ${mapsError.message}`)
+      }
       const map = (maps || [])[0]
 
       // An anaesthetist's fee is Anaesthetist Charges, never Surgeon Fees.
       let expenseAccountId = map?.expense_account_id || null
       if (isAnesthetist && map?.company_id) {
         try {
-          const { data: anaes } = await (supabase as any)
+          const { data: anaes, error: anaesError } = await (supabase as any)
             .from('chart_of_accounts')
             .select('id')
             .eq('company_id', map.company_id)
             .eq('is_active', true)
             .ilike('account_name', 'anaesthetist charges')
             .limit(1)
+          // No such ledger is a real answer and the fallback is correct. A
+          // failed read is not: falling back then posts an anaesthetist's fee
+          // to Surgeon Fees, which is the specific mistake this lookup exists
+          // to prevent.
+          if (anaesError) throw anaesError
           if (anaes?.[0]?.id) expenseAccountId = anaes[0].id
-        } catch { /* fall back to the mapped expense */ }
+        } catch (err: any) {
+          console.warn(
+            `[ot-auto] Anaesthetist Charges lookup FAILED for ${surgeon} — falling back to the ` +
+              'mapped expense ledger, which may post this fee as Surgeon Fees:',
+            err?.message || err,
+          )
+        }
       }
 
       // The bill's narration becomes the JV's narration on approval, so it
@@ -504,10 +527,15 @@ export async function createAssistantApprovalsFromOt(
     const fee = Number(assistant.fee) || 1000
     if (!name) continue
     try {
-      const { data: maps } = await doctorLedgerMap()
+      // Same as the surgeon path: without this the assistant's payable is
+      // created against no company and no ledgers.
+      const { data: maps, error: mapsError } = await doctorLedgerMap()
         .select('company_id, party_account_id, expense_account_id')
         .ilike('surgeon_name', name)
         .limit(1)
+      if (mapsError) {
+        throw new Error(`Could not read the ledger mapping for ${name}: ${mapsError.message}`)
+      }
       const map = (maps || [])[0]
       const narration = [`${assistant.role}`, ot.surgery_name, ot.patient_name].filter(Boolean).join(' - ')
       const { error } = await approvalQueue().insert({
@@ -579,15 +607,20 @@ async function attachOtContext<T extends { ot_schedule_id: string | null }>(rows
   if (!otIds.length) {
     return rows.map((r) => ({ ...r, patient_name: null, surgery_name: null, surgery_date: null, surgery_time: null, anesthesia_type: null }))
   }
-  const { data: ots } = await (supabase as any)
+  // This is the patient and surgery an approver reads before releasing money.
+  // Dropping these errors blanks every one of those fields, so the list looks
+  // like invoices with no context rather than a screen that failed to load it.
+  const { data: ots, error: otsError } = await (supabase as any)
     .from('ot_schedule')
     .select('id, surgery_name, scheduled_date, scheduled_time, patient_id, special_requirements')
     .in('id', otIds)
+  if (otsError) throw otsError
   const otById = new Map((ots || []).map((o: any) => [o.id, o]))
   const patientIds = [...new Set((ots || []).map((o: any) => o.patient_id).filter(Boolean))]
   let patientById = new Map<string, string>()
   if (patientIds.length) {
-    const { data: pats } = await (supabase as any).from('patients').select('id, name').in('id', patientIds)
+    const { data: pats, error: patsError } = await (supabase as any).from('patients').select('id, name').in('id', patientIds)
+    if (patsError) throw patsError
     patientById = new Map((pats || []).map((p: any) => [p.id, p.name]))
   }
   return rows.map((r) => {

@@ -477,10 +477,13 @@ const AccountLogs: React.FC = () => {
   const { data: ledgers = [] } = useQuery<TallyLedger[]>({
     queryKey: ['tally-ledgers-list'],
     queryFn: async () => {
-      const { data } = await supabaseData
+      const { data, error } = await supabaseData
         .from('tally_ledgers')
         .select('id, name, parent_group')
         .order('name');
+      // Without this an unreachable table renders as an empty ledger picker,
+      // which reads as "there are no ledgers" rather than "the read failed".
+      if (error) throw error;
       return (data ?? []) as TallyLedger[];
     },
     enabled: selectedLog === 'account-log',

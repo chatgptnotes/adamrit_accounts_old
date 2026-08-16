@@ -53,12 +53,15 @@ const GstSalesSummary: React.FC = () => {
   const { data: gstin } = useQuery({
     queryKey: ['pharmacy_gstin'],
     queryFn: async (): Promise<string | null> => {
-      const { data } = await (supabase as any)
+      const { data, error } = await (supabase as any)
         .from('companies')
         .select('gst_number')
         .ilike('company_name', '%pharmacy%')
         .limit(1)
         .maybeSingle();
+      // On a tax return an absent GSTIN and an unread GSTIN are very different
+      // things, and only one of them is safe to file.
+      if (error) throw error;
       return data?.gst_number ?? null;
     },
   });

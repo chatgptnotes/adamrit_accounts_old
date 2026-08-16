@@ -49,12 +49,20 @@ export const CompanySelectPopup: React.FC<{ onClose: () => void }> = ({ onClose 
           queryClient.invalidateQueries({ queryKey: ['companies'] });
           // Select it straight away — the filtered list in memory does not
           // hold its id, so ask the database.
-          const { data } = await (supabase as any)
+          const { data, error } = await (supabase as any)
             .from('companies')
             .select('id')
             .eq('company_key', ML_COMPANY_KEY)
             .maybeSingle();
-          if (data?.id) accountingCompany?.setSelectedCompanyId(data.id);
+          // The unlock itself has already happened. If the follow-up lookup
+          // fails we must not claim it is selected — the user would carry on
+          // in whichever company was already open.
+          if (error || !data?.id) {
+            toast.error('Unlocked, but could not select M.L. Enterprises — pick it from the company list (F3).');
+            onClose();
+            return;
+          }
+          accountingCompany?.setSelectedCompanyId(data.id);
           toast.success('M.L. Enterprises unlocked for this session');
           onClose();
         },
