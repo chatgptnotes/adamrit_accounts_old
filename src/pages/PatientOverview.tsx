@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -13,6 +13,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ArrowUpDown, ChevronDown, ChevronUp, Plus } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { useTelecallers } from '@/hooks/useTelecallers';
 
 type SortConfig = {
   key: string;
@@ -45,7 +46,20 @@ const PatientOverview = () => {
 
   // State to store form data for each visit
   const [callRecordData, setCallRecordData] = useState<Record<string, any>>({});
-  const [telecallers, setTelecallers] = useState<string[]>(['Dolly', 'Nisha', 'Diksha']);
+  // Names come from the call records and from active staff. Anyone typed in
+  // through "Add telecaller" is held for this session only and becomes
+  // permanent the moment a call is saved against them — the old local array
+  // lost them on refresh, so the same person got re-typed and re-spelled.
+  const { all: knownTelecallers } = useTelecallers();
+  const [sessionTelecallers, setSessionTelecallers] = useState<string[]>([]);
+  const telecallers = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const n of [...knownTelecallers, ...sessionTelecallers]) {
+      const key = n.trim().toLowerCase();
+      if (key && !seen.has(key)) seen.set(key, n.trim());
+    }
+    return [...seen.values()].sort((a, b) => a.localeCompare(b));
+  }, [knownTelecallers, sessionTelecallers]);
   const [showAddTelecaller, setShowAddTelecaller] = useState(false);
   const [newTelecallerName, setNewTelecallerName] = useState('');
 
@@ -289,8 +303,12 @@ const PatientOverview = () => {
   };
 
   const handleAddTelecaller = () => {
-    if (newTelecallerName.trim() && !telecallers.includes(newTelecallerName.trim())) {
-      setTelecallers([...telecallers, newTelecallerName.trim()]);
+    const name = newTelecallerName.trim();
+    // Case-insensitive: "dolly" and "Dolly" are one telecaller, and adding the
+    // second spelling is precisely what splits a person in two.
+    const already = telecallers.some((t) => t.toLowerCase() === name.toLowerCase());
+    if (name && !already) {
+      setSessionTelecallers((prev) => [...prev, name]);
       setNewTelecallerName('');
       setShowAddTelecaller(false);
     }
