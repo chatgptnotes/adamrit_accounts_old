@@ -15,7 +15,11 @@ export const useSearchableDiagnoses = () => {
         .order('name');
 
       if (searchTerm) {
-        query = query.ilike('name', `%${searchTerm}%`);
+        // Also by ICD-11 code, so someone holding a coded referral or claim can
+        // type the code and find the diagnosis it was mapped to. Diagnoses with
+        // no code yet are unaffected — they still match on name as before.
+        const term = searchTerm.replace(/[%,()]/g, '');
+        query = query.or(`name.ilike.%${term}%,icd11_code.ilike.%${term}%`);
       }
 
       const { data, error } = await query;

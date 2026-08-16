@@ -6,11 +6,20 @@ const LandingPage = () => {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
+  // Signed-in staff land on the dashboard rather than the sales page — but
+  // that made the public site impossible to look at without logging out, which
+  // is exactly what somebody checking the features list wants to do. An
+  // explicit request for the public page is honoured: /?public=1, or any link
+  // into a section such as /#features.
+  const wantsPublicPage =
+    typeof window !== 'undefined' &&
+    (new URLSearchParams(window.location.search).has('public') || Boolean(window.location.hash));
+
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && !wantsPublicPage) {
       navigate('/dashboard');
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, navigate, wantsPublicPage]);
 
   return (
     <div className="min-h-screen bg-white">
