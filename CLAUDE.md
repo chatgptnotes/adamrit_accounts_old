@@ -2,21 +2,36 @@
 
 ## Project Overview
 
-**Languages:** python, typescript
-**Frameworks:** nextjs, react
-**Primary:** nextjs
+**Languages:** typescript, python
+**Frameworks:** react + vite (NOT Next.js), supabase
+**Primary:** react + vite
+
+This is a single-page React app built by Vite and deployed to Vercel. THERE IS
+NO NEXT.JS: no next.config, no app/ or pages/ router, no server components.
+`src/pages/` is a plain folder of route components, not a Next.js route
+directory -- the routes are declared in `src/components/AppRoutes.tsx`.
+
+Python is helper scripts only (`scripts/apply-migration.py`,
+`scripts/test-money-paths.py`), not an application language.
+
+The landing page at `/` is `src/components/LandingPage.tsx`, which renders
+`src/components/LandingModules.tsx`. `src/pages/Index.tsx` is the internal
+dashboard behind login, and is NOT the landing page.
 
 ## Code Style
 
-- Linter: ruff or flake8
-- Formatter: black or ruff format
-- Type checking: mypy or pyright
+- Linter: `npm run lint` (eslint)
+- Type checking: `npm run typecheck` (a ratchet script; plain `tsc -p
+  tsconfig.json` checks NOTHING, because that config has `"files": []`)
+- Formatter: none configured; match the surrounding file
 
 ## Testing
 
-- Test framework: pytest
-- Run tests: `pytest`
-- Coverage: `pytest --cov`
+- `npm run build` — also runs the frozen-module lock checks in `prebuild`
+- `npm run typecheck`
+- `npm run test:money-paths` and `npm run test:loud-failures`
+
+There is no pytest, ruff, black or mypy in this repo.
 
 ## Security
 
