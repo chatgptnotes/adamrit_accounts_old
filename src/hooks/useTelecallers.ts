@@ -36,7 +36,10 @@ const merge = (preferred: string[], extra: string[]): string[] => {
 
 export function useTelecallers() {
   const query = useQuery({
-    queryKey: ['telecallers'],
+    // Namespaced for the same reason as useBillingExecutives: this hook
+    // returns an object, and a bare noun is exactly the key a page is likely
+    // to have already used for a plain list.
+    queryKey: ['telecaller-options'],
     staleTime: 10 * 60_000,
     queryFn: async (): Promise<{ inUse: string[]; all: string[] }> => {
       const [records, users] = await Promise.all([

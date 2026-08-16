@@ -41,7 +41,11 @@ const merge = (preferred: string[], extra: string[]): string[] => {
 
 export function useBillingExecutives() {
   const query = useQuery({
-    queryKey: ['billing-executives'],
+    // Namespaced. 'billing-executives' is already taken by a query inside
+    // FinalBill that returns a plain array of names; React Query caches by key,
+    // so sharing it handed that page this hook's { inUse, all } object and the
+    // whole bill died on "Yd.map is not a function".
+    queryKey: ['billing-executive-options'],
     staleTime: 10 * 60_000,
     queryFn: async (): Promise<{ inUse: string[]; all: string[] }> => {
       const [visits, users] = await Promise.all([
