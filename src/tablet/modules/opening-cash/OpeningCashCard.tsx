@@ -40,6 +40,12 @@ export function OpeningCashCard({
   const [drawer, setDrawer] = useState("");
   const [locker, setLocker] = useState("");
   const [note, setNote] = useState("");
+  // Movements between the drawer and the locker. Recorded for the trail, never
+  // added to the opening total: whatever came out of the locker is in the hand
+  // count, and whatever went in is in the locker count. Adding them would count
+  // the same notes twice.
+  const [outOfLocker, setOutOfLocker] = useState("");
+  const [intoLocker, setIntoLocker] = useState("");
 
   const num = (value: string) => Number(value.replace(/[^0-9.]/g, "")) || 0;
   const total = num(drawer) + num(locker);
@@ -56,11 +62,13 @@ export function OpeningCashCard({
         amount: total,
         userId,
         note: note.trim() ? `${split}; ${note.trim()}` : split,
+        lockerWithdrawn: num(outOfLocker),
+        lockerDeposited: num(intoLocker),
       });
     },
     onSuccess: () => {
       toast.success("Opening cash recorded. The drawer counts from here.");
-      setDrawer(""); setLocker(""); setNote("");
+      setDrawer(""); setLocker(""); setNote(""); setOutOfLocker(""); setIntoLocker("");
       if (!alwaysOpen) setOpen(false);
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Could not record it"),
@@ -107,6 +115,33 @@ export function OpeningCashCard({
           placeholder="0"
         />
       </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <TabletLabel htmlFor="oc-out">Withdrawn from the locker</TabletLabel>
+          <TabletInput
+            id="oc-out"
+            inputMode="decimal"
+            value={outOfLocker}
+            onChange={(e) => setOutOfLocker(e.target.value.replace(/[^0-9.]/g, ""))}
+            placeholder="0"
+          />
+        </div>
+        <div>
+          <TabletLabel htmlFor="oc-in">Deposited into the locker</TabletLabel>
+          <TabletInput
+            id="oc-in"
+            inputMode="decimal"
+            value={intoLocker}
+            onChange={(e) => setIntoLocker(e.target.value.replace(/[^0-9.]/g, ""))}
+            placeholder="0"
+          />
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Movements only — not added to the total. Cash taken out of the locker is already
+        in the hand count, and cash put in is already in the locker count.
+      </p>
 
       <div className="flex items-center justify-between border-t pt-2">
         <span className="text-muted-foreground">Opening total</span>

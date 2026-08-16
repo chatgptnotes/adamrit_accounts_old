@@ -42,6 +42,8 @@ export interface HandoverRow {
   counted: number;
   locker: number;
   deposit: number;
+  lockerOut: number;
+  lockerIn: number;
   variance: number;
   varianceReason: string | null;
   status: string;
@@ -123,6 +125,8 @@ export async function fetchHandoverLog(opts: {
     counted: num(r.counted_cash),
     locker: num(r.locker_cash),
     deposit: num(r.bank_deposit),
+    lockerOut: num(r.locker_withdrawn),
+    lockerIn: num(r.locker_deposited),
     variance: num(r.variance),
     varianceReason: r.variance_reason ?? null,
     status: r.status,

@@ -194,6 +194,12 @@ function HandOverPanel({
   // lost among them.
   const [locker, setLocker] = useState("");
   const [deposited, setDeposited] = useState("");
+  // What moved between the drawer and the locker this shift. Recorded, never
+  // added: cash out of the locker is already in the note count, cash into it is
+  // already in the locker figure. Adding them would count the same notes twice
+  // and put every handover out by the size of the movement.
+  const [outOfLocker, setOutOfLocker] = useState("");
+  const [intoLocker, setIntoLocker] = useState("");
   // Held until the handover exists, then attached to it. See the note in
   // HandoverPhotoCapture on why they are not uploaded as they are taken.
   const [photos, setPhotos] = useState<PendingPhoto[]>([]);
@@ -234,6 +240,8 @@ function HandOverPanel({
         declaredOnline: online.trim() === "" ? null : Number(online.replace(/[^0-9.]/g, "")),
         lockerCash: num(locker),
         bankDeposit: num(deposited),
+        lockerWithdrawn: num(outOfLocker),
+        lockerDeposited: num(intoLocker),
         denominations: DENOMINATIONS.map((d) => ({
           denomination: d,
           qty: parseInt(counts[d] ?? "", 10) || 0,
@@ -384,6 +392,33 @@ function HandOverPanel({
         </p>
       </div>
 
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <TabletLabel htmlFor="ch-out">Withdrawn from the locker</TabletLabel>
+          <TabletInput
+            id="ch-out"
+            inputMode="decimal"
+            value={outOfLocker}
+            onChange={(e) => setOutOfLocker(e.target.value.replace(/[^0-9.]/g, ""))}
+            placeholder="0"
+          />
+        </div>
+        <div>
+          <TabletLabel htmlFor="ch-in">Deposited into the locker</TabletLabel>
+          <TabletInput
+            id="ch-in"
+            inputMode="decimal"
+            value={intoLocker}
+            onChange={(e) => setIntoLocker(e.target.value.replace(/[^0-9.]/g, ""))}
+            placeholder="0"
+          />
+        </div>
+      </div>
+      <p className="-mt-1 text-xs text-muted-foreground">
+        Movements only — they do not change the total. Cash taken out of the locker is
+        already in your note count, and cash put in is already in the locker figure.
+      </p>
+
       <TabletCard className={needsReason ? "border-amber-400 bg-amber-50" : "bg-muted/40"}>
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">You counted</span>
@@ -399,6 +434,16 @@ function HandOverPanel({
           <div className="mt-1 flex items-center justify-between">
             <span className="text-muted-foreground">Deposited in bank</span>
             <span className="font-medium">{inr(num(deposited))}</span>
+          </div>
+        )}
+        {(num(outOfLocker) > 0 || num(intoLocker) > 0) && (
+          <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+            <span>Locker movement</span>
+            <span>
+              {num(outOfLocker) > 0 ? `−${inr(num(outOfLocker))} out` : ""}
+              {num(outOfLocker) > 0 && num(intoLocker) > 0 ? " · " : ""}
+              {num(intoLocker) > 0 ? `+${inr(num(intoLocker))} in` : ""}
+            </span>
           </div>
         )}
         {(num(locker) > 0 || num(deposited) > 0) && (

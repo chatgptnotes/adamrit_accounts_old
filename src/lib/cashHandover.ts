@@ -131,6 +131,11 @@ export async function submitHandover(input: {
   lockerCash?: number | null;
   /** Cash they already paid into the bank this shift, so it is not a shortfall. */
   bankDeposit?: number | null;
+  /** Taken OUT of the locker this shift. Recorded, never added to the total —
+   *  it is already counted in the drawer. */
+  lockerWithdrawn?: number | null;
+  /** Put INTO the locker this shift. Already counted in lockerCash. */
+  lockerDeposited?: number | null;
 }): Promise<{ handoverId: string; handoverNo: string; variance: number }> {
   const { data, error } = await rpc("submit_cash_handover", {
     p_from_user_id: input.fromUserId,
@@ -143,6 +148,8 @@ export async function submitHandover(input: {
     p_declared_online: input.declaredOnline ?? null,
     p_locker_cash: input.lockerCash ?? 0,
     p_bank_deposit: input.bankDeposit ?? 0,
+    p_locker_withdrawn: input.lockerWithdrawn ?? 0,
+    p_locker_deposited: input.lockerDeposited ?? 0,
   });
   if (error) throw new Error(error.message);
   return data as { handoverId: string; handoverNo: string; variance: number };
@@ -297,12 +304,15 @@ export async function fetchSharedLogins(days = 30): Promise<SharedLogin[]> {
 /** The one-off count that stops the drawer reading negative. */
 export async function declareOpeningCash(input: {
   hospitalType: string; amount: number; userId: string; note?: string | null;
+  lockerWithdrawn?: number | null; lockerDeposited?: number | null;
 }) {
   const { data, error } = await rpc("declare_opening_cash", {
     p_hospital_type: input.hospitalType,
     p_amount: input.amount,
     p_user_id: input.userId,
     p_note: input.note ?? null,
+    p_locker_withdrawn: input.lockerWithdrawn ?? 0,
+    p_locker_deposited: input.lockerDeposited ?? 0,
   });
   if (error) throw new Error(error.message);
   return data;

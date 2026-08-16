@@ -400,6 +400,10 @@ function ShiftRow({
               label="Variance"
               value={Math.round(row.variance * 100) === 0 ? 'matches' : inr(row.variance)}
             />
+            {/* Movements, kept out of the arithmetic above on purpose: the cash
+                is already counted in the drawer or the locker. */}
+            <Fact label="Out of locker" value={inr(row.lockerOut)} />
+            <Fact label="Into locker" value={inr(row.lockerIn)} />
           </div>
 
           {row.varianceReason && (
