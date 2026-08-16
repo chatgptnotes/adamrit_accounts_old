@@ -38,11 +38,56 @@ const bad = [...listed.entries()]
 
 // A landing entry pointing at a module that no longer exists is a dead link.
 const known = new Set(entries.map((e) => e.id));
-const OFF_REGISTRY = new Set(['cath-lab', 'accounting']);
+
+// Desktop screens declared in src/components/AppRoutes.tsx rather than the
+// tablet registry. They are still real pages — the dead-link check just cannot
+// see them, because it only reads the tablet module list. Each id here has a
+// matching route; add to this set ONLY after confirming the route exists.
+const OFF_REGISTRY = new Set([
+  'cath-lab',
+  'accounting',
+  'appointments',
+  'queue-management',
+  'patient-portal',
+  'nursing',
+  'casualty-register',
+  'lab',
+  'radiology',
+  'purchase-orders',
+  'inventory-tracking',
+  'tpa-claims',
+  'pmjay-mjpjay-master',
+  'corporate-claim-tracking',
+  'tally',
+]);
 const dead = [...listed.keys()].filter((id) => !known.has(id) && !OFF_REGISTRY.has(id));
 if (dead.length) {
   console.error('[public-labels] ERROR: the landing page lists modules that do not exist:\n');
   console.error(dead.map((d) => `  ${d}`).join('\n'));
+  process.exit(1);
+}
+
+// The exemption above says "not in the tablet registry", which on its own would
+// let any id through unchecked. So the desktop ones are verified the other way:
+// their href must be a route AppRoutes.tsx actually declares. Without this, the
+// escape hatch quietly turns off the dead-link check it is an exception to.
+const hrefs = new Map(
+  [...landing.matchAll(/id: '([a-z0-9-]+)',[^\n]*?href: '([^']+)'/g)].map((m) => [m[1], m[2]]),
+);
+const routes = new Set(
+  [...fs
+    .readFileSync(path.join(ROOT, 'src/components/AppRoutes.tsx'), 'utf8')
+    .matchAll(/path="([^"]+)"/g)].map((m) => m[1]),
+);
+const brokenLinks = [...OFF_REGISTRY]
+  .filter((id) => listed.has(id))
+  .filter((id) => !routes.has(hrefs.get(id)))
+  .map((id) => `  ${id} -> ${hrefs.get(id) ?? '(no href found)'}`);
+
+if (brokenLinks.length) {
+  console.error('[public-labels] ERROR: landing tiles point at routes that do not exist:\n');
+  console.error(brokenLinks.join('\n'));
+  console.error('\nEvery off-registry tile must match a path= in src/components/AppRoutes.tsx.');
   process.exit(1);
 }
 
