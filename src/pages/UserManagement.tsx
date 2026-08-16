@@ -227,8 +227,13 @@ const UserManagement: React.FC = () => {
         {isSuperAdmin && (
           <TileAccessMatrix
             onReset={() => {
-              resetToDefaults();
-              toast({ title: "Tile access reset to defaults" });
+              // Only claim it was reset once the server says so — this now
+              // clears rules for every member of staff, not just this browser.
+              void resetToDefaults()
+                .then(() => toast({ title: "Tile access reset to defaults for all staff" }))
+                .catch((e: Error) =>
+                  toast({ title: "Could not reset tile access", description: e.message }),
+                );
             }}
           />
         )}

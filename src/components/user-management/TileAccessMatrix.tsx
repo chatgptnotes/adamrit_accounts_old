@@ -1,8 +1,13 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Shield, ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
-import { useTileAccess } from "@/hooks/useTileAccess";
+import { toast } from "sonner";
+import {
+  useTileAccess,
+  readLegacyOverrides,
+  LEGACY_STORAGE_KEY,
+} from "@/hooks/useTileAccess";
 import { ALL_ROLES, ALL_TILE_GROUPS, GROUP_LABELS } from "@/config/tileAccess";
 import { roleLabel } from "./constants";
 
@@ -11,16 +16,47 @@ interface Props {
 }
 
 /**
- * The tile × role matrix, lifted out of UserManagement unchanged.
+ * The tile × role matrix.
  *
- * These rules still live in this browser's localStorage, so they apply to
- * nobody else — the banner below says so rather than letting the screen imply
- * otherwise. Moving them into the database is a separate, later change.
+ * These rules now live in public.tile_access_overrides and apply to every
+ * member of staff. Until 16-Aug-2026 they were saved to this browser's
+ * localStorage and applied to nobody, which is why the import prompt below
+ * exists: whatever an administrator set back then is still sitting in their
+ * browser and was never in force.
  */
 const TileAccessMatrix: React.FC<Props> = ({ onReset }) => {
-  const { getAllRules, setTileRoles } = useTileAccess();
+  const { getAllRules, setTileRoles, isLoading, isSaving, error } = useTileAccess();
   const [open, setOpen] = useState(false);
   const [groupFilter, setGroupFilter] = useState<string>("all");
+
+  // Read once. Emptied by importing or discarding, and the prompt goes with it.
+  const [legacy, setLegacy] = useState(() => readLegacyOverrides());
+  const legacyCount = useMemo(() => Object.keys(legacy).length, [legacy]);
+
+  const importLegacy = async () => {
+    const entries = Object.entries(legacy);
+    let failed = 0;
+    for (const [tileId, roles] of entries) {
+      try {
+        await setTileRoles(tileId, Array.isArray(roles) ? roles : undefined);
+      } catch {
+        failed += 1;
+      }
+    }
+    if (failed) {
+      toast.error(`${entries.length - failed} of ${entries.length} imported — ${failed} failed.`);
+      return;
+    }
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    setLegacy({});
+    toast.success(`Imported ${entries.length} rule(s). They now apply to everyone.`);
+  };
+
+  const discardLegacy = () => {
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    setLegacy({});
+    toast.success("Old browser-only settings discarded.");
+  };
 
   return (
     <Card>
@@ -43,10 +79,32 @@ const TileAccessMatrix: React.FC<Props> = ({ onReset }) => {
               <strong>no roles checked</strong>, it is visible to <strong>all roles</strong>.
             </p>
 
-            <p className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
-              These rules are currently saved in this browser only — they do not
-              apply to anyone else's device yet.
-            </p>
+            {error && (
+              <p className="rounded border border-red-300 bg-red-50 p-2 text-xs text-red-800">
+                Could not load the saved rules ({error.message}). The defaults built
+                into the app are shown instead — do not treat this screen as the
+                current settings until it loads.
+              </p>
+            )}
+
+            {legacyCount > 0 && (
+              <div className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+                <p>
+                  <strong>{legacyCount} older rule(s) found in this browser.</strong>{" "}
+                  Until today this screen saved to your browser only, so these were
+                  never applied to anyone. Import them to put them into force for all
+                  staff, or discard them.
+                </p>
+                <div className="mt-2 flex gap-2">
+                  <Button size="sm" onClick={() => void importLegacy()} disabled={isSaving}>
+                    Import into the database
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={discardLegacy} disabled={isSaving}>
+                    Discard
+                  </Button>
+                </div>
+              </div>
+            )}
 
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-medium text-muted-foreground">Group:</span>
@@ -111,8 +169,15 @@ const TileAccessMatrix: React.FC<Props> = ({ onReset }) => {
                                     } else {
                                       next = [...current, role];
                                     }
-                                    setTileRoles(rule.id, next);
+                                    void setTileRoles(rule.id, next).catch((e: Error) =>
+                                      toast.error(
+                                        e.message === "forbidden"
+                                          ? "Only a super-admin may change tile access."
+                                          : `Could not save: ${e.message}`,
+                                      ),
+                                    );
                                   }}
+                                  disabled={isLoading}
                                   className="h-4 w-4 rounded border-gray-300"
                                 />
                               </td>
@@ -126,12 +191,16 @@ const TileAccessMatrix: React.FC<Props> = ({ onReset }) => {
             </div>
 
             <div className="flex items-center gap-3 pt-2">
-              <Button variant="outline" size="sm" onClick={onReset}>
+              <Button variant="outline" size="sm" onClick={onReset} disabled={isSaving}>
                 <RefreshCw className="h-4 w-4 mr-1" />
                 Reset to Defaults
               </Button>
               <span className="text-xs text-muted-foreground">
-                Changes are saved automatically to browser storage.
+                {isLoading
+                  ? "Loading the saved rules…"
+                  : isSaving
+                    ? "Saving…"
+                    : "Saved for everyone, on every device. Staff see the change when they next load a page."}
               </span>
             </div>
           </div>
