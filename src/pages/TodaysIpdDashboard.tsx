@@ -57,6 +57,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { calculateReferralAmount, formatIndianCurrency } from '@/utils/referralCalculator';
 import { formatDateOnly, formatDateOnlyForDisplay, parseDateOnly } from '@/utils/dateOnly';
 import { formatDialysisPatientName } from '@/utils/dialysisPatientName';
+import { useBillingExecutives } from '@/hooks/useBillingExecutives';
 
 type IpdScheme = 'PMJAY' | 'MJPJAY';
 
@@ -399,6 +400,9 @@ const TodaysIpdDashboard = () => {
   // Setter functions for URL-persisted state
   const setSearchTerm = (value: string) => updateParams({ search: value, page: '1' });
   const setBillingExecutiveFilter = (value: string) => updateParams({ executive: value, page: '1' });
+  // Filter options come from the visits themselves: a name nobody has been
+  // recorded against would only ever return an empty screen.
+  const { inUse: billingExecutivesInUse } = useBillingExecutives();
   const setBillingStatusFilter = (value: string) => updateParams({ billingStatus: value, page: '1' });
   const setBunchFilter = (value: string) => updateParams({ bunch: value, page: '1' });
   const setCorporateFilter = (value: string) => updateParams({ corporate: value, page: '1' });
@@ -586,39 +590,9 @@ const TodaysIpdDashboard = () => {
     const [selectedValue, setSelectedValue] = useState(visit.billing_executive || '');
     const [debouncedValue] = useDebounce(selectedValue, 2000); // 2 seconds delay
 
-    const billingExecutiveOptions = [
-      'Dr.B.K.Murali',
-      'Ruby',
-      'Shrikant',
-      'Gaurav',
-      'Dr. Swapnil',
-      'Dr.Sachin',
-      'Dr.Shiraj',
-      'Dr. Sharad',
-      'Shashank',
-      'Shweta',
-      'Suraj',
-      'Nitin',
-      'Sonali',
-      'Ruchika',
-      'Pragati',
-      'Rachana',
-      'Kashish',
-      'Aman',
-      'Dolly',
-      'Ruchi',
-      'Gayatri',
-      'Noor',
-      'Nisha',
-      'Diksha',
-      'Ayush',
-      'Kiran',
-      'Pratik',
-      'Azhar',
-      'Tejas',
-      'Abhishek',
-      'Chandrprakash'
-    ];
+    // The picker offers everybody: names already recorded, plus active staff,
+    // so a new person can be chosen without editing this file.
+    const { all: billingExecutiveOptions } = useBillingExecutives();
 
 
 
@@ -3092,7 +3066,9 @@ const TodaysIpdDashboard = () => {
                     <DropdownMenuItem onSelect={() => setBillingExecutiveFilter('')} className={billingExecutiveFilter === '' ? 'bg-accent' : ''}>
                       All {billingExecutiveFilter === '' && '✓'}
                     </DropdownMenuItem>
-                    {['Dr.B.K.Murali', 'Ruby', 'Shrikant', 'Gaurav', 'Dr. Swapnil', 'Dr.Sachin', 'Dr.Shiraj', 'Dr. Sharad', 'Shashank', 'Shweta', 'Suraj', 'Nitin', 'Sonali', 'Ruchika', 'Pragati', 'Rachana', 'Kashish', 'Aman', 'Dolly', 'Ruchi', 'Gayatri', 'Noor', 'Nisha', 'Diksha', 'Ayush', 'Kiran', 'Pratik', 'Azhar', 'Tejas', 'Abhishek', 'Chandrprakash'].map((exec) => (
+                    {/* Only names actually recorded on a visit: filtering by anyone else
+                        returns an empty screen. */}
+                    {billingExecutivesInUse.map((exec) => (
                       <DropdownMenuItem key={exec} onSelect={() => setBillingExecutiveFilter(exec)} className={billingExecutiveFilter === exec ? 'bg-accent' : ''}>
                         {exec} {billingExecutiveFilter === exec && '✓'}
                       </DropdownMenuItem>
