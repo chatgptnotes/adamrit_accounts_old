@@ -100,6 +100,7 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
     () => import("@/tablet/modules/daily-collection/DailyCollectionFlow"),
   ),
   "bank-deposit": lazy(() => import("@/tablet/modules/bank-deposit/BankDepositFlow")),
+  "stores-inventory": lazy(() => import("@/pages/StoresInventory")),
   "discharge-summary": lazy(
     () => import("@/tablet/modules/discharge-summary/DischargeSummaryFlow"),
   ),

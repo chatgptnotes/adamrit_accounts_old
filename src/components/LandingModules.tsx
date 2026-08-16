@@ -47,7 +47,8 @@ const GROUPS: Group[] = [
     title: 'Clinical Care',
     blurb: 'The ward, the theatre and the bedside',
     ids: ['doctor-notes', 'medication-round', 'icu-admission', 'ot-schedule-gaurav',
-      'requisition', 'bed-booking', 'bed-shifting', 'occupancy', 'dama'],
+      'requisition', 'bed-booking', 'bed-shifting', 'occupancy', 'dama',
+      'stores-inventory'],
     extras: [
       {
         id: 'cath-lab',

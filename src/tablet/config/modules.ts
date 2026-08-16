@@ -578,6 +578,15 @@ export const TABLET_MODULES: TabletModule[] = [
     tint: "from-green-400 to-green-600",
   },
   {
+    id: "stores-inventory",
+    label: "Stores & Inventory",
+    description: "Stock levels, movements in and out, and reorder alerts",
+    icon: Package,
+    accent: "text-indigo-700",
+    tint: "from-indigo-500 to-violet-700",
+    keywords: ["stores", "inventory", "stock", "supplies", "reorder", "consumables"],
+  },
+  {
     id: "bank-deposit",
     label: "Nisha Bank Deposit",
     description: "Pay cash into the bank, with the slip — directors are told",
