@@ -38,8 +38,19 @@ interface Entity {
   definition?: { '@value'?: string }
   classKind?: string
   child?: string[]
+  /** Always an array in MMS, even with one element. */
+  parent?: string[]
+  releaseId?: string
+  latestRelease?: string
   indexTerm?: Array<{ label?: { '@value'?: string } }>
   inclusion?: Array<{ label?: { '@value'?: string } }>
+}
+
+/** A queued node carries the chapter it descends from; the entity does not say. */
+interface Node {
+  uri: string
+  chapterNo: string | null
+  chapterTitle: string | null
 }
 
 const text = (value: unknown): string | null => {
@@ -94,7 +105,13 @@ export default withRoute({ auth: 'admin', methods: ['POST'], rateLimit: { perMin
 
     const maxNodes = Math.min(Number(req.body?.maxNodes) || 400, 1200)
     const chapterFilter = text(req.body?.chapter)
-    const cursor: string[] = Array.isArray(req.body?.cursor) ? req.body.cursor.filter((u: unknown) => typeof u === 'string') : []
+    // A cursor entry carries its chapter context, because an entity does not
+    // say which chapter it sits under — only the walk down to it knows.
+    const cursor: Node[] = Array.isArray(req.body?.cursor)
+      ? req.body.cursor
+          .filter((n: any) => n && typeof n.uri === 'string')
+          .map((n: any) => ({ uri: n.uri, chapterNo: n.chapterNo ?? null, chapterTitle: n.chapterTitle ?? null }))
+      : []
 
     let token: string
     try {
@@ -103,32 +120,52 @@ export default withRoute({ auth: 'admin', methods: ['POST'], rateLimit: { perMin
       return res.status(502).json({ error: 'who_auth_failed', detail: err?.message || 'unknown' })
     }
 
-    // Start from the frontier the caller handed back, or from the root.
-    let frontier: string[] = cursor.length ? [...cursor] : [ROOT_URL]
+    // Start from the frontier the caller handed back, or resolve the release.
+    // ROOT_URL is a LIST OF RELEASES, not the classification — walking it
+    // directly yields nothing, which is what the first draft of this did.
+    let frontier: Node[]
+    let release: string | null = null
+    try {
+      if (cursor.length) {
+        frontier = [...cursor]
+      } else {
+        const root = await fetchEntity(ROOT_URL, token)
+        const releaseUri = root.latestRelease
+        if (!releaseUri) throw new Error('WHO root carried no latestRelease')
+        const releaseEntity = await fetchEntity(releaseUri, token)
+        release = text(releaseEntity.releaseId)
+        frontier = (releaseEntity.child || []).map((uri) => ({ uri, chapterNo: null, chapterTitle: null }))
+      }
+    } catch (err: any) {
+      return res.status(502).json({ error: 'who_release_failed', detail: err?.message || 'unknown' })
+    }
+
     const rows: any[] = []
     let visited = 0
-    let release: string | null = null
 
     try {
       while (frontier.length > 0 && visited < maxNodes) {
-        const uri = frontier.shift() as string
-        const entity = await fetchEntity(uri, token)
+        const node = frontier.shift() as Node
+        const entity = await fetchEntity(node.uri, token)
         visited += 1
 
-        const id = entity['@id'] || uri
-        // The release id sits in the URI, e.g. .../release/11/2024-01/mms/...
+        const id = entity['@id'] || node.uri
         if (!release) release = id.match(/\/release\/11\/([^/]+)\//)?.[1] || null
 
         const kind = text(entity.classKind)
         const title = text(entity.title?.['@value'])
-        const children = Array.isArray(entity.child) ? entity.child : []
+        const children = entity.child || []
 
-        // Chapters are the top level; a filter keeps a run to one of them.
-        if (chapterFilter && kind === 'chapter' && text(entity.code) !== chapterFilter && uri !== ROOT_URL) {
-          continue
+        // Chapter context is inherited downwards; a chapter sets it.
+        let chapterNo = node.chapterNo
+        let chapterTitle = node.chapterTitle
+        if (kind === 'chapter') {
+          chapterNo = text(entity.code)
+          chapterTitle = title
+          if (chapterFilter && chapterNo !== chapterFilter) continue
         }
 
-        if (title && uri !== ROOT_URL) {
+        if (title) {
           const synonyms = [
             ...(entity.indexTerm || []).map((t) => text(t.label?.['@value'])),
             ...(entity.inclusion || []).map((t) => text(t.label?.['@value'])),
@@ -136,11 +173,14 @@ export default withRoute({ auth: 'admin', methods: ['POST'], rateLimit: { perMin
 
           rows.push({
             uri: id,
+            // Blocks carry code "" rather than omitting it; "" is not a code.
             code: text(entity.code),
             title,
             definition: text(entity.definition?.['@value']),
             class_kind: kind,
-            parent_uri: uri === ROOT_URL ? null : null,
+            chapter_no: chapterNo,
+            chapter_title: chapterTitle,
+            parent_uri: entity.parent?.[0] ?? null,
             synonyms: synonyms.length ? [...new Set(synonyms)] : null,
             is_leaf: children.length === 0,
             release_version: release,
@@ -149,7 +189,7 @@ export default withRoute({ auth: 'admin', methods: ['POST'], rateLimit: { perMin
           })
         }
 
-        frontier.push(...children)
+        frontier.push(...children.map((uri) => ({ uri, chapterNo, chapterTitle })))
       }
     } catch (err: any) {
       // Report what was already read rather than losing a long walk to one
