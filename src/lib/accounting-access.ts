@@ -9,10 +9,17 @@ const ACCOUNTING_ROLES = new Set(['admin', 'superadmin', 'super_admin', 'ca', 'b
 // alter on the desktop Accounting screen (via useAccountingRights, which views
 // only for everyone else) AND opens the accountingOnly tablet tiles, Payments
 // Due and Bank & Cash among them. Widening it is always a money decision.
+// EVERY ADDRESS HERE MUST MATCH A LIVE ACCOUNT. When one stops matching,
+// nothing is reported -- the person just quietly loses these rights, and the
+// cause looks like anything except a list in the source code. That is exactly
+// what happened to Diksha on 16-Aug: her address was corrected on her account
+// to sakharediksha54@gmail.com and the old one here went dead the same moment,
+// taking her voucher rights with it. Changing somebody's email means grepping
+// this file.
 const ACCOUNTING_EMAILS = new Set([
   'cmd@hopehospital.com',
   'finance@hopehospital.com',
-  'diksha@gmail.com',
+  'sakharediksha54@gmail.com',
   'nisha@gmail.com',
   // Lalit, pharmacist by role, works the vouchers and the books. Named rather
   // than adding 'pharmacist', which would hand the same rights to every

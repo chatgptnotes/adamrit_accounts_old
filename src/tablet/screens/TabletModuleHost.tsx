@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { getModule } from "@/tablet/config/modules";
 import { useAuth } from "@/contexts/AuthContext";
 import { canCreateAccountingVouchers, canDepositCash } from "@/lib/accounting-access";
+import { useCashHandoverAccess } from "@/tablet/hooks/useCashHandoverAccess";
 import {
   OFFICE_TILE_IDS,
   VOUCHER_TILE_IDS,
@@ -169,6 +170,8 @@ const FLOWS: Record<string, LazyExoticComponent<ComponentType>> = {
 export function TabletModuleHost() {
   const { moduleId } = useParams();
   const { user } = useAuth();
+  // Called before any early return, or the hook order changes between renders.
+  const { allowed: handlesCash, isLoading: cashLoading } = useCashHandoverAccess();
   const mod = getModule(moduleId);
   const Flow = moduleId ? FLOWS[moduleId] : undefined;
 
@@ -187,7 +190,18 @@ export function TabletModuleHost() {
   // Payment Voucher tile and then sent her straight back home when she tapped
   // it, because her role is not an accounting role.
   const isVoucherTile = (VOUCHER_TILE_IDS as readonly string[]).includes(mod.id);
-  if (isVoucherTile && !canSeeVoucherTiles(user)) {
+  // Whether she holds a drawer is a database question, so it is not known on
+  // the first render. Bouncing while it is still loading recreates the very
+  // bug described above -- the tile opens, then throws the cashier home a
+  // moment later. Wait for the answer instead.
+  if (isVoucherTile && cashLoading) {
+    return (
+      <div className="flex justify-center py-10">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+  if (isVoucherTile && !canSeeVoucherTiles(user, handlesCash)) {
     return <Navigate to="/" replace />;
   }
   // Bank & Cash: a cashier may reach it to bank the takings. The flow itself

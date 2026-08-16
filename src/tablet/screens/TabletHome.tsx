@@ -30,10 +30,13 @@ export function TabletHome() {
   const navigate = useNavigate();
   const { user, hospitalConfig } = useAuth();
   const [query, setQuery] = useState("");
-  const allModules = modulesForUser(user ?? undefined);
+  // One call, read twice: it gates the cash tiles below, and every cashier
+  // also sees every voucher tile. The roster is the authority, so somebody put
+  // on a counter gets both without a code change.
+  const cashHandover = useCashHandoverAccess();
+  const allModules = modulesForUser(user ?? undefined, undefined, cashHandover.allowed);
   // Cash Handover is restricted to the named cash roster (and cashiers), so it
   // is dropped from the grid for everyone else rather than shown and refused.
-  const cashHandover = useCashHandoverAccess();
   const modules = useMemo(
     () => allModules.filter((m) => !CASH_TILES.has(m.id) || cashHandover.allowed),
     [allModules, cashHandover.allowed],

@@ -72,9 +72,18 @@ export const VOUCHER_TILE_IDS = [
   'journal-voucher',
 ] as const;
 
+/**
+ * Kept only for people who work vouchers but hold NO cash drawer. Anyone on the
+ * cash roster now arrives through handlesCash below and does not belong here.
+ *
+ * A hand-edited list of addresses is why this broke repeatedly: it goes stale
+ * silently. Nobody is told when an address here stops matching an account --
+ * the person simply loses the tile, and the cause looks like anything but a
+ * list in the source code. Prefer the roster.
+ */
 const VOUCHER_TILE_EMAILS = new Set([
-  'diksha@gmail.com', // Diksha, receptionist — front-office voucher duty
-  'nisha@gmail.com', // Nisha, receptionist — same
+  'nisha@gmail.com', // Nisha, receptionist — front-office voucher duty
+  'sakharediksha54@gmail.com', // Diksha Sakhare, receptionist — same
 ]);
 
 /**
@@ -83,11 +92,31 @@ const VOUCHER_TILE_EMAILS = new Set([
  * bounced back to the home screen the moment she tapped it, because the guard
  * re-tested her against the accounting roles she is not in.
  */
+/**
+ * @param handlesCash whether this person holds a cash drawer, from
+ *   useCashHandoverAccess() -- the cash roster in the database. EVERY CASHIER
+ *   SEES EVERY VOUCHER: they pay cash out and take it in all day, and the
+ *   voucher is the record of it, so a cashier who cannot open one is being
+ *   asked to work blind.
+ *
+ *   Passed in rather than read here because the roster is a database question
+ *   and this has to stay a plain function -- the tile grid calls it outside a
+ *   component. Callers that cannot answer omit it, which is why the lists
+ *   above still exist.
+ *
+ *   The roster is deliberately the authority instead of the cashier ROLE. The
+ *   people holding drawers are a receptionist, a radiology technician, a
+ *   pharmacist, a nurse and a marketing manager -- a person holds one role and
+ *   theirs has to be the one their day job needs. Any role list would have
+ *   missed most of them, which is exactly how this kept recurring.
+ */
 export function canSeeVoucherTiles(
   user?: { email?: string | null; role?: string | null } | null,
+  handlesCash = false,
 ): boolean {
   const role = (user?.role || '').toLowerCase().trim();
   if (MANAGEMENT_ROLES.has(role)) return true;
+  if (handlesCash) return true;
   if (canCreateAccountingVouchers(user)) return true;
   return VOUCHER_TILE_EMAILS.has((user?.email || '').toLowerCase().trim());
 }

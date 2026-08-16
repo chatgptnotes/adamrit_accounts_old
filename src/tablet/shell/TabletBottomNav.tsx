@@ -3,6 +3,7 @@ import { Home } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { BOTTOM_NAV_IDS, modulesForUser } from "@/tablet/config/modules";
+import { useCashHandoverAccess } from "@/tablet/hooks/useCashHandoverAccess";
 import { haptics } from "@/tablet/lib/haptics";
 
 /** Short labels so the fixed bottom bar stays single-line on phones. */
@@ -27,7 +28,8 @@ function navClass({ isActive }: { isActive: boolean }) {
  */
 export function TabletBottomNav() {
   const { user } = useAuth();
-  const visible = modulesForUser(user ?? undefined);
+  const { allowed: handlesCash } = useCashHandoverAccess();
+  const visible = modulesForUser(user ?? undefined, undefined, handlesCash);
   const tabs = BOTTOM_NAV_IDS.map((id) =>
     visible.find((m) => m.id === id),
   ).filter((m): m is NonNullable<typeof m> => Boolean(m));

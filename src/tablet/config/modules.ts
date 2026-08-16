@@ -751,6 +751,8 @@ export const TABLET_MODULES: TabletModule[] = [
 export function modulesForUser(
   user: { role?: string; email?: string } | undefined,
   canSeeTile?: (tileId: string, role?: string | null) => boolean,
+  /** From useCashHandoverAccess(): does this person hold a cash drawer? */
+  handlesCash = false,
 ): TabletModule[] {
   void canSeeTile;
   // Temporary product rule: tablet home/modules are visible to every user,
@@ -770,7 +772,7 @@ export function modulesForUser(
     // accountingOnly — otherwise Nisha and Diksha are admitted by name and
     // then turned away by their role, exactly as with the office tiles above.
     if ((VOUCHER_TILE_IDS as readonly string[]).includes(module.id)) {
-      return canSeeVoucherTiles(user);
+      return canSeeVoucherTiles(user, handlesCash);
     }
     // Bank & Cash is accountingOnly, but a cashier banks the day's takings.
     // The flow shows them the deposit and nothing else.
