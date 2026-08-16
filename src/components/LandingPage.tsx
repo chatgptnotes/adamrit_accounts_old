@@ -1,5 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
+import LandingModules from '@/components/LandingModules';
 
 interface LandingPageProps {
   onGetStarted: () => void;
@@ -51,7 +52,12 @@ const LandingPage = ({ onGetStarted, onLoginClick }: LandingPageProps) => {
               Streamline patient care, optimize workflows, and achieve better health outcomes 
               through intelligent automation and data-driven insights.
             </p>
-            
+            <a
+              href="#modules"
+              className="inline-flex items-center rounded-xl bg-white px-6 py-3 text-lg font-semibold text-blue-900 shadow-lg transition-transform hover:-translate-y-0.5"
+            >
+              Explore the modules
+            </a>
           </div>
         </div>
       </div>
@@ -107,6 +113,9 @@ const LandingPage = ({ onGetStarted, onLoginClick }: LandingPageProps) => {
           </div>
         </div>
       </div>
+
+      {/* Every module, linked. Sourced from the module registry. */}
+      <LandingModules />
 
       {/* Doctor Testimonial Section */}
       <div className="py-20 bg-white">
