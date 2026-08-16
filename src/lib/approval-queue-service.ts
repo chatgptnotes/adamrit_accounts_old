@@ -343,6 +343,13 @@ export async function createDoctorApprovalsFromOt(ot: {
   surgery_name?: string | null
   visit_id?: string | null
   patient_name?: string | null
+  /**
+   * What the OT schedule says these two are worth for THIS case, set by the
+   * person who booked it. Either one absent means "price it from the masters",
+   * which is exactly what happened before these fields existed.
+   */
+  surgeon_fee?: number | null
+  anaesthetist_fee?: number | null
 }): Promise<{ created: number }> {
   try {
     // Either field can carry several comma-separated names.
@@ -383,9 +390,12 @@ export async function createDoctorApprovalsFromOt(ot: {
     // panel/Yojana the patient belongs to.
     const patientClassLabel = isPrivate ? 'Private' : corporateName || 'Panel'
 
-    // Surgeon: match the package name first, then the exact Yojana surgery
-    // name. Keywords are intentionally search-only and do not determine a
-    // payable amount. The owner's default rate is used when no row matches.
+    // Surgeon: the figure agreed when the case was booked wins, because the
+    // person booking it knew something the master cannot — a longer job, a
+    // second procedure. Absent that, match the package name first, then the
+    // exact Yojana surgery name. Keywords are intentionally search-only and do
+    // not determine a payable amount. The owner's default is the last resort.
+    const bookedSurgeonFee = Number(ot.surgeon_fee)
     let surgeonAmount = SURGEON_DEFAULT_FEE[rate]
     try {
       const surgeryName = (ot.surgery_name || '').trim()
@@ -412,10 +422,47 @@ export async function createDoctorApprovalsFromOt(ot: {
       )
     }
 
-    // Anesthetist: fixed rate by anesthesia type; an unrecognised type
-    // leaves 0 for the approver to fill.
+    // The booked figure overrides the master, as with the surgeon.
+    if (Number.isFinite(bookedSurgeonFee) && bookedSurgeonFee > 0) {
+      surgeonAmount = bookedSurgeonFee
+    }
+
+    // Anesthetist: the booked figure, else the rate for this anaesthesia type.
+    // The rates now live in anaesthesia_fee_master rather than in this file, so
+    // changing one no longer needs a deploy — and 'sedation', which had no
+    // entry in the hardcoded table and therefore silently paid nothing, has a
+    // rate like the others. ANESTHETIST_FEE remains only as the fallback for a
+    // failed read, so a database problem cannot zero somebody's fee.
+    const bookedAnaesthetistFee = Number(ot.anaesthetist_fee)
     const kind = anesthesiaKind(ot.anesthesia_type)
-    const anesthetistAmount = kind ? ANESTHETIST_FEE[kind][rate] : 0
+    let anesthetistAmount = kind ? ANESTHETIST_FEE[kind][rate] : 0
+    const declaredType = String(ot.anesthesia_type || '').trim()
+    if (declaredType) {
+      try {
+        const { data: rateRows, error: rateError } = await (supabase as any)
+          .from('anaesthesia_fee_master')
+          .select('anaesthesia_type, panel_rate, private_rate')
+          .eq('is_active', true)
+        // An empty master legitimately means "nothing configured"; a rejected
+        // read does not, and must not quietly become the hardcoded fallback
+        // without anybody knowing which one produced the number.
+        if (rateError) throw rateError
+        const match = (rateRows || []).find(
+          (row: any) => String(row.anaesthesia_type || '').trim().toLowerCase() === declaredType.toLowerCase(),
+        )
+        const mastered = Number(isPrivate ? match?.private_rate : match?.panel_rate)
+        if (Number.isFinite(mastered) && mastered > 0) anesthetistAmount = mastered
+      } catch (err: any) {
+        console.warn(
+          `[ot-auto] anaesthesia rate lookup FAILED for "${declaredType}" — falling back to the ` +
+            'rate compiled into the app, which may be out of date:',
+          err?.message || err,
+        )
+      }
+    }
+    if (Number.isFinite(bookedAnaesthetistFee) && bookedAnaesthetistFee > 0) {
+      anesthetistAmount = bookedAnaesthetistFee
+    }
 
     // One bill per person; the same name in both roles gets the surgeon fee.
     const people: Array<{ name: string; amount: number; isAnesthetist: boolean }> = surgeonNames.map((name) => ({
@@ -612,7 +659,7 @@ async function attachOtContext<T extends { ot_schedule_id: string | null }>(rows
   // like invoices with no context rather than a screen that failed to load it.
   const { data: ots, error: otsError } = await (supabase as any)
     .from('ot_schedule')
-    .select('id, surgery_name, scheduled_date, scheduled_time, patient_id, special_requirements')
+    .select('id, surgery_name, scheduled_date, scheduled_time, patient_id, special_requirements, anaesthesia_type')
     .in('id', otIds)
   if (otsError) throw otsError
   const otById = new Map((ots || []).map((o: any) => [o.id, o]))
@@ -631,7 +678,10 @@ async function attachOtContext<T extends { ot_schedule_id: string | null }>(rows
       surgery_name: ot?.surgery_name ?? null,
       surgery_date: ot?.scheduled_date ?? null,
       surgery_time: ot?.scheduled_time ?? null,
-      anesthesia_type: parseAnesthesia(ot?.special_requirements),
+      // The real column first; the "Anesthesia Type:" text inside
+      // special_requirements is where this lived before 20260816180000 and
+      // remains the answer for rows written before it.
+      anesthesia_type: ot?.anaesthesia_type ?? parseAnesthesia(ot?.special_requirements),
     }
   })
 }

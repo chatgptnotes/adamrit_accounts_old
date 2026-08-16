@@ -25,6 +25,12 @@ interface FeeRow {
   panel_rate: number | null;
   private_rate: number | null;
   is_active: boolean;
+  // Who normally does this, and under what. Filled from the PMJAY/MJPJAY
+  // package master where the names matched exactly; blank where they did not,
+  // rather than guessed. Gaurav's OT tile pre-fills the schedule from these.
+  default_surgeon_name: string | null;
+  default_anaesthetist_name: string | null;
+  anaesthesia_type: string | null;
 }
 
 interface Draft {
@@ -35,9 +41,16 @@ interface Draft {
   tags: string[];
   panel_rate: string;
   private_rate: string;
+  default_surgeon_name: string;
+  default_anaesthetist_name: string;
+  anaesthesia_type: string;
 }
 
-const EMPTY: Draft = { id: null, procedure_name: '', surgery_id: null, yojana_surgery_name: '', tags: [], panel_rate: '', private_rate: '' };
+const EMPTY: Draft = {
+  id: null, procedure_name: '', surgery_id: null, yojana_surgery_name: '', tags: [],
+  panel_rate: '', private_rate: '',
+  default_surgeon_name: '', default_anaesthetist_name: '', anaesthesia_type: '',
+};
 // A fee nobody has decided must not look like a decision — the OT bill
 // auto-fill reads these, and a seeded placeholder would be paid as if real.
 const money = (v: number | null) =>
@@ -88,6 +101,9 @@ const SurgeryFeeMaster = () => {
       (r) =>
         r.procedure_name.toLowerCase().includes(q) ||
         (r.yojana_surgery_name || '').toLowerCase().includes(q) ||
+        (r.default_surgeon_name || '').toLowerCase().includes(q) ||
+        (r.default_anaesthetist_name || '').toLowerCase().includes(q) ||
+        (r.anaesthesia_type || '').toLowerCase().includes(q) ||
         r.tags.some((t) => t.toLowerCase().includes(q)),
     );
   }, [rows, search]);
@@ -120,6 +136,9 @@ const SurgeryFeeMaster = () => {
         tags: draft.tags,
         panel_rate: Number(draft.panel_rate) > 0 ? Number(draft.panel_rate) : null,
         private_rate: Number(draft.private_rate) > 0 ? Number(draft.private_rate) : null,
+        default_surgeon_name: draft.default_surgeon_name.trim() || null,
+        default_anaesthetist_name: draft.default_anaesthetist_name.trim() || null,
+        anaesthesia_type: draft.anaesthesia_type.trim() || null,
       };
       const { error } = draft.id
         ? await (supabase as any).from('surgery_fee_master').update({ ...fields, updated_at: new Date().toISOString() }).eq('id', draft.id)
@@ -179,18 +198,20 @@ const SurgeryFeeMaster = () => {
             <Table className="min-w-[980px] table-fixed">
               <TableHeader>
                 <TableRow className="bg-muted/40 hover:bg-muted/40">
-                  <TableHead className="h-9 w-[21%] px-3 text-xs font-semibold">Package name</TableHead>
-                  <TableHead className="h-9 w-[28%] px-3 text-xs font-semibold">Surgery name as per Yojana</TableHead>
-                  <TableHead className="h-9 w-[22%] px-3 text-xs font-semibold">Keywords</TableHead>
-                  <TableHead className="h-9 w-[11%] px-3 text-right text-xs font-semibold">Yojana amount</TableHead>
-                  <TableHead className="h-9 w-[11%] px-3 text-right text-xs font-semibold">Private amount</TableHead>
-                  <TableHead className="h-9 w-[7%] px-3 text-right text-xs font-semibold">Actions</TableHead>
+                  <TableHead className="h-9 w-[17%] px-3 text-xs font-semibold">Package name</TableHead>
+                  <TableHead className="h-9 w-[20%] px-3 text-xs font-semibold">Surgery name as per Yojana</TableHead>
+                  <TableHead className="h-9 w-[17%] px-3 text-xs font-semibold">Keywords</TableHead>
+                  <TableHead className="h-9 w-[19%] px-3 text-xs font-semibold">Surgeon / Anaesthetist</TableHead>
+                  <TableHead className="h-9 w-[8%] px-3 text-xs font-semibold">Anaesthesia</TableHead>
+                  <TableHead className="h-9 w-[8%] px-3 text-right text-xs font-semibold">Yojana amount</TableHead>
+                  <TableHead className="h-9 w-[8%] px-3 text-right text-xs font-semibold">Private amount</TableHead>
+                  <TableHead className="h-9 w-[3%] px-3 text-right text-xs font-semibold">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {visible.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
+                    <TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
                       No packages yet — click “Add package fee” to create the first row.
                     </TableCell>
                   </TableRow>
@@ -209,6 +230,28 @@ const SurgeryFeeMaster = () => {
                         )) : <span className="text-xs text-muted-foreground">—</span>}
                       </div>
                     </TableCell>
+                    <TableCell className="px-3 py-2 align-middle text-sm">
+                      {row.default_surgeon_name || row.default_anaesthetist_name ? (
+                        <div className="leading-tight">
+                          <div className="line-clamp-1" title={row.default_surgeon_name || undefined}>
+                            {row.default_surgeon_name || <span className="text-xs text-muted-foreground">no surgeon</span>}
+                          </div>
+                          <div className="line-clamp-1 text-xs text-muted-foreground" title={row.default_anaesthetist_name || undefined}>
+                            {row.default_anaesthetist_name || 'no anaesthetist'}
+                          </div>
+                        </div>
+                      ) : (
+                        // Not an error. These are only filled where the package
+                        // name matched the Yojana master exactly; a guess here
+                        // would put the wrong doctor on a payable.
+                        <span className="text-xs text-muted-foreground">Not matched</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="px-3 py-2 align-middle text-sm">
+                      {row.anaesthesia_type
+                        ? <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] capitalize">{row.anaesthesia_type}</span>
+                        : <span className="text-xs text-muted-foreground">—</span>}
+                    </TableCell>
                     <TableCell className={`whitespace-nowrap px-3 py-2 text-right align-middle font-mono text-sm ${row.panel_rate == null ? 'text-amber-600' : ''}`}>
                       {money(row.panel_rate)}
                     </TableCell>
@@ -226,6 +269,9 @@ const SurgeryFeeMaster = () => {
                           tags: row.tags,
                           panel_rate: row.panel_rate != null ? String(row.panel_rate) : '',
                           private_rate: row.private_rate != null ? String(row.private_rate) : '',
+                          default_surgeon_name: row.default_surgeon_name || '',
+                          default_anaesthetist_name: row.default_anaesthetist_name || '',
+                          anaesthesia_type: row.anaesthesia_type || '',
                         });
                         setShowProcedureSuggestions(false);
                         setTagInput('');
@@ -326,6 +372,44 @@ const SurgeryFeeMaster = () => {
                   <Input type="number" inputMode="decimal" value={draft.private_rate} onChange={(e) => setDraft({ ...draft, private_rate: e.target.value })} />
                 </div>
               </div>
+              <div className="space-y-1">
+                <Label>Surgeon</Label>
+                <Input
+                  value={draft.default_surgeon_name}
+                  onChange={(e) => setDraft({ ...draft, default_surgeon_name: e.target.value })}
+                  placeholder="Who normally does this — separate several with commas"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Anaesthetist</Label>
+                  <Input
+                    value={draft.default_anaesthetist_name}
+                    onChange={(e) => setDraft({ ...draft, default_anaesthetist_name: e.target.value })}
+                    placeholder="Separate several with commas"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Anaesthesia type</Label>
+                  <Input
+                    list="anaesthesia-types"
+                    value={draft.anaesthesia_type}
+                    onChange={(e) => setDraft({ ...draft, anaesthesia_type: e.target.value })}
+                    placeholder="general / spinal / sedation"
+                  />
+                  <datalist id="anaesthesia-types">
+                    <option value="general" />
+                    <option value="spinal" />
+                    <option value="sedation" />
+                  </datalist>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                These three pre-fill Gaurav’s OT schedule. The anaesthesia type also
+                prices the anaesthetist, from the rates in Anaesthesia Fees — a type
+                with no rate there pays nothing, so keep to the three above unless a
+                rate exists for the new one.
+              </p>
             </div>
           )}
           <DialogFooter>

@@ -54,6 +54,19 @@ interface VisitOption {
   packageCode: string | null;
   ward: string | null;
   room: string | null;
+  /**
+   * The patient's panel/Yojana, or empty for a private patient. Decides which
+   * of the two rates in the fee masters this case is priced at, by the same
+   * rule createDoctorApprovalsFromOt uses — one rule, so the figure Gaurav is
+   * shown is the figure that gets raised.
+   */
+  corporate: string | null;
+}
+
+/** Blank or "private" means private; anything else is a panel. */
+function isPrivatePatient(corporate: string | null | undefined): boolean {
+  const value = String(corporate || "").trim().toLowerCase();
+  return !value || value.includes("private");
 }
 
 export interface OTScheduleItem {
@@ -75,6 +88,9 @@ export interface OTScheduleItem {
   surgeonName: string | null;
   anesthetistName: string | null;
   anesthesiaType: string | null;
+  /** Agreed when the case was booked. Null means "price it from the masters". */
+  surgeonFee: number | null;
+  anaesthetistFee: number | null;
 }
 
 type PackageOtDefaults = {
@@ -129,6 +145,7 @@ function mapVisit(row: any): VisitOption {
     packageCode: row.package_code || null,
     ward: row.ward_allotted || null,
     room: row.room_allotted || null,
+    corporate: patient?.corporate || null,
   };
 }
 
@@ -162,7 +179,11 @@ function mapSchedule(row: any): OTScheduleItem {
     packageName: visit?.package_name || null,
     surgeonName: row.surgeon_name || null,
     anesthetistName: row.anesthetist_name || null,
-    anesthesiaType: parseAnesthesiaType(row.special_requirements),
+    // The real column first; the text inside special_requirements is where this
+    // lived before 20260816180000 and still answers for older rows.
+    anesthesiaType: row.anaesthesia_type ?? parseAnesthesiaType(row.special_requirements),
+    surgeonFee: row.surgeon_fee != null ? Number(row.surgeon_fee) : null,
+    anaesthetistFee: row.anaesthetist_fee != null ? Number(row.anaesthetist_fee) : null,
   };
 }
 
@@ -204,7 +225,7 @@ function useVisitSearch(term: string) {
           reason_for_visit,
           ward_allotted,
           room_allotted,
-          patients!inner(id, name, patients_id, phone, hospital_name)
+          patients!inner(id, name, patients_id, phone, hospital_name, corporate)
         `)
         .eq("patients.hospital_name", hospitalConfig.name)
         .in("patient_type", ["IPD", "IPD (Inpatient)", "Emergency"])
@@ -284,6 +305,72 @@ function usePackageOtDefaults(packageName: string, packageCode: string | null | 
         surgeonName,
         anesthetistName,
         anesthesiaType: match.anaesthesia_type || "",
+      };
+    },
+  });
+}
+
+interface CaseFeeDefaults {
+  surgeonFee: number | null;
+  anaesthetistFee: number | null;
+  /** Where each number came from, so the screen can say so rather than assert it. */
+  surgeonSource: "master" | "default";
+  anaesthetistSource: "master" | "none";
+}
+
+/**
+ * What this case is worth, by the same rules the payable will use.
+ *
+ * Deliberately mirrors createDoctorApprovalsFromOt: surgeon from
+ * surgery_fee_master matched on procedure_name then yojana_surgery_name (never
+ * on keywords, which are search-only), anaesthetist from anaesthesia_fee_master
+ * by type, panel or private according to the patient. If the two ever disagree
+ * the number on screen would be a promise the approval queue does not keep.
+ */
+function useCaseFeeDefaults(surgeryName: string, anaesthesiaType: string, isPrivate: boolean) {
+  const name = surgeryName.trim();
+  const type = anaesthesiaType.trim();
+
+  return useQuery({
+    queryKey: ["tablet-ot-case-fees", name, type, isPrivate],
+    enabled: Boolean(name),
+    staleTime: 1000 * 60 * 5,
+    queryFn: async (): Promise<CaseFeeDefaults> => {
+      const [feeResult, rateResult] = await Promise.all([
+        supabase
+          .from("surgery_fee_master")
+          .select("procedure_name, yojana_surgery_name, panel_rate, private_rate")
+          .eq("is_active", true),
+        type
+          ? supabase
+              .from("anaesthesia_fee_master")
+              .select("anaesthesia_type, panel_rate, private_rate")
+              .eq("is_active", true)
+          : Promise.resolve({ data: [], error: null } as any),
+      ]);
+      // A rejected read must not quietly become "no fee configured" — that
+      // would show Gaurav a blank where a real amount exists.
+      if (feeResult.error) throw feeResult.error;
+      if (rateResult.error) throw rateResult.error;
+
+      const lower = name.toLowerCase();
+      const fee =
+        (feeResult.data || []).find((r: any) => String(r.procedure_name || "").trim().toLowerCase() === lower) ||
+        (feeResult.data || []).find((r: any) => String(r.yojana_surgery_name || "").trim().toLowerCase() === lower);
+      const mastered = Number(isPrivate ? fee?.private_rate : fee?.panel_rate);
+
+      const rate = (rateResult.data || []).find(
+        (r: any) => String(r.anaesthesia_type || "").trim().toLowerCase() === type.toLowerCase(),
+      );
+      const anaesthetist = Number(isPrivate ? rate?.private_rate : rate?.panel_rate);
+
+      return {
+        // 5,000 is the owner's default for a procedure the master does not
+        // price (16-Aug); it is also written into every blank row of the master.
+        surgeonFee: Number.isFinite(mastered) && mastered > 0 ? mastered : 5000,
+        surgeonSource: Number.isFinite(mastered) && mastered > 0 ? "master" : "default",
+        anaesthetistFee: Number.isFinite(anaesthetist) && anaesthetist > 0 ? anaesthetist : null,
+        anaesthetistSource: Number.isFinite(anaesthetist) && anaesthetist > 0 ? "master" : "none",
       };
     },
   });
@@ -406,6 +493,9 @@ export function useDailySchedule(date: string) {
           surgeon_name,
           anesthetist_name,
           special_requirements,
+          anaesthesia_type,
+          surgeon_fee,
+          anaesthetist_fee,
           patients!inner(id, name, patients_id, phone, hospital_name),
           visits(id, visit_id, surgery_date, package_name)
         `)
@@ -454,6 +544,10 @@ async function markScheduleCompleted(row: OTScheduleItem) {
     surgery_name: row.surgeryName,
     visit_id: row.visitNumber,
     patient_name: row.patientName,
+    // What was agreed at booking. Null falls through to the fee masters, so a
+    // case scheduled before these fields existed prices exactly as it did.
+    surgeon_fee: row.surgeonFee,
+    anaesthetist_fee: row.anaesthetistFee,
   }).catch((err) => console.warn("[ot-schedule] doctor approval auto-feed failed:", err));
 }
 
@@ -568,6 +662,13 @@ function GauravScheduler() {
   const [surgeonName, setSurgeonName] = useState("");
   const [anesthetistName, setAnesthetistName] = useState("");
   const [anesthesiaType, setAnesthesiaType] = useState("");
+  // Filled from the masters when the package resolves, editable before saving.
+  // Whatever is here when Save is pressed is what the surgeon and anaesthetist
+  // are paid; left as filled, that is the master's figure.
+  const [surgeonFee, setSurgeonFee] = useState("");
+  const [anaesthetistFee, setAnaesthetistFee] = useState("");
+  // Stops the auto-fill from overwriting a figure Gaurav has just typed.
+  const [feesTouched, setFeesTouched] = useState(false);
   const [notes, setNotes] = useState("");
   const [otRoom, setOtRoom] = useState("OT");
   // Outsourced per-case help, entered the day before with the fee decided
@@ -582,6 +683,8 @@ function GauravScheduler() {
   const [existingScheduleId, setExistingScheduleId] = useState<string | null>(null);
   const dailySchedule = useDailySchedule(scheduledDate);
   const packageDefaults = usePackageOtDefaults(surgeryName, selected?.packageCode);
+  const patientIsPrivate = isPrivatePatient(selected?.corporate);
+  const caseFees = useCaseFeeDefaults(surgeryName, anesthesiaType, patientIsPrivate);
   const [showPackageSuggestions, setShowPackageSuggestions] = useState(false);
   const [debouncedSurgeryName] = useDebounce(surgeryName, 250);
   const packageSearch = usePackageMasterSearch(debouncedSurgeryName);
@@ -613,6 +716,9 @@ function GauravScheduler() {
     setOtAssistantFee("");
     setCathlabAssistantName("");
     setCathlabAssistantFee("");
+    setSurgeonFee("");
+    setAnaesthetistFee("");
+    setFeesTouched(false);
     setExistingScheduleId(null);
 
     // Reload the most recent saved OT row for this visit so the surgery/package
@@ -620,7 +726,7 @@ function GauravScheduler() {
     try {
       const { data } = await supabase
         .from("ot_schedule")
-        .select("id, surgery_name, scheduled_date, scheduled_time, ot_room, notes, ot_assistant_name, ot_assistant_fee, cathlab_assistant_name, cathlab_assistant_fee")
+        .select("id, surgery_name, scheduled_date, scheduled_time, ot_room, notes, ot_assistant_name, ot_assistant_fee, cathlab_assistant_name, cathlab_assistant_fee, surgeon_fee, anaesthetist_fee")
         .eq("visit_id", visit.id)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -637,6 +743,16 @@ function GauravScheduler() {
         if (extras.ot_assistant_fee) setOtAssistantFee(String(extras.ot_assistant_fee));
         if (extras.cathlab_assistant_name) setCathlabAssistantName(extras.cathlab_assistant_name);
         if (extras.cathlab_assistant_fee) setCathlabAssistantFee(String(extras.cathlab_assistant_fee));
+        // A fee already agreed for this case outranks the master, so mark the
+        // fields as touched or the auto-fill would replace it on the next tick.
+        if (extras.surgeon_fee != null) {
+          setSurgeonFee(String(extras.surgeon_fee));
+          setFeesTouched(true);
+        }
+        if (extras.anaesthetist_fee != null) {
+          setAnaesthetistFee(String(extras.anaesthetist_fee));
+          setFeesTouched(true);
+        }
       }
     } catch {
       // Non-fatal: fall back to the package-derived defaults already set above.
@@ -650,6 +766,16 @@ function GauravScheduler() {
     setAnesthetistName(defaults?.anesthetistName || "");
     setAnesthesiaType(defaults?.anesthesiaType || "");
   }, [packageDefaults.data, packageDefaults.isFetching]);
+
+  // The charges follow the package and the anaesthesia type, but never
+  // overwrite a figure that has been edited by hand — the whole point of making
+  // them editable is that this case might not be worth the master's number.
+  useEffect(() => {
+    if (caseFees.isFetching || feesTouched) return;
+    const fees = caseFees.data;
+    setSurgeonFee(fees?.surgeonFee != null ? String(fees.surgeonFee) : "");
+    setAnaesthetistFee(fees?.anaesthetistFee != null ? String(fees.anaesthetistFee) : "");
+  }, [caseFees.data, caseFees.isFetching, feesTouched]);
 
   const saveSchedule = async () => {
     if (!selected) {
@@ -671,7 +797,12 @@ function GauravScheduler() {
         ot_room: otRoom || "OT",
         surgeon_name: surgeonName.trim() || null,
         anesthetist_name: anesthetistName.trim() || null,
+        anaesthesia_type: anesthesiaType.trim() || null,
+        // Still written as text too. The desktop OT screen and older reports
+        // read the type out of here, and they are not part of this change.
         special_requirements: anesthesiaType.trim() ? `Anesthesia Type: ${anesthesiaType.trim()}` : null,
+        surgeon_fee: Number(surgeonFee) > 0 ? Number(surgeonFee) : null,
+        anaesthetist_fee: Number(anaesthetistFee) > 0 ? Number(anaesthetistFee) : null,
         notes: notes.trim() || null,
         urgency: "elective",
         status: "scheduled",
@@ -835,6 +966,48 @@ function GauravScheduler() {
                 <span className="text-sm font-medium">Anesthesia Type</span>
                 <TabletInput value={anesthesiaType} onChange={(event) => setAnesthesiaType(event.target.value)} placeholder="Auto-filled from package master" />
               </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block space-y-1">
+                  <span className="text-sm font-medium">Surgeon Fee (₹)</span>
+                  <TabletInput
+                    type="number"
+                    inputMode="decimal"
+                    value={surgeonFee}
+                    onChange={(event) => { setFeesTouched(true); setSurgeonFee(event.target.value); }}
+                    placeholder="0"
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-sm font-medium">Anaesthetist Fee (₹)</span>
+                  <TabletInput
+                    type="number"
+                    inputMode="decimal"
+                    value={anaesthetistFee}
+                    onChange={(event) => { setFeesTouched(true); setAnaesthetistFee(event.target.value); }}
+                    placeholder="0"
+                  />
+                </label>
+              </div>
+              {/* Say where the figures came from rather than presenting them as
+                  simply true — a defaulted 5,000 and a rate from the master
+                  look identical in the box, and they are not the same thing. */}
+              <p className="text-xs text-muted-foreground">
+                {caseFees.isError
+                  ? "Could not read the fee masters — enter both charges by hand."
+                  : caseFees.isFetching
+                  ? "Looking up the charges…"
+                  : [
+                      patientIsPrivate ? "Private rates" : `Panel rates (${selected?.corporate || "panel"})`,
+                      caseFees.data?.surgeonSource === "default"
+                        ? "surgeon not in the fee master — showing the ₹5,000 default"
+                        : "surgeon from the fee master",
+                      !anesthesiaType.trim()
+                        ? "anaesthetist needs an anaesthesia type"
+                        : caseFees.data?.anaesthetistSource === "none"
+                        ? `no rate for "${anesthesiaType.trim()}" — enter it by hand`
+                        : "anaesthetist from the anaesthesia master",
+                    ].join(" · ")}
+              </p>
               <label className="block space-y-1">
                 <span className="text-sm font-medium">Note</span>
                 <TabletInput value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add a note" />

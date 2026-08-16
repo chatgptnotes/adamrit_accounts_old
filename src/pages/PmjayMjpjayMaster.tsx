@@ -28,6 +28,9 @@ type PmjayPackageRow = {
   package_price: number | null;
   patient_name_example: string | null;
   anaesthesia_type: string | null;
+  // Search synonyms. Never identifies or prices a package — treatment_code
+  // and treatment_plan do that. Widening a search cannot cost anything.
+  keywords: string[] | null;
   is_active: boolean;
   created_at: string | null;
 };
@@ -85,6 +88,7 @@ type PackageFormState = {
   package_price: string;
   patient_name_example: string;
   anaesthesia_type: string;
+  keywords: string[];
   surgeon_names: string[];
   anaesthetist_names: string[];
   implant_names: string[];
@@ -101,6 +105,7 @@ const EMPTY_FORM: PackageFormState = {
   package_price: '',
   patient_name_example: '',
   anaesthesia_type: '',
+  keywords: [],
   surgeon_names: [],
   anaesthetist_names: [],
   implant_names: [],
@@ -525,6 +530,7 @@ const PmjayMjpjayMaster = () => {
             `treatment_plan.ilike.*${term}*`,
             `category.ilike.*${term}*`,
             `anaesthesia_type.ilike.*${term}*`,
+            `keywords_text.ilike.*${term}*`,
           ].join(','),
         );
       }
@@ -732,6 +738,7 @@ const PmjayMjpjayMaster = () => {
       package_price: form.package_price.trim() ? Number(form.package_price) : null,
       patient_name_example: form.patient_name_example.trim() || null,
       anaesthesia_type: form.anaesthesia_type || null,
+      keywords: form.keywords.length ? form.keywords : null,
     };
 
     if (packageId) {
@@ -925,6 +932,7 @@ const PmjayMjpjayMaster = () => {
         'Department Name': surgeonDepartments.join(', '),
         Anaesthetists: anaesthetistNames.join(', '),
         'Type of Anaesthesia': row.anaesthesia_type || '',
+        Keywords: (row.keywords || []).join(', '),
         Implant: implantNames.join(', '),
         'Package Price': row.package_price || '',
         'OT Notes': buildOtNotes({
@@ -953,6 +961,12 @@ const PmjayMjpjayMaster = () => {
     category: asText(row.Category || row.category || ''),
     package_price: asText(row['Package Price'] || row.package_price || ''),
     patient_name_example: asText(row['Patient Example'] || row.patient_name_example || ''),
+    // Comma or pipe separated in a spreadsheet; absent in older exports, which
+    // then import as no keywords rather than as an error.
+    keywords: asText(row.Keywords || row.keywords || '')
+      .split(/[,|]/)
+      .map((k) => k.trim())
+      .filter(Boolean),
     anaesthesia_type: asText(row['Type of Anaesthesia'] || row.anaesthesia_type || ''),
     surgeon_names: splitDelimitedList(row['Surgeon Name'] || row.surgeon_names || ''),
     anaesthetist_names: splitDelimitedList(row.Anaesthetists || row.anaesthetists || ''),
@@ -1052,6 +1066,7 @@ const PmjayMjpjayMaster = () => {
       package_price: record.package_price != null ? String(record.package_price) : '',
       patient_name_example: record.patient_name_example || '',
       anaesthesia_type: record.anaesthesia_type || '',
+      keywords: record.keywords || [],
       surgeon_names: record.surgeon_names || [],
       anaesthetist_names: record.anaesthetist_names || [],
       implant_names: record.implant_names || [],
@@ -1204,6 +1219,7 @@ const PmjayMjpjayMaster = () => {
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Department Name</th>
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Anaesthetists</th>
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Type of Anaesthesia</th>
+                          <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Keywords</th>
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Implant</th>
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Treatment Code</th>
                           <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Created</th>
@@ -1298,6 +1314,22 @@ const PmjayMjpjayMaster = () => {
                               {ANAESTHESIA_OPTIONS.find((option) => option.value === record.anaesthesia_type)?.selectedLabel ||
                                 record.anaesthesia_type ||
                                 '-'}
+                            </td>
+                            <td className="max-w-[240px] p-3 text-sm text-slate-600">
+                              {record.keywords?.length ? (
+                                <div className="flex flex-wrap gap-1" title={record.keywords.join(', ')}>
+                                  {record.keywords.slice(0, 3).map((keyword) => (
+                                    <span key={keyword} className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] leading-none">
+                                      {keyword}
+                                    </span>
+                                  ))}
+                                  {record.keywords.length > 3 ? (
+                                    <span className="text-[11px] text-slate-400">+{record.keywords.length - 3}</span>
+                                  ) : null}
+                                </div>
+                              ) : (
+                                '-'
+                              )}
                             </td>
                             <td className="max-w-[220px] truncate p-3 text-sm text-slate-600" title={joinList(record.implant_names)}>
                               {joinList(record.implant_names)}
@@ -1517,6 +1549,31 @@ const PmjayMjpjayMaster = () => {
                     onValueChange={(value) => setCreateForm((prev) => ({ ...prev, anaesthesia_type: value }))}
                     placeholder="Select anaesthesia type"
                     searchPlaceholder="Search anaesthesia type..."
+                  />
+                </div>
+
+                {/* Search synonyms. A plain comma list rather than a picker:
+                    these are whatever a person would actually type looking for
+                    this package, not a controlled vocabulary. */}
+                <div className="md:col-span-2">
+                  <Label className="mb-2 block text-sm font-medium text-gray-700">
+                    Keywords
+                    <span className="ml-2 text-xs font-normal text-slate-500">
+                      what someone might search instead of the scheme&rsquo;s wording &mdash; comma separated
+                    </span>
+                  </Label>
+                  <Input
+                    value={createForm.keywords.join(', ')}
+                    onChange={(event) =>
+                      setCreateForm((prev) => ({
+                        ...prev,
+                        keywords: event.target.value
+                          .split(',')
+                          .map((keyword) => keyword.trim())
+                          .filter(Boolean),
+                      }))
+                    }
+                    placeholder="Piles Surgery, Haemorrhoids, Anal Surgery"
                   />
                 </div>
 
@@ -1863,6 +1920,31 @@ const PmjayMjpjayMaster = () => {
                     onValueChange={(value) => setEditForm((prev) => ({ ...prev, anaesthesia_type: value }))}
                     placeholder="Select anaesthesia type"
                     searchPlaceholder="Search anaesthesia type..."
+                  />
+                </div>
+
+                {/* Search synonyms. A plain comma list rather than a picker:
+                    these are whatever a person would actually type looking for
+                    this package, not a controlled vocabulary. */}
+                <div className="md:col-span-2">
+                  <Label className="mb-2 block text-sm font-medium text-gray-700">
+                    Keywords
+                    <span className="ml-2 text-xs font-normal text-slate-500">
+                      what someone might search instead of the scheme&rsquo;s wording &mdash; comma separated
+                    </span>
+                  </Label>
+                  <Input
+                    value={editForm.keywords.join(', ')}
+                    onChange={(event) =>
+                      setEditForm((prev) => ({
+                        ...prev,
+                        keywords: event.target.value
+                          .split(',')
+                          .map((keyword) => keyword.trim())
+                          .filter(Boolean),
+                      }))
+                    }
+                    placeholder="Piles Surgery, Haemorrhoids, Anal Surgery"
                   />
                 </div>
 
