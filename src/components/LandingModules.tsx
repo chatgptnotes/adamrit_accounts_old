@@ -43,6 +43,7 @@ import {
   ShieldCheck,
   ShieldPlus,
   ShoppingCart,
+  Slice,
   Siren,
   Stethoscope,
   Syringe,
@@ -197,6 +198,7 @@ const GROUPS: Group[] = [
       { id: 'emergency-seva', label: 'Emergency Seva', description: 'Ambulance dispatch and emergency response — Raftaar Help', href: 'https://emergencyseva.in', icon: Ambulance },
       { id: 'zerorisk-agent', label: 'Zero Risk Agent', description: 'AI-powered platform recovering millions in denied claims from ESIC, CGHS and ECHS', href: 'https://zeroriskagent.com', icon: ShieldPlus },
       { id: 'ddo-center', label: 'DDO Center', description: "Doctor's Digital Office — AI practice management that cuts clinical documentation time for physicians and clinics", href: 'https://www.ddo.center/', icon: BriefcaseMedical },
+      { id: 'ai-surgeon-pilot', label: 'AI Surgeon Pilot', description: 'AI practice management that cuts clinical documentation time for private surgeons and their clinics', href: 'https://www.aisurgeonpilot.com/', icon: Slice },
     ],
   },
 ];
