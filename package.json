@@ -11,6 +11,7 @@
     "dev": "vite",
     "prebuild": "node scripts/check-finalbill-locked.cjs && node scripts/check-registration-locked.cjs && node scripts/check-expensebill-locked.cjs && node scripts/check-accounting-locked.cjs && node scripts/check-api-routes.cjs && node scripts/check-public-labels.cjs",
     "build": "vite build",
+    "postbuild": "node scripts/check-bundle-names.cjs",
     "build:dev": "vite build --mode development",
     "check:finalbill": "node scripts/check-finalbill-locked.cjs",
     "verify:finalbill-lock": "node scripts/verify-finalbill-lock.cjs",
