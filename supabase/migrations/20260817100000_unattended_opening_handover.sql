@@ -28,7 +28,13 @@
 -- (20260816240000's header, CLAUDE.md money rule 3) does not apply. The verify
 -- block still asserts both live signatures first and aborts on any surprise.
 
-CREATE FUNCTION public.declare_opening_cash_unattended(
+-- CREATE OR REPLACE, not CREATE: this function was applied to the live
+-- database on 17 Aug outside apply_migration and never recorded in
+-- applied_migrations. The body below is byte-identical to what is already
+-- there (md5 d89e7bec6dc0899a21695f00b3475e3a), so replacing it changes no
+-- behaviour -- it re-runs the verify block through the proper path and puts
+-- the file in the ledger where the next person will find it.
+CREATE OR REPLACE FUNCTION public.declare_opening_cash_unattended(
   p_hospital_type TEXT, p_drawer NUMERIC, p_locker NUMERIC, p_user_id UUID,
   p_note TEXT DEFAULT NULL,
   p_locker_withdrawn NUMERIC DEFAULT 0, p_locker_deposited NUMERIC DEFAULT 0
@@ -137,9 +143,14 @@ BEGIN
 
   -- Live rehearsal on a counter name no real drawer uses, torn down at the
   -- end. Scoped to the rows this block creates, nothing else.
+  -- Both counterparts are PINNED. "WHERE id <> v_a LIMIT 1" would hand the
+  -- rehearsal handover to whoever the planner returned first -- a real person,
+  -- told to acknowledge cash that is about to be deleted.
   SELECT id INTO v_a FROM "User" WHERE lower(email) = 'cmd@hopehospital.com';
-  SELECT id INTO v_b FROM "User" WHERE id <> v_a LIMIT 1;
-  IF v_a IS NULL OR v_b IS NULL THEN RAISE EXCEPTION 'ABORT: need two users'; END IF;
+  SELECT id INTO v_b FROM "User" WHERE lower(email) = 'avni@gmail.com';
+  IF v_a IS NULL OR v_b IS NULL OR v_a = v_b THEN
+    RAISE EXCEPTION 'ABORT: need two distinct known users for the rehearsal';
+  END IF;
 
   INSERT INTO cash_opening_declarations (hospital_type, amount, declared_by, declared_by_name)
   VALUES ('selftest-unatt', 500, v_a, 'Selftest Previous') RETURNING id INTO v_prev;
@@ -184,12 +195,23 @@ BEGIN
   END;
 
   -- Tear-down, scoped to the rehearsal rows.
+  --
+  -- The notification FIRST, and it is not optional. Inserting a handover fires
+  -- trg_notify_cash_handover (20260813350000), which tells the receiver to
+  -- acknowledge the cash. Deleting the handover without it would leave a real
+  -- person holding an alert for Rs 450 that never existed, pointing at a
+  -- source_id that is gone.
+  DELETE FROM notifications
+   WHERE source_table = 'cash_handovers' AND source_id = v_handover::TEXT;
   DELETE FROM cash_handover_denominations WHERE handover_id = v_handover;
   DELETE FROM cash_handover_sources WHERE handover_id = v_handover;
   DELETE FROM cash_opening_declarations WHERE hospital_type = 'selftest-unatt';
   DELETE FROM cash_handovers WHERE id = v_handover;
   SELECT count(*) INTO v_n FROM cash_opening_declarations WHERE hospital_type = 'selftest-unatt';
   IF v_n > 0 THEN RAISE EXCEPTION 'ABORT: % rehearsal row(s) left behind', v_n; END IF;
+  SELECT count(*) INTO v_n FROM notifications
+   WHERE source_table = 'cash_handovers' AND source_id = v_handover::TEXT;
+  IF v_n > 0 THEN RAISE EXCEPTION 'ABORT: % rehearsal notification(s) left behind', v_n; END IF;
 END
 $verify$;
 

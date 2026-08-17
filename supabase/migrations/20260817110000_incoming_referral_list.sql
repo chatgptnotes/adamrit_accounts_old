@@ -26,7 +26,11 @@ COMMENT ON COLUMN public.incoming_referrals.referee_list IS
   'referee_initials holds the first of these (or the only one, for old rows) '
   'and remains what registration prefills and commission matching read.';
 
-CREATE FUNCTION public.announce_incoming_referral_with_list(
+-- CREATE OR REPLACE, not CREATE: this function was applied to the live
+-- database on 17 Aug outside apply_migration and never recorded in
+-- applied_migrations. Replacing it with the same body changes no behaviour and
+-- puts the file in the ledger.
+CREATE OR REPLACE FUNCTION public.announce_incoming_referral_with_list(
   p_patient_name TEXT, p_coming_from TEXT, p_referee_list JSONB,
   p_is_direct BOOLEAN, p_documents JSONB, p_announced_by TEXT,
   p_patient_id UUID DEFAULT NULL, p_patient_uhid TEXT DEFAULT NULL,
