@@ -139,8 +139,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         query = query.eq('staff_pin', password.slice(1));
         if (scopeHospitalType) query = query.eq('hospital_type', scopeHospitalType);
       } else {
+        // Either address, the same as the Google branch above. Staff are told
+        // "your email is X" and they type X -- but X is usually their Gmail,
+        // which lives in google_email while their login ID stays something
+        // else entirely (farhan@hope.com, bhowatesiddhant077@gmail.com). Only
+        // matching `email` here returned invalid_credentials for a password
+        // that was perfectly correct, and the person has no way to tell that
+        // from a wrong password. Reported 17-Aug for both pharmacy cashiers.
+        //
+        // Not a way in that did not exist before: google_email is admin-set,
+        // and the bcrypt check below is unchanged. Newest-wins on a tie, as
+        // this query already did -- verified 17-Aug that no address is one
+        // account's email and another's google_email, and none is shared.
         query = email.includes('@')
-          ? query.ilike('email', email)
+          ? query.or(`email.ilike.${email},google_email.ilike.${email}`)
           : query.ilike('email', `${email}@%`);
         if (scopeHospitalType) query = query.eq('hospital_type', scopeHospitalType);
       }
