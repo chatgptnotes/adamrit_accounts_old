@@ -175,9 +175,10 @@ export default function OpeningCashFlow() {
             </p>
             <p className="mt-1 text-sm text-amber-900">
               Recorded by {chosen.by || "someone"} at {when(chosen.at)}. This counter
-              takes one opening at a time, so a second count is refused until the
-              drawer has been handed over. If that figure is not yours, check you have
-              the right counter selected above.
+              takes one opening at a time. If that figure is not yours, check you have
+              the right counter selected above — or, if {chosen.by || "the previous cashier"}{" "}
+              left without handing over, count what is really here and the card below
+              will record their handover in their name before starting yours.
             </p>
           </TabletCard>
         )}

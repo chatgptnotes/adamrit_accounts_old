@@ -33,6 +33,8 @@ interface Announcement {
   patient_name: string;
   coming_from: string | null;
   referee_initials: string | null;
+  /** Every referee named, in picked order; absent until the migration lands. */
+  referee_list?: string[] | null;
   is_direct: boolean;
   documents: ReferralDoc[];
   status: "ANNOUNCED" | "LINKED" | "CANCELLED";
@@ -95,8 +97,11 @@ export default function IncomingReferralsFlow() {
     hospitalType === "ayushman" ? "ayushman" : "hope",
   );
   const [form, setForm] = useState({
-    patientName: "", comingFrom: "", refereeInitials: "", patientMobile: "",
+    patientName: "", comingFrom: "", patientMobile: "",
   });
+  // Everyone who referred this patient, in picked order. The first is the main
+  // referee — the one registration prefills and commission matching reads.
+  const [refereeList, setRefereeList] = useState<string[]>([]);
   const [isDirect, setIsDirect] = useState(false);
   const [docs, setDocs] = useState<ReferralDoc[]>([]);
   const [uploadingCategory, setUploadingCategory] = useState<string | null>(null);
@@ -108,7 +113,8 @@ export default function IncomingReferralsFlow() {
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const resetForm = () => {
-    setForm({ patientName: "", comingFrom: "", refereeInitials: "", patientMobile: "" });
+    setForm({ patientName: "", comingFrom: "", patientMobile: "" });
+    setRefereeList([]);
     setIsDirect(false);
     setDocs([]);
     setPickedPatient(null);
@@ -121,15 +127,29 @@ export default function IncomingReferralsFlow() {
       // The last 48 hours, plus every still-awaited announcement however old —
       // an unlinked claim must never fall off the list unnoticed.
       const since = new Date(Date.now() - WINDOW_HOURS * 60 * 60 * 1000).toISOString();
-      const { data, error } = await (supabase as any)
+      const columns =
+        "id, patient_name, coming_from, referee_initials, is_direct, documents, status, announced_by, patient_id, patient_uhid, patient_mobile, linked_visit_id, linked_by, created_at";
+      // referee_list arrives with migration 20260817110000. Asked for
+      // separately so this screen keeps working on a database that has not
+      // been migrated yet — a missing column must not blank the whole list.
+      let res = await (supabase as any)
         .from("incoming_referrals")
-        .select("id, patient_name, coming_from, referee_initials, is_direct, documents, status, announced_by, patient_id, patient_uhid, patient_mobile, linked_visit_id, linked_by, created_at")
+        .select(`${columns}, referee_list`)
         .neq("status", "CANCELLED")
         .or(`created_at.gte.${since},status.eq.ANNOUNCED`)
         .order("created_at", { ascending: false })
         .limit(100);
-      if (error) throw error;
-      return (data || []) as Announcement[];
+      if (res.error && /referee_list/.test(res.error.message)) {
+        res = await (supabase as any)
+          .from("incoming_referrals")
+          .select(columns)
+          .neq("status", "CANCELLED")
+          .or(`created_at.gte.${since},status.eq.ANNOUNCED`)
+          .order("created_at", { ascending: false })
+          .limit(100);
+      }
+      if (res.error) throw res.error;
+      return (res.data || []) as Announcement[];
     },
   });
 
@@ -138,14 +158,14 @@ export default function IncomingReferralsFlow() {
     // name-only clash; an id or mobile clash is refused whatever it says.
     mutationFn: async (force: boolean = false) => {
       if (!form.patientName.trim()) throw new Error("Enter the patient's name");
-      if (!isDirect && !form.refereeInitials.trim()) throw new Error("Choose the RM or referee");
+      const referees = refereeList.map((v) => v.trim()).filter(Boolean);
+      if (!isDirect && referees.length === 0) throw new Error("Choose the RM or referee");
       // The duplicate check and the insert must be one step: RLS on this table
       // is fully permissive, so a check made here alone loses the race between
       // two tablets announcing the same patient at the same moment.
-      const { error } = await (supabase as any).rpc("announce_incoming_referral", {
+      const shared = {
         p_patient_name: form.patientName.trim(),
         p_coming_from: form.comingFrom.trim() || null,
-        p_referee_initials: isDirect ? null : form.refereeInitials.trim(),
         p_is_direct: isDirect,
         p_documents: docs,
         p_announced_by: user?.email || user?.id || null,
@@ -153,8 +173,30 @@ export default function IncomingReferralsFlow() {
         p_patient_uhid: pickedPatient?.patients_id ?? null,
         p_patient_mobile: form.patientMobile.trim() || null,
         p_force_name: force,
+      };
+      const { error } = await (supabase as any).rpc("announce_incoming_referral_with_list", {
+        ...shared,
+        p_referee_list: isDirect ? [] : referees,
       });
-      if (error) throw error;
+      if (!error) return;
+      // The list-aware function arrives with migration 20260817110000. Until
+      // it lands, announce the old way — first referee only — and SAY so,
+      // rather than blocking every announcement in the hospital.
+      if (/announce_incoming_referral_with_list/.test(error.message) && /schema cache|does not exist/i.test(error.message)) {
+        const { error: legacyError } = await (supabase as any).rpc("announce_incoming_referral", {
+          ...shared,
+          p_referee_initials: isDirect ? null : referees[0],
+        });
+        if (legacyError) throw legacyError;
+        if (referees.length > 1) {
+          toast.warning(
+            `Only ${referees[0]} was saved — the database update for multiple referees ` +
+            "(migration 20260817110000) has not been applied yet.",
+            { duration: 10_000 });
+        }
+        return;
+      }
+      throw error;
     },
     onSuccess: () => {
       toast.success(
@@ -472,9 +514,14 @@ export default function IncomingReferralsFlow() {
           </div>
           {!isDirect && (
             <RefereePicker
-              value={form.refereeInitials}
-              onChange={(choice) =>
-                setForm((f) => ({ ...f, refereeInitials: choice?.value ?? "" }))
+              values={refereeList}
+              onAdd={(choice) =>
+                setRefereeList((prev) =>
+                  prev.includes(choice.value) ? prev : [...prev, choice.value],
+                )
+              }
+              onRemove={(value) =>
+                setRefereeList((prev) => prev.filter((v) => v !== value))
               }
             />
           )}
@@ -573,7 +620,13 @@ export default function IncomingReferralsFlow() {
                     {item.patient_uhid ? `${item.patient_uhid} · ` : ""}
                     {item.patient_mobile ? `${item.patient_mobile} · ` : ""}
                     {item.coming_from ? `From ${item.coming_from} · ` : ""}
-                    {item.is_direct ? "Walk-in" : `Referee ${item.referee_initials}`} ·{" "}
+                    {item.is_direct
+                      ? "Walk-in"
+                      : `Referee ${
+                          item.referee_list && item.referee_list.length > 1
+                            ? item.referee_list.join(" + ")
+                            : item.referee_initials
+                        }`} ·{" "}
                     {format(new Date(item.created_at), "dd MMM, HH:mm")}
                     {item.announced_by ? ` · by ${item.announced_by.split("@")[0]}` : ""}
                   </p>

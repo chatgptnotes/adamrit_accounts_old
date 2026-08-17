@@ -66,6 +66,7 @@ const OFF_REGISTRY = new Set([
   'zerorisk-agent',
   'ddo-center',
   'ai-surgeon-pilot',
+  'flowaccel',
 ]);
 const dead = [...listed.keys()].filter((id) => !known.has(id) && !OFF_REGISTRY.has(id));
 if (dead.length) {

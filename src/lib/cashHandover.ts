@@ -328,6 +328,59 @@ export async function declareOpeningCash(input: {
   return data;
 }
 
+export interface OpeningState {
+  declared: boolean; amount: number; at: string | null; by: string | null;
+}
+
+/** Whether the counter already holds an opening balance nobody has handed over. */
+export async function fetchOpeningState(hospitalType: string): Promise<OpeningState> {
+  const { data, error } = await rpc("cash_opening_state", { p_hospital_type: hospitalType });
+  if (error) throw new Error(error.message);
+  return data as OpeningState;
+}
+
+export interface UnattendedOpeningResult {
+  id: string; hospitalType: string; amount: number; by: string;
+  /** True when the previous shift's balance was closed with an unattended handover. */
+  unattended: boolean;
+  handoverNo?: string; previousBy?: string | null;
+  previousAmount?: number; variance?: number;
+}
+
+/**
+ * Opening cash over a balance the previous shift never handed over. The
+ * database first closes the absent cashier's session with a handover in THEIR
+ * name — counted at what this cashier actually found, so any shortfall lands
+ * on the right person — and then records the fresh opening. Drawer and locker
+ * are sent separately because the handover records them separately.
+ */
+export async function declareOpeningCashUnattended(input: {
+  hospitalType: string; drawer: number; locker: number; userId: string;
+  note?: string | null; lockerWithdrawn?: number | null; lockerDeposited?: number | null;
+}): Promise<UnattendedOpeningResult> {
+  const { data, error } = await rpc("declare_opening_cash_unattended", {
+    p_hospital_type: input.hospitalType,
+    p_drawer: input.drawer,
+    p_locker: input.locker,
+    p_user_id: input.userId,
+    p_note: input.note ?? null,
+    p_locker_withdrawn: input.lockerWithdrawn ?? 0,
+    p_locker_deposited: input.lockerDeposited ?? 0,
+  });
+  if (error) {
+    // PGRST202: the function is not in the schema yet — the migration that
+    // creates it has not been applied to this database. Say that, rather than
+    // surfacing "not found in the schema cache" to a cashier at 8am.
+    if (/declare_opening_cash_unattended/.test(error.message) && /schema cache|does not exist/i.test(error.message)) {
+      throw new Error(
+        "The database update for unattended handovers has not been applied yet " +
+        "(migration 20260817100000). The previous shift's balance still blocks this counter.");
+    }
+    throw new Error(error.message);
+  }
+  return data as UnattendedOpeningResult;
+}
+
 /** Omit the hospital for the group-wide view; pass one to see just that counter. */
 export async function fetchPositions(hospitalType?: string | null): Promise<CashPosition[]> {
   const { data, error } = await rpc("cash_position_by_holder", {
