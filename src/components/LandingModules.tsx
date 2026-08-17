@@ -10,6 +10,7 @@ import {
   BedDouble,
   BookOpen,
   Briefcase,
+  BriefcaseMedical,
   Building2,
   CalendarCheck,
   CalendarClock,
@@ -195,6 +196,7 @@ const GROUPS: Group[] = [
       { id: 'nabh-online', label: 'NABH Online', description: 'Accreditation evidence, incident reporting, audits and quality reviews', href: 'https://nabh.online', icon: Award },
       { id: 'emergency-seva', label: 'Emergency Seva', description: 'Ambulance dispatch and emergency response — Raftaar Help', href: 'https://emergencyseva.in', icon: Ambulance },
       { id: 'zerorisk-agent', label: 'Zero Risk Agent', description: 'AI-powered platform recovering millions in denied claims from ESIC, CGHS and ECHS', href: 'https://zeroriskagent.com', icon: ShieldPlus },
+      { id: 'ddo-center', label: 'DDO Center', description: "Doctor's Digital Office — AI practice management that cuts clinical documentation time for physicians and clinics", href: 'https://www.ddo.center/', icon: BriefcaseMedical },
     ],
   },
 ];

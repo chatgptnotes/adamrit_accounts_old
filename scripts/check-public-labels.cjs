@@ -64,6 +64,7 @@ const OFF_REGISTRY = new Set([
   'nabh-online',
   'emergency-seva',
   'zerorisk-agent',
+  'ddo-center',
 ]);
 const dead = [...listed.keys()].filter((id) => !known.has(id) && !OFF_REGISTRY.has(id));
 if (dead.length) {
