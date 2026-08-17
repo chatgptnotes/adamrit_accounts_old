@@ -46,6 +46,8 @@ type Claim = Record<string, any> & {
   };
   utr?: string;
   payment_date?: string | null;
+  remark?: string; // NEW: Remarks from CSV for needs review cases
+  merged_count?: number; // NEW: Number of rows merged for this patient
 };
 type SchemeFilter = 'ALL' | 'PMJAY' | 'MJPJAY' | 'UNRESOLVED';
 type Stage = 'all' | 'under_treatment' | 'claims_to_be_submitted' | 'claims_sent_to_bank' | 'pending_with_payer' | 'payment_initiated' | 'payment_accomplished' | 'rejected';
@@ -295,6 +297,86 @@ const formatDate = (value: unknown) => {
   return String(value);
 };
 
+// ============================================================================
+// Deduplication: Merge duplicate patient records by beneficiary name
+// ============================================================================
+
+const STAGE_PRIORITY: Record<string, number> = {
+  'payment_accomplished': 6,
+  'payment_initiated': 5,
+  'pending_with_payer': 4,
+  'claims_sent_to_bank': 3,
+  'claims_to_be_submitted': 2,
+  'under_treatment': 1,
+  'rejected': 0
+};
+
+function deduplicateClaims(claims: Claim[]): Claim[] {
+  // Group by beneficiary name (case-insensitive, trimmed)
+  const grouped = new Map<string, Claim[]>();
+
+  claims.forEach(claim => {
+    const key = String(claim.beneficiary_name || '').toLowerCase().trim();
+    if (!key) return;
+
+    if (!grouped.has(key)) {
+      grouped.set(key, []);
+    }
+    grouped.get(key)!.push(claim);
+  });
+
+  // Merge duplicates
+  const deduplicated: Claim[] = [];
+
+  grouped.forEach((group, beneficiaryName) => {
+    if (group.length === 1) {
+      // No duplicates - keep as-is
+      deduplicated.push(group[0]);
+      return;
+    }
+
+    // Duplicates exist - merge them
+    // Sort by stage priority (most recent first)
+    const sorted = [...group].sort((a, b) => {
+      const priorityA = STAGE_PRIORITY[a.current_stage] || 0;
+      const priorityB = STAGE_PRIORITY[b.current_stage] || 0;
+      return priorityB - priorityA;
+    });
+
+    const primary = sorted[0]; // Most recent status
+    const allIDs = sorted.map(c => c.id);
+
+    // Collect all unique government IDs
+    const allRegIDs = [...new Set(sorted.map(c => c.government_registration_id).filter(Boolean))];
+    const allProgIDs = [...new Set(sorted.map(c => c.government_program_id).filter(Boolean))];
+
+    // Collect all unique remarks
+    const allRemarks = [...new Set(sorted.map(c => c.remark).filter(Boolean))].join('; ');
+
+    // Create merged claim
+    const merged: Claim = {
+      ...primary,
+      government_registration_id: allRegIDs[0] || primary.government_registration_id,
+      government_program_id: allProgIDs[0] || primary.government_program_id,
+      remark: allRemarks || primary.remark,
+      merged_count: sorted.length,
+      id: primary.id
+    };
+
+    deduplicated.push(merged);
+  });
+
+  // Add any claims without beneficiary names
+  const nameless = claims.filter(c => !String(c.beneficiary_name || '').trim());
+  deduplicated.push(...nameless);
+
+  return deduplicated;
+}
+
+// ============================================================================
+// Components
+// ============================================================================
+
 function PortalImport({ onPreview, onImported }: { onPreview: (files: CorporateClaimParsedFile[]) => void; onImported: () => void }) {
   const { hospitalType } = useAuth();
   const [files, setFiles] = useState<CorporateClaimParsedFile[]>([]);
@@ -363,7 +445,9 @@ function PortalImport({ onPreview, onImported }: { onPreview: (files: CorporateC
       toast.success(`${files.length} file(s) saved to snapshots.`);
       onImported();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to save snapshots.');
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[CorporateClaimTracking] Import error:', error);
+      toast.error(`Failed to save snapshots: ${errorMsg}. Check Supabase RLS policies and hospital context.`);
     } finally {
       setBusy(false);
     }
@@ -442,7 +526,8 @@ function previewClaims(files: CorporateClaimParsedFile[]): Claim[] {
         raw_government_status: row.originalValues['Case Status'],
         source_file_name: file.fileName,
         row_number: row.rowNumber,
-        isPreview: true // Still marks source, but verification happens immediately
+        isPreview: true, // Still marks source, but verification happens immediately
+        remark: String(row.originalValues['Remark'] || row.originalValues['Reason'] || '').trim() // Extract remarks from CSV
       };
     })
   );
@@ -537,6 +622,15 @@ function ClaimDetailDrawer({ claim, onClose }: { claim: Claim | null; onClose: (
                         </div>
                       )}
                     </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {claim.remark && (
+                <Card className="border-amber-200 bg-amber-50">
+                  <CardContent className="p-4">
+                    <Label className="text-xs text-muted-foreground">Remark / Issue</Label>
+                    <p className="text-sm font-medium text-amber-900">{claim.remark}</p>
                   </CardContent>
                 </Card>
               )}
@@ -837,6 +931,7 @@ function Operations() {
   const [admission, setAdmission] = useState<AdmissionStatus>('all');
   const [search, setSearch] = useState('');
   const [showOnlyNeedsReview, setShowOnlyNeedsReview] = useState(false);
+  const [activeIPDOnly, setActiveIPDOnly] = useState(false); // NEW: Filter for active IPD only
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -851,7 +946,9 @@ function Operations() {
         .order('created_at', { ascending: false });
 
       if (queryError) {
-        setError('Saved data is unavailable. Local preview remains available; start local Supabase for persistence.');
+        const errorMsg = queryError.message || 'Unknown error';
+        console.error('[CorporateClaimTracking] Query error:', queryError);
+        setError(`Failed to load saved data: ${errorMsg}. Local preview remains available; check Supabase connection and RLS policies.`);
       } else {
         setError('');
         // Expand parsed_data from snapshots into claim rows
@@ -881,14 +978,17 @@ function Operations() {
               payment_date: row.normalizedValues.payment_date,
               source_file_name: file.fileName,
               row_number: row.rowNumber,
-              isPreview: false
+              isPreview: false,
+              remark: String(row.originalValues['Remark'] || row.originalValues['Reason'] || '').trim() // Extract remarks from CSV
             };
           });
         });
         setSaved(expandedClaims);
       }
     } catch (err) {
-      setError('Database connection failed.');
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      console.error('[CorporateClaimTracking] Refresh error:', err);
+      setError(`Database connection failed: ${errorMsg}. Check Supabase configuration and RLS policies.`);
     } finally {
       setLoading(false);
     }
@@ -920,7 +1020,7 @@ function Operations() {
     }));
 
     const filters: ClaimExportFilters = {
-      scheme: schemeType === 'ALL' ? 'ALL' : schemeType === 'PMJAY' ? 'PMJAY' : 'MJPJAY',
+      scheme: scheme === 'ALL' ? 'ALL' : scheme === 'PMJAY' ? 'PMJAY' : 'MJPJAY',
       stage: stage === 'all' ? 'all' : stage,
       verificationState: verification === 'all' ? 'all' : verification,
       admissionStatus: admission === 'all' ? 'all' : admission
@@ -1003,7 +1103,57 @@ function Operations() {
     verifyPreviewClaims();
   }, [preview.length, verifiedCount]);
 
-  const all = preview.length ? preview : saved;
+  // Verify saved claims against live Adamrit data (when loaded from database)
+  const [savedVerifiedCount, setSavedVerifiedCount] = useState(0);
+  useEffect(() => {
+    if (saved.length === 0) return;
+    // Skip if already verified
+    if (saved.length === savedVerifiedCount && !isVerifying) return;
+
+    const verifySavedClaims = async () => {
+      setIsVerifying(true);
+      try {
+        const verifiedClaims = await Promise.all(
+          saved.map(async (claim) => {
+            // Skip already verified claims
+            if (claim.verification_state !== 'pending' && claim.verification_state !== 'not_checked') {
+              return claim;
+            }
+
+            // Verify patient and visit
+            const result = await verifyClaimAgainstAdamrit(claim);
+
+            // Check payment status if claim has paid_amount
+            let paymentStatus = undefined;
+            if (Number(claim.paid_amount || 0) > 0 && result.patient?.id && result.visit?.visit_id) {
+              paymentStatus = await checkPaymentStatus(result.patient.id, result.visit.visit_id);
+            }
+
+            return {
+              ...claim,
+              verification_state: result.status,
+              admission_status: result.admissionStatus,
+              verification_evidence: result.evidence,
+              matched_patient: result.patient,
+              matched_visit: result.visit,
+              payment_status: paymentStatus
+            };
+          })
+        );
+        setSaved(verifiedClaims);
+        setSavedVerifiedCount(verifiedClaims.length);
+      } finally {
+        setIsVerifying(false);
+      }
+    };
+
+    verifySavedClaims();
+  }, [saved.length, savedVerifiedCount]);
+
+  const all = useMemo(() => {
+    const rawData = preview.length ? preview : saved;
+    return deduplicateClaims(rawData); // Apply deduplication
+  }, [preview, saved]);
 
   const scoped = useMemo(() => {
     if (scheme === 'ALL') return all;
@@ -1027,6 +1177,9 @@ function Operations() {
       // Admission filter
       if (admission !== 'all' && row.admission_status !== admission) return false;
 
+      // Active IPD Only filter
+      if (activeIPDOnly && row.admission_status !== 'active_ipd') return false;
+
       // Search filter
       if (search.trim()) {
         const searchLower = search.trim().toLowerCase();
@@ -1041,14 +1194,16 @@ function Operations() {
 
       return true;
     });
-  }, [scoped, stage, verification, admission, search, showOnlyNeedsReview]);
+  }, [scoped, stage, verification, admission, search, showOnlyNeedsReview, activeIPDOnly]);
 
   // Calculate dashboard metrics
   const metrics = useMemo(() => {
     const base = scoped;
+    const uniqueBeneficiaries = new Set(base.map(r => String(r.beneficiary_name || '').toLowerCase().trim()));
 
     return {
       total: base.length,
+      unique_patients: uniqueBeneficiaries.size, // NEW: Count unique patients
       // Count actual verification states (no preview distinction)
       matched: base.filter((r) => r.verification_state === 'matched').length,
       active_ipd: base.filter((r) => r.admission_status === 'active_ipd').length,
@@ -1096,6 +1251,25 @@ function Operations() {
         ))}
       </div>
 
+      {/* Active IPD Filter */}
+      <div className="flex flex-wrap gap-2 rounded-lg border bg-background p-2">
+        <span className="self-center px-2 text-sm font-semibold">Quick Filter:</span>
+        <Button
+          size="sm"
+          variant={activeIPDOnly ? 'default' : 'outline'}
+          onClick={() => {
+            setActiveIPDOnly(!activeIPDOnly);
+            if (!activeIPDOnly) {
+              setAdmission('active_ipd');
+            } else {
+              setAdmission('all');
+            }
+          }}
+        >
+          Active IPD Only {activeIPDOnly && '(On)'}
+        </Button>
+      </div>
+
       {/* Preview Mode Banner */}
       {preview.length > 0 && (
         <Card className="border-blue-300 bg-blue-50">
@@ -1123,8 +1297,9 @@ function Operations() {
         {/* Total Claims */}
         <Card onClick={() => { setStage('all'); setVerification('all'); setAdmission('all'); setShowOnlyNeedsReview(false); }} className="cursor-pointer hover:bg-accent/50">
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Total Claims</p>
-            <p className="text-2xl font-bold">{metrics.total}</p>
+            <p className="text-xs text-muted-foreground">Unique Patients</p>
+            <p className="text-2xl font-bold">{metrics.unique_patients}</p>
+            <p className="text-xs text-muted-foreground">{metrics.total} total rows</p>
           </CardContent>
         </Card>
 
@@ -1366,13 +1541,14 @@ function Operations() {
                   <TableHead>Admission</TableHead>
                   <TableHead>Amounts</TableHead>
                   <TableHead>Paid</TableHead>
+                  <TableHead>Remark</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading && !preview.length ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="py-10 text-center">
+                    <TableCell colSpan={10} className="py-10 text-center">
                       <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
                     </TableCell>
                   </TableRow>
@@ -1395,7 +1571,14 @@ function Operations() {
                           {row.scheme_type}
                         </Badge>
                       </TableCell>
-                      <TableCell className="font-medium">{row.beneficiary_name || '—'}</TableCell>
+                      <TableCell className="font-medium">
+                        {row.beneficiary_name || '—'}
+                        {row.merged_count && row.merged_count > 1 && (
+                          <Badge variant="secondary" className="ml-2 text-xs">
+                            Merged {row.merged_count}
+                          </Badge>
+                        )}
+                      </TableCell>
                       <TableCell>
                         {row.government_registration_id || '—'}
                         <p className="text-xs text-muted-foreground">{row.government_program_id || '—'}</p>
@@ -1434,6 +1617,15 @@ function Operations() {
                       <TableCell className={Number(row.paid_amount || 0) > 0 ? 'text-emerald-700 font-medium' : ''}>
                         {formatMoney(row.paid_amount)}
                       </TableCell>
+                      <TableCell>
+                        {row.remark ? (
+                          <Badge variant="secondary" className="text-xs max-w-[200px] truncate" title={row.remark}>
+                            {row.remark}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
                       <TableCell className="w-8">
                         {stale && (
                           <AlertTriangle className="h-4 w-4 text-amber-600" title="Stale claim: Pending over 120 days" />
@@ -1445,7 +1637,7 @@ function Operations() {
                 )}
                 {!loading && !filtered.length && (
                   <TableRow>
-                    <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">
+                    <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">
                       No records match this filter.
                     </TableCell>
                   </TableRow>
