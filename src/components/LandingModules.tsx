@@ -179,17 +179,6 @@ const GROUPS: Group[] = [
     ],
   },
   {
-    title: 'Management',
-    blurb: 'Oversight, people and referrals',
-    tiles: [
-      { id: 'director', label: 'Director Dashboard', description: 'KPIs & payment deadlines', href: '/director', icon: LayoutDashboard },
-      { id: 'hr-pulse', label: 'HR Pulse', description: 'Attendance, leave & HR alerts', href: '/hr-pulse', icon: HeartPulse },
-      { id: 'referral-register', label: 'Referral Register', description: 'Complete referral entries', href: '/referral-register', icon: Users },
-      { id: 'referee-ruby', label: 'Referee Register', description: 'OPDs & admissions · how patients found us', href: '/referee-ruby', icon: Megaphone },
-      { id: 'patient-feedback', label: 'Patient Feedback', description: 'Photo & video feedback from patients', href: '/patient-feedback', icon: MessageCircle },
-    ],
-  },
-  {
     title: 'Connected Products',
     blurb: 'Sister systems that open on their own site',
     tiles: [
@@ -199,6 +188,17 @@ const GROUPS: Group[] = [
       { id: 'zerorisk-agent', label: 'Zero Risk Agent', description: 'AI-powered platform recovering millions in denied claims from ESIC, CGHS and ECHS', href: 'https://zeroriskagent.com', icon: ShieldPlus },
       { id: 'ddo-center', label: 'DDO Center', description: "Doctor's Digital Office — AI practice management that cuts clinical documentation time for physicians and clinics", href: 'https://www.ddo.center/', icon: BriefcaseMedical },
       { id: 'ai-surgeon-pilot', label: 'AI Surgeon Pilot', description: 'AI practice management that cuts clinical documentation time for private surgeons and their clinics', href: 'https://www.aisurgeonpilot.com/', icon: Slice },
+    ],
+  },
+  {
+    title: 'Management',
+    blurb: 'Oversight, people and referrals',
+    tiles: [
+      { id: 'director', label: 'Director Dashboard', description: 'KPIs & payment deadlines', href: '/director', icon: LayoutDashboard },
+      { id: 'hr-pulse', label: 'HR Pulse', description: 'Attendance, leave & HR alerts', href: '/hr-pulse', icon: HeartPulse },
+      { id: 'referral-register', label: 'Referral Register', description: 'Complete referral entries', href: '/referral-register', icon: Users },
+      { id: 'referee-ruby', label: 'Referee Register', description: 'OPDs & admissions · how patients found us', href: '/referee-ruby', icon: Megaphone },
+      { id: 'patient-feedback', label: 'Patient Feedback', description: 'Photo & video feedback from patients', href: '/patient-feedback', icon: MessageCircle },
     ],
   },
 ];
