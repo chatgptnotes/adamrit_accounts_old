@@ -241,6 +241,14 @@ _Catalog auto-regenerated on every Claude Code session start. Do not edit betwee
 - For multi-step tasks, state a brief plan with a verify step for each.
 - Define success criteria concretely — weak criteria require constant clarification.
 
+## SQL goes to the owner's clipboard
+
+The owner applies SQL by pasting it into the Supabase dashboard's SQL editor.
+After writing ANY .sql file (migration or one-off fix), hand the full SQL over
+ready to paste: on the owner's machine, pipe it to `pbcopy`; in a remote/cloud
+session where their clipboard is unreachable, send the file into the chat
+instead. Never leave a migration sitting silently in the repo.
+
 ## Money paths — read before changing cash, billing or payments
 
 `docs/money-path-rules.md` records seven rules, each written after a real
