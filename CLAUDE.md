@@ -27,9 +27,21 @@ dashboard behind login, and is NOT the landing page.
 
 ## Testing
 
-- `npm run build` — also runs the frozen-module lock checks in `prebuild`
-- `npm run typecheck`
-- `npm run test:money-paths` and `npm run test:loud-failures`
+- `npm run test` — Vitest unit tests in `src/` (80 assertions; added 17 Aug)
+- `npm run test:ci` — what CI runs on every push/PR: vitest + `test:api` +
+  `test:loud-failures` (the last needs `VITE_SUPABASE_ANON_KEY` set — any
+  value works, fetch is stubbed; without it the suite now FAILS rather than
+  silently skipping)
+- `npm run build` — `prebuild` runs the frozen-module locks + API caller check
+  + public-label check; `postbuild` greps the BUILT entry chunk for staff
+  names (`check-bundle-names.cjs`) because Vite chunking can leak a shared
+  module into the public bundle with no import in the landing page
+- `npm run typecheck` — ratchet; RED on main since 16 Aug (271 vs baseline
+  251, pre-existing). Never bump the baseline to absorb errors you did not fix
+- `npm run test:money-paths` — needs the project `.env`; also runnable by
+  pasting `SELECT public.run_money_path_tests_all();` in the dashboard
+- Playwright specs in `e2e/` default `baseURL` to PRODUCTION and mutate data —
+  never run them casually
 
 There is no pytest, ruff, black or mypy in this repo.
 

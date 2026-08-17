@@ -1,6 +1,6 @@
 ---
-name: Adamrit failure modes (14–16 Aug 2026 session)
-description: Every trap, silent failure and self-inflicted outage recorded during the 14–16 August 2026 working session on Adamrit. Read BEFORE touching RLS/permissions, cash and handover paths, Final Bill charges, user access and email allowlists, Postgres functions, React Query hooks, the public landing page, or anything that must survive a Vercel deploy. Each entry is a real incident, not a hypothetical.
+name: Adamrit failure modes (14–17 Aug 2026 sessions)
+description: Every trap, silent failure and self-inflicted outage recorded during the 14–17 August 2026 working sessions on Adamrit. Read BEFORE touching RLS/permissions, cash and handover paths, Final Bill charges, user access and email allowlists, Postgres functions, React Query hooks, tests and CI, the public landing page and its built bundle, the PWA/service worker, or anything that must survive a Vercel deploy. Each entry is a real incident, not a hypothetical.
 source_project: adamrit
 tags: [adamrit, rls, permissions, cash, money-path, final-bill, deploy, vercel, react-query, supabase, postgres, verification]
 ---
@@ -277,3 +277,159 @@ the landing page — that is the dashboard behind login. The real landing page i
 **Rule of engagement for this work:** re-lock one table, have the user exercise
 the real screen, and only then continue. Do not test permission changes on live
 billing during a working shift.
+
+---
+
+# Harvested 17 Aug 2026 — testing, the public bundle, and the cash boundary
+
+Everything below happened in the 17 August session. Same rule: read the
+relevant entry before starting, not after the symptom.
+
+## 8. Tests that lie
+
+**8.1 Test files can imply coverage that does not exist.** Three files under
+`src/` imported `@jest/globals` and `@testing-library/react` while neither was
+in package.json — 961 lines of test that could never run, sitting where a
+reader concludes corporate-claim money logic is covered. Worse than no tests.
+Now they run under Vitest (`npm run test`, wired into CI as `test:ci`).
+
+**8.2 When a revived test fails, suspect the TEST first.** All 9 genuine
+failures in `corporateClaimTracking.test.ts` were the test being wrong — it
+guessed the API instead of reading it. The real scheme prefixes are `PJ`/`MJ`
+(normalized), not the scheme display names; `corporateClaimFileFingerprint`
+takes a parsed-file object, not a string. `schemeForProgramId('PMJAY…')` is
+deliberately UNRESOLVED — "never guess" is the module's contract.
+
+**8.3 A suite that cannot run must be red, not green.** `test:loud-failures`
+used to print SKIP and `exit 0` when `VITE_SUPABASE_ANON_KEY` was absent —
+permanently green in CI while asserting nothing, guarding all 278 write paths.
+It now exits 1 unless `ALLOW_SKIP_LOUD_FAILURES=1` is set on purpose. The
+failed-write reporter's own harness had the swallow-the-failure bug.
+
+**8.4 `tsconfig.app.json` EXCLUDES `src/**/*.test.*`.** The typecheck ratchet
+never sees test files. A type error in a test will not move the baseline.
+
+**8.5 The ratchet was already failing on main — 271 errors against 251 —
+before this session touched anything** (verified on a pristine checkout with
+the original lockfile). Do not bump the baseline to make your commit green;
+that absorbs 20 strangers' errors silently. Still unfixed, deliberately.
+
+**8.6 `cmd | grep …; echo $?` measures grep.** Two verifications in one
+session read the wrong exit code this way. Use `${PIPESTATUS[0]}` or run the
+command bare.
+
+## 9. The public bundle leaks by chunking, not by import
+
+**9.1 Vite hoists shared modules into the entry chunk.** Nobody imported the
+staff-named tile registry into the landing page — `src/config/tileAccess.ts`
+was pulled into `dist/assets/index-*.js` because two OTHER screens shared it.
+Every anonymous visitor downloaded "Register Patient Diksha" et al. AGAIN
+(same leak as 16 Aug, new route). A source-level guard cannot see this:
+`check-public-labels.cjs` was green while the names shipped.
+
+**9.2 Guard the artifact, not the source.** `scripts/check-bundle-names.cjs`
+(postbuild) greps the BUILT entry chunk for the staff-name list. Three staff
+emails still ship in hardcoded access allowlists — known, needs the
+server-side move, not a rename.
+
+**9.3 An exemption list is a disabled check.** `OFF_REGISTRY` in
+check-public-labels means "skip the dead-link check" — thirteen desktop tiles
+added there would have been thirteen unchecked links. Exemptions must earn
+themselves: off-registry hrefs are now verified against `path=` in
+AppRoutes.tsx, and external tiles must be absolute https (a bare domain
+resolves against adamrit.com; the deliberate-break test proved both fail).
+
+**9.4 "The deploy didn't work" is usually the service worker.** The PWA
+precaches index.html and answers every navigation from cache — a returning
+browser ALWAYS paints the old app first, then self-reloads within ~a minute.
+`ReloadPrompt`'s "new version" toast is dead code (`registerType:
+"autoUpdate"` never fires onNeedRefresh), and App.tsx throttles the
+controllerchange reload to one per 5 minutes — a tab can stay stale until a
+manual refresh. Check this BEFORE blaming Vercel.
+
+## 10. The cash boundary — how the opening guard was relaxed without removing it
+
+**10.1 A handover claims EVERY live opening at its counter** —
+`claim_handover_sources` is a set-based UPDATE with no ORDER BY or LIMIT, and
+`cash_opening_for` SUMS live rows. Two live openings on one counter is
+mechanically CH-260815-0016 (₹9,789 variance on a ₹1,720 drawer). The plpgsql
+guard is also backed by partial unique index
+`cash_opening_one_live_per_counter` — relaxing the function alone yields raw
+constraint errors, and relaxing both dissolves the person-to-cash boundary and
+re-opens the re-declare-a-short-drawer-bigger fraud.
+
+**10.2 The unblock is a boundary, not a bypass.**
+`declare_opening_cash_unattended()` closes the absent cashier's session FIRST
+(a real handover from them to the arriving cashier, counted at what was
+actually found — variance lands on the absent person), THEN declares the fresh
+opening through the untouched `declare_opening_cash`. One live opening per
+counter holds at every instant. A cashier's own pending balance still refuses —
+that path is the fraud door.
+
+**10.3 New name, never new parameters.** Growing a parameter list under
+CREATE OR REPLACE mints a second overload (that is how the payout claim was
+lost on 16 Aug). New behaviour gets a NEW function name that CALLS the live
+functions; the migration's verify block asserts both live identity signatures
+(`pg_get_function_identity_arguments`) and aborts on drift — honouring
+"rebuild from the live database" without live access.
+
+**10.4 Migrations must self-test because they get dashboard-pasted.** The
+owner applies SQL by pasting into the Supabase SQL editor (rule now in
+CLAUDE.md), so `apply_migration`'s name registry never hears about it, and a
+later script run re-executes the SQL. Use CREATE FUNCTION (not OR REPLACE) so
+a re-run fails loudly with "already exists", and put a rehearsal DO block in
+the file — it ran against live and caught nothing wrong precisely because the
+signature asserts ran first.
+
+**10.5 Client ships before the migration lands — degrade honestly.** The
+unattended path maps PGRST202 to "the database update has not been applied yet
+(migration 20260817100000)"; multi-referee announce falls back to the old RPC
+with the FIRST referee and says so in a toast; the referrals list selects
+`referee_list` separately and retries without it. Never block the hospital on
+an unapplied migration, never hide that it is unapplied.
+
+## 11. Multi-referee: the seam that keeps money untouched
+
+**11.1 `referee_initials` stays ONE string (the first pick).** The frozen
+registration prefill collapses it into `patients.relationship_manager`, and
+DailyRevenueReportSection's rm_name fallback NAME-MATCHES that text against
+the RM master — a joined "AB, CD" matches nobody. The N-referee list
+(`incoming_referrals.referee_list` jsonb) stops at the announcement layer.
+Payouts are decided at registration + Daily Revenue Report; extra announced
+names create no payable party. A cut SPLIT between referees is an owner
+decision, deliberately not taken.
+
+**11.2 Reuse a guard by CALLING it.** `announce_incoming_referral_with_list`
+calls the existing announce function (dedupe races and all) and stamps the
+list on the returned row in the same transaction — no duplicated guard logic,
+no redefinition of a live function.
+
+## 12. Session mechanics
+
+**12.1 The push guard rejects the WHOLE compound command.** A chained
+`git add && git commit && git push` died at the guard with nothing executed —
+the commit silently did not happen. Commit and push in separate Bash calls.
+
+**12.2 An empty node_modules proves nothing.** "jest is not installed" from
+`ls node_modules` was worthless before `npm ci` — package.json is the
+authority on what the project depends on.
+
+**12.3 Landing tiles live in TWO places that must agree.**
+`LandingModules.tsx` (self-contained on purpose) and `check-public-labels.cjs`
+(its OFF_REGISTRY set). Adding a tile without the exemption fails the build;
+adding the exemption without checking the route would be a dead link — which
+the href check now catches.
+
+## 13. Open items handed to the owner (as of 17 Aug)
+
+- **Printed money columns show "—" for a missing amount, not "₹0"** — a null
+  cell never reaches `column.format`, so the formatter's `|| '0'` fallback is
+  dead code. Recorded as-is in printTests; changing it moves every print
+  report. Owner asked, not yet answered.
+- **Typecheck ratchet red on main** (271 vs 251) — 20 unattributed errors
+  awaiting a proper fix, NOT a baseline bump.
+- **Three staff emails still in the shipped entry chunk** (access allowlists).
+- **Supabase "Outstanding invoices" banner** on the production dashboard —
+  service suspension would stop the whole hospital.
+- **Human verification pending:** one real cashier through the unattended
+  opening on a quiet counter; one real two-referee announcement.
