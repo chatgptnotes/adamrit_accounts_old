@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
@@ -10,6 +10,7 @@ import { TabletWatermark } from "@/tablet/components/TabletWatermark";
 import { useRecentlyDischargedVisits } from "@/tablet/hooks/useVisitLists";
 import { useDialysisTracker } from "@/tablet/hooks/useDialysisTracker";
 import { useAssignedTiles } from "@/tablet/hooks/useAssignedTiles";
+import { tilesNamedForUser } from "@/tablet/lib/tilesNamedForUser";
 import { useCashHandoverAccess } from "@/tablet/hooks/useCashHandoverAccess";
 import { OpeningCashBanner } from "@/tablet/components/OpeningCashBanner";
 
@@ -117,17 +118,23 @@ export function TabletHome() {
     );
   }, [modules, query]);
 
-  // The tiles this person was mapped to, lifted out of the grid into their own
-  // band. Both halves keep the module order, so a tile's neighbours only change
-  // when someone maps it.
-  const mine = useMemo(
-    () => filtered.filter((m) => assigned.has(m.id)),
-    [filtered, assigned],
+  // Tiles that carry this person's own name -- "OT Schedule - Gaurav",
+  // "Accounts (Tilak)". 21 of the 77 tiles are named after whoever's job they
+  // are, and their owner had to hunt for them like everybody else: the only
+  // thing that lifted a tile was a row in tile_assignments, and that table held
+  // two rows in total. The tile already says whose it is, so no mapping is
+  // needed for this to work on day one.
+  const named = useMemo(() => tilesNamedForUser(modules, user), [modules, user]);
+
+  // The tiles this person was mapped to OR named on, lifted out of the grid
+  // into their own band. Both halves keep the module order, so a tile's
+  // neighbours only change when someone maps it.
+  const isMine = useCallback(
+    (id: string) => assigned.has(id) || named.has(id),
+    [assigned, named],
   );
-  const rest = useMemo(
-    () => filtered.filter((m) => !assigned.has(m.id)),
-    [filtered, assigned],
-  );
+  const mine = useMemo(() => filtered.filter((m) => isMine(m.id)), [filtered, isMine]);
+  const rest = useMemo(() => filtered.filter((m) => !isMine(m.id)), [filtered, isMine]);
 
   /** One module tile. Identical in both bands — being assigned changes where a
       tile sits, never how it looks. */
