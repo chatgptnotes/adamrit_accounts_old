@@ -118,7 +118,8 @@ export const TABLET_MODULES: TabletModule[] = [
   },
   {
     id: "bed-booking",
-    label: "Bed Booking",
+    label: "Diksha Bed Booking",
+    publicLabel: "Bed Booking",
     description: "Reserve a bed for an incoming patient",
     icon: CalendarCheck,
     accent: "text-orange-600",
@@ -126,7 +127,8 @@ export const TABLET_MODULES: TabletModule[] = [
   },
   {
     id: "icu-admission",
-    label: "ICU Admission",
+    label: "Sonali ICU Admission",
+    publicLabel: "ICU Admission",
     description: "Admit / transfer to ICU bed",
     icon: HeartPulse,
     accent: "text-rose-600",
@@ -239,7 +241,8 @@ export const TABLET_MODULES: TabletModule[] = [
   },
   {
     id: "ask-books-voice",
-    label: "Ask the Books",
+    label: "Ruby Ask the Books",
+    publicLabel: "Ask the Books",
     description: "Directors only - speak or type, the accounts answer",
     icon: MessageCircle,
     accent: "text-violet-700",
@@ -248,7 +251,8 @@ export const TABLET_MODULES: TabletModule[] = [
   },
   {
     id: "canteen-sonu",
-    label: "Canteen - Sonu",
+    label: "Canteen - Reena",
+    publicLabel: "Canteen",
     description: "Post the day's canteen collection to the books",
     icon: Receipt,
     accent: "text-lime-700",
@@ -554,7 +558,8 @@ export const TABLET_MODULES: TabletModule[] = [
   },
   {
     id: "medication-round",
-    label: "Medication Round",
+    label: "Lalita Medication Round",
+    publicLabel: "Medication Round",
     description: "Mark doses given / missed",
     icon: ClipboardCheck,
     accent: "text-pink-600",
@@ -570,7 +575,8 @@ export const TABLET_MODULES: TabletModule[] = [
   },
   {
     id: "dama",
-    label: "DAMA / LAMA",
+    label: "Gaurav DAMA / LAMA",
+    publicLabel: "DAMA / LAMA",
     description: "Discharge against medical advice",
     icon: AlertTriangle,
     accent: "text-orange-600",
@@ -603,7 +609,8 @@ export const TABLET_MODULES: TabletModule[] = [
   },
   {
     id: "stores-inventory",
-    label: "Stores & Inventory",
+    label: "Reena Stores & Inventory",
+    publicLabel: "Stores & Inventory",
     description: "Stock levels, movements in and out, and reorder alerts",
     icon: Package,
     accent: "text-indigo-700",
@@ -684,7 +691,8 @@ export const TABLET_MODULES: TabletModule[] = [
   },
   {
     id: "referral-register",
-    label: "Referral Register",
+    label: "Dr M Referral Entry",
+    publicLabel: "Referral Register",
     description: "Complete referral entries",
     icon: Users,
     accent: "text-emerald-600",
@@ -734,7 +742,8 @@ export const TABLET_MODULES: TabletModule[] = [
     // Panel-wise mandatory documents. Also reached from the Director Dashboard
     // preview card and from the yellow bell (?patient= opens one checklist).
     id: "panel-documents",
-    label: "Panel Documents",
+    label: "Azhar Panel Documents",
+    publicLabel: "Panel Documents",
     description: "Panel-wise mandatory docs",
     icon: ClipboardCheck,
     accent: "text-cyan-600",

@@ -45,7 +45,7 @@ export default function CanteenSonuFlow() {
 
   return (
     <FlowScaffold
-      heading="Canteen - Sonu"
+      heading="Canteen - Reena"
       subheading="The day's canteen cash goes straight into the books"
       actions={
         <TabletButton className="w-full" disabled={record.isPending} onClick={() => record.mutate()}>
