@@ -100,6 +100,9 @@ type PackageOtDefaults = {
   surgeonName: string;
   anesthetistName: string;
   anesthesiaType: string;
+  /** Payable carried on the package itself; null where no rate is known. */
+  surgeonFee: number | null;
+  anaesthetistFee: number | null;
 };
 
 export const todayDate = () => new Date().toISOString().slice(0, 10);
@@ -258,7 +261,7 @@ function usePackageOtDefaults(packageName: string, packageCode: string | null | 
 
       const { data: packages, error } = await supabase
         .from("pmjay_mjpjay_packages")
-        .select("id, treatment_code, treatment_plan, anaesthesia_type, is_active")
+        .select("id, treatment_code, treatment_plan, anaesthesia_type, surgeon_fee, anaesthetist_fee, is_active")
         .eq("is_active", true)
         .or(orParts.join(","))
         .limit(12);
@@ -305,6 +308,11 @@ function usePackageOtDefaults(packageName: string, packageCode: string | null | 
         surgeonName,
         anesthetistName,
         anesthesiaType: match.anaesthesia_type || "",
+        // The payable carried on the package itself (20260817150000). Null
+        // where no rate is known, which leaves the fee masters in charge
+        // exactly as before.
+        surgeonFee: Number(match.surgeon_fee) > 0 ? Number(match.surgeon_fee) : null,
+        anaesthetistFee: Number(match.anaesthetist_fee) > 0 ? Number(match.anaesthetist_fee) : null,
       };
     },
   });
@@ -770,12 +778,33 @@ function GauravScheduler() {
   // The charges follow the package and the anaesthesia type, but never
   // overwrite a figure that has been edited by hand — the whole point of making
   // them editable is that this case might not be worth the master's number.
+  //
+  // The PACKAGE's own rate wins over the fee masters when it carries one.
+  // surgery_fee_master is matched by procedure name and reaches only 11 of the
+  // 172 packages, so for everything else the master answered with the flat
+  // Rs 5,000 default. A rate written against the package answers for that exact
+  // package and cannot be matched to the wrong operation.
+  //
+  // Safe to change here alone, even though createDoctorApprovalsFromOt keeps
+  // its own copy of the fallback chain: whatever is shown here is saved to
+  // ot_schedule.surgeon_fee / anaesthetist_fee on save, and the booked figure
+  // is the first thing that path honours. The figure shown stays the figure
+  // raised.
   useEffect(() => {
-    if (caseFees.isFetching || feesTouched) return;
+    if (caseFees.isFetching || packageDefaults.isFetching || feesTouched) return;
     const fees = caseFees.data;
-    setSurgeonFee(fees?.surgeonFee != null ? String(fees.surgeonFee) : "");
-    setAnaesthetistFee(fees?.anaesthetistFee != null ? String(fees.anaesthetistFee) : "");
-  }, [caseFees.data, caseFees.isFetching, feesTouched]);
+    const pkg = packageDefaults.data;
+    const surgeon = pkg?.surgeonFee ?? fees?.surgeonFee ?? null;
+    const anaesthetist = pkg?.anaesthetistFee ?? fees?.anaesthetistFee ?? null;
+    setSurgeonFee(surgeon != null ? String(surgeon) : "");
+    setAnaesthetistFee(anaesthetist != null ? String(anaesthetist) : "");
+  }, [
+    caseFees.data,
+    caseFees.isFetching,
+    packageDefaults.data,
+    packageDefaults.isFetching,
+    feesTouched,
+  ]);
 
   const saveSchedule = async () => {
     if (!selected) {
