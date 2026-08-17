@@ -2,18 +2,26 @@ import React from 'react';
 import {
   Activity,
   AlertTriangle,
+  Ambulance,
   ArrowLeftRight,
+  Award,
   Banknote,
   BarChart3,
   BedDouble,
   BookOpen,
+  Briefcase,
+  Building2,
   CalendarCheck,
   CalendarClock,
+  CalendarDays,
   ClipboardCheck,
   ClipboardList,
   DoorOpen,
   Droplets,
+  ExternalLink,
+  FileSpreadsheet,
   FileText,
+  Globe,
   HandCoins,
   HeartPulse,
   Landmark,
@@ -21,14 +29,22 @@ import {
   LogOut,
   Megaphone,
   MessageCircle,
+  Microscope,
   NotebookPen,
   Package,
+  PackageSearch,
   Pill,
   Receipt,
   ReceiptIndianRupee,
+  RefreshCw,
+  Scan,
   ScanLine,
+  ShieldCheck,
   ShoppingCart,
+  Siren,
   Stethoscope,
+  Syringe,
+  Ticket,
   UserCheck,
   UserPlus,
   UserRound,
@@ -72,6 +88,9 @@ const GROUPS: Group[] = [
     tiles: [
       { id: 'register', label: 'Register Patient', description: 'New patient & visit', href: '/register', icon: UserPlus },
       { id: 'patient-profile', label: 'Patient Profile', description: 'View patient details', href: '/patient-profile', icon: UserRound },
+      { id: 'appointments', label: 'Appointments', description: 'Book and manage consultation slots', href: '/appointments', icon: CalendarDays },
+      { id: 'queue-management', label: 'Queue & Tokens', description: 'Call the next patient and drive the waiting-room display', href: '/queue-management', icon: Ticket },
+      { id: 'patient-portal', label: 'Patient Portal', description: 'What the patient sees — reports, bills and visit history', href: '/patient-portal', icon: Globe },
       { id: 'incoming-referrals', label: 'Incoming Referrals', description: 'Announce a referred or direct patient before arrival, link on registration', href: '/incoming-referrals', icon: Megaphone },
       { id: 'direct-patients', label: 'Direct Patients', description: 'Announce a patient as DIRECT - referees blocked by the database', href: '/direct-patients', icon: UserCheck },
       { id: 'discharge', label: 'Discharged Patients', description: 'Discharged patient list', href: '/discharge', icon: LogOut },
@@ -85,6 +104,8 @@ const GROUPS: Group[] = [
     blurb: 'The ward, the theatre and the bedside',
     tiles: [
       { id: 'doctor-notes', label: 'Doctor Notes', description: 'Bedside clinical notes', href: '/doctor-notes', icon: Stethoscope },
+      { id: 'nursing', label: 'Nursing', description: 'Ward nursing station — vitals, care notes and handover', href: '/nursing', icon: Syringe },
+      { id: 'casualty-register', label: 'Casualty Register', description: 'Emergency arrivals, MLC entries and the statutory register', href: '/casualty-register', icon: Siren },
       { id: 'medication-round', label: 'Medication Round', description: 'Mark doses given / missed', href: '/medication-round', icon: ClipboardCheck },
       { id: 'icu-admission', label: 'ICU Admission', description: 'Admit / transfer to ICU bed', href: '/icu-admission', icon: HeartPulse },
       { id: 'ot-schedule-gaurav', label: 'OT Schedule', description: 'Schedule surgery date & time', href: '/ot-schedule-gaurav', icon: CalendarClock },
@@ -101,6 +122,8 @@ const GROUPS: Group[] = [
     title: 'Diagnostics',
     blurb: 'Laboratory, imaging and dialysis',
     tiles: [
+      { id: 'lab', label: 'Laboratory', description: 'Test orders, sample collection and result entry', href: '/lab', icon: Microscope },
+      { id: 'radiology', label: 'Radiology', description: 'Imaging worklist, reporting and PACS image viewing', href: '/radiology', icon: Scan },
       { id: 'diagnostics-hope', label: 'Diagnostics (Hope)', description: 'Send patient to outside CT/MRI/lab — posts on DRM Hope', href: '/diagnostics-hope', icon: ScanLine },
       { id: 'diagnostics-ayushman', label: 'Diagnostics (Ayushman)', description: 'Send patient to outside CT/MRI/lab — posts on Ayushman', href: '/diagnostics-ayushman', icon: ScanLine },
       { id: 'dialysis', label: 'Dialysis', description: 'Cycle billing & 30-day lab reports', href: '/dialysis', icon: Droplets },
@@ -116,6 +139,8 @@ const GROUPS: Group[] = [
       { id: 'pharmacy-billing-abhishek', label: 'Pharmacy Billing', description: 'Bill the patient, generate the invoice, take payment by QR', href: '/pharmacy-billing-abhishek', icon: ShoppingCart },
       { id: 'pharmacy-dues-abhishek', label: 'Supplier Dues', description: 'Outstanding supplier invoices, pay full or part in cash', href: '/pharmacy-dues-abhishek', icon: ReceiptIndianRupee },
       { id: 'pharmacy-vendor-lalit', label: 'Pharmacy Vendors', description: 'Vendor bills from GRNs — scan the QR, pay, attach the proof', href: '/pharmacy-vendor-lalit', icon: Package },
+      { id: 'purchase-orders', label: 'Purchase Orders', description: 'Raise orders to suppliers and receive stock against them', href: '/pharmacy/purchase-orders/list', icon: FileSpreadsheet },
+      { id: 'inventory-tracking', label: 'Stock & Expiry', description: 'Batch-wise stock with expiry tracking and reorder alerts', href: '/pharmacy/inventory-tracking', icon: PackageSearch },
     ],
   },
   {
@@ -126,6 +151,9 @@ const GROUPS: Group[] = [
       { id: 'implant-bill', label: 'Implant Bill', description: 'Create implant vendor invoice', href: '/implant-bill', icon: Receipt },
       { id: 'implant-calculation', label: 'Implant Calculation', description: 'Settle each discharged patient: direct or referred cut', href: '/implant-calculation', icon: ClipboardCheck },
       { id: 'implant-sticker', label: 'Implant Sticker', description: 'Create implant pouch cover sheet', href: '/implant-sticker', icon: ScanLine },
+      { id: 'tpa-claims', label: 'TPA & Insurance Claims', description: 'Raise, track and settle third-party insurance claims', href: '/tpa-claims', icon: ShieldCheck },
+      { id: 'pmjay-mjpjay-master', label: 'Government Schemes', description: 'PMJAY and MJPJAY packages, rates and eligibility', href: '/pmjay-mjpjay-master', icon: Building2 },
+      { id: 'corporate-claim-tracking', label: 'Corporate Claims', description: 'Chase corporate and panel money owed, stage by stage', href: '/corporate-claim-tracking', icon: Briefcase },
       { id: 'panel-documents', label: 'Panel Documents', description: 'Panel-wise mandatory docs', href: '/panel-documents', icon: ClipboardCheck },
       { id: 'panel-payment-received', label: 'Panel Payment Received', description: 'Record corporate / panel / Yojana payments as they arrive', href: '/panel-payment-received', icon: ReceiptIndianRupee },
       { id: 'payments-due', label: 'Payments Due', description: 'Pay today\'s salary, rent and vendor obligations', href: '/payments-due', icon: CalendarClock },
@@ -144,6 +172,7 @@ const GROUPS: Group[] = [
       { id: 'receipt-voucher', label: 'Receipt Voucher', description: 'Create receipt voucher with invoice proof', href: '/receipt-voucher', icon: Receipt },
       { id: 'bank-cash', label: 'Bank & Cash', description: 'Deposits, withdrawals, bank charges & interest', href: '/bank-cash', icon: ArrowLeftRight },
       { id: 'accounting', label: 'Accounting', description: 'Day book, ledgers, trial balance and the full Tally-style books', href: '/accounting', icon: BookOpen },
+      { id: 'tally', label: 'Tally Sync', description: 'Push vouchers to Tally and reconcile what came back', href: '/tally', icon: RefreshCw },
     ],
   },
   {
@@ -155,6 +184,15 @@ const GROUPS: Group[] = [
       { id: 'referral-register', label: 'Referral Register', description: 'Complete referral entries', href: '/referral-register', icon: Users },
       { id: 'referee-ruby', label: 'Referee Register', description: 'OPDs & admissions · how patients found us', href: '/referee-ruby', icon: Megaphone },
       { id: 'patient-feedback', label: 'Patient Feedback', description: 'Photo & video feedback from patients', href: '/patient-feedback', icon: MessageCircle },
+    ],
+  },
+  {
+    title: 'Connected Products',
+    blurb: 'Sister systems that open on their own site',
+    tiles: [
+      { id: 'hrpulse-site', label: 'HR Pulse', description: 'Staff records, payroll and statutory returns — the full product', href: 'https://www.hrpulse.site/', icon: Users },
+      { id: 'nabh-online', label: 'NABH Online', description: 'Accreditation evidence, incident reporting, audits and quality reviews', href: 'https://nabh.online', icon: Award },
+      { id: 'emergency-seva', label: 'Emergency Seva', description: 'Ambulance dispatch and emergency response — Raftaar Help', href: 'https://emergencyseva.in', icon: Ambulance },
     ],
   },
 ];
@@ -175,6 +213,9 @@ const enter = (href: string) => (event: React.MouseEvent) => {
   window.location.href = href;
 };
 
+/** A separate product on its own domain, not a route inside this app. */
+const isExternal = (href: string) => /^https?:\/\//.test(href);
+
 const TileCard = ({
   label,
   description,
@@ -185,23 +226,36 @@ const TileCard = ({
   description: string;
   href: string;
   Icon: LucideIcon;
-}) => (
-  <a
-    href={href}
-    onClick={enter(href)}
-    className="group flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4 transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-  >
-    <span className="mt-0.5 inline-flex h-10 w-10 flex-none items-center justify-center rounded-lg bg-blue-50 text-blue-600 transition-colors group-hover:bg-blue-600 group-hover:text-white">
-      <Icon className="h-5 w-5" />
-    </span>
-    <span className="min-w-0">
-      <span className="block font-semibold text-gray-900">{label}</span>
-      <span className="mt-0.5 block text-sm leading-snug text-gray-600 line-clamp-2">
-        {description}
+}) => {
+  const external = isExternal(href);
+
+  return (
+    <a
+      href={href}
+      // The sign-in redirect is for routes in this app. A sister product has its
+      // own login, so sending the visitor through ours would be a detour to the
+      // wrong door — external tiles open directly, in their own tab.
+      onClick={external ? undefined : enter(href)}
+      {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+      className="group flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4 transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+    >
+      <span className="mt-0.5 inline-flex h-10 w-10 flex-none items-center justify-center rounded-lg bg-blue-50 text-blue-600 transition-colors group-hover:bg-blue-600 group-hover:text-white">
+        <Icon className="h-5 w-5" />
       </span>
-    </span>
-  </a>
-);
+      <span className="min-w-0">
+        <span className="flex items-center gap-1.5 font-semibold text-gray-900">
+          {label}
+          {external && (
+            <ExternalLink className="h-3.5 w-3.5 flex-none text-gray-400" aria-label="opens in a new tab" />
+          )}
+        </span>
+        <span className="mt-0.5 block text-sm leading-snug text-gray-600 line-clamp-2">
+          {description}
+        </span>
+      </span>
+    </a>
+  );
+};
 
 const LandingModules = () => {
   const groups = GROUPS.filter((g) => g.tiles.length > 0);

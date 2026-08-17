@@ -38,11 +38,78 @@ const bad = [...listed.entries()]
 
 // A landing entry pointing at a module that no longer exists is a dead link.
 const known = new Set(entries.map((e) => e.id));
-const OFF_REGISTRY = new Set(['cath-lab', 'accounting']);
+
+// Desktop screens declared in src/components/AppRoutes.tsx rather than the
+// tablet registry. They are still real pages — the dead-link check just cannot
+// see them, because it only reads the tablet module list. Each id here has a
+// matching route; add to this set ONLY after confirming the route exists.
+const OFF_REGISTRY = new Set([
+  'cath-lab',
+  'accounting',
+  'appointments',
+  'queue-management',
+  'patient-portal',
+  'nursing',
+  'casualty-register',
+  'lab',
+  'radiology',
+  'purchase-orders',
+  'inventory-tracking',
+  'tpa-claims',
+  'pmjay-mjpjay-master',
+  'corporate-claim-tracking',
+  'tally',
+  // Sister products on their own domains. They have no route here by design.
+  'hrpulse-site',
+  'nabh-online',
+  'emergency-seva',
+]);
 const dead = [...listed.keys()].filter((id) => !known.has(id) && !OFF_REGISTRY.has(id));
 if (dead.length) {
   console.error('[public-labels] ERROR: the landing page lists modules that do not exist:\n');
   console.error(dead.map((d) => `  ${d}`).join('\n'));
+  process.exit(1);
+}
+
+// The exemption above says "not in the tablet registry", which on its own would
+// let any id through unchecked. So the desktop ones are verified the other way:
+// their href must be a route AppRoutes.tsx actually declares. Without this, the
+// escape hatch quietly turns off the dead-link check it is an exception to.
+const hrefs = new Map(
+  [...landing.matchAll(/id: '([a-z0-9-]+)',[^\n]*?href: '([^']+)'/g)].map((m) => [m[1], m[2]]),
+);
+const routes = new Set(
+  [...fs
+    .readFileSync(path.join(ROOT, 'src/components/AppRoutes.tsx'), 'utf8')
+    .matchAll(/path="([^"]+)"/g)].map((m) => m[1]),
+);
+// A tile may point at a sister product instead of a route here. Those cannot be
+// route-checked, so they are held to the other rule that matters on a public
+// page: an absolute https address. A bare domain or an http:// link is a bug —
+// the first resolves against adamrit.com, the second is insecure.
+const external = (href) => /^https?:\/\//.test(href || '');
+
+const brokenLinks = [...OFF_REGISTRY]
+  .filter((id) => listed.has(id))
+  .filter((id) => !external(hrefs.get(id)) && !routes.has(hrefs.get(id)))
+  .map((id) => `  ${id} -> ${hrefs.get(id) ?? '(no href found)'}`);
+
+if (brokenLinks.length) {
+  console.error('[public-labels] ERROR: landing tiles point at routes that do not exist:\n');
+  console.error(brokenLinks.join('\n'));
+  console.error('\nEvery off-registry tile must match a path= in src/components/AppRoutes.tsx,');
+  console.error('or be an absolute https:// link to a sister product.');
+  process.exit(1);
+}
+
+const badExternal = [...hrefs.entries()]
+  .filter(([, href]) => external(href))
+  .filter(([, href]) => !/^https:\/\/[a-z0-9.-]+\.[a-z]{2,}(\/|$)/i.test(href))
+  .map(([id, href]) => `  ${id} -> ${href}`);
+
+if (badExternal.length) {
+  console.error('[public-labels] ERROR: external tiles must be absolute https links:\n');
+  console.error(badExternal.join('\n'));
   process.exit(1);
 }
 

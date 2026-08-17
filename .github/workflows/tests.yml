@@ -1,0 +1,59 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # Everything here runs with no database, no secrets and no network: the
+  # suites stub fetch. Anything needing the live project (test:money-paths,
+  # the Playwright specs) is deliberately not here — see the note at the end.
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:ci
+        env:
+          # Not a credential. The reporter reads this key to build a header, and
+          # the suite stubs fetch, so nothing is ever sent anywhere. It is set
+          # because the suite now fails rather than skipping when it is absent.
+          VITE_SUPABASE_ANON_KEY: ci-not-a-real-key
+
+  # The build-time guardrails. They already gate a deploy through prebuild;
+  # running them here means a pull request fails before merge instead of after.
+  guardrails:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Frozen module locks
+        run: |
+          node scripts/check-finalbill-locked.cjs
+          node scripts/check-registration-locked.cjs
+          node scripts/check-expensebill-locked.cjs
+          node scripts/check-accounting-locked.cjs
+      - name: API routes declare who may call them
+        run: npm run check:api
+      - name: Public labels
+        run: npm run check:public-labels
+      - name: Migration safety (advisory)
+        run: npm run check:migrations
+
+# Not covered here, and deliberately:
+#   test:money-paths  — runs inside Postgres against the linked project and
+#                       needs SUPABASE_SERVICE_ROLE_KEY. Worth adding once a
+#                       non-production project is available to point it at.
+#   e2e/*.spec.ts     — Playwright, and its baseURL still defaults to
+#                       production. Not safe to run automatically until that
+#                       default points somewhere disposable.

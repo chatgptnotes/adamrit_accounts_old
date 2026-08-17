@@ -30,6 +30,10 @@ scripts/*
 # prebuild behind '&&' — without this line it is absent on Vercel and every
 # deploy fails, which is what happened when it was added.
 !scripts/check-public-labels.cjs
+# Runs in postbuild and reads only dist/, which Vercel creates during the
+# build. Same rule as above: absent from this list, every deploy dies on
+# "Cannot find module".
+!scripts/check-bundle-names.cjs
 # Shipped but NOT called: d9806b6 removed it from prebuild. Do not add it back
 # without also un-ignoring its input — it reads supabase/migrations/*.sql, and
 # line 16 above strips *.sql from the upload, so on Vercel its readdirSync finds
