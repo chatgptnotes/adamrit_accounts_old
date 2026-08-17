@@ -40,6 +40,7 @@ import {
   Scan,
   ScanLine,
   ShieldCheck,
+  ShieldPlus,
   ShoppingCart,
   Siren,
   Stethoscope,
@@ -193,6 +194,7 @@ const GROUPS: Group[] = [
       { id: 'hrpulse-site', label: 'HR Pulse', description: 'Staff records, payroll and statutory returns — the full product', href: 'https://www.hrpulse.site/', icon: Users },
       { id: 'nabh-online', label: 'NABH Online', description: 'Accreditation evidence, incident reporting, audits and quality reviews', href: 'https://nabh.online', icon: Award },
       { id: 'emergency-seva', label: 'Emergency Seva', description: 'Ambulance dispatch and emergency response — Raftaar Help', href: 'https://emergencyseva.in', icon: Ambulance },
+      { id: 'zerorisk-agent', label: 'Zero Risk Agent', description: 'AI-powered platform recovering millions in denied claims from ESIC, CGHS and ECHS', href: 'https://zeroriskagent.com', icon: ShieldPlus },
     ],
   },
 ];

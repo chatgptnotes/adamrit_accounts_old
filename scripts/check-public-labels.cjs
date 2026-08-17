@@ -63,6 +63,7 @@ const OFF_REGISTRY = new Set([
   'hrpulse-site',
   'nabh-online',
   'emergency-seva',
+  'zerorisk-agent',
 ]);
 const dead = [...listed.keys()].filter((id) => !known.has(id) && !OFF_REGISTRY.has(id));
 if (dead.length) {
