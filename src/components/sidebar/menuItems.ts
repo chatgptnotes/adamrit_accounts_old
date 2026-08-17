@@ -82,6 +82,11 @@ export const menuItems: MenuItemDef[] = [
     icon: Activity,
   },
   {
+    title: "Dialysis Bundle",
+    url: "/dialysis-bundle",
+    icon: Activity,
+  },
+  {
     title: "Currently Admitted",
     url: "/currently-admitted",
     icon: Building2,

@@ -19,6 +19,7 @@ import TodaysIpdDashboard from "../pages/TodaysIpdDashboard";
 import ConferenceCallPage from "../pages/ConferenceCall";
 import TodaysOpd from "../pages/TodaysOpd";
 import DialysisDashboard from "../pages/DialysisDashboard";
+import DialysisBundle from "../pages/DialysisBundle";
 import AdvanceStatementReport from "../pages/AdvanceStatementReport";
 import DailyCollectionReport from "../pages/DailyCollectionReport";
 import DailyBillSubmissionReport from "../pages/DailyBillSubmissionReport";
@@ -302,6 +303,7 @@ export const AppRoutes = () => {
         <Route path="/conference-call" element={<ConferenceCallPage />} />
         <Route path="/todays-opd" element={<TodaysOpd />} />
         <Route path="/dialysis" element={<DialysisDashboard />} />
+        <Route path="/dialysis-bundle" element={<DialysisBundle />} />
         <Route path="/advance-statement-report" element={<AdvanceStatementReport />} />
         <Route path="/daily-collection-report" element={<DailyCollectionReport />} />
         <Route path="/daily-bill-submission-report" element={<DailyBillSubmissionReport />} />

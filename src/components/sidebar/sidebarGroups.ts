@@ -39,6 +39,7 @@ export const GROUP_BY_TITLE: Record<string, string> = {
   'Casualty Register': 'Patient Care',
   'NephroPlus Dialysis': 'Patient Care',
   'Todays Dialysis': 'Overview',
+  'Dialysis Bundle': 'Overview',
   'Shifting': 'Patient Care',
   'Doctor View': 'Patient Care',
 
