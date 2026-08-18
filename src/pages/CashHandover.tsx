@@ -341,6 +341,9 @@ export default function CashHandoverPage() {
                         <span className="font-mono text-xs">{h.handover_no}</span>
                         <span className="text-sm">
                           {h.from_user_name} → {h.to_user_name}
+                          {(h as any).performed_by_name
+                            ? ` (counted by ${(h as any).performed_by_name})`
+                            : ""}
                         </span>
                         <Badge className={STATUS_TONE[h.status]} variant="secondary">
                           {h.status}
@@ -976,6 +979,13 @@ function RegisterTable({
             <DialogTitle>Verify {verifying?.handover_no}</DialogTitle>
             <DialogDescription>
               {verifying?.from_user_name} handed cash to {verifying?.to_user_name}.
+              {(verifying as any)?.performed_by_name
+                ? ` Counted by ${(verifying as any).performed_by_name} on their behalf${
+                    (verifying as any).performed_reason
+                      ? ` — ${(verifying as any).performed_reason}`
+                      : ""
+                  }.`
+                : ""}
               {revealed
                 ? ` They counted ${inr(verifying?.counted_cash ?? 0)}; the software expected ${inr(
                     verifying?.expected_cash ?? 0,

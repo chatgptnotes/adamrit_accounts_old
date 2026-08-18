@@ -150,6 +150,12 @@ export default function CashHandoverFlow() {
           nominees={(nominees.data ?? []).filter(
             (n) => n.can_receive && n.user_id !== user?.id,
           )}
+          canBackup={(nominees.data ?? []).some(
+            (n) => n.user_id === user?.id && (n as any).can_backup,
+          )}
+          drawerHolders={(nominees.data ?? []).filter(
+            (n) => (n as any).can_hand_over && n.user_id !== user?.id,
+          )}
           onDone={() => {
             qc.invalidateQueries({ queryKey: ["cash-handover-inbox"] });
             qc.invalidateQueries({ queryKey: ["cash-handover-preview"] });
@@ -184,15 +190,27 @@ function HandOverPanel({
   userId,
   hospitalType,
   nominees,
+  canBackup = false,
+  drawerHolders = [],
   onDone,
 }: {
   userId: string;
   hospitalType: string | null;
   nominees: { user_id: string; display_name: string }[];
+  /** Only a roster-authorised backup sees the "counting for someone else" option. */
+  canBackup?: boolean;
+  drawerHolders?: { user_id: string; display_name: string }[];
   onDone: () => void;
 }) {
   const [includeUnattributed, setIncludeUnattributed] = useState(false);
   const [counts, setCounts] = useState<Record<number, string>>({});
+  // Whose drawer is being counted. Empty means the signed-in cashier's own.
+  // A backup counting for an absent cashier does NOT become the person the
+  // handover is FROM: the expected figure comes from the absent cashier's own
+  // collections, so measuring the count against anybody else's would be
+  // measuring the wrong drawer. The backup is recorded as who performed it.
+  const [onBehalfOf, setOnBehalfOf] = useState("");
+  const [absentReason, setAbsentReason] = useState("");
   const [toUserId, setToUserId] = useState("");
   const [reason, setReason] = useState("");
   const [notes, setNotes] = useState("");
@@ -221,10 +239,11 @@ function HandOverPanel({
 
   // Scoped to this cashier's own hospital: Hope and Ayushman keep separate
   // drawers even though a receipt carries no hospital of its own.
+  const drawerUserId = onBehalfOf || userId;
   const preview = useQuery({
-    queryKey: ["cash-handover-preview", userId, includeUnattributed, hospitalType ?? "all"],
-    enabled: !!userId,
-    queryFn: () => fetchPreview(userId, includeUnattributed, hospitalType),
+    queryKey: ["cash-handover-preview", drawerUserId, includeUnattributed, hospitalType ?? "all"],
+    enabled: !!drawerUserId,
+    queryFn: () => fetchPreview(drawerUserId, includeUnattributed, hospitalType),
     staleTime: 10_000,
   });
 
@@ -245,6 +264,10 @@ function HandOverPanel({
   const submit = useMutation({
     mutationFn: async () => {
       if (!toUserId) throw new Error("Choose who is receiving the cash");
+      // The only record of why the cashier did not count their own drawer.
+      if (onBehalfOf && !absentReason.trim()) {
+        throw new Error("Say why the cashier could not hand over themselves");
+      }
       // Caught here rather than in the database so the cashier is told which
       // of the two things to do, not just that a column was empty.
       if (needsReason && !reason.trim() && !voice) {
@@ -255,8 +278,10 @@ function HandOverPanel({
       const writtenReason = reason.trim()
         || (voice ? "Spoken explanation attached — play the voice note on this handover" : "");
       const result = await submitHandover({
-        fromUserId: userId,
+        fromUserId: drawerUserId,
         toUserId,
+        performedByUserId: onBehalfOf ? userId : null,
+        performedReason: onBehalfOf ? absentReason.trim() : null,
         hospitalType,
         includeUnattributed,
         varianceReason: writtenReason || null,
@@ -552,6 +577,55 @@ function HandOverPanel({
         </div>
       )}
 
+      {/* Counting for an absent cashier. Shown only to a roster-authorised
+          backup, and only offering people who actually hold a drawer, so it
+          cannot be used to sweep somebody's takings under the wrong name. */}
+      {canBackup && drawerHolders.length > 0 && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-3">
+          <TabletLabel>Counting for an absent cashier?</TabletLabel>
+          <div className="mt-1 grid grid-cols-2 gap-2">
+            <TabletButton
+              variant={onBehalfOf === "" ? "default" : "outline"}
+              onClick={() => {
+                setOnBehalfOf("");
+                setAbsentReason("");
+              }}
+            >
+              My own drawer
+            </TabletButton>
+            {drawerHolders.map((n) => (
+              <TabletButton
+                key={n.user_id}
+                variant={onBehalfOf === n.user_id ? "default" : "outline"}
+                onClick={() => setOnBehalfOf(n.user_id)}
+              >
+                {n.display_name}
+              </TabletButton>
+            ))}
+          </div>
+          {onBehalfOf !== "" && (
+            <div className="mt-3 space-y-2">
+              <p className="text-xs text-amber-900">
+                The figures below are{" "}
+                <strong>
+                  {drawerHolders.find((n) => n.user_id === onBehalfOf)?.display_name}
+                </strong>
+                's, not yours. The handover stays in their name and records that you counted it.
+              </p>
+              <TabletLabel htmlFor="ch-absent">
+                Why can they not hand over themselves? (required)
+              </TabletLabel>
+              <TabletInput
+                id="ch-absent"
+                value={absentReason}
+                onChange={(e) => setAbsentReason(e.target.value)}
+                placeholder="e.g. left early, unwell - counted at 8pm with the night nurse present"
+              />
+            </div>
+          )}
+        </div>
+      )}
+
       <div>
         <TabletLabel>Who is receiving the cash?</TabletLabel>
         {nominees.length === 0 ? (
@@ -676,6 +750,15 @@ function ForMePanel({
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="font-semibold">{h.from_user_name}</p>
+                {/* A handover counted by a backup stays in the cashier's name,
+                    so who actually stood at the counter has to be visible or
+                    the record reads as though they did it themselves. */}
+                {h.performed_by_name && (
+                  <p className="text-xs text-amber-700">
+                    Counted by {h.performed_by_name}
+                    {h.performed_reason ? ` — ${h.performed_reason}` : ""}
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground">
                   {h.handover_no} · {shortDate(h.submitted_at)} · {h.source_count} receipt(s)
                 </p>

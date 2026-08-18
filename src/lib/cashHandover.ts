@@ -42,6 +42,9 @@ export interface CashHandover {
   /** Which counter, and so which company's books: hope, ayushman, pharmacy. */
   hospital_type: string | null;
   from_user_id: string;
+  /** Non-null only when a backup cashier counted for an absent one. */
+  performed_by_name?: string | null;
+  performed_reason?: string | null;
   from_user_name: string;
   to_user_id: string;
   to_user_name: string;
@@ -146,8 +149,20 @@ export async function submitHandover(input: {
   lockerWithdrawn?: number | null;
   /** Put INTO the locker this shift. Already counted in lockerCash. */
   lockerDeposited?: number | null;
+  /**
+   * Set ONLY when a backup cashier is counting an absent cashier's drawer.
+   * fromUserId stays the cashier whose money it is -- the expected figure comes
+   * from THEIR collections, so moving it would measure the wrong drawer. This
+   * records who actually stood at the counter, and why.
+   */
+  performedByUserId?: string | null;
+  performedReason?: string | null;
 }): Promise<{ handoverId: string; handoverNo: string; variance: number }> {
-  const { data, error } = await rpc("submit_cash_handover", {
+  const onBehalf = Boolean(input.performedByUserId);
+  const { data, error } = await rpc(onBehalf ? "submit_cash_handover_on_behalf" : "submit_cash_handover", {
+    ...(onBehalf
+      ? { p_performed_by: input.performedByUserId, p_reason: input.performedReason ?? null }
+      : {}),
     p_from_user_id: input.fromUserId,
     p_to_user_id: input.toUserId,
     p_denominations: input.denominations.filter((d) => d.qty > 0),
@@ -398,7 +413,7 @@ export async function fetchPositions(hospitalType?: string | null): Promise<Cash
 export async function fetchNominees(hospitalType?: string | null): Promise<Nominee[]> {
   let q = (supabase as any)
     .from("cash_handover_verifiers")
-    .select("id, user_id, display_name, can_receive, can_verify, is_active, hospital_type")
+    .select("id, user_id, display_name, can_receive, can_verify, can_backup, is_active, hospital_type")
     .eq("is_active", true)
     .order("display_name");
   if (hospitalType) {
