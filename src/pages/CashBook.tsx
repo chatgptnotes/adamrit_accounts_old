@@ -9,6 +9,7 @@ import { supabase } from '@/integrations/supabase/client';
 import * as XLSX from 'xlsx';
 import { useCompanies } from '@/hooks/useCompanies';
 import { formatDateOnly } from '@/utils/dateOnly';
+import { cashBookScope, hospitalFilterFor } from '@/lib/cashBookScope';
 
 // Sum a single hospital's cash-book Debit/Credit from its raw sources, mirroring the
 // displayEntries logic. Debits = CASH advance/final (+ pharmacy for Hope) + Hope pharmacy
@@ -19,11 +20,16 @@ const computeHospitalTotals = (
   paymentVouchers: any[] | undefined,
   pharmacyCredits: any[] | undefined,
   pharmacyRefunds: any[] | undefined,
-  includePharmacy: boolean
+  includePharmacy: boolean,
+  // Hope Pharmacy is its own company sharing Hope's building, so its rows carry
+  // hospital_name "hope". Without this it would show Hope's hospital advances
+  // as its own takings — the clubbing the owner reported on 18-Aug.
+  includeHospitalSources = true
 ) => {
-  const allowed = includePharmacy
-    ? ['ADVANCE_PAYMENT', 'FINAL_BILL', 'PHARMACY']
-    : ['ADVANCE_PAYMENT', 'FINAL_BILL'];
+  const allowed = [
+    ...(includeHospitalSources ? ['ADVANCE_PAYMENT', 'FINAL_BILL'] : []),
+    ...(includePharmacy ? ['PHARMACY'] : []),
+  ];
 
   let debit = (dailyTransactions || [])
     .filter((t: any) => allowed.includes(t.transaction_type) && t.payment_mode === 'CASH')
@@ -50,13 +56,27 @@ const CashBook: React.FC = () => {
   const { data: companies = [] } = useCompanies();
   const [selectedCompanyId, setSelectedCompanyId] = useState('');
 
-  // Derive effective hospital name from selected company (company_key = "hope"/"ayushman"),
-  // falling back to the logged-in hospital when no company is selected.
-  const effectiveHospitalName = useMemo(() => {
-    if (!selectedCompanyId) return hospitalConfig.name;
+  // Which transactions the selected company actually owns.
+  //
+  // This used to read company_key and use it AS the hospital name. The keys are
+  // hope_pharmacy / drm_pvt_ltd / ayushman_nagpur, while every transaction row
+  // stores hospital_name as only ever "hope" or "ayushman" — so choosing a
+  // company filtered on a value no row has ever held and the screen came back
+  // empty. "All Companies" was the only setting that showed anything, which is
+  // why everything looked clubbed together (owner, 18-Aug).
+  const scope = useMemo(() => {
     const company = companies.find(c => c.id === selectedCompanyId);
-    return company?.company_key ?? hospitalConfig.name;
+    return cashBookScope(selectedCompanyId ? company?.company_key : '', hospitalConfig.name);
   }, [selectedCompanyId, companies, hospitalConfig.name]);
+
+  // The name handed to the transaction queries. Deliberately a value that
+  // matches nothing when the company owns no hospital rows: pharmacy rows carry
+  // hospital_name "hope" because the pharmacy stands in Hope's building, so
+  // without this the pharmacy company would drag in Hope's whole cash book.
+  const effectiveHospitalName = useMemo(
+    () => hospitalFilterFor(scope, hospitalConfig.name),
+    [scope, hospitalConfig.name],
+  );
 
   // URL-persisted state
   const fromDate = searchParams.get('from') || today;
@@ -150,8 +170,9 @@ const CashBook: React.FC = () => {
   // Fetch pharmacy credit payments for Hope hospital only (CASH payments)
   useEffect(() => {
     const fetchPharmacyCreditPayments = async () => {
-      // Only fetch for Hope hospital (check if name contains 'hope', exclude Ayushman)
-      if (!effectiveHospitalName || !effectiveHospitalName.toLowerCase().includes('hope')) {
+      // The scope decides, not a substring of the hospital name. Only the
+      // pharmacy company (and "All Companies") owns these rows.
+      if (!scope.includePharmacy) {
         setPharmacyCreditPayments([]);
         return;
       }
@@ -173,13 +194,14 @@ const CashBook: React.FC = () => {
     };
 
     fetchPharmacyCreditPayments();
-  }, [fromDate, toDate, effectiveHospitalName]);
+  }, [fromDate, toDate, scope.includePharmacy]);
 
   // Fetch pharmacy CASH refunds (medicine_returns) for Hope hospital only
   useEffect(() => {
     const fetchPharmacyRefunds = async () => {
-      // Only fetch for Hope hospital (check if name contains 'hope', exclude Ayushman)
-      if (!effectiveHospitalName || !effectiveHospitalName.toLowerCase().includes('hope')) {
+      // The scope decides, not a substring of the hospital name. Only the
+      // pharmacy company (and "All Companies") owns these rows.
+      if (!scope.includePharmacy) {
         setPharmacyRefunds([]);
         return;
       }
@@ -220,7 +242,7 @@ const CashBook: React.FC = () => {
     };
 
     fetchPharmacyRefunds();
-  }, [fromDate, toDate, effectiveHospitalName]);
+  }, [fromDate, toDate, scope.includePharmacy]);
 
   // Always fetch Hope pharmacy cash credits + refunds (amounts only) for the TOP per-hospital
   // totals — independent of the selected company. Does not affect the entry list.
@@ -451,7 +473,7 @@ const CashBook: React.FC = () => {
       const allowedTransactionTypes = ['ADVANCE_PAYMENT', 'FINAL_BILL'];
       
       // Add pharmacy only for Hope hospital (case-insensitive check)
-      if (effectiveHospitalName?.toLowerCase().includes('hope')) {
+      if (scope.includePharmacy) {
         allowedTransactionTypes.push('PHARMACY');
       }
 
@@ -580,21 +602,38 @@ const CashBook: React.FC = () => {
     };
   }, [displayEntries]);
 
-  // Per-hospital totals for the TOP summary (Hope / Ayushman / combined). Independent of the
-  // selected company. Hope includes pharmacy; Ayushman does not.
-  const hopeTotals = useMemo(
-    () => computeHospitalTotals(hopeDailyTransactions, hopeVouchers, hopePharmacyCredits, hopePharmacyRefunds, true),
-    [hopeDailyTransactions, hopeVouchers, hopePharmacyCredits, hopePharmacyRefunds]
-  );
-  const ayushmanTotals = useMemo(
-    () => computeHospitalTotals(ayushmanDailyTransactions, ayushmanVouchers, undefined, undefined, false),
-    [ayushmanDailyTransactions, ayushmanVouchers]
-  );
+  // COMPANY-wise totals for the TOP summary, not hospital-wise. The bar used to
+  // print Hope / Ayushman / Total, which gave the pharmacy nowhere to appear —
+  // its takings were added into Hope's line. Each company now stands on its own
+  // and they still add up to the same Total.
+  //
+  // Built from the two per-hospital fetches already in hand, so this costs no
+  // extra queries.
+  const companyTotals = useMemo(() => {
+    const rows = [
+      {
+        label: 'DRM Hope Hospital',
+        t: computeHospitalTotals(hopeDailyTransactions, hopeVouchers, undefined, undefined, false, true),
+      },
+      {
+        label: 'Hope Pharmacy',
+        t: computeHospitalTotals(hopeDailyTransactions, undefined, hopePharmacyCredits, hopePharmacyRefunds, true, false),
+      },
+      {
+        label: 'Ayushman Nagpur',
+        t: computeHospitalTotals(ayushmanDailyTransactions, ayushmanVouchers, undefined, undefined, false, true),
+      },
+    ];
+    // Shown even at zero: an absent line reads as "this company has no cash
+    // book", which is exactly the confusion being fixed.
+    return rows;
+  }, [hopeDailyTransactions, hopeVouchers, hopePharmacyCredits, hopePharmacyRefunds, ayushmanDailyTransactions, ayushmanVouchers]);
+
   const combinedTotals = useMemo(() => ({
-    debit: hopeTotals.debit + ayushmanTotals.debit,
-    credit: hopeTotals.credit + ayushmanTotals.credit,
-    closing: hopeTotals.closing + ayushmanTotals.closing,
-  }), [hopeTotals, ayushmanTotals]);
+    debit: companyTotals.reduce((s, r) => s + r.t.debit, 0),
+    credit: companyTotals.reduce((s, r) => s + r.t.credit, 0),
+    closing: companyTotals.reduce((s, r) => s + r.t.closing, 0),
+  }), [companyTotals]);
 
   const formatCurrency = (amount: number) => {
     if (amount === 0) return '';
@@ -733,12 +772,11 @@ const CashBook: React.FC = () => {
         {formatDateForInput(fromDate)} To {formatDateForInput(toDate)}
       </div>
 
-      {/* Top Summary Bar — per-hospital totals + combined (Hope + Ayushman = Total) */}
+      {/* Top Summary Bar — one line per COMPANY, and they sum to Total. */}
       {!isLoading && !error && (
         <div className="mx-4 mb-2 border-t-2 border-b-2 border-gray-400 bg-gray-50 px-3 py-2 text-sm">
           {[
-            { label: 'Hope', t: hopeTotals, strong: false },
-            { label: 'Ayushman', t: ayushmanTotals, strong: false },
+            ...companyTotals.map((row) => ({ ...row, strong: false })),
             { label: 'Total', t: combinedTotals, strong: true },
           ].map((row) => (
             <div
