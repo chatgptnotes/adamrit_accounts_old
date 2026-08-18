@@ -56,6 +56,26 @@ export function describeGeminiError(data: unknown, status: number): string {
     typeof error === 'string'
       ? error
       : (error as { message?: string } | null)?.message || '';
+
+  // Naming Gemini for a refusal that never reached Gemini sends people to look
+  // at the wrong thing. ai-proxy is staff-only (auth: 'session'), so the door
+  // closes before the model is ever contacted. Azhar's phone read "Gemini
+  // request failed (401): not_authenticated" while photographing a PhonePe
+  // screen; the AI was fine, his login had run out overnight.
+  //
+  // Matched on the code rather than the status: 403 covers three unrelated
+  // refusals, and telling someone whose account was deactivated to sign in
+  // again would send them round a loop they cannot escape.
+  if (status === 401 || detail === 'not_authenticated') {
+    return 'Your session has expired — sign out and sign in again, then try once more.';
+  }
+  if (detail === 'account_inactive') {
+    return 'This account has been deactivated. Ask an administrator to re-enable it.';
+  }
+  if (detail === 'rate_limited') {
+    return 'Too many AI requests just now — wait a minute and try again.';
+  }
+
   return detail
     ? `Gemini request failed (${status}): ${detail}`
     : `Gemini request failed (HTTP ${status}).`;

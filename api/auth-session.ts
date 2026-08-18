@@ -47,12 +47,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'GET') {
     const user = getSessionUser(req, serviceKey);
+    if (!user) return res.status(401).json({ error: 'not_authenticated' });
+
+    // The session slides: every check re-issues the cookie for another full
+    // TTL, so the clock measures time since last use rather than time since
+    // login.
+    //
+    // Fixed 18 Aug. The cookie lasted 8 hours from sign-in while the interface
+    // trusts localStorage and never expires, and the refresh below deliberately
+    // swallows its own failure so nobody is logged out mid-shift. An expired
+    // session was therefore invisible: the screens kept working, because they
+    // read Supabase directly, and only the server-side calls noticed. Azhar's
+    // phone reported "Gemini request failed (401): not_authenticated" when
+    // reading a PhonePe screenshot — the AI was never reached, his login had
+    // simply run out overnight. A phone used every day now stays signed in.
+    res.setHeader('Set-Cookie', sessionCookie(signToken({
+      type: 'hmis-session',
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      hospitalType: user.hospitalType,
+      exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+    }, serviceKey)));
+
     // dbToken is minted fresh on every session check, so a tab open across a
     // long shift keeps a valid database pass rather than expiring silently.
     // Null unless SUPABASE_USER_JWT=1 — see supabaseAccessToken().
-    return user
-      ? res.status(200).json({ ok: true, user, dbToken: supabaseAccessToken({ id: user.id, email: user.email }) })
-      : res.status(401).json({ error: 'not_authenticated' });
+    return res.status(200).json({
+      ok: true,
+      user,
+      dbToken: supabaseAccessToken({ id: user.id, email: user.email }),
+    });
   }
 
   if (req.method === 'DELETE') {
