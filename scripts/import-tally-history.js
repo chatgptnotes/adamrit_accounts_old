@@ -102,8 +102,16 @@ function readTallyXml(file) {
   return buffer.toString('utf8').replace(/^\uFEFF/, '')
 }
 
+function tallyXmlEncoding(file) {
+  const fd = fs.openSync(file, 'r')
+  const header = Buffer.alloc(2)
+  fs.readSync(fd, header, 0, 2, 0)
+  fs.closeSync(fd)
+  return header[0] === 0xff && header[1] === 0xfe ? 'utf16le' : 'utf8'
+}
+
 async function streamTallyVouchers(file, onVoucher) {
-  const stream = fs.createReadStream(file, { encoding: 'utf16le', highWaterMark: 1024 * 1024 })
+  const stream = fs.createReadStream(file, { encoding: tallyXmlEncoding(file), highWaterMark: 1024 * 1024 })
   let buffer = ''
   let first = true
   for await (const chunk of stream) {
@@ -170,12 +178,16 @@ function parseVoucherXml(voucherXml, companyKey) {
     const date = tallyDate(text(node, 'DATE'))
     const voucherType = text(node, 'VOUCHERTYPENAME') || attr(node, 'VCHTYPE')
     if (!date || !voucherType) throw new Error('Every imported voucher must have DATE and VOUCHERTYPENAME')
-    const lines = Array.from(node.getElementsByTagName('ALLLEDGERENTRIES.LIST')).map((line, index) => {
+    const lines = Array.from(node.getElementsByTagName('ALLLEDGERENTRIES.LIST')).flatMap((line) => {
       const signedAmount = number(text(line, 'AMOUNT'))
       const ledger = text(line, 'LEDGERNAME')
-      if (!ledger) throw new Error(`Voucher ${text(node, 'VOUCHERNUMBER') || '(blank)'} has a ledger line without LEDGERNAME`)
-      return { line_number: index + 1, ledger_name: ledger, amount: Math.abs(signedAmount), is_debit: signedAmount < 0, details: {} }
+      // Tally sometimes includes a non-accounting allocation block under an
+      // ALLLEDGERENTRIES.LIST node (for example an inventory/tax allocation).
+      // It has no LEDGERNAME and must not become a fake accounting line.
+      if (!ledger) return []
+      return [{ ledger_name: ledger, amount: Math.abs(signedAmount), is_debit: signedAmount < 0, details: {} }]
     })
+    lines.forEach((line, index) => { line.line_number = index + 1 })
     if (lines.length < 2) throw new Error(`Voucher ${text(node, 'VOUCHERNUMBER') || '(blank)'} has fewer than two ledger entries`)
     const tallyGuid = text(node, 'GUID') || attr(node, 'REMOTEID') || null
     const voucherNumber = text(node, 'VOUCHERNUMBER') || null
