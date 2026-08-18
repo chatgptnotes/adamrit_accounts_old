@@ -5,13 +5,14 @@ import { ImportLaneCards } from '@/components/government-portal/ImportLaneCards'
 import { IMPORT_ACCENTS } from '@/components/government-portal/importAccents';
 
 /**
- * Four upload lanes for the NHA provider portal: two caret-delimited CSV
- * exports and two dashboard screenshots.
+ * Upload lanes for the NHA provider portal: two caret-delimited CSV exports and
+ * two dashboard screenshots, all uploaded on this page, plus Dialysis Bill
+ * Pending, which has a screen of its own.
  *
  * They used to run CSV, screenshot, screenshot, CSV down one column, drawn
  * alike, so the page read as four interchangeable blocks and the last one sat
  * far below anything you could see. They are grouped by what they take now,
- * each with a colour of its own, under a set of cards that shows all four at
+ * each with a colour of its own, under a set of cards that shows them all at
  * once.
  */
 
@@ -41,6 +42,20 @@ const SCREENSHOT_LANES = [
   },
 ];
 
+/**
+ * Not a section on this page — its own screen. Dialysis Bill Pending keeps a
+ * dated snapshot per day and answers one question ("how many dialysis bills are
+ * still not prepared"), which does not fit beside four upload boxes.
+ */
+const LINKED_LANES = [
+  {
+    accent: IMPORT_ACCENTS.dialysisBillPending,
+    title: 'Dialysis Bill Pending',
+    hint: 'Dialysis cycles finished, bills not yet prepared. Opens its own page.',
+    to: '/dialysis-bill-pending',
+  },
+];
+
 /** The heading over each group, so the two kinds read as two kinds. */
 function GroupHeading({ icon: Icon, label, detail }: { icon: LucideIcon; label: string; detail: string }) {
   return (
@@ -66,11 +81,12 @@ export default function GovernmentPortalReportImport() {
           <h1 className="text-2xl font-bold tracking-tight text-gray-900 md:text-3xl">Government Portal Uploads</h1>
           <p className="max-w-3xl text-sm text-gray-500">
             Four things land here: two caret-delimited exports and two screenshots of the portal dashboard. Each keeps
-            its own history, so uploading one never disturbs another.
+            its own history, so uploading one never disturbs another. Dialysis Bill Pending is the fifth card, and
+            opens a page of its own.
           </p>
         </header>
 
-        <ImportLaneCards lanes={[...CSV_LANES, ...SCREENSHOT_LANES]} />
+        <ImportLaneCards lanes={[...CSV_LANES, ...SCREENSHOT_LANES, ...LINKED_LANES]} />
 
         <div className="space-y-5">
           <GroupHeading

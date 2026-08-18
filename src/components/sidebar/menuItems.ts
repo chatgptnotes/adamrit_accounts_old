@@ -1,4 +1,4 @@
-import { BarChart3, Calendar, PhoneCall, Users, UserPlus, Database, Activity, FileText, TestTube, Camera, Pill, MapPin, Stethoscope, UserCog, Syringe, Shield, Building2, ClipboardList, ShieldCheck, Receipt, HeartHandshake, ExternalLink, UserCheck, Bed, DoorOpen, LayoutDashboard, BookOpen, Clock, TrendingUp, Scissors, Heart, Cross, ClipboardCheck, ArrowLeftRight, Wallet, Navigation, Smartphone, MonitorSmartphone, MessageCircle, MessageSquare, ScanLine, Footprints, Phone, QrCode, Sparkles, Boxes, ScrollText, Stamp, HandCoins, NotebookText } from 'lucide-react';
+import { BarChart3, Calendar, PhoneCall, Users, UserPlus, Database, Activity, FileText, TestTube, Camera, Pill, MapPin, Stethoscope, UserCog, Syringe, Shield, Building2, ClipboardList, ShieldCheck, Receipt, HeartHandshake, ExternalLink, UserCheck, Bed, DoorOpen, LayoutDashboard, BookOpen, Clock, TrendingUp, Scissors, Heart, Cross, ClipboardCheck, ArrowLeftRight, Wallet, Navigation, Smartphone, MonitorSmartphone, MessageCircle, MessageSquare, ScanLine, Footprints, Phone, QrCode, Sparkles, Boxes, ScrollText, Stamp, HandCoins, NotebookText, Droplets } from 'lucide-react';
 
 export type MenuSection = 'main' | 'masters';
 
@@ -229,6 +229,11 @@ export const menuItems: MenuItemDef[] = [
     title: "Government Portal Import",
     url: "/government-portal-report-import",
     icon: FileText,
+  },
+  {
+    title: "Dialysis Bill Pending",
+    url: "/dialysis-bill-pending",
+    icon: Droplets,
   },
   {
     title: "Corporate Claim Tracking",

@@ -1,4 +1,4 @@
-import { Camera, FileSpreadsheet, type LucideIcon } from 'lucide-react';
+import { Camera, Droplets, FileSpreadsheet, type LucideIcon } from 'lucide-react';
 
 /**
  * The four upload lanes on the Government Portal import page, and the colour
@@ -75,6 +75,18 @@ export const IMPORT_ACCENTS: Record<string, ImportAccent> = {
     title: 'text-amber-950',
     ring: 'hover:border-amber-300 hover:shadow-amber-100',
     button: 'bg-amber-600 text-white hover:bg-amber-700',
+  },
+  dialysisBillPending: {
+    id: 'import-dialysis-bill-pending',
+    kind: 'csv',
+    kindLabel: 'CSV import',
+    icon: Droplets,
+    chip: 'bg-cyan-50 text-cyan-700 ring-1 ring-inset ring-cyan-200',
+    bar: 'bg-cyan-500',
+    border: 'border-cyan-200',
+    title: 'text-cyan-950',
+    ring: 'hover:border-cyan-300 hover:shadow-cyan-100',
+    button: 'bg-cyan-600 text-white hover:bg-cyan-700',
   },
   preauthPending: {
     id: 'import-preauth-pending',

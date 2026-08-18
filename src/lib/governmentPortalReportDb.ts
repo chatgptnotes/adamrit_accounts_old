@@ -53,12 +53,31 @@ export const isNearIdenticalName = (a: string, b: string): boolean => {
   return editDistanceWithin(a, b, Math.min(a.length, b.length) >= 12 ? 2 : 1);
 };
 
-export type GovernmentPortalReportKind = 'under_treatment' | 'claims_to_be_submitted';
+export type GovernmentPortalReportKind =
+  | 'under_treatment'
+  | 'claims_to_be_submitted'
+  | 'dialysis_bill_pending';
+
+/**
+ * Which hospital an import belongs to, and which day it is a snapshot of.
+ *
+ * Both are optional so the two older lanes keep calling with three arguments.
+ * The dialysis lane always passes them: without a hospital, Hope's pending list
+ * appears on Ayushman's screen and gets worked twice; without a date, "one
+ * snapshot per day, previous days kept" has nothing to hang on.
+ */
+export interface GovernmentPortalImportScope {
+  hospitalType?: string | null;
+  /** ISO yyyy-MM-dd */
+  reportDate?: string | null;
+}
 
 export interface SavedGovernmentPortalImport {
   id: string;
   fileName: string;
   reportDateLabel: string | null;
+  /** The day the snapshot represents (yyyy-MM-dd), null on the older lanes. */
+  reportDate: string | null;
   createdAt: string;
   report: GovernmentPortalReport;
 }
@@ -126,6 +145,8 @@ type ImportRow = {
   whatsapp_dialysis_batch_status: string | null;
   fatal_errors: string[] | null;
   missing_columns: string[] | null;
+  hospital_type: string | null;
+  report_date: string | null;
   created_at: string;
 };
 
@@ -245,11 +266,15 @@ async function loadLatestImportWithRows(
   rowFilter: (query: any) => any,
   rowLimit?: number,
   reportKind: GovernmentPortalReportKind = 'under_treatment',
+  hospitalType?: string | null,
 ): Promise<{ header: ImportRow | null; rows: DbReportRow[] }> {
-  const { data: imports, error: importsError } = await db
+  let importQuery = db
     .from('government_portal_report_imports')
     .select(importSelect)
-    .eq('report_kind', reportKind)
+    .eq('report_kind', reportKind);
+  if (hospitalType) importQuery = importQuery.eq('hospital_type', hospitalType);
+
+  const { data: imports, error: importsError } = await importQuery
     .order('created_at', { ascending: false })
     .limit(20);
 
@@ -437,9 +462,31 @@ export async function saveGovernmentPortalReport(
   report: GovernmentPortalReport,
   reportDateLabel: string,
   reportKind: GovernmentPortalReportKind = 'under_treatment',
+  scope: GovernmentPortalImportScope = {},
 ): Promise<SaveGovernmentPortalReportResult> {
   const packageSync = emptyPackageSyncResult();
   let skippedDuplicates = 0;
+  const hospitalType = scope.hospitalType || null;
+  const reportDate = scope.reportDate || null;
+
+  // Re-importing a day replaces that day's snapshot, and only that day's. The
+  // rows go with it through the FK cascade. This must run before the insert,
+  // and its error must NOT be swallowed: a delete that quietly failed would
+  // leave two snapshots for the same day and the count would be doubled.
+  if (reportKind === 'dialysis_bill_pending' && reportDate) {
+    let replaceQuery = db
+      .from('government_portal_report_imports')
+      .delete()
+      .eq('report_kind', reportKind)
+      .eq('report_date', reportDate);
+    // .eq() never matches NULL in PostgREST, so an import with no hospital has
+    // to be matched with .is() or the old snapshot would survive the replace.
+    replaceQuery = hospitalType
+      ? replaceQuery.eq('hospital_type', hospitalType)
+      : replaceQuery.is('hospital_type', null);
+    const { error: replaceError } = await replaceQuery;
+    if (replaceError) throw replaceError;
+  }
 
   const { data: header, error: headerError } = await db
     .from('government_portal_report_imports')
@@ -447,6 +494,8 @@ export async function saveGovernmentPortalReport(
       file_name: fileName,
       report_date_label: reportDateLabel,
       report_kind: reportKind,
+      hospital_type: hospitalType,
+      report_date: reportDate,
       total_rows: report.totalRows,
       count_dialysis: report.counts.dialysis,
       count_general_medical: report.counts.generalMedical,
@@ -531,6 +580,7 @@ export async function saveGovernmentPortalReport(
 
 export async function fetchLatestGovernmentPortalReport(
   reportKind: GovernmentPortalReportKind = 'under_treatment',
+  hospitalType?: string | null,
 ): Promise<SavedGovernmentPortalImport | null> {
   const { header, rows } = await loadLatestImportWithRows(
     '*',
@@ -538,6 +588,7 @@ export async function fetchLatestGovernmentPortalReport(
     (query) => query,
     undefined,
     reportKind,
+    hospitalType,
   );
 
   if (!header) return null;
@@ -546,6 +597,7 @@ export async function fetchLatestGovernmentPortalReport(
     id: header.id,
     fileName: header.file_name,
     reportDateLabel: header.report_date_label,
+    reportDate: header.report_date,
     createdAt: header.created_at,
     report: importToReport(header, rows),
   };
@@ -785,11 +837,22 @@ export async function fetchLatestGovernmentPortalExtensionAlerts(
 export async function fetchGovernmentPortalImportHistory(
   reportKind: GovernmentPortalReportKind = 'under_treatment',
   limit = 20,
-): Promise<Array<{ id: string; fileName: string; createdAt: string; totalRows: number }>> {
-  const { data, error } = await db
+  hospitalType?: string | null,
+): Promise<Array<{
+  id: string;
+  fileName: string;
+  createdAt: string;
+  reportDate: string | null;
+  totalRows: number;
+}>> {
+  let query = db
     .from('government_portal_report_imports')
-    .select('id, file_name, created_at, total_rows')
-    .eq('report_kind', reportKind)
+    .select('id, file_name, created_at, report_date, total_rows')
+    .eq('report_kind', reportKind);
+  if (hospitalType) query = query.eq('hospital_type', hospitalType);
+
+  const { data, error } = await query
+    .order('report_date', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false })
     .limit(limit);
 
@@ -799,6 +862,7 @@ export async function fetchGovernmentPortalImportHistory(
     id: row.id,
     fileName: row.file_name,
     createdAt: row.created_at,
+    reportDate: row.report_date,
     totalRows: row.total_rows,
   }));
 }
@@ -827,6 +891,7 @@ export async function fetchGovernmentPortalReportById(
     id: header.id,
     fileName: header.file_name,
     reportDateLabel: header.report_date_label,
+    reportDate: header.report_date,
     createdAt: header.created_at,
     report: importToReport(header as ImportRow, (rows || []) as DbReportRow[]),
   };

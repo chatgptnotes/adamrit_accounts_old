@@ -44,11 +44,9 @@ import {
   updateGovernmentPortalRowStatus,
   type GovernmentPortalReportKind,
 } from '@/lib/governmentPortalReportDb';
+import { dedupePortalText, formatPortalAmount } from '@/lib/governmentPortalDisplay';
 
 
-/** The portal repeats the package once per admission day ("MG157AMH|MG157AMH|…") — show each value once. */
-const dedupePortalText = (value: string | null | undefined): string =>
-  [...new Set((value || '').split('|').map((p) => p.trim().replace(/\s+/g, ' ')).filter(Boolean))].join(', ');
 
 const sectionStyles: Record<GovernmentPortalSection, string> = {
   dialysis: 'bg-cyan-50 text-cyan-700 border-cyan-200',
@@ -77,17 +75,6 @@ const statusStyles: Record<GovernmentPortalPatientStatus, string> = {
 
 const statusLabel = (status: GovernmentPortalPatientStatus) =>
   STATUS_OPTIONS.find((option) => option.value === status)?.label || 'Pending';
-
-const formatAmount = (value: string) => {
-  if (!value.trim()) return '-';
-  const numeric = Number(value.replace(/[^\d.-]/g, ''));
-  if (!Number.isFinite(numeric)) return value;
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-  }).format(numeric);
-};
 
 const compactProcedure = (row: GovernmentPortalRow) => {
   const code = dedupePortalText(row.values['Procedure Code']);
@@ -211,7 +198,7 @@ const ResultTable = ({
               </TableCell>
               <TableCell className="min-w-[260px]">{compactProcedure(row)}</TableCell>
               <TableCell className="text-right">
-                {formatAmount(row.values['Preauth Approved Amount'])}
+                {formatPortalAmount(row.values['Preauth Approved Amount'])}
               </TableCell>
               <TableCell className="min-w-[180px]">
                 <Select
