@@ -141,6 +141,16 @@ function PatientCard({
   onToggle: () => void;
 }) {
   const unbilled = patient.unbilledCount;
+  // Split into whole bundles and the remainder. A PMJAY patient with five
+  // unbilled sessions is not "5 pending" -- three of them are a complete
+  // bundle that can be claimed today, and two carry into the next one. Showing
+  // the raw five reads as though the whole lot is stuck (owner, 18-Aug:
+  // Kamlesh Madankar, PMJAY, 5 shown where 3 should clear and 2 remain).
+  const block = patient.block;
+  const hasBundle = patient.scheme !== "OTHER";
+  const readyBundles = hasBundle ? Math.floor(unbilled / block) : 0;
+  const claimNow = readyBundles * block;
+  const carryForward = hasBundle ? unbilled % block : unbilled;
   return (
     <TabletCard variant="flat" className="space-y-2">
       <button type="button" onClick={onToggle} className="flex w-full items-start gap-3 text-left">
@@ -167,11 +177,16 @@ function PatientCard({
               patient.readyToBill ? "text-emerald-700" : unbilled > 0 ? "text-red-600" : "text-muted-foreground",
             )}
           >
-            {unbilled}
+            {patient.readyToBill ? claimNow : unbilled}
           </span>
           <span className="block text-[11px] text-muted-foreground">
-            unbilled{patient.scheme !== "OTHER" ? ` / ${patient.block}` : ""}
+            {patient.readyToBill ? "to claim now" : `unbilled${hasBundle ? ` / ${block}` : ""}`}
           </span>
+          {patient.readyToBill && carryForward > 0 && (
+            <span className="block text-[11px] text-muted-foreground">
+              +{carryForward} carry forward
+            </span>
+          )}
         </span>
         {open ? (
           <ChevronDown className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -182,8 +197,11 @@ function PatientCard({
 
       {patient.readyToBill && (
         <p className="rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
-          Ready for billing — {unbilled} unbilled session{unbilled === 1 ? "" : "s"} against a
-          block of {patient.block}. It is in Shashank's pending list.
+          Ready for billing — {readyBundles} bundle{readyBundles === 1 ? "" : "s"} of {block}
+          {" "}({claimNow} session{claimNow === 1 ? "" : "s"}) can be claimed now
+          {carryForward > 0
+            ? `, and ${carryForward} session${carryForward === 1 ? "" : "s"} carry into the next bundle`
+            : ""}. It is in Shashank's pending list.
         </p>
       )}
 
