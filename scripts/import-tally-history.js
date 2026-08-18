@@ -188,9 +188,11 @@ function parseVoucherXml(voucherXml, companyKey) {
       return [{ ledger_name: ledger, amount: Math.abs(signedAmount), is_debit: signedAmount < 0, details: {} }]
     })
     lines.forEach((line, index) => { line.line_number = index + 1 })
-    if (lines.length < 2) throw new Error(`Voucher ${text(node, 'VOUCHERNUMBER') || '(blank)'} has fewer than two ledger entries`)
     const tallyGuid = text(node, 'GUID') || attr(node, 'REMOTEID') || null
     const voucherNumber = text(node, 'VOUCHERNUMBER') || null
+    if (lines.length < 2) {
+      return { skipped: true, voucher_number: voucherNumber, tally_guid: tallyGuid, voucher_type: voucherType, voucher_date: date, reason: 'fewer_than_two_accounting_ledger_entries' }
+    }
     const partyLedger = text(node, 'PARTYLEDGERNAME') || null
     const narration = text(node, 'NARRATION') || null
     const amount = lines.filter((line) => line.is_debit).reduce((sum, line) => sum + line.amount, 0)
@@ -232,9 +234,11 @@ async function main() {
 
   const inspectVoucherStream = async (onVoucher) => {
     const fingerprints = new Set()
+    const skipped = []
     let count = 0, firstDate = null, lastDate = null
     await streamTallyVouchers(opts.file, async (voucherXml) => {
       const voucher = parseVoucherXml(voucherXml, companyKey)
+      if (voucher.skipped) { skipped.push(voucher); return }
       if (fingerprints.has(voucher.source_fingerprint)) throw new Error(`Duplicate voucher fingerprint: ${voucher.source_fingerprint}`)
       fingerprints.add(voucher.source_fingerprint)
       const difference = voucher.lines.reduce((sum, line) => sum + (line.is_debit ? line.amount : -line.amount), 0)
@@ -245,7 +249,7 @@ async function main() {
       await onVoucher(voucher)
     })
     if (!count) throw new Error('No VOUCHER elements were found in the export')
-    return { count, firstDate, lastDate }
+    return { count, firstDate, lastDate, skipped }
   }
 
   if (opts.dryRun) {
@@ -253,6 +257,7 @@ async function main() {
       const stats = await inspectVoucherStream(async () => {})
       console.log(`[PARSE] ${stats.count} vouchers`)
       console.log(`[PARSE] dates: ${stats.firstDate} to ${stats.lastDate}`)
+      if (stats.skipped.length) console.log(`[SKIPPED] ${stats.skipped.length} non-accounting/incomplete voucher(s); first: ${stats.skipped.slice(0, 5).map((v) => v.voucher_number || v.tally_guid).join(', ')}`)
     }
     console.log('[DRY RUN] No data written.')
     return
@@ -309,6 +314,11 @@ async function main() {
       detectedFrom = stats.firstDate
       detectedTo = stats.lastDate
       console.log(`[PARSE] ${stats.count} vouchers, ${stats.firstDate} to ${stats.lastDate}`)
+      if (stats.skipped.length) {
+        const { error } = await supabase.from('tally_history_import_batches').update({ error_details: { skipped_vouchers: stats.skipped } }).eq('id', batch.id)
+        if (error) throw new Error(error.message)
+        console.log(`[SKIPPED] ${stats.skipped.length} non-accounting/incomplete voucher(s) recorded on this batch.`)
+      }
     } else {
       const { error } = await supabase.from('tally_history_stage_reports').insert({
         batch_id: batch.id, report_type: opts.reportType, report_date: opts.to || null,
