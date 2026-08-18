@@ -16,6 +16,7 @@ import { toast } from "@/hooks/use-toast";
 import { geminiGenerateContentUrl, geminiFetch, GEMINI_MODEL } from "@/lib/gemini";
 import { downscaleImageForVision } from "@/lib/downscaleImage";
 import { format } from 'date-fns';
+import { formatInvestigations } from '@/lib/dischargeInvestigations';
 import { maskAadhaar, maskMobile } from '@/utils/aadhaar';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -528,119 +529,54 @@ URGENT CARE/ EMERGENCY CARE IS AVAILABLE 24 X 7. PLEASE CONTACT:-7030974619, 937
       let visitUUID = visitData?.id;
       console.log('📋 Found visit UUID:', visitUUID);
 
-      // Try to get lab results using the UUID
-      if (visitUUID) {
-        console.log('🧪 Searching lab results using UUID:', visitUUID);
-        const result = await supabase
-          .from('lab_results')
-          .select(`
-            id,
-            visit_id,
-            test_name,
-            test_category,
-            result_value,
-            result_unit,
-            main_test_name,
-            patient_name,
-            patient_age,
-            patient_gender,
-            created_at
-          `)
-          .eq('visit_id', visitUUID)
-          .order('created_at', { ascending: false });
-
-        data = result.data;
-        error = result.error;
-      } else {
-        // Fallback: search by patient name if available from patientData
-        if (patientData?.patients?.name) {
-          console.log('🔍 Searching lab results by patient name:', patientData.patients.name);
-          const result = await supabase
-            .from('lab_results')
-            .select(`
-              id,
-              visit_id,
-              test_name,
-              test_category,
-              result_value,
-              result_unit,
-              main_test_name,
-              patient_name,
-              patient_age,
-              patient_gender,
-              created_at
-            `)
-            .ilike('patient_name', `%${patientData.patients.name}%`)
-            .order('created_at', { ascending: false })
-            .limit(10);
-
-          data = result.data;
-          error = result.error;
-        } else {
-          data = [];
-          error = { message: 'No visit UUID found and no patient name available' };
-        }
-      }
-
-      if (error) {
+      // ONLY this visit's results. The patient-name fallback that used to sit
+      // here searched `patient_name ILIKE '%name%'` with LIMIT 10 — on live
+      // data "SUNITA" matches SEVEN different patients and "RAM" matches
+      // 50,161 rows, so it could print another patient's blood results on this
+      // patient's discharge summary. No visit, no investigations.
+      if (!visitUUID) {
         return {
           rawData: [],
           groupedResults: {},
-          formattedResults: `No lab results found for visit ID: ${visitId}`
+          formattedResults: ''
         };
       }
 
+      const result = await supabase
+        .from('lab_results')
+        .select(`
+          id,
+          visit_id,
+          test_name,
+          test_category,
+          result_value,
+          result_unit,
+          reference_range,
+          main_test_name,
+          patient_name,
+          created_at
+        `)
+        .eq('visit_id', visitUUID)
+        .order('created_at', { ascending: true });
+
+      data = result.data;
+      error = result.error;
+
+      // A rejected read must never look like "this patient had no tests".
+      if (error) {
+        throw new Error(error.message || 'Could not read the lab results');
+      }
 
       if (!data || data.length === 0) {
-        return {
-          rawData: [],
-          groupedResults: {},
-          formattedResults: 'No lab results found for this visit. Lab data will be populated when available.'
-        };
+        return { rawData: [], groupedResults: {}, formattedResults: '' };
       }
-
-      // Group results by date and main test category
-      const groupedResults = data.reduce((acc, result) => {
-        const date = result.created_at;
-        const formattedDate = date ? format(new Date(date), 'dd/MM/yyyy') : 'Unknown Date';
-
-        if (!acc[formattedDate]) {
-          acc[formattedDate] = {};
-        }
-
-        const category = result.main_test_name || result.test_category || 'General Tests';
-        if (!acc[formattedDate][category]) {
-          acc[formattedDate][category] = [];
-        }
-
-        acc[formattedDate][category].push(result);
-        return acc;
-      }, {});
-
-      // Format according to the requested format: "03/11/2024:-KFT (Kidney Function Test): Blood Urea:39.3 mg/dl, Creatinine:1.03 mg/dl"
-      const formattedResults = Object.entries(groupedResults)
-        .map(([date, categories]) => {
-          return Object.entries(categories)
-            .map(([categoryName, results]) => {
-              const resultString = results
-                .map(result => {
-                  const value = result.result_value || 'N/A';
-                  const unit = result.result_unit ? ` ${result.result_unit}` : '';
-                  return `${result.test_name}:${value}${unit}`;
-                })
-                .join(', ');
-
-              return `${date}:-${categoryName}: ${resultString}`;
-            })
-            .join('\n');
-        })
-        .join('\n\n');
 
       return {
         rawData: data,
-        groupedResults,
-        formattedResults
+        groupedResults: {},
+        formattedResults: formatInvestigations(data as any)
       };
+
     },
     enabled: !!visitId,
     retry: false,
@@ -3228,13 +3164,13 @@ Rules: Use ONLY information visible in the images for diagnosis, medications, vi
             test_category,
             result_value,
             result_unit,
+            reference_range,
             main_test_name,
             created_at,
             updated_at
           `)
           .eq('visit_id', visitUUID)
-          .order('created_at', { ascending: false })
-          .order('updated_at', { ascending: false });
+          .order('created_at', { ascending: true });
 
         data = result.data;
         error = result.error;
@@ -3246,35 +3182,11 @@ Rules: Use ONLY information visible in the images for diagnosis, medications, vi
         });
       }
 
-      // If still no results, try by patient_name (fallback since visit_id may not be linked)
-      if ((!data || data.length === 0) && patientData?.patients?.name) {
-        console.log('🧪 No results with visit_id, trying by patient_name:', patientData.patients.name);
-
-        result = await supabase
-          .from('lab_results')
-          .select(`
-            id,
-            visit_id,
-            test_name,
-            test_category,
-            result_value,
-            result_unit,
-            main_test_name,
-            created_at,
-            updated_at
-          `)
-          .ilike('patient_name', `%${patientData.patients.name}%`)
-          .order('created_at', { ascending: false });
-
-        data = result.data;
-        error = result.error;
-
-        console.log('✅ Lab results fetched by patient_name:', {
-          count: data?.length,
-          firstResult: data?.[0],
-          error
-        });
-      }
+      // NO PATIENT-NAME FALLBACK. It used to search
+      // `patient_name ILIKE '%name%'` with no limit at all, and on live data
+      // "SUNITA" matches seven different patients — so a summary could be
+      // filled with somebody else's results. If the visit carries no lab rows,
+      // this patient had no lab investigations, and the section stays empty.
 
       // Log first few results to see what we got
       if (data && data.length > 0) {
@@ -3288,59 +3200,9 @@ Rules: Use ONLY information visible in the images for diagnosis, medications, vi
       // Process lab results
       if (data && data.length > 0) {
 
-        const groupedLabResults = data.reduce((acc, result) => {
-          const date = result.created_at;
-          const formattedDate = date ? format(new Date(date), 'dd/MM/yyyy') : 'Unknown Date';
-
-          if (!acc[formattedDate]) {
-            acc[formattedDate] = {};
-          }
-
-          const category = result.main_test_name || result.test_category || 'General Tests';
-          if (!acc[formattedDate][category]) {
-            acc[formattedDate][category] = [];
-          }
-
-          acc[formattedDate][category].push(result);
-          return acc;
-        }, {});
-
-        const formattedLabResults = Object.entries(groupedLabResults)
-          .map(([date, categories]) => {
-            return Object.entries(categories)
-              .map(([categoryName, results]) => {
-                const resultString = results
-                  .map(result => {
-                    // Use the new extractValueFromJSON function
-                    const value = extractValueFromJSON(result.result_value);
-
-                    console.log(`🔬 ${categoryName} - ${result.test_name}:`, {
-                      raw: result.result_value,
-                      extracted: value
-                    });
-
-                    // Skip if no value
-                    if (value === 'N/A' && !result.result_value) {
-                      return null;
-                    }
-
-                    const unit = result.result_unit ? ` ${result.result_unit}` : '';
-
-                    // Only include test_name if it's different from category name
-                    if (result.test_name && result.test_name !== categoryName) {
-                      return `${result.test_name}:${value}${unit}`;
-                    } else {
-                      return `${value}${unit}`;
-                    }
-                  })
-                  .filter(item => item !== null) // Remove null entries
-                  .join(', ');
-
-                return `${date}:-${categoryName}: ${resultString}`;
-              })
-              .join('\n');
-          })
-          .join('\n\n');
+        // Same builder as the automatic path: de-duplicated, chronological,
+        // reference ranges kept. Two formatters would eventually disagree.
+        const formattedLabResults = formatInvestigations(data as any);
 
         combinedResults.push(formattedLabResults);
       }
