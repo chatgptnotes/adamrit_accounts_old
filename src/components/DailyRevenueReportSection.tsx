@@ -1530,9 +1530,9 @@ export function DailyRevenueReportSection({
           );
           const rowsHtml = catRows.map((r) => {
             runningIdx += 1;
-            const rmDisplay = isDirect(r.rm_name)
+            const printedRmDisplay = isDirect(r.rm_name)
               ? '<span class="pill direct">Direct</span>'
-              : esc(r.rms.length ? r.rms.map((rm) => `${rm.name}${r.rms.length > 1 ? ` (Rs ${formatINR(rm.amount)})` : ''}`).join(', ') : r.rm_name);
+              : esc(r.rms.length ? r.rms.map((rm) => `${rmDisplay(rm)}${r.rms.length > 1 ? ` (Rs ${formatINR(rm.amount)})` : ''}`).join(', ') : rmDisplay({ id: r.rmId ?? undefined, name: r.rm_name }));
             const typeBadge =
               r.patient_type === 'OPD' ? '<span class="pill opd">OPD</span>' :
               r.patient_type === 'IPD' ? '<span class="pill ipd">IPD</span>' : '';
@@ -1541,7 +1541,7 @@ export function DailyRevenueReportSection({
                 <td class="num">${runningIdx}</td>
                 <td>${esc(r.patient_name)} ${typeBadge}</td>
                 <td>${esc(r.department || '—')}</td>
-                <td>${rmDisplay}</td>
+                <td>${printedRmDisplay}</td>
                 <td>${esc(liaisonsForRow(r) || '—')}</td>
                 <td class="right">${r.rmPercent}%</td>
                 <td class="right">${fmt(r.cost)}</td>
