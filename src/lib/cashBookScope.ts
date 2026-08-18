@@ -46,6 +46,11 @@ const BY_KEY: Readonly<Record<string, CashBookScope>> = {
   // No cash counter: M.L. Enterprises invoices and is paid through the books,
   // it never takes money over a counter.
   ml_enterprises: { hospitalName: null, includeHospital: false, includePharmacy: false },
+  // Same: Dr Murali's proprietary concern keeps its books from his bank
+  // statements, so its movements post as vouchers and belong in the Day Book
+  // and the ledgers. Listed explicitly rather than left to the unknown-company
+  // fallback, so nobody later reads its empty cash book as a fault.
+  hope_multispeciality: { hospitalName: null, includeHospital: false, includePharmacy: false },
 };
 
 /**

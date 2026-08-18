@@ -63,3 +63,19 @@ describe('hospitalFilterFor', () => {
     expect(hospitalFilterFor(cashBookScope('', 'ayushman'), 'ayushman')).toBe('ayushman');
   });
 });
+
+describe('companies with no cash counter', () => {
+  it('gives Hope Multispeciality no counter sources — its books come from bank statements', () => {
+    const s = cashBookScope('hope_multispeciality', 'hope');
+    expect(s.includeHospital).toBe(false);
+    expect(s.includePharmacy).toBe(false);
+  });
+
+  it('is listed explicitly, so its empty cash book is a stated fact not a fallback', () => {
+    // Distinguishable from an unknown company only by being in the table at
+    // all; both show nothing, but this one is intended to.
+    expect(cashBookScope('hope_multispeciality', 'hope')).toEqual(
+      cashBookScope('ml_enterprises', 'hope'),
+    );
+  });
+});
