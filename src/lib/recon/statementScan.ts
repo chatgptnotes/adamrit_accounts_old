@@ -37,6 +37,21 @@ Rules:
 - Read every visible row. Do not invent rows, and do not guess an amount or a
   date you cannot see — leave the field null instead.`;
 
+/**
+ * How much the model may write back.
+ *
+ * A PhonePe screenshot is a dozen rows; a month of a bank statement is
+ * hundreds, and each row costs roughly sixty tokens of JSON. With no limit set
+ * the model stopped at its default and the reply was cut off mid-string, which
+ * arrived at the cashier as "Unterminated string in JSON at position 6879 (line
+ * 172 column 64)" -- the raw parser message for a statement that had been read
+ * correctly as far as line 172 and then guillotined (Dr M, 19 Aug).
+ *
+ * 65,536 is the output ceiling for gemini-2.5-flash, so this asks for all of it
+ * -- around a thousand rows. It costs nothing when the answer is short.
+ */
+const MAX_OUTPUT_TOKENS = 65536;
+
 /** Read one screenshot or statement page into transaction lines. */
 export async function scanStatement(file: File): Promise<ScannedTxn[]> {
   const { base64, mimeType } = await fileToBase64(file);
@@ -45,13 +60,50 @@ export async function scanStatement(file: File): Promise<ScannedTxn[]> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ parts: [{ text: PROMPT }, { inline_data: { mime_type: mimeType, data: base64 } }] }],
-      generationConfig: { responseMimeType: 'application/json', temperature: 0 },
+      generationConfig: {
+        responseMimeType: 'application/json',
+        temperature: 0,
+        maxOutputTokens: MAX_OUTPUT_TOKENS,
+      },
     }),
   });
   const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const candidate = data?.candidates?.[0];
+  const text = candidate?.content?.parts?.[0]?.text;
   if (!text) throw new Error('The statement could not be read — try a clearer screenshot');
-  const parsed = JSON.parse(text) as { transactions?: ScannedTxn[] };
+
+  // Ask WHY it stopped before trusting what it said. A reply that ran out of
+  // room is not a reply with a few rows missing -- it ends mid-word, and the
+  // only honest thing is to refuse it. Keeping the rows that did parse would
+  // report "412 lines read" for a statement that has 600 and reconcile the
+  // month against two thirds of it, which is worse than not importing at all.
+  if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
+    if (candidate.finishReason === 'MAX_TOKENS') {
+      throw new Error(
+        'The statement is too long to read in one go — upload it a page at a time, '
+        + 'or split the month into two files. Nothing has been imported.',
+      );
+    }
+    throw new Error(
+      `The statement could not be read (${candidate.finishReason}). Nothing has been imported.`,
+    );
+  }
+
+  let parsed: { transactions?: ScannedTxn[] };
+  try {
+    // responseMimeType should rule fences out, but a fenced reply has been seen
+    // on this rail before and costs one line to survive.
+    parsed = JSON.parse(text.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, '')) as {
+      transactions?: ScannedTxn[];
+    };
+  } catch {
+    // Never surface a parser message to a cashier: "Unterminated string in JSON
+    // at position 6879" tells them nothing they can act on.
+    throw new Error(
+      'The statement came back unreadable — try a clearer scan, or upload it a page '
+      + 'at a time. Nothing has been imported.',
+    );
+  }
   return (parsed.transactions || []).filter((t) => Number(t.amount) > 0 && t.txn_date);
 }
 
