@@ -182,24 +182,33 @@ export function TabletModuleHost() {
   // accountingOnly the same way the grid does; a typed URL must not reach
   // them for anyone else.
   const isOfficeTile = (OFFICE_TILE_IDS as readonly string[]).includes(mod.id);
-  if (isOfficeTile && !canSeeOfficeTiles(user)) {
-    return <Navigate to="/" replace />;
-  }
   // The voucher tiles run off their own list, and it has to be tested here as
   // well as on the grid. Testing accountingOnly here instead showed Diksha the
   // Payment Voucher tile and then sent her straight back home when she tapped
   // it, because her role is not an accounting role.
   const isVoucherTile = (VOUCHER_TILE_IDS as readonly string[]).includes(mod.id);
-  // Whether she holds a drawer is a database question, so it is not known on
+  // Whether they hold a drawer is a database question, so it is not known on
   // the first render. Bouncing while it is still loading recreates the very
   // bug described above -- the tile opens, then throws the cashier home a
-  // moment later. Wait for the answer instead.
-  if (isVoucherTile && cashLoading) {
+  // moment later.
+  //
+  // EVERY GATE BELOW NOW DEPENDS ON THAT ANSWER, not just the voucher tiles.
+  // Dr M, 19 Aug: the people who handle cash are to receive and pay through the
+  // Expense Bill and Payment Voucher tiles. The grid was opened to the cash
+  // roster and this guard was not, so a cashier saw Expense Bills and was sent
+  // straight home on tapping it -- the identical fault the comment above
+  // records, one tile along. So the wait covers all of them.
+  const gateNeedsRoster =
+    isOfficeTile || isVoucherTile || mod.id === "bank-cash" || mod.accountingOnly;
+  if (gateNeedsRoster && cashLoading) {
     return (
       <div className="flex justify-center py-10">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
+  }
+  if (isOfficeTile && !canSeeOfficeTiles(user, handlesCash)) {
+    return <Navigate to="/" replace />;
   }
   if (isVoucherTile && !canSeeVoucherTiles(user, handlesCash)) {
     return <Navigate to="/" replace />;
@@ -207,8 +216,11 @@ export function TabletModuleHost() {
   // Bank & Cash: a cashier may reach it to bank the takings. The flow itself
   // limits them to the deposit, so the URL is no way around the restriction.
   if (mod.id === "bank-cash") {
-    if (!canDepositCash(user)) return <Navigate to="/" replace />;
-  } else if (!isOfficeTile && !isVoucherTile && mod.accountingOnly && !canCreateAccountingVouchers(user)) {
+    if (!canDepositCash(user, handlesCash)) return <Navigate to="/" replace />;
+  } else if (
+    !isOfficeTile && !isVoucherTile && mod.accountingOnly
+    && !canCreateAccountingVouchers(user, handlesCash)
+  ) {
     return <Navigate to="/" replace />;
   }
 
