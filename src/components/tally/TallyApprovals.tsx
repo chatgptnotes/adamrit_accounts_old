@@ -6,7 +6,7 @@ import { printSpecialistInvoice } from '@/lib/printSpecialistInvoice'
 import { toast } from 'sonner'
 import {
   PlusCircle, Loader2, CheckCircle2, XCircle, Trash2, Eye, Banknote, FileText, Image as ImageIcon,
-  Stethoscope, AlertTriangle, Pencil,
+  Stethoscope, AlertTriangle, Pencil, Search,
 } from 'lucide-react'
 import { SearchableSelect, type SearchableSelectOption } from '@/components/ui/searchable-select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -65,6 +65,25 @@ function formatDate(value: string | null): string {
   return new Date(value).toLocaleDateString('en-IN')
 }
 
+/**
+ * Who the money was earned on. A consultant's bill comes from an OT schedule,
+ * which names the patient; a salary or vendor bill has none, and says so rather
+ * than leaving a blank an approver has to interpret.
+ */
+function PatientCell({ row }: { row: ApprovalQueueRow }) {
+  if (!row.patient_name) {
+    return <span className="text-xs text-gray-400">—</span>
+  }
+  return (
+    <span className="text-gray-800">
+      {row.patient_name.trim()}
+      {row.surgery_name ? (
+        <span className="block text-[11px] text-gray-500">{row.surgery_name}</span>
+      ) : null}
+    </span>
+  )
+}
+
 const categoryBadge: Record<ApprovalCategory, string> = {
   VENDOR: 'bg-blue-100 text-blue-800',
   DOCTOR: 'bg-purple-100 text-purple-800',
@@ -78,6 +97,7 @@ export default function TallyApprovals({ companyName }: Props) {
   const { canAlter } = useAccountingRights()
   const { data: companies = [] } = useCompanies()
   const queryClient = useQueryClient()
+  const [search, setSearch] = useState('')
 
   const [accountingCompanyId, setAccountingCompanyId] = useState('')
   const [allLedgers, setAllLedgers] = useState<Ledger[]>([])
@@ -243,9 +263,20 @@ export default function TallyApprovals({ companyName }: Props) {
   })
   const refetchMaps = () => queryClient.invalidateQueries({ queryKey: ['doctor-ledger-map'] })
 
-  const pendingRows = rows.filter((r) => r.status === 'PENDING')
-  const toPayRows = rows.filter((r) => r.status === 'APPROVED' && !r.is_paid && r.jv_voucher_id)
-  const historyRows = rows.filter((r) => r.status === 'REJECTED' || (r.status === 'APPROVED' && r.is_paid))
+  // One search box over the whole report (Dr M, 19 Aug): the doctor or vendor
+  // being paid, the patient the surgery was for, the reference and the invoice
+  // number. Applied before the three lists are split, so the tab counts agree
+  // with what each tab shows.
+  const term = search.trim().toLowerCase()
+  const matches = (r: typeof rows[number]) =>
+    !term ||
+    [r.party_name, r.patient_name, r.surgery_name, r.reference_no, r.invoice_no, r.narration]
+      .some((field) => (field || '').toLowerCase().includes(term))
+
+  const visibleRows = rows.filter(matches)
+  const pendingRows = visibleRows.filter((r) => r.status === 'PENDING')
+  const toPayRows = visibleRows.filter((r) => r.status === 'APPROVED' && !r.is_paid && r.jv_voucher_id)
+  const historyRows = visibleRows.filter((r) => r.status === 'REJECTED' || (r.status === 'APPROVED' && r.is_paid))
 
   useEffect(() => { setSelectedIds(new Set()) }, [section, accountingCompanyId])
 
@@ -535,6 +566,37 @@ export default function TallyApprovals({ companyName }: Props) {
         </button>
       </div>
 
+      {/* One search over the whole report: the doctor or vendor paid, the patient
+          the surgery was for, the reference, the invoice number, the narration.
+          It filters before the tabs are split, so the counts on the tabs are the
+          counts of what each tab will show. */}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+        <input
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search a patient, doctor, vendor, reference or invoice number…"
+          className="w-full rounded-xl border bg-white py-2.5 pl-10 pr-10 text-sm outline-none focus:border-blue-400"
+        />
+        {search ? (
+          <button
+            type="button"
+            onClick={() => setSearch('')}
+            title="Clear the search"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+          >
+            <XCircle className="h-4 w-4" />
+          </button>
+        ) : null}
+      </div>
+      {search && visibleRows.length === 0 ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Nothing matches "{search}". Salary and vendor bills have no patient, so
+          searching a patient name finds only consultant bills.
+        </p>
+      ) : null}
+
       {/* Section tabs */}
       <div className="flex gap-2">
         {sectionTabs.map((tab) => (
@@ -582,6 +644,7 @@ export default function TallyApprovals({ companyName }: Props) {
                     </th>
                     <th className="px-3 py-2">Category</th>
                     <th className="px-3 py-2">Party</th>
+                    <th className="px-3 py-2">Patient</th>
                     <th className="px-3 py-2">Ref No</th>
                     <th className="px-3 py-2 text-right">Amount</th>
                     <th className="px-3 py-2">JV Split</th>
@@ -609,6 +672,7 @@ export default function TallyApprovals({ companyName }: Props) {
                           </span>
                         )}
                       </td>
+                      <td className="px-3 py-2"><PatientCell row={row} /></td>
                       <td className="px-3 py-2 text-gray-600">{row.reference_no || '-'}</td>
                       <td className="px-3 py-2 text-right font-semibold">{row.amount > 0 ? formatINR(row.amount) : '—'}</td>
                       <td className="px-3 py-2"><DrCrSplit row={row} /></td>
@@ -666,6 +730,7 @@ export default function TallyApprovals({ companyName }: Props) {
                   <tr className="border-b bg-gray-50 text-left text-xs uppercase text-gray-500">
                     <th className="px-3 py-2">Category</th>
                     <th className="px-3 py-2">Party</th>
+                    <th className="px-3 py-2">Patient</th>
                     <th className="px-3 py-2">Ref No</th>
                     <th className="px-3 py-2 text-right">Amount</th>
                     <th className="px-3 py-2">Invoice</th>
@@ -682,6 +747,7 @@ export default function TallyApprovals({ companyName }: Props) {
                         </span>
                       </td>
                       <td className="px-3 py-2 font-medium text-gray-900">{row.party_name}</td>
+                      <td className="px-3 py-2"><PatientCell row={row} /></td>
                       <td className="px-3 py-2 text-gray-600">{row.reference_no || '-'}</td>
                       <td className="px-3 py-2 text-right font-semibold">{formatINR(row.amount)}</td>
                       <td className="px-3 py-2"><InvoiceCell row={row} /></td>
@@ -728,6 +794,7 @@ export default function TallyApprovals({ companyName }: Props) {
                   <tr className="border-b bg-gray-50 text-left text-xs uppercase text-gray-500">
                     <th className="px-3 py-2">Category</th>
                     <th className="px-3 py-2">Party</th>
+                    <th className="px-3 py-2">Patient</th>
                     <th className="px-3 py-2">Ref No</th>
                     <th className="px-3 py-2 text-right">Amount</th>
                     <th className="px-3 py-2">Status</th>
@@ -744,6 +811,7 @@ export default function TallyApprovals({ companyName }: Props) {
                         </span>
                       </td>
                       <td className="px-3 py-2 font-medium text-gray-900">{row.party_name}</td>
+                      <td className="px-3 py-2"><PatientCell row={row} /></td>
                       <td className="px-3 py-2 text-gray-600">{row.reference_no || '-'}</td>
                       <td className="px-3 py-2 text-right font-semibold">{formatINR(row.amount)}</td>
                       <td className="px-3 py-2">

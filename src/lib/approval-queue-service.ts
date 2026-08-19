@@ -25,6 +25,16 @@ export interface ApprovalQueueRow {
   approved_at: string | null
   paid_at: string | null
   ot_schedule_id: string | null
+  /** The invoice number on a surgery bill; null on salary and vendor rows. */
+  invoice_no?: string | null
+  /**
+   * Stamped on by attachOtContext, not a column. The patient whose surgery this
+   * consultant is being paid for — an approver releasing money to a doctor is
+   * entitled to see who it was for (Dr M, 19 Aug). Null for salary, vendor and
+   * referral bills, which have no patient.
+   */
+  patient_name?: string | null
+  surgery_name?: string | null
 }
 
 /** True when an auto-created bill still needs amount/company/ledgers before approval. */
@@ -86,7 +96,11 @@ export async function listApprovals(companyId: string): Promise<ApprovalQueueRow
     .or(`company_id.eq.${companyId},company_id.is.null`)
     .order('created_at', { ascending: false })
   if (error) throw new Error(error.message || 'Failed to load the approval queue')
-  return (data || []) as ApprovalQueueRow[]
+  // The patient and the surgery, by the same two-step join the unpaid-invoice
+  // list already uses — approval_queue.ot_schedule_id carries no FK, so
+  // PostgREST cannot embed it. Two extra queries for the whole page, not one
+  // per row.
+  return attachOtContext((data || []) as ApprovalQueueRow[])
 }
 
 /** Soft duplicate check: same pending/approved party + reference + amount. */
