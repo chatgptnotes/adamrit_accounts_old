@@ -184,7 +184,7 @@ interface ApprovalState {
   paymentVoucherNumber: string | null;
 }
 
-type CostSource = 'override' | 'advance' | 'final_pay' | 'package' | 'none';
+type CostSource = 'bill' | 'bill_prep' | 'override' | 'advance' | 'final_pay' | 'package' | 'none';
 
 type RowCategory = 'main' | 'direct' | 'manual';
 
@@ -230,6 +230,8 @@ interface DisplayRow {
 type PatientTypeFilter = 'all' | 'OPD' | 'IPD';
 
 const COST_SOURCE_LABEL: Record<CostSource, string> = {
+  bill: 'bill',
+  bill_prep: 'bill',
   override: 'man',
   advance: 'adv',
   final_pay: 'final',
@@ -439,10 +441,17 @@ export function DailyRevenueReportSection({
     },
   });
 
-  // Sum advance payments per visit_id (text) so we can use them as the cost
-  // when the package_amount field on the visit is empty.
+  // Billing tables use the printed visit code while daily_revenue_entries uses
+  // the visit UUID. Keep both keys available so every registered OPD and IPD
+  // patient resolves their own bill, rather than a payment or saved RM amount.
   const visitIds: string[] = useMemo(
     () => (visitsQuery.data ?? []).map((v) => v.visit_id).filter(Boolean),
+    [visitsQuery.data],
+  );
+  const billVisitKeys: string[] = useMemo(
+    () => Array.from(new Set(
+      (visitsQuery.data ?? []).flatMap((v) => [v.id, v.visit_id]).filter(Boolean),
+    )),
     [visitsQuery.data],
   );
 
@@ -518,6 +527,55 @@ export function DailyRevenueReportSection({
     }
     return [...names].join(', ');
   };
+
+  // A patient's billed amount is the authoritative RM-cut base. Bills can be
+  // linked by either visit UUID or printed visit ID, depending on the screen
+  // that created them. Ignore draft/empty (zero) rows and retain the most
+  // recently updated usable bill for each key.
+  const billsQuery = useQuery({
+    queryKey: ['dailyRevenueBills', billVisitKeys.join(',')],
+    queryFn: async (): Promise<Record<string, number>> => {
+      if (billVisitKeys.length === 0) return {};
+      const { data, error } = await supabase
+        .from('bills')
+        .select('visit_id, total_amount, updated_at')
+        .in('visit_id', billVisitKeys)
+        .order('updated_at', { ascending: false });
+      if (error) throw error;
+
+      const amounts: Record<string, number> = {};
+      for (const bill of data ?? []) {
+        const visitKey = bill.visit_id;
+        const amount = toNumber(bill.total_amount);
+        if (visitKey && amount > 0 && amounts[visitKey] === undefined) amounts[visitKey] = amount;
+      }
+      return amounts;
+    },
+    enabled: billVisitKeys.length > 0,
+  });
+
+  // Submitted corporate/Yojana bills live in bill_preparation. It is still a
+  // bill-level source and covers visits where the general bills total has not
+  // yet been populated.
+  const billPreparationQuery = useQuery({
+    queryKey: ['dailyRevenueBillPreparation', visitIds.join(',')],
+    queryFn: async (): Promise<Record<string, number>> => {
+      if (visitIds.length === 0) return {};
+      const { data, error } = await supabase
+        .from('bill_preparation')
+        .select('visit_id, bill_amount')
+        .in('visit_id', visitIds);
+      if (error) throw error;
+
+      const amounts: Record<string, number> = {};
+      for (const bill of data ?? []) {
+        const amount = toNumber(bill.bill_amount);
+        if (bill.visit_id && amount > 0) amounts[bill.visit_id] = amount;
+      }
+      return amounts;
+    },
+    enabled: visitIds.length > 0,
+  });
 
   const advanceQuery = useQuery({
     queryKey: ['dailyRevenueAdvance', visitIds.join(',')],
@@ -670,6 +728,8 @@ export function DailyRevenueReportSection({
   const rows: DisplayRow[] = useMemo(() => {
     const visits = visitsQuery.data ?? [];
     const overrides = overridesQuery.data ?? [];
+    const billMap = billsQuery.data ?? {};
+    const billPreparationMap = billPreparationQuery.data ?? {};
     const advanceMap = advanceQuery.data ?? {};
     const finalPayMap = finalPayQuery.data ?? {};
     const savedAllocations = allocationsQuery.data ?? [];
@@ -691,11 +751,20 @@ export function DailyRevenueReportSection({
     const visitRows: DisplayRow[] = visits.map((v) => {
       const o = overrideByVisit.get(v.id);
 
-      // Priority: manual override > advance > bill prep > final pay > visits.package_amount.
-      // visit_id (text, e.g. "IH25F27004") is the lookup key for billing tables.
+      // Priority: actual visit bill > submitted bill > legacy saved RM amount >
+      // payments > package. This keeps every registered OPD/IPD patient's cut
+      // anchored to the bill and prevents old ₹1,000 overrides from masking it.
       let cost = 0;
       let cost_source: CostSource = 'none';
-      if (o && Number(o.cost) > 0) {
+      const billAmount = billMap[v.id] ?? billMap[v.visit_id] ?? 0;
+      const preparedBillAmount = billPreparationMap[v.visit_id] ?? 0;
+      if (billAmount > 0) {
+        cost = billAmount;
+        cost_source = 'bill';
+      } else if (preparedBillAmount > 0) {
+        cost = preparedBillAmount;
+        cost_source = 'bill_prep';
+      } else if (o && Number(o.cost) > 0) {
         cost = Number(o.cost);
         cost_source = 'override';
       } else if ((advanceMap[v.visit_id] ?? 0) > 0) {
@@ -833,7 +902,7 @@ export function DailyRevenueReportSection({
       all = all.filter((r) => !r.isHidden);
     }
     return all;
-  }, [visitsQuery.data, overridesQuery.data, allocationsQuery.data, advanceQuery.data, finalPayQuery.data, rmMasterQuery.data, onlyWithRm, patientTypeFilter, showHidden, dateBasis, toDate]);
+  }, [visitsQuery.data, overridesQuery.data, allocationsQuery.data, billsQuery.data, billPreparationQuery.data, advanceQuery.data, finalPayQuery.data, rmMasterQuery.data, onlyWithRm, patientTypeFilter, showHidden, dateBasis, toDate]);
 
   const totals = useMemo(
     () => rows.reduce(
