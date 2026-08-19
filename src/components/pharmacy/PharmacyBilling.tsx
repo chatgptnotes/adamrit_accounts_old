@@ -899,7 +899,7 @@ const PharmacyBilling: React.FC = () => {
       payment_method: paymentMethod,
       payment_reference: paymentReference,
       status: 'COMPLETED',
-      payment_status: (totals.totalDiscount > 0 && !isAdmin) ? 'PENDING_DISCOUNT_APPROVAL' : 'COMPLETED',
+      payment_status: 'COMPLETED',
       is_ot_surgical: isOtSurgical,
       cashier_name: 'Current User',
       items: [...cart]
@@ -911,9 +911,18 @@ const PharmacyBilling: React.FC = () => {
 
     // Save to pharmacy_sales and pharmacy_sale_items tables
 
-    const settledStatus = (totals.totalDiscount > 0 && !isAdmin)
-      ? 'PENDING_DISCOUNT_APPROVAL'
-      : 'COMPLETED';
+    // Discounts no longer hold a bill back.
+    //
+    // 19 Aug, Dr M: the gate was stopping pharmacists issuing bills to
+    // patients. A discounted sale was parked as PENDING_DISCOUNT_APPROVAL and
+    // could not be printed or handed over, so the patient waited at the counter
+    // for an admin. Six bills were stuck when this was reported, over a total
+    // of Rs 235 of discount — and two of those six carried NO discount at all.
+    //
+    // Nothing is lost by not gating: `discount` and `discount_percentage` are
+    // recorded on every sale, so a discount review is a query whenever the
+    // directors want one. What is removed is the block, not the record.
+    const settledStatus = 'COMPLETED';
 
     // Insert, or settle the invoice that was already generated. Either way the
     // database posts the vouchers: the JV when the bill appears, the receipt
@@ -1038,18 +1047,13 @@ const PharmacyBilling: React.FC = () => {
     setCompletedSale(sale);
     setIsProcessingPayment(false);
 
-    if (totals.totalDiscount > 0 && !isAdmin) {
-      setPendingApprovalDbSaleId(response.sale_id);
-      toast.info('Bill submitted for admin discount approval. You will be notified when approved.');
-    } else {
-      // The receipt is posted by the database; report the number it issued.
-      const receipt = response.sale_id
-        ? await fetchPharmacySaleVoucher(response.sale_id, 'REC').catch(() => null)
-        : null;
-      toast.success(
-        receipt ? `Sale completed — receipt ${receipt} posted.` : 'Sale completed successfully!',
-      );
-    }
+    // The receipt is posted by the database; report the number it issued.
+    const receipt = response.sale_id
+      ? await fetchPharmacySaleVoucher(response.sale_id, 'REC').catch(() => null)
+      : null;
+    toast.success(
+      receipt ? `Sale completed — receipt ${receipt} posted.` : 'Sale completed successfully!',
+    );
 
     void loadUnpaidInvoices();
     clearCart();
@@ -2020,11 +2024,6 @@ const PharmacyBilling: React.FC = () => {
                   />
                 </div>
               </div>
-              {orderDiscount > 0 && !isAdmin && (
-                <div className="bg-amber-50 border border-amber-200 rounded-md px-3 py-2 text-xs text-amber-800">
-                  <strong>Admin approval required.</strong> This bill will be saved as pending until an admin approves the discount.
-                </div>
-              )}
               {totals.totalDiscount > 0 && (
                 <div className="flex justify-between text-sm text-gray-500">
                   <span>Total Discount:</span>
@@ -2221,11 +2220,6 @@ const PharmacyBilling: React.FC = () => {
                   <>
                     <Clock className="h-4 w-4 mr-2 animate-spin" />
                     Processing...
-                  </>
-                ) : totals.totalDiscount > 0 && !isAdmin ? (
-                  <>
-                    <Clock className="h-4 w-4 mr-2" />
-                    Submit for Approval - ₹{totals.totalAmount}
                   </>
                 ) : (
                   <>
