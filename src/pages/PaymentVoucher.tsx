@@ -452,12 +452,41 @@ const LedgerSearch = ({ selected, onSelect, placeholder, className, inputRef, on
   );
 };
 
+/**
+ * The counters a payment can be made from, and the value each writes to
+ * payment_vouchers.hospital_type.
+ *
+ * 'pharmacy' is the addition. Hope Pharmacy is its own company sharing Hope's
+ * building, so the database routes it through payment_voucher_company() to
+ * hope_pharmacy rather than the patient resolver, which knows only the two
+ * hospitals and would have filed a pharmacy expense in DRM Hope's books
+ * (20260819190000).
+ */
+const PAYING_COUNTERS = [
+  { key: 'hope', label: 'DRM Hope Hospital' },
+  { key: 'ayushman', label: 'Ayushman Nagpur' },
+  { key: 'pharmacy', label: 'Hope Pharmacy' },
+] as const;
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 const PaymentVoucher = () => {
   const { hospitalConfig, user } = useAuth();
-  const hospitalType = hospitalConfig.name;
+  // Which counter is paying. This was hospitalConfig.name, which is only ever
+  // 'hope' or 'ayushman' (src/types/hospital.ts:45,83) — so a pharmacy expense
+  // could only be filed as the hospital's, and Hope Pharmacy's Cash Book credit
+  // column could never show a rupee going out however much the pharmacy paid.
+  // The pharmacy is a separate company, not a third hospital, which is why it
+  // is a choice here rather than another entry in the hospital config.
+  const [hospitalType, setHospitalType] = useState<string>(hospitalConfig.name);
+  // Following the signed-in hospital when it changes, but never overriding a
+  // choice already made on this screen: switching company mid-entry would
+  // silently refile the voucher being typed.
+  const signedInHospital = hospitalConfig.name;
+  useEffect(() => {
+    setHospitalType(signedInHospital);
+  }, [signedInHospital]);
 
   // This page CREATES and DELETES payment vouchers and pushes them to Tally, so
   // it is gated by the same rule as the four tablet voucher tiles rather than
@@ -822,6 +851,28 @@ const PaymentVoucher = () => {
         </div>
 
         <div className="bg-[#fffefb] px-4 pb-4 pt-3">
+          {/* Which counter is paying. Hope Pharmacy is a separate company from
+              DRM Hope Hospital Private Limited, and filing its expenses as the
+              hospital's is why its Cash Book showed no money going out. */}
+          <div className="flex items-center gap-2 pb-2">
+            <span className="w-28 shrink-0 text-sm font-semibold">Paid by</span>
+            <span className="text-sm">:</span>
+            <div className="flex flex-wrap gap-1">
+              {PAYING_COUNTERS.map((c) => (
+                <Button
+                  key={c.key}
+                  type="button"
+                  size="sm"
+                  variant={hospitalType === c.key ? 'default' : 'outline'}
+                  className="h-7 text-xs"
+                  onClick={() => setHospitalType(c.key)}
+                >
+                  {c.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+
           {/* Account (credit ledger) */}
           <div className="flex items-center gap-2">
             <span className="w-28 shrink-0 text-sm font-semibold">Account</span>
