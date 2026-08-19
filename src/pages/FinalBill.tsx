@@ -3607,54 +3607,12 @@ const FinalBill = () => {
     }
   };
 
-  /**
-   * Inclusive days between two ISO dates, or null when either is missing.
-   * 01-08 to 04-08 is four days, the same count visit_accommodations stores.
-   */
-  const daysBetweenInclusive = (start?: string | null, end?: string | null): number | null => {
-    if (!start || !end) return null;
-    const from = new Date(start);
-    const to = new Date(end);
-    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return null;
-    const days = Math.floor((to.getTime() - from.getTime()) / 86_400_000) + 1;
-    return days >= 1 ? days : null;
-  };
-
   // Functions to update mandatory services data
   const updateMandatoryServiceField = async (serviceId: string, field: string, value: string) => {
     try {
-      // A consultant charge with a date range is charged per day, and nothing
-      // was filling the quantity in from it: every dated row was saved with
-      // quantity 1. Dr Sumedh Ramteke covered 01-08 to 04-08 at Rs 2,000 and
-      // billed Rs 2,000 instead of Rs 8,000; 34 rows across ten doctors were
-      // short by Rs 1,36,000 between the 25-Jul cutover and 19 Aug.
-      //
-      // The quantity follows the dates HERE, at entry, rather than the invoice
-      // recomputing it at display time. That distinction matters: recomputing
-      // at display is what inflated a bill from Rs 10,875 to Rs 23,275 in
-      // August, because those ranges ran to today and grew every morning. The
-      // saved quantity stays the single authority; this just stops it being
-      // left behind when somebody sets the dates.
-      const updates: Record<string, string | number> = { [field]: value };
-
-      if (field === 'start_date' || field === 'end_date') {
-        const row = savedMandatoryServicesData.find((service) => service.junction_id === serviceId);
-        const start = field === 'start_date' ? value : row?.start_date;
-        const end = field === 'end_date' ? value : row?.end_date;
-        const days = daysBetweenInclusive(start, end);
-        const rate = Number(row?.selectedRate ?? row?.rate_used ?? 0);
-
-        if (days !== null) {
-          updates.quantity = days;
-          // Only restate the amount when a rate is actually known — a zero rate
-          // would silently wipe a figure somebody typed by hand.
-          if (rate > 0) updates.amount = rate * days;
-        }
-      }
-
       const { error } = await supabase
         .from('visit_mandatory_services')
-        .update(updates)
+        .update({ [field]: value })
         .eq('id', serviceId);
 
       if (error) {
@@ -3665,14 +3623,7 @@ const FinalBill = () => {
 
       // Update local state (match by junction_id since serviceId is the junction table id)
       setSavedMandatoryServicesData(prev => prev.map(service =>
-        service.junction_id === serviceId
-          ? {
-              ...service,
-              ...updates,
-              // the grid reads these two names for the same numbers
-              ...(updates.amount !== undefined ? { cost: updates.amount } : {}),
-            }
-          : service
+        service.junction_id === serviceId ? { ...service, [field]: value } : service
       ));
 
       toast.success('Mandatory service date updated successfully');
