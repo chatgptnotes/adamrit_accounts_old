@@ -153,8 +153,16 @@ const CashBook: React.FC = () => {
   // belongs in the running balance, not in a footnote. Without these lines the
   // closing balance cannot be reconciled against what a cashier actually holds.
   const { data: handovers } = useQuery({
-    queryKey: ['cash-book-handovers', fromDate, toDate, effectiveHospitalName],
+    queryKey: ['cash-book-handovers', fromDate, toDate, scope.hospitalName, scope.includeHospital, scope.includePharmacy],
     queryFn: async () => {
+      // A handover carries its own counter in hospital_type — 'hope',
+      // 'ayushman' or 'pharmacy'. The pharmacy counter is NOT 'hope', so
+      // filtering by the scope's hospitalName would hide the pharmacy's own
+      // handovers from the pharmacy's own book.
+      const counters: string[] = [];
+      if (scope.includeHospital && scope.hospitalName) counters.push(scope.hospitalName);
+      if (scope.includePharmacy) counters.push('pharmacy');
+
       let q = (supabase as any)
         .from('cash_handovers')
         .select('id, handover_no, submitted_at, counted_cash, from_user_name, to_user_name, hospital_type, status')
@@ -162,7 +170,12 @@ const CashBook: React.FC = () => {
         .lte('submitted_at', `${toDate}T23:59:59.999`)
         .neq('status', 'CANCELLED')
         .order('submitted_at', { ascending: true });
-      if (effectiveHospitalName) q = q.eq('hospital_type', effectiveHospitalName);
+      // No company selected means every counter; a company that runs no cash
+      // counter at all (M.L. Enterprises) means none.
+      if (!scope.includeHospital && !scope.includePharmacy) return [];
+      if (counters.length > 0 && !(scope.includeHospital && scope.includePharmacy && !scope.hospitalName)) {
+        q = q.in('hospital_type', counters);
+      }
       const { data, error } = await q;
       if (error) throw new Error(error.message);
       return (data ?? []) as any[];
@@ -495,9 +508,16 @@ const CashBook: React.FC = () => {
     if (dailyTransactions && dailyTransactions.length > 0) {
       // Filter to show ONLY payment transactions with CASH payment mode
       // IMPORTANT: Pharmacy transactions only show in Hope hospital, never in Ayushman
-      const allowedTransactionTypes = ['ADVANCE_PAYMENT', 'FINAL_BILL'];
-      
-      // Add pharmacy only for Hope hospital (case-insensitive check)
+      // Both halves obey the scope. The pharmacy half already did; the hospital
+      // half was unconditional, so choosing Hope Pharmacy still listed the
+      // hospital's advance and final payments underneath the pharmacy ones.
+      // The pharmacy is its own company sharing Hope's building, and its rows
+      // carry hospital_name 'hope' — which is exactly why neither half can be
+      // decided from the hospital name alone.
+      const allowedTransactionTypes: string[] = [];
+      if (scope.includeHospital) {
+        allowedTransactionTypes.push('ADVANCE_PAYMENT', 'FINAL_BILL');
+      }
       if (scope.includePharmacy) {
         allowedTransactionTypes.push('PHARMACY');
       }
