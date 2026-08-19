@@ -81,6 +81,34 @@ export const voucherToEntry = (v: PaymentVoucherRow): VoucherEntry => {
  * Fetch payment vouchers for a date range, scoped to a hospital. Used by the
  * Cash Book and Day Book to auto-include vouchers as cash-out (Credit) entries.
  */
+/**
+ * Was this payment voucher actually paid OUT OF CASH?
+ *
+ * The Cash Book listed every payment voucher as a cash credit, whatever it was
+ * paid with. P-Square Biomedical (PV1409, Rs 3,200, 18 Aug) was an online bank
+ * payment and appeared as cash — it was the entire "Cr Rs 3,200" against DRM
+ * Hope for that day.
+ *
+ * The paying ledger is recorded under three different spellings in live data —
+ * "Cash", "Cash (HOPE)" and "cash in hand" — so the test is normalised rather
+ * than an equality check. Anything mentioning a bank is excluded outright, so
+ * "Cash at Bank" cannot slip through the prefix.
+ *
+ * A voucher with NO ledger recorded is NOT cash. 47 vouchers worth Rs 740,202
+ * are in that state since the July cutover; counting them as cash overstates
+ * the drawer by that much. They need a payment source recorded, not a guess.
+ *
+ * The DayBook deliberately does NOT use this: it shows every voucher whatever
+ * it was paid with, which is the point of a day book.
+ */
+export const isCashPaymentVoucher = (v: { account_ledger_name?: string | null }): boolean => {
+  const raw = (v.account_ledger_name || '').trim().toLowerCase();
+  if (!raw) return false;
+  if (raw.includes('bank')) return false;
+  const normalised = raw.replace(/\(.*?\)/g, ' ').replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+  return normalised === 'cash' || normalised.startsWith('cash in hand') || normalised.startsWith('cash ');
+};
+
 export const usePaymentVouchers = (fromDate: string, toDate: string, hospitalType?: string) => {
   return useQuery({
     queryKey: ['payment-vouchers-cashbook', fromDate, toDate, hospitalType],

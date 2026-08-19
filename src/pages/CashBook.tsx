@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Calendar, Loader2, ArrowLeft } from 'lucide-react';
 import { useCashBookEntries, useCashBookUsers, useCashBookVoucherTypes, useAllDailyTransactions, DailyTransaction } from '@/hooks/useCashBookQueries';
-import { usePaymentVouchers, voucherToEntry } from '@/hooks/usePaymentVouchers';
+import { usePaymentVouchers, voucherToEntry, isCashPaymentVoucher } from '@/hooks/usePaymentVouchers';
 import PatientTransactionModal from '@/components/PatientTransactionModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -35,7 +36,10 @@ const computeHospitalTotals = (
     .filter((t: any) => allowed.includes(t.transaction_type) && t.payment_mode === 'CASH')
     .reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0);
 
+  // Same rule as the row list, or the summary contradicts the rows beneath it:
+  // only vouchers actually paid out of cash count against the drawer.
   let credit = (paymentVouchers || [])
+    .filter(isCashPaymentVoucher)
     .reduce((s: number, v: any) => s + (Number(v.amount) || 0), 0);
 
   if (includePharmacy) {
@@ -142,6 +146,27 @@ const CashBook: React.FC = () => {
   const { data: cashBookData } = useCashBookEntries({
     from_date: fromDate,
     to_date: toDate
+  });
+
+  // Handovers in the visible range. A handover IS a cash movement out of the
+  // drawer that made it — the money changes hands at a named moment — so it
+  // belongs in the running balance, not in a footnote. Without these lines the
+  // closing balance cannot be reconciled against what a cashier actually holds.
+  const { data: handovers } = useQuery({
+    queryKey: ['cash-book-handovers', fromDate, toDate, effectiveHospitalName],
+    queryFn: async () => {
+      let q = (supabase as any)
+        .from('cash_handovers')
+        .select('id, handover_no, submitted_at, counted_cash, from_user_name, to_user_name, hospital_type, status')
+        .gte('submitted_at', `${fromDate}T00:00:00`)
+        .lte('submitted_at', `${toDate}T23:59:59.999`)
+        .neq('status', 'CANCELLED')
+        .order('submitted_at', { ascending: true });
+      if (effectiveHospitalName) q = q.eq('hospital_type', effectiveHospitalName);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      return (data ?? []) as any[];
+    },
   });
 
   // Payment vouchers (cash paid out) for this hospital → shown as Credit rows
@@ -572,8 +597,35 @@ const CashBook: React.FC = () => {
     }
 
     // Add payment vouchers (cash paid out) as CREDIT rows, by voucher_date.
+    // Cash Book, so only what actually left the drawer. A voucher paid by bank
+    // or with no payment source recorded is not cash and must not appear here.
     if (paymentVouchers && paymentVouchers.length > 0) {
-      paymentVouchers.forEach((v) => entries.push(voucherToEntry(v)));
+      paymentVouchers.filter(isCashPaymentVoucher).forEach((v) => entries.push(voucherToEntry(v)));
+    }
+
+    // Who handed how much to whom, at the moment it happened.
+    if (handovers && handovers.length > 0) {
+      handovers.forEach((h: any) => {
+        const when = new Date(h.submitted_at);
+        const formattedDate = `${String(when.getDate()).padStart(2, '0')}/${String(when.getMonth() + 1).padStart(2, '0')}/${when.getFullYear()}`;
+        const time = when.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+        const amount = Number(h.counted_cash || 0);
+        const from = h.from_user_name || 'Unknown';
+        const to = h.to_user_name || 'Unknown';
+        entries.push({
+          type: 'patient-summary' as const,
+          date: formattedDate,
+          particulars: `Cash handover — ${from} to ${to}`,
+          summary: `Handover ${h.handover_no} | ${from} handed Rs ${amount.toLocaleString('en-IN')} to ${to} at ${time}`,
+          debit: 0,
+          credit: amount,
+          patientId: undefined,
+          visitId: undefined,
+          patientName: undefined,
+          transactionCount: 1,
+          transactionDate: h.submitted_at,
+        });
+      });
     }
 
     // Separate opening balance (always first) from the rest, sort the rest by date.
@@ -587,7 +639,7 @@ const CashBook: React.FC = () => {
       });
 
     return [...openingRow, ...transactionRows];
-  }, [dailyTransactions, cashBookData, fromDate, pharmacyCreditPayments, pharmacyRefunds, paymentVouchers]);
+  }, [dailyTransactions, cashBookData, fromDate, pharmacyCreditPayments, pharmacyRefunds, paymentVouchers, handovers]);
 
   // Calculate totals for footer
   const totals = useMemo(() => {
@@ -662,7 +714,7 @@ const CashBook: React.FC = () => {
             <ArrowLeft className="h-4 w-4 mr-1" />
             Back
           </button>
-          <h1 className="text-white text-xl font-bold">Cash Book</h1>
+          <h1 className="text-white text-xl font-bold">Cash Transactions in the Cash Book</h1>
         </div>
         <div className="flex space-x-2">
           <button

@@ -2,6 +2,34 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchAllRows } from '@/lib/fetchAllRows';
 
+/**
+ * Every ACTIVE cash-in-hand ledger, one per company.
+ *
+ * This used to be a single `.eq('account_name', 'Cash in Hand')`, and on
+ * 2 Aug 2026 that ledger was renamed "Cash in Hand (merged 02 Aug 26)" and
+ * deactivated by the orphan-ledger merge. From that day the lookup matched
+ * nothing and threw, the Cash Book never destructured the error, and the
+ * opening balance and every voucher-based cash movement silently vanished
+ * from the report for seventeen days.
+ *
+ * Resolved by code and by exact name instead, across companies, and only
+ * where the ledger is active — the merged ones are deliberately excluded.
+ * Returns an array because the live books have one cash ledger PER COMPANY
+ * (HMS_CASH, DRMFRESH_000296, TL…), not one shared account.
+ */
+export async function resolveCashAccounts(): Promise<Array<{
+  id: string; account_name: string; opening_balance: number | null;
+  opening_balance_type: string | null; company_id: string | null;
+}>> {
+  const { data, error } = await supabase
+    .from('chart_of_accounts')
+    .select('id, account_code, account_name, opening_balance, opening_balance_type, is_active, company_id')
+    .eq('is_active', true)
+    .or('account_code.eq.1110,account_name.eq.Cash');
+  if (error) throw new Error(`Could not resolve the cash ledgers: ${error.message}`);
+  return (data ?? []) as any[];
+}
+
 export interface CashBookEntry {
   voucher_date: string;
   transaction_time: string;
@@ -45,27 +73,15 @@ export const useCashBookEntries = (filters?: CashBookFilters) => {
     queryKey: ['cash-book-entries', filters],
     queryFn: async () => {
       // First, get the Cash account ID
-      // Note: The account name in database is 'Cash in Hand' (account code 1110)
-      const { data: cashAccount, error: accountError } = await supabase
-        .from('chart_of_accounts')
-        .select('id, account_name, opening_balance, opening_balance_type, is_active')
-        .eq('account_name', 'Cash in Hand')
-        .maybeSingle();
-
-      if (accountError) {
-        console.error('Error fetching cash account:', accountError);
-        throw new Error(`Database error: ${accountError.message}`);
+      // Resolved by resolveCashAccounts() — by code and by name, across companies.
+      const cashAccounts = await resolveCashAccounts();
+      const cashAccountIds = cashAccounts.map((a) => a.id);
+      // No cash ledger at all is a real fault worth naming; one that has merely
+      // been renamed is not, and must never empty this report again.
+      if (cashAccountIds.length === 0) {
+        throw new Error('No active cash ledger found in the chart of accounts (code 1110 or an account named "Cash").');
       }
-
-      if (!cashAccount) {
-        console.error('Cash account not found in chart_of_accounts');
-        throw new Error('Cash account "Cash in Hand" not found. Please ensure it exists in the chart of accounts.');
-      }
-
-      if (!cashAccount.is_active) {
-        console.error('Cash account exists but is inactive');
-        throw new Error('Cash account "Cash in Hand" is inactive. Please activate it in the chart of accounts.');
-      }
+      const cashAccount = cashAccounts[0];
 
       // Status and dates filter on the SERVER. They used to be applied
       // client-side after an unpaged fetch that the server caps at 1000
@@ -101,7 +117,7 @@ export const useCashBookEntries = (filters?: CashBookFilters) => {
               )
             )
           `)
-          .eq('account_id', cashAccount.id)
+          .in('account_id', cashAccountIds)
           .eq('voucher.status', 'AUTHORISED')
           .order('voucher(voucher_date)', { ascending: true })
           .order('id');
@@ -236,20 +252,9 @@ export const useCashBookUsers = () => {
     queryKey: ['cash-book-users'],
     queryFn: async () => {
       // Get Cash account ID first
-      const { data: cashAccount, error: accountError } = await supabase
-        .from('chart_of_accounts')
-        .select('id, is_active')
-        .eq('account_name', 'Cash in Hand')
-        .maybeSingle();
-
-      if (accountError) {
-        console.error('Error fetching cash account:', accountError);
-        return [];
-      }
-
-      if (!cashAccount || !cashAccount.is_active) {
-        return [];
-      }
+      const cashAccounts = await resolveCashAccounts().catch(() => []);
+      const cashAccountIds = cashAccounts.map((a) => a.id);
+      if (cashAccountIds.length === 0) return [];
 
       const { data, error } = await supabase
         .from('vouchers')
@@ -257,7 +262,7 @@ export const useCashBookUsers = () => {
         .in('id', supabase
           .from('voucher_entries')
           .select('voucher_id')
-          .eq('account_id', cashAccount.id)
+          .in('account_id', cashAccountIds)
         );
 
       if (error) {
@@ -284,20 +289,9 @@ export const useCashBookVoucherTypes = () => {
     queryKey: ['cash-book-voucher-types'],
     queryFn: async () => {
       // Get Cash account ID first
-      const { data: cashAccount, error: accountError } = await supabase
-        .from('chart_of_accounts')
-        .select('id, is_active')
-        .eq('account_name', 'Cash in Hand')
-        .maybeSingle();
-
-      if (accountError) {
-        console.error('Error fetching cash account:', accountError);
-        return [];
-      }
-
-      if (!cashAccount || !cashAccount.is_active) {
-        return [];
-      }
+      const cashAccounts = await resolveCashAccounts().catch(() => []);
+      const cashAccountIds = cashAccounts.map((a) => a.id);
+      if (cashAccountIds.length === 0) return [];
 
       const { data, error } = await supabase
         .from('vouchers')
@@ -313,7 +307,7 @@ export const useCashBookVoucherTypes = () => {
         .in('id', supabase
           .from('voucher_entries')
           .select('voucher_id')
-          .eq('account_id', cashAccount.id)
+          .in('account_id', cashAccountIds)
         );
 
       if (error) {
@@ -343,25 +337,14 @@ export const useCashBalance = (upToDate?: string) => {
     queryKey: ['cash-balance', upToDate],
     queryFn: async () => {
       // Get Cash account
-      const { data: cashAccount, error: accountError} = await supabase
-        .from('chart_of_accounts')
-        .select('id, opening_balance, opening_balance_type, is_active')
-        .eq('account_name', 'Cash in Hand')
-        .maybeSingle();
+      const cashAccounts = await resolveCashAccounts();
+      const cashAccountIds = cashAccounts.map((a) => a.id);
+      const cashAccount = cashAccounts[0];
 
-      if (accountError) {
-        console.error('Error fetching cash account:', accountError);
-        throw new Error(`Database error: ${accountError.message}`);
-      }
-
+      // resolveCashAccounts() already filters to active ledgers, so reaching
+      // here with none means there genuinely is no cash ledger.
       if (!cashAccount) {
-        console.error('Cash account not found in chart_of_accounts');
-        throw new Error('Cash account "Cash in Hand" not found. Please ensure it exists in the chart of accounts.');
-      }
-
-      if (!cashAccount.is_active) {
-        console.error('Cash account exists but is inactive');
-        throw new Error('Cash account "Cash in Hand" is inactive. Please activate it in the chart of accounts.');
+        throw new Error('No active cash ledger found (account code 1110 or an account named "Cash").');
       }
 
       // Get all transactions up to date. Paged — the unpaged select stopped
@@ -378,7 +361,7 @@ export const useCashBalance = (upToDate?: string) => {
               status
             )
           `)
-          .eq('account_id', cashAccount.id)
+          .in('account_id', cashAccountIds)
           .eq('voucher.status', 'AUTHORISED')
           .order('id');
         if (upToDate) {
