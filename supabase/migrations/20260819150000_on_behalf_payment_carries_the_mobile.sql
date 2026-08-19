@@ -38,7 +38,15 @@ DECLARE
   v_src TEXT;
   v_new TEXT;
   -- The signature. Its last argument today is p_user.
-  v_sig_pat  TEXT := 'p_user\s+TEXT\s+DEFAULT\s+NULL\s*\)';
+  --
+  -- MATCHED THE WAY POSTGRES PRINTS IT, NOT THE WAY IT WAS WRITTEN.
+  -- pg_get_functiondef normalises the argument list — types come back lower
+  -- case and a default comes back cast, so the source says "p_user TEXT DEFAULT
+  -- NULL" and the live definition reads "p_user text DEFAULT NULL::text", on
+  -- one line. Anchoring on the authored form matched nothing and aborted (first
+  -- attempt, 19-Aug). The BODY is returned verbatim, which is why the two body
+  -- anchors below need no such allowance.
+  v_sig_pat  TEXT := 'p_user\s+text\s+DEFAULT\s+NULL(::text)?\s*\)';
   -- The PAYMENT insert only: the journal insert carries linked_voucher_id here.
   v_cols_pat TEXT := 'on_behalf_of_company_id,\s*pay_to,\s*created_by';
   v_vals_pat TEXT := 'p_behalf_company_id,\s*nullif\(btrim\(p_pay_to\),\s*''''\),\s*v_user';
@@ -62,7 +70,7 @@ BEGIN
     RAISE EXCEPTION 'ABORT: no 9-argument create_on_behalf_payment in this database';
   END IF;
 
-  SELECT count(*) INTO v_n FROM regexp_matches(v_src, v_sig_pat, 'g');
+  SELECT count(*) INTO v_n FROM regexp_matches(v_src, v_sig_pat, 'gi');
   IF v_n <> 1 THEN
     RAISE EXCEPTION 'ABORT: the signature anchor matched % times, expected 1', v_n;
   END IF;
@@ -76,7 +84,7 @@ BEGIN
   END IF;
 
   v_new := regexp_replace(v_src, v_sig_pat,
-    'p_user TEXT DEFAULT NULL, p_party_mobile TEXT DEFAULT NULL)');
+    'p_user text DEFAULT NULL::text, p_party_mobile text DEFAULT NULL::text)', 'i');
   v_new := regexp_replace(v_new, v_cols_pat,
     'on_behalf_of_company_id, pay_to, party_mobile, created_by');
   v_new := regexp_replace(v_new, v_vals_pat,
