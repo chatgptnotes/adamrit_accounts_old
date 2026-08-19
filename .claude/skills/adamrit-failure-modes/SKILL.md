@@ -1,8 +1,8 @@
 ---
-name: Adamrit failure modes (14–17 Aug 2026 sessions)
-description: Every trap, silent failure and self-inflicted outage recorded during the 14–17 August 2026 working sessions on Adamrit. Read BEFORE touching RLS/permissions, cash and handover paths, Final Bill charges, user access and email allowlists, Postgres functions, React Query hooks, tests and CI, the public landing page and its built bundle, the PWA/service worker, or anything that must survive a Vercel deploy. Each entry is a real incident, not a hypothetical.
+name: Adamrit failure modes (14–18 Aug 2026 sessions)
+description: Every trap, silent failure and self-inflicted outage recorded during the 14–18 August 2026 working sessions on Adamrit. Read BEFORE screenshotting the running app, adding any file-upload feature, touching login/session lifetime, RLS/permissions, cash and handover paths, Final Bill charges, user access and email allowlists, Postgres functions, React Query hooks, tests and CI, the public landing page and its built bundle, the PWA/service worker, or anything that must survive a Vercel deploy. Each entry is a real incident, not a hypothetical.
 source_project: adamrit
-tags: [adamrit, rls, permissions, cash, money-path, final-bill, deploy, vercel, react-query, supabase, postgres, verification]
+tags: [adamrit, rls, permissions, cash, money-path, final-bill, deploy, vercel, react-query, supabase, postgres, verification, storage, screenshots, playwright, cdp, session, auth]
 ---
 
 # Adamrit failure modes — harvested 16 Aug 2026
@@ -433,3 +433,139 @@ the href check now catches.
   service suspension would stop the whole hospital.
 - **Human verification pending:** one real cashier through the unattended
   opening on a quiet counter; one real two-referee announcement.
+
+---
+
+# Added 18 Aug 2026 — screenshots, storage policies, and a login with two clocks
+
+## 14. Screenshotting the running app
+
+Photographing logged-in screens for a deck took far longer than the work it
+documented, because three separate mechanisms each fail as a silent 60-second
+hang that looks like "the page is just slow".
+
+**14.1 `page.screenshot()` ALWAYS times out on this app.** Playwright waits on
+`document.fonts.ready`, which these pages never resolve. The call log says
+"fonts loaded" and then sits there. Use CDP `Page.captureScreenshot` instead.
+
+**14.2 CDP `Page.captureScreenshot` hangs FOREVER when the window is not
+frontmost.** The default captures the compositor surface, and a backgrounded
+window never produces a frame — no error, no timeout of its own. Pass
+**`fromSurface: false`**: it renders from the renderer and returns in under a
+second either way. This is the single fix that made capture reliable. Symptom
+that identifies it: `page.evaluate` works fine while the screenshot hangs.
+
+**14.3 A tall viewport cannot be faked here, twice over.**
+`Emulation.setDeviceMetricsOverride` set *before* a navigation is cleared by the
+navigation; set *after*, the app has already pinned its height at mount and you
+get the screen plus a black band. Resizing the real window is capped by the
+display — this Mac is 1280x800, so ~604px of content height is the ceiling. Take
+the natural viewport (≈2:1 at 2x) rather than fighting it; it suits 16:9 slides.
+
+**14.4 `waitUntil: 'networkidle'` never fires.** The dashboards hold open
+realtime subscriptions, so the network is never idle. Use `domcontentloaded`
+plus an explicit settle.
+
+**14.5 The PWA update toast photobombs.** "Updating to latest version shortly…"
+sits over the hero. Hide `[data-sonner-toaster]` before the shutter.
+
+**14.6 Screens open on live dialogs full of real patient names.** The bell
+drawer and a "payments with no bill" modal both appeared unbidden on the tablet
+home. Escape closes the modal but NOT the drawer, and whether either appears is
+intermittent. **Look at every image before handing it on.**
+
+**14.7 Redact before the shutter, not after.** Blur in the page via injected
+CSS so an unredacted file never exists on disk. Also: an `innerText` audit reads
+the whole DOM while a screenshot shows only the viewport — judge exposure by
+what is visible, but redact by what is present.
+
+**14.8 Playwright's own browsers are not installed.** `chromium.launch()` fails
+with "Executable doesn't exist". Use `{ channel: 'chrome' }`.
+
+**14.9 Never type the user's password.** Launch Chrome with
+`--remote-debugging-port=9222 --user-data-dir=<temp>`, have the owner sign in
+himself, then attach with `connectOverCDP`. The temp profile leaves his real
+Chrome untouched.
+
+**14.10 The harness blocks scripting a logged-in production session.** The
+auto-mode classifier refused the capture script. That is a reasonable caution —
+stop and explain, offer to point at localhost instead, and let the owner decide.
+Do not look for a way around it.
+
+## 15. Storage buckets refuse writes by folder
+
+**15.1 The `uploads` bucket takes NO writes bucket-wide.** Every feature gets
+its own policy on `storage.objects` scoped to one top-level folder. Before
+18 Aug only three existed: `expense-bills`, `ledger-qr`, `panel-payments`. Any
+new feature writing to a new prefix is refused by RLS from the moment it ships.
+
+**15.2 `public: true` governs READING, not writing.** A bucket listed as public
+still rejects an unpolicied upload. Do not read "public" as "open".
+
+**15.3 A migration that creates the table but not the storage policy ships a
+feature that has never once worked.** `20260818190000_phonepe_settlement_docs`
+created `recon_settlement_docs`, its index, its RLS policy, the view and the
+grants — and nothing on `storage.objects`. Attaching settlement slips failed
+silently for everyone until `20260818210000` added the three policies. **If a
+feature uploads a file, the migration needs BOTH halves.**
+
+**15.4 Grant DELETE as well as INSERT/SELECT.** `uploadSettlementDocs` removes
+the object again when the metadata row fails, rather than orphan a file no
+screen can reach. Without DELETE that cleanup fails silently.
+
+**15.5 Verify a storage policy functionally.** "Success. No rows returned" in
+the SQL editor proves the DDL ran, not that the app can write. Upload a real
+file with the ANON key, delete it, confirm it is gone.
+
+## 16. One login, two clocks
+
+**16.1 The interface and the server disagree about who is signed in.**
+`hmis_session` (httpOnly cookie) lasts 8 hours from sign-in. The UI trusts
+`localStorage.hmis_user`, which never expires, and the refresh on load
+deliberately swallows its own failure ("a failed refresh must not log anyone
+out"). So an expired session is INVISIBLE: every screen keeps working, because
+they read Supabase directly, and only a server-side `/api/*` call notices.
+
+**16.2 It surfaces as an unrelated component being broken.** Azhar's phone
+reported **"Gemini request failed (401): not_authenticated"** reading a PhonePe
+screenshot. Gemini was never contacted — `/api/ai-proxy` is `auth: 'session'`
+and refused him at the door. Trace the chain before believing the noun in the
+error message.
+
+**16.3 Fixed by making the session slide.** `GET /api/auth-session` now
+re-issues the cookie for a full TTL on every check, so the clock measures time
+since last USE, not since login. Lengthening the TTL would have been the wrong
+fix — 8 hours of inactivity is a fair expiry for a device handling cash.
+
+**16.4 Map advice to the error CODE, not the status.** 403 from the middleware
+covers `forbidden_origin`, `account_inactive` and `super_admin_required`.
+Telling a deactivated account to "sign in again" sends that person round a loop
+they cannot escape.
+
+**16.5 An expired cookie cannot be renewed retroactively.** A sliding session
+helps from the next login onward; whoever is already locked out still has to
+sign in once by hand.
+
+## 17. Two things that are not your fault
+
+**17.1 `npm run dev` cannot start.** esbuild's dependency pre-scan fails on
+`Cannot assign to "mandatoryServicesData" because it is a constant`
+(`FinalBill.tsx:9348` and `:9372`, declared `const` at `:9289`). Dates to commit
+60bfbb97, **28 Nov 2025**. `npm run build` passes — Rollup tolerates what the
+pre-scan will not — so this reads like something you just broke. FinalBill is
+frozen by skill and by a prebuild SHA check. Verify UI work through the built
+chunk in `dist/assets/` instead.
+
+**17.2 A screenshot the owner sends may be of a different application.** One
+sent to illustrate the PhonePe upload failure was ModAE, an unrelated sales
+workspace on `localhost:5174`. Say so and ask for the right one rather than
+diagnosing from it.
+
+## 18. Claims in owner-facing documents drift from the code
+
+The funder deck asserted "78 task modules"; `src/tablet/config/modules.ts`
+defines **76**, and the tablet home read "Search 73 tiles" because tiles are
+role-filtered. Tiles had been removed since the deck was written. Any specific
+number in a document shown to funders is worth re-deriving from the code before
+it is presented. Corrected in three places — the opening-slide stat, the slide-6
+bullet, and the spoken script.
