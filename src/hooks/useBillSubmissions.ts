@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { knownSchemeShortName } from '@/lib/schemeShortName';
 
 export interface BillSubmissionInput {
   visit_id: string;
@@ -21,21 +22,7 @@ const getCorporateBillPrefix = (corporateName: string | null | undefined): strin
   if (!corporateName || corporateName.trim() === '' || corporateName.toLowerCase() === 'private') {
     return 'PVT';
   }
-  const shortNameMap: Record<string, string> = {
-    'Mahatma Jyotirao Phule jan Arogya Yojana (MJPJAY)': 'MJPJAY',
-    'Ayushman Bharat - Pradhan Mantri Jan Arogya Yojna (PM-JAY)': 'PM-JAY',
-    'Rashtriya Bal Swasthya Karyakram (RBSK)': 'RBSK',
-    'Central Government Health Scheme (CGHS)': 'CGHS',
-    'Ex Serviceman Contributory Health Scheme (ECHS)': 'ECHS',
-    'Maharashtra Police Kutumb Arogya Yojana (MPKAY)': 'MPKAY',
-    'MIKSSKAY - Maharashtra Karagruh Va Sudhar Sevabal Kutumb Arogya Yojana': 'MIKSSKAY',
-    'Maharashtra Dharmadaya Karmachari Kutumbe Seashya Yojana (MDKKSY)': 'MDKKSY',
-    'Coal India Limited (CIL)': 'CIL',
-    'Central Railways (C.Rly)': 'CR',
-    'South Eastern Central Railway (SECR)': 'SECR',
-    'Western Coalfield Limited (WCL)': 'WCL',
-  };
-  return shortNameMap[corporateName] || corporateName.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+  return knownSchemeShortName(corporateName) || corporateName.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
 };
 
 // Detect government scheme (yojna) corporates so the right bill page/total is shown

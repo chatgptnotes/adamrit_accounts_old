@@ -41,6 +41,7 @@ import { useBillAgingReport } from '@/hooks/useBillAgingReport';
 import { BillAgingRecord, BillAgingStatus } from '@/types/billAging';
 import { AgingBucket } from '@/types/accounting';
 import '@/styles/print.css';
+import { knownSchemeShortName } from '@/lib/schemeShortName';
 
 const formatCurrency = (amount: number): string => {
   return new Intl.NumberFormat('en-IN', {
@@ -101,23 +102,7 @@ const AGING_BUCKET_ORDER: AgingBucket[] = ['365+', '181-365', '91-180', '61-90',
 
 // Corporate short name mapping for print format
 const getCorporateShortName = (fullName: string): string => {
-  const shortNameMap: Record<string, string> = {
-    // Government Healthcare Schemes
-    'Mahatma Jyotirao Phule jan Arogya Yojana (MJPJAY)': 'MJPJAY',
-    'Ayushman Bharat - Pradhan Mantri Jan Arogya Yojna (PM-JAY)': 'PM-JAY',
-    'Rashtriya Bal Swasthya Karyakram (RBSK)': 'RBSK',
-    'Central Government Health Scheme (CGHS)': 'CGHS',
-    'Ex Serviceman Contributory Health Scheme (ECHS)': 'ECHS',
-    'Maharashtra Police Kutumb Arogya Yojana (MPKAY)': 'MPKAY',
-    'MIKSSKAY - Maharashtra Karagruh Va Sudhar Sevabal Kutumb Arogya Yojana': 'MIKSSKAY',
-    'Maharashtra Dharmadaya Karmachari Kutumbe Seashya Yojana (MDKKSY)': 'MDKKSY',
-    // Government Organizations
-    'Coal India Limited (CIL)': 'CIL',
-    'Central Railways (C.Rly)': 'CR',
-    'South Eastern Central Railway (SECR)': 'SECR',
-    'Western Coalfield Limited (WCL)': 'WCL',
-  };
-  return shortNameMap[fullName] || fullName;
+  return knownSchemeShortName(fullName) || fullName;
 };
 
 // Heading row colors based on aging severity

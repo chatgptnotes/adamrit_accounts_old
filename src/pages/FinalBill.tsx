@@ -24,6 +24,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from '@/contexts/AuthContext';
 import { pushBillToTally } from '@/lib/tally-auto-push';
 import { logActivity } from '@/lib/activity-logger';
+import { schemeShortName } from '@/lib/schemeShortName';
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Table,
@@ -1803,21 +1804,10 @@ const FinalBill = () => {
     if (!corporateName || corporateName.trim() === '' || corporateName.toLowerCase() === 'private') {
       return 'PRIVATE';
     }
-    const shortNameMap: Record<string, string> = {
-      'Mahatma Jyotirao Phule jan Arogya Yojana (MJPJAY)': 'MJPJAY',
-      'Ayushman Bharat - Pradhan Mantri Jan Arogya Yojna (PM-JAY)': 'PM-JAY',
-      'Rashtriya Bal Swasthya Karyakram (RBSK)': 'RBSK',
-      'Central Government Health Scheme (CGHS)': 'CGHS',
-      'Ex Serviceman Contributory Health Scheme (ECHS)': 'ECHS',
-      'Maharashtra Police Kutumb Arogya Yojana (MPKAY)': 'MPKAY',
-      'MIKSSKAY - Maharashtra Karagruh Va Sudhar Sevabal Kutumb Arogya Yojana': 'MIKSSKAY',
-      'Maharashtra Dharmadaya Karmachari Kutumbe Seashya Yojana (MDKKSY)': 'MDKKSY',
-      'Coal India Limited (CIL)': 'CIL',
-      'Central Railways (C.Rly)': 'CR',
-      'South Eastern Central Railway (SECR)': 'SECR',
-      'Western Coalfield Limited (WCL)': 'WCL',
-    };
-    return shortNameMap[corporateName] || corporateName.toUpperCase().replace(/\s+/g, '-');
+    // One shared lookup, matched on content: see src/lib/schemeShortName.ts.
+    // This builds the BILL NUMBER PREFIX, so a corporate rename must never be
+    // able to miss it.
+    return schemeShortName(corporateName);
   };
 
   // Generate corporate-based bill number (e.g., PM-JAY-FEB-001, CGHS-MAR-002, PVT-JAN-001)

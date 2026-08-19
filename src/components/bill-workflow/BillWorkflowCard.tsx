@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { isOverdue, getBillStatus } from './types';
 import type { BillStatus } from './types';
+import { knownSchemeShortName } from '@/lib/schemeShortName';
 
 const accentMap: Record<BillStatus, string> = {
   pending_submission: 'border-t-rose-400',
@@ -14,15 +15,18 @@ const accentMap: Record<BillStatus, string> = {
   deduction_dispute: 'border-t-amber-500',
 };
 
+// Keyed on the SHORT name, so correcting a spelling in the corporate master
+// cannot quietly turn every MJPJAY chip grey.
 const corporateStyles: Record<string, string> = {
-  'Ayushman Bharat - Pradhan Mantri Jan Arogya Yojna (PM-JAY)': 'bg-blue-50 text-blue-700 border-blue-200',
-  'Mahatma Jyotirao Phule jan Arogya Yojana (MJPJAY)': 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  'Central Government Health Scheme (CGHS)': 'bg-purple-50 text-purple-700 border-purple-200',
-  'Ex Serviceman Contributory Health Scheme (ECHS)': 'bg-orange-50 text-orange-700 border-orange-200',
+  'PM-JAY': 'bg-blue-50 text-blue-700 border-blue-200',
+  MJPJAY: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  CGHS: 'bg-purple-50 text-purple-700 border-purple-200',
+  ECHS: 'bg-orange-50 text-orange-700 border-orange-200',
 };
 
 function getCorporateStyle(corporate: string) {
-  return corporateStyles[corporate] || 'bg-gray-50 text-gray-600 border-gray-200';
+  const short = knownSchemeShortName(corporate);
+  return (short && corporateStyles[short]) || 'bg-gray-50 text-gray-600 border-gray-200';
 }
 
 function formatAmount(amount: number) {

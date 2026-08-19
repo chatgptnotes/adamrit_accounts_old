@@ -12,6 +12,7 @@ import {
 import { Plus, Search, RefreshCw, ChevronLeft, ChevronRight, Activity, Loader2 } from 'lucide-react';
 import VitalsDialog from '@/components/casualty/VitalsDialog';
 import AddEmergencyPatientDialog from '@/components/casualty/AddEmergencyPatientDialog';
+import { knownSchemeShortName } from '@/lib/schemeShortName';
 
 const PAGE_SIZE = 50;
 
@@ -40,21 +41,7 @@ const statusVariant = (status: string | null) => {
 };
 
 // Corporate short name mapping for the Panel column
-const CORPORATE_SHORT_NAMES: Record<string, string> = {
-  'Mahatma Jyotirao Phule jan Arogya Yojana (MJPJAY)': 'MJPJAY',
-  'Ayushman Bharat - Pradhan Mantri Jan Arogya Yojna (PM-JAY)': 'PM-JAY',
-  'Rashtriya Bal Swasthya Karyakram (RBSK)': 'RBSK',
-  'Central Government Health Scheme (CGHS)': 'CGHS',
-  'Ex Serviceman Contributory Health Scheme (ECHS)': 'ECHS',
-  'Maharashtra Police Kutumb Arogya Yojana (MPKAY)': 'MPKAY',
-  'MIKSSKAY - Maharashtra Karagruh Va Sudhar Sevabal Kutumb Arogya Yojana': 'MIKSSKAY',
-  'Maharashtra Dharmadaya Karmachari Kutumbe Seashya Yojana (MDKKSY)': 'MDKKSY',
-  'Coal India Limited (CIL)': 'CIL',
-  'Central Railways (C.Rly)': 'CR',
-  'South Eastern Central Railway (SECR)': 'SECR',
-  'Western Coalfield Limited (WCL)': 'WCL',
-};
-const getCorporateShortName = (fullName: string): string => CORPORATE_SHORT_NAMES[fullName] || fullName;
+const getCorporateShortName = (fullName: string): string => knownSchemeShortName(fullName) || fullName;
 
 const CasualtyRegister = () => {
   const { hospitalConfig } = useAuth();

@@ -19,6 +19,7 @@ import {
 import { TabletCard } from "@/tablet/ui/TabletCard";
 import { TabletInput } from "@/tablet/ui/TabletInput";
 import { TabletButton } from "@/tablet/ui/TabletButton";
+import { knownSchemeShortName } from '@/lib/schemeShortName';
 
 interface RegisterEntry {
   id: string;
@@ -68,21 +69,7 @@ const formatMarketingExecutive = (name: string, code?: string | null) =>
   code ? `${name} (${code})` : name;
 
 // Corporate short name mapping for the Panel line — matches the desktop Referral Register.
-const CORPORATE_SHORT_NAMES: Record<string, string> = {
-  "Mahatma Jyotirao Phule jan Arogya Yojana (MJPJAY)": "MJPJAY",
-  "Ayushman Bharat - Pradhan Mantri Jan Arogya Yojna (PM-JAY)": "PM-JAY",
-  "Rashtriya Bal Swasthya Karyakram (RBSK)": "RBSK",
-  "Central Government Health Scheme (CGHS)": "CGHS",
-  "Ex Serviceman Contributory Health Scheme (ECHS)": "ECHS",
-  "Maharashtra Police Kutumb Arogya Yojana (MPKAY)": "MPKAY",
-  "MIKSSKAY - Maharashtra Karagruh Va Sudhar Sevabal Kutumb Arogya Yojana": "MIKSSKAY",
-  "Maharashtra Dharmadaya Karmachari Kutumbe Seashya Yojana (MDKKSY)": "MDKKSY",
-  "Coal India Limited (CIL)": "CIL",
-  "Central Railways (C.Rly)": "CR",
-  "South Eastern Central Railway (SECR)": "SECR",
-  "Western Coalfield Limited (WCL)": "WCL",
-};
-const getCorporateShortName = (fullName: string): string => CORPORATE_SHORT_NAMES[fullName] || fullName;
+const getCorporateShortName = (fullName: string): string => knownSchemeShortName(fullName) || fullName;
 
 /** Module 17 — Referral Register (mirrors the desktop page, card layout for touch). */
 export default function ReferralRegisterFlow() {
