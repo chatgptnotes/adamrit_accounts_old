@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
-  Banknote, Camera, Check, ChevronLeft, Loader2, Printer, QrCode, ShieldCheck, Upload, User,
+  Banknote, Camera, Check, ChevronLeft, Landmark, Loader2, Printer, QrCode, ShieldCheck, Upload, User,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -62,7 +62,38 @@ export default function AkshayPayoutsFlow() {
   const [doctor, setDoctor] = useState<string | null>(null);
   const [day, setDay] = useState(format(new Date(), "yyyy-MM-dd"));
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [mode, setMode] = useState<"QR" | "CASH" | null>(null);
+  const [mode, setMode] = useState<"QR" | "CASH" | "BANK" | null>(null);
+  // Which account a bank transfer left. Required for BANK — the database
+  // refuses a transfer that cannot say, because guessing is how a NEFT from
+  // Saraswat came to sit against Canara (PV1436, 19 Aug).
+  const [bankAccountId, setBankAccountId] = useState("");
+
+  // Every active bank ledger, labelled with the company that owns it. The RPC
+  // validates the choice against the company the services were booked in and
+  // refuses a mismatch by name, so a wrong pick fails loudly rather than posting
+  // into the wrong set of books.
+  const bankLedgers = useQuery({
+    queryKey: ["payout-bank-ledgers"],
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("chart_of_accounts")
+        .select("id, account_name, company_id, companies(company_name)")
+        .eq("is_active", true)
+        .or("account_group.ilike.%bank%,account_name.ilike.%bank%")
+        .order("account_name");
+      if (error) throw new Error(error.message);
+      return ((data || []) as any[])
+        // "Bank Charges" is an expense and "Dr. Badal Bankar" is a person; both
+        // match on the word and neither is an account money leaves from.
+        .filter((row) => !/charges|gurantee|guarantee|bankar/i.test(row.account_name))
+        .map((row) => ({
+          id: row.id as string,
+          account_name: row.account_name as string,
+          company_name: (row.companies?.company_name as string) || "",
+        }));
+    },
+  });
   const [payments, setPayments] = useState<PaymentResult[] | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadedCount, setUploadedCount] = useState(0);
@@ -178,13 +209,16 @@ export default function AkshayPayoutsFlow() {
 
   const pay = useMutation({
     mutationFn: async () => {
-      if (!mode) throw new Error("Choose QR or cash first");
+      if (!mode) throw new Error("Choose how the doctor was paid");
+      if (mode === "BANK" && !bankAccountId) throw new Error("Choose the bank the transfer was made from");
       if (selected.size === 0) throw new Error("Select the services to pay");
       if (!approval) throw new Error("This total has not been approved yet");
       const { data, error } = await (supabase as any).rpc("pay_doctor_services", {
         p_log_ids: Array.from(selected),
         p_payment_mode: mode,
         p_paid_by: user?.email || user?.id || null,
+        // Empty for QR and cash keeps the auto-pick this tile has always used.
+        p_credit_account_id: bankAccountId || null,
       });
       if (error) throw new Error(error.message);
       return ((data as any)?.payments || []) as PaymentResult[];
@@ -321,6 +355,7 @@ export default function AkshayPayoutsFlow() {
     setDoctorSearch("");
     setSelected(new Set());
     setMode(null);
+    setBankAccountId("");
     setPayments(null);
     setUploadedCount(0);
   };
@@ -601,11 +636,11 @@ export default function AkshayPayoutsFlow() {
           </TabletButton>
           <TabletButton
             className="flex-1"
-            disabled={!mode || pay.isPending}
+            disabled={!mode || pay.isPending || (mode === "BANK" && !bankAccountId)}
             onClick={() => pay.mutate()}
           >
             <Check className="mr-2 h-5 w-5" />
-            {pay.isPending ? "Posting voucher…" : `Confirm ${mode === "CASH" ? "cash " : mode === "QR" ? "QR " : ""}payment`}
+            {pay.isPending ? "Posting voucher…" : `Confirm ${mode === "CASH" ? "cash " : mode === "QR" ? "QR " : mode === "BANK" ? "bank transfer " : ""}payment`}
           </TabletButton>
         </div>
       }
@@ -626,7 +661,45 @@ export default function AkshayPayoutsFlow() {
           >
             <Banknote className="mr-2 h-6 w-6" /> Paid in cash
           </TabletButton>
+          <TabletButton
+            variant={mode === "BANK" ? "default" : "outline"}
+            className="min-h-[72px]"
+            onClick={() => setMode("BANK")}
+          >
+            <Landmark className="mr-2 h-6 w-6" /> Bank transfer
+          </TabletButton>
         </div>
+
+        {/* Which account the money left. There was no bank-transfer option at
+            all before this, so a NEFT was recorded as QR and the database
+            silently credited the company's OLDEST bank ledger — Canara, when the
+            money had gone from Saraswat (Dr M, 19 Aug). */}
+        {mode === "BANK" && (
+          <div className="rounded-xl border p-4">
+            <p className="mb-2 text-sm font-medium">Paid from</p>
+            {bankLedgers.isLoading ? (
+              <p className="text-sm text-muted-foreground">Loading accounts…</p>
+            ) : (bankLedgers.data || []).length === 0 ? (
+              <p className="text-sm text-amber-700">
+                No bank account is set up for this hospital yet — ask accounts to add one.
+              </p>
+            ) : (
+              <div className="grid gap-2">
+                {(bankLedgers.data || []).map((ledger) => (
+                  <TabletButton
+                    key={ledger.id}
+                    variant={bankAccountId === ledger.id ? "default" : "outline"}
+                    className="justify-start text-left"
+                    onClick={() => setBankAccountId(ledger.id)}
+                  >
+                    {ledger.account_name}
+                    <span className="ml-2 text-xs opacity-70">{ledger.company_name}</span>
+                  </TabletButton>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {mode === "QR" && (
           <div className="flex flex-col items-center gap-3 rounded-xl border p-4">
