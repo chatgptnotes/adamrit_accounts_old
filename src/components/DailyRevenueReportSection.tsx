@@ -184,7 +184,7 @@ interface ApprovalState {
   paymentVoucherNumber: string | null;
 }
 
-type CostSource = 'bill' | 'bill_prep' | 'override' | 'advance' | 'final_pay' | 'package' | 'none';
+type CostSource = 'bill' | 'bill_prep' | 'visit_charges' | 'override' | 'advance' | 'final_pay' | 'package' | 'none';
 
 type RowCategory = 'main' | 'direct' | 'manual';
 
@@ -232,6 +232,7 @@ type PatientTypeFilter = 'all' | 'OPD' | 'IPD';
 const COST_SOURCE_LABEL: Record<CostSource, string> = {
   bill: 'bill',
   bill_prep: 'bill',
+  visit_charges: 'opd',
   override: 'man',
   advance: 'adv',
   final_pay: 'final',
@@ -454,6 +455,11 @@ export function DailyRevenueReportSection({
     )),
     [visitsQuery.data],
   );
+  // The visit_* charge tables key on the UUID alone, never the printed code.
+  const visitUuids: string[] = useMemo(
+    () => (visitsQuery.data ?? []).map((v) => v.id).filter(Boolean),
+    [visitsQuery.data],
+  );
 
   // RM master list — used by the inline RM picker on each row.
   const rmMasterQuery = useQuery({
@@ -575,6 +581,37 @@ export function DailyRevenueReportSection({
       return amounts;
     },
     enabled: visitIds.length > 0,
+  });
+
+  // An OPD visit never produces a bills row -- the Final Bill save is the only
+  // thing that writes one, and OPD patients are billed on the Invoice screen,
+  // which adds the charges up on screen and stores nothing. So both bill
+  // lookups above miss for every one of them, and the cut used to fall through
+  // to whatever cost had been typed by hand. v_visit_charge_totals is the same
+  // arithmetic the invoice prints, keyed on the visit UUID.
+  const visitChargesQuery = useQuery({
+    queryKey: ['dailyRevenueVisitCharges', visitUuids.join(',')],
+    queryFn: async (): Promise<Record<string, number>> => {
+      if (visitUuids.length === 0) return {};
+      const { data, error } = await (supabase as any)
+        .from('v_visit_charge_totals')
+        .select('visit_id, charge_total')
+        .in('visit_id', visitUuids);
+      // Degrade honestly rather than block the report: until the migration is
+      // applied the view does not exist, and every other cost source still works.
+      if (error) {
+        console.warn('[daily-revenue] visit charge totals unavailable', error.message);
+        return {};
+      }
+
+      const amounts: Record<string, number> = {};
+      for (const row of (data ?? []) as Array<{ visit_id: string; charge_total: number | string | null }>) {
+        const amount = toNumber(row.charge_total);
+        if (row.visit_id && amount > 0) amounts[row.visit_id] = amount;
+      }
+      return amounts;
+    },
+    enabled: visitUuids.length > 0,
   });
 
   const advanceQuery = useQuery({
@@ -730,6 +767,7 @@ export function DailyRevenueReportSection({
     const overrides = overridesQuery.data ?? [];
     const billMap = billsQuery.data ?? {};
     const billPreparationMap = billPreparationQuery.data ?? {};
+    const visitChargeMap = visitChargesQuery.data ?? {};
     const advanceMap = advanceQuery.data ?? {};
     const finalPayMap = finalPayQuery.data ?? {};
     const savedAllocations = allocationsQuery.data ?? [];
@@ -751,19 +789,26 @@ export function DailyRevenueReportSection({
     const visitRows: DisplayRow[] = visits.map((v) => {
       const o = overrideByVisit.get(v.id);
 
-      // Priority: actual visit bill > submitted bill > legacy saved RM amount >
-      // payments > package. This keeps every registered OPD/IPD patient's cut
-      // anchored to the bill and prevents old ₹1,000 overrides from masking it.
+      // Priority: actual visit bill > submitted bill > the visit's own charges >
+      // legacy saved RM amount > payments > package. This keeps every registered
+      // OPD/IPD patient's cut anchored to the bill and prevents old ₹1,000
+      // overrides from masking it. The charges sit above the override for the
+      // same reason the two bill sources do: an OPD visit has no bills row to
+      // find, so without them every OPD cut fell back to a typed figure.
       let cost = 0;
       let cost_source: CostSource = 'none';
       const billAmount = billMap[v.id] ?? billMap[v.visit_id] ?? 0;
       const preparedBillAmount = billPreparationMap[v.visit_id] ?? 0;
+      const visitChargeAmount = visitChargeMap[v.id] ?? 0;
       if (billAmount > 0) {
         cost = billAmount;
         cost_source = 'bill';
       } else if (preparedBillAmount > 0) {
         cost = preparedBillAmount;
         cost_source = 'bill_prep';
+      } else if (visitChargeAmount > 0) {
+        cost = visitChargeAmount;
+        cost_source = 'visit_charges';
       } else if (o && Number(o.cost) > 0) {
         cost = Number(o.cost);
         cost_source = 'override';
@@ -902,7 +947,7 @@ export function DailyRevenueReportSection({
       all = all.filter((r) => !r.isHidden);
     }
     return all;
-  }, [visitsQuery.data, overridesQuery.data, allocationsQuery.data, billsQuery.data, billPreparationQuery.data, advanceQuery.data, finalPayQuery.data, rmMasterQuery.data, onlyWithRm, patientTypeFilter, showHidden, dateBasis, toDate]);
+  }, [visitsQuery.data, overridesQuery.data, allocationsQuery.data, billsQuery.data, billPreparationQuery.data, visitChargesQuery.data, advanceQuery.data, finalPayQuery.data, rmMasterQuery.data, onlyWithRm, patientTypeFilter, showHidden, dateBasis, toDate]);
 
   const totals = useMemo(
     () => rows.reduce(
@@ -2380,9 +2425,12 @@ export function DailyRevenueReportSection({
             </Table>
             <p className="text-xs text-gray-500 mt-3 print:hidden">
               Visits pulled live from the system for the selected date. Cost is auto-filled from:
+              the patient's bill <span className="text-gray-400">(bill)</span> →
+              the visit's own charges, which is where an OPD patient's total lives <span className="text-gray-400">(opd)</span> →
               advance payment <span className="text-gray-400">(adv)</span> →
               final payment <span className="text-gray-400">(final)</span> →
-              visit package <span className="text-gray-400">(pkg)</span>. Cut is auto-suggested using the assigned RM's saved percentage
+              visit package <span className="text-gray-400">(pkg)</span>. A bill or a charge total outranks a cost typed by hand, so an
+              old figure cannot hold a cut below the patient's real bill. Cut is auto-suggested using the assigned RM's saved percentage
               <span className="text-gray-400"> (sug)</span> — use the RM % edit icon to change that RM's rate and recalculate this row, or the cost/cut edit icon to save this row
               <span className="text-gray-400"> (man)</span>. Saved values persist on every refresh.
             </p>
