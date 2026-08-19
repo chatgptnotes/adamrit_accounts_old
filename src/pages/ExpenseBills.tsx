@@ -141,6 +141,28 @@ function useIsBillApprover() {
   });
 }
 
+/**
+ * How many bills are waiting for someone to release them, across every section.
+ * Counted in the database rather than from the loaded rows: the register and the
+ * two referral sections each fetch their own slice, so no page has the whole
+ * picture.
+ */
+function useAwaitingApprovalCount() {
+  return useQuery({
+    queryKey: ['expense-bills-awaiting-count'],
+    staleTime: 60_000,
+    queryFn: async (): Promise<number> => {
+      const { count, error } = await (supabase as any)
+        .from('expense_bills')
+        .select('id', { count: 'exact', head: true })
+        .is('approved_at', null)
+        .neq('status', 'CANCELLED');
+      if (error) throw error;
+      return count ?? 0;
+    },
+  });
+}
+
 /** Is approval being enforced? Drives the wording, never the permission. */
 function useApprovalEnforced() {
   return useQuery({
@@ -1288,7 +1310,7 @@ function PayEvidenceCell({ bill }: { bill: BillRow }) {
 function BillTable({
   rows, isLoading, error, onPay, emptyMessage, showPatient, billedToPatient,
   selectedIds, onToggleRow, onToggleAll, movedDates, onMove, moving, onRevert, reverting,
-  onApprove, canApprove, approving, approvalEnforced,
+  onApprove, canApprove, approving, approvalEnforced, awaitingOnly,
 }: {
   rows: BillRow[];
   isLoading: boolean;
@@ -1316,6 +1338,7 @@ function BillTable({
   approving: boolean;
   /** Drives the wording only — the refusal itself lives in the database. */
   approvalEnforced: boolean;
+  awaitingOnly: boolean;
 }) {
   if (isLoading) {
     return (
@@ -1332,11 +1355,21 @@ function BillTable({
       </div>
     );
   }
+  // Applied here rather than in each caller, so one toggle covers the register
+  // and both referral sections. A bill with no approval is one nobody has
+  // released — approvedAt is the same field the Approve button reads.
+  const allRows = rows;
+  rows = awaitingOnly ? rows.filter((b) => !b.approvedAt) : rows;
+
   if (rows.length === 0) {
     return (
       <div className="py-10 text-center text-gray-500">
         <Receipt className="mx-auto mb-2 h-10 w-10 opacity-30" />
-        <p>{emptyMessage}</p>
+        <p>
+          {awaitingOnly && allRows.length > 0
+            ? `All ${allRows.length} bill(s) here are approved.`
+            : emptyMessage}
+        </p>
       </div>
     );
   }
@@ -1583,6 +1616,10 @@ interface SelectionProps {
   canApprove: boolean;
   approving: boolean;
   approvalEnforced: boolean;
+  /** Show only bills nobody has approved yet. Applied in BillTable so the one
+   *  toggle reaches the register and both referral sections at once — the
+   *  unapproved bills are spread across all three. */
+  awaitingOnly: boolean;
 }
 
 function ReferralSection({ patientType, onPay, selection }: {
@@ -1664,6 +1701,10 @@ export default function ExpenseBills() {
   const queryClient = useQueryClient();
   const company = useExpenseBillCompanyId();
   const [draft, setDraft] = useState<RegisterFilters>(emptyFilters);
+  // Show only what nobody has released yet. Dr M, 19 Aug: 84 bills were awaiting
+  // approval across three sections with no way to see just those.
+  const [awaitingOnly, setAwaitingOnly] = useState(false);
+  const awaitingCount = useAwaitingApprovalCount();
   const [applied, setApplied] = useState<RegisterFilters>(emptyFilters);
   const [showFilters, setShowFilters] = useState(false);
   const [paying, setPaying] = useState<BillRow | null>(null);
@@ -1807,6 +1848,9 @@ export default function ExpenseBills() {
           : `${bill.billNumber} approved for payment.`,
       );
       queryClient.invalidateQueries({ queryKey: ['expense-bill-approvals'] });
+      // The toggle's count is a separate query; without this it keeps showing
+      // the number from before the approval.
+      queryClient.invalidateQueries({ queryKey: ['expense-bills-awaiting-count'] });
     },
     onError: (err) => toast.error(getErrorMessage(err)),
   });
@@ -1824,6 +1868,7 @@ export default function ExpenseBills() {
     canApprove: isApprover.data === true,
     approving: approveMutation.isPending,
     approvalEnforced: approvalEnforced.data === true,
+    awaitingOnly,
   };
 
   const activeFilterCount = useMemo(
@@ -1852,6 +1897,16 @@ export default function ExpenseBills() {
               ? <Loader2 className="h-4 w-4 animate-spin" />
               : <CalendarClock className="h-4 w-4" />}
             Move to Daily Allocation{selected.size > 0 ? ` (${selected.size})` : ''}
+          </Button>
+          <Button
+            variant={awaitingOnly ? 'default' : 'outline'}
+            className={awaitingOnly ? 'gap-1 bg-amber-600 text-white hover:bg-amber-700' : 'gap-1'}
+            title="Show only the bills nobody has approved yet — they cannot be paid until released"
+            onClick={() => setAwaitingOnly((on) => !on)}
+          >
+            <ShieldCheck className="h-4 w-4" />
+            {awaitingOnly ? 'Showing awaiting approval' : 'Awaiting approval'}
+            {awaitingCount.data ? ` (${awaitingCount.data})` : ''}
           </Button>
           <Button onClick={() => setRecording(true)} className="gap-1">
             <Plus className="h-4 w-4" /> Record an invoice
