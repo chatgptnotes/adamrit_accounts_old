@@ -2405,6 +2405,17 @@ ${JSON.stringify(sourceContext, null, 2)}`,
         </TabletButton>
       </div>
 
+      {/* The failure belongs where the eye is. This sat ~150 lines above, off
+          the top of a phone screen, so pressing Generate and getting an expired
+          session looked exactly like nothing happening at all (Dr M, 19 Aug).
+          Repeated here rather than moved: on a wide screen the top copy is
+          visible with the inputs, and on a phone this is the one that is read. */}
+      {arshiaError ? (
+        <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {arshiaError}
+        </p>
+      ) : null}
+
       <div>
         <TabletLabel htmlFor="arshia-generated-summary">Generated discharge summary</TabletLabel>
         <textarea
@@ -3184,6 +3195,12 @@ ${JSON.stringify(sourceContext, null, 2)}`,
             Download text
           </TabletButton>
         </div>
+
+        {arshiaError ? (
+          <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {arshiaError}
+          </p>
+        ) : null}
 
         <div>
           <TabletLabel htmlFor="arshia-generated-summary">Generated discharge summary</TabletLabel>
