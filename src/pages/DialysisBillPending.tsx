@@ -44,6 +44,28 @@ import {
 
 const REPORT_KIND = 'dialysis_bill_pending' as const;
 
+/** The migration this lane needs before it can store or read a single row. */
+const LANE_MIGRATION = '20260818200000_dialysis_bill_pending_lane.sql';
+
+/**
+ * Has the lane's migration not been applied yet?
+ *
+ * The code deploys the moment it is pushed; the SQL is applied by hand
+ * afterwards, so there is always a window where this screen is live and its two
+ * columns are not. Postgres answers 42703 for an unknown column, and PostgREST
+ * passes the name straight through. Without this the page showed a raw
+ * "column government_portal_report_imports.hospital_type does not exist", which
+ * reads like a bug in the page rather than a step nobody has taken yet.
+ */
+const isLaneMigrationMissing = (error: unknown): boolean => {
+  const e = error as { code?: string; message?: string } | null;
+  const message = e?.message || '';
+  return (
+    e?.code === '42703' &&
+    (message.includes('hospital_type') || message.includes('report_date'))
+  );
+};
+
 const todayIso = () => format(new Date(), 'yyyy-MM-dd');
 
 /** "18 Aug 2026", or the raw value if it is not a date we can read. */
@@ -86,6 +108,12 @@ export default function DialysisBillPending() {
         ? fetchGovernmentPortalReportById(selectedImportId)
         : fetchLatestGovernmentPortalReport(REPORT_KIND, hospitalType),
   });
+
+  // Both queries fail the same way while the migration is outstanding, and
+  // retrying cannot help, so say so once and stop offering an import that
+  // cannot succeed.
+  const migrationMissing =
+    isLaneMigrationMissing(snapshot.error) || isLaneMigrationMissing(history.error);
 
   const rows = snapshot.data?.report.rows ?? [];
   const pendingCount = snapshot.data?.report.totalRows ?? 0;
@@ -216,7 +244,7 @@ export default function DialysisBillPending() {
                   ref={fileInputRef}
                   type="file"
                   accept=".csv,.txt,text/csv,text/plain"
-                  disabled={isImporting}
+                  disabled={isImporting || migrationMissing}
                   onChange={handleFileChange}
                   className="h-9"
                 />
@@ -273,7 +301,24 @@ export default function DialysisBillPending() {
           </Alert>
         )}
 
-        {snapshot.isError && (
+        {migrationMissing && (
+          <Alert variant="destructive">
+            <AlertTitle>This screen is waiting on a database update</AlertTitle>
+            <AlertDescription className="space-y-1 text-sm">
+              <p>
+                Nothing is broken and nothing has been lost — the screen went live before its
+                database change was applied, so it has nowhere to keep an import yet.
+              </p>
+              <p>
+                Ask Dr M to run <code className="font-mono text-xs">{LANE_MIGRATION}</code> in the
+                Supabase SQL editor, then reload this page. Importing is switched off until then,
+                because a file uploaded now would not save.
+              </p>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {snapshot.isError && !migrationMissing && (
           <Alert variant="destructive">
             <AlertTitle>Could not load the saved imports</AlertTitle>
             <AlertDescription>
