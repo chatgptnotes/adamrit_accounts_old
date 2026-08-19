@@ -1340,6 +1340,20 @@ function BillTable({
   approvalEnforced: boolean;
   awaitingOnly: boolean;
 }) {
+  // WHOSE APPROVAL, READ HERE RATHER THAN BY EACH CALLER. The register enriched
+  // its own rows with this and the two referral sections did not, so an approved
+  // M.L. Enterprises invoice kept showing a green Approve button for ever: the
+  // view those sections read, v_expense_bills_outstanding, carries no approval
+  // columns at all, so approvedAt was null no matter how many times it was
+  // approved (Dr M, 19 Aug — "even after approval, the button is still green").
+  // Doing it in the shared table means a fourth section cannot forget it.
+  const approvalsHere = useBillApprovals(rows.map((b) => b.id));
+  rows = rows.map((b) => ({
+    ...b,
+    approvedAt: approvalsHere.data?.[b.id]?.at ?? b.approvedAt,
+    approvedByName: approvalsHere.data?.[b.id]?.by ?? b.approvedByName,
+  }));
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
