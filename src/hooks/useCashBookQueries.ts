@@ -420,7 +420,9 @@ export interface DailyTransaction {
  * Hook to fetch ALL daily transactions from all billing tables
  * Includes: OPD, Lab, Radiology, Pharmacy, Physiotherapy, Mandatory Services
  */
-export const useAllDailyTransactions = (filters?: CashBookFilters, hospitalName?: string) => {
+// hospitalName null/undefined means every hospital — how the Cash Book asks for
+// All Companies. It is passed straight to the RPC as null.
+export const useAllDailyTransactions = (filters?: CashBookFilters, hospitalName?: string | null) => {
   return useQuery({
     queryKey: ['all-daily-transactions', filters, hospitalName],
     queryFn: async () => {

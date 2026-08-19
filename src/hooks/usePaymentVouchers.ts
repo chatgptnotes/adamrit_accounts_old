@@ -112,7 +112,9 @@ export const isCashPaymentVoucher = (v: { account_ledger_name?: string | null })
   return normalised === 'cash' || normalised.startsWith('cash in hand') || normalised.startsWith('cash ');
 };
 
-export const usePaymentVouchers = (fromDate: string, toDate: string, hospitalType?: string) => {
+// hospitalType null/undefined means every hospital: the .eq() below is only
+// applied when a name is given, which is how All Companies gets everything.
+export const usePaymentVouchers = (fromDate: string, toDate: string, hospitalType?: string | null) => {
   return useQuery({
     queryKey: ['payment-vouchers-cashbook', fromDate, toDate, hospitalType],
     queryFn: async () => {

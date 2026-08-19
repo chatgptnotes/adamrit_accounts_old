@@ -18,6 +18,7 @@ import {
 import { useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { StaffNameField } from "./StaffNameField";
 import { useToast } from "@/hooks/use-toast";
 import {
   createAssistantApprovalsFromOt,
@@ -659,6 +660,8 @@ function OtDoctorAmountEditor({
 function GauravScheduler() {
   const { toast } = useToast();
   const qc = useQueryClient();
+  // Which hospital's surgeon and anaesthetist masters the name fields search.
+  const { hospitalConfig } = useAuth();
   const rooms = useOtRooms();
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
@@ -983,14 +986,22 @@ function GauravScheduler() {
               {packageDefaults.isFetching ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
             </div>
             <div className="space-y-3">
-              <label className="block space-y-1">
-                <span className="text-sm font-medium">Surgeon Name</span>
-                <TabletInput value={surgeonName} onChange={(event) => setSurgeonName(event.target.value)} placeholder="Auto-filled from package master" />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-sm font-medium">Anaesthetist Name</span>
-                <TabletInput value={anesthetistName} onChange={(event) => setAnesthetistName(event.target.value)} placeholder="Auto-filled from package master" />
-              </label>
+              <StaffNameField
+                label="Surgeon Name"
+                role="surgeon"
+                hospital={hospitalConfig.name}
+                value={surgeonName}
+                onChange={setSurgeonName}
+                placeholder="Search the surgeon master, or type a new name"
+              />
+              <StaffNameField
+                label="Anaesthetist Name"
+                role="anaesthetist"
+                hospital={hospitalConfig.name}
+                value={anesthetistName}
+                onChange={setAnesthetistName}
+                placeholder="Search the anaesthetist master, or type a new name"
+              />
               <label className="block space-y-1">
                 <span className="text-sm font-medium">Anesthesia Type</span>
                 <TabletInput value={anesthesiaType} onChange={(event) => setAnesthesiaType(event.target.value)} placeholder="Auto-filled from package master" />

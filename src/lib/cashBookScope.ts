@@ -65,7 +65,19 @@ export function cashBookScope(
 ): CashBookScope {
   const key = String(companyKey || '').trim().toLowerCase();
   if (!key) {
-    return { hospitalName: fallbackHospital, includeHospital: true, includePharmacy: true };
+    // "All Companies", and it now means all of them.
+    //
+    // THE BUG THIS REPLACES. Nothing selected returned the SIGNED-IN hospital,
+    // so "All Companies" showed one hospital's rows. The summary bar above the
+    // list fetches Hope, Ayushman and the pharmacy separately, so it showed
+    // Ayushman Cr Rs 1,58,360 for 18-Aug while the transactions beneath it
+    // listed not one of those payments -- the owner read that, correctly, as
+    // the expenses not being reflected in the cash book (19 Aug).
+    //
+    // `fallbackHospital` is still honoured for a company that owns hospital
+    // rows but names no hospital of its own; it is only "no selection" that
+    // stops meaning "just mine".
+    return ALL_COMPANIES_SCOPE;
   }
   return (
     BY_KEY[key] ?? {
@@ -87,7 +99,16 @@ export function cashBookScope(
  */
 export const NO_HOSPITAL_SENTINEL = '__no_hospital__';
 
-export function hospitalFilterFor(scope: CashBookScope, fallbackHospital: string): string {
+/**
+ * Returns null for "every hospital" — both transaction queries read null as no
+ * filter (`p_hospital_name: hospitalName || null`, and the voucher query only
+ * applies .eq() when a name is given), so null is how All Companies asks for
+ * everything. Previously this could not express that at all.
+ */
+export function hospitalFilterFor(
+  scope: CashBookScope,
+  fallbackHospital: string,
+): string | null {
   if (!scope.includeHospital) return NO_HOSPITAL_SENTINEL;
-  return scope.hospitalName ?? fallbackHospital;
+  return scope.hospitalName;
 }

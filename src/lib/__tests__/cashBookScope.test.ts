@@ -29,9 +29,11 @@ describe('cashBookScope — a company is not a hospital', () => {
     expect(s.includePharmacy).toBe(false);
   });
 
-  it('falls back to the signed-in hospital when nothing is selected', () => {
+  it('means every company when nothing is selected, not just the signed-in one', () => {
     const s = cashBookScope('', 'ayushman');
-    expect(s.hospitalName).toBe('ayushman');
+    // Was 'ayushman'. "All Companies" that showed one hospital is why the
+    // summary bar and the transaction list disagreed about 18-Aug.
+    expect(s.hospitalName).toBeNull();
     expect(s.includeHospital).toBe(true);
     expect(s.includePharmacy).toBe(true);
   });
@@ -59,8 +61,13 @@ describe('hospitalFilterFor', () => {
     expect(hospitalFilterFor(cashBookScope('ml_enterprises', 'hope'), 'hope')).toBe(NO_HOSPITAL_SENTINEL);
   });
 
-  it('falls back to the signed-in hospital when none is selected', () => {
-    expect(hospitalFilterFor(cashBookScope('', 'ayushman'), 'ayushman')).toBe('ayushman');
+  it('filters by no hospital at all when none is selected, so every company shows', () => {
+    expect(hospitalFilterFor(cashBookScope('', 'ayushman'), 'ayushman')).toBeNull();
+  });
+
+  it('still names the hospital for each company that owns one', () => {
+    expect(hospitalFilterFor(cashBookScope('drm_pvt_ltd', 'ayushman'), 'ayushman')).toBe('hope');
+    expect(hospitalFilterFor(cashBookScope('ayushman_nagpur', 'hope'), 'hope')).toBe('ayushman');
   });
 });
 
