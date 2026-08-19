@@ -46,7 +46,7 @@
   "src/components/accounting/TrialBalance.tsx": "ea3e7aae164bbc5149de2cc7167484680d1c82fa4a3f0b9e94c673b1ad778bd3",
   "src/components/accounting/VoucherAttachmentFields.tsx": "a5006ec9a33f5721ff5f93ee026d22d4664ddb5531a39cbbe3b1862d4b1bf328",
   "src/components/accounting/VoucherAttachmentViewer.tsx": "7d7c525c013e1eae665d0fe56ff2d247b620d5108a55bbea2994a5dc8d305df7",
-  "src/components/accounting/VoucherEntry.tsx": "f5a969f66373896bfb6e3270942bee6df8706de8ef87b56143803ce0404f4657",
+  "src/components/accounting/VoucherEntry.tsx": "f62c7ef087f8b72b75d7e43848dc887c1c04cb1d98f4ec6b19fd6eff9f079c8a",
   "src/components/accounting/VoucherGapDetection.tsx": "61b6ef2c1ce68081f4520ef60d180e424b8a87f067e70f3438900560af97b902",
   "src/components/accounting/VoucherRegister.tsx": "06811b3ee4971c8f007731182ee37b81d158fc98628e1ef5f4c171fa2dcd4d56",
   "src/components/accounting/VoucherTypeCreation.tsx": "06003e207781e679e1ea1476b097cb971efa5118c25be9bb9fcdb214e2ca2c81",

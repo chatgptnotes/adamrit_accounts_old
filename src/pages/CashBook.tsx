@@ -200,8 +200,18 @@ const CashBook: React.FC = () => {
     },
   });
 
+  // Which counter's vouchers this company pays out of. NOT effectiveHospitalName:
+  // that is deliberately a value matching no row for the pharmacy, because the
+  // pharmacy must not pull in Hope's patient advances. Its EXPENSES are its own
+  // though, so they need the pharmacy counter rather than the sentinel — without
+  // this the Hope Pharmacy cash book could never show a rupee going out.
+  const voucherHospitalName = useMemo(
+    () => (scope.includePharmacy && !scope.includeHospital ? 'pharmacy' : effectiveHospitalName),
+    [scope, effectiveHospitalName],
+  );
+
   // Payment vouchers (cash paid out) for this hospital → shown as Credit rows
-  const { data: paymentVouchers } = usePaymentVouchers(fromDate, toDate, effectiveHospitalName);
+  const { data: paymentVouchers } = usePaymentVouchers(fromDate, toDate, voucherHospitalName);
 
   // --- Per-hospital data for the TOP summary breakdown (Hope / Ayushman / Total) ---
   // Fetched for BOTH hospitals regardless of the selected company, so the top bar can
@@ -210,6 +220,12 @@ const CashBook: React.FC = () => {
   const { data: ayushmanDailyTransactions } = useAllDailyTransactions(dailyFilters, 'ayushman');
   const { data: hopeVouchers } = usePaymentVouchers(fromDate, toDate, 'hope');
   const { data: ayushmanVouchers } = usePaymentVouchers(fromDate, toDate, 'ayushman');
+  // The pharmacy's own expenses. Its summary row was built with no voucher list
+  // at all, so its Credit column could only ever read zero however much cash it
+  // paid out — "Hope Pharmacy: Cr Rs 0.00" on every date anyone ever chose.
+  // Disjoint from the two above (hospital_type is one value per voucher), so
+  // nothing is counted twice and the Total is unchanged.
+  const { data: pharmacyVouchers } = usePaymentVouchers(fromDate, toDate, 'pharmacy');
 
   // State for pharmacy credit payments (only for Hope hospital)
   const [pharmacyCreditPayments, setPharmacyCreditPayments] = useState<any[]>([]);
@@ -705,7 +721,7 @@ const CashBook: React.FC = () => {
       },
       {
         label: 'Hope Pharmacy',
-        t: computeHospitalTotals(hopeDailyTransactions, undefined, hopePharmacyCredits, hopePharmacyRefunds, true, false),
+        t: computeHospitalTotals(hopeDailyTransactions, pharmacyVouchers, hopePharmacyCredits, hopePharmacyRefunds, true, false),
       },
       {
         label: 'Ayushman Nagpur',
@@ -715,7 +731,7 @@ const CashBook: React.FC = () => {
     // Shown even at zero: an absent line reads as "this company has no cash
     // book", which is exactly the confusion being fixed.
     return rows;
-  }, [hopeDailyTransactions, hopeVouchers, hopePharmacyCredits, hopePharmacyRefunds, ayushmanDailyTransactions, ayushmanVouchers]);
+  }, [hopeDailyTransactions, hopeVouchers, pharmacyVouchers, hopePharmacyCredits, hopePharmacyRefunds, ayushmanDailyTransactions, ayushmanVouchers]);
 
   const combinedTotals = useMemo(() => ({
     debit: companyTotals.reduce((s, r) => s + r.t.debit, 0),

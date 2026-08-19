@@ -26,6 +26,34 @@ const ACCOUNTING_EMAILS = new Set([
   'lalit@gmail.com',
 ]);
 
+// People who carry the takings to the bank but keep no books. Farhan runs the
+// pharmacy counter and banks its cash; his role is pharmacist, so neither
+// ACCOUNTING_ROLES nor the cashier role below reaches him. Naming him in
+// ACCOUNTING_EMAILS above would have worked and been wrong -- that set is the
+// single switch for voucher create and alter on the desktop Accounting screen
+// as well, which is far more than banking cash and is the quiet over-grant the
+// comment above warns about. This list opens the deposit and nothing else.
+//
+// BOTH HIS ADDRESSES ARE LISTED. farhan@hope.com is the placeholder he signs in
+// with today; farhanibrani42@gmail.com is his real address, carried as
+// google_email since 14-Aug. When the placeholders are retired the way
+// Shailesh's and Nisha's were on 18-Aug his primary email becomes the second
+// one, and this right would otherwise die silently the same instant.
+// Nisha is the other one. She is a receptionist who banks Hope's takings, and
+// the comment at the top of ACCOUNTING_EMAILS claims she is named there --
+// she is not, only Diksha is. So she has been carrying cash to the bank with no
+// screen to record it on, and the Cash Shift Report has been reporting "no cash
+// was paid into the bank" on days she deposited: the only record of a deposit is
+// the CONTRA voucher post_cash_bank_entry writes, and she cannot reach either
+// tile that calls it. One address only -- nisha@gmail.com was retired on 18-Aug
+// (20260818140000) and google_email cleared with it, so listing it would be a
+// dead entry of exactly the kind the header warns about.
+const CASH_DEPOSIT_EMAILS = new Set([
+  'farhan@hope.com',
+  'farhanibrani42@gmail.com',
+  'im.nishasharma@gmail.com',
+]);
+
 /**
  * Banking the day's takings is the one Bank & Cash action a cashier may take.
  *
@@ -39,7 +67,9 @@ const ACCOUNTING_EMAILS = new Set([
  * else, so withdrawals, bank charges and interest stay with accounting.
  */
 export function canDepositCash(user?: { role?: string | null; email?: string | null } | null): boolean {
-  return canCreateAccountingVouchers(user) || (user?.role || '').toLowerCase() === 'cashier';
+  return canCreateAccountingVouchers(user)
+    || (user?.role || '').toLowerCase() === 'cashier'
+    || CASH_DEPOSIT_EMAILS.has((user?.email || '').toLowerCase());
 }
 
 export function canCreateAccountingVouchers(user?: { role?: string | null; email?: string | null } | null): boolean {

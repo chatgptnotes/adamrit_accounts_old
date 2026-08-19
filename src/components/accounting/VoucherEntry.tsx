@@ -1407,6 +1407,23 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
       toast.error('Enter the amount paid.');
       return;
     }
+    // The mobile of the person paid. This path does NOT go through saveVoucher,
+    // so it had neither the check below nor any way of sending the number — the
+    // field was filled in on screen and dropped between here and the database,
+    // where a hand-typed payment with no number is refused. Every on-behalf
+    // payment failed to save from 13-Aug until this was joined up.
+    const obMobileDigits = partyMobile
+      .replace(/\D/g, '')
+      .replace(/^91(?=\d{10}$)/, '')
+      .replace(/^0(?=\d{10}$)/, '');
+    if (!obMobileDigits) {
+      toast.error('Enter the mobile number of the person being paid.');
+      return;
+    }
+    if (!/^[6-9]\d{9}$/.test(obMobileDigits)) {
+      toast.error('That mobile number should be 10 digits starting 6, 7, 8 or 9.');
+      return;
+    }
     setSaving(true);
     try {
       const { data, error } = await (supabase as any).rpc('create_on_behalf_payment', {
@@ -1419,6 +1436,7 @@ const VoucherEntry: React.FC<VoucherEntryProps> = ({
         p_pay_to: obPayTo.trim() || null,
         p_narration: narration.trim() || null,
         p_user: username,
+        p_party_mobile: obMobileDigits,
       });
       if (error) {
         toast.error('Failed to save the on-behalf payment: ' + error.message);
