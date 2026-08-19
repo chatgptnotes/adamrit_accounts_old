@@ -68,7 +68,7 @@
   "src/components/accounting/tally/heads.ts": "ca8b94dc9dc1af582a1671bc05ed607ca6659fa6f6d00d330b7e08d1176b5575",
   "src/components/accounting/tally/keyboard.ts": "6720e82fedff85da742fa572596f06e87b4a33bb3af323d3a77479531da1423d",
   "src/components/accounting/tally/reportExport.ts": "b13c1c2dac39a3cb605a6a850b2be27da84ce6d2a46403d198d2608f83ded262",
-  "src/components/accounting/tally/rights.ts": "9670124be1a2a94c1bf19960394ae55c7e6ee0fcd515a8f81443097e921b3961",
+  "src/components/accounting/tally/rights.ts": "ee1d175bc7766f87f03c23594d09e99cc31edd6430b8de5b9224ea6594799b29",
   "src/components/accounting/tally/useFieldRing.ts": "abf96beefb04aa1d227437e49b158b96c549398f554c71d24ba868587a9ddf0f",
   "src/components/accounting/tally/useLetterhead.ts": "5d39ee48b51f63b1358eb04f39906a5a8849e46e1842a6132d21ac4ddf38b6cd",
   "src/components/accounting/tally/useRowCursor.ts": "d1721264435b281f388668ab12c146a256dc2aa68d2d61a7552e37c324247c08",

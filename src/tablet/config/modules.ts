@@ -775,7 +775,7 @@ export function modulesForUser(
     // Diksha (receptionist) and Lalit (pharmacist) are admitted by name and
     // then turned away by their role.
     if ((OFFICE_TILE_IDS as readonly string[]).includes(module.id)) {
-      return canSeeOfficeTiles(user);
+      return canSeeOfficeTiles(user, handlesCash);
     }
     // The four voucher tiles run off their own list, which must also override
     // accountingOnly — otherwise Nisha and Diksha are admitted by name and
@@ -785,8 +785,10 @@ export function modulesForUser(
     }
     // Bank & Cash is accountingOnly, but a cashier banks the day's takings.
     // The flow shows them the deposit and nothing else.
-    if (module.id === 'bank-cash') return canDepositCash(user);
-    if (module.accountingOnly && !canCreateAccountingVouchers(user)) return false;
+    if (module.id === 'bank-cash') return canDepositCash(user, handlesCash);
+    // Every cashier gets the accounting tiles (Dr M, 19 Aug), so the cash
+    // roster opens the accountingOnly ones just as it opens the voucher tiles.
+    if (module.accountingOnly && !canCreateAccountingVouchers(user, handlesCash)) return false;
     if (module.roles && module.roles.length > 0) {
       return !!user?.role && module.roles.includes(user.role);
     }

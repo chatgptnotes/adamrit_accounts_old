@@ -14,7 +14,7 @@
 //     pharmacist. Their roles are shared with dozens of others, so only the
 //     person is admitted, not the role.
 
-import { canCreateAccountingVouchers } from '@/lib/accounting-access';
+import { accountingDenied, canCreateAccountingVouchers } from '@/lib/accounting-access';
 
 const MANAGEMENT_ROLES = new Set([
   'superadmin',
@@ -115,20 +115,36 @@ export function canSeeVoucherTiles(
   user?: { email?: string | null; role?: string | null } | null,
   handlesCash = false,
 ): boolean {
+  // Named refusals first. Shashank holds a drawer, so handlesCash below would
+  // otherwise admit him to every voucher tile (Dr M, 19 Aug: he gets none).
+  if (accountingDenied(user)) return false;
   const role = (user?.role || '').toLowerCase().trim();
   if (MANAGEMENT_ROLES.has(role)) return true;
   if (handlesCash) return true;
-  if (canCreateAccountingVouchers(user)) return true;
+  if (canCreateAccountingVouchers(user, handlesCash)) return true;
   return VOUCHER_TILE_EMAILS.has((user?.email || '').toLowerCase().trim());
 }
 
 /** @deprecated Use canSeeVoucherTiles — Payment Voucher is no longer special. */
 export const canSeePaymentVoucher = canSeeVoucherTiles;
 
+/**
+ * @param handlesCash from the cash roster. Accounts and Expense Bills are
+ *   accounting tiles, and every cashier is to have the accounting tiles
+ *   (Dr M, 19 Aug), so the roster admits them here as it already does for the
+ *   voucher tiles. The named refusals still win.
+ */
 export function canSeeOfficeTiles(
   user?: { email?: string | null; role?: string | null } | null,
+  handlesCash = false,
 ): boolean {
+  if (accountingDenied(user)) return false;
   const role = (user?.role || '').toLowerCase().trim();
   if (MANAGEMENT_ROLES.has(role)) return true;
+  if (handlesCash) return true;
+  // Anyone with the books has these two as well. Without this a caller that
+  // cannot answer the roster question -- and the sidebar cannot -- hid Accounts
+  // and Expense Bills from Nisha while the tablet grid showed them to her.
+  if (canCreateAccountingVouchers(user, handlesCash)) return true;
   return OFFICE_TILE_EMAILS.has((user?.email || '').toLowerCase().trim());
 }
