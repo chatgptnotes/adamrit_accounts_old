@@ -39,6 +39,8 @@ export interface VoucherEntry {
   transactionCount: number;
   transactionDate: string;
   paymentMode: string;
+  /** Who paid it out. Shown in the Cash Book's "By" column. */
+  handledBy?: string | null;
 }
 
 // Format an ISO date (YYYY-MM-DD) as DD/MM/YYYY, matching CashBook/DayBook rows.
@@ -73,6 +75,7 @@ export const voucherToEntry = (v: PaymentVoucherRow): VoucherEntry => {
     patientName: person,
     transactionCount: 1,
     transactionDate: v.voucher_date,
+    handledBy: v.paid_by || null,
     paymentMode: 'CASH',
   };
 };

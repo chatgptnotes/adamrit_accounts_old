@@ -148,6 +148,24 @@ const CashBook: React.FC = () => {
     to_date: toDate
   });
 
+  // What each counter is holding RIGHT NOW — independent of the dates chosen
+  // above. The report answers "what happened"; this answers "who is sitting on
+  // cash at this moment", which is the question at shift end.
+  const { data: livePositions } = useQuery({
+    queryKey: ['cash-book-live-positions', scope.hospitalName, scope.includeHospital, scope.includePharmacy],
+    queryFn: async () => {
+      if (!scope.includeHospital && !scope.includePharmacy) return [];
+      const { data, error } = await (supabase as any).rpc('cash_position_by_holder', {
+        p_hospital_type: scope.includeHospital && scope.includePharmacy && !scope.hospitalName
+          ? null
+          : (scope.includePharmacy && !scope.includeHospital ? 'pharmacy' : scope.hospitalName),
+      });
+      if (error) throw new Error(error.message);
+      return (data ?? []) as Array<{ holder_name: string; net_cash: number; receipt_count: number; attribution: string }>;
+    },
+    refetchInterval: 60000,
+  });
+
   // Handovers in the visible range. A handover IS a cash movement out of the
   // drawer that made it — the money changes hands at a named moment — so it
   // belongs in the running balance, not in a footnote. Without these lines the
@@ -388,42 +406,40 @@ const CashBook: React.FC = () => {
     data.push([]);  // Empty row
 
     // Add headers with voucher columns
-    data.push(['Date', 'Particulars', 'Vch Type', 'Vch No.', 'Debit', 'Credit']);
+    // Same columns as the screen, or the export and the report disagree.
+    data.push(['Date', 'Particulars', 'By', 'Vch Type', 'Vch No.', 'Debit', 'Credit', 'Balance']);
 
     // Counter for voucher numbers
     let voucherCounter = 1;
 
     // Add all entries
-    displayEntries.forEach((entry) => {
+    displayEntries.forEach((entry, index) => {
       if (entry.type === 'opening-balance') {
         data.push([
           entry.date,
           entry.particulars,
+          '',
           '', // No voucher type for opening balance
           '', // No voucher number for opening balance
           entry.debit > 0 ? entry.debit : '',
-          entry.credit > 0 ? entry.credit : ''
+          entry.credit > 0 ? entry.credit : '',
+          runningBalances[index] ?? ''
         ]);
       } else if (entry.type === 'patient-summary') {
         // Add main row with patient name
         data.push([
           entry.date,
           entry.particulars,
+          entry.handledBy || 'not recorded',
           'Payment', // Voucher type
           voucherCounter++, // Voucher number (auto-increment)
           entry.debit > 0 ? entry.debit : '',
-          entry.credit > 0 ? entry.credit : ''
+          entry.credit > 0 ? entry.credit : '',
+          runningBalances[index] ?? ''
         ]);
         // Add summary as a sub-row (without amounts, just detail)
         if (entry.summary) {
-          data.push([
-            '',
-            `  ${entry.summary}`,
-            '',
-            '',
-            '',
-            ''
-          ]);
+          data.push(['', `  ${entry.summary}`, '', '', '', '', '', '']);
         }
       }
     });
@@ -431,45 +447,23 @@ const CashBook: React.FC = () => {
     // Add empty row before totals
     data.push([]);
 
-    // Add total row
-    data.push([
-      '',
-      'Total:',
-      '',
-      '',
-      totals.totalDebit,
-      totals.totalCredit
-    ]);
-
-    // Add closing balance row
-    data.push([
-      '',
-      'By',
-      'Closing Balance',
-      '',
-      '',
-      Math.abs(totals.closingBalance)
-    ]);
-    data.push([
-      '',
-      '',
-      '',
-      '',
-      totals.totalDebit,
-      totals.totalCredit
-    ]);
+    // Eight columns: Date, Particulars, By, Vch Type, Vch No., Debit, Credit, Balance.
+    data.push(['', 'Total:', '', '', '', totals.totalDebit, totals.totalCredit, '']);
+    data.push(['', 'Closing Balance', '', '', '', '', '', Math.abs(totals.closingBalance)]);
 
     // Create worksheet from data
     const worksheet = XLSX.utils.aoa_to_sheet(data);
 
     // Set column widths
     worksheet['!cols'] = [
-      { wch: 12 },  // Date column
-      { wch: 50 },  // Particulars column (wider for summary text)
-      { wch: 12 },  // Vch Type column
-      { wch: 8 },   // Vch No. column
-      { wch: 15 },  // Debit column
-      { wch: 15 }   // Credit column
+      { wch: 12 },  // Date
+      { wch: 50 },  // Particulars (wider for the summary text)
+      { wch: 18 },  // By
+      { wch: 12 },  // Vch Type
+      { wch: 8 },   // Vch No.
+      { wch: 15 },  // Debit
+      { wch: 15 },  // Credit
+      { wch: 16 }   // Balance
     ];
 
     // Add worksheet to workbook
@@ -644,6 +638,7 @@ const CashBook: React.FC = () => {
           patientName: undefined,
           transactionCount: 1,
           transactionDate: h.submitted_at,
+          handledBy: from,
         });
       });
     }
@@ -660,6 +655,18 @@ const CashBook: React.FC = () => {
 
     return [...openingRow, ...transactionRows];
   }, [dailyTransactions, cashBookData, fromDate, pharmacyCreditPayments, pharmacyRefunds, paymentVouchers, handovers]);
+
+  // The balance after each row, so any line can be read as "this is what the
+  // counter held at that moment". Debits add, credits — expenses and handovers
+  // alike — take away, which is what makes a handover traceable to a point in
+  // time rather than just a number at the bottom.
+  const runningBalances = useMemo(() => {
+    let balance = 0;
+    return displayEntries.map((entry) => {
+      balance += (entry.debit || 0) - (entry.credit || 0);
+      return balance;
+    });
+  }, [displayEntries]);
 
   // Calculate totals for footer
   const totals = useMemo(() => {
@@ -869,6 +876,33 @@ const CashBook: React.FC = () => {
         </div>
       )}
 
+      {/* What each counter is holding right now — live, not date-filtered. */}
+      {!isLoading && !error && livePositions && livePositions.length > 0 && (
+        <div className="mx-4 mb-2 rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
+            <span className="font-semibold text-emerald-900">
+              Live counter cash <span className="font-normal text-emerald-700">(right now, whatever dates are shown above)</span>
+            </span>
+            {livePositions
+              .filter((p) => p.attribution !== 'payout')
+              .map((p) => (
+                <span key={p.holder_name} className="font-semibold text-emerald-900">
+                  {p.holder_name}:{' '}
+                  <span className={p.net_cash < 0 ? 'text-red-700' : ''}>
+                    {formatCurrencyTotal(Math.abs(Number(p.net_cash) || 0))}
+                  </span>
+                  <span className="ml-1 text-xs font-normal text-emerald-700">
+                    ({p.receipt_count} uncollected)
+                  </span>
+                </span>
+              ))}
+            {livePositions.filter((p) => p.attribution !== 'payout').length === 0 && (
+              <span className="text-emerald-700">No counter is holding cash.</span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Cash Book Table */}
       <div className="flex-1 overflow-auto px-4 bg-white">
         {isLoading ? (
@@ -905,11 +939,17 @@ const CashBook: React.FC = () => {
                 <th className="text-left py-2 px-3 font-semibold text-blue-700 border-b-2 border-gray-300 text-sm">
                   Particulars
                 </th>
+                <th className="text-left py-2 px-3 font-semibold text-blue-700 border-b-2 border-gray-300 text-sm w-36">
+                  By
+                </th>
                 <th className="text-right py-2 px-3 font-semibold text-blue-700 border-b-2 border-gray-300 text-sm w-40">
                   Debit
                 </th>
                 <th className="text-right py-2 px-3 font-semibold text-blue-700 border-b-2 border-gray-300 text-sm w-40">
                   Credit
+                </th>
+                <th className="text-right py-2 px-3 font-semibold text-blue-700 border-b-2 border-gray-300 text-sm w-44">
+                  Balance
                 </th>
               </tr>
             </thead>
@@ -922,11 +962,15 @@ const CashBook: React.FC = () => {
                       <td className="py-2 px-3 align-top text-sm">
                         <div className="font-medium">{entry.particulars}</div>
                       </td>
+                      <td className="py-2 px-3 align-top text-sm text-gray-400">—</td>
                       <td className="py-2 px-3 text-right align-top text-sm font-medium">
                         {formatCurrency(entry.debit)}
                       </td>
                       <td className="py-2 px-3 text-right align-top text-sm font-medium">
                         {formatCurrency(entry.credit)}
+                      </td>
+                      <td className="py-2 px-3 text-right align-top text-sm font-semibold text-gray-800">
+                        {formatCurrencyTotal(Math.abs(runningBalances[index] ?? 0))}
                       </td>
                     </tr>
                   );
@@ -945,11 +989,19 @@ const CashBook: React.FC = () => {
                             └─ {entry.summary}
                           </div>
                         </td>
+                        <td className="py-2 px-3 align-top text-sm">
+                          {entry.handledBy
+                            ? <span className="text-gray-800">{entry.handledBy}</span>
+                            : <span className="text-gray-400" title="No cashier recorded against this transaction">not recorded</span>}
+                        </td>
                         <td className="py-2 px-3 text-right align-top text-sm font-medium">
                           {formatCurrency(entry.debit)}
                         </td>
                         <td className="py-2 px-3 text-right align-top text-sm font-medium">
                           {formatCurrency(entry.credit)}
+                        </td>
+                        <td className="py-2 px-3 text-right align-top text-sm font-semibold text-gray-800">
+                          {formatCurrencyTotal(Math.abs(runningBalances[index] ?? 0))}
                         </td>
                       </tr>
                     </React.Fragment>
@@ -961,7 +1013,7 @@ const CashBook: React.FC = () => {
             </tbody>
             <tfoot className="bg-gray-50 border-t-2 border-gray-400">
               <tr>
-                <td className="py-3 px-3 text-sm font-bold" colSpan={2}>
+                <td className="py-3 px-3 text-sm font-bold" colSpan={3}>
                   Total:
                 </td>
                 <td className="py-3 px-3 text-right text-sm font-bold text-blue-900">
@@ -970,9 +1022,12 @@ const CashBook: React.FC = () => {
                 <td className="py-3 px-3 text-right text-sm font-bold text-blue-900">
                   {formatCurrencyTotal(totals.totalCredit)}
                 </td>
+                <td className="py-3 px-3 text-right text-sm font-bold text-blue-900">
+                  {formatCurrencyTotal(Math.abs(totals.closingBalance))}
+                </td>
               </tr>
               <tr className="bg-red-50">
-                <td className="py-3 px-3 text-sm font-bold text-red-700" colSpan={2}>
+                <td className="py-3 px-3 text-sm font-bold text-red-700" colSpan={3}>
                   Closing Balance:
                 </td>
                 <td className="py-3 px-3 text-right text-sm font-bold text-red-700" colSpan={2}>
