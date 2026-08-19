@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 // prescription_items RLS return 0 rows, so a pharmacist would see empty
 // prescriptions and "No items found". See integrations/supabase/data-client.
 import { supabaseData as supabase } from '@/integrations/supabase/data-client';
+import { matchMedicineName, medicineSearchFilter } from '@/lib/pharmacy/medicineNameMatch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -920,16 +921,30 @@ const DetailModal: React.FC<DetailModalProps> = ({ prescription, onClose }) => {
       ];
       if (distinctNames.length === 0) return;
       try {
+        // ilike WITHOUT wildcards was an exact comparison, so only a
+        // prescription typed as the purchased product resolved — "INJ TAZAR"
+        // against "TAZAR 4.5 GM INJ" found nothing and the row read "Stock:
+        // unknown" with no price, amount or batch beside it. Candidates are now
+        // fetched on the identifying word across the product AND generic name,
+        // the way the New Sale search already does, and matchMedicineName
+        // decides between them.
         const nameToId: Record<string, string> = {};
+        const ambiguousNames = new Set<string>();
         await Promise.all(
           distinctNames.map(async (name) => {
-            const { data } = await supabase
+            const filter = medicineSearchFilter(name);
+            let query = supabase
               .from('medicine_master')
-              .select('id, medicine_name')
+              .select('id, medicine_name, generic_name')
               .eq('is_deleted', false)
-              .ilike('medicine_name', name)
-              .limit(1);
-            if (data && data[0]) nameToId[name.toLowerCase()] = data[0].id;
+              .limit(25);
+            // No identifying word — "Mr", "100ML". Fall back to the exact
+            // comparison rather than searching for nothing.
+            query = filter ? query.or(filter) : query.ilike('medicine_name', name);
+            const { data } = await query;
+            const match = matchMedicineName(name, (data || []) as any[]);
+            if (match.medicine) nameToId[name.toLowerCase()] = match.medicine.id;
+            else if (match.confidence === 'ambiguous') ambiguousNames.add(name.toLowerCase());
           })
         );
         const ids = [...new Set(Object.values(nameToId))];
@@ -948,8 +963,14 @@ const DetailModal: React.FC<DetailModalProps> = ({ prescription, onClose }) => {
         }
         const map: Record<string, number | null> = {};
         for (const it of items) {
-          const id = nameToId[(it.medicine_name || '').trim().toLowerCase()];
+          const key = (it.medicine_name || '').trim().toLowerCase();
+          const id = nameToId[key];
+          // A number when one medicine is meant, null when none is — and null
+          // for an ambiguous name too: several brands of the molecule are in
+          // stock and adding them into one figure would read as a single
+          // product's shelf count. The pharmacist picks with Change.
           map[it.id] = id ? stockById[id] || 0 : null;
+          if (!id && ambiguousNames.has(key)) map[it.id] = null;
         }
         if (!cancelled) setStockMap(map);
       } catch (e) {

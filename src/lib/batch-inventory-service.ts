@@ -500,14 +500,39 @@ export async function getNearExpiryAlerts(
  */
 export async function getLowStockAlerts(hospital_name: string): Promise<BatchAlert[]> {
   try {
-    // Step 1: Fetch combined stock data (no join)
-    const { data: stockData, error: stockError } = await supabase
+    // NOT FILTERED BY hospital_name, and that is the fix rather than an
+    // oversight. This view records the hospital as 'hope HMIS' on 56 rows and
+    // 'Hope Multi-Specialty Hospital' on 32, medicine_master says 'Hope
+    // Multi-Specialty Hospital', and the caller passes hospitalConfig.name —
+    // 'hope'. The equality matched NOTHING, every time, with no error: this
+    // screen has been empty since it was written. A medicine_id belongs to one
+    // master row and therefore one hospital, so summing every stock row for that
+    // id is both correct and immune to the spellings. Same rule as the
+    // v_medicine_below_reorder view the nightly alert reads (20260819200000).
+    const { data: stockRows, error: stockError } = await supabase
       .from('v_medicine_combined_stock')
-      .select('*')
-      .eq('hospital_name', hospital_name);
+      .select('*');
 
     if (stockError) throw stockError;
-    if (!stockData || stockData.length === 0) return [];
+    if (!stockRows || stockRows.length === 0) return [];
+
+    // One row per medicine, stock added across the spellings.
+    const byMedicine = new Map<string, { medicine_id: string; total_stock: number; batch_count: number }>();
+    for (const row of stockRows) {
+      if (!row.medicine_id) continue;
+      const seen = byMedicine.get(row.medicine_id);
+      if (seen) {
+        seen.total_stock += row.total_stock || 0;
+        seen.batch_count += row.batch_count || 0;
+      } else {
+        byMedicine.set(row.medicine_id, {
+          medicine_id: row.medicine_id,
+          total_stock: row.total_stock || 0,
+          batch_count: row.batch_count || 0,
+        });
+      }
+    }
+    const stockData = [...byMedicine.values()];
 
     // Step 2: Get unique medicine_ids
     const medicineIds = [...new Set(stockData.map(s => s.medicine_id).filter(Boolean))];
@@ -517,13 +542,16 @@ export async function getLowStockAlerts(hospital_name: string): Promise<BatchAle
     if (medicineIds.length > 0) {
       const { data: medicines, error: medError } = await supabase
         .from('medicine_master')
-        .select('id, medicine_name, minimum_stock')
+        .select('id, medicine_name, minimum_stock, reorder_level')
         .in('id', medicineIds);
 
       if (!medError && medicines) {
         medicineMap = new Map(medicines.map(m => [m.id, {
           product_name: m.medicine_name,
-          minimum_stock: m.minimum_stock || 0
+          // reorder_level leads and minimum_stock is the fallback, matching
+          // v_medicine_below_reorder. Dr M sets reorder levels; reading only
+          // minimum_stock would ignore every one of them.
+          minimum_stock: m.reorder_level || m.minimum_stock || 0
         }]));
       }
     }
