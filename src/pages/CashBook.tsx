@@ -183,7 +183,7 @@ const CashBook: React.FC = () => {
 
       let q = (supabase as any)
         .from('cash_handovers')
-        .select('id, handover_no, submitted_at, counted_cash, from_user_name, to_user_name, hospital_type, status')
+        .select('id, handover_no, submitted_at, counted_cash, from_user_name, to_user_name, hospital_type, status, performed_by_name, performed_reason')
         .gte('submitted_at', `${fromDate}T00:00:00`)
         .lte('submitted_at', `${toDate}T23:59:59.999`)
         .neq('status', 'CANCELLED')
@@ -626,11 +626,20 @@ const CashBook: React.FC = () => {
         const amount = Number(h.counted_cash || 0);
         const from = h.from_user_name || 'Unknown';
         const to = h.to_user_name || 'Unknown';
+        // A stand-in handover must read as one. The cash is still the absent
+        // cashier's — `from` — but somebody else counted and submitted it, and
+        // a line that names only `from` claims they were at the counter.
+        const standIn = h.performed_by_name || null;
+        const reason = (h.performed_reason || '').trim();
         entries.push({
           type: 'patient-summary' as const,
           date: formattedDate,
-          particulars: `Cash handover — ${from} to ${to}`,
-          summary: `Handover ${h.handover_no} | ${from} handed Rs ${amount.toLocaleString('en-IN')} to ${to} at ${time}`,
+          particulars: standIn
+            ? `Cash handover — ${from} to ${to} (submitted by ${standIn})`
+            : `Cash handover — ${from} to ${to}`,
+          summary: standIn
+            ? `Handover ${h.handover_no} | ${standIn} handed Rs ${amount.toLocaleString('en-IN')} to ${to} at ${time}, on behalf of ${from}${reason ? ` — ${reason}` : ''}`
+            : `Handover ${h.handover_no} | ${from} handed Rs ${amount.toLocaleString('en-IN')} to ${to} at ${time}`,
           debit: 0,
           credit: amount,
           patientId: undefined,
@@ -638,7 +647,7 @@ const CashBook: React.FC = () => {
           patientName: undefined,
           transactionCount: 1,
           transactionDate: h.submitted_at,
-          handledBy: from,
+          handledBy: standIn ? `${standIn} (for ${from})` : from,
         });
       });
     }
