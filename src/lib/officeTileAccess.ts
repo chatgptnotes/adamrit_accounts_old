@@ -30,7 +30,6 @@ const OFFICE_TILE_EMAILS = new Set([
   // account, the stale entry here took the Accounts and Expense Bills tiles
   // away from her without a word. Changing an email means grepping this file.
   'sakharediksha54@gmail.com',
-  'im.nishasharma@gmail.com',
   'lalit@gmail.com',
   'lokesh@gmail.com',
   'ganesh@adamrit.com',
@@ -85,8 +84,7 @@ export const VOUCHER_TILE_IDS = [
  * list in the source code. Prefer the roster.
  */
 const VOUCHER_TILE_EMAILS = new Set([
-  'im.nishasharma@gmail.com', // Nisha Sharma, receptionist — front-office voucher duty
-  'sakharediksha54@gmail.com', // Diksha Sakhare, receptionist — same
+  'sakharediksha54@gmail.com', // Diksha Sakhare, receptionist — front-office voucher duty
 ]);
 
 /**
