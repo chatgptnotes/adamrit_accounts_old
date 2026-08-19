@@ -1423,7 +1423,10 @@ function BillTable({
             <TableHead>Status</TableHead>
             <TableHead>Invoice</TableHead>
             <TableHead>Pay evidence</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
+            {/* Pinned: this table is fifteen columns wide and the actions sat
+                past the right edge, which is how a button can be present and
+                still not exist for the person looking for it. */}
+            <TableHead className="sticky right-0 z-20 bg-gray-50 text-right dark:bg-slate-900">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -1497,9 +1500,32 @@ function BillTable({
                 <TableCell>
                   <PayEvidenceCell bill={b} />
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="sticky right-0 z-10 bg-white text-right shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)] dark:bg-slate-950">
                   {status !== 'paid' ? (
                     <span className="inline-flex gap-1">
+                      {/* THE APPROVE CONTROL WAS ONLY EVER IN THE CARD LAYOUT.
+                          The approval gate went in on 15-Aug and this button
+                          with it — but only into the small-screen cards further
+                          up this file. On a desktop the table renders instead,
+                          so an approver saw Pay and Move and no way to approve,
+                          while the database refused the payment. Dr M hit it
+                          twice on 19-Aug looking for a button that was never
+                          drawn. Same three states as the cards. */}
+                      {!b.approvedAt && (canApprove ? (
+                        <Button size="sm" className="h-7 gap-1 bg-emerald-600 px-2 text-xs text-white hover:bg-emerald-700" disabled={approving} onClick={() => onApprove(b)}>
+                          <ShieldCheck className="h-3.5 w-3.5" /> Approve
+                        </Button>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800" title="Only a named approver can release this bill">
+                          <ShieldCheck className="h-3.5 w-3.5" />
+                          {approvalEnforced ? 'Awaiting approval' : 'Awaiting approval'}
+                        </span>
+                      ))}
+                      {b.approvedAt && b.approvedByName && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800" title={`Approved by ${b.approvedByName}`}>
+                          <ShieldCheck className="h-3.5 w-3.5" /> Approved
+                        </span>
+                      )}
                       <Button size="sm" variant="outline" className="h-7 gap-1 bg-white px-2 text-xs text-slate-900 hover:bg-slate-100 hover:text-slate-900 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-100" onClick={() => onPay(b)}>
                         <Banknote className="h-3.5 w-3.5" /> Pay
                       </Button>
