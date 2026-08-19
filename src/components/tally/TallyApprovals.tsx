@@ -80,6 +80,14 @@ function PatientCell({ row }: { row: ApprovalQueueRow }) {
       {row.surgery_name ? (
         <span className="block text-[11px] text-gray-500">{row.surgery_name}</span>
       ) : null}
+      {/* A commission bill can cover several patients; the narration counts them
+          but never named them. Named now, with the count so a long list reads as
+          deliberate rather than truncated. */}
+      {row.category === 'REFERRAL' && (row.referral_patient_count ?? 0) > 1 ? (
+        <span className="block text-[11px] text-gray-500">
+          {row.referral_patient_count} patients
+        </span>
+      ) : null}
     </span>
   )
 }

@@ -35,6 +35,8 @@ export interface ApprovalQueueRow {
    */
   patient_name?: string | null
   surgery_name?: string | null
+  /** How many patients a REFERRAL bill's commission covers. */
+  referral_patient_count?: number
 }
 
 /** True when an auto-created bill still needs amount/company/ledgers before approval. */
@@ -100,7 +102,55 @@ export async function listApprovals(companyId: string): Promise<ApprovalQueueRow
   // list already uses — approval_queue.ot_schedule_id carries no FK, so
   // PostgREST cannot embed it. Two extra queries for the whole page, not one
   // per row.
-  return attachOtContext((data || []) as ApprovalQueueRow[])
+  const withOt = await attachOtContext((data || []) as ApprovalQueueRow[])
+  return attachReferralPatients(withOt)
+}
+
+/**
+ * Names the patients behind a REFERRAL bill.
+ *
+ * A referral bill has no ot_schedule_id — it is a manager's commission on one or
+ * more patients, and the cuts it was raised from are stamped with approval_id by
+ * rm-cut-payment-service the moment the bill is created. So the patients are one
+ * query away and were only ever missing from the screen: the narration said
+ * "1 patient(s)" and never who (Dr M, 19 Aug).
+ *
+ * One bill can cover several patients — the narration counts them — so they are
+ * joined with a comma and the count is kept for the screen to show.
+ */
+async function attachReferralPatients<T extends { id: string; category: ApprovalCategory; patient_name?: string | null }>(
+  rows: T[],
+): Promise<T[]> {
+  const referralIds = rows.filter((r) => r.category === 'REFERRAL').map((r) => r.id)
+  if (!referralIds.length) return rows
+
+  const { data, error } = await (supabase as any)
+    .from('daily_revenue_entries')
+    .select('approval_id, patient_name')
+    .in('approval_id', referralIds)
+  // Never blank the whole column because this one lookup failed: the OT-based
+  // patients above are already resolved and are not this query's to lose.
+  if (error) {
+    console.error('Referral patients could not be loaded:', error)
+    return rows
+  }
+
+  const byApproval = new Map<string, string[]>()
+  for (const entry of (data || []) as any[]) {
+    if (!entry.approval_id) continue
+    const name = String(entry.patient_name || '').trim()
+    if (!name) continue
+    const list = byApproval.get(entry.approval_id) || []
+    if (!list.includes(name)) list.push(name)
+    byApproval.set(entry.approval_id, list)
+  }
+
+  return rows.map((r) => {
+    if (r.category !== 'REFERRAL') return r
+    const names = byApproval.get(r.id)
+    if (!names?.length) return r
+    return { ...r, patient_name: names.join(', '), referral_patient_count: names.length }
+  })
 }
 
 /** Soft duplicate check: same pending/approved party + reference + amount. */
