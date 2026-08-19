@@ -35,6 +35,7 @@ import {
   Wallet,
   type LucideIcon,
   ShieldAlert,
+  ShieldCheck,
 } from "lucide-react";
 import { canCreateAccountingVouchers, canDepositCash } from "@/lib/accounting-access";
 import {
@@ -616,6 +617,16 @@ export const TABLET_MODULES: TabletModule[] = [
     accent: "text-indigo-700",
     tint: "from-indigo-500 to-violet-700",
     keywords: ["stores", "inventory", "stock", "supplies", "reorder", "consumables"],
+  },
+  {
+    id: "payment-proof",
+    label: "Attach Payment Proof",
+    publicLabel: "Payment Proof",
+    description: "Add the confirmation screenshot to a payment already made",
+    icon: ShieldCheck,
+    accent: "text-violet-700",
+    tint: "from-violet-500 to-purple-700",
+    keywords: ["proof", "confirmation", "screenshot", "payment", "evidence", "neft", "upi", "cashier"],
   },
   {
     id: "bank-deposit",

@@ -18,6 +18,9 @@ import { OpeningCashBanner } from "@/tablet/components/OpeningCashBanner";
 // that the handover is later measured against, so it is no less restricted.
 const CASH_TILES = new Set([
   "cash-handover", "opening-cash", "cash-shift-report",
+  // Attaching a payment confirmation is the same roster's work: it documents a
+  // payment one of them made.
+  "payment-proof",
   // The daily report shows the whole day's cash and raises a shortage to the
   // directors. Same roster: it is a cash screen, not a reporting one.
   "daily-cash-report-avani",
