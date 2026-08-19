@@ -842,23 +842,39 @@ export function DailyRevenueReportSection({
       const rmPercent = rowIsDirect ? 0 : validCommissionPercent(rm?.commission_percent);
       const savedCut = o ? Number(o.cut) : 0;
       const hasSavedCut = Boolean(o) && savedCut > 0;
+      const persisted = o ? allocationsByEntry.get(o.id) ?? [] : [];
       // An applied deduction comes off the bill before the commission is
       // worked out; ignored, it is carried on the row but changes nothing.
       const deduction = Math.max(0, toNumber(o?.deduction));
       const deductionApplied = Boolean(o?.deduction_applied) && deduction > 0;
       const cutBase = Math.max(0, cost - (deductionApplied ? deduction : 0));
       const suggestedCut = rowIsDirect ? 0 : Math.round((cutBase * rmPercent) / 100);
-      const totalCut = hasSavedCut ? savedCut : suggestedCut;
+      // A saved cut was worked out against the cost saved beside it. Once the
+      // row resolves to a different cost -- a real bill has turned up since --
+      // that cut belongs to a bill nobody is billing, and holding on to it left
+      // kriti bai lodhi reading Rs 13,700 with a cut of Rs 250 beside it.
+      //
+      // A settled row keeps every figure it was settled on: its invoice is
+      // raised and its journals are posted against that number.
+      const rowIsSettled = Boolean(o?.approval_id) || Boolean(o?.expense_bill_id)
+        || persisted.some((allocation) => allocation.approval_id);
+      const savedCostBasis = toNumber(o?.cost);
+      const savedCutIsStale = hasSavedCut && !rowIsSettled && savedCostBasis > 0
+        && Math.round(savedCostBasis) !== Math.round(cost);
+      const useSavedCut = hasSavedCut && !savedCutIsStale;
+      const totalCut = useSavedCut ? savedCut : suggestedCut;
       const visitManagers = [...(v.visit_relationship_managers ?? [])]
         .sort((a, b) => a.position - b.position).map((item) => item.relationship_managers).filter(Boolean) as Array<{ id: string; name: string; ledger_account_id: string | null }>;
-      const persisted = o ? allocationsByEntry.get(o.id) ?? [] : [];
+      // The saved per-RM split is a division of the saved cut, so it goes stale
+      // with it -- otherwise the managers' figures still add up to the old one.
+      const keepPersistedAmounts = persisted.length > 0 && !savedCutIsStale;
       const managerSources = persisted.length
         ? persisted.map((a) => ({ id: a.relationship_manager_id ?? '', name: a.rm_name, ledgerId: a.rm_ledger_account_id, position: a.position, amount: Number(a.allocated_cut), approvalId: a.approval_id }))
         : visitManagers.length
           ? visitManagers.map((m, index) => ({ id: m.id, name: m.name, ledgerId: m.ledger_account_id, position: index + 1, amount: 0 }))
           : rm ? [{ id: rm.id, name: rm.name, ledgerId: (rm as any).ledger_account_id ?? null, position: 1, amount: totalCut }] : [];
       const totalPaise = Math.round(totalCut * 100);
-      const rms = managerSources.map((m, index) => ({ ...m, amount: persisted.length ? m.amount : (Math.floor(totalPaise / managerSources.length) + (index < totalPaise % managerSources.length ? 1 : 0)) / 100 }));
+      const rms = managerSources.map((m, index) => ({ ...m, amount: keepPersistedAmounts ? m.amount : (Math.floor(totalPaise / managerSources.length) + (index < totalPaise % managerSources.length ? 1 : 0)) / 100 }));
       // A saved row keeps the day it was filed under; an unsaved one takes the
       // day it is being read by, so a range never re-dates anybody.
       const basisDate = asDay(dateBasis === 'discharge' ? v.discharge_date : v.visit_date);
@@ -880,7 +896,7 @@ export function DailyRevenueReportSection({
         deductionApplied,
         cutBase,
         cut: totalCut,
-        cutIsSuggested: !hasSavedCut && suggestedCut > 0,
+        cutIsSuggested: !useSavedCut && suggestedCut > 0,
         cost_source,
         isManual: false,
         isHidden: Boolean(o?.is_hidden),
@@ -1340,6 +1356,24 @@ export function DailyRevenueReportSection({
   // saved row until someone edits them, so one is written on the way to paying.
   const ensureEntryRow = async (row: DisplayRow): Promise<string> => {
     if (row.overrideId) {
+      // Write the figures being approved back onto the saved row FIRST.
+      // approve_daily_revenue_referral reads the amount from the entry, while
+      // the invoice PDF is built from what is on screen, so a saved row left
+      // holding an older cost and cut would print one number and post another
+      // -- which is exactly what a stale cut beside a freshly resolved bill is.
+      // When nothing has moved this rewrites the same values.
+      const { data: saved, error: figuresError } = await supabase
+        .from('daily_revenue_entries' as never)
+        .update({ cost: row.cost, cut: row.cut, updated_at: new Date().toISOString() } as never)
+        .eq('id', row.overrideId)
+        .select('id');
+      if (figuresError) throw figuresError;
+      // An update matching no row is not an error. Approving on a row that was
+      // never actually written is how a cut gets invoiced at a figure the books
+      // never saw.
+      if (!saved || (saved as unknown as unknown[]).length === 0) {
+        throw new Error('This row could not be saved before approval — reload the report and try again');
+      }
       if (row.rms.length) {
         const { error } = await (supabase as any).rpc('set_daily_revenue_relationship_managers', { p_entry_id: row.overrideId, p_manager_ids: row.rms.map((rm) => rm.id) });
         if (error) throw error;
