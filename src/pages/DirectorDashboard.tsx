@@ -379,9 +379,14 @@ export default function DirectorDashboard() {
       <AnomalyGuardCard />
       <ManualVoucherWatchdog />
       <DailyRevenueReportSection />
+      {/* Discharge date, not visit date (Dr M, 20 Aug). An IPD stay spans days
+          and the RM cut is settled when the patient leaves, so the day that
+          matters is the discharge — and the From/To search reads the same
+          column, so a date range now means a range of discharges. */}
       <DailyRevenueReportSection
         defaultPatientType="IPD"
-        title="IPD Daily Revenue Report — Admitted Patients & RM Cuts"
+        dateBasis="discharge"
+        title="IPD Daily Revenue Report — Discharged Patients & RM Cuts"
       />
       <DirectorFinancialStatements />
 
