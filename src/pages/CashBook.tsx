@@ -955,25 +955,28 @@ const CashBook: React.FC = () => {
             <p className="text-gray-600">No transactions found for the selected date range</p>
           </div>
         ) : (
-          <table className="w-full border-collapse">
+          <table className="w-full table-fixed border-collapse">
+            {/* table-fixed, or the browser hands the width to whichever column
+                has the least wrappable text and squeezes Particulars into a
+                ribbon — which is what made one transaction twelve lines tall. */}
             <thead className="sticky top-0 bg-blue-100 z-10">
               <tr>
-                <th className="text-left py-2 px-3 font-semibold text-blue-700 border-b-2 border-gray-300 text-sm w-32">
+                <th className="text-left py-1.5 px-2 font-semibold text-blue-700 border-b-2 border-gray-300 text-sm w-24">
                   Date
                 </th>
-                <th className="text-left py-2 px-3 font-semibold text-blue-700 border-b-2 border-gray-300 text-sm">
+                <th className="text-left py-1.5 px-2 font-semibold text-blue-700 border-b-2 border-gray-300 text-sm">
                   Particulars
                 </th>
-                <th className="text-left py-2 px-3 font-semibold text-blue-700 border-b-2 border-gray-300 text-sm w-36">
+                <th className="text-left py-1.5 px-2 font-semibold text-blue-700 border-b-2 border-gray-300 text-sm w-28">
                   By
                 </th>
-                <th className="text-right py-2 px-3 font-semibold text-blue-700 border-b-2 border-gray-300 text-sm w-40">
+                <th className="text-right py-1.5 px-2 font-semibold text-blue-700 border-b-2 border-gray-300 text-sm w-28">
                   Debit
                 </th>
-                <th className="text-right py-2 px-3 font-semibold text-blue-700 border-b-2 border-gray-300 text-sm w-40">
+                <th className="text-right py-1.5 px-2 font-semibold text-blue-700 border-b-2 border-gray-300 text-sm w-28">
                   Credit
                 </th>
-                <th className="text-right py-2 px-3 font-semibold text-blue-700 border-b-2 border-gray-300 text-sm w-44">
+                <th className="text-right py-1.5 px-2 font-semibold text-blue-700 border-b-2 border-gray-300 text-sm w-32">
                   Balance
                 </th>
               </tr>
@@ -983,18 +986,18 @@ const CashBook: React.FC = () => {
                 if (entry.type === 'opening-balance') {
                   return (
                     <tr key={index} className="border-b border-gray-200 hover:bg-gray-50">
-                      <td className="py-2 px-3 align-top text-sm">{entry.date}</td>
-                      <td className="py-2 px-3 align-top text-sm">
+                      <td className="py-1.5 px-2 align-top text-sm">{entry.date}</td>
+                      <td className="py-1.5 px-2 align-top text-sm">
                         <div className="font-medium">{entry.particulars}</div>
                       </td>
-                      <td className="py-2 px-3 align-top text-sm text-gray-400">—</td>
-                      <td className="py-2 px-3 text-right align-top text-sm font-medium">
+                      <td className="py-1.5 px-2 align-top text-sm text-gray-400">—</td>
+                      <td className="py-1.5 px-2 text-right align-top text-sm font-medium">
                         {formatCurrency(entry.debit)}
                       </td>
-                      <td className="py-2 px-3 text-right align-top text-sm font-medium">
+                      <td className="py-1.5 px-2 text-right align-top text-sm font-medium">
                         {formatCurrency(entry.credit)}
                       </td>
-                      <td className="py-2 px-3 text-right align-top text-sm font-semibold text-gray-800">
+                      <td className="py-1.5 px-2 text-right align-top text-sm font-semibold text-gray-800">
                         {formatCurrencyTotal(Math.abs(runningBalances[index] ?? 0))}
                       </td>
                     </tr>
@@ -1005,27 +1008,36 @@ const CashBook: React.FC = () => {
                   return (
                     <React.Fragment key={index}>
                       <tr className="border-b border-gray-200 hover:bg-gray-50">
-                        <td className="py-2 px-3 align-top text-sm">{entry.date}</td>
-                        <td className="py-2 px-3 align-top text-sm">
-                          <div className="font-bold text-gray-900 text-base">
+                        <td className="py-1.5 px-2 align-top text-sm">{entry.date}</td>
+                        <td className="py-1.5 px-2 align-top text-sm">
+                          {/* Exactly two lines, whatever the length: the name,
+                              then the summary. Both carry the full text as a
+                              tooltip, and the row still opens for the detail. */}
+                          <div
+                            className="truncate font-semibold text-gray-900"
+                            title={entry.particulars}
+                          >
                             {entry.particulars}
                           </div>
-                          <div className="text-xs text-gray-600 mt-1 ml-4">
-                            └─ {entry.summary}
+                          <div
+                            className="line-clamp-1 text-xs text-gray-600"
+                            title={entry.summary}
+                          >
+                            {entry.summary}
                           </div>
                         </td>
-                        <td className="py-2 px-3 align-top text-sm">
+                        <td className="py-1.5 px-2 align-top text-sm">
                           {entry.handledBy
                             ? <span className="text-gray-800">{entry.handledBy}</span>
                             : <span className="text-gray-400" title="No cashier recorded against this transaction">not recorded</span>}
                         </td>
-                        <td className="py-2 px-3 text-right align-top text-sm font-medium">
+                        <td className="py-1.5 px-2 text-right align-top text-sm font-medium">
                           {formatCurrency(entry.debit)}
                         </td>
-                        <td className="py-2 px-3 text-right align-top text-sm font-medium">
+                        <td className="py-1.5 px-2 text-right align-top text-sm font-medium">
                           {formatCurrency(entry.credit)}
                         </td>
-                        <td className="py-2 px-3 text-right align-top text-sm font-semibold text-gray-800">
+                        <td className="py-1.5 px-2 text-right align-top text-sm font-semibold text-gray-800">
                           {formatCurrencyTotal(Math.abs(runningBalances[index] ?? 0))}
                         </td>
                       </tr>
