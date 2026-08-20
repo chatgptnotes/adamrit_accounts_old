@@ -1,6 +1,6 @@
 import { ChangeEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Camera, Check, Loader2, Search, ShieldCheck } from "lucide-react";
+import { Camera, Check, Loader2, Search, ShieldCheck, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -56,7 +56,10 @@ export default function PaymentProofFlow() {
   const access = useCashHandoverAccess();
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<UnprovenPayment | null>(null);
-  const [file, setFile] = useState<File | null>(null);
+  // Several files, not one: a bank transfer often has the request screen and
+  // the confirmation, and a cash payment can have a signed slip as well as a
+  // photo (Dr M, 20 Aug).
+  const [files, setFiles] = useState<File[]>([]);
 
   const payments = useQuery({
     queryKey: ["payments-without-proof"],
@@ -77,8 +80,8 @@ export default function PaymentProofFlow() {
   const attach = useMutation({
     mutationFn: async () => {
       if (!selected) throw new Error("Pick the payment first");
-      if (!file) throw new Error("Take or choose a photo of the confirmation");
-      const uploaded = await uploadVoucherAttachments([file], VOUCHER_PAYMENT_PROOF_CATEGORY);
+      if (!files.length) throw new Error("Take or choose a photo of the confirmation");
+      const uploaded = await uploadVoucherAttachments(files, VOUCHER_PAYMENT_PROOF_CATEGORY);
       await linkVoucherAttachments(
         selected.voucher_id,
         uploaded.map((u) => ({ ...u, id: undefined })),
@@ -87,9 +90,11 @@ export default function PaymentProofFlow() {
       return selected.voucher_number;
     },
     onSuccess: (voucherNo) => {
-      toast.success(`${voucherNo} now has its confirmation attached.`);
+      toast.success(
+        `${voucherNo} now has ${files.length === 1 ? "its confirmation" : `${files.length} confirmations`} attached.`,
+      );
       setSelected(null);
-      setFile(null);
+      setFiles([]);
       qc.invalidateQueries({ queryKey: ["payments-without-proof"] });
     },
     onError: (error) =>
@@ -154,36 +159,70 @@ export default function PaymentProofFlow() {
             </div>
 
             <label className="flex min-h-14 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed bg-background px-4 text-sm font-semibold">
-              {file ? <Check className="h-5 w-5 text-emerald-600" /> : <Camera className="h-5 w-5" />}
-              <span className="truncate">{file ? file.name : "Take or choose the confirmation"}</span>
+              {files.length ? <Check className="h-5 w-5 text-emerald-600" /> : <Camera className="h-5 w-5" />}
+              <span className="truncate">
+                {files.length ? "Add another" : "Take or choose the confirmation"}
+              </span>
               <input
                 type="file"
                 accept="image/*,application/pdf"
-                capture="environment"
+                multiple
                 className="hidden"
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setFile(e.target.files?.[0] || null)}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                  // Added to what is already there, not replacing it: the request
+                  // screen comes from the gallery and the confirmation from the
+                  // camera, and they arrive in two goes.
+                  const picked = Array.from(event.target.files || []);
+                  if (picked.length) {
+                    setFiles((current) => [...current, ...picked]);
+                  }
+                  // Cleared, or choosing the same file twice in a row does
+                  // nothing — the input fires no change for an unchanged value.
+                  event.target.value = '';
+                }}
               />
             </label>
+
+            {files.length > 0 ? (
+              <ul className="space-y-1">
+                {files.map((f, i) => (
+                  <li
+                    key={`${f.name}-${i}`}
+                    className="flex items-center justify-between gap-2 rounded-lg bg-muted/40 px-3 py-2 text-xs"
+                  >
+                    <span className="truncate">{f.name}</span>
+                    <button
+                      type="button"
+                      className="flex-shrink-0 text-muted-foreground hover:text-destructive"
+                      title="Remove this one"
+                      onClick={() => setFiles((current) => current.filter((_, n) => n !== i))}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
 
             <div className="flex gap-2">
               <TabletButton
                 variant="outline"
                 className="flex-1"
-                onClick={() => { setSelected(null); setFile(null); }}
+                onClick={() => { setSelected(null); setFiles([]); }}
               >
                 Cancel
               </TabletButton>
               <TabletButton
                 className="flex-1"
-                disabled={!file || attach.isPending}
+                disabled={!files.length || attach.isPending}
                 onClick={() => attach.mutate()}
               >
                 {attach.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <ShieldCheck className="mr-2 h-5 w-5" />}
-                {attach.isPending ? "Attaching…" : "Attach"}
+                {attach.isPending ? "Attaching…" : files.length > 1 ? `Attach ${files.length}` : "Attach"}
               </TabletButton>
             </div>
             <p className="text-xs text-muted-foreground">
-              Only the photo is added. The voucher and its ledger entries are not changed.
+              Only the photos are added. The voucher and its ledger entries are not changed.
             </p>
           </TabletCard>
         ) : null}
@@ -204,7 +243,7 @@ export default function PaymentProofFlow() {
               <TabletCard
                 key={p.voucher_id}
                 className={`cursor-pointer ${selected?.voucher_id === p.voucher_id ? "border-primary" : ""}`}
-                onClick={() => { setSelected(p); setFile(null); }}
+                onClick={() => { setSelected(p); setFiles([]); }}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
