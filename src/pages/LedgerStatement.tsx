@@ -172,6 +172,7 @@ const LedgerStatement: React.FC = () => {
     { label: 'Cash Book', bgColor: 'bg-gray-300' },
     { label: 'Day Book', bgColor: 'bg-gray-300' },
     { label: 'Patient Ledger', bgColor: 'bg-gray-300' },
+    { label: 'People & Vendors', bgColor: 'bg-gray-300' },
   ];
 
   const handleMenuClick = (menuLabel: string) => {
@@ -190,6 +191,9 @@ const LedgerStatement: React.FC = () => {
         break;
       case 'Patient Ledger':
         navigate('/patient-ledger');
+        break;
+      case 'People & Vendors':
+        navigate('/people-and-vendors');
         break;
       default:
         break;

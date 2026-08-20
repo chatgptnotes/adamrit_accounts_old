@@ -66,6 +66,7 @@ const StoresInventory = lazy(() => import("../pages/StoresInventory"));
 const PatientLedger = lazy(() => import("../pages/PatientLedger"));
 const DayBook = lazy(() => import("../pages/DayBook"));
 const LedgerStatement = lazy(() => import("../pages/LedgerStatement"));
+const PersonLedgers = lazy(() => import("../pages/PersonLedgers"));
 const Pharmacy = lazy(() => import("../pages/Pharmacy"));
 const Shifting = lazy(() => import("../pages/Shifting"));
 const Lab = lazy(() => import("../pages/Lab"));
@@ -372,6 +373,7 @@ export const AppRoutes = () => {
         <Route path="/patient-ledger" element={<Suspense fallback={<PageLoader />}><PatientLedger /></Suspense>} />
         <Route path="/day-book" element={<Suspense fallback={<PageLoader />}><DayBook /></Suspense>} />
         <Route path="/ledger-statement" element={<Suspense fallback={<PageLoader />}><LedgerStatement /></Suspense>} />
+        <Route path="/people-and-vendors" element={<Suspense fallback={<PageLoader />}><PersonLedgers /></Suspense>} />
         <Route path="/corporate" element={<Suspense fallback={<PageLoader />}><Corporate /></Suspense>} />
         <Route path="/corporate-schemes/:schemeCode" element={<Suspense fallback={<PageLoader />}><CorporateSchemeModule /></Suspense>} />
         <Route path="/corporate-claim-tracking" element={<Suspense fallback={<PageLoader />}><CorporateClaimTracking /></Suspense>} />
