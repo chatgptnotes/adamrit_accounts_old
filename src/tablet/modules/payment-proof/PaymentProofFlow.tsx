@@ -107,7 +107,7 @@ export default function PaymentProofFlow() {
   if (!access.isLoading && !access.allowed) {
     return (
       <FlowScaffold
-        heading="Attach Payment Proof"
+        heading="Attach Payment Proof Avani"
         subheading="Restricted to the people named on the cash roster."
       >
         <TabletCard className="bg-amber-50">
@@ -126,7 +126,7 @@ export default function PaymentProofFlow() {
 
   return (
     <FlowScaffold
-      heading="Attach Payment Proof"
+      heading="Attach Payment Proof Avani"
       subheading="Payments with no confirmation attached yet. Pick one and add the screenshot."
     >
       <div className="space-y-4">

@@ -620,13 +620,16 @@ export const TABLET_MODULES: TabletModule[] = [
   },
   {
     id: "payment-proof",
-    label: "Attach Payment Proof",
+    // Named for Avani, as the other cash tiles are named for whoever works them.
+    // publicLabel stays free of the name: the landing bundle is checked for
+    // staff names on every build (check-bundle-names.cjs).
+    label: "Attach Payment Proof Avani",
     publicLabel: "Payment Proof",
     description: "Add the confirmation screenshot to a payment already made",
     icon: ShieldCheck,
     accent: "text-violet-700",
     tint: "from-violet-500 to-purple-700",
-    keywords: ["proof", "confirmation", "screenshot", "payment", "evidence", "neft", "upi", "cashier"],
+    keywords: ["proof", "confirmation", "screenshot", "payment", "evidence", "neft", "upi", "cashier", "avani"],
   },
   {
     id: "bank-deposit",
