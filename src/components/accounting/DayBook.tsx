@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
@@ -19,6 +19,148 @@ import { printTallyVoucher } from '@/lib/tallyPrint';
 import { BadgeCheck, FileText, Printer } from 'lucide-react';
 
 type LedgerSource = 'adamrit' | 'tally';
+
+type SearchField = 'amount' | 'number' | 'particulars' | 'narration';
+
+const SEARCH_FIELDS: Array<{ value: SearchField; label: string }> = [
+  { value: 'amount', label: 'Ledger Amount' },
+  { value: 'number', label: 'Voucher No.' },
+  { value: 'particulars', label: 'Particulars' },
+  { value: 'narration', label: 'Narration' },
+];
+
+/**
+ * Does this voucher match what was typed?
+ *
+ * On amount, BOTH the voucher total and every ledger line are tested: Tally's
+ * "Ledger Amount" is the figure on a line, and somebody hunting Rs 4,550 is as
+ * likely to be looking at one side of a journal as at the voucher total.
+ * Compared in paise, because 4550 and 4550.00 must be the same search.
+ */
+function rowMatches(row: DayRow, field: SearchField, raw: string): boolean {
+  const term = raw.trim();
+  if (!term) return true;
+  if (field === 'amount') {
+    const wanted = Math.round(Number(term.replace(/[^0-9.]/g, '')) * 100);
+    if (!Number.isFinite(wanted) || wanted <= 0) return false;
+    const paise = (n: number) => Math.round((Number(n) || 0) * 100);
+    if (paise(row.debit) === wanted || paise(row.credit) === wanted) return true;
+    return (row.entries ?? []).some(
+      (e) => paise(e.debit) === wanted || paise(e.credit) === wanted,
+    );
+  }
+  const needle = term.toLowerCase();
+  const hay =
+    field === 'number' ? row.number
+    : field === 'particulars' ? `${row.particulars} ${(row.entries ?? []).map((e) => e.label).join(' ')}`
+    : row.narration ?? '';
+  return (hay ?? '').toLowerCase().includes(needle);
+}
+
+/**
+ * Tally's Voucher Search, reached with Ctrl+F once the period is set.
+ *
+ * The plain box searches Particulars, as Tally's does. F7 opens the parameters,
+ * where "Ledger Amount" is the one that matters here: a figure remembered from a
+ * bank statement, found without scrolling a fortnight of the day book.
+ */
+const VoucherSearch: React.FC<{
+  field: SearchField;
+  setField: (f: SearchField) => void;
+  draft: string;
+  setDraft: (v: string) => void;
+  advancedOpen: boolean;
+  setAdvancedOpen: (v: boolean) => void;
+  onApply: () => void;
+  onClear: () => void;
+  onClose: () => void;
+}> = ({ field, setField, draft, setDraft, advancedOpen, setAdvancedOpen, onApply, onClear, onClose }) => {
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => { input.current?.focus(); input.current?.select(); }, [advancedOpen]);
+
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'F7') { e.preventDefault(); setAdvancedOpen(!advancedOpen); return; }
+    if (e.key === 'Escape') { e.preventDefault(); onClose(); return; }
+    if (e.key === 'Enter') { e.preventDefault(); onApply(); }
+  };
+
+  const label = SEARCH_FIELDS.find((f) => f.value === field)?.label ?? 'Particulars';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 pt-24" onClick={onClose}>
+      <div
+        className="w-[30rem] border-2 border-black bg-[#fdf6d8] text-sm shadow-lg"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={onKey}
+      >
+        <div className="border-b border-black bg-[#003b73] px-2 py-1 font-semibold text-white">
+          Voucher Search
+        </div>
+
+        <div className="flex items-center gap-2 px-3 py-3">
+          <label className="w-32 shrink-0" htmlFor="daybook-search">{label}</label>
+          <input
+            id="daybook-search"
+            ref={input}
+            value={draft}
+            inputMode={field === 'amount' ? 'decimal' : 'text'}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={field === 'amount' ? 'e.g. 4550' : ''}
+            className="min-w-0 flex-1 border border-black bg-white px-2 py-1 outline-none focus:bg-[#ffc423]"
+          />
+        </div>
+
+        {advancedOpen && (
+          <div className="border-t border-black px-3 py-3">
+            <div className="mb-2 font-semibold">Search parameters</div>
+            <div className="flex items-center gap-2">
+              <label className="w-32 shrink-0" htmlFor="daybook-search-field">Search on</label>
+              <select
+                id="daybook-search-field"
+                value={field}
+                onChange={(e) => setField(e.target.value as SearchField)}
+                className="min-w-0 flex-1 border border-black bg-white px-2 py-1"
+              >
+                {SEARCH_FIELDS.map((f) => (
+                  <option key={f.value} value={f.value}>{f.label}</option>
+                ))}
+              </select>
+            </div>
+            {field === 'amount' && (
+              <p className="mt-2 text-xs text-gray-700">
+                Matches the voucher total and every ledger line in it, so either side of a
+                journal is found. 4550 and 4,550.00 are the same search.
+              </p>
+            )}
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 border-t border-black px-3 py-2">
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen(!advancedOpen)}
+            className="border border-black px-2 py-1 hover:bg-[#ffc423]"
+          >
+            F7: {advancedOpen ? 'Hide' : 'Advanced Filter'}
+          </button>
+          <button type="button" onClick={onClear} className="border border-black px-2 py-1 hover:bg-[#ffc423]">
+            Clear
+          </button>
+          <button
+            type="button"
+            onClick={onApply}
+            className="ml-auto border border-black bg-[#ffc423] px-3 py-1 font-semibold"
+          >
+            Search
+          </button>
+          <button type="button" onClick={onClose} className="border border-black px-2 py-1 hover:bg-[#ffc423]">
+            Esc
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 interface DayRow {
   id: string;
@@ -179,6 +321,16 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
       // button that can never light up is worse than no button.
     ],
   });
+  // ---- Voucher Search (Ctrl+F), and its Advanced Filter (F7) ----
+  // Tally's flow: pick the period, Ctrl+F to search within it, F7 to choose what
+  // you are searching ON. "Ledger Amount" is the one Dr M asked for — finding a
+  // figure in the day book meant scrolling until it appeared (20 Aug).
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [searchField, setSearchField] = useState<SearchField>('particulars');
+  const [searchDraft, setSearchDraft] = useState('');
+  const [searchApplied, setSearchApplied] = useState<{ field: SearchField; value: string } | null>(null);
+
   const { from: fromDate, to: toDate, detailed, fmtAmount: fmt, config } = report;
   const showCancelled = !!config.cancelled;
 
@@ -442,8 +594,12 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
         'Vch No.': r.number,
       }))
       .filter((r) => report.passesBasis(r.debit || r.credit))
+      // The Voucher Search (Ctrl+F) narrows the day book itself, so the totals,
+      // the voucher count, the cursor and the export all follow the search
+      // rather than disagreeing with what is on screen.
+      .filter((r) => !searchApplied || rowMatches(r, searchApplied.field, searchApplied.value))
       .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-  }, [vouchers, tallyRows, typeName, srcFilter, removedIds, report.passesFilter, report.passesBasis]);
+  }, [vouchers, tallyRows, typeName, srcFilter, removedIds, searchApplied, report.passesFilter, report.passesBasis]);
 
   const { totalDebit, totalCredit } = useMemo(
     () =>
@@ -508,6 +664,32 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
     });
   };
 
+  // Ctrl+F (Cmd+F on a Mac) opens the search rather than the browser's own find,
+  // which searches only the page you can see and misses everything scrolled off.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+        e.preventDefault();
+        setSearchDraft(searchApplied?.value ?? '');
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [searchApplied]);
+
+  const applySearch = () => {
+    const value = searchDraft.trim();
+    setSearchApplied(value ? { field: searchField, value } : null);
+    setSearchOpen(false);
+  };
+
+  const clearSearch = () => {
+    setSearchApplied(null);
+    setSearchDraft('');
+    setSearchOpen(false);
+  };
+
   return (
     <>
     <TallyScreen
@@ -554,6 +736,25 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
           }
         />
 
+        {searchApplied && (
+          <div className="flex items-center gap-2 border-y border-black bg-[#fdf6d8] px-2 py-1">
+            <span className="font-semibold">
+              {SEARCH_FIELDS.find((f) => f.value === searchApplied.field)?.label}:
+            </span>
+            <span>{searchApplied.field === 'amount' ? fmt(Number(searchApplied.value)) : searchApplied.value}</span>
+            <span className="text-gray-600">
+              — {rows.length} match{rows.length === 1 ? '' : 'es'} in this period
+            </span>
+            <button
+              type="button"
+              onClick={clearSearch}
+              className="ml-auto border border-black px-2 text-xs hover:bg-[#ffc423]"
+            >
+              Clear (Esc)
+            </button>
+          </div>
+        )}
+
         {/* Column head. The Inwards / Outwards Qty captions Tally stacks under
             the amounts are gone — there is no inventory module behind them, so
             they were two permanently empty columns. */}
@@ -570,7 +771,11 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
         {isLoading ? (
           <div className="py-10 text-center text-gray-400">Loading…</div>
         ) : rows.length === 0 ? (
-          <div className="py-10 text-center text-gray-400">No vouchers in this period.</div>
+          <div className="py-10 text-center text-gray-400">
+            {searchApplied
+              ? `Nothing in this period matches. Widen the period, or search on something else.`
+              : 'No vouchers in this period.'}
+          </div>
         ) : (
           <>
             {rows.map((r, i) => {
@@ -748,6 +953,20 @@ const DayBook: React.FC<{ onOpenVoucher?: (id: string) => void }> = ({ onOpenVou
         ]}
       />
     )}
+    {searchOpen && (
+      <VoucherSearch
+        field={searchField}
+        setField={setSearchField}
+        draft={searchDraft}
+        setDraft={setSearchDraft}
+        advancedOpen={advancedOpen}
+        setAdvancedOpen={setAdvancedOpen}
+        onApply={applySearch}
+        onClear={clearSearch}
+        onClose={() => setSearchOpen(false)}
+      />
+    )}
+
     </>
   );
 };

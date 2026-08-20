@@ -21,7 +21,7 @@
   "src/components/accounting/CostCentres.tsx": "bc2ee4333f3362b5aafe1334c9b07ad16e0e37e63ca5c605f7835c0ebb818ec1",
   "src/components/accounting/DailyReconciliation.tsx": "c057b1e5dfa3c228b515131bfad301e13dcadf53ea157786c2796d6c9b2bc13c",
   "src/components/accounting/Dashboard.tsx": "4732ee410a1434e91517afda89a5e4946c31522315f5ab4f5407f1b46f893e71",
-  "src/components/accounting/DayBook.tsx": "388f669903b9324fcb4086f315c9743207b3e782c0232432a41739cf96e37024",
+  "src/components/accounting/DayBook.tsx": "66042e6e726ca851cd4e973039090bae696215f693666bdd7f7d2c7908b8b212",
   "src/components/accounting/EditLog.tsx": "2c4cc64206b0f00743517f8d528c2637a1ca9737496f839e2663869bafa66b1d",
   "src/components/accounting/ExceptionReports.tsx": "d21d828ea8280825b01961d1baf280b252d88218764a30571fc448ebed85396b",
   "src/components/accounting/FundsFlow.tsx": "d1ce1443b8bb9a86a5d8e3cafd216bba77323c34a895cbe55df37248b347c7c0",
