@@ -60,6 +60,7 @@ const Accounting = lazy(() => import("../pages/Accounting"));
 const ExpenseBillsPage = lazy(() => import("../pages/ExpenseBills"));
 const PatientFeedbackPage = lazy(() => import("../pages/PatientFeedback"));
 const CashBook = lazy(() => import("../pages/CashBook"));
+const BankAudit = lazy(() => import("../pages/BankAudit"));
 const CashHandover = lazy(() => import("../pages/CashHandover"));
 const CashShiftReport = lazy(() => import("../pages/CashShiftReport"));
 const StoresInventory = lazy(() => import("../pages/StoresInventory"));
@@ -367,6 +368,7 @@ export const AppRoutes = () => {
         <Route path="/expense-bill" element={<Suspense fallback={<PageLoader />}><ExpenseBillsPage /></Suspense>} />
         <Route path="/patient-feedback" element={<Suspense fallback={<PageLoader />}><PatientFeedbackPage /></Suspense>} />
         <Route path="/cash-book" element={<Suspense fallback={<PageLoader />}><CashBook /></Suspense>} />
+        <Route path="/bank-audit" element={<Suspense fallback={<PageLoader />}><BankAudit /></Suspense>} />
         <Route path="/cash-handover" element={<Suspense fallback={<PageLoader />}><CashHandover /></Suspense>} />
         <Route path="/cash-shift-report" element={<Suspense fallback={<PageLoader />}><CashShiftReport /></Suspense>} />
         <Route path="/stores-inventory" element={<Suspense fallback={<PageLoader />}><StoresInventory /></Suspense>} />
