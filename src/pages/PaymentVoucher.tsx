@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -508,6 +509,19 @@ const PaymentVoucher = () => {
   // Required: cash leaves against a person, and a name alone gives nobody to
   // ring three weeks later about what the money was for.
   const [mobile, setMobile] = useState('');
+  // Whether the payee currently chosen is one the mobile rule exempts. Asked of
+  // the database, not duplicated here, so the screen and the trigger cannot
+  // drift apart.
+  const firstLedgerName = lines.find((l) => l.ledger)?.ledger?.name ?? '';
+  const { data: mobileNotNeeded = false } = useQuery({
+    queryKey: ['party-mobile-exempt', firstLedgerName],
+    enabled: firstLedgerName.trim().length > 0,
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<boolean> => {
+      const { data } = await (supabase as any).rpc('party_mobile_exempt', { p_name: firstLedgerName });
+      return data === true;
+    },
+  });
   const [saving, setSaving] = useState(false);
 
   const lineLedgerRefs = useRef<Record<number, HTMLInputElement | null>>({});
@@ -637,12 +651,29 @@ const PaymentVoucher = () => {
     }
     // Same rule the database enforces, checked here so the message arrives
     // before the voucher number is burnt.
+    //
+    // Except for the payees that have no phone number to give — a BSNL bill, a
+    // GST challan, MSEDCL (Dr M, 20 Aug). The exempt list lives in the database
+    // so this screen and require_voucher_party_mobile cannot disagree; a screen
+    // that accepted what the trigger then refused would be worse than either
+    // rule alone. person_name on the voucher is the first particulars ledger,
+    // which is what the database matches on, so the same name is tested here.
     const mobileDigits = mobile.replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '').replace(/^0(?=\d{10}$)/, '');
-    if (!mobileDigits) {
+    const payeeName = filled[0].ledger!.name;
+    let mobileExempt = false;
+    try {
+      const { data } = await (supabase as any).rpc('party_mobile_exempt', { p_name: payeeName });
+      mobileExempt = data === true;
+    } catch {
+      // Unreachable list means the ordinary rule applies. Failing closed here is
+      // right: the trigger is the authority and it would refuse anyway.
+      mobileExempt = false;
+    }
+    if (!mobileDigits && !mobileExempt) {
       toast.error('Enter the mobile number of the person being paid');
       return;
     }
-    if (!/^[6-9]\d{9}$/.test(mobileDigits)) {
+    if (mobileDigits && !/^[6-9]\d{9}$/.test(mobileDigits)) {
       toast.error('That mobile number should be 10 digits starting 6, 7, 8 or 9');
       return;
     }
@@ -656,7 +687,7 @@ const PaymentVoucher = () => {
           voucher_no,
           voucher_date: date,
           person_name: filled[0].ledger!.name,
-          mobile_number: mobileDigits,
+          mobile_number: mobileDigits || null,
           amount,
           purpose: null,
           // Who paid the money out. This was hardcoded null, so the cash
@@ -956,10 +987,16 @@ const PaymentVoucher = () => {
           </div>
 
           {/* Mobile of the person being paid — required, and the database
-              refuses the voucher without it. */}
+              refuses the voucher without it, unless the payee is one of the
+              organisations that has no number to give. The star and the note
+              below follow the same list, so the form never marks a field
+              required that the database will happily accept empty. */}
           <div className="mt-4 max-w-xs">
             <Label htmlFor="pv-mobile" className="text-sm font-semibold">
-              Mobile of person paid: <span className="text-destructive">*</span>
+              Mobile of person paid:{' '}
+              {mobileNotNeeded
+                ? <span className="text-xs font-normal text-muted-foreground">(not needed)</span>
+                : <span className="text-destructive">*</span>}
             </Label>
             <Input
               id="pv-mobile"
@@ -971,7 +1008,9 @@ const PaymentVoucher = () => {
               className="mt-1 bg-white"
             />
             <p className="mt-1 text-xs text-muted-foreground">
-              Required. Prints on the voucher so the payment can be traced back.
+              {mobileNotNeeded
+                ? 'Not needed for a phone, internet or government payment — there is nobody to ring.'
+                : 'Required. Prints on the voucher so the payment can be traced back.'}
             </p>
           </div>
 
