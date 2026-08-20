@@ -522,6 +522,35 @@ const PaymentVoucher = () => {
       return data === true;
     },
   });
+
+  // The number already recorded against the ledger being paid. Salary is the
+  // case Dr M raised: paying staff needs their mobile, and retyping a number the
+  // ledger already holds is how a wrong one gets in.
+  const { data: ledgerMobile = null } = useQuery({
+    queryKey: ['ledger-mobile', firstLedgerName],
+    enabled: firstLedgerName.trim().length > 0,
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<string | null> => {
+      const { data } = await (supabase as any)
+        .from('chart_of_accounts')
+        .select('mobile')
+        .ilike('account_name', firstLedgerName.trim())
+        .not('mobile', 'is', null)
+        .limit(1);
+      return (data?.[0]?.mobile as string) ?? null;
+    },
+  });
+
+  // Filled in, never overwritten: a number typed by hand beats the master,
+  // because the person entering it is looking at the payee and the master may
+  // be out of date. Cleared again when the payee changes to one with no number.
+  const autoFilledFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!ledgerMobile) return;
+    if (mobile.trim() && autoFilledFor.current !== firstLedgerName) return;
+    setMobile(ledgerMobile);
+    autoFilledFor.current = firstLedgerName;
+  }, [ledgerMobile, firstLedgerName]); // eslint-disable-line react-hooks/exhaustive-deps
   const [saving, setSaving] = useState(false);
 
   const lineLedgerRefs = useRef<Record<number, HTMLInputElement | null>>({});
@@ -1010,7 +1039,9 @@ const PaymentVoucher = () => {
             <p className="mt-1 text-xs text-muted-foreground">
               {mobileNotNeeded
                 ? 'Not needed for a phone, internet or government payment — there is nobody to ring.'
-                : 'Required. Prints on the voucher so the payment can be traced back.'}
+                : ledgerMobile && mobile.trim() === ledgerMobile
+                  ? 'Taken from the ledger. Change it here if it is wrong.'
+                  : 'Required. Prints on the voucher so the payment can be traced back.'}
             </p>
           </div>
 
