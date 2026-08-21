@@ -66,6 +66,57 @@ interface AuditRow {
 const inr = (n: number) =>
   Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+interface Suggestion {
+  ledgerName: string;
+  voucherCategory: 'RECEIPT' | 'PAYMENT';
+  source: string;
+}
+
+// Suggest the counterparty ledger and voucher type for a bank line, so the
+// accountant only has to approve. Two signals, in order of trust:
+//  1. The audit's own candidate list — near-match vouchers whose ledger
+//     names are right there in candidate_details ("...; 20.00; Bank Charges;
+//     Payment; ..."). The most frequent one wins.
+//  2. A company ledger whose name literally appears in the bank narration
+//     (e.g. "...ASHISH GA..." → ledger "Ashish Gawande"). Longest match wins.
+// The voucher type is simply the direction: money in → Receipt, out → Payment.
+const suggestFor = (row: AuditRow, ledgerNames: string[]): Suggestion | null => {
+  const bankLower = row.bank_ledger.trim().toLowerCase();
+  const category: Suggestion['voucherCategory'] = row.signed_amount > 0 ? 'RECEIPT' : 'PAYMENT';
+  const known = new Map(ledgerNames.map(n => [n.trim().toLowerCase(), n]));
+
+  // Signal 1: ledger names inside the audit's candidate lines.
+  if (row.candidate_details) {
+    const counts = new Map<string, number>();
+    for (const line of row.candidate_details.split('\n')) {
+      const parts = line.split(';');
+      const name = (parts[3] || '').trim();
+      const lower = name.toLowerCase();
+      if (!name || lower === bankLower || !known.has(lower)) continue;
+      counts.set(lower, (counts.get(lower) || 0) + 1);
+    }
+    let best: string | null = null; let bestCount = 0;
+    for (const [lower, count] of counts) {
+      if (count > bestCount) { best = lower; bestCount = count; }
+    }
+    if (best) return { ledgerName: known.get(best)!, voucherCategory: category, source: 'seen in similar entries' };
+  }
+
+  // Signal 2: a ledger name spelled out in the narration itself.
+  if (row.narration) {
+    const narration = row.narration.toLowerCase();
+    let best: string | null = null;
+    for (const [lower, name] of known) {
+      if (lower.length >= 5 && lower !== bankLower && narration.includes(lower)) {
+        if (!best || name.length > best.length) best = name;
+      }
+    }
+    if (best) return { ledgerName: best, voucherCategory: category, source: 'name found in narration' };
+  }
+
+  return null;
+};
+
 const BankAudit: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -81,6 +132,7 @@ const BankAudit: React.FC = () => {
   // Decision dialog state
   const [decidingRow, setDecidingRow] = useState<AuditRow | null>(null);
   const [decision, setDecision] = useState('');
+  const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
   const [ledgerSearch, setLedgerSearch] = useState('');
   const [ledgerId, setLedgerId] = useState('');
   const [voucherTypeId, setVoucherTypeId] = useState('');
@@ -135,6 +187,29 @@ const BankAudit: React.FC = () => {
         .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
       if (error) throw error;
       return { rows: data as AuditRow[], count: count ?? 0 };
+    },
+  });
+
+  // Every ledger name of this company, for suggestions (paged past the
+  // 1,000-row cap; ~4k short strings, cached per company).
+  const { data: allLedgerNames = [] } = useQuery({
+    queryKey: ['bank-audit-ledger-names', companyId],
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const names: string[] = [];
+      let from = 0;
+      for (;;) {
+        const { data, error } = await (supabase as any)
+          .from('tally_ledgers')
+          .select('name')
+          .eq('company_id', companyId)
+          .range(from, from + 999);
+        if (error) throw error;
+        names.push(...(data as { name: string }[]).map(l => l.name));
+        if (data.length < 1000) break;
+        from += 1000;
+      }
+      return names;
     },
   });
 
@@ -234,11 +309,45 @@ const BankAudit: React.FC = () => {
   const openDecision = (row: AuditRow) => {
     setDecidingRow(row);
     setDecision(row.status === 'pending_review' ? '' : row.status);
+    setSuggestion(suggestFor(row, allLedgerNames));
     setLedgerId('');
     setLedgerSearch('');
     setVoucherTypeId('');
     setNote('');
   };
+
+  // Choosing "Missing — post to ledger" pre-fills what we can suggest: the
+  // ledger search (from similar entries / narration) and the voucher type
+  // (Receipt for money in, Payment for money out). The accountant confirms
+  // or overrides — the pick is never silent.
+  const onDecisionChange = (value: string) => {
+    setDecision(value);
+    if (value === 'approved_missing' && decidingRow) {
+      if (suggestion && !ledgerId) setLedgerSearch(suggestion.ledgerName);
+      if (!voucherTypeId) {
+        const category = decidingRow.signed_amount > 0 ? 'RECEIPT' : 'PAYMENT';
+        const vt = voucherTypes.find(t => t.voucher_category === category);
+        if (vt) setVoucherTypeId(vt.id);
+      }
+    }
+  };
+
+  // When the suggested ledger comes back from the search, select it.
+  React.useEffect(() => {
+    if (decision !== 'approved_missing' || !suggestion || ledgerId) return;
+    if (ledgerSearch !== suggestion.ledgerName) return;
+    const exact = ledgerOptions.find(
+      l => l.name.trim().toLowerCase() === suggestion.ledgerName.trim().toLowerCase()
+    );
+    if (exact) setLedgerId(exact.id);
+  }, [decision, suggestion, ledgerId, ledgerSearch, ledgerOptions]);
+
+  // Suggestions for the rows on screen, shown as their own column.
+  const rowSuggestions = useMemo(() => {
+    const map = new Map<string, Suggestion | null>();
+    for (const row of rowsPage?.rows ?? []) map.set(row.id, suggestFor(row, allLedgerNames));
+    return map;
+  }, [rowsPage, allLedgerNames]);
 
   const canSubmit = decision !== ''
     && (decision !== 'approved_missing' || (ledgerId && voucherTypeId))
@@ -335,13 +444,14 @@ const BankAudit: React.FC = () => {
               <th className="p-2">Reference</th>
               <th className="p-2">Narration</th>
               <th className="p-2">Audit hint</th>
+              <th className="p-2">Suggested ledger</th>
               <th className="p-2">Status</th>
               <th className="p-2"></th>
             </tr>
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td colSpan={8} className="p-8 text-center"><Loader2 className="h-5 w-5 animate-spin inline" /></td></tr>
+              <tr><td colSpan={9} className="p-8 text-center"><Loader2 className="h-5 w-5 animate-spin inline" /></td></tr>
             )}
             {!isLoading && (rowsPage?.rows ?? []).map(row => (
               <React.Fragment key={row.id}>
@@ -357,6 +467,17 @@ const BankAudit: React.FC = () => {
                   <td className="p-2 max-w-[140px] truncate font-mono text-xs">{row.reference}</td>
                   <td className="p-2 max-w-[320px] truncate">{row.narration}</td>
                   <td className="p-2 max-w-[180px] truncate text-xs text-muted-foreground">{row.audit_classification}</td>
+                  <td className="p-2 max-w-[170px] text-xs">
+                    {(() => {
+                      const s = rowSuggestions.get(row.id);
+                      return s
+                        ? <span className="text-blue-700 truncate block" title={`${s.ledgerName} (${s.source})`}>
+                            {s.ledgerName}
+                            <span className="text-muted-foreground"> · {s.voucherCategory === 'RECEIPT' ? 'Receipt' : 'Payment'}</span>
+                          </span>
+                        : <span className="text-muted-foreground">—</span>;
+                    })()}
+                  </td>
                   <td className="p-2">{statusBadge(row.status)}</td>
                   <td className="p-2 whitespace-nowrap">
                     {row.status !== 'posted' && (
@@ -378,7 +499,7 @@ const BankAudit: React.FC = () => {
                 </tr>
                 {expandedId === row.id && (
                   <tr className="border-t bg-muted/20">
-                    <td colSpan={8} className="p-3 text-xs space-y-2">
+                    <td colSpan={9} className="p-3 text-xs space-y-2">
                       <div><span className="font-semibold">Full narration: </span>{row.narration || '—'}</div>
                       <div>
                         <span className="font-semibold">Source: </span>
@@ -396,7 +517,7 @@ const BankAudit: React.FC = () => {
               </React.Fragment>
             ))}
             {!isLoading && (rowsPage?.rows ?? []).length === 0 && (
-              <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">No rows match the filters.</td></tr>
+              <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">No rows match the filters.</td></tr>
             )}
           </tbody>
         </table>
@@ -420,7 +541,17 @@ const BankAudit: React.FC = () => {
                 <div className="text-xs text-muted-foreground line-clamp-3">{decidingRow.narration}</div>
               </div>
 
-              <Select value={decision} onValueChange={setDecision}>
+              {suggestion && (
+                <div className="rounded border border-blue-200 bg-blue-50 p-2 text-xs">
+                  <span className="font-semibold text-blue-800">Suggestion: </span>
+                  {suggestion.ledgerName} · {suggestion.voucherCategory === 'RECEIPT' ? 'Receipt' : 'Payment'}
+                  <span className="text-muted-foreground"> ({suggestion.source})</span>
+                  <div className="text-muted-foreground mt-0.5">
+                    Choose &quot;Missing — post to ledger&quot; and this fills in automatically — change it if wrong.
+                  </div>
+                </div>
+              )}
+              <Select value={decision} onValueChange={onDecisionChange}>
                 <SelectTrigger><SelectValue placeholder="Decision…" /></SelectTrigger>
                 <SelectContent>
                   {DECISION_OPTIONS.map(d => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}
